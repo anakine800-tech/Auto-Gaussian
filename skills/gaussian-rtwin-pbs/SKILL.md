@@ -93,6 +93,8 @@ Accept only conformers promoted by `gaussian-view-rt-win/scripts/prepare_conform
 
 ## Individual operations
 
+For a checkpoint-dependent continuation such as an approved IRC, declare `%oldchk=<reviewed-basename>.chk` explicitly and place that exact non-symlink checkpoint beside the input. The staging layer requires `%oldchk` and `%chk` to be distinct local basenames, includes the old checkpoint in `checksums.sha256`, and transfers it through both hops. It refuses paths, symlinks, missing files, and implicit checkpoint discovery.
+
 ```bash
 HELPER="$HOME/.codex/skills/gaussian-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 
