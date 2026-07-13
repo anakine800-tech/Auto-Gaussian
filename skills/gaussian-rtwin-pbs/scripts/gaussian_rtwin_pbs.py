@@ -190,6 +190,12 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
     checkpoint = link0["chk"]
     if Path(checkpoint).name != checkpoint or "/" in checkpoint or "\\" in checkpoint:
         fail("%chk must be a local basename inside the job directory")
+    oldcheckpoint = link0.get("oldchk")
+    if oldcheckpoint:
+        if Path(oldcheckpoint).name != oldcheckpoint or "/" in oldcheckpoint or "\\" in oldcheckpoint:
+            fail("%oldchk must be a local basename inside the job directory")
+        if oldcheckpoint == checkpoint:
+            fail("%oldchk and %chk must use distinct basenames")
     try:
         nproc = int(link0["nprocshared"])
     except ValueError:
@@ -253,6 +259,7 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         "input": str(path.resolve()),
         "input_sha256": sha256(path),
         "checkpoint": checkpoint,
+        "oldcheckpoint": oldcheckpoint,
         "mem": link0["mem"],
         "memory_bytes": memory_bytes,
         "nprocshared": nproc,
@@ -376,6 +383,19 @@ def stage(input_path: Path, project: str, local_dir: Path) -> tuple[dict[str, An
                     fail(f"refusing to overwrite different companion: {target}")
                 shutil.copy2(source, target)
             companions.append(target)
+
+    oldcheckpoint = audit.get("oldcheckpoint")
+    if oldcheckpoint:
+        validate_transfer_name(oldcheckpoint)
+        source = input_path.parent / oldcheckpoint
+        if not source.is_file() or source.is_symlink():
+            fail("%oldchk must name an existing non-symlink checkpoint beside the input")
+        target = local_dir / oldcheckpoint
+        if target.resolve() != source.resolve():
+            if target.exists() and sha256(target) != sha256(source):
+                fail(f"refusing to overwrite different checkpoint companion: {target}")
+            shutil.copy2(source, target)
+        companions.append(target)
 
     pbs = local_dir / f"{project}.pbs"
     atomic_text(pbs, pbs_text(project, destination.name, audit["nprocshared"]))
