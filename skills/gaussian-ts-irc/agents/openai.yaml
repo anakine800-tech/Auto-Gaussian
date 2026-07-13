@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gaussian TS–Freq–IRC"
+  short_description: "安全审计过渡态、虚频审查以及双向 IRC 完整工作流证据"
+  default_prompt: "Use $gaussian-ts-irc to audit my approved TS–Freq workflow, prepare a mode-review bundle, and plan separately approved forward and reverse IRC calculations."
