@@ -1,0 +1,28 @@
+{
+  "schema": "gaussian-result/1",
+  "status": "completed",
+  "normal_termination": true,
+  "normal_termination_count": 2,
+  "error_termination": false,
+  "error_termination_count": 0,
+  "optimization_completed": true,
+  "stationary_point_found": true,
+  "optimization_success": true,
+  "optimization_steps": 9,
+  "final_energy_hartree": -155.986485598,
+  "frequency_count": 24,
+  "imaginary_frequency_count": 0,
+  "frequencies_cm-1": [155.4901, 275.5477, 478.9537, 613.7216, 757.4709, 892.4020, 934.3970, 935.2842, 1025.6763, 1037.3009, 1076.3863, 1115.0409, 1324.0032, 1358.5138, 1458.0230, 1485.8150, 1695.7274, 1720.1927, 3140.9899, 3153.8495, 3164.6802, 3168.8600, 3244.9707, 3247.2628],
+  "final_coordinates": [
+    {"center": 1, "atomic_number": 6, "element": "C", "x": -1.543408, "y": -0.493624, "z": 0.074866},
+    {"center": 2, "atomic_number": 6, "element": "C", "x": -0.728312, "y": 0.554510, "z": -0.099476},
+    {"center": 3, "atomic_number": 6, "element": "C", "x": 0.728313, "y": 0.554510, "z": 0.099476},
+    {"center": 4, "atomic_number": 6, "element": "C", "x": 1.543408, "y": -0.493624, "z": -0.074867},
+    {"center": 5, "atomic_number": 1, "element": "H", "x": -2.610767, "y": -0.419039, "z": -0.112047},
+    {"center": 6, "atomic_number": 1, "element": "H", "x": -1.173793, "y": -1.455791, "z": 0.420830},
+    {"center": 7, "atomic_number": 1, "element": "H", "x": -1.163998, "y": 1.509514, "z": -0.395225},
+    {"center": 8, "atomic_number": 1, "element": "H", "x": 1.163998, "y": 1.509514, "z": 0.395225},
+    {"center": 9, "atomic_number": 1, "element": "H", "x": 2.610767, "y": -0.419041, "z": 0.112046},
+    {"center": 10, "atomic_number": 1, "element": "H", "x": 1.173791, "y": -1.455791, "z": -0.420829}
+  ]
+}

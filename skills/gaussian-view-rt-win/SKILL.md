@@ -25,8 +25,9 @@ Never store or echo a password. Windows Hello PIN is not an SSH password.
 3. Inspect the generated 2D preview for CDX/CDXML inputs and read every warning. Stop on an unassigned tetrahedral center unless the user explicitly requests a preview with unresolved stereo. Never use preview acceptance as calculation approval.
 4. Show a concise preflight: source, canonical isomeric SMILES, formula, charge/multiplicity, stereochemistry, geometry method, route, atom count, warnings.
 5. Reuse one SSH master connection for all remote operations. If absent, run `scripts/windows_gaussview.py master`; let the user type the Windows account password once in Terminal.
-6. Run `scripts/windows_gaussview.py open <structure> --project <name>` for `.gjf`, `.com`, or visualization-only `.xyz` files. Require matching local/remote SHA-256 before launch. The script creates a temporary interactive scheduled task so GaussView opens in `Console` rather than invisible `Services` session, then deletes the task.
-7. Report both local and Windows paths. State explicitly that opening a `.gjf` is not a Gaussian calculation.
+6. Run `scripts/windows_gaussview.py open <structure> --project <name>` for `.gjf`, `.com`, `.mol`, `.sdf`, or visualization-only `.xyz` sources. For XYZ, preserve the source and derive a hash-bound V2000 MOL plus `gaussview-visual-preview/1` manifest; the MOL is explicitly non-runnable and its single-bond topology is a reviewed visualization aid. Transfer and hash-check the source, preview, and manifest.
+7. Require the Windows load probe to find the exact project/file in GaussView's visible window tree and no error dialog. Treat process-only evidence as insufficient; never report success on `Unknown file type`, `CFileAction::LoadFile`, or a document-window timeout.
+8. Report local and Windows source/preview paths and hashes. State explicitly that opening a preview is not a Gaussian calculation.
 
 ## Commands
 
@@ -55,7 +56,7 @@ Transfer, verify, and open:
   open /path/to/project_cartesian.gjf --project project
 ```
 
-Open TS imaginary-mode displacement artifacts directly without wrapping them in runnable Gaussian inputs:
+Open TS imaginary-mode displacement artifacts. The wrapper keeps each XYZ immutable and creates an audited, non-Gaussian MOL preview automatically:
 
 ```bash
 python3 ~/.codex/skills/gaussian-view-rt-win/scripts/windows_gaussview.py \
@@ -69,6 +70,8 @@ python3 ~/.codex/skills/gaussian-view-rt-win/scripts/windows_gaussview.py \
 - Treat axial/atropisomeric chirality as unresolved unless the source encodes it reliably and the preview confirms it.
 - Stop for radicals without explicit multiplicity and for transition-metal, lanthanide, coordination, ECP, broken-symmetry, excited-state, transition-state, or multireference cases without a user-specified protocol.
 - Compare SHA-256 after transfer; never open a mismatched remote file.
+- For an XYZ handoff, reject malformed atom counts, non-finite coordinates, contacts below `0.4 Å`, unsupported elements, and distance-inferred connectivities exceeding the audited neighbor limits. Record that inferred bond orders are visualization-only.
+- Require `file_loaded: true` from the UI probe. Starting `gview.exe` alone is not successful loading.
 - Never run Gaussian unless the user makes a separate explicit calculation request and approves method, basis, job type, charge, multiplicity, and resource settings.
 
 ## Proven compatibility notes
@@ -80,6 +83,7 @@ python3 ~/.codex/skills/gaussian-view-rt-win/scripts/windows_gaussview.py \
 - Expect UFF fallback for structures containing boron when MMFF94s lacks parameters. Report the fallback; do not present it as a validated conformer protocol.
 - Decode localized Windows SSH output defensively. Chinese `schtasks` output may use OEM/GBK bytes rather than UTF-8; preserve ASCII control tokens and avoid locale-dependent crashes.
 - Require GaussView to appear as `gview.exe` in the `Console` session. A process in `Services` session 0 is not a visible launch.
+- GaussView 6.0.16 on this RTwin rejects raw XYZ command-line loading with `CFileAction::LoadFile(). Unknown file type`. Never pass raw XYZ to GaussView; use the audited MOL derivative and retain the XYZ hash as provenance.
 
 ## Speed rules
 
@@ -120,4 +124,5 @@ Selection is not evidence that rank 1 is the only relevant conformer. Retain all
 
 - `scripts/prepare_preview.py`: create and audit one preview input.
 - `scripts/prepare_conformers.py`: generate, rank, review-gate, and select conformer candidates.
-- `scripts/windows_gaussview.py`: transfer with SHA-256 verification and open visible GaussView.
+- `scripts/windows_gaussview.py`: derive audited non-runnable previews when needed, transfer with SHA-256 verification, open visible GaussView, and require document-level load evidence.
+- `scripts/gaussview_load_probe.ps1`: detect the exact loaded document or a visible GaussView error dialog.

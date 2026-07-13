@@ -85,6 +85,76 @@ class RepositoryBaselineTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 PBS.parse_gaussian(path)
 
+    def test_geom_allcheck_is_hash_bound_and_has_audited_atom_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint = root / "reviewed_ts.chk"
+            checkpoint.write_bytes(b"reviewed checkpoint")
+            input_path = root / "irc_f.gjf"
+            input_path.write_text(
+                "%oldchk=reviewed_ts.chk\n%chk=irc_f.chk\n%mem=12GB\n%nprocshared=8\n"
+                "#p b3lyp/6-31g(d) irc=(rcfc,forward) geom=allcheck guess=read\n\n"
+            )
+            manifest = {
+                "schema": "gaussian-allcheck-input-manifest/1",
+                "calculation_ready": True,
+                "candidate_only": False,
+                "warnings": [],
+                "geometry_source": "geom_allcheck_from_reviewed_checkpoint",
+                "no_explicit_molecule_specification": True,
+                "input_sha256": PBS.sha256(input_path),
+                "checkpoint_file": checkpoint.name,
+                "checkpoint_sha256": PBS.sha256(checkpoint),
+                "charge": 0,
+                "multiplicity": 1,
+                "atom_count": 2,
+                "atom_order": [
+                    {"index": 1, "atomic_number": 1, "element": "H"},
+                    {"index": 2, "atomic_number": 1, "element": "H"},
+                ],
+            }
+            input_path.with_suffix(".json").write_text(json.dumps(manifest))
+            audit = PBS.parse_gaussian(input_path)
+            self.assertEqual(audit["geometry_source"], "geom_allcheck_from_reviewed_checkpoint")
+            self.assertEqual(audit["oldcheckpoint_sha256"], PBS.sha256(checkpoint))
+            self.assertEqual(audit["atom_count"], 2)
+            self.assertEqual([item["element"] for item in audit["atom_order"]], ["H", "H"])
+
+    def test_geom_allcheck_rejects_checkpoint_hash_change_and_coordinates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint = root / "ts.chk"
+            checkpoint.write_bytes(b"original")
+            input_path = root / "irc.gjf"
+            input_path.write_text(
+                "%oldchk=ts.chk\n%chk=irc.chk\n%mem=12GB\n%nprocshared=8\n"
+                "#p hf/sto-3g irc=(rcfc,forward) geom=allcheck guess=read\n\n"
+            )
+            manifest = {
+                "schema": "gaussian-allcheck-input-manifest/1",
+                "calculation_ready": True,
+                "warnings": [],
+                "geometry_source": "geom_allcheck_from_reviewed_checkpoint",
+                "no_explicit_molecule_specification": True,
+                "input_sha256": PBS.sha256(input_path),
+                "checkpoint_file": "ts.chk",
+                "checkpoint_sha256": PBS.sha256(checkpoint),
+                "charge": 0,
+                "multiplicity": 1,
+                "atom_count": 1,
+                "atom_order": [{"index": 1, "atomic_number": 1, "element": "H"}],
+            }
+            input_path.with_suffix(".json").write_text(json.dumps(manifest))
+            checkpoint.write_bytes(b"changed")
+            with self.assertRaises(SystemExit):
+                PBS.parse_gaussian(input_path)
+            checkpoint.write_bytes(b"original")
+            input_path.write_text(input_path.read_text() + "0 1\nH 0 0 0\n\n")
+            manifest["input_sha256"] = PBS.sha256(input_path)
+            input_path.with_suffix(".json").write_text(json.dumps(manifest))
+            with self.assertRaises(SystemExit):
+                PBS.parse_gaussian(input_path)
+
     def test_zombie_requires_repeated_stable_evidence(self) -> None:
         observation = {
             "pbs_job_name": "safe_job",
@@ -144,6 +214,29 @@ class RepositoryBaselineTests(unittest.TestCase):
             "irc_corrector_convergence",
             {item["code"] for item in result["diagnostics"]},
         )
+
+    def test_da_fragment_endpoint_fixture_is_sanitized_and_compact(self) -> None:
+        fixture = ROOT / "tests" / "fixtures" / "da_fragment_endpoint"
+        case = json.loads((fixture / "case.json").read_text())
+        self.assertEqual(case["schema"], "gaussian-ts-irc-regression-case/1")
+        self.assertTrue(case["sanitized"])
+        self.assertFalse(case["contains_gaussian_log"])
+        self.assertFalse(case["contains_checkpoint"])
+        self.assertEqual(
+            [item["formula"] for item in case["expected_components"]],
+            ["C4H6", "C2H4"],
+        )
+        self.assertFalse(any(path.suffix.lower() in {".log", ".chk"} for path in fixture.iterdir()))
+
+    def test_ts_skill_documents_disconnected_endpoint_gates(self) -> None:
+        text = (ROOT / "skills" / "gaussian-ts-irc" / "SKILL.md").read_text()
+        for command in (
+            "propose-endpoint-components",
+            "build-fragment-endpoints",
+            "audit-fragment-endpoints",
+        ):
+            self.assertIn(command, text)
+        self.assertIn("50 GB/22 cores", text)
 
 
 if __name__ == "__main__":

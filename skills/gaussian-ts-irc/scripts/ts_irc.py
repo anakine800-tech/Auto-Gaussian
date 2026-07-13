@@ -10,13 +10,29 @@ import hashlib
 import json
 import math
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 SCHEMA = "gaussian-ts-irc-workflow/1"
 PROJECT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,14}$")
-ELEMENTS = ["X", "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar"]
+ELEMENTS = """X H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og""".split()
+COVALENT_RADII_ANGSTROM = {
+    "H": 0.31,
+    "B": 0.84,
+    "C": 0.76,
+    "N": 0.71,
+    "O": 0.66,
+    "F": 0.57,
+    "Si": 1.11,
+    "P": 1.07,
+    "S": 1.05,
+    "Cl": 1.02,
+    "Se": 1.20,
+    "Br": 1.20,
+    "I": 1.39,
+}
 
 
 def sha256(path: Path) -> str:
@@ -73,6 +89,791 @@ def parse_cartesian_input(path: Path) -> dict[str, Any]:
     if not atoms:
         raise ValueError(f"{path}: no Cartesian atoms")
     return {"path": str(path.resolve()), "sha256": sha256(path), "charge": charge, "multiplicity": multiplicity, "atoms": atoms}
+
+
+def _link0_value(path: Path, key: str) -> str | None:
+    wanted = key.lower()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("%") and "=" in line:
+            name, value = line[1:].split("=", 1)
+            if name.strip().lower() == wanted:
+                return value.strip()
+    return None
+
+
+def _charge_multiplicity_from_log(text: str) -> tuple[int, int]:
+    matches = re.findall(r"Charge\s*=\s*(-?\d+)\s+Multiplicity\s*=\s*(\d+)", text)
+    if not matches:
+        raise ValueError("TS log has no charge/multiplicity record")
+    values = {(int(charge), int(multiplicity)) for charge, multiplicity in matches}
+    if len(values) != 1:
+        raise ValueError("TS log contains inconsistent charge/multiplicity records")
+    return next(iter(values))
+
+
+def audit_checkpoint_provenance(
+    ts_input_path: Path,
+    ts_log_path: Path,
+    ts_result_path: Path,
+    checkpoint_path: Path,
+    review_path: Path,
+    decision_path: Path,
+) -> dict[str, Any]:
+    """Bind a checkpoint hash to the reviewed TS atom order without decoding the binary file."""
+    for label, path in {
+        "TS input": ts_input_path,
+        "TS log": ts_log_path,
+        "TS result": ts_result_path,
+        "checkpoint": checkpoint_path,
+        "mode review": review_path,
+        "mode decision": decision_path,
+    }.items():
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"{label} must be an existing non-symlink file")
+    if checkpoint_path.suffix.lower() != ".chk":
+        raise ValueError("checkpoint must use a local .chk basename")
+
+    ts_input = parse_cartesian_input(ts_input_path)
+    declared_checkpoint = _link0_value(ts_input_path, "chk")
+    if declared_checkpoint != checkpoint_path.name:
+        raise ValueError("checkpoint filename does not match %chk in the reviewed TS input")
+
+    log_text = ts_log_path.read_text(encoding="utf-8", errors="replace")
+    result = json.loads(ts_result_path.read_text(encoding="utf-8"))
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    if result.get("schema") != "gaussian-ts-freq-result/1" or not result.get("first_order_saddle_candidate"):
+        raise ValueError("checkpoint audit requires an eligible TS/Freq result")
+    if result.get("log_sha256") != sha256(ts_log_path):
+        raise ValueError("TS result is not bound to the supplied TS log")
+    if review.get("schema") != "gaussian-ts-mode-review/1" or review.get("ts_result_sha256") != sha256(ts_result_path):
+        raise ValueError("mode review is not bound to the supplied TS result")
+    if decision.get("schema") != "gaussian-ts-mode-decision/1" or decision.get("decision") != "accepted" or decision.get("confirmed") is not True:
+        raise ValueError("checkpoint audit requires an accepted mode decision")
+    if decision.get("ts_result_sha256") != sha256(ts_result_path) or decision.get("mode_review_sha256") != sha256(review_path):
+        raise ValueError("mode decision hashes do not match the reviewed TS artifacts")
+
+    charge, multiplicity = _charge_multiplicity_from_log(log_text)
+    if (charge, multiplicity) != (ts_input["charge"], ts_input["multiplicity"]):
+        raise ValueError("charge/multiplicity differs between TS input and completed TS log")
+    log_geometry = _last_orientation(log_text)
+    result_geometry = result.get("final_coordinates", [])
+    input_numbers = []
+    element_to_number = {element: number for number, element in enumerate(ELEMENTS) if element != "X"}
+    for atom in ts_input["atoms"]:
+        number = element_to_number.get(atom["element"])
+        if number is None:
+            raise ValueError(f"unsupported element in TS atom-order audit: {atom['element']}")
+        input_numbers.append(number)
+    log_numbers = [atom.get("atomic_number") for atom in log_geometry]
+    result_numbers = [atom.get("atomic_number") for atom in result_geometry]
+    if not input_numbers or input_numbers != log_numbers or input_numbers != result_numbers:
+        raise ValueError("atom order differs among TS input, completed log, and TS result")
+    if [atom.get("index") for atom in result_geometry] != list(range(1, len(input_numbers) + 1)):
+        raise ValueError("TS result atom indices are not contiguous and one-based")
+
+    imaginary_modes = result.get("imaginary_modes", [])
+    if len(imaginary_modes) != 1:
+        raise ValueError("checkpoint audit requires exactly one parsed imaginary mode")
+    displacements = imaginary_modes[0].get("displacements", [])
+    if [atom.get("index") for atom in displacements] != list(range(1, len(input_numbers) + 1)) or [atom.get("atomic_number") for atom in displacements] != input_numbers:
+        raise ValueError("imaginary-mode displacement atom order differs from the reviewed TS order")
+
+    atom_order = [
+        {"index": index, "atomic_number": number, "element": ELEMENTS[number]}
+        for index, number in enumerate(input_numbers, start=1)
+    ]
+    return {
+        "schema": "gaussian-checkpoint-geometry-audit/1",
+        "audit_status": "passed",
+        "geometry_source": "reviewed_ts_checkpoint",
+        "checkpoint_file": checkpoint_path.name,
+        "checkpoint_sha256": sha256(checkpoint_path),
+        "ts_input_sha256": sha256(ts_input_path),
+        "ts_log_sha256": sha256(ts_log_path),
+        "ts_result_sha256": sha256(ts_result_path),
+        "mode_review_sha256": sha256(review_path),
+        "mode_decision_sha256": sha256(decision_path),
+        "charge": charge,
+        "multiplicity": multiplicity,
+        "atom_count": len(atom_order),
+        "atom_order": atom_order,
+        "checks": {
+            "ts_input_checkpoint_name_matches": True,
+            "ts_result_log_hash_matches": True,
+            "charge_multiplicity_matches": True,
+            "input_log_result_atom_order_matches": True,
+            "imaginary_mode_atom_order_matches": True,
+            "accepted_mode_decision_hashes_match": True,
+        },
+        "limitations": [
+            "The binary checkpoint is identified by SHA-256; its internal records are not decoded.",
+            "Atom order is established from the reviewed TS input/log/result provenance chain used to create the checkpoint.",
+        ],
+    }
+
+
+def build_allcheck_irc_input(
+    checkpoint_audit_path: Path,
+    checkpoint_path: Path,
+    output_path: Path,
+    route: str,
+    direction: str,
+    memory: str,
+    nprocshared: int,
+) -> dict[str, Any]:
+    """Build a coordinate-free IRC input bound to an audited TS checkpoint."""
+    if output_path.exists() or output_path.with_suffix(".json").exists():
+        raise ValueError("refusing to overwrite an existing AllCheck input or companion manifest")
+    if output_path.suffix.lower() not in {".gjf", ".com"}:
+        raise ValueError("AllCheck output must end in .gjf or .com")
+    if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
+        raise ValueError("checkpoint must be an existing non-symlink file")
+    audit = json.loads(checkpoint_audit_path.read_text(encoding="utf-8"))
+    if audit.get("schema") != "gaussian-checkpoint-geometry-audit/1" or audit.get("audit_status") != "passed":
+        raise ValueError("AllCheck input requires a passed checkpoint-geometry audit")
+    if audit.get("checkpoint_file") != checkpoint_path.name or audit.get("checkpoint_sha256") != sha256(checkpoint_path):
+        raise ValueError("checkpoint file or hash differs from the reviewed checkpoint audit")
+    if direction not in {"forward", "reverse"}:
+        raise ValueError("direction must be forward or reverse")
+    _validate_directional_irc_route(route, direction)
+    lowered = route.lower()
+    if not re.search(r"\bgeom\s*=\s*allcheck\b", lowered):
+        raise ValueError("coordinate-free IRC route must contain Geom=AllCheck")
+    if not re.search(r"\bguess\s*=\s*read\b", lowered):
+        raise ValueError("checkpoint IRC route must contain Guess=Read")
+    if not re.search(r"\brcfc\b", lowered):
+        raise ValueError("checkpoint IRC route must explicitly contain RCFC")
+    if re.search(r"\brecorrect\s*=\s*never\b", lowered):
+        raise ValueError("ReCorrect=Never is forbidden for an audited IRC path")
+    if not isinstance(nprocshared, int) or not 1 <= nprocshared <= 44:
+        raise ValueError("nprocshared must be an integer from 1 to 44")
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:KB|MB|GB|TB)", memory, re.I):
+        raise ValueError("memory must be an explicit Gaussian size such as 12GB")
+    new_checkpoint = output_path.stem + ".chk"
+    if new_checkpoint == checkpoint_path.name:
+        raise ValueError("new %chk must differ from the reviewed %oldchk checkpoint")
+    text = (
+        f"%oldchk={checkpoint_path.name}\n"
+        f"%chk={new_checkpoint}\n"
+        f"%mem={memory}\n"
+        f"%nprocshared={nprocshared}\n"
+        f"{route.strip()}\n\n"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    staged_checkpoint = output_path.parent / checkpoint_path.name
+    if staged_checkpoint.resolve() != checkpoint_path.resolve():
+        if staged_checkpoint.exists():
+            if staged_checkpoint.is_symlink() or not staged_checkpoint.is_file() or sha256(staged_checkpoint) != sha256(checkpoint_path):
+                raise ValueError("refusing to overwrite a different staged checkpoint")
+        else:
+            shutil.copy2(checkpoint_path, staged_checkpoint)
+    output_path.write_text(text, encoding="utf-8")
+    manifest = {
+        "schema": "gaussian-allcheck-input-manifest/1",
+        "calculation_ready": True,
+        "candidate_only": False,
+        "warnings": [],
+        "geometry_source": "geom_allcheck_from_reviewed_checkpoint",
+        "no_explicit_molecule_specification": True,
+        "direction": direction,
+        "route": route.strip(),
+        "input_sha256": sha256(output_path),
+        "checkpoint_geometry_audit_sha256": sha256(checkpoint_audit_path),
+        "checkpoint_file": audit["checkpoint_file"],
+        "checkpoint_sha256": audit["checkpoint_sha256"],
+        "charge": audit["charge"],
+        "multiplicity": audit["multiplicity"],
+        "atom_count": audit["atom_count"],
+        "atom_order": audit["atom_order"],
+    }
+    output_path.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest
+
+
+def audit_irc_endpoint_provenance(
+    irc_input_path: Path,
+    irc_log_path: Path,
+    irc_result_path: Path,
+    job_path: Path,
+    checkpoint_path: Path,
+    direction: str,
+    chemical_side: str,
+    expected_points: int,
+    forming_pairs: list[tuple[int, int]],
+) -> dict[str, Any]:
+    """Bind a successful final IRC point to its exact continuation checkpoint."""
+    for label, path in {
+        "IRC input": irc_input_path,
+        "IRC log": irc_log_path,
+        "IRC result": irc_result_path,
+        "job record": job_path,
+        "IRC checkpoint": checkpoint_path,
+    }.items():
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"{label} must be an existing non-symlink file")
+    if direction not in {"forward", "reverse"}:
+        raise ValueError("direction must be forward or reverse")
+    if chemical_side not in {"reactant", "product"}:
+        raise ValueError("chemical_side must be reactant or product after structural review")
+    if expected_points < 1:
+        raise ValueError("expected_points must be positive")
+    if not forming_pairs:
+        raise ValueError("at least one reviewed forming-bond pair is required")
+
+    input_text = irc_input_path.read_text(encoding="utf-8", errors="replace")
+    log_text = irc_log_path.read_text(encoding="utf-8", errors="replace")
+    result = json.loads(irc_result_path.read_text(encoding="utf-8"))
+    job = json.loads(job_path.read_text(encoding="utf-8"))
+    if job.get("schema") != "gaussian-rtwin-pbs/1" or job.get("status") != "completed" or job.get("results_fetched") is not True:
+        raise ValueError("endpoint audit requires a completed, fetched IRC job record")
+    if job.get("input_sha256") != sha256(irc_input_path):
+        raise ValueError("IRC input hash differs from the completed job record")
+    gaussian = job.get("gaussian", {})
+    route = str(gaussian.get("route", ""))
+    _validate_directional_irc_route(route, direction)
+    if not re.search(r"\bgeom\s*=\s*allcheck\b", route, re.I):
+        raise ValueError("endpoint audit requires the successful IRC to use Geom=AllCheck")
+    if gaussian.get("checkpoint") != checkpoint_path.name:
+        raise ValueError("IRC checkpoint filename differs from the completed job record")
+    if _link0_value(irc_input_path, "chk") != checkpoint_path.name:
+        raise ValueError("IRC checkpoint filename differs from %chk in the completed input")
+    if str(direction) not in input_text.lower():
+        raise ValueError("IRC input does not contain its declared direction")
+
+    if result.get("schema") != "gaussian-result/1" or result.get("status") != "completed" or result.get("normal_termination") is not True or result.get("error_termination") is True:
+        raise ValueError("endpoint audit requires a normally terminated IRC result")
+    completion = f"Calculation of {direction.upper()} path complete."
+    if completion not in log_text or "Error termination" in log_text or "Normal termination of Gaussian 16" not in log_text:
+        raise ValueError("IRC log lacks direction-specific completion and clean termination evidence")
+    point_numbers = [int(value) for value in re.findall(r"Point Number:\s*(\d+)", log_text)]
+    if not point_numbers or point_numbers[-1] != expected_points or max(point_numbers) != expected_points:
+        raise ValueError("IRC log did not reach the declared final point")
+    corrector_met = log_text.count("Delta-x Convergence Met")
+    if corrector_met < expected_points:
+        raise ValueError("not every declared IRC point has corrector convergence evidence")
+
+    charge, multiplicity = _charge_multiplicity_from_log(log_text)
+    geometry = _last_orientation(log_text)
+    result_geometry = result.get("final_coordinates", [])
+    if not geometry or len(geometry) != len(result_geometry):
+        raise ValueError("IRC log/result final geometries are missing or differ in atom count")
+    for log_atom, result_atom in zip(geometry, result_geometry):
+        if log_atom.get("index") != result_atom.get("center") or log_atom.get("atomic_number") != result_atom.get("atomic_number"):
+            raise ValueError("IRC log/result atom order differs")
+        if any(abs(float(log_atom[axis]) - float(result_atom[axis])) > 1e-6 for axis in ("x", "y", "z")):
+            raise ValueError("IRC log/result final coordinates differ")
+    atom_order = [
+        {"index": atom["index"], "atomic_number": atom["atomic_number"], "element": atom["element"]}
+        for atom in geometry
+    ]
+    geometry_by_index = {atom["index"]: atom for atom in geometry}
+    distances = []
+    for first, second in forming_pairs:
+        if first not in geometry_by_index or second not in geometry_by_index:
+            raise ValueError(f"forming pair {first},{second} is outside the endpoint geometry")
+        distances.append({"pair": [first, second], "distance_angstrom": _distance(geometry_by_index[first], geometry_by_index[second])})
+
+    return {
+        "schema": "gaussian-irc-endpoint-audit/1",
+        "audit_status": "passed",
+        "project": job.get("project"),
+        "job_id": job.get("job_id"),
+        "direction": direction,
+        "chemical_side": chemical_side,
+        "completed_point": expected_points,
+        "corrector_convergence_count": corrector_met,
+        "checkpoint_file": checkpoint_path.name,
+        "checkpoint_sha256": sha256(checkpoint_path),
+        "irc_input_sha256": sha256(irc_input_path),
+        "irc_log_sha256": sha256(irc_log_path),
+        "irc_result_sha256": sha256(irc_result_path),
+        "irc_job_sha256": sha256(job_path),
+        "charge": charge,
+        "multiplicity": multiplicity,
+        "atom_count": len(atom_order),
+        "atom_order": atom_order,
+        "reviewed_forming_bond_distances": distances,
+        "final_energy_hartree": result.get("final_energy_hartree"),
+        "geometry_source": "final_irc_checkpoint",
+        "checks": {
+            "directional_path_complete": True,
+            "all_points_corrector_converged": True,
+            "normal_termination": True,
+            "input_job_hash_matches": True,
+            "checkpoint_name_matches": True,
+            "log_result_atom_order_and_coordinates_match": True,
+        },
+        "limitations": [
+            "The binary checkpoint is identified by SHA-256; its internal records are not decoded.",
+            "Chemical-side assignment is a reviewed structural label; endpoint minimum status requires Opt-Freq with zero imaginary frequencies.",
+        ],
+    }
+
+
+def build_allcheck_endpoint_input(
+    endpoint_audit_path: Path,
+    checkpoint_path: Path,
+    output_path: Path,
+    route: str,
+    memory: str,
+    nprocshared: int,
+) -> dict[str, Any]:
+    """Build a coordinate-free endpoint Opt-Freq input from a reviewed IRC checkpoint."""
+    if output_path.exists() or output_path.with_suffix(".json").exists():
+        raise ValueError("refusing to overwrite an existing endpoint input or manifest")
+    if output_path.suffix.lower() not in {".gjf", ".com"}:
+        raise ValueError("endpoint output must end in .gjf or .com")
+    if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
+        raise ValueError("endpoint checkpoint must be an existing non-symlink file")
+    audit = json.loads(endpoint_audit_path.read_text(encoding="utf-8"))
+    if audit.get("schema") != "gaussian-irc-endpoint-audit/1" or audit.get("audit_status") != "passed":
+        raise ValueError("endpoint input requires a passed IRC endpoint audit")
+    if audit.get("checkpoint_file") != checkpoint_path.name or audit.get("checkpoint_sha256") != sha256(checkpoint_path):
+        raise ValueError("endpoint checkpoint file or hash differs from the audit")
+    if not route_is_complete(route):
+        raise ValueError("endpoint route must be complete")
+    lowered = route.lower()
+    for required, message in (
+        (r"\bopt\b", "endpoint route must contain Opt"),
+        (r"\bfreq\b", "endpoint route must contain Freq"),
+        (r"\bgeom\s*=\s*allcheck\b", "endpoint route must contain Geom=AllCheck"),
+        (r"\bguess\s*=\s*read\b", "endpoint route must contain Guess=Read"),
+    ):
+        if not re.search(required, lowered):
+            raise ValueError(message)
+    if re.search(r"\b(?:irc|opt\s*=\s*\(?ts)\b", lowered):
+        raise ValueError("endpoint route must not contain IRC or TS optimization keywords")
+    if not isinstance(nprocshared, int) or not 1 <= nprocshared <= 44:
+        raise ValueError("nprocshared must be an integer from 1 to 44")
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:KB|MB|GB|TB)", memory, re.I):
+        raise ValueError("memory must be an explicit Gaussian size such as 12GB")
+    new_checkpoint = output_path.stem + ".chk"
+    if new_checkpoint == checkpoint_path.name:
+        raise ValueError("new endpoint %chk must differ from the IRC %oldchk")
+    text = (
+        f"%oldchk={checkpoint_path.name}\n"
+        f"%chk={new_checkpoint}\n"
+        f"%mem={memory}\n"
+        f"%nprocshared={nprocshared}\n"
+        f"{route.strip()}\n\n"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    staged_checkpoint = output_path.parent / checkpoint_path.name
+    if staged_checkpoint.resolve() != checkpoint_path.resolve():
+        if staged_checkpoint.exists():
+            if staged_checkpoint.is_symlink() or not staged_checkpoint.is_file() or sha256(staged_checkpoint) != sha256(checkpoint_path):
+                raise ValueError("refusing to overwrite a different staged IRC checkpoint")
+        else:
+            shutil.copy2(checkpoint_path, staged_checkpoint)
+    output_path.write_text(text, encoding="utf-8")
+    manifest = {
+        "schema": "gaussian-allcheck-input-manifest/1",
+        "calculation_ready": True,
+        "candidate_only": False,
+        "warnings": [],
+        "continuation_kind": "endpoint_opt_freq",
+        "geometry_source": "geom_allcheck_from_reviewed_checkpoint",
+        "no_explicit_molecule_specification": True,
+        "chemical_side": audit["chemical_side"],
+        "source_irc_direction": audit["direction"],
+        "route": route.strip(),
+        "input_sha256": sha256(output_path),
+        "irc_endpoint_audit_sha256": sha256(endpoint_audit_path),
+        "checkpoint_file": audit["checkpoint_file"],
+        "checkpoint_sha256": audit["checkpoint_sha256"],
+        "charge": audit["charge"],
+        "multiplicity": audit["multiplicity"],
+        "atom_count": audit["atom_count"],
+        "atom_order": audit["atom_order"],
+    }
+    output_path.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest
+
+
+def _hill_formula(elements: list[str]) -> str:
+    counts: dict[str, int] = {}
+    for element in elements:
+        counts[element] = counts.get(element, 0) + 1
+    if "C" in counts:
+        order = ["C"] + (["H"] if "H" in counts else []) + sorted(
+            element for element in counts if element not in {"C", "H"}
+        )
+    else:
+        order = sorted(counts)
+    return "".join(element + (str(counts[element]) if counts[element] != 1 else "") for element in order)
+
+
+def propose_endpoint_components(
+    endpoint_audit_path: Path,
+    irc_result_path: Path,
+    bond_scale: float = 1.25,
+) -> dict[str, Any]:
+    """Propose disconnected endpoint components without assigning fragment chemistry or spin."""
+    for label, path in {"endpoint audit": endpoint_audit_path, "IRC result": irc_result_path}.items():
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"{label} must be an existing non-symlink file")
+    if not 1.0 <= bond_scale <= 1.5:
+        raise ValueError("bond_scale must be between 1.0 and 1.5")
+    audit = json.loads(endpoint_audit_path.read_text(encoding="utf-8"))
+    result = json.loads(irc_result_path.read_text(encoding="utf-8"))
+    if audit.get("schema") != "gaussian-irc-endpoint-audit/1" or audit.get("audit_status") != "passed":
+        raise ValueError("component proposal requires a passed IRC endpoint audit")
+    if audit.get("irc_result_sha256") != sha256(irc_result_path):
+        raise ValueError("IRC result hash differs from the endpoint audit")
+    if result.get("schema") != "gaussian-result/1" or result.get("status") != "completed":
+        raise ValueError("component proposal requires a completed IRC result")
+    raw_geometry = result.get("final_coordinates")
+    if not isinstance(raw_geometry, list) or not raw_geometry:
+        raise ValueError("IRC result has no final coordinates")
+    atom_order = audit.get("atom_order")
+    if not isinstance(atom_order, list) or len(atom_order) != len(raw_geometry):
+        raise ValueError("endpoint audit atom order differs from the IRC result geometry")
+
+    geometry: list[dict[str, Any]] = []
+    for expected_index, (order_item, atom) in enumerate(zip(atom_order, raw_geometry), start=1):
+        index = atom.get("center", atom.get("index"))
+        number = atom.get("atomic_number")
+        element = atom.get("element")
+        if index != expected_index or order_item.get("index") != expected_index:
+            raise ValueError("endpoint atom indices must be contiguous and one-based")
+        if number != order_item.get("atomic_number") or element != order_item.get("element"):
+            raise ValueError("endpoint audit and IRC result atom order differ")
+        if element not in COVALENT_RADII_ANGSTROM:
+            raise ValueError(f"automatic component detection does not support element {element}")
+        try:
+            coordinates = {axis: float(atom[axis]) for axis in ("x", "y", "z")}
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("IRC result contains invalid endpoint coordinates") from exc
+        geometry.append(
+            {
+                "source_index": expected_index,
+                "atomic_number": number,
+                "element": element,
+                **coordinates,
+            }
+        )
+
+    adjacency = {atom["source_index"]: set() for atom in geometry}
+    bonds: list[dict[str, Any]] = []
+    for offset, first in enumerate(geometry):
+        for second in geometry[offset + 1 :]:
+            threshold = bond_scale * (
+                COVALENT_RADII_ANGSTROM[first["element"]]
+                + COVALENT_RADII_ANGSTROM[second["element"]]
+            )
+            distance = _distance(first, second)
+            if distance <= threshold:
+                adjacency[first["source_index"]].add(second["source_index"])
+                adjacency[second["source_index"]].add(first["source_index"])
+                bonds.append(
+                    {
+                        "pair": [first["source_index"], second["source_index"]],
+                        "distance_angstrom": distance,
+                        "threshold_angstrom": threshold,
+                    }
+                )
+
+    remaining = set(adjacency)
+    component_indices: list[list[int]] = []
+    while remaining:
+        start = min(remaining)
+        stack = [start]
+        remaining.remove(start)
+        component: list[int] = []
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            for neighbor in sorted(adjacency[current], reverse=True):
+                if neighbor in remaining:
+                    remaining.remove(neighbor)
+                    stack.append(neighbor)
+        component_indices.append(sorted(component))
+
+    geometry_by_index = {atom["source_index"]: atom for atom in geometry}
+    components = []
+    for component_id, indices in enumerate(component_indices, start=1):
+        atoms = [geometry_by_index[index] for index in indices]
+        index_set = set(indices)
+        components.append(
+            {
+                "component_id": component_id,
+                "formula": _hill_formula([atom["element"] for atom in atoms]),
+                "atom_count": len(atoms),
+                "source_atom_indices": indices,
+                "atoms": atoms,
+                "detected_bonds": [bond for bond in bonds if set(bond["pair"]) <= index_set],
+            }
+        )
+    return {
+        "schema": "gaussian-irc-component-proposal/1",
+        "proposal_status": "review_required",
+        "calculation_ready": False,
+        "endpoint_audit_sha256": sha256(endpoint_audit_path),
+        "irc_result_sha256": sha256(irc_result_path),
+        "source_irc_project": audit.get("project"),
+        "source_irc_direction": audit.get("direction"),
+        "source_irc_point": audit.get("completed_point"),
+        "chemical_side": audit.get("chemical_side"),
+        "total_charge": audit.get("charge"),
+        "total_multiplicity": audit.get("multiplicity"),
+        "connectivity_model": {
+            "kind": "scaled_single-bond-covalent-radii",
+            "bond_scale": bond_scale,
+            "radii_angstrom": COVALENT_RADII_ANGSTROM,
+        },
+        "component_count": len(components),
+        "components": components,
+        "warnings": [
+            "Connectivity is a distance-based proposal and requires explicit component review.",
+            "Fragment identities, charges, multiplicities, and spin coupling are not inferred.",
+            "A multi-fragment endpoint must not be submitted as one unconstrained Tight Opt-Freq job by default.",
+        ],
+    }
+
+
+def _validate_fragment_route(route: str) -> None:
+    if not route_is_complete(route):
+        raise ValueError("fragment endpoint route must be complete")
+    lowered = route.lower()
+    if not re.search(r"\bopt\b", lowered) or not re.search(r"\bfreq\b", lowered):
+        raise ValueError("fragment endpoint route must contain Opt and Freq")
+    if re.search(r"\b(?:irc|geom\s*=\s*allcheck|guess\s*=\s*read|opt\s*=\s*\(?ts)\b", lowered):
+        raise ValueError("fragment endpoint route must use explicit coordinates and must not contain IRC, Geom=AllCheck, Guess=Read, or TS optimization")
+
+
+def build_fragment_endpoint_inputs(
+    proposal_path: Path,
+    review_path: Path,
+    output_dir: Path,
+    route: str,
+    memory: str,
+    nprocshared: int,
+) -> dict[str, Any]:
+    """Build separately reviewed explicit-Cartesian Opt-Freq inputs for endpoint fragments."""
+    for label, path in {"component proposal": proposal_path, "component review": review_path}.items():
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"{label} must be an existing non-symlink file")
+    if output_dir.exists():
+        raise ValueError("refusing to overwrite an existing fragment endpoint output directory")
+    _validate_fragment_route(route)
+    if not isinstance(nprocshared, int) or not 1 <= nprocshared <= 44:
+        raise ValueError("nprocshared must be an integer from 1 to 44")
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:KB|MB|GB|TB)", memory, re.I):
+        raise ValueError("memory must be an explicit Gaussian size such as 50GB")
+
+    proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    if proposal.get("schema") != "gaussian-irc-component-proposal/1" or proposal.get("proposal_status") != "review_required":
+        raise ValueError("fragment builder requires an unmodified component proposal")
+    if proposal.get("component_count", 0) < 2:
+        raise ValueError("fragment builder requires a disconnected endpoint with at least two components")
+    if review.get("schema") != "gaussian-irc-component-review/1":
+        raise ValueError("fragment builder requires a gaussian-irc-component-review/1 record")
+    if review.get("proposal_sha256") != sha256(proposal_path):
+        raise ValueError("component review is not bound to this proposal hash")
+    if review.get("decision") != "accepted" or review.get("confirmed") is not True:
+        raise ValueError("fragment builder requires an explicitly accepted component review")
+    if not isinstance(review.get("spin_coupling_note"), str) or not review["spin_coupling_note"].strip():
+        raise ValueError("component review must record the reviewed fragment spin coupling")
+
+    proposed_items = proposal.get("components")
+    if not isinstance(proposed_items, list) or not all(isinstance(item, dict) for item in proposed_items):
+        raise ValueError("component proposal has an invalid components list")
+    proposed = {item.get("component_id"): item for item in proposed_items}
+    if len(proposed) != len(proposed_items) or None in proposed:
+        raise ValueError("component proposal has missing or duplicate component_id values")
+    reviewed_items = review.get("components")
+    if not isinstance(reviewed_items, list) or len(reviewed_items) != len(proposed):
+        raise ValueError("component review must cover every proposed component exactly once")
+    reviewed: dict[int, dict[str, Any]] = {}
+    projects: set[str] = set()
+    total_charge = 0
+    for item in reviewed_items:
+        if not isinstance(item, dict):
+            raise ValueError("component review entries must be objects")
+        component_id = item.get("component_id")
+        source = proposed.get(component_id)
+        if source is None or component_id in reviewed:
+            raise ValueError("component review contains an unknown or duplicate component_id")
+        if item.get("source_atom_indices") != source.get("source_atom_indices"):
+            raise ValueError("reviewed component atom indices differ from the detected proposal")
+        identity = item.get("identity")
+        project = item.get("project")
+        charge = item.get("charge")
+        multiplicity = item.get("multiplicity")
+        if not isinstance(identity, str) or not identity.strip():
+            raise ValueError("every component requires an explicit reviewed identity")
+        if not isinstance(project, str) or not PROJECT_RE.fullmatch(project) or project in projects:
+            raise ValueError("component projects must be distinct 1-15 character PBS-safe names")
+        if not isinstance(charge, int) or not isinstance(multiplicity, int) or multiplicity < 1:
+            raise ValueError("every component requires an integer charge and positive multiplicity")
+        projects.add(project)
+        total_charge += charge
+        reviewed[component_id] = item
+    if set(reviewed) != set(proposed):
+        raise ValueError("component review does not cover the proposal exactly")
+    if total_charge != proposal.get("total_charge"):
+        raise ValueError("sum of reviewed fragment charges differs from the audited endpoint charge")
+
+    output_dir.mkdir(parents=True)
+    plan_fragments = []
+    for component_id in sorted(proposed):
+        source = proposed[component_id]
+        decision = reviewed[component_id]
+        project = decision["project"]
+        project_dir = output_dir / project
+        project_dir.mkdir()
+        input_path = project_dir / f"{project}.gjf"
+        lines = [
+            f"%chk={project}.chk",
+            f"%mem={memory}",
+            f"%nprocshared={nprocshared}",
+            route.strip(),
+            "",
+            f"IRC endpoint fragment: {decision['identity']}",
+            "",
+            f"{decision['charge']} {decision['multiplicity']}",
+        ]
+        for atom in source["atoms"]:
+            lines.append(
+                f"{atom['element']:<3} {atom['x']: .9f} {atom['y']: .9f} {atom['z']: .9f}"
+            )
+        input_path.write_text("\n".join(lines) + "\n\n", encoding="utf-8")
+        plan_fragments.append(
+            {
+                "component_id": component_id,
+                "identity": decision["identity"].strip(),
+                "formula": source["formula"],
+                "project": project,
+                "charge": decision["charge"],
+                "multiplicity": decision["multiplicity"],
+                "source_atom_indices": source["source_atom_indices"],
+                "atom_count": source["atom_count"],
+                "element_order": [atom["element"] for atom in source["atoms"]],
+                "input_file": f"{project}/{project}.gjf",
+                "input_sha256": sha256(input_path),
+                "remote_workdir": f"/home/user100/SDL/{project}",
+            }
+        )
+    plan = {
+        "schema": "gaussian-irc-fragment-endpoint-plan/1",
+        "status": "planned_not_submitted",
+        "calculation_ready": True,
+        "proposal_sha256": sha256(proposal_path),
+        "component_review_sha256": sha256(review_path),
+        "chemical_side": proposal.get("chemical_side"),
+        "route": route.strip(),
+        "memory": memory,
+        "nprocshared": nprocshared,
+        "spin_coupling_note": review["spin_coupling_note"].strip(),
+        "fragments": plan_fragments,
+        "safety": {
+            "server_root": "/home/user100/SDL",
+            "no_submission_authorization": True,
+            "automatic_retry_authorized": False,
+        },
+        "limitations": [
+            "Each fragment requires separate exact submission approval and zero-imaginary-frequency validation.",
+            "Summed fragment electronic energies are not a reaction Gibbs energy.",
+        ],
+    }
+    (output_dir / "fragment_endpoint_plan.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+    return plan
+
+
+def audit_fragment_endpoint_results(
+    plan_path: Path,
+    result_paths: dict[str, Path],
+    job_paths: dict[str, Path],
+) -> dict[str, Any]:
+    """Require every reviewed fragment to be a normally optimized zero-imaginary minimum."""
+    if not plan_path.is_file() or plan_path.is_symlink():
+        raise ValueError("fragment endpoint plan must be an existing non-symlink file")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    if plan.get("schema") != "gaussian-irc-fragment-endpoint-plan/1" or plan.get("status") != "planned_not_submitted":
+        raise ValueError("fragment result audit requires a valid fragment endpoint plan")
+    fragments = plan.get("fragments")
+    if not isinstance(fragments, list) or len(fragments) < 2:
+        raise ValueError("fragment endpoint plan must contain at least two fragments")
+    expected_projects = {item.get("project") for item in fragments}
+    if set(result_paths) != expected_projects:
+        raise ValueError("result paths must cover every planned fragment project exactly once")
+    if set(job_paths) != expected_projects:
+        raise ValueError("job paths must cover every planned fragment project exactly once")
+
+    validated = []
+    energy_sum = 0.0
+    for fragment in fragments:
+        project = fragment["project"]
+        result_path = result_paths[project]
+        job_path = job_paths[project]
+        if not result_path.is_file() or result_path.is_symlink():
+            raise ValueError(f"result for {project} must be an existing non-symlink file")
+        if not job_path.is_file() or job_path.is_symlink():
+            raise ValueError(f"job record for {project} must be an existing non-symlink file")
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        job = json.loads(job_path.read_text(encoding="utf-8"))
+        if (
+            job.get("schema") != "gaussian-rtwin-pbs/1"
+            or job.get("project") != project
+            or job.get("status") != "completed"
+            or job.get("results_fetched") is not True
+            or job.get("input_sha256") != fragment.get("input_sha256")
+        ):
+            raise ValueError(f"job record for {project} is not bound to the completed planned input")
+        if (
+            result.get("schema") != "gaussian-result/1"
+            or result.get("status") != "completed"
+            or result.get("normal_termination") is not True
+            or result.get("error_termination") is True
+            or result.get("optimization_success") is not True
+            or result.get("stationary_point_found") is not True
+        ):
+            raise ValueError(f"fragment {project} lacks completed stationary-point optimization evidence")
+        frequencies = result.get("frequencies_cm-1")
+        if not isinstance(frequencies, list) or not frequencies or result.get("frequency_count") != len(frequencies):
+            raise ValueError(f"fragment {project} lacks a complete frequency result")
+        if result.get("imaginary_frequency_count") != 0 or any(float(value) < 0 for value in frequencies):
+            raise ValueError(f"fragment {project} is not a zero-imaginary-frequency minimum")
+        coordinates = result.get("final_coordinates")
+        if not isinstance(coordinates, list) or len(coordinates) != fragment.get("atom_count"):
+            raise ValueError(f"fragment {project} result atom count differs from the plan")
+        if [atom.get("element") for atom in coordinates] != fragment.get("element_order"):
+            raise ValueError(f"fragment {project} result element order differs from the plan")
+        energy = result.get("final_energy_hartree")
+        if not isinstance(energy, (int, float)):
+            raise ValueError(f"fragment {project} has no final electronic energy")
+        energy_sum += float(energy)
+        validated.append(
+            {
+                "project": project,
+                "identity": fragment["identity"],
+                "formula": fragment["formula"],
+                "result_sha256": sha256(result_path),
+                "job_sha256": sha256(job_path),
+                "job_id": job.get("job_id"),
+                "final_energy_hartree": float(energy),
+                "frequency_count": len(frequencies),
+                "imaginary_frequency_count": 0,
+                "lowest_frequency_cm-1": min(float(value) for value in frequencies),
+                "minimum_accepted": True,
+            }
+        )
+    return {
+        "schema": "gaussian-irc-fragment-endpoint-validation/1",
+        "validation_status": "passed",
+        "chemical_side": plan.get("chemical_side"),
+        "fragment_plan_sha256": sha256(plan_path),
+        "fragment_count": len(validated),
+        "fragments": validated,
+        "isolated_fragment_electronic_energy_sum_hartree": energy_sum,
+        "endpoint_minimum_evidence": "passed_as_separately_reviewed_isolated_fragments",
+        "limitations": [
+            "The electronic-energy sum is not a reaction Gibbs energy.",
+            "No finite-distance supermolecule minimum is implied for asymptotically separated fragments.",
+        ],
+    }
 
 
 def read_atom_map(path: Path, atom_count: int) -> list[int]:
@@ -322,6 +1123,13 @@ def main() -> int:
     review = sub.add_parser("mode-review"); review.add_argument("result"); review.add_argument("--output-dir", required=True); review.add_argument("--forming", action="append", default=[]); review.add_argument("--breaking", action="append", default=[]); review.add_argument("--amplitude", type=float, default=0.1)
     decide = sub.add_parser("record-mode-decision"); decide.add_argument("mode_review"); decide.add_argument("--decision", choices=["accepted", "rejected", "unclear"], required=True); decide.add_argument("--output", required=True); decide.add_argument("--confirmed", action="store_true")
     plan = sub.add_parser("plan-irc"); plan.add_argument("family"); plan.add_argument("--ts-result", required=True); plan.add_argument("--checkpoint", required=True); plan.add_argument("--mode-review", required=True); plan.add_argument("--mode-decision", required=True); plan.add_argument("--g16-revision", required=True); plan.add_argument("--forward-route", required=True); plan.add_argument("--reverse-route", required=True); plan.add_argument("--forward-project", required=True); plan.add_argument("--reverse-project", required=True); plan.add_argument("--output", required=True); plan.add_argument("--confirmed", action="store_true")
+    checkpoint_audit = sub.add_parser("audit-checkpoint"); checkpoint_audit.add_argument("--ts-input", required=True); checkpoint_audit.add_argument("--ts-log", required=True); checkpoint_audit.add_argument("--ts-result", required=True); checkpoint_audit.add_argument("--checkpoint", required=True); checkpoint_audit.add_argument("--mode-review", required=True); checkpoint_audit.add_argument("--mode-decision", required=True); checkpoint_audit.add_argument("--output", required=True)
+    allcheck = sub.add_parser("build-allcheck-irc"); allcheck.add_argument("--checkpoint-audit", required=True); allcheck.add_argument("--checkpoint", required=True); allcheck.add_argument("--output", required=True); allcheck.add_argument("--route", required=True); allcheck.add_argument("--direction", choices=["forward", "reverse"], required=True); allcheck.add_argument("--memory", required=True); allcheck.add_argument("--nprocshared", type=int, required=True)
+    endpoint_audit = sub.add_parser("audit-irc-endpoint"); endpoint_audit.add_argument("--irc-input", required=True); endpoint_audit.add_argument("--irc-log", required=True); endpoint_audit.add_argument("--irc-result", required=True); endpoint_audit.add_argument("--job", required=True); endpoint_audit.add_argument("--checkpoint", required=True); endpoint_audit.add_argument("--direction", choices=["forward", "reverse"], required=True); endpoint_audit.add_argument("--chemical-side", choices=["reactant", "product"], required=True); endpoint_audit.add_argument("--expected-points", type=int, required=True); endpoint_audit.add_argument("--forming", action="append", required=True); endpoint_audit.add_argument("--output", required=True)
+    endpoint = sub.add_parser("build-allcheck-endpoint"); endpoint.add_argument("--endpoint-audit", required=True); endpoint.add_argument("--checkpoint", required=True); endpoint.add_argument("--output", required=True); endpoint.add_argument("--route", required=True); endpoint.add_argument("--memory", required=True); endpoint.add_argument("--nprocshared", type=int, required=True)
+    components = sub.add_parser("propose-endpoint-components"); components.add_argument("--endpoint-audit", required=True); components.add_argument("--irc-result", required=True); components.add_argument("--bond-scale", type=float, default=1.25); components.add_argument("--output", required=True)
+    fragment_build = sub.add_parser("build-fragment-endpoints"); fragment_build.add_argument("--component-proposal", required=True); fragment_build.add_argument("--component-review", required=True); fragment_build.add_argument("--output-dir", required=True); fragment_build.add_argument("--route", required=True); fragment_build.add_argument("--memory", required=True); fragment_build.add_argument("--nprocshared", type=int, required=True)
+    fragment_audit = sub.add_parser("audit-fragment-endpoints"); fragment_audit.add_argument("--plan", required=True); fragment_audit.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit.add_argument("--output", required=True)
     args = parser.parse_args()
     try:
         if args.command == "validate-inputs":
@@ -345,11 +1153,48 @@ def main() -> int:
         elif args.command == "record-mode-decision":
             if not args.confirmed: raise ValueError("mode decision requires --confirmed after scientific review")
             record_mode_decision(Path(args.mode_review), args.decision, Path(args.output))
-        else:
+        elif args.command == "plan-irc":
             if not args.confirmed: raise ValueError("IRC planning requires --confirmed after exact G3 approval")
             output_path = Path(args.output)
             if output_path.exists(): raise ValueError("refusing to overwrite an existing IRC plan")
             result = build_irc_plan(json.loads(Path(args.family).read_text(encoding="utf-8")), Path(args.ts_result), Path(args.checkpoint), Path(args.mode_review), Path(args.mode_decision), args.g16_revision, args.forward_route, args.reverse_route, args.forward_project, args.reverse_project)
+            output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        elif args.command == "audit-checkpoint":
+            output_path = Path(args.output)
+            if output_path.exists(): raise ValueError("refusing to overwrite an existing checkpoint audit")
+            result = audit_checkpoint_provenance(Path(args.ts_input), Path(args.ts_log), Path(args.ts_result), Path(args.checkpoint), Path(args.mode_review), Path(args.mode_decision))
+            output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        elif args.command == "build-allcheck-irc":
+            build_allcheck_irc_input(Path(args.checkpoint_audit), Path(args.checkpoint), Path(args.output), args.route, args.direction, args.memory, args.nprocshared)
+        elif args.command == "audit-irc-endpoint":
+            output_path = Path(args.output)
+            if output_path.exists(): raise ValueError("refusing to overwrite an existing IRC endpoint audit")
+            pairs = [tuple(map(int, raw.split(","))) for raw in args.forming]
+            if any(len(pair) != 2 for pair in pairs): raise ValueError("forming pairs must use atom1,atom2")
+            result = audit_irc_endpoint_provenance(Path(args.irc_input), Path(args.irc_log), Path(args.irc_result), Path(args.job), Path(args.checkpoint), args.direction, args.chemical_side, args.expected_points, pairs)
+            output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        elif args.command == "build-allcheck-endpoint":
+            build_allcheck_endpoint_input(Path(args.endpoint_audit), Path(args.checkpoint), Path(args.output), args.route, args.memory, args.nprocshared)
+        elif args.command == "propose-endpoint-components":
+            output_path = Path(args.output)
+            if output_path.exists(): raise ValueError("refusing to overwrite an existing endpoint component proposal")
+            result = propose_endpoint_components(Path(args.endpoint_audit), Path(args.irc_result), args.bond_scale)
+            output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        elif args.command == "build-fragment-endpoints":
+            build_fragment_endpoint_inputs(Path(args.component_proposal), Path(args.component_review), Path(args.output_dir), args.route, args.memory, args.nprocshared)
+        else:
+            output_path = Path(args.output)
+            if output_path.exists(): raise ValueError("refusing to overwrite an existing fragment endpoint validation")
+            assignments: dict[str, dict[str, Path]] = {}
+            for label, values in (("result", args.result), ("job", args.job)):
+                parsed: dict[str, Path] = {}
+                for raw in values:
+                    project, separator, value = raw.partition("=")
+                    if not separator or not PROJECT_RE.fullmatch(project) or not value or project in parsed:
+                        raise ValueError(f"each --{label} must be a unique PROJECT=/path/to/{label}.json assignment")
+                    parsed[project] = Path(value)
+                assignments[label] = parsed
+            result = audit_fragment_endpoint_results(Path(args.plan), assignments["result"], assignments["job"])
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         parser.error(str(exc))

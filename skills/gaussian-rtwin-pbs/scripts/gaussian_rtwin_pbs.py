@@ -215,51 +215,103 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         route_lines.append(lines[i].strip())
         i += 1
     route = " ".join(route_lines)
-    while i < len(lines) and not lines[i].strip():
-        i += 1
-    while i < len(lines) and lines[i].strip():
-        i += 1
-    while i < len(lines) and not lines[i].strip():
-        i += 1
-    if i >= len(lines):
-        fail("missing charge/multiplicity line")
-    charge_mult = lines[i].split()
-    if len(charge_mult) != 2:
-        fail("charge/multiplicity line must contain exactly two integers")
-    try:
-        charge, multiplicity = map(int, charge_mult)
-    except ValueError:
-        fail("charge/multiplicity line must contain integers")
-    if multiplicity < 1:
-        fail("multiplicity must be at least 1")
-    i += 1
+    geom_allcheck = bool(re.search(r"\bgeom\s*=\s*allcheck\b", route, re.I))
 
-    elements: Counter[str] = Counter()
-    coordinate_count = 0
-    while i < len(lines) and lines[i].strip():
-        fields = lines[i].split()
-        if len(fields) < 4:
-            fail(f"malformed Cartesian coordinate at line {i + 1}")
-        element = fields[0]
-        if not re.fullmatch(r"[A-Z][a-z]?", element):
-            fail(f"invalid element symbol at line {i + 1}: {element}")
+    manifest_path = path.with_suffix(".json")
+    manifest: dict[str, Any] | None = None
+    if manifest_path.is_file():
         try:
-            xyz = [float(value) for value in fields[1:4]]
-        except ValueError:
-            fail(f"non-numeric Cartesian coordinate at line {i + 1}")
-        if not all(math.isfinite(value) for value in xyz):
-            fail(f"non-finite Cartesian coordinate at line {i + 1}")
-        elements[element] += 1
-        coordinate_count += 1
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"could not read Gaussian companion manifest: {exc}")
+
+    while i < len(lines) and not lines[i].strip():
         i += 1
-    if coordinate_count == 0:
-        fail("no Cartesian coordinates found")
+    elements: Counter[str] = Counter()
+    atom_order: list[dict[str, Any]] | None = None
+    oldcheckpoint_sha256: str | None = None
+    if geom_allcheck:
+        if any(line.strip() for line in lines[i:]):
+            fail("Geom=AllCheck input must omit title, charge/multiplicity, and explicit coordinates")
+        if not oldcheckpoint:
+            fail("Geom=AllCheck input requires an explicit %oldchk reviewed checkpoint")
+        if not manifest or manifest.get("schema") != "gaussian-allcheck-input-manifest/1":
+            fail("Geom=AllCheck input requires a gaussian-allcheck-input-manifest/1 companion")
+        if manifest.get("geometry_source") != "geom_allcheck_from_reviewed_checkpoint" or manifest.get("no_explicit_molecule_specification") is not True:
+            fail("AllCheck companion manifest does not certify coordinate-free checkpoint geometry")
+        if manifest.get("input_sha256") != sha256(path):
+            fail("AllCheck companion manifest input hash does not match the Gaussian input")
+        if manifest.get("checkpoint_file") != oldcheckpoint:
+            fail("AllCheck companion checkpoint filename differs from %oldchk")
+        checkpoint_path = path.parent / oldcheckpoint
+        if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
+            fail("Geom=AllCheck %oldchk must be an existing non-symlink file beside the input")
+        oldcheckpoint_sha256 = sha256(checkpoint_path)
+        if manifest.get("checkpoint_sha256") != oldcheckpoint_sha256:
+            fail("AllCheck companion checkpoint hash does not match %oldchk")
+        try:
+            charge = int(manifest["charge"])
+            multiplicity = int(manifest["multiplicity"])
+            coordinate_count = int(manifest["atom_count"])
+        except (KeyError, TypeError, ValueError):
+            fail("AllCheck companion has invalid charge, multiplicity, or atom count")
+        if multiplicity < 1 or coordinate_count < 1:
+            fail("AllCheck companion multiplicity and atom count must be positive")
+        atom_order = manifest.get("atom_order")
+        if not isinstance(atom_order, list) or len(atom_order) != coordinate_count:
+            fail("AllCheck companion atom order length differs from atom count")
+        expected_indices = list(range(1, coordinate_count + 1))
+        if [item.get("index") for item in atom_order if isinstance(item, dict)] != expected_indices:
+            fail("AllCheck companion atom order must use contiguous one-based indices")
+        for item in atom_order:
+            if not isinstance(item, dict) or not re.fullmatch(r"[A-Z][a-z]?", str(item.get("element", ""))):
+                fail("AllCheck companion contains an invalid atom-order entry")
+            if not isinstance(item.get("atomic_number"), int) or item["atomic_number"] < 1:
+                fail("AllCheck companion contains an invalid atomic number")
+            elements[str(item["element"])] += 1
+    else:
+        while i < len(lines) and lines[i].strip():
+            i += 1
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        if i >= len(lines):
+            fail("missing charge/multiplicity line")
+        charge_mult = lines[i].split()
+        if len(charge_mult) != 2:
+            fail("charge/multiplicity line must contain exactly two integers")
+        try:
+            charge, multiplicity = map(int, charge_mult)
+        except ValueError:
+            fail("charge/multiplicity line must contain integers")
+        if multiplicity < 1:
+            fail("multiplicity must be at least 1")
+        i += 1
+        coordinate_count = 0
+        while i < len(lines) and lines[i].strip():
+            fields = lines[i].split()
+            if len(fields) < 4:
+                fail(f"malformed Cartesian coordinate at line {i + 1}")
+            element = fields[0]
+            if not re.fullmatch(r"[A-Z][a-z]?", element):
+                fail(f"invalid element symbol at line {i + 1}: {element}")
+            try:
+                xyz = [float(value) for value in fields[1:4]]
+            except ValueError:
+                fail(f"non-numeric Cartesian coordinate at line {i + 1}")
+            if not all(math.isfinite(value) for value in xyz):
+                fail(f"non-finite Cartesian coordinate at line {i + 1}")
+            elements[element] += 1
+            coordinate_count += 1
+            i += 1
+        if coordinate_count == 0:
+            fail("no Cartesian coordinates found")
 
     report = {
         "input": str(path.resolve()),
         "input_sha256": sha256(path),
         "checkpoint": checkpoint,
         "oldcheckpoint": oldcheckpoint,
+        "oldcheckpoint_sha256": oldcheckpoint_sha256,
         "mem": link0["mem"],
         "memory_bytes": memory_bytes,
         "nprocshared": nproc,
@@ -268,16 +320,13 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         "multiplicity": multiplicity,
         "atom_count": coordinate_count,
         "elements": dict(sorted(elements.items())),
+        "atom_order": atom_order,
+        "geometry_source": "geom_allcheck_from_reviewed_checkpoint" if geom_allcheck else "explicit_cartesian",
         "trailing_blank_line": True,
     }
-    manifest_path = path.with_suffix(".json")
     report["manifest"] = None
     report["manifest_warnings"] = []
-    if manifest_path.is_file():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            fail(f"could not read Gaussian companion manifest: {exc}")
+    if manifest is not None:
         warnings = manifest.get("warnings", [])
         if not isinstance(warnings, list):
             fail("companion manifest warnings must be a list")
