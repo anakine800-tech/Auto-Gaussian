@@ -51,7 +51,7 @@ Do not own:
 - Use a new, empty, non-symlink server project directory for every PBS submission.
 - Never delete or overwrite server project data.
 - Require explicit approval before the first TS submission and again before IRC submission after mode review.
-- Require exact approval before `qdel`; never infer cancellation permission from workflow approval.
+- Permit one automatic exact `qdel` only for a terminal scheduler zombie proven by the core Skill's repeated evidence gate after results are fetched. Require exact approval before cancelling a queued or running job; never infer cancellation permission from workflow approval.
 - Do not automatically change a geometry, functional, basis, dispersion correction, solvent model, integration grid, SCF option, optimization keyword, IRC keyword, charge, multiplicity, memory, or core count.
 - Do not automatically retry a failed stage.
 - Preserve incomplete and failed artifacts as evidence.

@@ -1,0 +1,47 @@
+{
+  "schema": "pbs-auto-zombie-cleanup-live-smoke/1",
+  "recorded_date": "2026-07-14",
+  "sanitized": true,
+  "contains_job_id": false,
+  "contains_server_path": false,
+  "contains_gaussian_log": false,
+  "contains_checkpoint": false,
+  "installed_gaussian_revision": "Gaussian 16 Revision A.03",
+  "chemical_identity": {
+    "name": "water",
+    "formula": "H2O",
+    "charge": 0,
+    "multiplicity": 1,
+    "atom_count": 3
+  },
+  "route": "#p b3lyp/sto-3g opt",
+  "resources": {
+    "memory": "2GB",
+    "nprocshared": 4,
+    "pbs_nodes": 1,
+    "pbs_ppn": 4
+  },
+  "input_sha256": "84b0987805e5471521bf557d9a2cf76b9e296a83b7be4595cbce63e8a9277d80",
+  "parsed_result_sha256": "c16173d6b3bbc2c98274ef3c75535d7627d36cb9ebbfa7c9ea02785938bcacb8",
+  "calculation": {
+    "status": "completed",
+    "normal_termination_count": 1,
+    "optimization_completed": true,
+    "stationary_point_found": true,
+    "optimization_steps": 4,
+    "final_energy_hartree": -75.3227751655
+  },
+  "automatic_scheduler_cleanup": {
+    "classification": "confirmed_scheduler_zombie",
+    "observation_count": 2,
+    "stability_seconds": 10,
+    "all_eligibility_checks_passed": true,
+    "results_fetched_verified": true,
+    "confirmation_required_for_qdel": false,
+    "qdel_issued_count": 1,
+    "qdel_returncode": 0,
+    "scheduler_record_present_after_verification": false,
+    "server_project_files_changed": false,
+    "automatic_retry_performed": false
+  }
+}
