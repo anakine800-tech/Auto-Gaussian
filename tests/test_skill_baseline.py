@@ -405,6 +405,33 @@ class RepositoryBaselineTests(unittest.TestCase):
         self.assertNotIn("/home/", serialized)
         self.assertNotIn(".master", serialized)
 
+    def test_auto_zombie_cleanup_live_smoke_is_sanitized_and_passed(self) -> None:
+        path = ROOT / "tests" / "fixtures" / "auto_zombie_cleanup_live_smoke.json"
+        evidence = json.loads(path.read_text())
+        self.assertEqual(evidence["schema"], "pbs-auto-zombie-cleanup-live-smoke/1")
+        self.assertTrue(evidence["sanitized"])
+        for forbidden_flag in (
+            "contains_job_id",
+            "contains_server_path",
+            "contains_gaussian_log",
+            "contains_checkpoint",
+        ):
+            self.assertFalse(evidence[forbidden_flag])
+        self.assertEqual(evidence["calculation"]["status"], "completed")
+        cleanup = evidence["automatic_scheduler_cleanup"]
+        self.assertEqual(cleanup["classification"], "confirmed_scheduler_zombie")
+        self.assertEqual(cleanup["observation_count"], 2)
+        self.assertTrue(cleanup["all_eligibility_checks_passed"])
+        self.assertFalse(cleanup["confirmation_required_for_qdel"])
+        self.assertEqual(cleanup["qdel_issued_count"], 1)
+        self.assertEqual(cleanup["qdel_returncode"], 0)
+        self.assertFalse(cleanup["scheduler_record_present_after_verification"])
+        self.assertFalse(cleanup["server_project_files_changed"])
+        self.assertFalse(cleanup["automatic_retry_performed"])
+        serialized = path.read_text()
+        self.assertNotIn("/home/", serialized)
+        self.assertNotIn(".master", serialized)
+
     def test_ts_skill_documents_disconnected_endpoint_gates(self) -> None:
         text = (ROOT / "skills" / "gaussian-ts-irc" / "SKILL.md").read_text()
         for command in (
