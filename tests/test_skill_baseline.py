@@ -69,6 +69,25 @@ class RepositoryBaselineTests(unittest.TestCase):
         )
         self.assertFalse(refused["cleanup_eligible"])
 
+    def test_live_freq_stage_is_not_completed_from_opt_marker(self) -> None:
+        analysis = {
+            "normal_termination": True,
+            "error_termination": False,
+            "scf_calculations": 1,
+            "final_coordinate_count": 1,
+            "normal_termination_count": 1,
+            "error_termination_count": 0,
+        }
+        state, _, _, _ = PBS.classify_inspection_state(
+            workflow_manifest=None,
+            full_normal_count=1,
+            full_error_count=0,
+            analysis=analysis,
+            qstate="R",
+            process_alive=True,
+        )
+        self.assertEqual(state, "running")
+
     def test_opt_freq_sp_fixture_is_sanitized_and_complete(self) -> None:
         manifest = json.loads(
             (ROOT / "tests" / "fixtures" / "opt_freq_sp_success.json").read_text()
