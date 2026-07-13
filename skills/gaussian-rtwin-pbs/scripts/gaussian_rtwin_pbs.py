@@ -782,7 +782,7 @@ printf '%s:%s\\n' "$normal" "$error"
     if scheduler_record_lingering:
         inspection["note"] = (
             "Gaussian is terminal while a PBS record remains; use repeated diagnose-zombie evidence "
-            "before considering an explicitly confirmed scheduler-only cleanup"
+            "before one automatic scheduler-only cleanup"
         )
     return inspection
 
@@ -1060,7 +1060,43 @@ def command_watch(args) -> None:
             results_fetched=bool(transfer),
             result_file=str(output_dir / "result.json") if transfer else None,
         )
-    print(json.dumps({"inspection": final, "transfer": transfer}, ensure_ascii=False, indent=2))
+    scheduler_cleanup = None
+    if (
+        args.auto_cleanup_zombie
+        and transfer
+        and final.get("scheduler_zombie_candidate") is True
+    ):
+        cleanup_args = argparse.Namespace(**vars(args))
+        cleanup_args.stability_seconds = args.zombie_stability_seconds
+        cleanup_args.verify_seconds = args.zombie_verify_seconds
+        scheduler_cleanup = cleanup_zombie_record(cleanup_args)
+        if scheduler_cleanup["status"] == "cleanup_unverified":
+            print(
+                json.dumps(
+                    {
+                        "inspection": final,
+                        "transfer": transfer,
+                        "scheduler_cleanup": scheduler_cleanup,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            fail(
+                "automatic qdel was issued once but the PBS record still exists; do not retry automatically",
+                code=5,
+            )
+    print(
+        json.dumps(
+            {
+                "inspection": final,
+                "transfer": transfer,
+                "scheduler_cleanup": scheduler_cleanup,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def command_analyze(args) -> None:
@@ -1092,7 +1128,8 @@ def diagnose_zombie(args) -> dict[str, Any]:
     diagnosis = assess_zombie_observations(project, job_id, [first, second])
     diagnosis["stability_seconds"] = args.stability_seconds
     diagnosis["results_fetched_verified"] = True
-    diagnosis["confirmation_required_for_qdel"] = True
+    diagnosis["confirmation_required_for_qdel"] = False
+    diagnosis["automatic_cleanup_authorized_by_policy"] = True
     diagnosis["server_data_deletion_authorized"] = False
     return diagnosis
 
@@ -1104,13 +1141,9 @@ def command_diagnose_zombie(args) -> None:
     print(json.dumps(diagnosis, ensure_ascii=False, indent=2))
 
 
-def command_cleanup_zombie(args) -> None:
-    """Issue one qdel only for a repeatedly proven zombie and verify the record."""
+def cleanup_zombie_record(args) -> dict[str, Any]:
+    """Issue one qdel only for a repeatedly proven zombie and return its audit record."""
 
-    if not args.confirmed:
-        fail(
-            "cleanup-zombie requires --confirmed after the user approves the exact project and job id"
-        )
     if not 1 <= args.verify_seconds <= 60:
         fail("--verify-seconds must be between 1 and 60")
     diagnosis = diagnose_zombie(args)
@@ -1127,12 +1160,23 @@ def command_cleanup_zombie(args) -> None:
             "diagnosis": diagnosis,
         }
         update_job(local_dir, last_zombie_diagnosis=diagnosis, scheduler_cleanup=cleanup)
-        print(json.dumps(cleanup, ensure_ascii=False, indent=2))
-        return
+        return cleanup
     if not diagnosis.get("cleanup_eligible"):
-        update_job(local_dir, last_zombie_diagnosis=diagnosis)
-        print(json.dumps(diagnosis, ensure_ascii=False, indent=2))
-        fail("refusing qdel because repeated observations did not prove a scheduler zombie")
+        cleanup = {
+            "schema": "pbs-zombie-cleanup/1",
+            "project": args.project,
+            "job_id": args.job_id,
+            "status": "not_eligible",
+            "qdel_issued": False,
+            "scheduler_record_present": bool(
+                diagnosis.get("observations")
+                and diagnosis["observations"][-1].get("pbs_record_present")
+            ),
+            "server_project_files_changed": False,
+            "diagnosis": diagnosis,
+        }
+        update_job(local_dir, last_zombie_diagnosis=diagnosis, scheduler_cleanup=cleanup)
+        return cleanup
 
     # This is deliberately the only qdel in the zombie cleanup path. It changes
     # PBS-owned state only; it never removes, truncates, or rewrites server data.
@@ -1154,8 +1198,17 @@ def command_cleanup_zombie(args) -> None:
         "diagnosis": diagnosis,
     }
     update_job(local_dir, last_zombie_diagnosis=diagnosis, scheduler_cleanup=cleanup)
+    return cleanup
+
+
+def command_cleanup_zombie(args) -> None:
+    """Automatically qdel one repeatedly proven zombie and verify the record."""
+
+    cleanup = cleanup_zombie_record(args)
     print(json.dumps(cleanup, ensure_ascii=False, indent=2))
-    if not cleared:
+    if cleanup["status"] == "not_eligible":
+        fail("refusing qdel because repeated observations did not prove a scheduler zombie")
+    if cleanup["status"] == "cleanup_unverified":
         fail("qdel was issued once but the PBS record still exists; do not retry automatically", code=5)
 
 
@@ -1247,7 +1300,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     cleanup_zombie_parser = sub.add_parser(
         "cleanup-zombie",
-        help="qdel one repeatedly proven scheduler zombie after exact confirmation",
+        help="automatically qdel one repeatedly proven scheduler zombie",
     )
     cleanup_zombie_parser.add_argument("--project", required=True)
     cleanup_zombie_parser.add_argument("--job-id", required=True)
@@ -1255,7 +1308,9 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_zombie_parser.add_argument("--local-dir", required=True)
     cleanup_zombie_parser.add_argument("--stability-seconds", type=int, default=10)
     cleanup_zombie_parser.add_argument("--verify-seconds", type=int, default=5)
-    cleanup_zombie_parser.add_argument("--confirmed", action="store_true")
+    cleanup_zombie_parser.add_argument(
+        "--confirmed", action="store_true", help=argparse.SUPPRESS
+    )
     add_connection_options(cleanup_zombie_parser)
     cleanup_zombie_parser.set_defaults(func=command_cleanup_zombie)
 
@@ -1268,6 +1323,15 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--poll-seconds", type=int, default=30)
     watch.add_argument("--timeout-seconds", type=int, default=86400)
     watch.add_argument("--fetch", action="store_true")
+    watch.add_argument(
+        "--no-auto-cleanup-zombie",
+        action="store_false",
+        dest="auto_cleanup_zombie",
+        help="leave a confirmed scheduler-zombie record for manual diagnostics",
+    )
+    watch.add_argument("--zombie-stability-seconds", type=int, default=10)
+    watch.add_argument("--zombie-verify-seconds", type=int, default=5)
+    watch.set_defaults(auto_cleanup_zombie=True)
     add_connection_options(watch)
     watch.set_defaults(func=command_watch)
 

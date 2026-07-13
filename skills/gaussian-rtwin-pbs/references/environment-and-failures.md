@@ -35,7 +35,7 @@ RTwin uses the dedicated server key and alias `gaussian-server`. The Mac uses th
 
 ## Deletion policy
 
-The bundled CLI intentionally has no server cleanup/delete command. Do not delete server files as part of submit, retry, fetch, status, or cancellation. `qdel` cancels scheduler state only and requires explicit user approval; it is not permission to remove the project directory. Any future server-data deletion must be a separate task with exact paths, canonical proof that every target is inside `/home/user100/SDL`, a preview of affected files, and a final explicit confirmation.
+The bundled CLI intentionally has no server cleanup/delete command. Do not delete server files as part of submit, retry, fetch, status, scheduler cleanup, or cancellation. An evidence-gated zombie `qdel` may run automatically; cancelling a queued or running job still requires exact user approval. Neither is permission to remove the project directory. Any future server-data deletion must be a separate task with exact paths, canonical proof that every target is inside `/home/user100/SDL`, a preview of affected files, and a final explicit confirmation.
 
 ## PBS zombie diagnosis and cleanup
 
@@ -48,7 +48,7 @@ A scheduler record is cleanup-eligible only after `diagnose-zombie` proves all o
 - Gaussian has definite terminal evidence, including all expected Link1 normal terminations or an error termination;
 - log size and modification time are unchanged.
 
-After showing this evidence, require explicit approval for the exact job ID. `cleanup-zombie --confirmed` repeats the diagnosis, issues at most one exact `qdel`, and verifies that `qstat` no longer contains the record. If the record self-purges, issue no `qdel`. If the record remains after one `qdel`, report `cleanup_unverified` and stop; never retry automatically. The operation does not delete or modify any server project file.
+After all evidence passes, `watch --fetch` or `cleanup-zombie` may automatically issue at most one exact `qdel` and verify that `qstat` no longer contains the record. No per-job confirmation is required for this terminal zombie cleanup. If the record self-purges, issue no `qdel`. If the record remains after one `qdel`, report `cleanup_unverified` and stop; never retry automatically. The operation does not delete or modify any server project file. This standing authorization does not apply to `cancel`, which still requires exact approval for the queued or running job ID.
 
 ## Success evidence
 
@@ -59,9 +59,9 @@ For an optimization, require `Normal termination` plus optimization/stationary-p
 - `queued`: PBS `Q`.
 - `running`: PBS `R` and the recorded PBS session process exists.
 - `stale`: PBS `R`, session process absent, log not yet proven stable.
-- `confirmed_scheduler_zombie`: two stable observations prove a terminal Gaussian job with a lingering PBS `R` record and absent session process; eligible only for separately confirmed scheduler cleanup.
+- `confirmed_scheduler_zombie`: two stable observations prove a terminal Gaussian job with a lingering PBS `R` record and absent session process; eligible for one automatic exact scheduler cleanup.
 - `completed`: Gaussian log has `Normal termination`; for an optimization also verify optimization/stationary-point evidence.
 - `failed`: Gaussian log has `Error termination`.
 - `interrupted`: PBS process is absent and an incomplete log has stopped changing across repeated observations.
 
-Use `watch` to update local `job.json`, fetch terminal results, and produce `result.json`. Automatic scientific retries are disabled; diagnostics may recommend a separately approved restart but must never submit it automatically.
+Use `watch` to update local `job.json`, fetch terminal results, produce `result.json`, and automatically clear a repeatedly proven terminal scheduler zombie. Automatic scientific retries are disabled; diagnostics may recommend a separately approved restart but must never submit it automatically.

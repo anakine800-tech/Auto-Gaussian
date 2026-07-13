@@ -16,7 +16,7 @@ These rules apply to the entire repository.
 - Never add a remote-root override.
 - Never upload into a non-empty server project directory or overwrite an existing job implicitly.
 - Never issue `rm`, `rmdir`, truncation, recursive replacement, or a server-data cleanup command.
-- Treat `qdel` as a separate scheduler operation. Require explicit authorization for the exact PBS job ID; cancellation never authorizes file deletion.
+- Treat active-job cancellation and terminal scheduler-zombie cleanup as different `qdel` operations. Require explicit authorization for the exact PBS job ID before cancelling a queued or running job. Permit one automatic exact `qdel` only after results are fetched and repeated stable evidence proves a terminal scheduler zombie; never retry it automatically. Neither operation authorizes file deletion.
 - Do not access PBS scheduler spool directories.
 
 ## Scientific approval gates
