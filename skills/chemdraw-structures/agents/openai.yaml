@@ -1,0 +1,4 @@
+interface:
+  display_name: "ChemDraw Structures"
+  short_description: "Create ChemDraw-ready MOL/SDF structures"
+  default_prompt: "Use $chemdraw-structures to create ChemDraw-compatible structure files from compound names, SMILES, images, or chiral ligand requests."

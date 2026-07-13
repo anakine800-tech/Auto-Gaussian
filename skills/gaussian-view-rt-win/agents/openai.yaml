@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gaussian View RT win"
+  short_description: "生成审计结构与手性保持的 Gaussian 构象集合"
+  default_prompt: "Use $gaussian-view-rt-win to prepare, review, and optionally open an audited Gaussian structure or conformer ensemble on my Windows PC."

@@ -1,0 +1,17 @@
+{
+  "schema": "gaussian-opt-freq-sp/1",
+  "species_id": "water",
+  "chemical_identity": {
+    "formula": "H2O",
+    "charge": 0,
+    "multiplicity": 1
+  },
+  "stages": [
+    {"name": "optimization", "route": "#p b3lyp/sto-3g opt"},
+    {"name": "frequency", "route": "#p b3lyp/sto-3g freq geom=allcheck guess=read"},
+    {"name": "single_point", "route": "#p b3lyp/sto-3g geom=allcheck guess=read"}
+  ],
+  "temperature_k": 298.15,
+  "standard_state": "1M",
+  "expected_stage_count": 3
+}

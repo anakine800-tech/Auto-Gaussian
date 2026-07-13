@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gaussian RTwin PBS"
+  short_description: "自动运行 Gaussian 工作流并安全处理 PBS 僵尸记录"
+  default_prompt: "Use $gaussian-rtwin-pbs to build, submit, monitor, fetch, analyze, and safely diagnose any lingering PBS scheduler record for my approved Gaussian workflow."
