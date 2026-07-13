@@ -95,6 +95,8 @@ Accept only conformers promoted by `gaussian-view-rt-win/scripts/prepare_conform
 
 For a checkpoint-dependent continuation such as an approved IRC, declare `%oldchk=<reviewed-basename>.chk` explicitly and place that exact non-symlink checkpoint beside the input. The staging layer requires `%oldchk` and `%chk` to be distinct local basenames, includes the old checkpoint in `checksums.sha256`, and transfers it through both hops. It refuses paths, symlinks, missing files, and implicit checkpoint discovery.
 
+When the first route uses `Geom=AllCheck`, require a same-stem `gaussian-allcheck-input-manifest/1` created from the TS Skill's passed checkpoint audit. Require the input to end immediately after the route blank line: no title, charge/multiplicity, or coordinates. Recompute and compare the input and `%oldchk` SHA-256, validate contiguous one-based atom order, and report charge/multiplicity/atom count as checkpoint-derived audited metadata. Refuse staging if any hash or atom-order evidence differs.
+
 ```bash
 HELPER="$HOME/.codex/skills/gaussian-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 

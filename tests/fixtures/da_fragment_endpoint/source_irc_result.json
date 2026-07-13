@@ -1,0 +1,25 @@
+{
+  "schema": "gaussian-result/1",
+  "status": "completed",
+  "normal_termination": true,
+  "error_termination": false,
+  "final_energy_hartree": -234.565856106,
+  "final_coordinates": [
+    {"center": 1, "atomic_number": 6, "element": "C", "x": 1.638034, "y": 0.150288, "z": 0.649085},
+    {"center": 2, "atomic_number": 6, "element": "C", "x": 1.061609, "y": 1.127616, "z": -0.069780},
+    {"center": 3, "atomic_number": 6, "element": "C", "x": -0.348148, "y": 1.510141, "z": -0.038989},
+    {"center": 4, "atomic_number": 6, "element": "C", "x": -1.309541, "y": 0.950439, "z": 0.713776},
+    {"center": 5, "atomic_number": 6, "element": "C", "x": -1.138631, "y": -1.600885, "z": -0.611446},
+    {"center": 6, "atomic_number": 6, "element": "C", "x": 0.147686, "y": -1.949879, "z": -0.639782},
+    {"center": 7, "atomic_number": 1, "element": "H", "x": 2.689427, "y": -0.093825, "z": 0.528024},
+    {"center": 8, "atomic_number": 1, "element": "H", "x": 1.098307, "y": -0.412641, "z": 1.402861},
+    {"center": 9, "atomic_number": 1, "element": "H", "x": 1.677637, "y": 1.666334, "z": -0.789223},
+    {"center": 10, "atomic_number": 1, "element": "H", "x": -0.636305, "y": 2.293955, "z": -0.738927},
+    {"center": 11, "atomic_number": 1, "element": "H", "x": -2.344120, "y": 1.272316, "z": 0.638202},
+    {"center": 12, "atomic_number": 1, "element": "H", "x": -1.097992, "y": 0.184024, "z": 1.451542},
+    {"center": 13, "atomic_number": 1, "element": "H", "x": -1.804218, "y": -1.917996, "z": 0.187826},
+    {"center": 14, "atomic_number": 1, "element": "H", "x": -1.588877, "y": -1.004053, "z": -1.398334},
+    {"center": 15, "atomic_number": 1, "element": "H", "x": 0.805036, "y": -1.653577, "z": -1.451083},
+    {"center": 16, "atomic_number": 1, "element": "H", "x": 0.594007, "y": -2.568712, "z": 0.134969}
+  ]
+}
