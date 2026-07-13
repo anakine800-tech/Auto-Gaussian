@@ -440,7 +440,20 @@ def classify_inspection_state(
         workflow_manifest and full_normal_count >= expected_stages and full_error_count == 0
     )
     workflow_failed = bool(workflow_manifest and full_error_count > 0)
-    if workflow_complete:
+    # A single input can contain sequential work (for example, Opt followed by
+    # Freq).  An earlier "Normal termination" does not make the overall job
+    # terminal while PBS still has a live Gaussian session.
+    if qstate == "R" and process_alive is True:
+        state = "running"
+    elif qstate == "Q":
+        state = "queued"
+    elif qstate == "H":
+        state = "held"
+    elif qstate == "E":
+        state = "exiting"
+    elif qstate == "R" and process_alive is None:
+        state = "unknown"
+    elif workflow_complete:
         state = "completed"
     elif workflow_failed:
         state = "failed"
@@ -448,16 +461,8 @@ def classify_inspection_state(
         state = "completed"
     elif not workflow_manifest and analysis["error_termination"]:
         state = "failed"
-    elif qstate == "Q":
-        state = "queued"
-    elif qstate == "R" and process_alive:
-        state = "running"
     elif qstate == "R" and process_alive is False:
         state = "stale"
-    elif qstate == "H":
-        state = "held"
-    elif qstate == "E":
-        state = "exiting"
     elif qstate is None and (
         analysis.get("scf_calculations", 0) > 0
         or analysis.get("final_coordinate_count", 0) > 0

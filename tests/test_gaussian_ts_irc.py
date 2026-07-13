@@ -41,6 +41,7 @@ class TsIrcTests(unittest.TestCase):
     def test_one_imaginary_mode_is_candidate_and_displacement_parses(self) -> None:
         result = TS.analyze_ts_log_text(LOG)
         self.assertTrue(result["first_order_saddle_candidate"])
+        self.assertEqual(result["frequency_count"], 3)
         self.assertEqual(result["raw_imaginary_frequency_count"], 1)
         self.assertEqual(len(result["imaginary_modes"][0]["displacements"]), 2)
 

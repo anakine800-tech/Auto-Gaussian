@@ -32,7 +32,7 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 1. Resolve structure, stereochemistry, charge, multiplicity, protocol, and resource tier. Use `general` when complexity is not clearly simple or complex. For CDX/CDXML, rely on the corrected explicit-H/CFG importer in `gaussian-view-rt-win`.
 2. Run `prepare` when approval is still needed. Show source hash, identity, warnings, route, charge/multiplicity, atom count, cores, memory, and remote directory.
 3. After exact approval, run `auto --confirmed --watch`. It prepares or audits the input, submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
-4. Classify state from three sources: PBS record, PBS session process, and Gaussian log. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate.
+4. Classify state from three sources: PBS record, PBS session process, and Gaussian log. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate.
 5. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and require explicit approval for any restart.
 
 ```bash
@@ -139,8 +139,9 @@ Zombie cleanup changes only a PBS-owned record. It never deletes or modifies `/h
 
 ## Completion evidence
 
-- For optimization success, require `Normal termination` and optimization/stationary-point evidence.
+- For optimization success, require `Normal termination` and optimization/stationary-point evidence. For a same-input `Opt ... Freq` job, require the expected final frequency output and a terminal process/PBS observation; the first normal termination can belong only to the Opt stage.
 - Preserve input, manifest, PBS file, checksums, log, checkpoint, local `job.json`, `result.json`, and optimized XYZ.
+- Fetch only after terminal classification, then parse the newly fetched log. If a prior fetch ended during a running second stage, fetch again before reporting frequencies, thermochemistry, or a TS conclusion.
 - Report final SCF energy only from a completed log.
 - If frequencies were requested, report imaginary-frequency count; never imply a minimum without a frequency calculation.
 
