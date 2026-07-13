@@ -1,0 +1,22 @@
+{
+  "schema": "gaussian-ts-irc-regression-case/1",
+  "case_id": "diels-alder-ethene-butadiene-fragment-endpoint",
+  "sanitized": true,
+  "contains_gaussian_log": false,
+  "contains_checkpoint": false,
+  "expected_components": [
+    {"formula": "C4H6", "source_atom_indices": [1, 2, 3, 4, 7, 8, 9, 10, 11, 12]},
+    {"formula": "C2H4", "source_atom_indices": [5, 6, 13, 14, 15, 16]}
+  ],
+  "expected_fragment_energy_sum_hartree": -234.5739442852,
+  "expected_imaginary_frequency_counts": {
+    "fixture_butad": 0,
+    "fixture_ethene": 0
+  },
+  "negative_case": {
+    "fixture": "combined_endpoint_failure.json",
+    "expected_status": "failed",
+    "expected_optimization_steps": 99,
+    "automatic_retry_allowed": false
+  }
+}

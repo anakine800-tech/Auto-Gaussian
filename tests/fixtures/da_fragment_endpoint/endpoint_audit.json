@@ -1,0 +1,39 @@
+{
+  "schema": "gaussian-irc-endpoint-audit/1",
+  "audit_status": "passed",
+  "project": "fixture_da_irc_f",
+  "direction": "forward",
+  "chemical_side": "reactant",
+  "completed_point": 30,
+  "corrector_convergence_count": 30,
+  "irc_result_sha256": "549d49bc97905fc79b94e83088fbc6a88578c01431cce2851cd6008b2688d370",
+  "charge": 0,
+  "multiplicity": 1,
+  "atom_count": 16,
+  "atom_order": [
+    {"index": 1, "atomic_number": 6, "element": "C"},
+    {"index": 2, "atomic_number": 6, "element": "C"},
+    {"index": 3, "atomic_number": 6, "element": "C"},
+    {"index": 4, "atomic_number": 6, "element": "C"},
+    {"index": 5, "atomic_number": 6, "element": "C"},
+    {"index": 6, "atomic_number": 6, "element": "C"},
+    {"index": 7, "atomic_number": 1, "element": "H"},
+    {"index": 8, "atomic_number": 1, "element": "H"},
+    {"index": 9, "atomic_number": 1, "element": "H"},
+    {"index": 10, "atomic_number": 1, "element": "H"},
+    {"index": 11, "atomic_number": 1, "element": "H"},
+    {"index": 12, "atomic_number": 1, "element": "H"},
+    {"index": 13, "atomic_number": 1, "element": "H"},
+    {"index": 14, "atomic_number": 1, "element": "H"},
+    {"index": 15, "atomic_number": 1, "element": "H"},
+    {"index": 16, "atomic_number": 1, "element": "H"}
+  ],
+  "reviewed_forming_bond_distances": [
+    {"pair": [1, 6], "distance_angstrom": 2.8797598394},
+    {"pair": [4, 5], "distance_angstrom": 2.8800482167}
+  ],
+  "geometry_source": "sanitized_final_irc_fixture",
+  "limitations": [
+    "This fixture contains parsed evidence only; no Gaussian log or checkpoint is included."
+  ]
+}
