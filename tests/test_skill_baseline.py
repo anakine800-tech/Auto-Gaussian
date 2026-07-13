@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).parents[1]
@@ -179,6 +181,141 @@ class RepositoryBaselineTests(unittest.TestCase):
             "safe_job", "123.master", [observation, live]
         )
         self.assertFalse(refused["cleanup_eligible"])
+
+    def test_zombie_cleanup_is_automatic_but_still_evidence_gated(self) -> None:
+        parser = PBS.build_parser()
+        cleanup_args = parser.parse_args(
+            [
+                "cleanup-zombie",
+                "--project",
+                "safe_job",
+                "--job-id",
+                "123.master",
+                "--input-stem",
+                "safe_job",
+                "--local-dir",
+                "/tmp/safe_job",
+            ]
+        )
+        self.assertFalse(cleanup_args.confirmed)
+        diagnosis = {
+            "schema": "pbs-zombie-diagnosis/1",
+            "project": "safe_job",
+            "job_id": "123.master",
+            "classification": "confirmed_scheduler_zombie",
+            "cleanup_eligible": True,
+            "observations": [{"pbs_record_present": True}] * 2,
+        }
+        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+        purged = SimpleNamespace(
+            returncode=153, stdout="", stderr="qstat: Unknown Job Id"
+        )
+        with (
+            mock.patch.object(PBS, "diagnose_zombie", return_value=diagnosis),
+            mock.patch.object(
+                PBS, "nested_ssh", side_effect=lambda _args, *command: list(command)
+            ),
+            mock.patch.object(PBS, "run", side_effect=[completed, purged]) as run,
+            mock.patch.object(PBS.time, "sleep"),
+            mock.patch.object(PBS, "update_job"),
+        ):
+            cleanup = PBS.cleanup_zombie_record(cleanup_args)
+        self.assertEqual(cleanup["status"], "cleared")
+        self.assertTrue(cleanup["qdel_issued"])
+        self.assertEqual(sum("qdel" in call.args[0] for call in run.call_args_list), 1)
+
+        refused_diagnosis = dict(
+            diagnosis,
+            classification="not_confirmed_zombie",
+            cleanup_eligible=False,
+        )
+        with (
+            mock.patch.object(PBS, "diagnose_zombie", return_value=refused_diagnosis),
+            mock.patch.object(PBS, "run") as run,
+            mock.patch.object(PBS, "update_job"),
+        ):
+            refused_cleanup = PBS.cleanup_zombie_record(cleanup_args)
+        self.assertEqual(refused_cleanup["status"], "not_eligible")
+        self.assertFalse(refused_cleanup["qdel_issued"])
+        run.assert_not_called()
+
+        cancel_args = parser.parse_args(["cancel", "--job-id", "123.master"])
+        with (
+            self.assertRaises(SystemExit),
+            mock.patch.object(PBS, "run") as cancel_run,
+        ):
+            PBS.command_cancel(cancel_args)
+        cancel_run.assert_not_called()
+
+    def test_watch_fetch_defaults_to_automatic_zombie_cleanup(self) -> None:
+        parser = PBS.build_parser()
+        with tempfile.TemporaryDirectory() as temp:
+            local_dir = Path(temp) / "bundle"
+            output_dir = Path(temp) / "results"
+            local_dir.mkdir()
+            (local_dir / "job.json").write_text("{}")
+            args = parser.parse_args(
+                [
+                    "watch",
+                    "--project",
+                    "safe_job",
+                    "--job-id",
+                    "123.master",
+                    "--input-stem",
+                    "safe_job",
+                    "--local-dir",
+                    str(local_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--fetch",
+                ]
+            )
+            self.assertTrue(args.auto_cleanup_zombie)
+            final = {
+                "state": "completed",
+                "pbs_state": "R",
+                "log_size": 100,
+                "log_mtime_epoch": 200,
+                "scheduler_zombie_candidate": True,
+                "analysis": {},
+            }
+            cleanup = {
+                "schema": "pbs-zombie-cleanup/1",
+                "status": "cleared",
+                "qdel_issued": True,
+            }
+            with (
+                mock.patch.object(PBS, "inspect_job", return_value=final),
+                mock.patch.object(PBS, "fetch_results", return_value={"analysis": {}}),
+                mock.patch.object(PBS, "update_job"),
+                mock.patch.object(
+                    PBS, "cleanup_zombie_record", return_value=cleanup
+                ) as automatic_cleanup,
+            ):
+                PBS.command_watch(args)
+            automatic_cleanup.assert_called_once()
+            called_args = automatic_cleanup.call_args.args[0]
+            self.assertEqual(called_args.stability_seconds, 10)
+            self.assertEqual(called_args.verify_seconds, 5)
+
+            disabled = parser.parse_args(
+                [
+                    "watch",
+                    "--project",
+                    "safe_job",
+                    "--job-id",
+                    "123.master",
+                    "--input-stem",
+                    "safe_job",
+                    "--local-dir",
+                    str(local_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--fetch",
+                    "--no-auto-cleanup-zombie",
+                ]
+            )
+            self.assertFalse(disabled.auto_cleanup_zombie)
 
     def test_live_freq_stage_is_not_completed_from_opt_marker(self) -> None:
         analysis = {
