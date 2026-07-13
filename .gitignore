@@ -1,0 +1,62 @@
+# macOS and Python build artifacts
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Historical one-off Skill build directories; skills/ is the source of truth.
+/.skill-build/
+/.skill-complete/
+/.skill-fixes/
+/.skill-science/
+/.skill-update/
+
+# Local calculations and Gaussian runtime artifacts
+/outputs/
+**/scratch/
+*.chk
+*.fchk
+*.rwf
+*.int
+*.d2e
+*.skr
+*.scr
+*.cube
+*.cub
+*.pbs.out
+*.log
+!tests/fixtures/*.log
+
+# Machine-local connection configuration and credentials
+/config/ssh_config
+/config/rtwin_gaussian_server_ssh_config
+/config/gaussian_server.json
+/secrets/
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+known_hosts
+known_hosts.old
+
+# Historical one-off operations retained locally but excluded from the safe baseline
+/scripts/check_transfer_hashes.sh
+/scripts/install_gaussian_server_key.sh
+/scripts/submit_chiralb2_opt.sh
+/scripts/submit_piperidine_opt.sh
+/templates/g16.pbs
+/tests/transfer_probe.txt
+/tests/test_gaussian_rtwin_boundary.py
+
+# Editor, worktree, and shell-local files
+/.worktrees/
+/tmp/
+.idea/
+.vscode/
+*.swp
+*~

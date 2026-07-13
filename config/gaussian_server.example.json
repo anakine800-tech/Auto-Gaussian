@@ -1,0 +1,28 @@
+{
+  "host": "<PRIVATE_GAUSSIAN_SERVER_IP>",
+  "user": "<GAUSSIAN_SERVER_USER>",
+  "access_via": "rtwin",
+  "scheduler": {
+    "type": "pbs",
+    "queue": "batch"
+  },
+  "gaussian": {
+    "version": "G16",
+    "root": "/path/to/g16",
+    "executable": "/path/to/g16/g16",
+    "scratch": "/home/<user>/SDL/<project>/scratch"
+  },
+  "resources": {
+    "maximum": {
+      "ncpus": 44,
+      "memory": "120GB"
+    },
+    "default_tier": "general",
+    "tiers": {
+      "simple": {"ncpus": 8, "memory": "12GB"},
+      "general": {"ncpus": 22, "memory": "50GB"},
+      "complex": {"ncpus": 44, "memory": "120GB"}
+    }
+  },
+  "remote_project_root": "/home/<user>/SDL"
+}

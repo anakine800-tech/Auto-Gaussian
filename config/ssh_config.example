@@ -1,0 +1,10 @@
+Host rtwin
+    HostName <TAILSCALE_OR_PRIVATE_WINDOWS_IP>
+    User <WINDOWS_OPENSSH_USER>
+    IdentityFile ~/.ssh/<WINDOWS_SSH_PRIVATE_KEY>
+    IdentitiesOnly yes
+    ConnectTimeout 8
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+    StrictHostKeyChecking yes
+    UserKnownHostsFile ~/.ssh/known_hosts

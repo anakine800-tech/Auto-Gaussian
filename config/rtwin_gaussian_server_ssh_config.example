@@ -1,0 +1,10 @@
+Host gaussian-server
+    HostName <PRIVATE_GAUSSIAN_SERVER_IP>
+    User <GAUSSIAN_SERVER_USER>
+    IdentityFile C:/Users/<WINDOWS_USER>/.ssh/<SERVER_SSH_PRIVATE_KEY>
+    IdentitiesOnly yes
+    ConnectTimeout 8
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+    StrictHostKeyChecking yes
+    UserKnownHostsFile C:/Users/<WINDOWS_USER>/.ssh/known_hosts
