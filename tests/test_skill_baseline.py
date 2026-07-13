@@ -136,6 +136,15 @@ class RepositoryBaselineTests(unittest.TestCase):
         self.assertEqual(manifest["expected_stage_count"], 3)
         self.assertEqual(manifest["chemical_identity"]["formula"], "H2O")
 
+    def test_irc_corrector_failure_has_specific_diagnostic(self) -> None:
+        text = (ROOT / "tests" / "fixtures" / "irc_corrector_failure.log").read_text()
+        result = PBS.analyze_log_text(text)
+        self.assertEqual(result["status"], "failed")
+        self.assertIn(
+            "irc_corrector_convergence",
+            {item["code"] for item in result["diagnostics"]},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

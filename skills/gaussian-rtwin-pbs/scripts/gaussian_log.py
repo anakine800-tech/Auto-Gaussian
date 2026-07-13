@@ -62,6 +62,7 @@ def diagnose(text: str) -> list[dict[str, str]]:
     rules = [
         ("zsymb_eof", "End of file in ZSymb", "Repair Gaussian section termination and trailing blank lines; do not retry unchanged."),
         ("scf_convergence", "Convergence failure", "Review the wavefunction and consider an explicitly approved SCF=XQC restart."),
+        ("irc_corrector_convergence", "Maximum number of corrector steps exceded", "Preserve both directional results and require a new scientific approval before changing IRC integration settings or retrying."),
         ("optimization_steps", "Number of steps exceeded", "Review geometry and convergence; consider an explicitly approved Opt=Restart from checkpoint."),
         ("memory", "Out-of-memory", "Reduce memory demand or resource use; never exceed the 120 GB server ceiling."),
         ("memory", "galloc", "Inspect the final Link error and reduce memory demand if confirmed."),
