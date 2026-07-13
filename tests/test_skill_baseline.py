@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -227,6 +228,45 @@ class RepositoryBaselineTests(unittest.TestCase):
             ["C4H6", "C2H4"],
         )
         self.assertFalse(any(path.suffix.lower() in {".log", ".chk"} for path in fixture.iterdir()))
+
+    def test_da_fragment_live_smoke_evidence_is_sanitized_and_passed(self) -> None:
+        path = (
+            ROOT
+            / "tests"
+            / "fixtures"
+            / "da_fragment_endpoint"
+            / "live_smoke_evidence.json"
+        )
+        evidence = json.loads(path.read_text())
+        self.assertEqual(
+            evidence["schema"], "gaussian-ts-irc-live-smoke-evidence/1"
+        )
+        self.assertTrue(evidence["sanitized"])
+        for forbidden_flag in (
+            "contains_job_ids",
+            "contains_server_paths",
+            "contains_gaussian_log",
+            "contains_checkpoint",
+        ):
+            self.assertFalse(evidence[forbidden_flag])
+        self.assertEqual(evidence["validation_status"], "passed")
+        self.assertEqual(evidence["installed_gaussian_revision"], "Gaussian 16 Revision A.03")
+        self.assertEqual(evidence["resources"]["memory"], "50GB")
+        self.assertEqual(evidence["resources"]["nprocshared"], 22)
+        self.assertEqual(
+            [fragment["formula"] for fragment in evidence["fragments"]],
+            ["C4H6", "C2H4"],
+        )
+        for fragment in evidence["fragments"]:
+            self.assertEqual(fragment["imaginary_frequency_count"], 0)
+            self.assertTrue(fragment["minimum_accepted"])
+            self.assertRegex(fragment["input_sha256"], re.compile(r"^[0-9a-f]{64}$"))
+            self.assertRegex(
+                fragment["parsed_result_sha256"], re.compile(r"^[0-9a-f]{64}$")
+            )
+        serialized = path.read_text()
+        self.assertNotIn("/home/", serialized)
+        self.assertNotIn(".master", serialized)
 
     def test_ts_skill_documents_disconnected_endpoint_gates(self) -> None:
         text = (ROOT / "skills" / "gaussian-ts-irc" / "SKILL.md").read_text()
