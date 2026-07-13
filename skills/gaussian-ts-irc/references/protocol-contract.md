@@ -6,15 +6,19 @@ Record a workflow ID, PBS-safe prefix (1–15 letters/digits/underscores), sourc
 
 The complete TS/Freq, forward-IRC, reverse-IRC, endpoint Opt/Freq routes are user-supplied protocol values. Never use a placeholder or convert a route between stages implicitly. Confirm exact G16 IRC keyword support for the installed revision before generating a real input.
 
+Record the Gaussian revision parsed from the completed TS log in every IRC plan and reject a manually supplied mismatch. The forward route must explicitly contain the forward direction keyword and not the reverse keyword; the reverse route must satisfy the converse. Reject swapped or directionless routes even when their remaining keywords are identical.
+
 For QST2/QST3, validate atom correspondence locally but keep raw multi-structure input generation disabled until a known-good input from the installed G16 revision is available. A local Cartesian parser cannot establish whether a particular separator or repeated charge/multiplicity block will be accepted by Gaussian. On `End of file in ZSymb`, preserve the log and stop; obtain a verified input example rather than using the scheduler as a syntax test loop.
 
 ## Results
 
 `gaussian-ts-freq-result/1` holds termination/error evidence, stationary-point status, energy, frequencies, raw imaginary count, parsed displacement vectors, final geometry, candidate status, mode-review status, hashes, and diagnostics. Exactly one negative frequency makes `first_order_saddle_candidate` true only when normal/stationary/frequency evidence is also present.
 
+`gaussian-ts-mode-review/1` is an immutable evidence artifact bound to the TS-result SHA-256. Its plus/minus XYZ files are visualization aids and must be opened directly, not disguised as runnable Gaussian inputs. `gaussian-ts-mode-decision/1` is a separate, explicitly confirmed record bound to both the review and TS-result hashes. Never mutate the TS result or mode-review artifact to record acceptance. A changed source hash invalidates the decision.
+
 For a same-input `Opt ... Freq` calculation, parse only a post-terminal fetch. The Opt stage can write one normal termination before the Freq stage begins; a live Gaussian process takes precedence over that intermediate marker.
 
-`gaussian-irc-plan/1` is a local submission plan, not a job. It records direction, reviewed TS result hash, checkpoint hash, supplied route, resource tier, and fresh project. It must be handed to the PBS layer only after G3 approval.
+`gaussian-irc-plan/1` is a local submission plan, not a job. It records the verified G16 revision, direction, reviewed TS-result hash, accepted mode-decision hash, checkpoint hash, supplied route, resource tier, and fresh project. It must be handed to the PBS layer only after G3 approval.
 
 Final validation needs both complete IRC direction results plus endpoint Opt/Freq evidence. A failed IRC does not by itself disprove the stationary point; it means the intended connection was not established.
 

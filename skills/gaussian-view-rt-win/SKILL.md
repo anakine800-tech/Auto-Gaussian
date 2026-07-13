@@ -25,7 +25,7 @@ Never store or echo a password. Windows Hello PIN is not an SSH password.
 3. Inspect the generated 2D preview for CDX/CDXML inputs and read every warning. Stop on an unassigned tetrahedral center unless the user explicitly requests a preview with unresolved stereo. Never use preview acceptance as calculation approval.
 4. Show a concise preflight: source, canonical isomeric SMILES, formula, charge/multiplicity, stereochemistry, geometry method, route, atom count, warnings.
 5. Reuse one SSH master connection for all remote operations. If absent, run `scripts/windows_gaussview.py master`; let the user type the Windows account password once in Terminal.
-6. Run `scripts/windows_gaussview.py open <gjf> --project <name>`. Require matching local/remote SHA-256 before launch. The script creates a temporary interactive scheduled task so GaussView opens in `Console` rather than invisible `Services` session, then deletes the task.
+6. Run `scripts/windows_gaussview.py open <structure> --project <name>` for `.gjf`, `.com`, or visualization-only `.xyz` files. Require matching local/remote SHA-256 before launch. The script creates a temporary interactive scheduled task so GaussView opens in `Console` rather than invisible `Services` session, then deletes the task.
 7. Report both local and Windows paths. State explicitly that opening a `.gjf` is not a Gaussian calculation.
 
 ## Commands
@@ -53,6 +53,13 @@ Transfer, verify, and open:
 /Users/sundeli/miniforge3/envs/chem/bin/python \
   ~/.codex/skills/gaussian-view-rt-win/scripts/windows_gaussview.py \
   open /path/to/project_cartesian.gjf --project project
+```
+
+Open TS imaginary-mode displacement artifacts directly without wrapping them in runnable Gaussian inputs:
+
+```bash
+python3 ~/.codex/skills/gaussian-view-rt-win/scripts/windows_gaussview.py \
+  open /path/to/mode_plus.xyz --project ts_mode_plus
 ```
 
 ## Accuracy gates

@@ -198,6 +198,7 @@ def parse_modes(text: str) -> tuple[list[dict[str, Any]], list[str]]:
 
 def analyze_ts_log_text(text: str) -> dict[str, Any]:
     energy = re.findall(r"SCF Done:\s+E\([^)]*\)\s*=\s*([-+0-9.DEded]+)", text)
+    revision = re.search(r"Gaussian 16,\s+Revision\s+([^,\r\n]+)", text)
     modes, diagnostics = parse_modes(text)
     frequencies = [item["frequency_cm-1"] for item in modes]
     negative = [item for item in modes if item["frequency_cm-1"] < 0]
@@ -209,7 +210,7 @@ def analyze_ts_log_text(text: str) -> dict[str, Any]:
     candidate = normal_count > 0 and error_count == 0 and stationary and optimization and frequency_complete and len(negative) == 1
     if len(negative) == 1 and not negative[0]["displacements"]:
         diagnostics.append("imaginary mode has no displacement table")
-    return {"schema": "gaussian-ts-freq-result/1", "status": "completed" if normal_count and not error_count else "failed" if error_count else "incomplete", "normal_termination_count": normal_count, "error_termination_count": error_count, "optimization_completed": optimization, "stationary_point_found": stationary, "final_energy_hartree": _float(energy[-1]) if energy else None, "frequency_count": len(frequencies), "frequencies_cm-1": frequencies, "raw_imaginary_frequency_count": len(negative), "imaginary_modes": negative, "final_coordinates": _last_orientation(text), "first_order_saddle_candidate": candidate, "mode_review_status": "pending" if candidate else "not_eligible", "diagnostics": diagnostics}
+    return {"schema": "gaussian-ts-freq-result/1", "status": "completed" if normal_count and not error_count else "failed" if error_count else "incomplete", "g16_revision": revision.group(1).strip() if revision else None, "normal_termination_count": normal_count, "error_termination_count": error_count, "optimization_completed": optimization, "stationary_point_found": stationary, "final_energy_hartree": _float(energy[-1]) if energy else None, "frequency_count": len(frequencies), "frequencies_cm-1": frequencies, "raw_imaginary_frequency_count": len(negative), "imaginary_modes": negative, "final_coordinates": _last_orientation(text), "first_order_saddle_candidate": candidate, "mode_review_status": "pending" if candidate else "not_eligible", "diagnostics": diagnostics}
 
 
 def _distance(a: dict[str, Any], b: dict[str, Any]) -> float:
@@ -232,7 +233,7 @@ def _write_xyz(path: Path, geometry: dict[int, dict[str, Any]], comment: str) ->
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def create_mode_review(result: dict[str, Any], pairs: list[tuple[int, int]], output_dir: Path, amplitude: float) -> dict[str, Any]:
+def create_mode_review(result: dict[str, Any], pairs: list[tuple[int, int]], output_dir: Path, amplitude: float, result_sha256: str) -> dict[str, Any]:
     if not result.get("first_order_saddle_candidate"):
         raise ValueError("TS result is not an eligible first-order-saddle candidate")
     mode = result["imaginary_modes"][0]
@@ -248,39 +249,68 @@ def create_mode_review(result: dict[str, Any], pairs: list[tuple[int, int]], out
         if first not in geometry or second not in geometry:
             raise ValueError(f"declared pair {first},{second} is outside the geometry")
         projections.append({"pair": [first, second], "equilibrium_angstrom": _distance(geometry[first], geometry[second]), "plus_angstrom": _distance(plus_map[first], plus_map[second]), "minus_angstrom": _distance(minus_map[first], minus_map[second]), "plus_minus_change_angstrom": _distance(plus_map[first], plus_map[second]) - _distance(minus_map[first], minus_map[second])})
-    review = {"schema": "gaussian-ts-mode-review/1", "imaginary_frequency_cm-1": mode["frequency_cm-1"], "amplitude": amplitude, "distance_projections": projections, "displacements": mode["displacements"], "scientific_decision": "required"}
+    review = {"schema": "gaussian-ts-mode-review/1", "ts_result_sha256": result_sha256, "imaginary_frequency_cm-1": mode["frequency_cm-1"], "amplitude": amplitude, "distance_projections": projections, "displacements": mode["displacements"], "visualization_artifacts": ["mode_plus.xyz", "mode_minus.xyz"], "scientific_decision": "required"}
     (output_dir / "mode_review.json").write_text(json.dumps(review, indent=2) + "\n", encoding="utf-8")
     _write_xyz(output_dir / "mode_plus.xyz", plus_map, f"Imaginary mode +{amplitude:g}; visualization aid only")
     _write_xyz(output_dir / "mode_minus.xyz", minus_map, f"Imaginary mode -{amplitude:g}; visualization aid only")
     return review
 
 
-def record_mode_decision(path: Path, decision: str) -> dict[str, Any]:
-    result = json.loads(path.read_text(encoding="utf-8"))
-    if result.get("mode_review_status") != "pending":
-        raise ValueError("mode decision is allowed only for a pending, eligible result")
-    result["mode_review_status"] = decision
-    path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    return result
+def record_mode_decision(review_path: Path, decision: str, output_path: Path) -> dict[str, Any]:
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    if review.get("schema") != "gaussian-ts-mode-review/1" or review.get("scientific_decision") != "required":
+        raise ValueError("mode decision requires an unmodified pending mode-review artifact")
+    if not review.get("ts_result_sha256"):
+        raise ValueError("mode review is not bound to a TS result hash")
+    if output_path.exists():
+        raise ValueError("refusing to overwrite an existing mode-decision record")
+    record = {
+        "schema": "gaussian-ts-mode-decision/1",
+        "mode_review_sha256": sha256(review_path),
+        "ts_result_sha256": review["ts_result_sha256"],
+        "imaginary_frequency_cm-1": review.get("imaginary_frequency_cm-1"),
+        "decision": decision,
+        "confirmed": True,
+    }
+    output_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    return record
 
 
 def route_is_complete(route: str) -> bool:
     return route.strip().startswith("#") and "<" not in route and ">" not in route and "todo" not in route.lower()
 
 
-def build_irc_plan(family: dict[str, Any], ts_path: Path, checkpoint: Path, forward_route: str, reverse_route: str, forward_project: str, reverse_project: str) -> dict[str, Any]:
+def _validate_directional_irc_route(route: str, direction: str) -> None:
+    lowered = route.lower()
+    opposite = "reverse" if direction == "forward" else "forward"
+    if not route_is_complete(route) or not re.search(r"\birc\b", lowered) or not re.search(rf"\b{direction}\b", lowered) or re.search(rf"\b{opposite}\b", lowered):
+        raise ValueError(f"{direction} route must be a complete IRC route containing only its explicit direction keyword")
+
+
+def build_irc_plan(family: dict[str, Any], ts_path: Path, checkpoint: Path, review_path: Path, decision_path: Path, g16_revision: str, forward_route: str, reverse_route: str, forward_project: str, reverse_project: str) -> dict[str, Any]:
     result = json.loads(ts_path.read_text(encoding="utf-8"))
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
     if family.get("schema") != SCHEMA:
         raise ValueError("unrecognized family manifest schema")
-    if result.get("mode_review_status") != "accepted":
+    if not result.get("first_order_saddle_candidate"):
+        raise ValueError("IRC planning requires an eligible TS result")
+    if decision.get("schema") != "gaussian-ts-mode-decision/1" or decision.get("decision") != "accepted" or decision.get("confirmed") is not True:
         raise ValueError("IRC planning requires an explicitly accepted imaginary-mode review")
+    if decision.get("ts_result_sha256") != sha256(ts_path):
+        raise ValueError("mode decision is not bound to this TS result hash")
+    if decision.get("mode_review_sha256") != sha256(review_path):
+        raise ValueError("mode decision is not bound to this mode-review hash")
     if not checkpoint.is_file():
         raise ValueError("reviewed TS checkpoint is missing")
+    if not g16_revision.strip() or any(char in g16_revision for char in "<>\n\r"):
+        raise ValueError("the verified installed Gaussian 16 revision is required")
+    if result.get("g16_revision") != g16_revision.strip():
+        raise ValueError("declared G16 revision does not match the revision parsed from the TS log")
     if not all(PROJECT_RE.fullmatch(name) for name in (forward_project, reverse_project)) or forward_project == reverse_project:
         raise ValueError("IRC projects must be distinct 1–15 character PBS-safe names")
-    if not route_is_complete(forward_route) or not route_is_complete(reverse_route):
-        raise ValueError("both IRC routes must be complete approved Gaussian route sections, not placeholders")
-    return {"schema": "gaussian-irc-plan/1", "workflow_id": family.get("workflow_id"), "ts_result_sha256": sha256(ts_path), "checkpoint_sha256": sha256(checkpoint), "directions": [{"direction": "forward", "project": forward_project, "route": forward_route}, {"direction": "reverse", "project": reverse_project, "route": reverse_route}], "submission_status": "planned_not_submitted", "notes": ["Use gaussian-rtwin-pbs only after exact G3 approval.", "This plan does not grant submission, cancellation, overwrite, or deletion permission."]}
+    _validate_directional_irc_route(forward_route, "forward")
+    _validate_directional_irc_route(reverse_route, "reverse")
+    return {"schema": "gaussian-irc-plan/1", "workflow_id": family.get("workflow_id"), "g16_revision": g16_revision.strip(), "ts_result_sha256": sha256(ts_path), "mode_decision_sha256": sha256(decision_path), "checkpoint_sha256": sha256(checkpoint), "directions": [{"direction": "forward", "project": forward_project, "route": forward_route}, {"direction": "reverse", "project": reverse_project, "route": reverse_route}], "submission_status": "planned_not_submitted", "notes": ["Use gaussian-rtwin-pbs only after exact G3 approval.", "This plan does not grant submission, cancellation, overwrite, or deletion permission."]}
 
 
 def main() -> int:
@@ -290,8 +320,8 @@ def main() -> int:
     family = sub.add_parser("create-family"); family.add_argument("--input-audit", required=True); family.add_argument("--protocol", required=True); family.add_argument("--output", required=True)
     analyze = sub.add_parser("analyze-ts"); analyze.add_argument("log"); analyze.add_argument("--output", required=True)
     review = sub.add_parser("mode-review"); review.add_argument("result"); review.add_argument("--output-dir", required=True); review.add_argument("--forming", action="append", default=[]); review.add_argument("--breaking", action="append", default=[]); review.add_argument("--amplitude", type=float, default=0.1)
-    decide = sub.add_parser("record-mode-decision"); decide.add_argument("result"); decide.add_argument("--decision", choices=["accepted", "rejected", "unclear"], required=True); decide.add_argument("--confirmed", action="store_true")
-    plan = sub.add_parser("plan-irc"); plan.add_argument("family"); plan.add_argument("--ts-result", required=True); plan.add_argument("--checkpoint", required=True); plan.add_argument("--forward-route", required=True); plan.add_argument("--reverse-route", required=True); plan.add_argument("--forward-project", required=True); plan.add_argument("--reverse-project", required=True); plan.add_argument("--output", required=True); plan.add_argument("--confirmed", action="store_true")
+    decide = sub.add_parser("record-mode-decision"); decide.add_argument("mode_review"); decide.add_argument("--decision", choices=["accepted", "rejected", "unclear"], required=True); decide.add_argument("--output", required=True); decide.add_argument("--confirmed", action="store_true")
+    plan = sub.add_parser("plan-irc"); plan.add_argument("family"); plan.add_argument("--ts-result", required=True); plan.add_argument("--checkpoint", required=True); plan.add_argument("--mode-review", required=True); plan.add_argument("--mode-decision", required=True); plan.add_argument("--g16-revision", required=True); plan.add_argument("--forward-route", required=True); plan.add_argument("--reverse-route", required=True); plan.add_argument("--forward-project", required=True); plan.add_argument("--reverse-project", required=True); plan.add_argument("--output", required=True); plan.add_argument("--confirmed", action="store_true")
     args = parser.parse_args()
     try:
         if args.command == "validate-inputs":
@@ -310,14 +340,17 @@ def main() -> int:
             result = analyze_ts_log_text(Path(args.log).read_text(encoding="utf-8", errors="replace")); result["log_sha256"] = sha256(Path(args.log)); Path(args.output).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "mode-review":
             pairs = [tuple(map(int, raw.split(","))) for raw in args.forming + args.breaking]
-            create_mode_review(json.loads(Path(args.result).read_text(encoding="utf-8")), pairs, Path(args.output_dir), args.amplitude)
+            result_path = Path(args.result)
+            create_mode_review(json.loads(result_path.read_text(encoding="utf-8")), pairs, Path(args.output_dir), args.amplitude, sha256(result_path))
         elif args.command == "record-mode-decision":
             if not args.confirmed: raise ValueError("mode decision requires --confirmed after scientific review")
-            record_mode_decision(Path(args.result), args.decision)
+            record_mode_decision(Path(args.mode_review), args.decision, Path(args.output))
         else:
             if not args.confirmed: raise ValueError("IRC planning requires --confirmed after exact G3 approval")
-            result = build_irc_plan(json.loads(Path(args.family).read_text(encoding="utf-8")), Path(args.ts_result), Path(args.checkpoint), args.forward_route, args.reverse_route, args.forward_project, args.reverse_project)
-            Path(args.output).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            output_path = Path(args.output)
+            if output_path.exists(): raise ValueError("refusing to overwrite an existing IRC plan")
+            result = build_irc_plan(json.loads(Path(args.family).read_text(encoding="utf-8")), Path(args.ts_result), Path(args.checkpoint), Path(args.mode_review), Path(args.mode_decision), args.g16_revision, args.forward_route, args.reverse_route, args.forward_project, args.reverse_project)
+            output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     return 0

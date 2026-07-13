@@ -23,8 +23,8 @@ Use this Skill for the scientific layer only. Use `gaussian-rtwin-pbs` for the R
 3. Create an immutable local family manifest. It contains hashes and approval states but neither submits nor writes to the server.
 4. After the user approves the exact TS project, use `gaussian-rtwin-pbs` to stage and run the separately prepared TS/Freq input. Fetch the log and checkpoint before proceeding.
 5. Fetch after terminal process/PBS evidence, then run `analyze-ts` and create `mode-review` artifacts. Require normal TS/Freq termination, stationary-point evidence, exactly one raw negative frequency, and a complete displacement block. Re-fetch if an earlier automatic snapshot ended after Opt but before Freq.
-6. Show the displacement table and declared-distance changes; obtain a scientific decision with `record-mode-decision --confirmed`. A distance projection is evidence, not automatic acceptance.
-7. Only after exact IRC approval, use `plan-irc` to create two new, hash-bound PBS submission plans. Supply complete, verified forward/reverse routes—this Skill does not manufacture Gaussian IRC keywords.
+6. Open `mode_plus.xyz` and `mode_minus.xyz` directly with `gaussian-view-rt-win`, show the displacement table and declared-distance changes, then obtain a scientific decision with `record-mode-decision --confirmed`. The command creates a separate immutable decision record bound to the TS-result and mode-review hashes; it never edits either source artifact. A distance projection is evidence, not automatic acceptance.
+7. Only after exact IRC approval, use `plan-irc` to create two new, hash-bound PBS submission plans. Supply the verified installed G16 revision plus complete, verified routes containing explicit and non-swapped `Forward`/`Reverse` direction keywords—this Skill does not manufacture Gaussian IRC keywords.
 8. Submit each direction through `gaussian-rtwin-pbs` into fresh projects, fetch results, then assess endpoints separately. Never submit a replacement automatically.
 
 ## Offline commands
@@ -40,22 +40,28 @@ python3 "$TOOL" create-family --input-audit input_audit.json \
 python3 "$TOOL" analyze-ts ts_freq.log --output ts_freq_result.json
 python3 "$TOOL" mode-review ts_freq_result.json --output-dir mode_review \
   --forming 1,7 --breaking 2,5
-python3 "$TOOL" record-mode-decision ts_freq_result.json --decision accepted --confirmed
+python3 ~/.codex/skills/gaussian-view-rt-win/scripts/windows_gaussview.py \
+  open mode_review/mode_plus.xyz --project abc_mode_plus
+python3 "$TOOL" record-mode-decision mode_review/mode_review.json \
+  --decision accepted --output mode_decision.json --confirmed
 
 python3 "$TOOL" plan-irc family.json --ts-result ts_freq_result.json \
-  --checkpoint ts.chk --forward-route '#p <approved route>' \
-  --reverse-route '#p <approved route>' --forward-project abc_if \
-  --reverse-project abc_ir --confirmed
+  --checkpoint ts.chk --mode-review mode_review/mode_review.json \
+  --mode-decision mode_decision.json \
+  --g16-revision '<revision parsed from TS log>' \
+  --forward-route '#p <approved IRC Forward route>' \
+  --reverse-route '#p <approved IRC Reverse route>' --forward-project abc_if \
+  --reverse-project abc_ir --output irc_plan.json --confirmed
 ```
 
-`record-mode-decision` and `plan-irc` only change local artifacts. `plan-irc` refuses any status other than `accepted`, projects outside the PBS-safe naming rule, missing checkpoint hashes, or placeholder routes.
+`record-mode-decision` and `plan-irc` create new local artifacts and refuse overwrite. `plan-irc` refuses decisions other than hash-bound `accepted`, a changed TS result, projects outside the PBS-safe naming rule, missing checkpoint hashes, absent G16 revision, placeholder routes, or swapped/missing direction keywords.
 
 ## Interpretation gates
 
 - **G0**: approve chemical identities, atom map, coordinates, all routes, tiers, and fresh project names.
 - **G1**: validate Cartesian input, atom order, charge/multiplicity, and hashes.
 - **G2**: require exactly one raw imaginary frequency and review its displacement against the intended reaction coordinate.
-- **G3**: approve the reviewed TS hash, checkpoint hash, each IRC route, resources, and two new project names.
+- **G3**: approve the reviewed TS hash, immutable mode-decision hash, checkpoint hash, verified G16 revision, each directional IRC route, resources, and two new project names.
 - **G4**: require separately approved endpoint Opt/Freq jobs, zero imaginary frequencies at endpoints, and identity/connectivity/stereochemistry comparison before claiming a reaction path.
 
 Do not label forward/reverse chemically until endpoint identity comparison. If anything fails, preserve evidence and report `incomplete`, `failed`, or `inconclusive`; never reinterpret it as a validated transition state.
