@@ -1,0 +1,19 @@
+{
+  "schema": "gaussian-result/1",
+  "status": "failed",
+  "normal_termination": false,
+  "error_termination": true,
+  "optimization_completed": false,
+  "stationary_point_found": false,
+  "optimization_success": false,
+  "optimization_steps": 99,
+  "frequency_count": 0,
+  "imaginary_frequency_count": 0,
+  "diagnostics": [
+    {
+      "code": "optimization_steps",
+      "evidence": "Number of steps exceeded",
+      "interpretation": "Separated fragments drift in near-free intermolecular translation and rotation; do not accept or automatically increase MaxCycle."
+    }
+  ]
+}

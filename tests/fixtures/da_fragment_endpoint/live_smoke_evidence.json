@@ -1,0 +1,67 @@
+{
+  "schema": "gaussian-ts-irc-live-smoke-evidence/1",
+  "recorded_date": "2026-07-14",
+  "sanitized": true,
+  "contains_job_ids": false,
+  "contains_server_paths": false,
+  "contains_gaussian_log": false,
+  "contains_checkpoint": false,
+  "installed_gaussian_revision": "Gaussian 16 Revision A.03",
+  "route": "#p b3lyp/6-31g(d) opt=(tight,calcfc) freq int=ultrafine",
+  "resources": {
+    "memory": "50GB",
+    "nprocshared": 22,
+    "pbs_nodes": 1,
+    "pbs_ppn": 22
+  },
+  "transport_evidence": {
+    "rtwin_sha256_verified": true,
+    "server_sha256_verified": true,
+    "fresh_project_guards_passed": true
+  },
+  "fragment_plan_sha256": "fda5b2b06aa64b728837e1913826674ceb6980f1581f6f1e73f198242384e76b",
+  "validation_sha256": "21d7eace9dcbf9b675f3560457829725abd586adef6219826c5a50caa05df313",
+  "validation_status": "passed",
+  "fragments": [
+    {
+      "identity": "1,3-butadiene",
+      "formula": "C4H6",
+      "atom_count": 10,
+      "input_sha256": "b3528b2defb44b0c8e37e998c015262143484886422011dc6652e22d100b6c42",
+      "parsed_result_sha256": "85d3976e027809e8291abd7310d00372bda49d2f94b9b63b63522cb19adb3b90",
+      "normal_termination_count": 2,
+      "optimization_steps": 9,
+      "frequency_count": 24,
+      "imaginary_frequency_count": 0,
+      "lowest_frequency_cm-1": 155.4901,
+      "final_energy_hartree": -155.986485598,
+      "minimum_accepted": true
+    },
+    {
+      "identity": "ethene",
+      "formula": "C2H4",
+      "atom_count": 6,
+      "input_sha256": "88a47dc61930b5f2e5fbb130339b08592e66df76dd861d685f8c8ed450ea3277",
+      "parsed_result_sha256": "1491acd990cb507b65e4381b005d72cd6386acf17fc45394be53d51f0e90dcf7",
+      "normal_termination_count": 2,
+      "optimization_steps": 3,
+      "frequency_count": 12,
+      "imaginary_frequency_count": 0,
+      "lowest_frequency_cm-1": 834.826,
+      "final_energy_hartree": -78.5874586872,
+      "minimum_accepted": true
+    }
+  ],
+  "isolated_fragment_electronic_energy_sum_hartree": -234.5739442852,
+  "scheduler_evidence": {
+    "repeated_zombie_diagnosis_required": true,
+    "exact_confirmations_obtained": true,
+    "records_cleared": true,
+    "server_project_files_changed": false
+  },
+  "limitations": [
+    "The isolated-fragment electronic-energy sum is not a reaction Gibbs energy.",
+    "No finite-distance supermolecule minimum is implied.",
+    "Large Gaussian outputs and checkpoints remain local and are not regression fixtures."
+  ]
+}

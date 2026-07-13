@@ -32,7 +32,7 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 1. Resolve structure, stereochemistry, charge, multiplicity, protocol, and resource tier. Use `general` when complexity is not clearly simple or complex. For CDX/CDXML, rely on the corrected explicit-H/CFG importer in `gaussian-view-rt-win`.
 2. Run `prepare` when approval is still needed. Show source hash, identity, warnings, route, charge/multiplicity, atom count, cores, memory, and remote directory.
 3. After exact approval, run `auto --confirmed --watch`. It prepares or audits the input, submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
-4. Classify state from three sources: PBS record, PBS session process, and Gaussian log. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate.
+4. Classify state from three sources: PBS record, PBS session process, and Gaussian log. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate.
 5. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and require explicit approval for any restart.
 
 ```bash
@@ -93,6 +93,10 @@ Accept only conformers promoted by `gaussian-view-rt-win/scripts/prepare_conform
 
 ## Individual operations
 
+For a checkpoint-dependent continuation such as an approved IRC, declare `%oldchk=<reviewed-basename>.chk` explicitly and place that exact non-symlink checkpoint beside the input. The staging layer requires `%oldchk` and `%chk` to be distinct local basenames, includes the old checkpoint in `checksums.sha256`, and transfers it through both hops. It refuses paths, symlinks, missing files, and implicit checkpoint discovery.
+
+When the first route uses `Geom=AllCheck`, require a same-stem `gaussian-allcheck-input-manifest/1` created from the TS Skill's passed checkpoint audit. Require the input to end immediately after the route blank line: no title, charge/multiplicity, or coordinates. Recompute and compare the input and `%oldchk` SHA-256, validate contiguous one-based atom order, and report charge/multiplicity/atom count as checkpoint-derived audited metadata. Refuse staging if any hash or atom-order evidence differs.
+
 ```bash
 HELPER="$HOME/.codex/skills/gaussian-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 
@@ -139,8 +143,9 @@ Zombie cleanup changes only a PBS-owned record. It never deletes or modifies `/h
 
 ## Completion evidence
 
-- For optimization success, require `Normal termination` and optimization/stationary-point evidence.
+- For optimization success, require `Normal termination` and optimization/stationary-point evidence. For a same-input `Opt ... Freq` job, require the expected final frequency output and a terminal process/PBS observation; the first normal termination can belong only to the Opt stage.
 - Preserve input, manifest, PBS file, checksums, log, checkpoint, local `job.json`, `result.json`, and optimized XYZ.
+- Fetch only after terminal classification, then parse the newly fetched log. If a prior fetch ended during a running second stage, fetch again before reporting frequencies, thermochemistry, or a TS conclusion.
 - Report final SCF energy only from a completed log.
 - If frequencies were requested, report imaginary-frequency count; never imply a minimum without a frequency calculation.
 
