@@ -15,6 +15,7 @@ assert SPEC and SPEC.loader
 TS = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(TS)
 
 LOG = """\
+ Gaussian 16, Revision A.03,
  Optimization completed.
  -- Stationary point found.
  Standard orientation:
@@ -41,6 +42,7 @@ class TsIrcTests(unittest.TestCase):
     def test_one_imaginary_mode_is_candidate_and_displacement_parses(self) -> None:
         result = TS.analyze_ts_log_text(LOG)
         self.assertTrue(result["first_order_saddle_candidate"])
+        self.assertEqual(result["g16_revision"], "A.03")
         self.assertEqual(result["frequency_count"], 3)
         self.assertEqual(result["raw_imaginary_frequency_count"], 1)
         self.assertEqual(len(result["imaginary_modes"][0]["displacements"]), 2)
@@ -67,15 +69,37 @@ class TsIrcTests(unittest.TestCase):
     def test_mode_review_and_irc_plan_require_explicit_promotion(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); result = TS.analyze_ts_log_text(LOG)
-            TS.create_mode_review(result, [(1, 2)], root / "review", 0.1)
+            result_path = root / "ts.json"; result_path.write_text(json.dumps(result))
+            TS.create_mode_review(result, [(1, 2)], root / "review", 0.1, TS.sha256(result_path))
             self.assertTrue((root / "review" / "mode_plus.xyz").is_file())
             self.assertTrue((root / "review" / "mode_minus.xyz").is_file())
-            result_path = root / "ts.json"; result_path.write_text(json.dumps(result))
-            with self.assertRaises(ValueError): TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, root / "ts.chk", "#p IRC", "#p IRC", "abc_if", "abc_ir")
-            TS.record_mode_decision(result_path, "accepted")
+            decision_path = root / "mode_decision.json"
+            TS.record_mode_decision(root / "review" / "mode_review.json", "accepted", decision_path)
+            self.assertEqual(json.loads(result_path.read_text())["mode_review_status"], "pending")
             checkpoint = root / "ts.chk"; checkpoint.write_bytes(b"checkpoint")
-            plan = TS.build_irc_plan({"schema": TS.SCHEMA, "workflow_id": "test"}, result_path, checkpoint, "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir")
+            plan = TS.build_irc_plan({"schema": TS.SCHEMA, "workflow_id": "test"}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir")
             self.assertEqual(plan["submission_status"], "planned_not_submitted")
+            self.assertEqual(plan["g16_revision"], "A.03")
+
+    def test_irc_plan_rejects_swapped_directions_and_hash_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); result = TS.analyze_ts_log_text(LOG)
+            result_path = root / "ts.json"; result_path.write_text(json.dumps(result))
+            TS.create_mode_review(result, [(1, 2)], root / "review", 0.1, TS.sha256(result_path))
+            decision_path = root / "decision.json"
+            TS.record_mode_decision(root / "review" / "mode_review.json", "accepted", decision_path)
+            checkpoint = root / "ts.chk"; checkpoint.write_bytes(b"checkpoint")
+            with self.assertRaises(ValueError):
+                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Reverse)", "#p IRC=(Forward)", "abc_if", "abc_ir")
+            review_path = root / "review" / "mode_review.json"
+            review = json.loads(review_path.read_text())
+            review_path.write_text(json.dumps({**review, "amplitude": 0.2}))
+            with self.assertRaises(ValueError):
+                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, review_path, decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir")
+            review_path.write_text(json.dumps(review, indent=2) + "\n")
+            result_path.write_text(json.dumps({**result, "diagnostics": ["changed"]}))
+            with self.assertRaises(ValueError):
+                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir")
 
     def test_family_manifest_requires_explicit_routes_and_tiers(self) -> None:
         audit = {"schema": TS.SCHEMA, "valid": True}

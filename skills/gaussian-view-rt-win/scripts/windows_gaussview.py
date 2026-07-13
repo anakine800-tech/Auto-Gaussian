@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reuse one SSH master to verify, transfer, and visibly open a GJF in Windows GaussView."""
+"""Reuse one SSH master to verify, transfer, and visibly open a structure in GaussView."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ TARGET = f"{USER}@{HOST}"
 SOCKET = "/tmp/codex-windows-gaussview.sock"
 REMOTE_ROOT = r"<WINDOWS_HOME>\Desktop\GaussianProjects"
 GVIEW = r"D:\gs\g16\G16W\gview.exe"
+OPEN_SUFFIXES = {".gjf", ".com", ".xyz"}
 
 
 def run(command: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -58,12 +59,21 @@ def open_master() -> int:
     return 0
 
 
-def open_gjf(source: Path, project: str) -> int:
+def validate_open_source(source: Path) -> Path:
+    source = source.expanduser().resolve()
+    if not source.is_file() or source.suffix.lower() not in OPEN_SUFFIXES:
+        allowed = ", ".join(sorted(OPEN_SUFFIXES))
+        raise ValueError(f"Input must be an existing structure file with one of: {allowed}")
+    return source
+
+
+def open_structure(source: Path, project: str) -> int:
     if not master_ready():
         raise SystemExit("SSH master is not ready. Run the 'master' subcommand and enter the password once.")
-    source = source.expanduser().resolve()
-    if not source.is_file() or source.suffix.lower() not in {".gjf", ".com"}:
-        raise SystemExit("Input must be an existing .gjf or .com file")
+    try:
+        source = validate_open_source(source)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     project = re.sub(r"[^A-Za-z0-9_-]+", "_", project).strip("_")
     if not project:
         raise SystemExit("Project name becomes empty after sanitization")
@@ -127,7 +137,7 @@ def main() -> int:
     if args.command == "status":
         print(json.dumps({"master_ready": master_ready(), "socket": SOCKET, "target": TARGET}))
         return 0
-    return open_gjf(Path(args.input), args.project)
+    return open_structure(Path(args.input), args.project)
 
 
 if __name__ == "__main__":
