@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/metal-ts-audit-template.schema.json",
+  "title": "Candidate-bound transition-metal TS offline audit template",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "template_id", "template_payload_sha256", "design_source",
+    "candidate_source", "study_id", "candidate_id", "mechanism_id",
+    "channel_id", "catalyst_state_id", "status", "calculation_ready",
+    "no_submission_authorization", "runtime_support_status",
+    "submission_decision", "identity_binding", "audit_sections",
+    "seed_strategy_gate", "hard_rejections", "claim_ceiling"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-metal-ts-audit-template/1"},
+    "template_id": {"$ref": "#/$defs/id"},
+    "template_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "design_source": {"$ref": "#/$defs/hash_binding"},
+    "candidate_source": {"$ref": "#/$defs/hash_binding"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "mechanism_id": {"$ref": "#/$defs/id"},
+    "channel_id": {"$ref": "#/$defs/id"},
+    "catalyst_state_id": {"$ref": "#/$defs/id"},
+    "status": {"const": "blocked_pending_scientific_review"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "runtime_support_status": {"const": "unsupported_requires_extension"},
+    "submission_decision": {"const": "refused"},
+    "identity_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "charge", "multiplicity", "atom_count", "atom_order",
+        "metal_centers", "coordinate_changes", "coordination_contacts"
+      ],
+      "properties": {
+        "charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "atom_count": {"type": "integer", "minimum": 1},
+        "atom_order": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["index", "element", "role"],
+            "properties": {
+              "index": {"type": "integer", "minimum": 1},
+              "element": {"type": "string", "minLength": 1},
+              "role": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "metal_centers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "atom_index", "element", "formal_oxidation_state",
+              "d_electron_count", "coordination_number", "geometry",
+              "review_status"
+            ],
+            "properties": {
+              "atom_index": {"type": "integer", "minimum": 1},
+              "element": {"type": "string", "minLength": 1},
+              "formal_oxidation_state": {"type": ["integer", "null"]},
+              "d_electron_count": {"type": "null"},
+              "coordination_number": {"type": ["integer", "null"], "minimum": 0},
+              "geometry": {"type": ["string", "null"]},
+              "review_status": {"const": "unreviewed_hypothesis"}
+            }
+          }
+        },
+        "coordinate_changes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "atoms", "description"],
+            "properties": {
+              "kind": {"enum": ["forming", "breaking", "transferring"]},
+              "atoms": {"type": "array", "minItems": 2, "items": {"type": "integer", "minimum": 1}},
+              "description": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "coordination_contacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "donor_atom", "acceptor_atom", "kind",
+              "distance_window_angstrom", "review_status"
+            ],
+            "properties": {
+              "donor_atom": {"type": "integer", "minimum": 1},
+              "acceptor_atom": {"type": "integer", "minimum": 1},
+              "kind": {"type": "string", "minLength": 1},
+              "distance_window_angstrom": {"type": "null"},
+              "review_status": {"const": "pending"}
+            }
+          }
+        }
+      }
+    },
+    "audit_sections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "electron_accounting", "spin_surface", "wavefunction",
+        "coordination", "method_protocol", "ts_and_path"
+      ],
+      "properties": {
+        "electron_accounting": {"$ref": "#/$defs/blocked_audit"},
+        "spin_surface": {"$ref": "#/$defs/blocked_audit"},
+        "wavefunction": {"$ref": "#/$defs/blocked_audit"},
+        "coordination": {"$ref": "#/$defs/blocked_audit"},
+        "method_protocol": {"$ref": "#/$defs/blocked_audit"},
+        "ts_and_path": {"$ref": "#/$defs/blocked_audit"}
+      }
+    },
+    "seed_strategy_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inventory", "selected_strategy_id", "selection_status", "selection_required"],
+      "properties": {
+        "inventory": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["strategy_id", "strategy", "status"],
+            "properties": {
+              "strategy_id": {"$ref": "#/$defs/id"},
+              "strategy": {"enum": ["single_guess_hessian_guided", "endpoint_qst2_qst3", "reviewed_relaxed_coordinate_scan"]},
+              "status": {"const": "design_candidate_not_selected"}
+            }
+          }
+        },
+        "selected_strategy_id": {"type": "null"},
+        "selection_status": {"const": "not_selected"},
+        "selection_required": {"const": true}
+      }
+    },
+    "hard_rejections": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "claim_ceiling": {"const": "design_only_no_ts_or_selectivity_claim"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hash_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {"sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "blocked_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "required_evidence", "rejection_conditions"],
+      "properties": {
+        "status": {"const": "blocked_pending_review"},
+        "required_evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "rejection_conditions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

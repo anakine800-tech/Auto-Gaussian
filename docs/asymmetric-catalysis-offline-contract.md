@@ -17,6 +17,7 @@ server-data authority.
 | result | `gaussian-asymmetric-ts-result/1` | immutable TS/Freq/mode/path evidence for one candidate |
 | analysis | `gaussian-asymmetric-selectivity-analysis/1` | comparable ensemble, coverage, aggregation, uncertainty, claim |
 | metal support | `gaussian-asymmetric-metal-support-design/1` | separate scientific checklist with mandatory submission refusal |
+| metal TS audit template | `gaussian-asymmetric-metal-ts-audit-template/1` | candidate-bound atom/state/coordination/result-review boundary with mandatory submission refusal |
 | literature benchmark | `gaussian-asymmetric-literature-benchmark-ledger/1` | hash-bound literature coordinates, identities, expected observables, and unresolved gates |
 | smoke proposal | `gaussian-asymmetric-smoke-proposal/1` | priority-1 closed-shell main-group plan with no live authority |
 | live-smoke evidence | `gaussian-asymmetric-live-smoke-evidence/1` | sanitized, hash-bound terminal/run/TS/mode evidence with no job ID, server path, log, or checkpoint |
@@ -209,7 +210,7 @@ state is otherwise within `gaussian-ts-irc` scope.
 
 ### 4.1 Transition-metal support-design artifact
 
-`gaussian-asymmetric-metal-support/1` is a deterministic, hash-bound scientific
+`gaussian-asymmetric-metal-support-design/1` is a deterministic, hash-bound scientific
 design artifact, not a runnable candidate. It must preserve the study's exact
 metal-center and formal-oxidation-state declarations without deriving a
 d-electron count, spin state, charge or coordination assignment from another
@@ -231,10 +232,12 @@ must name its catalyst state, stereochemical channels and intended coordinates;
 unassigned elementary-step class or unresolved reaction-surface model blocks
 selection.
 
-Milestone `M0` records the implemented offline design/refusal audit. `M1`
-through `M4` cover scientific state review, offline execution-layer design,
-negative fixtures and a separately approved smoke test. They are not
-implemented in version 1. The artifact always carries
+Milestone `M0` records the implemented offline design/refusal audit, and
+`metal_m2a_candidate_audit_template` records the implemented candidate-bound
+audit-template layer. `M1`, the remaining `M2`, `M3` and `M4` work cover a
+bounded scientific state review, structured result/parser checks, execution
+boundary and a separately approved smoke test. They remain blocked or pending.
+The artifact always carries
 `submission_decision: refused`, `calculation_ready: false` and
 `no_submission_authorization: true`; filling review fields cannot change those
 values.

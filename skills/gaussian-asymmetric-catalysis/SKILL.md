@@ -115,6 +115,20 @@ blocks, and every mechanism into three unselected TS seed-strategy candidates
 (Hessian-guided single guess, reviewed QST2/QST3, and reviewed relaxed scan).
 It must retain all blockers and the unconditional execution refusal.
 
+After a concrete unsupported metal candidate exists, run
+`build-metal-ts-audit-template` with the exact metal-support design and
+candidate. The template binds atom order, metal centers, intended coordinate,
+coordination contacts and the complete three-strategy inventory. It leaves
+d-electron counts, coordination distance windows and every scientific audit
+section blocked. Do not fill those fields by editing the template or treat the
+template as an input-preparation artifact.
+
+```bash
+python3 skills/gaussian-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+  build-metal-ts-audit-template METAL-SUPPORT.json CANDIDATE.json \
+  --output METAL-TS-AUDIT-TEMPLATE.json
+```
+
 ### 3. Build the candidate matrix
 
 Construct candidates from the applicable Cartesian product:
@@ -215,6 +229,12 @@ mechanism bindings, complete three-strategy inventory, cross-state separation
 rules and extension milestones. Do not select a strategy, infer an elementary-
 step class, write a route or hand the artifact to an execution Skill.
 
+For an individual metal candidate, use `build-metal-ts-audit-template` to
+freeze the future result-review boundary. Validate its payload, source hashes,
+atom order, metal-center identities, candidate coordination contacts, six
+blocked audit sections and unselected strategy inventory. It establishes no
+TS claim and cannot be promoted or submitted.
+
 After all offline tests pass, `propose-smoke` may bind the reviewed priority-1
 closed-shell main-group literature candidate into a plan with
 `status: planned_not_submitted`. If route, solvent, charge/multiplicity,
@@ -273,7 +293,7 @@ contract:
 - coverage, aggregation, uncertainty and claim-level analysis.
 
 The candidate-space, ledger, materialization, explicit-energy, metal-support,
-smoke-proposal, and sanitized live-smoke-evidence artifacts are defined in
+metal-TS-audit-template, smoke-proposal, and sanitized live-smoke-evidence artifacts are defined in
 `contracts/asymmetric-catalysis/`. Neither the proposal nor the evidence record
 grants live authority.
 

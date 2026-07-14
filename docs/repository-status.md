@@ -112,7 +112,8 @@ chiral-boron capability work is deliberately sequenced after this milestone.
   submodel and is not treated as a CAT2 geometry or ee ensemble.
 - `contracts/asymmetric-catalysis/*.schema.json`: Draft 2020-12 schemas for the
   study, candidate space, ledger, materializations, candidate, energy record,
-  result, analysis, metal-support design, literature benchmark, and smoke
+  result, analysis, metal-support design, candidate-bound metal TS audit
+  template, literature benchmark, and smoke
   proposal, plus a sanitized live-smoke evidence record that binds the exact
   approval/input/job/TS/mode chain without retaining a job ID, server path,
   Gaussian log, or checkpoint.
@@ -156,7 +157,10 @@ On 2026-07-14:
   hypotheses without inferring d-electron counts, bound each mechanism to
   three unselected TS-search strategies, exposed spin/wavefunction/
   coordination/method blockers, recorded extension milestones, and retained an
-  unconditional submission refusal; and
+  unconditional submission refusal. The candidate-bound template additionally
+  freezes the atom order, metal-center identities, intended coordinate,
+  coordination contacts and all three unselected seed strategies while keeping
+  six scientific audit sections blocked; and
 - the BF3 literature builder reproduced the checked ledger byte-for-byte and
   rejected a tampered coordinate fixture by canonical coordinate-block hash;
 - BF3-TS1/B1/B2 atom counts, formulas, exact XYZ hashes, geometry fingerprints,

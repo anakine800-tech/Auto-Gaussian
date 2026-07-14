@@ -224,7 +224,36 @@ class AsymmetricBuilderTests(unittest.TestCase):
             self.assertEqual(strategies, {"single_guess_hessian_guided", "endpoint_qst2_qst3", "reviewed_relaxed_coordinate_scan"})
             self.assertTrue(all(item["status"] == "design_candidate_not_selected" for item in design["ts_search_families"][0]["seed_strategy_candidates"]))
             self.assertEqual(design["extension_milestones"][0]["status"], "implemented_offline")
-            self.assertTrue(all(item["status"] != "implemented_offline" for item in design["extension_milestones"][1:]))
+            implemented = {
+                item["milestone_id"]
+                for item in design["extension_milestones"]
+                if item["status"] == "implemented_offline"
+            }
+            self.assertEqual(implemented, {
+                "metal_m0_offline_design", "metal_m2a_candidate_audit_template",
+            })
+            audit_template_path = root / "metal-ts-audit-template.json"
+            audit_template = ASYM.build_metal_ts_audit_template(
+                metal, FIXTURES / "metal_candidate.json", audit_template_path
+            )
+            second_audit_template_path = root / "metal-ts-audit-template-second.json"
+            ASYM.build_metal_ts_audit_template(
+                metal, FIXTURES / "metal_candidate.json", second_audit_template_path
+            )
+            self.assertEqual(
+                audit_template_path.read_bytes(), second_audit_template_path.read_bytes()
+            )
+            self.assertEqual(audit_template["submission_decision"], "refused")
+            self.assertEqual(audit_template["claim_ceiling"], "design_only_no_ts_or_selectivity_claim")
+            self.assertEqual(set(audit_template["audit_sections"]), {
+                "electron_accounting", "spin_surface", "wavefunction",
+                "coordination", "method_protocol", "ts_and_path",
+            })
+            self.assertEqual(len(audit_template["seed_strategy_gate"]["inventory"]), 3)
+            self.assertTrue(all(
+                contact["distance_window_angstrom"] is None
+                for contact in audit_template["identity_binding"]["coordination_contacts"]
+            ))
             self.assertEqual(proposal["status"], "planned_not_submitted")
             self.assertFalse(proposal["calculation_ready"])
             self.assertEqual(proposal["chemical_system"]["candidate_id"], "wang2024_bf3_ts1")

@@ -34,7 +34,7 @@ class AsymmetricCatalysisContractTests(unittest.TestCase):
         expected = {
             "study", "candidate", "result", "analysis", "space", "ledger",
             "energy-record", "materializations", "metal-support", "smoke-proposal",
-            "live-smoke-evidence", "literature-benchmark",
+            "metal-ts-audit-template", "live-smoke-evidence", "literature-benchmark",
         }
         found = set()
         for path in SCHEMAS.glob("*.schema.json"):
@@ -91,6 +91,48 @@ class AsymmetricCatalysisContractTests(unittest.TestCase):
             tampered["ts_search_families"][0]["seed_strategy_candidates"][0]["status"] = "selected"
             with self.assertRaises(CONTRACT.ContractError):
                 CONTRACT.validate_metal_support(tampered, study, study_path)
+
+            template_path = Path(tmp) / "metal-ts-audit-template.json"
+            template = BUILDER.build_metal_ts_audit_template(
+                design_path, FIXTURES / "metal_candidate.json", template_path
+            )
+            CONTRACT.validate_metal_ts_audit_template(
+                template,
+                design,
+                design_path,
+                candidate,
+                FIXTURES / "metal_candidate.json",
+            )
+            self.assertEqual(template["submission_decision"], "refused")
+            self.assertTrue(all(
+                section["status"] == "blocked_pending_review"
+                for section in template["audit_sections"].values()
+            ))
+            self.assertIsNone(template["seed_strategy_gate"]["selected_strategy_id"])
+
+            bypass = copy.deepcopy(template)
+            bypass["audit_sections"]["wavefunction"]["status"] = "accepted"
+            bypass["template_payload_sha256"] = CONTRACT.payload_sha256(bypass)
+            with self.assertRaises(CONTRACT.ContractError):
+                CONTRACT.validate_metal_ts_audit_template(bypass)
+
+            contact_drift = copy.deepcopy(template)
+            contact_drift["identity_binding"]["coordination_contacts"][0]["donor_atom"] = 2
+            contact_drift["template_payload_sha256"] = CONTRACT.payload_sha256(
+                {
+                    key: value
+                    for key, value in contact_drift.items()
+                    if key != "template_payload_sha256"
+                }
+            )
+            with self.assertRaisesRegex(CONTRACT.ContractError, "coordination contacts mismatch"):
+                CONTRACT.validate_metal_ts_audit_template(
+                    contact_drift,
+                    design,
+                    design_path,
+                    candidate,
+                    FIXTURES / "metal_candidate.json",
+                )
 
     def test_mode_reviewed_result_requires_exactly_one_imaginary_mode(self) -> None:
         candidate_path = FIXTURES / "boron_candidate_r.json"

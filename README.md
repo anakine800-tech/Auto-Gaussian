@@ -28,7 +28,8 @@ See `docs/repository-status.md` for the evidence, limitations, and next gates.
   ensembles, stereochemical-channel coverage, candidate ledgers, TS-result
   ingestion, and selectivity aggregation. It contains no Gaussian execution
   builder or live handoff. Its current development priority is the
-  refusal-preserving transition-metal TS state/search design; chiral-boron
+  refusal-preserving transition-metal TS state/search design and candidate-
+  bound result-audit templates; chiral-boron
   expansion follows that milestone. Its design and
   versioned data contracts are in `docs/asymmetric-catalysis-design.md` and
   `docs/asymmetric-catalysis-offline-contract.md`.
@@ -49,7 +50,8 @@ All Skill-managed server data and scratch must remain below `/home/user100/SDL`.
 2. Keep asymmetric-catalysis work on `codex/Chiral-Ligand` until its offline
    contracts, validators, and fixtures are accepted.
 3. Review the implemented offline builders, deduplication, result ingestion,
-   ensemble aggregation, and refusal-preserving metal TS design; the existing
+   ensemble aggregation, refusal-preserving metal TS design, and candidate-
+   bound metal atom/state/coordination audit templates; the existing
    `gaussian-ts-irc` transition-metal refusal must not be bypassed.
 4. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision and separately
    submitted bidirectional IRC work. BF3-TS2-B2 now has a B1-matched standard

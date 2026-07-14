@@ -168,7 +168,26 @@ Other algorithms such as NEB/string methods or MECP searches require a new
 explicit strategy type, parser, evidence contract and software boundary. Do
 not encode them as one of the three existing strategies.
 
-## 7. Method and basis protocol
+## 7. Candidate-bound offline audit template
+
+After a concrete candidate artifact exists, bind it to the exact metal-support
+design with `build-metal-ts-audit-template`. Require matching study, state,
+mechanism and channel IDs; exact source SHA-256 values; contiguous one-based
+atom order; matching metal-center identities; candidate coordination contacts;
+and the unchanged three-strategy inventory.
+
+The template is deliberately incomplete. Keep every coordination distance
+window and d-electron count null, every audit section
+`blocked_pending_review`, and the seed strategy unselected. Its six sections
+separately gate electron accounting, spin/surface space, wavefunction,
+coordination, method protocol, and TS/path evidence. It may be used to design a
+future parser or result reviewer, but never to render an input.
+
+Reject a template when its source hash, atom order, metal identity, candidate
+contact inventory or strategy inventory drifts. Even a structurally valid
+template has claim ceiling `design_only_no_ts_or_selectivity_claim`.
+
+## 8. Method and basis protocol
 
 Apply the three-tier protocol gate only after the chemical and electronic
 state is reviewed. Require explicit:
@@ -186,7 +205,7 @@ Do not copy a Wang-group or other literature method as a default. `strict`
 means additional evidence/sensitivity, not guaranteed accuracy, and remains
 independent of `simple`, `general` or `complex` resources.
 
-## 8. Future TS and frequency evidence
+## 9. Future TS and frequency evidence
 
 A later runtime extension must add metal-specific parsers and checks before a
 candidate can be calculation-ready:
@@ -205,13 +224,16 @@ candidate can be calculation-ready:
 The current `gaussian-ts-irc` path model remains unsupported for all metal
 cases. Do not claim metal IRC connectivity from its main-group implementation.
 
-## 9. Extension milestones
+## 10. Extension milestones
 
 - `metal_m0_offline_design`: deterministic state/strategy/blocker/refusal
   artifact; implemented offline.
 - `metal_m1_scientific_review`: one bounded real example with reviewed
   oxidation/electron count, spin, wavefunction, coordination, method and TS
   strategy; pending.
+- `metal_m2a_candidate_audit_template`: candidate-bound atom-order,
+  metal-center, coordination-contact, six-section and seed-strategy contract;
+  implemented offline with execution refused.
 - `metal_m2_offline_runtime_contract`: metal input audit, parser,
   wavefunction/coordination checks, fixtures and promotion rules; blocked.
 - `metal_m3_execution_boundary`: separately reviewed execution design with
@@ -219,7 +241,7 @@ cases. Do not claim metal IRC connectivity from its main-group implementation.
 - `metal_m4_live_smoke`: small closed-shell single-reference metal TS smoke
   only after M1-M3 pass and receive explicit approval; blocked.
 
-## 10. Refusal conditions
+## 11. Refusal conditions
 
 Keep submission refused when any of the following is unresolved:
 
