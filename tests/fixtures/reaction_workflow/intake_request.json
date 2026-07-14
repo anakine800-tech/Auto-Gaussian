@@ -1,0 +1,26 @@
+{
+  "schema": "gaussian-reaction-intake-request/1",
+  "study_id": "diels_alder_fixture",
+  "source_files": [
+    {
+      "source_id": "source_cdxml",
+      "path": "source_scheme.cdxml",
+      "role": "chemdraw_source",
+      "description": "Minimal ChemDraw-source fixture for offline intake tests."
+    }
+  ],
+  "claim_scope": {
+    "questions": [
+      "elementary_barrier"
+    ],
+    "claim_ceiling": "intake_and_blocker_inventory_only",
+    "non_goals": [
+      "No Gaussian input or live calculation is authorized."
+    ]
+  },
+  "unresolved_transcription": [],
+  "review_decision": "accepted",
+  "review_notes": [
+    "Synthetic closed-shell fixture; not chemical validation evidence."
+  ]
+}

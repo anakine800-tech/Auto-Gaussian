@@ -1,0 +1,58 @@
+{
+  "scheme_id": "diels_alder_fixture",
+  "steps": [
+    {
+      "step_id": "cycloaddition",
+      "arrow": {
+        "type": "forward",
+        "direction": "right",
+        "geometry": "horizontal"
+      },
+      "reactants": [
+        {
+          "label": "1,3-butadiene"
+        },
+        {
+          "label": "ethene"
+        }
+      ],
+      "products": [
+        {
+          "label": "cyclohexene"
+        }
+      ],
+      "text_above": [
+        "toluene, 80 °C, 4 h"
+      ],
+      "text_below": [
+        "92%"
+      ],
+      "components": [
+        {
+          "raw_text": "toluene",
+          "normalized_name": "toluene",
+          "role": "solvent",
+          "confidence": "certain",
+          "alternatives": []
+        }
+      ],
+      "temperature": {
+        "raw_text": "80 °C",
+        "value": 80,
+        "unit": "°C"
+      },
+      "time": {
+        "raw_text": "4 h",
+        "value": 4,
+        "unit": "h"
+      },
+      "yield": {
+        "raw_text": "92%",
+        "value": 92,
+        "unit": "%"
+      },
+      "confidence": "certain",
+      "notes": []
+    }
+  ]
+}

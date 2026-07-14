@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/intake.schema.json",
+  "title": "Gaussian reaction intake",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "study_id",
+    "source_package",
+    "claim_scope",
+    "steps",
+    "blockers",
+    "review",
+    "gate_status",
+    "calculation_ready",
+    "no_submission_authorization",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gaussian-reaction-intake/1"
+    },
+    "study_id": {
+      "$ref": "#/$defs/id"
+    },
+    "source_package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request", "normalized_scheme", "source_files", "scheme_id"],
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/artifact"
+        },
+        "normalized_scheme": {
+          "$ref": "#/$defs/artifact"
+        },
+        "source_files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_id", "role", "description", "artifact"],
+            "properties": {
+              "source_id": {
+                "$ref": "#/$defs/id"
+              },
+              "role": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifact": {
+                "$ref": "#/$defs/artifact"
+              }
+            }
+          }
+        },
+        "scheme_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "claim_scope": {
+      "type": "object",
+      "required": ["questions", "claim_ceiling", "non_goals"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "claim_ceiling": {
+          "type": "string",
+          "minLength": 1
+        },
+        "non_goals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "custom_question": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "step_id",
+          "source_step_id",
+          "arrow",
+          "reactants",
+          "products",
+          "condition_items",
+          "text_above",
+          "text_below",
+          "confidence",
+          "notes"
+        ],
+        "properties": {
+          "step_id": {
+            "$ref": "#/$defs/id"
+          },
+          "source_step_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "arrow": {
+            "type": "object"
+          },
+          "reactants": {
+            "$ref": "#/$defs/entityArray"
+          },
+          "products": {
+            "$ref": "#/$defs/entityArray"
+          },
+          "condition_items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["condition_id", "kind"],
+              "properties": {
+                "condition_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "kind": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "text_above": {
+            "type": "array"
+          },
+          "text_below": {
+            "type": "array"
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    "blockers": {
+      "$ref": "#/$defs/blockers"
+    },
+    "review": {
+      "$ref": "#/$defs/review"
+    },
+    "gate_status": {
+      "$ref": "#/$defs/gateStatus"
+    },
+    "calculation_ready": {
+      "const": false
+    },
+    "no_submission_authorization": {
+      "const": true
+    },
+    "payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "entityArray": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["occurrence_id", "label", "side"],
+        "properties": {
+          "occurrence_id": {
+            "$ref": "#/$defs/id"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "side": {
+            "enum": ["reactant", "product"]
+          }
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["blocker_id", "scope", "description", "required_for"],
+        "properties": {
+          "blocker_id": {
+            "$ref": "#/$defs/id"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required_for": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {
+        "decision": {
+          "enum": ["accepted", "accepted_with_blockers", "blocked"]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "gateStatus": {
+      "enum": ["reviewed", "reviewed_with_blockers", "blocked"]
+    }
+  }
+}

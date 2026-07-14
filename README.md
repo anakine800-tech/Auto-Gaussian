@@ -5,29 +5,48 @@ This repository is the version-controlled source for the Gaussian automation Ski
 ## Current repository status
 
 As of 2026-07-14, the guarded RTwin/PBS workflow, audited main-group
-TS–Freq–IRC workflow, and the offline asymmetric-catalysis planning/audit
-module are present on `main`. The asymmetric module includes its literature
-record, design contract, schemas, deterministic offline builders, validator,
-and synthetic fixtures. It does not authorize a Gaussian submission.
+TS–Freq–IRC workflow, offline asymmetric-catalysis planning/audit module, and
+the W1 reaction-intake foundation are integrated on `codex/Auto-Gaussian`.
+These layers retain their individual scientific and live-action approval gates.
+
+`codex/Auto-Gaussian` is the sole target integration branch for the final
+whole-reaction workflow. W0/W1 was developed on
+`codex/w0-w1-reaction-intake`; its offline gates and separately approved real
+strict native-ChemDraw smoke test passed on 2026-07-14 before integration.
 
 See `docs/repository-status.md` for the evidence, limitations, and next gates.
 See `docs/end-to-end-reaction-computation-workflow.md` for the project target:
 an auditable workflow from a ChemDraw reaction and experimental conditions to
-reviewed mechanism networks, calculation evidence, thermochemistry,
-kinetics/selectivity, uncertainty, and bounded conclusions.
+reviewed reusable structure/method/literature knowledge, reproducible literature
+evidence and TS precedents, reviewed mechanism networks, calculation evidence,
+thermochemistry, kinetics/selectivity, uncertainty, and bounded conclusions.
 
 All repository-owned Skill machine names and folders use the `auto-g16-`
-prefix; their human-facing display names begin with `Auto-G16`. Versioned
-scientific artifact schemas retain their existing identifiers for compatibility
-and provenance.
+prefix; their human-facing display names begin with `Auto-G16`. The same rule
+applies to every future project Skill. Versioned scientific artifact schemas
+retain their existing names for compatibility and provenance.
 
 ## Baseline Skills
 
-- `skills/auto-g16-chemdraw-structures`: ChemDraw-compatible structure generation and stereochemical review artifacts.
+- `skills/auto-g16-chemdraw-structures`: quick or strict ChemDraw-compatible structure and complete reaction-scheme reconstruction, including native round-trip validation.
 - `skills/auto-g16-chemdraw-pipeline`: audited ChemDraw-to-Cartesian conversion.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
 - `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
+- `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
+  species registry, balance review and condition-to-model decisions. Its W1
+  artifacts explicitly grant no calculation or live authorization. Its future
+  W2 references define a reusable structure/method/literature knowledge layer,
+  reproducible literature search, evidence extraction, applicability review and
+  TS-precedent artifacts; those tools are not yet implemented.
+
+## Planned W2 knowledge modules
+
+- `auto-g16-knowledge-base`: future reviewed structure/catalyst,
+  computational-method, and literature/book registries with permissions,
+  provenance, typed links and immutable per-study snapshots.
+- `auto-g16-reaction-literature`: future reproducible primary/SI search,
+  extraction, applicability audit and TS-precedent translation layer.
 
 ## Offline planning/audit module
 
@@ -54,19 +73,26 @@ All Skill-managed server data and scratch must remain below `/home/user100/SDL`.
 
 ## Development sequence
 
-1. Keep the baseline Skills stable on `main`.
-2. Reconcile repository/deployed Skill drift, then develop new workflow slices
-   on `codex/` feature branches with offline tests first.
-3. Implement the reaction-intake, species/atom-map, condition-model,
-   mechanism-network, calculation-DAG, and evidence-index layer described in
-   the end-to-end design. Existing Skills remain specialist components rather
-   than a monolithic automatic mechanism generator.
-4. Connect candidate/protocol/input and result/energy adapters, then validate a
+1. Keep `main` stable and use `codex/Auto-Gaussian` as the sole final workflow
+   integration branch.
+2. Develop each workflow slice on a separate `codex/` feature branch, run
+   offline validation first, and merge only after the applicable explicitly
+   approved smoke gate.
+3. Reconcile repository/deployed Skill drift, then extend the implemented W1
+   reaction-intake/species/condition foundation with the W2 reusable knowledge
+   databases, literature-evidence and TS-precedent layer. It must preserve group
+   catalyst/ligand structures, complete method provenance, papers/SI/books and
+   exact source anchors, then translate only reviewed analogies into mechanism/
+   TS-seed proposals.
+4. Implement the W3 mechanism-network, calculation-DAG and evidence-index layer.
+   Existing Skills remain specialist components rather than a monolithic
+   automatic mechanism generator.
+5. Connect candidate/protocol/input and result/energy adapters, then validate a
    small closed-shell main-group reaction from ChemDraw through minima, TS,
    path, and common-reference energy evidence.
-5. Continue the refusal-preserving transition-metal M1–M3 design; the existing
+6. Continue the refusal-preserving transition-metal M1–M3 design; the existing
    `auto-g16-ts-irc` transition-metal refusal must not be bypassed.
-6. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision and separately
+7. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision and separately
    submitted bidirectional IRC work. BF3-TS2-B2 now has a B1-matched standard
    offline input candidate with exact coordinate, route and hash audits. That
    exact B2 input subsequently received one-time live approval and is queued;

@@ -42,7 +42,7 @@ The repository `skills/` tree is the source of truth. Installed copies under
 
 After merge approval, compare and synchronize only these named Skills:
 
-1. `auto-g16-asymmetric-catalysis` — new deployed Skill;
+1. `auto-g16-asymmetric-catalysis` — deployed Skill;
 2. `auto-g16-rtwin-pbs` — protocol-rigor documentation and offline selector;
 3. `auto-g16-ts-irc` — protocol contract and preserved metal refusal.
 
@@ -51,13 +51,14 @@ diff, synchronize that directory only, and rerun the sync comparison. Do not
 deploy studies, contracts, tests, docs, server data or machine-local files into
 the Skill directory.
 
-Current comparison before deployment:
+Current comparison at W1 integration review:
 
-- `auto-g16-asymmetric-catalysis`: installed copy is absent;
-- `auto-g16-rtwin-pbs`: repository protocol-rigor additions differ from the
-  installed copy; and
-- `auto-g16-ts-irc`: repository Skill/protocol contract differs from the
-  installed copy.
+- `auto-g16-asymmetric-catalysis`: repository/deployed script drift remains;
+- `auto-g16-rtwin-pbs`: synchronized; and
+- `auto-g16-ts-irc`: repository/deployed script drift remains.
+
+This W1 integration does not authorize deployment or synchronization of those
+drifting Skills.
 
 ## B1 terminal acceptance package
 

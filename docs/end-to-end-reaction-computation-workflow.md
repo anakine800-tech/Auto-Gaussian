@@ -1,4 +1,4 @@
-# Auto-G16 End-to-End Reaction Computation Workflow
+# End-to-end reaction computation workflow
 
 Status: target architecture and implementation roadmap. This document grants no
 Gaussian, SSH, PBS, deployment, retry, cancellation, or server-data authority.
@@ -41,15 +41,19 @@ A complete supported study should produce all of the following:
 2. a stable species registry and reviewed atom maps;
 3. an explicit mapping from experimental conditions to the computational
    environment model;
-4. one or more reviewed mechanism networks, including catalyst activation and
+4. an immutable snapshot of reviewed reusable structure, method, and
+   literature/book knowledge used by the study;
+5. a reproducible literature-evidence package that distinguishes exact,
+   analogous, contradictory, and missing mechanistic/TS precedents;
+6. one or more reviewed mechanism networks, including catalyst activation and
    competing active states where applicable;
-5. a calculation DAG covering minima, conformers, complexes, transition-state
+7. a calculation DAG covering minima, conformers, complexes, transition-state
    families, paths, endpoints, and sensitivity calculations;
-6. immutable inputs, approvals, job records, logs, checkpoints, parsed results,
+8. immutable inputs, approvals, job records, logs, checkpoints, parsed results,
    and scientific review decisions;
-7. a common-reference thermochemical profile and, when justified, a kinetic or
+9. a common-reference thermochemical profile and, when justified, a kinetic or
    selectivity model; and
-8. a final report whose wording is limited by mechanism coverage, calculation
+10. a final report whose wording is limited by mechanism coverage, calculation
    evidence, model sensitivity, and unresolved alternatives.
 
 The system must preserve failed, rejected, duplicate, wrong-mode, and
@@ -66,20 +70,32 @@ orchestrator that references specialist, hash-bound artifacts.
 flowchart TD
     A["ChemDraw reactants, conditions, products"] --> B["Reaction intake and species registry"]
     B --> C["Condition-to-model decisions"]
-    C --> D["Active states and mechanism networks"]
-    D --> E["Reference state and calculation DAG"]
-    E --> F["3D structures, complexes, conformers, TS seeds"]
-    F --> G["Protocol selection and exact job approvals"]
-    G --> H["PBS execution, monitoring, fetch, parsing"]
-    H --> I["Minimum, TS, mode, IRC and endpoint evidence"]
-    I --> J["Thermochemistry and free-energy network"]
-    J --> K["Kinetics, selectivity and sensitivity"]
-    K --> L["Bounded final report and evidence archive"]
+    C --> D["Literature search, mechanism evidence and TS precedents"]
+    D --> E["Active states and mechanism networks"]
+    E --> F["Reference state and calculation DAG"]
+    F --> G["3D structures, complexes, conformers, TS seeds"]
+    G --> H["Protocol selection and exact job approvals"]
+    H --> I["PBS execution, monitoring, fetch, parsing"]
+    I --> J["Minimum, TS, mode, IRC and endpoint evidence"]
+    J --> K["Thermochemistry and free-energy network"]
+    K --> L["Kinetics, selectivity and sensitivity"]
+    L --> N["Bounded final report and evidence archive"]
     M["Immutable hashes, review gates, supersession"] -.-> B
     M -.-> D
-    M -.-> G
-    M -.-> I
-    M -.-> L
+    M -.-> E
+    M -.-> H
+    M -.-> J
+    M -.-> N
+    subgraph KB["Reviewed reusable knowledge layer"]
+        O["Structure and catalyst registry"]
+        P["Computational-method registry"]
+        Q["Literature and book registry"]
+    end
+    O -.-> B
+    O -.-> G
+    P -.-> H
+    Q -.-> D
+    Q -.-> N
 ```
 
 The intended ownership is:
@@ -88,7 +104,9 @@ The intended ownership is:
 | --- | --- | --- |
 | structure and scheme intake | `auto-g16-chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
 | 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
+| reusable knowledge databases | future `auto-g16-knowledge-base` | reviewed structure/catalyst, computational-method, and literature/book registries; typed links, permissions, provenance, immutable study snapshots |
 | reaction-study orchestration | future top-level module | species registry, condition model, mechanism network, calculation DAG, study state |
+| literature evidence and TS precedent | future `auto-g16-reaction-literature` | reproducible search, primary/SI evidence extraction, decomposed applicability review, mechanism support, reviewed TS-seed proposals |
 | asymmetric-catalysis domain | `auto-g16-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
 | protocol selection | `auto-g16-rtwin-pbs` protocol gate | reviewed `loose`/`standard`/`strict` candidates and explicit selection |
 | live execution | `auto-g16-rtwin-pbs` | fresh SDL projects, transfer hashes, PBS lifecycle, fetch, generic result parsing |
@@ -98,6 +116,32 @@ The intended ownership is:
 The top-level orchestrator must not duplicate the specialist parsers. It should
 index their immutable artifacts, enforce dependencies, expose blockers, and
 resume from the last accepted gate.
+
+### 3.1 Reusable knowledge is not mutable study state
+
+Maintain one reusable knowledge infrastructure with three separate registries:
+
+- a structure registry for group catalysts, ligands, precatalysts, additives,
+  substrates, states, reviewed 2D/3D representations, and geometry provenance;
+- a computational-method registry for complete reported, internally used,
+  benchmarked, failed, deprecated, and superseded protocols; and
+- a literature/book registry for papers, SI, books, editions, chapters, pages,
+  corrections, retractions, datasets, exact source anchors, and extracted
+  claims.
+
+Use immutable revisions, typed cross-links, access classes, and content hashes.
+Create a per-study knowledge snapshot before using a record so later database
+updates cannot silently change an approved reaction study. Database retrieval
+may propose structures, methods, sources, or TS precedents; scientific review
+must still accept their identity and applicability.
+
+Use canonical immutable records plus a rebuildable index. Start with a local
+SQLite MVP and content-addressed file store, then add a multi-user PostgreSQL/
+chemical-search service only after permission, migration, and concurrency tests.
+Do not commit a live mutable database, restricted group structures, licensed
+books/PDFs, credentials, or Gaussian outputs into Git. The detailed future
+contract is in
+`skills/auto-g16-reaction-workflow/references/knowledge-database-design.md`.
 
 ## 4. End-to-end lifecycle
 
@@ -115,6 +159,8 @@ Before interpreting the drawing, state what the study is intended to answer:
 Record experimental yield/selectivity and uncertainty, source references,
 temperature, concentration, pressure, time, and the intended claim ceiling.
 Distinguish the selectivity-determining step from the turnover-limiting step.
+Also define which public, group-internal, project-restricted, or unpublished
+knowledge sources may be queried and exported.
 
 Gate R00 passes only when the target claims and explicit non-goals are
 reviewed. “Calculate the whole reaction” is not yet a calculation plan.
@@ -135,6 +181,11 @@ structures. Preserve both source-exact and normalized representations of:
 Each visible chemical participant should be an editable structure or an
 explicitly unresolved abbreviation. Never convert unreadable or omitted
 information into a precise chemical model.
+
+Query the reviewed structure registry for exact identities, internal catalyst/
+ligand codes, salts, stereoisomers, and existing representations. A match is a
+candidate binding: record the exact database revision and independently review
+that it represents the drawn species and intended chemical state.
 
 Gate R01 requires reviewed constitution, represented form, charge,
 protonation, salt/solvate status, isotope, and stereochemistry for every species
@@ -183,7 +234,55 @@ Gate R03 requires a condition model for each mechanism hypothesis. It must not
 infer that an experimental solvent name authorizes one particular continuum
 model or that an additive is irrelevant because it is not in the product.
 
-### R04 — Active states and mechanism-network hypotheses
+### R04 — Literature evidence and transition-state precedents
+
+Before promoting an active-state, mechanism, or TS-seed hypothesis, run a
+reproducible literature investigation whose scope is bound to the reviewed
+reaction intake, registry, condition model, and knowledge snapshot. Search the
+reviewed literature/book registry first, then perform reproducible external
+discovery for missing or outdated coverage. Decompose the search by:
+
+- net transformation, elementary-step class, and forming/breaking/transferring
+  atoms;
+- substrate motifs, catalyst/ligand family, active-state alternatives,
+  charge/spin/coordination, and stereochemical channel;
+- conditions, additives, counterions, solvent participation, and experimental
+  mechanistic observations; and
+- computation, transition state, IRC, coordinates, and supporting-information
+  terms.
+
+Search from exact reaction/catalyst precedent through close transformations and
+elementary-step analogies, while also seeking alternative mechanisms,
+contradictory evidence, corrections, retractions, and failed TS searches. Use
+reviews for discovery, but trace claims to the primary paper and supporting
+information. Record exact queries, dates, result coverage, DOI/version, source
+hash where retained, and page/figure/table/SI anchors.
+
+Extract reported computational methods, state definitions, reference energies,
+conformer/model coverage, TS-search strategy, imaginary mode, IRC/endpoints,
+key geometry, coordinates, and omissions. Keep reported facts, derived facts,
+and reviewer interpretation separate. Compare applicability explicitly across
+transformation, elementary step, catalyst state, atom inventory, charge/spin,
+coordination, stereochemical approach, conditions, and protocol; do not hide
+those judgments inside one similarity score.
+
+Translate accepted evidence into two reviewed proposals: a mechanism-support
+matrix and a TS-precedent map. The TS map may propose atom correspondence,
+forming/breaking pairs, approach topology, coordination/ion-pair state, key
+geometric relationships, and a seed strategy such as audited published
+coordinates, QST endpoints, a relaxed scan, or a Hessian-guided guess.
+Coordinates copied from a source require identity, atom-order, stereochemistry,
+charge/multiplicity, coordination, and provenance review. Precise coordinates
+must not be fabricated from a schematic figure.
+
+Gate R04 passes only when search coverage, evidence extraction, applicability,
+contradictions, and uncertainties have been reviewed for the bounded claim.
+Literature similarity is hypothesis support, not proof of the target mechanism
+or TS; it does not select a protocol, create calculation readiness, or authorize
+Gaussian work. The future contract is specified in
+`skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
+
+### R05 — Active states and mechanism-network hypotheses
 
 Build one or more reviewed directed reaction networks. A node is a complete
 chemical state with atom inventory, charge, multiplicity, stereochemistry,
@@ -205,10 +304,10 @@ actually closes. Do not infer the active catalyst from the precatalyst drawing.
 Competing mechanisms remain separate network hypotheses. Exclusion requires a
 reviewed reason; absence from the first drawn mechanism is not an exclusion.
 
-Gate R04 passes when at least one bounded network and its relevant alternatives
+Gate R05 passes when at least one bounded network and its relevant alternatives
 have been reviewed. It does not mean the mechanism has been proven.
 
-### R05 — Reference basins and kinetic model
+### R06 — Reference basins and kinetic model
 
 Before calculating energies, define how every barrier and equilibrium will be
 referenced. Record:
@@ -227,11 +326,11 @@ multiple steps, slow catalyst-state exchange, reversible selectivity, or
 product interconversion matter. Never compare barriers with different atom
 inventories without a balanced thermodynamic cycle.
 
-Gate R05 passes when every planned comparison has a common energy zero or a
+Gate R06 passes when every planned comparison has a common energy zero or a
 reviewed balanced cycle and an explicit model connecting calculated energies
 to the target claim.
 
-### R06 — Scientific protocol and resource selection
+### R07 — Scientific protocol and resource selection
 
 Define calculation needs by family: minima, conformer refinement, TS/Freq,
 IRC, endpoints, single points, spin states, method sensitivity, and optional
@@ -248,12 +347,15 @@ The protocol must define method, basis/ECP by element, dispersion, solvent,
 grid, SCF and convergence policy, frequency/thermochemistry treatment,
 temperature, standard state, low-frequency policy, single-point relationship,
 and validation expectations. Literature methods are candidates, not defaults.
+The computational-method registry may supply complete reported, group-used,
+benchmarked, failed, or deprecated candidates and their evidence. Popularity or
+group custom never replaces applicability review and explicit selection.
 
-Gate R06 authorizes only offline input drafting. Every exact live input or
+Gate R07 authorizes only offline input drafting. Every exact live input or
 finite batch still needs its own displayed hashes, resources, fresh projects,
 and explicit live approval.
 
-### R07 — Three-dimensional state and candidate construction
+### R08 — Three-dimensional state and candidate construction
 
 Construct structures hierarchically rather than embedding only the drawn
 overall reaction:
@@ -271,10 +373,15 @@ identity, and geometry provenance. Use force-field or other approved low-level
 energies only for prescreen ranking. Deduplicate only within chemically
 compatible state/channel boundaries, and retain exclusion evidence.
 
-Gate R07 promotes immutable reviewed candidates. Promotion never means that a
+The structure registry may supply reviewed catalyst, ligand, fragment, and
+geometry templates. Bind the exact record revision and representation hash;
+never treat a stored 2D drawing, crystal structure, hand-built geometry, or
+optimized structure as interchangeable.
+
+Gate R08 promotes immutable reviewed candidates. Promotion never means that a
 candidate is the only relevant conformer or that it is approved for execution.
 
-### R08 — Minimum and conformer ensemble calculations
+### R09 — Minimum and conformer ensemble calculations
 
 Before interpreting a reaction path, validate the reference states that feed
 it. For every retained minimum candidate, require:
@@ -291,18 +398,19 @@ Build ensembles for each chemical basin using comparable Gaussian free
 energies, not force-field rankings. Preserve alternative active states even if
 one is higher unless an approved pruning rule excludes it.
 
-Gate R08 produces reviewed minimum ensembles and their common-reference free
+Gate R09 produces reviewed minimum ensembles and their common-reference free
 energies. A successful optimization that changes the intended chemical state
 is a result for a different state, not acceptance of the original candidate.
 
-### R09 — Transition-state family construction and search
+### R10 — Transition-state family construction and search
 
 For every elementary edge and stereochemical channel, build a TS candidate
 matrix across catalyst states, binding modes, conformers, approach topologies,
 ion-pair/additive placements, and electronic states. Do not reduce an
 asymmetric study to one hand-built “major” and one “minor” structure.
 
-Choose a reviewed seed strategy per family:
+Choose a reviewed seed strategy per family and bind it to an accepted
+`gaussian-ts-precedent-map/1` entry or an explicit `no_usable_precedent` review:
 
 - Hessian-guided single guess when a defensible TS-like geometry exists;
 - QST2/QST3 when validated endpoints and exact atom correspondence exist and
@@ -316,11 +424,14 @@ ligand loss, duplicate convergence, and search-family provenance. It may
 prioritize a finite calculation budget, but resource limits must not be
 misreported as complete chemical coverage.
 
-Gate R09 promotes exact TS search inputs only after seed geometry, intended
+The precedent constrains what should be tried; it does not establish that the
+target saddle has the same structure or mechanism as the published system.
+
+Gate R10 promotes exact TS search inputs only after seed geometry, intended
 coordinate, chemical/electronic state, protocol, and expected evidence are
 reviewed.
 
-### R10 — Calculation DAG and live execution
+### R11 — Calculation DAG and live execution
 
 Represent the study as a dependency DAG rather than independent shell
 commands. Typical dependencies include:
@@ -346,11 +457,11 @@ change chemistry, or cancel because a job remains queued. After exact live
 approval, monitoring/fetch/parsing may run unattended inside the approved job
 scope.
 
-Gate R10 is per exact job or explicitly enumerated finite batch. A parent job's
+Gate R11 is per exact job or explicitly enumerated finite batch. A parent job's
 approval never authorizes an IRC, endpoint, sensitivity job, retry, or new
 candidate.
 
-### R11 — Terminal intake and scientific evidence
+### R12 — Terminal intake and scientific evidence
 
 Separate operational completion from scientific acceptance.
 
@@ -371,7 +482,7 @@ spin-contamination, coordination, hapticity, ligand inventory, and surface
 checks. Ordinary main-group IRC evidence must not be reused as a metal path
 model.
 
-Gate R11 assigns evidence levels only:
+Gate R12 assigns evidence levels only:
 
 - `minimum_candidate`;
 - `validated_minimum_under_protocol`;
@@ -380,7 +491,7 @@ Gate R11 assigns evidence levels only:
 - `path_validated_ts`; or
 - `failed`, `incomplete`, or `inconclusive`.
 
-### R12 — Thermochemistry and free-energy network
+### R13 — Thermochemistry and free-energy network
 
 Build a free-energy profile from validated states while preserving separate:
 
@@ -396,12 +507,12 @@ barriers and reaction free energy. Missing species, unbalanced explicit
 components, mixed protocols, or mixed reference definitions block the edge
 rather than producing a visually complete but invalid profile.
 
-Gate R12 produces a comparable, hash-bound thermochemical network. It does not
+Gate R13 produces a comparable, hash-bound thermochemical network. It does not
 by itself establish which network hypothesis is kinetically relevant.
 
-### R13 — Kinetics, selectivity, and uncertainty
+### R14 — Kinetics, selectivity, and uncertainty
 
-Choose the simplest model justified by R05:
+Choose the simplest model justified by R06:
 
 - Boltzmann/transition-state ensemble for rapidly equilibrating candidate
   families under one stated mechanism;
@@ -420,15 +531,17 @@ leave-one-out, energy perturbation, protocol/method matrix, solvation,
 low-frequency policy, standard state, catalyst-state population, spin state,
 and alternative mechanism networks.
 
-Gate R13 may produce `provisional`, `inconclusive`, or `validated under the
+Gate R14 may produce `provisional`, `inconclusive`, or `validated under the
 stated mechanism, protocol, kinetic model, and reviewed coverage`. Agreement
 with experimental ee or rate does not prove a unique mechanism.
 
-### R14 — Report, archive, and supersession
+### R15 — Report, archive, and supersession
 
 The final report should contain:
 
 - source reaction and normalized intake;
+- literature search scope, source anchors, applicability decisions, TS-seed
+  provenance, contradictory evidence, and unresolved precedent gaps;
 - hypotheses included, excluded, and unresolved;
 - complete species/network/candidate coverage;
 - protocol and resource decisions;
@@ -449,16 +562,17 @@ The future orchestrator should expose the following project gates:
 
 | Gate | Required decision | State after passing |
 | --- | --- | --- |
-| G0 | target claim and source package accepted | `intake_scoped` |
-| G1 | species identities, stereochemistry, balance, atom maps reviewed | `reaction_reviewed` |
-| G2 | condition model, active states, mechanism networks reviewed | `hypothesis_space_reviewed` |
-| G3 | references, kinetic model, protocols, and candidate dimensions reviewed | `calculation_model_reviewed` |
-| G4 | exact 3D minima/TS candidates promoted | `candidate_inventory_reviewed` |
-| G5 | exact input hashes, resources, fresh projects, and live scope approved | `jobs_authorized` |
-| G6 | terminal evidence parsed and scientific state/mode checks reviewed | `calculation_evidence_reviewed` |
-| G7 | path/endpoints or documented claim-limiting alternatives reviewed | `network_evidence_reviewed` |
-| G8 | comparability, coverage, aggregation, kinetics, sensitivity reviewed | `analysis_reviewed` |
-| G9 | wording and archive accepted | `study_completed_under_stated_model` |
+| G0 | target claim, source package, and permitted knowledge scope accepted | `intake_scoped` |
+| G1 | species identities, stereochemistry, balance, atom maps, and exact reusable-knowledge snapshot reviewed | `reaction_reviewed` |
+| G2 | condition model and reproducible literature-search scope accepted | `precedent_search_scoped` |
+| G3 | primary/SI evidence, applicability, contradictions, mechanism support and TS precedents reviewed | `precedent_evidence_reviewed` |
+| G4 | active states, mechanism networks, references, kinetic model, protocols, and candidate dimensions reviewed | `calculation_model_reviewed` |
+| G5 | exact 3D minima/TS candidates promoted | `candidate_inventory_reviewed` |
+| G6 | exact input hashes, resources, fresh projects, and live scope approved | `jobs_authorized` |
+| G7 | terminal evidence parsed and scientific state/mode checks reviewed | `calculation_evidence_reviewed` |
+| G8 | path/endpoints or documented claim-limiting alternatives reviewed | `network_evidence_reviewed` |
+| G9 | comparability, coverage, aggregation, kinetics, sensitivity reviewed | `analysis_reviewed` |
+| G10 | wording and archive accepted | `study_completed_under_stated_model` |
 
 The project must be resumable from any gate. A blocked branch of the mechanism
 network must not erase progress in another branch, and a successful child job
@@ -474,6 +588,15 @@ artifacts. The missing top-level layer should add only the following contracts:
 | `gaussian-reaction-intake/1` | source ChemDraw hashes, normalized components, source-exact conditions, claim scope, unresolved transcription |
 | `gaussian-reaction-species-registry/1` | stable identities, represented forms, stereochemistry, charge/multiplicity, atom IDs, structure hashes |
 | `gaussian-reaction-condition-model/1` | explicit/continuum/chemical-potential/excluded treatment for every experimental condition component |
+| `auto-g16-structure-record/1` | stable group chemical identity/state, catalyst/ligand role, reviewed 2D/3D representations, atom order, geometry provenance, access and review status |
+| `auto-g16-method-record/1` | complete reported/internal/benchmarked/failed/deprecated protocol, applicability scope, supporting calculations/sources and review state |
+| `auto-g16-source-record/1` | paper/SI/book/edition/chapter/page/correction/retraction/dataset identity, lawful object hash, exact anchors and extracted-claim provenance |
+| `auto-g16-knowledge-link/1` | typed, reviewed relationship among structures, methods, sources, reactions, calculations and evidence |
+| `auto-g16-knowledge-snapshot/1` | immutable exact record revisions, queries, decisions, access redactions and gaps used by one reaction study |
+| `gaussian-reaction-literature-query/1` | decomposed target, exact search strings/providers/dates/filters, search-ladder coverage, access limits and inclusion/exclusion decisions |
+| `gaussian-reaction-literature-evidence/1` | primary/SI source identity and anchors, extracted computational/mechanistic facts, geometry data, contradictory evidence and extraction confidence |
+| `gaussian-reaction-mechanism-support/1` | evidence-to-hypothesis matrix, direct/analogous/contradictory status, decomposed applicability, alternatives and bounded reviewer decisions |
+| `gaussian-ts-precedent-map/1` | source-to-target atom correspondence, TS topology/geometry evidence, transferable versus rebuilt features, seed-strategy proposal and uncertainty |
 | `gaussian-reaction-network/1` | complete-state nodes, elementary-step edges, atom maps, channels, reversibility, active-state and evidence hypotheses |
 | `gaussian-reaction-study-index/1` | read-only index of the current immutable evidence DAG, derived project state, blockers, and next safe offline action |
 | `gaussian-reaction-calculation-plan/1` | calculation DAG, candidate and protocol bindings, dependencies, budgets, approval and support status |
@@ -525,19 +648,21 @@ top-level reaction workflow.
 
 | Capability | Current status | Boundary |
 | --- | --- | --- |
-| ChemDraw molecule reconstruction and stereochemical review | partial in repository | the installed `auto-g16-chemdraw-structures` copy has a newer strict reaction-package workflow, but repository source currently drifts and must be reconciled |
+| ChemDraw molecule reconstruction and stereochemical review | integrated after a real strict native-ChemDraw smoke test | the 2026-07-14 CAT2 test passed native round-trip, strict document validation, molecular re-extraction and S-product CIP review; it remains structure/intake evidence rather than calculation authorization |
 | ChemDraw/CDX/MOL/SDF to audited Cartesian input | implemented for reviewed, mainly ordinary main-group structures | no automatic metal, ion-pair, active-catalyst, or TS model |
 | connected-molecule conformer generation and promotion | implemented | ETKDG/MMFF/UFF is prescreening; disconnected complexes, metal coordination, and axial chirality need manual/specialized support |
-| reaction intake/species registry/stoichiometric balance/atom-map proposal | missing as a versioned top-level contract | current tools can parse structures, but do not build a complete reaction study from a scheme |
-| condition-to-model mapping | missing | solvent/additive/counterion treatment remains manual and unstructured across a whole study |
+| reaction intake/species registry/stoichiometric balance foundation | integrated offline after W1 validation | stable atom identities and exact occurrence binding are implemented; cross-state atom-map proposal belongs to W3 and remains missing |
+| condition-to-model mapping | integrated offline after W1 validation | every transcribed condition requires one reviewed treatment; no solvent, additive, counterion or standard-state model is inferred |
+| reusable group structure, method, and literature/book databases | design recorded; implementation missing | no `auto-g16-knowledge-base`, canonical record contracts, deterministic index, permissions, importer, cross-registry links, or immutable per-study snapshot builder exists |
+| general literature search, evidence extraction and TS-precedent mapping | design recorded; implementation missing | existing BF3/asymmetric records are fixed study-specific evidence, not a reproducible search engine; no general primary/SI search, applicability audit, or source-to-target TS seed translator exists |
 | mechanism network and catalyst-cycle DAG | partially represented in asymmetric study artifacts | no general network builder, cycle closure audit, step dependency engine, or project-level state machine |
-| deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is not yet deployed; geometry construction still requires reviewed XYZ/atom maps |
+| deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
 | transition-metal state/search design | M0 and candidate-bound M2a implemented offline | calculation input, parser, wavefunction/coordination acceptance, path model, and all live submission remain intentionally refused |
 | protocol `loose`/`standard`/`strict` proposal and selection | implemented as a standalone gate | does not choose a protocol or authorize input submission; the current generic automatic execution entry does not yet require and consume the selection artifact end to end |
 | guarded PBS submit/watch/fetch/analyze | implemented per approved job | no whole-study job DAG, dependency scheduler, finite-batch approval manifest, or project-level resume engine |
 | minimum Opt/Freq/single-point parsing and conformer aggregation | implemented per reviewed structure/family | no reaction-wide species registry, post-optimization identity clustering, or balanced free-energy network |
-| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | implemented for reviewed supported main-group families in repository source | no TS discovery engine; QST raw input generation remains disabled; deployed copy currently trails repository terminal-intake changes; metal remains refused |
+| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | implemented for reviewed supported main-group families in synchronized source/deployment | no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
 | TS candidate-space result ingestion and two-channel Boltzmann/ee sensitivity | implemented offline | only `boltzmann_ts_ensemble`; no general kinetic network, energetic-span engine, or protocol-matrix uncertainty propagation |
 | final project report and claim-state engine | missing | current documents and analyses are study-specific rather than generated from one top-level evidence index |
 
@@ -593,7 +718,49 @@ It also needs explicit artifact adapters for:
 Without P1, existing tools calculate reviewed individual structures but cannot
 prove that the declared whole-reaction scope is covered.
 
-### P2 — Missing structure and TS construction
+### P2 — Missing reusable knowledge databases
+
+- a future `auto-g16-knowledge-base` with closed structure, method, source,
+  link, and study-snapshot contracts;
+- a reviewed group structure registry for catalyst/ligand identities, chemical
+  states, stereochemistry, coordination, 2D/3D representations and provenance;
+- a complete computational-method registry separating literature-reported,
+  internally used, benchmarked, failed, deprecated and superseded protocols;
+- a literature/book registry with DOI/ISBN, edition/chapter/page/SI anchors,
+  correction/retraction/version relationships and lawful file-object handling;
+- typed cross-registry links, immutable revisions, deterministic migrations,
+  rebuildable indexes, duplicate/conflict handling and stable exports;
+- per-study hash-bound snapshots so database updates cannot change accepted
+  science implicitly; and
+- public/group/project/confidential permissions, audit logs, redacted exports
+  and external-provider disclosure gates.
+
+The database must retrieve reviewed candidates and evidence, not silently make
+scientific decisions. Stored popularity, group custom, a matching structure, or
+a previous successful calculation cannot authorize a method, geometry, input,
+or Gaussian job.
+
+### P3 — Missing literature evidence and TS-precedent tool
+
+- reproducible multi-provider search from exact reaction/catalyst precedent to
+  elementary-step analogies, including contradictory and negative evidence;
+- primary-paper/supporting-information identity, version, source location and
+  access/copyright-safe evidence capture;
+- structured extraction of computational method, state model, TS search,
+  imaginary mode, IRC/endpoints, key geometry, coordinates and omissions;
+- decomposed target/precedent applicability across reaction, catalyst,
+  atom inventory, charge/spin, coordination, conditions and protocol;
+- evidence-to-mechanism support matrices and source-to-target TS precedent
+  maps with stable atom IDs and explicit uncertainty; and
+- correction/retraction handling, source drift, supersession, frozen fixtures,
+  semantic validation and fail-closed behavior.
+
+This future `auto-g16-reaction-literature` component must produce reviewed
+evidence proposals, not a citation list. It must never treat similarity as
+mechanism proof, fabricate unavailable coordinates, select a method, or grant
+calculation/submission authority.
+
+### P4 — Missing structure and TS construction
 
 - chemistry-aware assembly of catalyst/substrate complexes, ion pairs,
   explicit additives, and binding modes;
@@ -603,7 +770,7 @@ prove that the declared whole-reaction scope is covered.
 - verified QST2/QST3 input construction for the installed G16 revision; and
 - a general strategy for generating, ranking, and reopening TS guesses.
 
-### P3 — Missing reaction-level analysis
+### P5 — Missing reaction-level analysis
 
 - balanced thermodynamic cycles and automatic stoichiometric reference checks;
 - reaction-wide free-energy profiles;
@@ -612,7 +779,7 @@ prove that the declared whole-reaction scope is covered.
 - multi-mechanism/model comparison and uncertainty propagation; and
 - generated final reports with machine-checked claim ceilings.
 
-### P4 — Unsupported transition-metal runtime
+### P6 — Unsupported transition-metal runtime
 
 - one concrete M1 scientific example;
 - metal-specific input and result contracts;
@@ -632,6 +799,15 @@ Acceptance requires exact diff review, structural validation, existing tests,
 new tests for imported reaction-intake behavior, no secrets, and zero unrelated
 files.
 
+Feature status on 2026-07-14: the 116-file deployed `auto-g16-chemdraw-structures`
+reaction-package implementation has been recovered into repository source and
+its built-in common/ligand catalogs plus imported package behavior pass offline
+tests. Repository-new `auto-g16-ts-irc`, `auto-g16-asymmetric-catalysis` and the
+W1 Skill have been synchronized individually after named validation and exact
+dry-run diff review. The W1 and strict ChemDraw pairs match their deployed
+copies; unrelated pre-existing drift in four baseline Skills remains a separate
+deployment-maintenance task and is not overwritten by this integration.
+
 ### W1 — Reaction intake foundation
 
 Implement `reaction-intake`, `species-registry`, and `condition-model` schemas,
@@ -648,7 +824,45 @@ Acceptance tests should cover salts, implicit hydrogens, catalyst/ligand
 separation, unshown byproducts, workup products, ambiguous stereochemistry,
 equivalents/mol%, and source-exact versus normalized condition text.
 
-### W2 — Mechanism network and calculation DAG
+Feature status on 2026-07-14: the three output contracts, deterministic
+standard-library builders, semantic validator, closed-shell positive fixture
+and blocked catalytic intake fixture are implemented. The separately approved
+real CAT2 strict ChemDraw-to-W1 smoke passed native round-trip, structure/CIP
+re-extraction, hash-chain validation and the offline suite while preserving the
+active-catalyst, atom-map, protocol and candidate-ensemble blockers. W1 is
+therefore accepted for integration without granting calculation authority.
+
+### W2 — Knowledge databases, literature evidence and TS precedents
+
+Develop `auto-g16-knowledge-base` first as an offline, reusable knowledge layer.
+Implement closed structure, method, source, link, and snapshot contracts;
+deterministic SQLite migrations/rebuild; content-addressed file references;
+review and permission states; and dry-run importers for group catalyst/ligand,
+protocol, citation, book, and SI fixtures.
+
+Acceptance requires exact identity/state separation, reported-versus-internal-
+versus-benchmarked method separation, edition/page/SI anchors, duplicate and
+conflict fixtures, access-negative tests, stable snapshots after database
+updates, and unconditional refusal to grant calculation authority. A later
+multi-user PostgreSQL/chemical-search service remains a separate milestone.
+
+Develop the future `auto-g16-reaction-literature` component as a separate,
+offline-first evidence layer. Implement the four planned query, evidence,
+mechanism-support, and TS-precedent contracts before connecting it to mechanism
+or geometry construction.
+
+The first version should use frozen search/full-text/SI fixtures to test exact
+query provenance, DOI/version deduplication, primary-source anchors,
+computational-detail extraction, contradictory evidence, decomposed
+applicability, source-to-target atom mapping, coordinate provenance, and
+unavailable-data refusal. It must not generate a Gaussian input.
+
+After offline acceptance, run one separately reviewed real-reaction literature
+search smoke. Acceptance is a complete, reviewable evidence package and honest
+gap inventory—not a required usable TS coordinate and not agreement with a
+preferred mechanism.
+
+### W3 — Mechanism network and calculation DAG
 
 Implement immutable state nodes, elementary edges, atom maps, catalyst-cycle
 closure checks, competing network hypotheses, reference basins, job
@@ -662,7 +876,7 @@ editable status flag.
 Acceptance requires deterministic rebuilds, hash-drift refusal, cycle and mass/
 charge diagnostics, blocked unsupported states, and resume from every gate.
 
-### W3 — Closed-shell main-group minima workflow
+### W4 — Closed-shell main-group minima workflow
 
 Connect reviewed species/conformer ensembles to the existing Opt/Freq/single-
 point workflow. Add post-optimization identity and duplicate clustering plus a
@@ -673,7 +887,7 @@ offline/live smoke candidate only after exact approval. It should be much
 smaller than the full BCF benchmark and should exercise reactant/product
 minima, not only a TS geometry.
 
-### W4 — Closed-shell main-group TS workflow
+### W5 — Closed-shell main-group TS workflow
 
 Add one reviewed TS-seed construction route, calculation-DAG integration,
 terminal intake, mode review, bidirectional IRC, endpoint minima, and path
@@ -684,7 +898,7 @@ Acceptance requires an entire elementary reaction from normalized ChemDraw
 input through identified minima, mode-consistent TS, both endpoints, and a
 common-reference barrier.
 
-### W5 — Asymmetric ensemble workflow
+### W6 — Asymmetric ensemble workflow
 
 Connect the reaction network to `auto-g16-asymmetric-catalysis`, add chemistry-
 aware complex materialization, calculate all retained candidates under a
@@ -695,27 +909,27 @@ complete coverage by every declared dimension, leave-one-out and energy/model
 sensitivity, and a claim that remains explicitly conditional on the stated
 mechanism.
 
-### W6 — Multi-job orchestration and recalculation
+### W7 — Multi-job orchestration and recalculation
 
 Implement the finite calculation DAG, dependency-aware readiness, immutable
 job manifests, exact batch review, queue-safe resume, terminal intake, evidence
 indexing, and `gaussian-recalculation-decision/1`. Do not create an automatic
 chemistry-changing retry policy.
 
-### W7 — Reaction kinetics and reporting
+### W8 — Reaction kinetics and reporting
 
 Implement balanced profiles, an external hash-bound or native kinetic-network
 model, concentration/temperature scenarios, uncertainty matrices, and the
 final claim/report generator.
 
-### W8 — Transition-metal extension
+### W9 — Transition-metal extension
 
 Complete M1 on one bounded metal–chiral-ligand reaction, then M2/M3 contracts,
 parsers, negative fixtures, and execution-boundary review. Only after those
 pass may a small closed-shell single-reference metal smoke test be proposed.
 Do not use a large asymmetric catalyst as the first metal runtime test.
 
-### W9 — Broader production validation
+### W10 — Broader production validation
 
 Validate the orchestrator on:
 
@@ -733,6 +947,14 @@ The project reaches its intended end state when all of the following are true:
 
 - a supplied ChemDraw reaction and conditions produce a deterministic,
   reviewed intake package without losing source text or stereochemistry;
+- reviewed group catalyst/ligand structures, computational methods, and
+  literature/books can be imported, versioned, related, permission-filtered,
+  searched, exported, and bound to an immutable per-study snapshot without
+  silently changing an existing study;
+- the literature search can be reproduced, every retained mechanistic or TS
+  claim is anchored to primary/SI evidence, applicability and contradictions
+  are explicit, and every proposed TS seed preserves its source-to-target
+  provenance and uncertainty;
 - ambiguous identities, missing species, balance, active states, mechanisms,
   electronic states, and computational models become explicit blockers rather
   than guesses;

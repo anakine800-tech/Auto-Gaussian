@@ -32,5 +32,11 @@ Run the offline checks with:
 python3 -m unittest tests.test_asymmetric_real_case
 ```
 
+The separately approved real strict ChemDraw-to-W1 smoke test completed on
+2026-07-14. Its sanitized, hash-bound outcome is recorded in
+`strict-w1-smoke-evidence.json`; ignored local source screenshots, native
+ChemDraw files and W1 run artifacts are identified only by SHA-256 and are not
+committed.
+
 No file in this package authorizes Gaussian, SSH, PBS, deployment, cancellation,
 or creation of a server directory.
