@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/space.schema.json",
+  "title": "Asymmetric candidate-space specification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "study_id", "study_sha256", "comparison_group_id", "candidate_id_prefix", "catalyst_state_ids", "geometry_dedup_tolerance_angstrom", "dimensions", "exclusion_rules"],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-candidate-space-spec/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "study_sha256": {"$ref": "#/$defs/sha256"},
+    "comparison_group_id": {"$ref": "#/$defs/id"},
+    "candidate_id_prefix": {"$ref": "#/$defs/id"},
+    "catalyst_state_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "geometry_dedup_tolerance_angstrom": {"type": "number", "exclusiveMinimum": 0, "maximum": 0.1},
+    "dimensions": {
+      "type": "array", "minItems": 5,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["dimension_id", "levels"],
+        "properties": {
+          "dimension_id": {"$ref": "#/$defs/id"},
+          "levels": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["level_id", "equivalence_key", "metadata"],
+              "properties": {
+                "level_id": {"type": "string", "minLength": 1},
+                "equivalence_key": {"type": "string", "minLength": 1},
+                "metadata": {"type": "object"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "exclusion_rules": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["when", "forbid", "reason"],
+        "properties": {"when": {"type": "object"}, "forbid": {"type": "object"}, "reason": {"type": "string", "minLength": 3}}
+      }
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

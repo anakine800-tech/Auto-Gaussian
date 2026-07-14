@@ -1,0 +1,378 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/study.schema.json",
+  "title": "Gaussian asymmetric-catalysis offline study",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "study_id",
+    "status",
+    "calculation_ready",
+    "no_submission_authorization",
+    "title",
+    "objective",
+    "catalyst_class",
+    "selectivity_types",
+    "conditions",
+    "species",
+    "catalyst_states",
+    "mechanism_hypotheses",
+    "channels",
+    "protocol_sets",
+    "comparison_groups",
+    "coverage_dimensions",
+    "unresolved_questions",
+    "gates"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-catalysis-study/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "status": {"enum": ["draft", "reviewed_offline", "superseded"]},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "title": {"type": "string", "minLength": 3},
+    "objective": {"type": "string", "minLength": 10},
+    "catalyst_class": {
+      "enum": [
+        "metal_chiral_ligand",
+        "chiral_boron",
+        "metal_and_chiral_boron_cooperative"
+      ]
+    },
+    "selectivity_types": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["enantioselectivity", "diastereoselectivity", "regioselectivity"]}
+    },
+    "conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temperature_k", "standard_state", "solvent_model", "concentration_notes"],
+      "properties": {
+        "temperature_k": {"type": "number", "exclusiveMinimum": 0},
+        "standard_state": {"enum": ["1M", "1atm", "explicit_custom"]},
+        "solvent_model": {"type": "string", "minLength": 1},
+        "concentration_notes": {"type": "string", "minLength": 1}
+      }
+    },
+    "species": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/species"}
+    },
+    "catalyst_states": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/catalystState"}
+    },
+    "mechanism_hypotheses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/mechanism"}
+    },
+    "channels": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/channel"}
+    },
+    "protocol_sets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/protocol"}
+    },
+    "comparison_groups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/comparisonGroup"}
+    },
+    "coverage_dimensions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/coverageDimension"}
+    },
+    "unresolved_questions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 3}
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/gate"}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "positiveInt": {"type": "integer", "minimum": 1},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "stereochemistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "descriptors", "review_notes"],
+      "properties": {
+        "status": {"enum": ["assigned", "unassigned", "not_applicable"]},
+        "descriptors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "label"],
+            "properties": {
+              "kind": {"enum": ["tetrahedral", "axial", "planar", "helical", "boron_centered", "relative", "other"]},
+              "atom_indices": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"$ref": "#/$defs/positiveInt"}
+              },
+              "label": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "review_notes": {"type": "string"}
+      }
+    },
+    "species": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "species_id", "role", "identity", "formula", "charge", "multiplicity",
+        "atom_count", "component_count", "stereochemistry", "source"
+      ],
+      "properties": {
+        "species_id": {"$ref": "#/$defs/id"},
+        "role": {
+          "enum": ["precatalyst", "catalyst", "ligand", "substrate", "reagent", "additive", "counterion", "solvent", "intermediate", "product"]
+        },
+        "identity": {"type": "string", "minLength": 1},
+        "formula": {"type": "string", "minLength": 1},
+        "charge": {"type": "integer"},
+        "multiplicity": {"$ref": "#/$defs/positiveInt"},
+        "atom_count": {"$ref": "#/$defs/positiveInt"},
+        "component_count": {"$ref": "#/$defs/positiveInt"},
+        "stereochemistry": {"$ref": "#/$defs/stereochemistry"},
+        "source": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "compositionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["species_id", "count"],
+      "properties": {
+        "species_id": {"$ref": "#/$defs/id"},
+        "count": {"$ref": "#/$defs/positiveInt"}
+      }
+    },
+    "metalCenter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atom_index", "element", "oxidation_state", "coordination_number", "geometry", "spin_hypothesis", "assignment_basis"],
+      "properties": {
+        "atom_index": {"$ref": "#/$defs/positiveInt"},
+        "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"},
+        "oxidation_state": {"type": ["integer", "string"]},
+        "coordination_number": {"type": ["integer", "string"]},
+        "geometry": {"type": "string", "minLength": 1},
+        "spin_hypothesis": {"type": "string", "minLength": 1},
+        "assignment_basis": {"type": "string", "minLength": 1}
+      }
+    },
+    "boronCenter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atom_index", "coordination_number", "geometry", "activation_state", "binding_sites", "equivalence_class"],
+      "properties": {
+        "atom_index": {"$ref": "#/$defs/positiveInt"},
+        "coordination_number": {"enum": [3, 4, "unknown"]},
+        "geometry": {"enum": ["trigonal_planar", "tetrahedral", "distorted", "unknown"]},
+        "activation_state": {"enum": ["lewis_acid", "lewis_base_adduct", "borate", "activated_catalyst", "unknown"]},
+        "binding_sites": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "equivalence_class": {"type": "string", "minLength": 1}
+      }
+    },
+    "catalystState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state_id", "catalyst_class", "identity", "structure", "composition",
+        "total_charge", "multiplicity", "nuclearity", "metal_centers",
+        "boron_centers", "ligand_and_binding_notes", "state_role",
+        "support_status", "inclusion_rationale"
+      ],
+      "properties": {
+        "state_id": {"$ref": "#/$defs/id"},
+        "catalyst_class": {
+          "enum": ["metal_chiral_ligand", "chiral_boron", "metal_and_chiral_boron_cooperative"]
+        },
+        "identity": {"type": "string", "minLength": 1},
+        "structure": {"$ref": "#/$defs/artifact"},
+        "composition": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/compositionEntry"}},
+        "total_charge": {"type": "integer"},
+        "multiplicity": {"$ref": "#/$defs/positiveInt"},
+        "nuclearity": {"$ref": "#/$defs/positiveInt"},
+        "metal_centers": {"type": "array", "items": {"$ref": "#/$defs/metalCenter"}},
+        "boron_centers": {"type": "array", "items": {"$ref": "#/$defs/boronCenter"}},
+        "ligand_and_binding_notes": {"type": "string", "minLength": 1},
+        "state_role": {"enum": ["precatalyst", "resting_state", "on_cycle_intermediate", "off_cycle_hypothesis", "unknown"]},
+        "support_status": {"enum": ["supported_main_group_closed_shell", "unsupported_transition_metal", "unsupported_electronic_structure", "unresolved"]},
+        "inclusion_rationale": {"type": "string", "minLength": 3}
+      }
+    },
+    "coordinateChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "atoms", "description"],
+      "properties": {
+        "kind": {"enum": ["forming", "breaking", "transferring"]},
+        "atoms": {"type": "array", "minItems": 2, "maxItems": 3, "items": {"$ref": "#/$defs/positiveInt"}},
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "mechanism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism_id", "name", "active_catalyst_state_id", "reactant_species_ids",
+        "product_species_ids", "channel_ids", "coordinate_changes", "selectivity_determining_step",
+        "turnover_limiting_step_claim", "reversibility", "status", "evidence_and_assumptions"
+      ],
+      "properties": {
+        "mechanism_id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 3},
+        "active_catalyst_state_id": {"$ref": "#/$defs/id"},
+        "reactant_species_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+        "product_species_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+        "channel_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "coordinate_changes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/coordinateChange"}},
+        "selectivity_determining_step": {"type": "boolean"},
+        "turnover_limiting_step_claim": {"enum": ["yes", "no", "unknown"]},
+        "reversibility": {"enum": ["reversible", "irreversible", "unknown"]},
+        "status": {"enum": ["included", "excluded", "unresolved"]},
+        "evidence_and_assumptions": {"type": "string", "minLength": 3}
+      }
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel_id", "product_species_id", "outcome_label", "stereochemical_descriptors", "substrate_face", "regio_label"],
+      "properties": {
+        "channel_id": {"$ref": "#/$defs/id"},
+        "product_species_id": {"$ref": "#/$defs/id"},
+        "outcome_label": {"type": "string", "minLength": 1},
+        "stereochemical_descriptors": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "substrate_face": {"enum": ["re", "si", "pro_r", "pro_s", "not_applicable", "unknown"]},
+        "regio_label": {"type": "string", "minLength": 1}
+      }
+    },
+    "routeValue": {"type": ["string", "null"]},
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_id", "resolution_status", "routes", "method", "basis_and_ecp",
+        "dispersion", "solvent", "grid", "scf", "relativistic_treatment",
+        "low_frequency_policy", "temperature_k", "standard_state", "resource_tier",
+        "expected_stage_counts", "review_notes"
+      ],
+      "properties": {
+        "protocol_id": {"$ref": "#/$defs/id"},
+        "resolution_status": {"enum": ["pending", "reviewed"]},
+        "routes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ts_optimization", "frequency", "irc_forward", "irc_reverse", "endpoint_opt_freq", "single_point"],
+          "properties": {
+            "ts_optimization": {"$ref": "#/$defs/routeValue"},
+            "frequency": {"$ref": "#/$defs/routeValue"},
+            "irc_forward": {"$ref": "#/$defs/routeValue"},
+            "irc_reverse": {"$ref": "#/$defs/routeValue"},
+            "endpoint_opt_freq": {"$ref": "#/$defs/routeValue"},
+            "single_point": {"$ref": "#/$defs/routeValue"}
+          }
+        },
+        "method": {"type": ["string", "null"]},
+        "basis_and_ecp": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "dispersion": {"type": ["string", "null"]},
+        "solvent": {"type": ["string", "null"]},
+        "grid": {"type": ["string", "null"]},
+        "scf": {"type": ["string", "null"]},
+        "relativistic_treatment": {"type": ["string", "null"]},
+        "low_frequency_policy": {"type": ["string", "null"]},
+        "temperature_k": {"type": "number", "exclusiveMinimum": 0},
+        "standard_state": {"enum": ["1M", "1atm", "explicit_custom"]},
+        "resource_tier": {"enum": ["simple", "general", "complex", "unresolved"]},
+        "expected_stage_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "review_notes": {"type": "string"}
+      }
+    },
+    "referenceState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definition", "species_inventory", "energy_formula", "balanced_cycle_required"],
+      "properties": {
+        "definition": {"type": "string", "minLength": 3},
+        "species_inventory": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/compositionEntry"}},
+        "energy_formula": {"type": "string", "minLength": 3},
+        "balanced_cycle_required": {"type": "boolean"}
+      }
+    },
+    "comparisonGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "comparison_group_id", "mechanism_id", "channel_ids", "protocol_id",
+        "reference_state", "aggregation_model", "required_validation_level",
+        "coverage_dimension_ids"
+      ],
+      "properties": {
+        "comparison_group_id": {"$ref": "#/$defs/id"},
+        "mechanism_id": {"$ref": "#/$defs/id"},
+        "channel_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "protocol_id": {"$ref": "#/$defs/id"},
+        "reference_state": {"$ref": "#/$defs/referenceState"},
+        "aggregation_model": {"enum": ["boltzmann_ts_ensemble", "lowest_ts_only_sensitivity", "kinetic_network_external"]},
+        "required_validation_level": {"enum": ["mode_reviewed", "path_validated"]},
+        "coverage_dimension_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    },
+    "coverageDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dimension_id", "name", "applicable", "expected_levels", "review_rule"],
+      "properties": {
+        "dimension_id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "applicable": {"type": "boolean"},
+        "expected_levels": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "review_rule": {"type": "string", "minLength": 3}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_id", "name", "status", "reviewer", "decision_record"],
+      "properties": {
+        "gate_id": {"pattern": "^g[0-5]$", "type": "string"},
+        "name": {"type": "string", "minLength": 1},
+        "status": {"enum": ["pending", "accepted", "rejected", "not_applicable"]},
+        "reviewer": {"type": ["string", "null"]},
+        "decision_record": {"anyOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]}
+      }
+    }
+  }
+}

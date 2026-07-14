@@ -1,0 +1,255 @@
+{
+  "schema": "gaussian-asymmetric-literature-benchmark-source/1",
+  "ledger_id": "wang2024_bf3_ts_benchmark",
+  "citation": {
+    "title": "Borane-Catalyzed Enantioselective alpha-Alkylation of Unactivated 2-Alkylbenzoxazoles with Electron-Deficient Olefins",
+    "doi": "10.1021/jacs.4c09067",
+    "article_url": "https://pubs.acs.org/doi/10.1021/jacs.4c09067",
+    "supporting_information_url": "https://pubs.acs.org/doi/suppl/10.1021/jacs.4c09067/suppl_file/ja4c09067_si_001.pdf"
+  },
+  "reported_protocol": {
+    "status": "literature_record_not_approved_protocol",
+    "program": "Gaussian 09",
+    "optimization_and_frequency": "omega-B97XD/6-31G(d) with SMD",
+    "single_point": "omega-B97XD/def2-TZVPP with SMD",
+    "temperature_k": 298.15,
+    "irc_statement": "The SI states that IRC calculations were conducted to determine connectivity of minima and transition states.",
+    "solvent_identity": null,
+    "route_keywords": null,
+    "standard_state": null,
+    "low_frequency_policy": null,
+    "candidate_specific_irc_endpoint_identities": null
+  },
+  "unresolved_submission_fields": [
+    "source-reported charge and multiplicity are absent from the Cartesian-coordinate tables",
+    "the SMD solvent identity is not stated in the computational-method paragraph",
+    "complete Gaussian route keywords and numerical options are not reported",
+    "standard-state and low-frequency policies are not reported",
+    "candidate-specific forward and reverse IRC endpoint identities are not reported",
+    "resources, checkpoint names, project names, and input hashes have not been proposed or approved"
+  ],
+  "candidates": [
+    {
+      "candidate_id": "wang2024_bf3_ts1",
+      "literature_label": "BF3-TS1",
+      "priority": 1,
+      "stage": "first_closed_shell_main_group_ts_test",
+      "geometry_path": "coordinates/bf3_ts1.xyz",
+      "expected_atom_count": 57,
+      "expected_formula": "C18H30BF3N4O",
+      "expected_coordinate_block_sha256": "418b5249b3efa2baef0c9ee18c7fe8ffd9cd500042f8ff90ecfe6497974369f8",
+      "source_pages": {
+        "structure_and_reported_result": "SI S76, Figure S4",
+        "cartesian_coordinates": ["SI S116", "SI S117"]
+      },
+      "extraction_review": "Recovered from the right-hand SI coordinate column and cross-checked against the S76 structure, formula, atom count, and 1.43/1.28 angstrom proton-transfer distances.",
+      "identity": {
+        "description": "BF3-associated proton-transfer transition-state model for deprotonation of 2-ethylbenzoxazole by Barton's base.",
+        "catalyst_model": "BF3",
+        "components": [
+          {"identity": "2-ethylbenzoxazole", "formula": "C9H9NO"},
+          {"identity": "Barton's base", "formula": "C9H21N3"},
+          {"identity": "boron trifluoride", "formula": "BF3"}
+        ],
+        "stereochemical_role": "not an enantioselectivity model"
+      },
+      "electronic_state": {
+        "source_reported_charge": null,
+        "source_reported_multiplicity": null,
+        "proposed_charge": 0,
+        "proposed_multiplicity": 1,
+        "proposal_basis": "Neutral even-electron component inventory and the user-selected closed-shell main-group test scope; this is not source-reported input metadata.",
+        "review_status": "requires_explicit_approval"
+      },
+      "coordinate_changes": [
+        {
+          "kind": "transferring",
+          "atoms": [13, 14, 23],
+          "description": "Hydrogen atom 14 transfers from benzoxazole alpha carbon 13 to Barton's-base nitrogen 23.",
+          "distance_pairs": [
+            {"atoms": [13, 14], "role": "breaking_c_h", "reported_figure_angstrom": 1.43},
+            {"atoms": [14, 23], "role": "forming_n_h", "reported_figure_angstrom": 1.28}
+          ]
+        }
+      ],
+      "expected_result": {
+        "source_status": "reported_in_si_figure",
+        "reported_featured_imaginary_frequency_cm1": -1455.35,
+        "acceptance_raw_imaginary_frequency_count": 1,
+        "reported_delta_g_dagger_kcal_mol": 9.2,
+        "barrier_reference_status": "value reported by the SI; exact common energy-zero definition requires review before quantitative reproduction claims",
+        "expected_mode_description": "The reviewed imaginary mode must move H14 along the C13-H14-N23 proton-transfer coordinate.",
+        "manual_mode_review_required": true,
+        "candidate_specific_irc_endpoints_reported": false
+      },
+      "gates": [
+        "explicit charge and multiplicity approval",
+        "exact route, SMD solvent identity, resources, project, and rendered input hash approval",
+        "normal termination, stationary point, complete frequency analysis, and exactly one raw imaginary frequency",
+        "hash-bound manual normal-mode review against C13-H14-N23",
+        "separate approval for each IRC direction before any path calculation"
+      ]
+    },
+    {
+      "candidate_id": "wang2024_bf3_ts2_b1",
+      "literature_label": "BF3-TS2-B1",
+      "priority": 2,
+      "stage": "second_cc_bond_forming_topology_pair",
+      "geometry_path": "coordinates/bf3_ts2_b1.xyz",
+      "expected_atom_count": 78,
+      "expected_formula": "C25H42BF3N4O3",
+      "expected_coordinate_block_sha256": "6f781ed23bdd3850f476a8624b3bfea68ce7b9d3dd0263a33530ec9caed61ed6",
+      "source_pages": {
+        "structure_and_reported_result": "SI S77, Figure S4",
+        "cartesian_coordinates": ["SI S119", "SI S120", "SI S121"]
+      },
+      "extraction_review": "Recovered from the right-hand SI coordinate column and cross-checked against the S77 structure, formula, atom count, and 2.15 angstrom forming C-C distance.",
+      "identity": {
+        "description": "Published BF3-TS2-B1 C-C bond-forming topology containing 2-ethylbenzoxazole, tert-butyl acrylate, Barton's base, and BF3.",
+        "catalyst_model": "BF3",
+        "components": [
+          {"identity": "2-ethylbenzoxazole", "formula": "C9H9NO"},
+          {"identity": "tert-butyl acrylate", "formula": "C7H12O2"},
+          {"identity": "Barton's base", "formula": "C9H21N3"},
+          {"identity": "boron trifluoride", "formula": "BF3"}
+        ],
+        "stereochemical_role": "achiral published approach topology B1; not an ee channel"
+      },
+      "electronic_state": {
+        "source_reported_charge": null,
+        "source_reported_multiplicity": null,
+        "proposed_charge": 0,
+        "proposed_multiplicity": 1,
+        "proposal_basis": "Neutral even-electron component inventory and the user-selected closed-shell main-group test scope; this is not source-reported input metadata.",
+        "review_status": "requires_explicit_approval"
+      },
+      "coordinate_changes": [
+        {
+          "kind": "forming",
+          "atoms": [13, 21],
+          "description": "C-C bond formation between benzoxazole alpha carbon 13 and acrylate terminal carbon 21.",
+          "distance_pairs": [
+            {"atoms": [13, 21], "role": "forming_c_c", "reported_figure_angstrom": 2.15}
+          ]
+        }
+      ],
+      "expected_result": {
+        "source_status": "reported_in_si_figure",
+        "reported_featured_imaginary_frequency_cm1": -389.10,
+        "acceptance_raw_imaginary_frequency_count": 1,
+        "reported_delta_g_dagger_kcal_mol": 16.9,
+        "barrier_reference_status": "value reported by the SI; exact common energy-zero definition requires review before quantitative reproduction claims",
+        "expected_mode_description": "The reviewed imaginary mode must project onto C13-C21 bond formation; static distance agreement is insufficient.",
+        "manual_mode_review_required": true,
+        "candidate_specific_irc_endpoints_reported": false
+      },
+      "gates": [
+        "BF3-TS1 must first complete and receive an accepted hash-bound mode decision",
+        "explicit charge and multiplicity approval",
+        "exact route, SMD solvent identity, resources, project, and rendered input hash approval",
+        "normal termination, stationary point, complete frequency analysis, and exactly one raw imaginary frequency",
+        "hash-bound manual normal-mode review against C13-C21",
+        "separate approval for each IRC direction before any path calculation"
+      ]
+    },
+    {
+      "candidate_id": "wang2024_bf3_ts2_b2",
+      "literature_label": "BF3-TS2-B2",
+      "priority": 2,
+      "stage": "second_cc_bond_forming_topology_pair",
+      "geometry_path": "coordinates/bf3_ts2_b2.xyz",
+      "expected_atom_count": 78,
+      "expected_formula": "C25H42BF3N4O3",
+      "expected_coordinate_block_sha256": "c3c6eae44685c04d649e5554865531fd936c01faed9cac3c8ad308cfd69027c5",
+      "source_pages": {
+        "structure_and_reported_result": "SI S77, Figure S4",
+        "cartesian_coordinates": ["SI S120", "SI S121"]
+      },
+      "extraction_review": "Recovered from the left-hand SI coordinate column and cross-checked against the S77 structure, formula, atom count, and 2.22 angstrom forming C-C distance.",
+      "identity": {
+        "description": "Published BF3-TS2-B2 C-C bond-forming topology containing 2-ethylbenzoxazole, tert-butyl acrylate, Barton's base, and BF3.",
+        "catalyst_model": "BF3",
+        "components": [
+          {"identity": "2-ethylbenzoxazole", "formula": "C9H9NO"},
+          {"identity": "tert-butyl acrylate", "formula": "C7H12O2"},
+          {"identity": "Barton's base", "formula": "C9H21N3"},
+          {"identity": "boron trifluoride", "formula": "BF3"}
+        ],
+        "stereochemical_role": "achiral published approach topology B2; not an ee channel"
+      },
+      "electronic_state": {
+        "source_reported_charge": null,
+        "source_reported_multiplicity": null,
+        "proposed_charge": 0,
+        "proposed_multiplicity": 1,
+        "proposal_basis": "Neutral even-electron component inventory and the user-selected closed-shell main-group test scope; this is not source-reported input metadata.",
+        "review_status": "requires_explicit_approval"
+      },
+      "coordinate_changes": [
+        {
+          "kind": "forming",
+          "atoms": [13, 21],
+          "description": "C-C bond formation between benzoxazole alpha carbon 13 and acrylate terminal carbon 21.",
+          "distance_pairs": [
+            {"atoms": [13, 21], "role": "forming_c_c", "reported_figure_angstrom": 2.22}
+          ]
+        }
+      ],
+      "expected_result": {
+        "source_status": "reported_in_si_figure",
+        "reported_featured_imaginary_frequency_cm1": -351.55,
+        "acceptance_raw_imaginary_frequency_count": 1,
+        "reported_delta_g_dagger_kcal_mol": 16.9,
+        "barrier_reference_status": "value reported by the SI; exact common energy-zero definition requires review before quantitative reproduction claims",
+        "expected_mode_description": "The reviewed imaginary mode must project onto C13-C21 bond formation; static distance agreement is insufficient.",
+        "manual_mode_review_required": true,
+        "candidate_specific_irc_endpoints_reported": false
+      },
+      "gates": [
+        "BF3-TS1 must first complete and receive an accepted hash-bound mode decision",
+        "explicit charge and multiplicity approval",
+        "exact route, SMD solvent identity, resources, project, and rendered input hash approval",
+        "normal termination, stationary point, complete frequency analysis, and exactly one raw imaginary frequency",
+        "hash-bound manual normal-mode review against C13-C21",
+        "separate approval for each IRC direction before any path calculation"
+      ]
+    }
+  ],
+  "deferred_benchmarks": [
+    {
+      "benchmark_id": "wang2024_bcf_ts1",
+      "literature_label": "TS1 with B(C6F5)3",
+      "atom_count_from_si_coordinates": 87,
+      "status": "deferred_not_materialized",
+      "reason": "Comparable in size to the previously rejected 89-atom first test; retained only as a later full-BCF benchmark."
+    },
+    {
+      "benchmark_id": "wang2024_bcf_ts2_b1",
+      "literature_label": "TS2-B1 with B(C6F5)3",
+      "atom_count_from_si_coordinates": 108,
+      "status": "deferred_not_materialized",
+      "reason": "The full BCF C-C-forming transition state is larger than the BF3 topology pair and is not part of the initial live sequence."
+    }
+  ],
+  "workflow_order": [
+    {
+      "sequence": 1,
+      "candidate_ids": ["wang2024_bf3_ts1"],
+      "entry_gate": "offline ledger, identity, coordinate, and hash validation complete",
+      "exit_gate": "successful TS/Freq evidence plus accepted manual proton-transfer mode decision"
+    },
+    {
+      "sequence": 2,
+      "candidate_ids": ["wang2024_bf3_ts2_b1", "wang2024_bf3_ts2_b2"],
+      "entry_gate": "sequence 1 exit gate satisfied and a new exact approval is obtained for each candidate",
+      "exit_gate": "each topology has independently reviewed TS/Freq evidence; no ee claim is permitted"
+    },
+    {
+      "sequence": 3,
+      "candidate_ids": [],
+      "benchmark_ids": ["wang2024_bcf_ts1", "wang2024_bcf_ts2_b1"],
+      "entry_gate": "BF3 stages completed and a separate resource/scientific review justifies full BCF",
+      "exit_gate": "deferred; no calculation or materialization is authorized by this ledger"
+    }
+  ]
+}

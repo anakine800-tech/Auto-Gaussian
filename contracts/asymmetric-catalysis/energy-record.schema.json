@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/energy-record.schema.json",
+  "title": "Explicit asymmetric comparison-energy record",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "result_id", "candidate_id", "energy_unit", "electronic_energy", "thermal_gibbs_correction", "comparison_free_energy", "comparison_energy_definition", "temperature_k", "standard_state", "low_frequency_policy", "inventory_key", "degeneracy"],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-energy-record/1"}, "result_id": {"$ref": "#/$defs/id"}, "candidate_id": {"$ref": "#/$defs/id"},
+    "energy_unit": {"enum": ["hartree", "kcal_mol", "kj_mol"]}, "electronic_energy": {"type": ["number", "null"]}, "thermal_gibbs_correction": {"type": ["number", "null"]}, "comparison_free_energy": {"type": ["number", "null"]},
+    "comparison_energy_definition": {"type": "string", "minLength": 3}, "temperature_k": {"type": "number", "exclusiveMinimum": 0}, "standard_state": {"enum": ["1M", "1atm", "explicit_custom"]}, "low_frequency_policy": {"type": "string", "minLength": 1}, "inventory_key": {"type": "string", "minLength": 3}, "degeneracy": {"type": "integer", "minimum": 1}
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}}
+}

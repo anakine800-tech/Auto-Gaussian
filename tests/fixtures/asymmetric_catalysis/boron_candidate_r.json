@@ -1,0 +1,95 @@
+{
+  "schema": "gaussian-asymmetric-ts-candidate/1",
+  "candidate_id": "boron_ts_r_conf_a",
+  "study_id": "fixture_boron_selectivity",
+  "study_sha256": "d2b1067314efa95817672674085d3a99c0de079b5d9c9733b91d58b39a5e1017",
+  "comparison_group_id": "boron_face_pair",
+  "mechanism_id": "boron_c_c_formation",
+  "channel_id": "channel_r",
+  "catalyst_state_id": "boron_free_state",
+  "protocol_id": "fixture_boron_protocol",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "support_status": "supported_main_group_closed_shell",
+  "review_status": "promoted_offline",
+  "chemical_state": {
+    "identity": "synthetic boron-bound R-channel transition-state assembly",
+    "charge": 0,
+    "multiplicity": 1,
+    "component_count": 1,
+    "stereochemistry_status": "assigned"
+  },
+  "candidate_dimensions": {
+    "binding_mode": "mono_o_at_b_site_a",
+    "catalyst_conformer": "cat_conf_a",
+    "approach_face": "re"
+  },
+  "binding_mode": {
+    "label": "mono_o_at_b_site_a",
+    "coordination_contacts": [{"donor_atom": 2, "acceptor_atom": 1, "kind": "boron_coordination"}],
+    "review_notes": "Synthetic carbonyl O to boron contact."
+  },
+  "approach_topology": {
+    "label": "re_face_c_c_approach",
+    "substrate_face": "re",
+    "topology_notes": "Synthetic R-channel approach."
+  },
+  "conformer_sources": [
+    {
+      "role": "complex",
+      "conformer_id": "boron_complex_r_a",
+      "source": {"path": "synthetic://boron_complex_r_a.xyz", "sha256": "8888888888888888888888888888888888888888888888888888888888888888"},
+      "prescreen_method": "synthetic_fixture_prescreen",
+      "prescreen_energy": 0.0,
+      "energy_unit": "kcal_mol"
+    }
+  ],
+  "electronic_state": {
+    "charge": 0,
+    "multiplicity": 1,
+    "oxidation_state_notes": "Not applicable to this closed-shell main-group fixture.",
+    "spin_state_notes": "Closed-shell singlet fixture.",
+    "broken_symmetry": "not_applicable",
+    "multireference_concern": "none_identified"
+  },
+  "atom_inventory": {
+    "formula": "C2H2BO",
+    "atom_count": 6,
+    "element_counts": {"B": 1, "O": 1, "C": 2, "H": 2},
+    "inventory_key": "fixture_c2h2bo_neutral_singlet"
+  },
+  "atom_map": [
+    {"index": 1, "element": "B", "role": "catalyst_boron", "source_atom_id": "cat_b1"},
+    {"index": 2, "element": "O", "role": "carbonyl_oxygen", "source_atom_id": "sub_o1"},
+    {"index": 3, "element": "C", "role": "carbonyl_carbon", "source_atom_id": "sub_c1"},
+    {"index": 4, "element": "C", "role": "nucleophilic_carbon", "source_atom_id": "nuc_c1"},
+    {"index": 5, "element": "H", "role": "substrate_hydrogen", "source_atom_id": "sub_h1"},
+    {"index": 6, "element": "H", "role": "nucleophile_hydrogen", "source_atom_id": "nuc_h1"}
+  ],
+  "coordinate_changes": [{"kind": "forming", "atoms": [3, 4], "description": "Synthetic C-C bond formation."}],
+  "geometry": {
+    "format": "xyz",
+    "artifact": {"path": "synthetic://boron_ts_r_conf_a.xyz", "sha256": "9999999999999999999999999999999999999999999999999999999999999999"},
+    "construction_method": "Synthetic fixture coordinates with no runnable geometry.",
+    "stereochemistry_reviewed": true,
+    "clash_reviewed": true
+  },
+  "resource_tier_proposal": "simple",
+  "deduplication": {
+    "status": "unique",
+    "duplicate_of": null,
+    "method": "Fixture identity, channel, atom map, and geometry review.",
+    "review_notes": "Not deduplicated against the opposite stereochemical channel."
+  },
+  "coverage_tags": {
+    "binding_mode": "mono_o_at_b_site_a",
+    "catalyst_conformer": "cat_conf_a",
+    "approach_face": "re"
+  },
+  "warnings": [],
+  "review": {
+    "reviewer": "fixture",
+    "decision": "promoted_offline",
+    "decision_record": {"path": "synthetic://boron_ts_r_review.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+  }
+}

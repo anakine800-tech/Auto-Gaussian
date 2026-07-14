@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/ledger.schema.json",
+  "title": "Deterministic asymmetric candidate-space ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "study_id", "study_sha256", "comparison_group_id", "mechanism_id", "protocol_id", "calculation_ready", "no_submission_authorization", "candidate_space_spec", "geometry_dedup_tolerance_angstrom", "dimension_ids", "entries", "excluded_combinations", "counts"],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-candidate-ledger/1"},
+    "study_id": {"$ref": "#/$defs/id"}, "study_sha256": {"$ref": "#/$defs/sha256"},
+    "comparison_group_id": {"$ref": "#/$defs/id"}, "mechanism_id": {"$ref": "#/$defs/id"}, "protocol_id": {"$ref": "#/$defs/id"},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true},
+    "candidate_space_spec": {"$ref": "#/$defs/artifact"},
+    "materialization_spec": {"$ref": "#/$defs/artifact"},
+    "candidates_written": {"type": "integer", "minimum": 0},
+    "geometry_dedup_tolerance_angstrom": {"type": "number", "exclusiveMinimum": 0},
+    "dimension_ids": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["candidate_id", "channel_id", "catalyst_state_id", "dimensions", "canonical_key", "logical_equivalence_key", "status", "duplicate_of", "candidate_artifact", "geometry_fingerprint", "diagnostics"],
+        "properties": {
+          "candidate_id": {"$ref": "#/$defs/id"}, "channel_id": {"$ref": "#/$defs/id"}, "catalyst_state_id": {"$ref": "#/$defs/id"},
+          "dimensions": {"type": "object", "minProperties": 5, "additionalProperties": {"type": "string", "minLength": 1}},
+          "canonical_key": {"$ref": "#/$defs/sha256"}, "logical_equivalence_key": {"$ref": "#/$defs/sha256"},
+          "status": {"enum": ["unmaterialized", "duplicate_logical", "materialized_unique", "duplicate_geometry"]},
+          "duplicate_of": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+          "candidate_artifact": {"anyOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]},
+          "geometry_fingerprint": {"anyOf": [{"type": "object", "additionalProperties": false, "required": ["method", "sha256"], "properties": {"method": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}}}, {"type": "null"}]},
+          "diagnostics": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "excluded_combinations": {"type": "array", "items": {"type": "object"}},
+    "counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enumerated", "retained", "logical_duplicates", "excluded", "materialized_unique", "geometry_duplicates"],
+      "properties": {"enumerated": {"type": "integer", "minimum": 0}, "retained": {"type": "integer", "minimum": 0}, "logical_duplicates": {"type": "integer", "minimum": 0}, "excluded": {"type": "integer", "minimum": 0}, "materialized_unique": {"type": "integer", "minimum": 0}, "geometry_duplicates": {"type": "integer", "minimum": 0}}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}}
+  }
+}

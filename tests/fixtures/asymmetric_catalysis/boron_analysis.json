@@ -1,0 +1,121 @@
+{
+  "schema": "gaussian-asymmetric-selectivity-analysis/1",
+  "analysis_id": "boron_fixture_analysis",
+  "study_id": "fixture_boron_selectivity",
+  "study_sha256": "d2b1067314efa95817672674085d3a99c0de079b5d9c9733b91d58b39a5e1017",
+  "comparison_group_id": "boron_face_pair",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "status": "provisional",
+  "protocol_id": "fixture_boron_protocol",
+  "required_validation_level": "mode_reviewed",
+  "conditions": {
+    "temperature_k": 298.15,
+    "standard_state": "1M",
+    "energy_unit": "kcal_mol",
+    "low_frequency_policy": "raw harmonic fixture values; no correction"
+  },
+  "included_results": [
+    {
+      "result_id": "boron_result_r_a",
+      "result_sha256": "e1985012aed97ce76184eb0e4317a5dee0448a839a93f8b039bee8e6574114b9",
+      "candidate_id": "boron_ts_r_conf_a",
+      "channel_id": "channel_r",
+      "comparison_free_energy": 10.0,
+      "degeneracy": 1
+    },
+    {
+      "result_id": "boron_result_s_a",
+      "result_sha256": "75fafc7a7c49a7072c6364d2cd5baef5a7100b158c56037607220dd6a6c35c79",
+      "candidate_id": "boron_ts_s_conf_a",
+      "channel_id": "channel_s",
+      "comparison_free_energy": 11.5,
+      "degeneracy": 1
+    }
+  ],
+  "excluded_results": [],
+  "comparability": {
+    "status": "passed",
+    "common_protocol": true,
+    "common_reference_state": true,
+    "common_inventory_or_balanced_cycle": true,
+    "common_temperature": true,
+    "common_standard_state": true,
+    "common_low_frequency_policy": true,
+    "blocking_reasons": []
+  },
+  "coverage": [
+    {
+      "dimension_id": "binding_mode",
+      "expected_levels": ["mono_o_at_b_site_a"],
+      "observed_levels": ["mono_o_at_b_site_a"],
+      "candidate_counts_by_channel": {"channel_r": 1, "channel_s": 1},
+      "exclusions": [],
+      "coverage_status": "complete"
+    },
+    {
+      "dimension_id": "catalyst_conformer",
+      "expected_levels": ["cat_conf_a"],
+      "observed_levels": ["cat_conf_a"],
+      "candidate_counts_by_channel": {"channel_r": 1, "channel_s": 1},
+      "exclusions": [],
+      "coverage_status": "complete"
+    },
+    {
+      "dimension_id": "approach_face",
+      "expected_levels": ["re", "si"],
+      "observed_levels": ["re", "si"],
+      "candidate_counts_by_channel": {"channel_r": 1, "channel_s": 1},
+      "exclusions": [],
+      "coverage_status": "complete"
+    }
+  ],
+  "aggregation": {
+    "model": "boltzmann_ts_ensemble",
+    "formula": "W(channel)=sum_i degeneracy_i*exp[-G_i/(R*T)]; G_eff=-R*T*ln(W)",
+    "gas_constant": 0.00198720425864083,
+    "gas_constant_unit": "kcal_mol_k",
+    "common_energy_zero": "Synthetic common catalyst plus substrate plus nucleophile reference.",
+    "channel_summaries": [
+      {
+        "channel_id": "channel_r",
+        "candidate_result_ids": ["boron_result_r_a"],
+        "log_weight": -16.878065856071313,
+        "effective_barrier": 10.0,
+        "normalized_fraction": 0.9263351177992223
+      },
+      {
+        "channel_id": "channel_s",
+        "candidate_result_ids": ["boron_result_s_a"],
+        "log_weight": -19.40977573448201,
+        "effective_barrier": 11.5,
+        "normalized_fraction": 0.07366488220077777
+      }
+    ],
+    "external_model": null
+  },
+  "selectivity": {
+    "major_channel_id": "channel_r",
+    "minor_channel_id": "channel_s",
+    "delta_delta_g_kcal_mol": 1.5,
+    "major_minor_ratio": 12.574989467497469,
+    "ee_percent": 85.26702355984445,
+    "channel_fractions": {"channel_r": 0.9263351177992223, "channel_s": 0.07366488220077777},
+    "sign_convention": "G_eff(minor)-G_eff(major)"
+  },
+  "uncertainty": {
+    "coverage_limitations": ["Only synthetic enumerated levels exist in this fixture."],
+    "method_sensitivity": "Not evaluated; all energies are synthetic.",
+    "thermochemistry_sensitivity": "Not evaluated; all values are synthetic.",
+    "ordering_stability": "unknown",
+    "claim_limitations": ["No IRC/path evidence.", "No real molecular geometries or Gaussian results."]
+  },
+  "claim": {
+    "statement": "The synthetic fixture arithmetic favors channel_r within the declared toy model only.",
+    "scope": "Offline contract and aggregation test; no chemical prediction.",
+    "path_validation_complete": false,
+    "reviewer": "fixture",
+    "decision_record": {"path": "synthetic://boron_analysis_review.json", "sha256": "1313131313131313131313131313131313131313131313131313131313131313"}
+  },
+  "supersedes": null
+}
