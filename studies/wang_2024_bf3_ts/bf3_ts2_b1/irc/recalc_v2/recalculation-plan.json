@@ -1,0 +1,84 @@
+{
+  "schema": "gaussian-irc-recalculation-plan/1",
+  "plan_id": "wang2024_bf3_ts2_b1_bidirectional_irc_recalc_v2",
+  "status": "offline_inputs_ready_pending_exact_live_approval",
+  "candidate_id": "wang2024_bf3_ts2_b1",
+  "reason": "The first forward IRC failed at target point 21 through corrector oscillation, while the first reverse IRC reached its 30-point ceiling without establishing an endpoint minimum.",
+  "selected_protocol": {
+    "tier": "standard",
+    "integrator": "Gaussian default HPC",
+    "step_size": 3,
+    "maximum_points_per_direction": 60,
+    "maximum_corrector_cycles_per_point": 40,
+    "recorrection": "Yes",
+    "method": "omega-B97XD/6-31G(d)",
+    "solvation": "SMD toluene",
+    "grid": "UltraFine",
+    "scf": "Tight with XQC fallback, MaxCycle=128",
+    "force_constants": "RCFC from the audited accepted TS state",
+    "geometry_and_guess": "Geom=AllCheck Guess=Read"
+  },
+  "source_bindings": {
+    "accepted_ts_input_sha256": "0f26f244dfec97ad04fe757f7447b52bd39fb295af58b0ed463033a807ff37ad",
+    "accepted_ts_result_sha256": "080bbff50f9b364e86d69e6037503d77fb7f7ec0c1ce2aee2d64402deb894a3e",
+    "accepted_mode_review_sha256": "1b4d159a68019a4fe0547c0c748113c45b01391cc5bb2025923a9b5e01080346",
+    "accepted_mode_decision_sha256": "2a1a225f0fc6e1dc47100753e2e1d48462d0e53481f0673c751f6386f262b882",
+    "ts_state_sha256": "2df61f303797d138ea8d0b94db951b19ad68983c5b56eaa14294aee0dfcfc632",
+    "ts_state_audit_sha256": "a140f7615cd8392e95a9a79a805da26e687844178136bb4580b6fba88c697337",
+    "g16_revision": "A.03"
+  },
+  "directions": [
+    {
+      "direction": "forward",
+      "project": "w24_bf3b1_if2",
+      "remote_directory": "/home/user100/SDL/w24_bf3b1_if2",
+      "protocol_options_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/forward-protocol-options.json",
+      "protocol_options_sha256": "b99b95a6ba31a96718250a584ff478bf6b26bad4ee1718badb4792ecd897b482",
+      "protocol_selection_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/forward-protocol-selection-standard.json",
+      "protocol_selection_sha256": "ab88cbd13e62151f9a1aeb588c48ff4be10eeb3fbf5ffe945359d2358360a7e6",
+      "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/forward/w24_bf3b1_if2.gjf",
+      "input_sha256": "726a53b02eb496dc5784e748d5d01a59d84e6fc8b31a7c25d8ff4eb908fc6819",
+      "allcheck_manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/forward/w24_bf3b1_if2.json",
+      "allcheck_manifest_sha256": "fe6523ee82f05795ff0028300429d8863d5c313c47664f09ae25b30b92c0bfd7",
+      "terminal_intake_template_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/forward/terminal-intake-template.json",
+      "terminal_intake_template_sha256": "8a17a1b8105b299e7c725c6e6c93ff42751089036b484618adb949da256c71eb",
+      "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,forward,maxpoints=60,stepsize=3,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)"
+    },
+    {
+      "direction": "reverse",
+      "project": "w24_bf3b1_ir2",
+      "remote_directory": "/home/user100/SDL/w24_bf3b1_ir2",
+      "protocol_options_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/reverse-protocol-options.json",
+      "protocol_options_sha256": "bf4d6c360da143a72d99434bc1c28634d0f2b4ee7bc5473cadeacafd3d709a11",
+      "protocol_selection_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/reverse-protocol-selection-standard.json",
+      "protocol_selection_sha256": "d9b6eabc8e17be67911d6eaea631f3e76b2f4f5f1a22fc15eeaffb19edf9566b",
+      "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/reverse/w24_bf3b1_ir2.gjf",
+      "input_sha256": "feef276a1d4972de34c008938e610a21830646a26cd6406bb6cf24f04c01d12c",
+      "allcheck_manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/reverse/w24_bf3b1_ir2.json",
+      "allcheck_manifest_sha256": "50a6434edc4ea38878cbdd8eeff740d53befbce3ccf9b30bbccd8d032d145c4a",
+      "terminal_intake_template_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/reverse/terminal-intake-template.json",
+      "terminal_intake_template_sha256": "24596f64e2ecf00a3f4e64f636fd77dd9c795b30a572fc35391925ef4b5fcc60",
+      "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,reverse,maxpoints=60,stepsize=3,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)"
+    }
+  ],
+  "resources_per_direction": {
+    "resource_tier": "complex",
+    "memory": "120GB",
+    "nprocshared": 44,
+    "pbs_cores": 44,
+    "pbs_memory": "120GB"
+  },
+  "live_submission_authorization": false,
+  "no_automatic_retry": true,
+  "no_overwrite": true,
+  "path_validated": false,
+  "exact_live_approval_required": [
+    "both input SHA-256 values",
+    "both complete routes",
+    "both fresh project names and remote directories",
+    "the audited TS-state SHA-256",
+    "120GB and 44 cores per direction",
+    "permission for one upload and one qsub per direction"
+  ],
+  "plan_payload_sha256": "c007355c3e153643fd68a6a40399d804b76c6c934b56542f64750e099f17f49a"
+}
