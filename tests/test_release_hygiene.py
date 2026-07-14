@@ -36,9 +36,15 @@ class ReleaseHygieneTests(unittest.TestCase):
         self.assertIn("unittest discover", workflow.read_text())
 
     def test_no_machine_specific_identity_or_address_is_tracked(self) -> None:
+        retired_machine_values = [
+            "".join(("sun", "deli")),
+            "".join(("102", "61")),
+            ".".join(("100", "76", "152", "81")),
+            ".".join(("10", "40", "11", "7")),
+        ]
         forbidden = re.compile(
-            r"<LOCAL_USER>|<WINDOWS_USER>|100\.76\.152\.81|10\.40\.11\.7|"
-            r"/Users/[^/< ]+|C:\\Users\\(?!<WINDOWS_USER>)",
+            "|".join(map(re.escape, retired_machine_values))
+            + r"|/Users/[^/< ]+|C:\\Users\\(?!<WINDOWS_USER>)",
             re.IGNORECASE,
         )
         offenders: list[str] = []
