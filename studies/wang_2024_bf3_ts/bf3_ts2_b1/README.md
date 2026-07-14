@@ -1,6 +1,6 @@
 # BF3-TS2-B1 accepted TS and bidirectional IRC follow-up
 
-Status: `mode_accepted_bidirectional_irc_running_pending_terminal_evidence`
+Status: `mode_accepted_irc_incomplete_forward_failed_reverse_pending_endpoint_review`
 
 The user selected the `standard` protocol with the `complex` resource tier
 (120 GB, 44 cores). The version-controlled files preserve the offline,
@@ -42,12 +42,14 @@ The separately approved forward and reverse IRC inputs are under `irc/`.
 `irc/forward/terminal-intake-template.json` and
 `irc/reverse/terminal-intake-template.json` bind their exact projects, input
 hashes, directions, 30-point ceilings, 78-atom identity, and C13-C21 review
-coordinate. After each job reaches stable terminal evidence and its complete
-log is fetched, run the offline `ingest-terminal` command. A
-`ready_for_endpoint_structure_review` outcome still requires independent
-reactant/product assignment and `audit-irc-endpoint`; it is not path validation.
-No retry, integrator change, cancellation, cleanup, or endpoint calculation is
-authorized.
+coordinate. Both terminal logs were fetched and ingested against those
+templates. Forward stopped at point 20 after
+`Maximum number of corrector steps exceded` and is recorded as failed. Reverse
+reached all 30 points and has the outcome
+`ready_for_endpoint_structure_review`; it still requires independent
+reactant/product assignment and `audit-irc-endpoint`. Because forward failed,
+the bidirectional path is not validated. No retry, integrator change,
+cancellation, cleanup, or endpoint calculation is authorized.
 
 `terminal-acceptance-plan.json` freezes these checks before the result is
 known. It requires 228 harmonic modes for this 78-atom nonlinear system,

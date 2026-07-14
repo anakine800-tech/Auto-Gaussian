@@ -150,6 +150,32 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         self.assertTrue(status["no_submission_authorization"])
 
         irc = b1["irc_submission_history"]
+        summary_path = STUDY / "bf3-ts2-b1-irc-terminal-evidence.json"
+        summary = load(summary_path)
+        self.assertEqual(
+            b1["irc_terminal_evidence_summary"]["sha256"], digest(summary_path)
+        )
+        self.assertEqual(
+            summary["summary_payload_sha256"],
+            payload_digest(summary, "summary_payload_sha256"),
+        )
+        self.assertFalse(summary["bidirectional_path_validated"])
+        self.assertFalse(summary["automatic_action_authorized"])
+        self.assertFalse(summary["contains_job_id"])
+        self.assertFalse(summary["contains_server_path"])
+        self.assertFalse(summary["contains_gaussian_log"])
+        self.assertFalse(summary["contains_checkpoint"])
+        forward, reverse = summary["directions"]
+        self.assertEqual(forward["direction"], "forward")
+        self.assertEqual(forward["job_state"], "failed")
+        self.assertEqual(forward["outcome"], "error_or_interrupted_termination")
+        self.assertEqual(forward["completed_point"], 20)
+        self.assertFalse(forward["path_validated"])
+        self.assertEqual(reverse["direction"], "reverse")
+        self.assertEqual(reverse["job_state"], "completed")
+        self.assertEqual(reverse["outcome"], "ready_for_endpoint_structure_review")
+        self.assertEqual(reverse["completed_point"], 30)
+        self.assertFalse(reverse["path_validated"])
         self.assertEqual(irc["protocol_proposal"]["sha256"], digest(B1 / "irc-protocol-proposal.json"))
         self.assertEqual(irc["plan"]["sha256"], digest(B1 / "irc/irc_plan.json"))
         self.assertEqual([item["direction"] for item in irc["directions"]], ["forward", "reverse"])
@@ -160,7 +186,7 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
                 item["terminal_intake_template_sha256"],
                 digest(ROOT / item["terminal_intake_template_path"]),
             )
-            self.assertFalse(item["terminal_evidence"])
+            self.assertTrue(item["terminal_evidence"])
         self.assertFalse(irc["contains_job_id"])
         self.assertFalse(irc["contains_server_path"])
         self.assertFalse(irc["new_live_action_authorized"])
