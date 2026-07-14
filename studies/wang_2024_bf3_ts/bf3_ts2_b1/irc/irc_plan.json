@@ -1,0 +1,25 @@
+{
+  "schema": "gaussian-irc-plan/1",
+  "workflow_id": null,
+  "g16_revision": "A.03",
+  "ts_result_sha256": "080bbff50f9b364e86d69e6037503d77fb7f7ec0c1ce2aee2d64402deb894a3e",
+  "mode_decision_sha256": "2a1a225f0fc6e1dc47100753e2e1d48462d0e53481f0673c751f6386f262b882",
+  "checkpoint_sha256": "2df61f303797d138ea8d0b94db951b19ad68983c5b56eaa14294aee0dfcfc632",
+  "directions": [
+    {
+      "direction": "forward",
+      "project": "w24_bf3b1_if1",
+      "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,forward,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)"
+    },
+    {
+      "direction": "reverse",
+      "project": "w24_bf3b1_ir1",
+      "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,reverse,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)"
+    }
+  ],
+  "submission_status": "planned_not_submitted",
+  "notes": [
+    "Use gaussian-rtwin-pbs only after exact G3 approval.",
+    "This plan does not grant submission, cancellation, overwrite, or deletion permission."
+  ]
+}

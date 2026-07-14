@@ -18,9 +18,16 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
    Their declared coordinate is formation of C13-C21. The BF3-TS2-B1
    prerequisite is satisfied, `standard` with 120 GB/44 cores has been
    selected, and a hash-bound offline input draft is under `bf3_ts2_b1/`. The
-   exact input later received a separate live approval and is running; it has
-   not yet produced terminal or scientific acceptance evidence.
-3. Full B(C6F5)3 TS1 (87 atoms) and TS2-B1 (108 atoms) remain deferred size
+   exact input later received a separate live approval and completed normally.
+   It is now a mode-consistent first-order-saddle candidate with an accepted
+   hash-bound C13–C21 animation decision; its separately approved numerical
+   Forward/Reverse IRC jobs do not yet establish endpoint identities.
+3. BF3-TS2-B2 has selected the B1-matched `standard` protocol for offline
+   review and now has an exact, hash-bound Cartesian input under `bf3_ts2_b2/`.
+   The exact input, 120 GB/44-core resources and fresh SDL project subsequently
+   received one-time live approval and were submitted; the first sanitized
+   status observation is queued. No retry or replacement is authorized.
+4. Full B(C6F5)3 TS1 (87 atoms) and TS2-B1 (108 atoms) remain deferred size
    benchmarks. Their coordinates are intentionally not materialized here.
 
 ## Files
@@ -43,6 +50,9 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
   binds the exact input and defines terminal, TS/frequency, and manual C13–C21
   mode gates plus fail-closed outcome classes. Its machine-local `live/`
   operation bundle is preserved but excluded from version control.
+- `bf3_ts2_b2/`: verified identity map, calculation request, deterministic
+  loose/standard/strict proposal, standard selection, exact offline Gaussian
+  input, input audit and precommitted terminal/mode acceptance plan.
 
 Rebuild without overwriting the checked artifact:
 

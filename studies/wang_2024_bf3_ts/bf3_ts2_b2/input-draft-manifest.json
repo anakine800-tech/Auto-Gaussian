@@ -1,0 +1,145 @@
+{
+  "schema": "gaussian-ts-input-draft/1",
+  "draft_id": "wang2024_bf3_ts2_b2_standard_s01",
+  "status": "offline_input_draft_ready_for_exact_review",
+  "calculation_ready": false,
+  "submission_authorized": false,
+  "no_submission_authorization": true,
+  "source_bindings": {
+    "literature_ledger": {
+      "path": "studies/wang_2024_bf3_ts/candidate-ledger.json",
+      "sha256": "1d1c1530965cfb999433548866822bc300236b874ed9ce1bded627f36a491d94"
+    },
+    "literature_coordinates": {
+      "path": "studies/wang_2024_bf3_ts/coordinates/bf3_ts2_b2.xyz",
+      "sha256": "d7032327ffea0705b3a6b0f55561f482aef41f40426fa74c323b289143874a0d",
+      "canonical_coordinate_block_sha256": "c3c6eae44685c04d649e5554865531fd936c01faed9cac3c8ad308cfd69027c5",
+      "geometry_fingerprint_sha256": "280c4d8b73295b8351d41bfdf616be605765bd2c7f1e1d5e7394965ef259c6a5"
+    },
+    "calculation_request": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/calculation-request.json",
+      "sha256": "c1165e7ba5bb98e2e377e963441a144fd1d054c0d917417e221386c3ff3f974c"
+    },
+    "protocol_profiles": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/protocol-profiles.json",
+      "sha256": "8ec68c71f5d8e4402e5a594265f90a4db0e9fb97adcdc3e58e68d25cf56f2890"
+    },
+    "protocol_options": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/protocol-options.json",
+      "sha256": "f5070beed675bdd9de25fb2f024ea741409c9661ffa27372f909360be6fe1446",
+      "proposal_payload_sha256": "91edeabe0f6501acc6fc144e0b690edbac232f8a68b61ae157b21cd56d1e23f9"
+    },
+    "user_selection": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/user-selection-standard.json",
+      "sha256": "4ae123575765a3fc86814eb1a15c792eceaecd7927711a86b9a620ebe45fbb58"
+    },
+    "protocol_selection": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/protocol-selection-standard.json",
+      "sha256": "7758fb6c87323954272546d0f1e22a607af44e9cdb7fc0ec05d69ca7410693f1",
+      "selected_option_payload_sha256": "bc9d71f85b35f54fbe9025a5042328410d8539a626ac26c3387856c9d0b8564c"
+    },
+    "atom_map": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/atom-map.json",
+      "sha256": "405e00e36363fd6a69d9d2623901263967e1105d2a475f2a965f41b6b09375dc"
+    },
+    "input_audit": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/input-audit.json",
+      "sha256": "633024df4e2fd1edded0d7e1bd8d6716fe511d068d2dd4bbaddd048ff43828be"
+    },
+    "b1_mode_decision": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/live/w24_bf3t2b1_s1/results/mode_review/mode_decision.json",
+      "sha256": "2a1a225f0fc6e1dc47100753e2e1d48462d0e53481f0673c751f6386f262b882",
+      "decision": "accepted",
+      "confirmed": true
+    }
+  },
+  "scientific_identity": {
+    "candidate_id": "wang2024_bf3_ts2_b2",
+    "literature_label": "BF3-TS2-B2",
+    "description": "Published BF3-associated carbon-carbon bond-forming transition-state topology containing 2-ethylbenzoxazole, tert-butyl acrylate, Barton's base, and BF3.",
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "charge": 0,
+    "multiplicity": 1,
+    "electron_count": 276,
+    "electronic_state": "closed-shell singlet hypothesis selected for exact offline input review; not source-reported Gaussian metadata",
+    "reaction_coordinate": {
+      "kind": "forming",
+      "atoms": [13, 21],
+      "starting_distance_angstrom": 2.22485843,
+      "expected_mode": "The sole imaginary mode must project onto C13-C21 bond formation."
+    },
+    "literature_expectation": {
+      "featured_imaginary_frequency_cm1": -351.55,
+      "required_raw_imaginary_frequency_count": 1,
+      "expected_vibrational_mode_count": 228,
+      "reported_delta_g_dagger_kcal_mol": 16.9,
+      "barrier_use": "Reference only; the common energy-zero definition remains unreviewed."
+    }
+  },
+  "protocol": {
+    "selected_tier": "standard",
+    "route_exact": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) opt=(ts,calcfc,tight,noeigentest,maxstep=5,maxcycle=100) freq int=ultrafine scf=(tight,xqc,maxcycle=128)",
+    "method": "omega-B97XD",
+    "basis": "6-31G(d) for B, C, F, H, N, and O; no ECP",
+    "solvation": "SMD toluene",
+    "ts_optimization": "single-guess Berny TS, CalcFC, Tight, NoEigenTest, MaxStep 5, MaxCycle 100",
+    "frequency": "analytic harmonic frequency calculation in the same Gaussian job",
+    "integration_grid": "UltraFine",
+    "scf": "restricted closed-shell, Tight, XQC fallback, MaxCycle 128",
+    "temperature_k": 298.15,
+    "standard_state": "Gaussian default ideal-gas 1 atm",
+    "low_frequency_policy": "none"
+  },
+  "resources": {
+    "resource_tier": "complex",
+    "memory": "120GB",
+    "nprocshared": 44,
+    "expected_gaussian_stage_count": 1,
+    "approval_status": "offline candidate inherited from the B1 standard profile; live resource use is not authorized"
+  },
+  "rendered_input": {
+    "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/w24_bf3ts2_b2_s01.gjf",
+    "sha256": "bc8dc95cd4877e93ea0f10b46f239595fb3d7d7e6201e852998770fa695264a1",
+    "checkpoint_basename": "w24_bf3ts2_b2_s01.chk",
+    "coordinates_match_literature_xyz_exactly": true,
+    "trailing_blank_line": true
+  },
+  "offline_preflight": {
+    "passed": true,
+    "entry_mode": "single_guess",
+    "atom_map": "identity map 1..78",
+    "atom_count": 78,
+    "element_counts": {
+      "B": 1,
+      "C": 25,
+      "F": 3,
+      "H": 42,
+      "N": 4,
+      "O": 3
+    },
+    "closest_pair_distance_angstrom": 1.02801142,
+    "closest_pair_atoms": [42, 44],
+    "declared_forming_distance_angstrom": 2.22485843,
+    "diagnostics": []
+  },
+  "candidate_live_scope": {
+    "project": "w24_bf3t2b2_s1",
+    "remote_directory": "/home/user100/SDL/w24_bf3t2b2_s1",
+    "status": "candidate_only_not_approved_or_created"
+  },
+  "approval_state": {
+    "offline_protocol_selection_confirmed": true,
+    "offline_input_rendering_authorized": true,
+    "exact_input_hash_approved_for_live_use": false,
+    "fresh_server_project_approved": false,
+    "upload_authorized": false,
+    "pbs_submission_authorized": false,
+    "required_next_gate": "Review charge, multiplicity, exact route, coordinates, input SHA-256, checkpoint basename, 120GB/44-core candidate resources, fresh project, and remote directory before any live action."
+  },
+  "non_authorizations": [
+    "No SSH, PBS, Gaussian, server-directory creation, upload, submission, retry, IRC, cancellation, cleanup, or deployment is authorized.",
+    "No automatic change is permitted if the draft later fails or converges to the wrong mode."
+  ],
+  "manifest_payload_sha256": "faf647f8642a4f208b86b143c8f57f324061a7cf26083d08a92e15782313f12e"
+}

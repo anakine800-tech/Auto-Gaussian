@@ -25,6 +25,23 @@ SPEC.loader.exec_module(PBS)
 
 
 class RepositoryBaselineTests(unittest.TestCase):
+    def test_pbs_q_is_documented_as_normal_waiting_not_failure(self) -> None:
+        skill = (ROOT / "skills" / "gaussian-rtwin-pbs" / "SKILL.md").read_text()
+        failures = (
+            ROOT
+            / "skills"
+            / "gaussian-rtwin-pbs"
+            / "references"
+            / "environment-and-failures.md"
+        ).read_text()
+        self.assertIn("Treat PBS `Q`", skill)
+        self.assertIn("not a failed launch", skill)
+        self.assertIn("`Q` alone does not prove the server is full", skill)
+        self.assertIn("Wait without duplicate submission", skill)
+        self.assertIn("44-core full-node job", failures)
+        self.assertIn("do not submit another copy", failures)
+        self.assertIn("Absence of a session, Gaussian process, or log is expected", failures)
+
     def test_fixed_server_root(self) -> None:
         self.assertEqual(PBS.DEFAULT_REMOTE_ROOT, "/home/user100/SDL")
         self.assertEqual(

@@ -1,0 +1,45 @@
+{
+  "schema": "gaussian-live-submission-approval/1",
+  "candidate_id": "wang2024_bf3_ts2_b2",
+  "literature_label": "BF3-TS2-B2",
+  "decision": "approved_for_single_upload_and_qsub",
+  "explicit_confirmation": true,
+  "user_message": "可以提交",
+  "approval_date": "2026-07-14",
+  "input": {
+    "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/w24_bf3ts2_b2_s01.gjf",
+    "sha256": "bc8dc95cd4877e93ea0f10b46f239595fb3d7d7e6201e852998770fa695264a1",
+    "checkpoint_basename": "w24_bf3ts2_b2_s01.chk"
+  },
+  "scientific_scope": {
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "charge": 0,
+    "multiplicity": 1,
+    "reaction_coordinate": "C13-C21 bond formation",
+    "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) opt=(ts,calcfc,tight,noeigentest,maxstep=5,maxcycle=100) freq int=ultrafine scf=(tight,xqc,maxcycle=128)"
+  },
+  "resources": {
+    "resource_tier": "complex",
+    "memory": "120GB",
+    "nprocshared": 44
+  },
+  "pbs_scope": {
+    "project": "w24_bf3t2b2_s1",
+    "remote_directory": "/home/user100/SDL/w24_bf3t2b2_s1",
+    "allowed_root": "/home/user100/SDL",
+    "upload_count": 1,
+    "qsub_count": 1
+  },
+  "authorizations": {
+    "create_fresh_server_project": true,
+    "upload_exact_input": true,
+    "submit_exact_job": true,
+    "retry": false,
+    "resubmit": false,
+    "irc": false,
+    "cancel": false,
+    "cleanup": false,
+    "delete": false
+  }
+}
