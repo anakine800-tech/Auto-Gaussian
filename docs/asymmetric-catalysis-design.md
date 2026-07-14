@@ -227,7 +227,7 @@ present in ordinary closed-shell main-group TS searches.
 ### Runtime boundary
 
 Version 1 of this design produces metal candidates with
-`support_status: unsupported_requires_extension` and
+`support_status: unsupported_transition_metal` and
 `calculation_ready: false`. A later transition-metal extension must define its
 own input audit, wavefunction/state checks, mode interpretation, and path
 validation before these values may change.
@@ -235,7 +235,32 @@ validation before these values may change.
 The current `design-metal-support` command emits a separate hash-bound checklist
 for oxidation/electron count, spin-state space, wavefunction stability and spin
 contamination, coordination/hapticity/counterions, and method/basis/ECP/
-relativity review. Its submission decision is unconditionally `refused`.
+relativity review. It also creates one mechanism-bound TS-search family per
+declared elementary step with three unselected design candidates:
+
+- Hessian-guided single-guess search;
+- endpoint-bound QST2/QST3; and
+- reviewed relaxed-coordinate scanning followed by a separately reviewed TS
+  seed.
+
+The builder does not select among them. Each family is bound to an explicit
+electronic state, stereochemical channel set, forming/breaking/transfer
+coordinates and a reaction-surface hypothesis. Unknown elementary-step class,
+oxidation-state change, spin crossover, coordination change or surface model
+is a blocker, not an inference.
+
+The versioned extension milestones are:
+
+1. `M0`: deterministic offline state/search design and refusal audit;
+2. `M1`: scientific review of oxidation states, electron counts, spin
+   surfaces, wavefunctions, coordination states and mechanism families;
+3. `M2`: offline metal-specific input/audit/parser implementation;
+4. `M3`: malformed, wrong-state, wrong-coordination, spin and wavefunction
+   failure fixtures; and
+5. `M4`: a separately approved exact live smoke test.
+
+Only `M0` is implemented. The submission decision remains unconditionally
+`refused`, including when every review field is filled.
 
 ## 8. Chiral-boron-specific design
 
@@ -488,23 +513,26 @@ Implemented offline: deterministic study normalization; boron center,
 coordination, binding, conformer and approach enumeration; logical and
 same-channel geometry deduplication; real-file candidate hashing; TS evidence
 ingestion; log-sum-exp ensemble aggregation; ee and sensitivity scenarios;
-transition-metal scientific design with enforced refusal; and a precise
+transition-metal state/search-family design with explicit oxidation/electron,
+spin, wavefunction, coordination and method review blocks, three unselected TS
+strategy candidates, extension milestones and enforced refusal; and a precise
 BF3-TS1/BF3-TS2-B1/B2 literature ledger plus a
-`planned_not_submitted` BF3-TS1 proposal with no rendered input.
+historical BF3-TS1 evidence chain and an in-flight BF3-TS2-B1 lineage.
 
 Remaining work is scientific review rather than live execution:
 
-1. review reaction-specific state spaces and materialized stereochemistry;
-2. add chemistry-aware complex construction above the current reviewed-XYZ
-   boundary;
-3. add reviewed pruning records and broader malformed/incomparable fixtures;
-4. review reaction-specific method and thermochemistry sensitivity matrices;
-5. review the transition-metal extension design while leaving it disabled;
-6. review the BF3-TS1 neutral-singlet hypothesis and choose the exact route,
-   SMD solvent identity, thermochemistry, resources, and fresh project; and
-7. only after a new explicit approval, verify the installed Gaussian revision,
-   render a final input with its hash, and consider one live test. BF3-TS2-B1/
-   B2 remain gated on accepted BF3-TS1 mode evidence.
+1. use the metal design artifact to review a concrete reaction's oxidation
+   states, electron accounting, spin surfaces, wavefunctions, coordination
+   states, elementary-step classes and TS-search families;
+2. define M1 acceptance criteria while preserving the unconditional runtime
+   refusal;
+3. prepare M2/M3 offline contracts, parsers and negative fixtures before any
+   metal input builder is considered;
+4. independently accept or reject BF3-TS2-B1 from stable terminal evidence,
+   exactly one imaginary frequency and manual C13–C21 mode review;
+5. decide on BF3-TS2-B2 only after that B1 decision; and
+6. resume chemistry-aware chiral-boron construction and broader enumeration
+   work after the transition-metal design milestone.
 
 ## 17. Wang-group literature audit and design consequences
 

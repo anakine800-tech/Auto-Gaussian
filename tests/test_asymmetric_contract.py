@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,11 @@ SPEC = importlib.util.spec_from_file_location("validate_asymmetric_contract", MO
 assert SPEC and SPEC.loader
 CONTRACT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CONTRACT)
+BUILDER_PATH = ROOT / "skills" / "gaussian-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
+BUILDER_SPEC = importlib.util.spec_from_file_location("asymmetric_catalysis_contract_fixture", BUILDER_PATH)
+assert BUILDER_SPEC and BUILDER_SPEC.loader
+BUILDER = importlib.util.module_from_spec(BUILDER_SPEC)
+BUILDER_SPEC.loader.exec_module(BUILDER)
 
 
 class AsymmetricCatalysisContractTests(unittest.TestCase):
@@ -72,6 +78,19 @@ class AsymmetricCatalysisContractTests(unittest.TestCase):
         promoted["review"]["decision"] = "promoted_offline"
         with self.assertRaisesRegex(CONTRACT.ContractError, "unsupported metal candidate promoted"):
             CONTRACT.validate_candidate(promoted, study, study_path)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            design_path = Path(tmp) / "metal-support.json"
+            design = BUILDER.design_metal_support(study_path, design_path)
+            CONTRACT.validate_metal_support(design, study, study_path)
+            self.assertEqual(design["scope"]["priority"], "transition_metal_ts_design_first")
+            self.assertEqual(design["submission_decision"], "refused")
+            self.assertEqual(design["ts_search_families"][0]["elementary_step_class"], "unassigned_requires_review")
+
+            tampered = copy.deepcopy(design)
+            tampered["ts_search_families"][0]["seed_strategy_candidates"][0]["status"] = "selected"
+            with self.assertRaises(CONTRACT.ContractError):
+                CONTRACT.validate_metal_support(tampered, study, study_path)
 
     def test_mode_reviewed_result_requires_exactly_one_imaginary_mode(self) -> None:
         candidate_path = FIXTURES / "boron_candidate_r.json"

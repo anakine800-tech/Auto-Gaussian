@@ -101,23 +101,101 @@ def materializations_instance() -> dict:
 
 
 def metal_support_instance() -> dict:
+    review_block = {
+        "status": "review_required",
+        "declared": {},
+        "required_review": ["scientific review"],
+        "blockers": ["unresolved"],
+    }
     return {
         "schema": "gaussian-asymmetric-metal-support-design/1",
         "study_id": "study_fixture",
         "study_sha256": "d" * 64,
+        "design_payload_sha256": "e" * 64,
         "calculation_ready": False,
         "no_submission_authorization": True,
         "runtime_support_status": "unsupported_requires_extension",
         "submission_decision": "refused",
+        "scope": {
+            "priority": "transition_metal_ts_design_first",
+            "current_capability": "deterministic_offline_design_and_refusal_audit",
+            "output_scope": "state_space_and_ts_search_plan_only",
+            "execution_scope": "no_transition_metal_execution",
+            "chiral_boron_priority": "deferred_until_after_transition_metal_design",
+        },
         "states": [
             {
                 "state_id": "state_fixture",
                 "support_status": "unsupported_transition_metal",
                 "submission_decision": "refused",
-                "checks": {},
+                "metal_centers": [
+                    {
+                        "atom_index": 1,
+                        "element": "Pd",
+                        "formal_oxidation_state": 0,
+                        "d_electron_count": None,
+                        "coordination_number": 2,
+                        "geometry": "unreviewed linear hypothesis",
+                        "spin_hypothesis": "unreviewed singlet hypothesis",
+                        "assignment_basis": "fixture",
+                        "review_status": "unreviewed_hypothesis",
+                    }
+                ],
+                "electron_accounting": review_block,
+                "spin_state_space": review_block,
+                "wavefunction": {**review_block, "status": "unresolved"},
+                "coordination": review_block,
+                "method_protocol": {**review_block, "status": "unresolved"},
+                "ts_search_readiness": {
+                    "status": "blocked_offline_design_only",
+                    "mechanism_ids": ["mechanism_fixture"],
+                    "blocking_reasons": ["runtime unavailable"],
+                },
                 "known_hypotheses": [],
                 "unresolved": ["offline only"],
             }
+        ],
+        "ts_search_families": [
+            {
+                "mechanism_id": "mechanism_fixture",
+                "active_state_id": "state_fixture",
+                "channel_ids": ["channel_fixture"],
+                "coordinate_changes": [
+                    {"kind": "forming", "atoms": [1, 2], "description": "fixture coordinate"}
+                ],
+                "elementary_step_class": "unassigned_requires_review",
+                "surface_model": {**review_block, "status": "unresolved"},
+                "seed_strategy_candidates": [
+                    {
+                        "strategy_id": "strategy_single",
+                        "strategy": "single_guess_hessian_guided",
+                        "status": "design_candidate_not_selected",
+                        "prerequisites": ["review"],
+                        "limitations": ["offline only"],
+                    },
+                    {
+                        "strategy_id": "strategy_qst",
+                        "strategy": "endpoint_qst2_qst3",
+                        "status": "design_candidate_not_selected",
+                        "prerequisites": ["review"],
+                        "limitations": ["offline only"],
+                    },
+                    {
+                        "strategy_id": "strategy_scan",
+                        "strategy": "reviewed_relaxed_coordinate_scan",
+                        "status": "design_candidate_not_selected",
+                        "prerequisites": ["review"],
+                        "limitations": ["offline only"],
+                    },
+                ],
+                "required_pre_ts_evidence": ["review"],
+                "blockers": ["execution unavailable"],
+            }
+        ],
+        "cross_state_rules": ["no cross-state comparison"],
+        "extension_milestones": [
+            {"milestone_id": "metal_m0_offline_design", "status": "implemented_offline", "deliverable": "offline design"},
+            {"milestone_id": "metal_m1_scientific_review", "status": "pending_scientific_review", "deliverable": "scientific review"},
         ],
         "acceptance_gates": ["review required"],
         "refusal_tests": ["submission remains refused"],

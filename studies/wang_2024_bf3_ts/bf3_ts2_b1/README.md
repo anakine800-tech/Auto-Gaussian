@@ -40,3 +40,9 @@ The next gate is terminal evidence: confirm the final scheduler/process state,
 fetch and parse the completed log, require a stationary point and exactly one
 raw imaginary frequency, then perform a new hash-bound manual review that the
 mode follows C13-C21 bond formation. No retry, BF3-TS2-B2, or IRC is implied.
+
+`terminal-acceptance-plan.json` freezes these checks before the result is
+known. It requires 228 harmonic modes for this 78-atom nonlinear system,
+separates the literature -389.10 cm-1 reference from the acceptance criteria,
+and defines stop-without-retry outcomes for zero/multiple imaginary modes,
+wrong or ambiguous displacement, incomplete evidence, and error termination.
