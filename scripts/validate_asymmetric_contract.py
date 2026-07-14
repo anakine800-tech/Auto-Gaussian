@@ -260,7 +260,7 @@ def _validate_schema_instance(
 
 
 def validate_structure(data: dict[str, Any], kind: str | None = None) -> str:
-    """Validate one of the 11 repository artifact types against its JSON Schema."""
+    """Validate one of the 12 repository artifact types against its JSON Schema."""
     inferred_kind = SCHEMA_KINDS.get(data.get("schema"))
     if kind is None:
         require(inferred_kind is not None, "artifact: unknown schema discriminator")
@@ -536,6 +536,9 @@ def validate_live_smoke_evidence(evidence: dict[str, Any]) -> None:
     require(evidence.get("evidence_payload_sha256") == expected, "live-smoke-evidence: payload hash mismatch")
     if evidence.get("status") != "passed":
         return
+    bindings = evidence.get("source_bindings", {})
+    require(isinstance(bindings.get("protocol_options"), dict), "live-smoke-evidence: passed status requires pre-input protocol options provenance")
+    require(isinstance(bindings.get("protocol_selection"), dict), "live-smoke-evidence: passed status requires explicit pre-input protocol selection provenance")
     execution = evidence.get("execution", {})
     for field in (
         "terminal_state_confirmed", "transport_hashes_verified",

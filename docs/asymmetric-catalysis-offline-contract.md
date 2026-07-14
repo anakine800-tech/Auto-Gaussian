@@ -66,10 +66,11 @@ project, job ID, or submission authority.
 ### 2.2 Sanitized live-smoke evidence
 
 Live-smoke evidence is a post-run summary, never a proposal or approval. It
-binds the exact smoke proposal, literature ledger, pre-submission approval,
-rendered input, job record, parsed TS result, mode review, and mode decision by
-SHA-256. The source artifacts remain under their owning Skills and are not
-copied into this sanitized record.
+binds the exact smoke proposal, literature ledger, three-tier protocol options,
+explicit protocol selection, pre-submission approval, rendered input, job
+record, parsed TS result, mode review, and mode decision by SHA-256. The source
+artifacts remain under their owning Skills and are not copied into this
+sanitized record.
 
 `status: passed` requires all of the following:
 
@@ -81,9 +82,11 @@ copied into this sanitized record.
   reviewed against the intended reaction coordinate.
 
 Missing approval provenance or incomplete TS/mode evidence must remain
-`incomplete` or `failed`. The artifact contains no job ID, server path,
-Gaussian log, or checkpoint. It authorizes neither a retry nor IRC, another
-candidate, deployment, cancellation, or cleanup.
+`incomplete` or `failed`. A run started before the three-tier protocol gate may
+record null protocol-option/selection bindings only with `status: incomplete`;
+never create a retrospective selection. The artifact contains no job ID,
+server path, Gaussian log, or checkpoint. It authorizes neither a retry nor
+IRC, another candidate, deployment, cancellation, or cleanup.
 
 ## 3. Study contract
 

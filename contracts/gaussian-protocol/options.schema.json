@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/gaussian-protocol/options.schema.json",
+  "title": "Gaussian three-tier protocol options",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "proposal_id", "status", "calculation_ready",
+    "no_input_render_authorization", "no_submission_authorization",
+    "request_source", "request_snapshot", "difficulty_assessment",
+    "common_constraints", "options", "comparison_notes", "non_claims",
+    "proposal_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-protocol-options/1"},
+    "proposal_id": {"$ref": "#/$defs/id"},
+    "status": {"enum": ["ready_for_selection", "blocked"]},
+    "calculation_ready": {"const": false},
+    "no_input_render_authorization": {"const": true},
+    "no_submission_authorization": {"const": true},
+    "request_source": {"$ref": "#/$defs/artifact"},
+    "request_snapshot": {"type": "object"},
+    "difficulty_assessment": {"type": "object"},
+    "common_constraints": {"type": "object"},
+    "options": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "option_id", "tier", "display_name", "rigor_rank", "option_status", "purpose",
+          "applicability", "method_profiles", "task_plan", "validation_plan",
+          "coverage_plan", "resources", "expected_cost", "limitations",
+          "provenance", "unresolved", "option_payload_sha256"
+        ],
+        "properties": {
+          "option_id": {"$ref": "#/$defs/id"},
+          "tier": {"enum": ["loose", "standard", "strict"]},
+          "display_name": {"enum": ["宽松", "标准", "严格"]},
+          "rigor_rank": {"type": "integer", "minimum": 1, "maximum": 3},
+          "option_status": {"enum": ["selectable", "blocked"]},
+          "purpose": {"type": "string", "minLength": 1},
+          "applicability": {"type": "object"},
+          "method_profiles": {"type": "array"},
+          "task_plan": {"type": "array"},
+          "validation_plan": {"type": "object"},
+          "coverage_plan": {"type": "object"},
+          "resources": {"type": "object"},
+          "expected_cost": {"type": "object"},
+          "limitations": {"type": "array", "items": {"type": "string"}},
+          "provenance": {"type": "array", "items": {"type": "string"}},
+          "unresolved": {"type": "array", "items": {"type": "string"}},
+          "option_payload_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "comparison_notes": {"type": "array", "items": {"type": "string"}},
+    "non_claims": {"type": "array", "items": {"type": "string"}},
+    "proposal_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}
+    }
+  }
+}

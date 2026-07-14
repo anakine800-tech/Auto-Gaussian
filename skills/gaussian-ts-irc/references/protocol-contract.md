@@ -1,5 +1,32 @@
 # TS–Freq–IRC protocol contract
 
+## Input-before protocol proposal
+
+Before any TS/Freq, IRC, endpoint or fragment Gaussian input is written, use
+the core `gaussian-rtwin-pbs` protocol-rigor contract. Create an immutable
+`gaussian-protocol-options/1` proposal containing exactly `loose`, `standard`
+and `strict`, show the complete stage-specific settings and blocked reasons,
+and record the user's selection as a separate hash-bound
+`gaussian-protocol-selection/1` artifact.
+
+The three names do not authorize inference. Each TS-family candidate must state
+the exact functional/method, basis/ECP coverage, solvent, dispersion, grid,
+SCF/optimization settings, TS or IRC algorithm, thermochemistry, low-frequency
+policy, resources, expected stages, claim scope and limitations that apply to
+that stage. Mark a candidate `blocked` when these fields are unresolved or the
+electronic-structure/TS case is unsupported. `strict` means stronger evidence,
+convergence or sensitivity testing; it is not an accuracy guarantee.
+
+Protocol rigor and resource tiers are orthogonal. Do not map
+`loose`/`standard`/`strict` to `simple`/`general`/`complex`. Bind the selected
+candidate to the family or continuation manifest, but treat it as permission
+only to render that exact offline input draft. Submission still requires the
+separate rendered-input hash, project and live-job approval.
+
+An IRC direction, changed integrator, retry, connected endpoint and fragment
+endpoint are new calculation needs. They require their own applicable proposal
+and selection; do not inherit authority from the TS/Freq selection.
+
 ## Manifest: `gaussian-ts-irc-workflow/1`
 
 Record a workflow ID, PBS-safe prefix (1–15 letters/digits/underscores), source paths and SHA-256 values, input identities/formula/components, charge, multiplicity, atom count, explicit shared atom map, intended forming/breaking/transferring pairs, entry mode, all complete approved routes, parsed method/basis/dispersion/solvent/grid/SCF fields when available, temperature/standard state/low-mode policy, per-stage resource tier, expected Gaussian stage counts, review decisions, project names, job IDs, and parent/child artifact hashes.
@@ -19,6 +46,10 @@ For QST2/QST3, validate atom correspondence locally but keep raw multi-structure
 For a same-input `Opt ... Freq` calculation, parse only a post-terminal fetch. The Opt stage can write one normal termination before the Freq stage begins; a live Gaussian process takes precedence over that intermediate marker.
 
 `gaussian-irc-plan/1` is a local submission plan, not a job. It records the verified G16 revision, direction, reviewed TS-result hash, accepted mode-decision hash, checkpoint hash, supplied route, resource tier, and fresh project. It must be handed to the PBS layer only after G3 approval.
+
+The protocol-selection hash and selected stage payload must also remain bound
+to the input/plan lineage. A changed proposal, selection, route, resource value
+or source hash invalidates the draft and requires a new selection.
 
 `gaussian-checkpoint-geometry-audit/1` binds a non-symlink checkpoint basename and SHA-256 to the explicit reviewed TS input, completed TS log, TS result, imaginary-mode displacement indices, mode review, and accepted decision. Require identical charge/multiplicity and one-based atomic-number order across the explicit input, final log orientation, result geometry, and displacement table. State explicitly that this provenance audit does not decode the binary checkpoint.
 
@@ -41,3 +72,13 @@ After an HPC first-point corrector failure, a one-direction AllCheck retry is di
 ## Resource tiers
 
 Use `simple` (12 GB/8 cores), `general` (50 GB/22 cores), or `complex` (120 GB/44 cores). Job type never selects a tier automatically. Show `%mem`, `%nprocshared`, PBS request, and expected stage count before any submission.
+
+These are capacity tiers only. They do not express scientific rigor and do not
+make a blocked or unsuitable protocol valid.
+
+## Prospective application
+
+Do not backdate protocol artifacts for the BF3-TS1 calculation already in
+progress when this contract was introduced. Preserve its actual historical
+approval chain. Apply this contract to any new retry, IRC, endpoint or later
+candidate.
