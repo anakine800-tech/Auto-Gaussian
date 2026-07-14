@@ -19,14 +19,29 @@ from pathlib import Path
 from typing import Any
 
 from gaussian_log import analyze_log_file, analyze_log_text, analyze_workflow_log_file
+from runtime_config import setting
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MAC_SSH_CONFIG = Path(
-    "<MAC_HOME>/Documents/用RTwin进行计算/config/ssh_config"
+    setting(
+        "AUTO_G16_RTWIN_SSH_CONFIG",
+        "rtwin_ssh_config",
+        os.environ.get(
+            "GAUSSIAN_RTWIN_SSH_CONFIG",
+            str(REPOSITORY_ROOT / "config" / "ssh_config"),
+        ),
+    )
 )
 DEFAULT_RTWIN_ALIAS = "rtwin"
-DEFAULT_WINDOWS_ROOT = r"<WINDOWS_HOME>\Desktop\GaussianProjects"
-DEFAULT_WINDOWS_SERVER_CONFIG = r"<WINDOWS_HOME>\.ssh\gaussian_server_config"
+DEFAULT_WINDOWS_ROOT = setting(
+    "AUTO_G16_WINDOWS_PROJECT_ROOT", "windows_project_root", r"C:\GaussianProjects"
+)
+DEFAULT_WINDOWS_SERVER_CONFIG = setting(
+    "AUTO_G16_WINDOWS_SERVER_CONFIG",
+    "windows_server_config",
+    r".ssh\gaussian_server_config",
+)
 DEFAULT_SERVER_ALIAS = "gaussian-server"
 DEFAULT_REMOTE_ROOT = "/home/user100/SDL"
 MAX_CORES = 44
@@ -1228,7 +1243,7 @@ def command_cancel(args) -> None:
 
 
 def add_connection_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--mac-ssh-config", default=os.environ.get("GAUSSIAN_RTWIN_SSH_CONFIG", str(DEFAULT_MAC_SSH_CONFIG)))
+    parser.add_argument("--mac-ssh-config", default=str(DEFAULT_MAC_SSH_CONFIG))
     parser.add_argument("--rtwin-alias", default=DEFAULT_RTWIN_ALIAS)
     parser.add_argument("--windows-root", default=DEFAULT_WINDOWS_ROOT)
     parser.add_argument("--windows-server-config", default=DEFAULT_WINDOWS_SERVER_CONFIG)

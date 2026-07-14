@@ -1,0 +1,10 @@
+{
+  "rdkit_python": "/path/to/rdkit-enabled-python",
+  "chemdraw_pipeline_scripts": "/path/to/auto-g16-chemdraw-pipeline/scripts",
+  "rtwin_ssh_config": "/path/to/ignored/ssh_config",
+  "windows_target": "rtwin",
+  "windows_control_socket": "/tmp/codex-windows-gaussview.sock",
+  "windows_project_root": "C:\\GaussianProjects",
+  "windows_server_config": ".ssh\\gaussian_server_config",
+  "gaussview_exe": "C:\\Gaussian\\gview.exe"
+}

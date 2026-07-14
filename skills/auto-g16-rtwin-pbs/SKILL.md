@@ -1,11 +1,15 @@
 ---
 name: auto-g16-rtwin-pbs
-description: Present and record hash-bound loose/standard/strict Gaussian protocol candidates before input drafting, then prepare, submit, monitor, fetch, and analyze approved Gaussian 16 calculations through the user's RTwin Windows SSH bridge to the private PBS server. Includes audited Opt-Freq-single-point workflows, thermochemistry, conformer aggregation, per-hop SHA-256, overwrite prevention, robust state classification, scheduler-zombie cleanup, and confirmation-gated cancellation. Use for protocol-rigor comparisons or organic Gaussian jobs on <PBS_PRIVATE_IP> reachable only through RTwin. All server data and scratch are confined to /home/user100/SDL.
+description: Present and record hash-bound loose/standard/strict Gaussian protocol candidates before input drafting, then prepare, submit, monitor, fetch, and analyze approved Gaussian 16 calculations through the user's configured RTwin Windows SSH bridge to a private PBS server. Includes audited Opt-Freq-single-point workflows, thermochemistry, conformer aggregation, per-hop SHA-256, overwrite prevention, robust state classification, scheduler-zombie cleanup, and confirmation-gated cancellation. Use for protocol-rigor comparisons or organic Gaussian jobs reachable only through RTwin. All server data and scratch are confined to /home/user100/SDL.
 ---
 
 # Auto-G16 RTwin PBS
 
-Use `scripts/gaussian_auto.py` for the closed loop and `scripts/gaussian_rtwin_pbs.py` for individual operations. Keep scientific approval as the only human gate; after separate exact live approval, allow preparation, submission, monitoring, fetching, and analysis to run unattended.
+Use `scripts/gaussian_auto.py` only with an already reviewed `.gjf/.com` input;
+it does not choose or render a method. Use `scripts/gaussian_rtwin_pbs.py` for
+individual operations. After a separate exact live-approval record binds the
+input and job scope, submission, monitoring, fetching and analysis may run
+unattended.
 
 ## Input-before protocol gate
 
@@ -37,10 +41,14 @@ does not authorize transfer, server-directory creation, PBS submission, IRC,
 retry, cancellation or cleanup. After rendering, show the full input and its
 SHA-256 and use the existing exact live approval gate.
 
-## Fixed environment
+## Local configuration
 
-- Mac SSH alias: `rtwin` in `<MAC_HOME>/Documents/用RTwin进行计算/config/ssh_config`
-- RTwin server alias: `gaussian-server` in `<WINDOWS_HOME>\.ssh\gaussian_server_config`
+Copy the repository's `config/runtime.example.json` to
+`~/.config/auto-g16/runtime.json` and fill only local, non-secret paths. An
+environment variable overrides the matching JSON value.
+
+- Mac SSH alias: `rtwin` in the ignored local config selected by `AUTO_G16_RTWIN_SSH_CONFIG`
+- RTwin server alias: `gaussian-server` in the Windows config selected by `AUTO_G16_WINDOWS_SERVER_CONFIG`
 - Server data root: `/home/user100/SDL`
 - PBS/Torque queue: `batch`; Gaussian 16 at `/opt/soft/g16/g16`
 - Capacity: 44 CPU cores and 120 GB physical memory
@@ -61,35 +69,31 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 
 1. Resolve structure, stereochemistry, charge, multiplicity and scientific scope. For CDX/CDXML, rely on the corrected explicit-H/CFG importer in `auto-g16-view-rt-win`.
 2. Create the three-candidate protocol proposal, show every candidate and blocked reason, and record the user's hash-bound selection. Select the resource tier separately; use `general` when execution complexity is not clearly simple or complex.
-3. Only after selection, render or audit the offline input draft. Show source hash, identity, warnings, exact route, charge/multiplicity, atom count, cores, memory and remote directory.
-4. After separate exact approval of the rendered input and job, run the approved execution path. It submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
+3. Only after selection, render or audit the offline input draft. Show source hash, identity, warnings, exact route, charge/multiplicity, atom count, cores, memory and remote directory. `gaussian_auto.py` refuses raw structures and SMILES so it cannot bypass this gate.
+4. After separate exact approval of the rendered input and job, record an `auto-g16-live-submission-approval/1` artifact binding every displayed field, then run the approved execution path. It submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
 5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate. After terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
 6. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and create a new proposal and selection for any changed restart.
 
 ```bash
 AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
 
-# Review only
-python3 "$AUTO" prepare /path/to/structure.cdx \
-  --project example --local-dir /path/to/outputs/example \
-  --protocol organic-opt --resource-tier general \
-  --charge 0 --multiplicity 1
+# Review an already rendered input only
+python3 "$AUTO" prepare /path/to/reviewed.gjf \
+  --project example --local-dir /path/to/outputs/example
 
 # Approved unattended run
-python3 "$AUTO" auto /path/to/structure.cdx \
+python3 "$AUTO" auto /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example \
-  --protocol organic-opt --resource-tier general \
-  --charge 0 --multiplicity 1 \
+  --approval-record /path/to/live-submission-approval.json \
   --confirmed --watch
 ```
 
-For a fast workflow test only:
+For a local dry run that performs no SSH, PBS or Gaussian action:
 
 ```bash
-python3 "$AUTO" auto 'O' \
-  --project h2o_test --local-dir /path/to/outputs/h2o_test \
-  --protocol smoke-test --charge 0 --multiplicity 1 \
-  --confirmed --watch --poll-seconds 5 --timeout-seconds 600
+python3 "$AUTO" auto /path/to/reviewed.gjf \
+  --project dry_test --local-dir /path/to/outputs/dry_test \
+  --confirmed --dry-run
 ```
 
 Read [references/protocols.md](references/protocols.md) before proposing protocol candidates.
@@ -117,6 +121,7 @@ python3 "$WORKFLOW" build selected.gjf \
 
 python3 "$AUTO" auto project_ofs.gjf \
   --project project_ofs --local-dir /path/to/project_ofs \
+  --approval-record /path/to/live-submission-approval.json \
   --confirmed --watch
 ```
 
@@ -194,7 +199,12 @@ Read [references/environment-and-failures.md](references/environment-and-failure
 
 - `scripts/protocol_selection.py`: standard-library-only three-tier proposal,
   explicit selection, hash verification and offline input-draft authorization.
-- `scripts/gaussian_auto.py`: one-command preparation through analyzed results.
+- `scripts/gaussian_auto.py`: exact-input approval gate and one-command
+  submission through analyzed results; raw structure-to-method preparation is
+  intentionally unsupported.
 - `scripts/gaussian_rtwin_pbs.py`: preflight, stage, submit, inspect, watch, fetch, analyze, repeated-evidence automatic zombie cleanup, and confirmation-gated active-job cancellation.
 - `scripts/gaussian_log.py`: deterministic Gaussian result and geometry parser.
 - `scripts/gaussian_workflow.py`: build and analyze Opt-Freq-single-point workflows and aggregate conformer populations.
+
+Read [references/live-approval-record.md](references/live-approval-record.md)
+before creating an exact live approval or invoking a non-dry-run `auto` command.

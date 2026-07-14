@@ -53,13 +53,15 @@ class AutoG16SkillNameTests(unittest.TestCase):
         auto_tool = (
             SKILLS / "auto-g16-rtwin-pbs" / "scripts" / "gaussian_auto.py"
         ).read_text(encoding="utf-8")
-        self.assertIn(".codex/skills/auto-g16-view-rt-win/scripts", auto_tool)
+        self.assertIn("accepts only an existing reviewed .gjf/.com input", auto_tool)
+        self.assertIn("auto-g16-live-submission-approval/1", auto_tool)
 
         for script in ("prepare_preview.py", "prepare_conformers.py"):
             text = (
                 SKILLS / "auto-g16-view-rt-win" / "scripts" / script
             ).read_text(encoding="utf-8")
-            self.assertIn(".codex/skills/auto-g16-chemdraw-pipeline/scripts", text)
+            self.assertIn("AUTO_G16_PIPELINE_SCRIPTS", text)
+            self.assertIn("auto-g16-chemdraw-pipeline", text)
 
     def test_policy_preserves_versioned_schema_names(self) -> None:
         policy = (ROOT / "AGENTS.md").read_text(encoding="utf-8")

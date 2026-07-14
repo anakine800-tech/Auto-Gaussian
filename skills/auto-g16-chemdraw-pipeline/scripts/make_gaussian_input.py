@@ -28,8 +28,8 @@ def load_rdkit():
         from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors
     except ImportError as exc:
         fail(
-            "RDKit is required. Use <MAC_HOME>/miniforge3/envs/chem/bin/python "
-            "or another Python environment containing rdkit."
+            "RDKit is required. Set AUTO_G16_RDKIT_PYTHON or use another "
+            "Python environment containing rdkit."
         )
     return Chem, AllChem, Descriptors, rdMolDescriptors
 

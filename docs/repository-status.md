@@ -2,28 +2,30 @@
 
 Status date: 2026-07-14
 
-Canonical final integration branch: `codex/Auto-Gaussian`; remote baseline
-`cd9e068` preceded the W0/W1 integration.
+Stable release branch: `main`. Canonical future-work integration branch:
+`codex/Auto-Gaussian`.
 
 W0/W1 source branch: `codex/w0-w1-reaction-intake`. Its offline gates and the
 separately approved real strict native-ChemDraw smoke test passed on 2026-07-14,
 so this capability is eligible for integration into `codex/Auto-Gaussian`.
 
-Stable baseline: local `main` at `3c65879`.
+Release candidate: Auto-G16 2.1.0, containing the integrated W1 reaction intake
+and reaction-literature capability added after `v2.0.1`.
 
 All eight repository-owned Skill folders and machine names now use the
 `auto-g16-` prefix, and all eight human-facing display names begin with
-`Auto-G16`. The W1 `auto-g16-reaction-workflow`, strict
-`auto-g16-chemdraw-structures`, and new `auto-g16-reaction-literature`
-repository/deployed pairs are synchronized. The literature Skill was deployed
-only after its separately approved real-search smoke, offline regression,
-structural validation, sensitive-string scan, and exact named-directory diff
-passed. Separate pre-existing drift remains in
-`auto-g16-asymmetric-catalysis`, `auto-g16-chemdraw-pipeline`,
-`auto-g16-ts-irc`, and `auto-g16-view-rt-win`; this integration does not deploy
-or overwrite those copies. The namespace remains mandatory for future project
-Skills; versioned scientific schemas and immutable historical records retain
-their identifiers.
+`Auto-G16`. Repository source remains authoritative. Release deployment must
+run `scripts/check_skill_sync.py`, review the exact named-Skill diffs, and
+synchronize only the validated release copies; a GitHub checkout never implies
+that a machine-local deployment is current. The namespace remains mandatory
+for future project Skills; versioned scientific schemas and immutable
+historical records retain their identifiers.
+
+For the 2.1.0 release candidate, all eight repository/deployed pairs were
+verified synchronized after named-directory diff review and repository
+validation. This machine-local deployment does not authorize a live test or
+calculation. The release candidate passed 134 offline unit tests, Python
+compilation, shell syntax checks and all eight Skill structural validations.
 
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the missing
