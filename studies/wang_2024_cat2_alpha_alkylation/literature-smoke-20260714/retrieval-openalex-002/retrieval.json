@@ -1,0 +1,61 @@
+{
+  "calculation_ready": false,
+  "crossref_contact_supplied": false,
+  "entries": [
+    {
+      "mode": "bibliographic",
+      "query_id": "q001",
+      "raw_path": "raw/q001.openalex.json",
+      "raw_sha256": "07f8ee3bee0dbd21df97d975ad0ebd0687ee843e7526b8a52c7148ea73d65261",
+      "request_url": "https://api.openalex.org/works?per_page=20&search=%22Borane-Catalyzed+Enantioselective+alpha-Alkylation+of+Unactivated+2-Alkylbenzoxazoles+with+Electron-Deficient+Olefins%22&filter=from_publication_date%3A2000-01-01%2Cto_publication_date%3A2026-12-31",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "10",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "920",
+        "X-RateLimit-Reset": "33038"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q021",
+      "raw_path": "raw/q021.openalex.json",
+      "raw_sha256": "23278503c414a643193eca040c79bcd0a4a105ef7a1709067e4f3c8baabb7b3d",
+      "request_url": "https://api.openalex.org/works?per_page=20&filter=doi%3Ahttps%3A%2F%2Fdoi.org%2F10.1021%2Fjacs.4c09067",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "1",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "919",
+        "X-RateLimit-Reset": "33037"
+      },
+      "source": "openalex",
+      "status": "success"
+    }
+  ],
+  "limitations": [
+    "Only metadata API payloads were retrieved; no publisher full text or SI was fetched.",
+    "API relevance order and citation counts are discovery signals, not scientific evidence."
+  ],
+  "mode": "live_metadata_api",
+  "no_submission_authorization": true,
+  "openalex_api_key_supplied": false,
+  "plan_artifact": {
+    "path": "studies/wang_2024_cat2_alpha_alkylation/literature-smoke-20260714/search-plan.json",
+    "sha256": "57887c75c35d7121af426e8287b51831d1f681779bf7f0312988eed4dfe608d7"
+  },
+  "request_id": "wang2024-cat2-literature-smoke-20260714",
+  "retrieval_payload_sha256": "27a25aa6946227af664c7ff1a135c350bfaf8ae69f94734c8712028669c13870",
+  "retrieved_at": "2026-07-14T14:49:24+00:00",
+  "rows_per_query": 20,
+  "schema": "gaussian-reaction-literature-retrieval/1",
+  "sources_requested": [
+    "openalex"
+  ],
+  "summary": {
+    "failed_or_skipped_payloads": 0,
+    "query_count": 2,
+    "request_count": 2,
+    "successful_payloads": 2
+  }
+}

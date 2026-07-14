@@ -1,0 +1,396 @@
+{
+  "allowed_applicability_values": [
+    "exact",
+    "close",
+    "remote",
+    "contradictory",
+    "unknown",
+    "not_applicable"
+  ],
+  "allowed_bounded_uses": [
+    "discovery_only",
+    "mechanism_support",
+    "ts_topology_support",
+    "geometry_seed_support",
+    "protocol_candidate_support",
+    "not_applicable_to_target"
+  ],
+  "allowed_decisions": [
+    "pending",
+    "source_checked_background",
+    "source_reports_analogy",
+    "source_reports_direct_precedent",
+    "exclude"
+  ],
+  "allowed_evidence_statuses": [
+    "not_reviewed",
+    "not_found",
+    "source_ambiguous",
+    "source_reports"
+  ],
+  "calculation_ready": false,
+  "candidate_ledger_artifact": {
+    "path": "studies/wang_2024_cat2_alpha_alkylation/literature-smoke-20260714/candidate-ledger-003.json",
+    "sha256": "de6a7282bf6705f3a2d08def5ff8d3da50456cb2b77b2298b81b0ad19495f38f"
+  },
+  "created_at": "2026-07-14T14:52:00+00:00",
+  "evidence_review_payload_sha256": "494a0b3edfc12d700fab37ecee84ce2746f89572a9149b3c10dce07751587751",
+  "no_submission_authorization": true,
+  "promotable_to_mechanism_support": false,
+  "promotable_to_ts_precedent_map": false,
+  "promotion_blockers": [
+    "missing_upstream_binding:reaction_intake",
+    "missing_upstream_binding:species_registry",
+    "missing_upstream_binding:condition_model",
+    "missing_upstream_binding:knowledge_snapshot"
+  ],
+  "record_status": "validated_review_record",
+  "request_id": "wang2024-cat2-literature-smoke-20260714",
+  "reviews": [
+    {
+      "bibliography": {
+        "authors": [
+          "Chongren Ai",
+          "Lu Liu",
+          "Xiaochen Wang"
+        ],
+        "doi": "10.1021/jacs.4c09067",
+        "publication_type": "article",
+        "title": "Borane-Catalyzed Enantioselective α-Alkylation of Unactivated 2-Alkylbenzoxazoles with Electron-Deficient Olefins",
+        "url": "https://doi.org/10.1021/jacs.4c09067",
+        "venue": "Journal of the American Chemical Society",
+        "year": 2024
+      },
+      "candidate_id": "lit-0001",
+      "directness_dimensions": {
+        "atom_inventory_charge_multiplicity_and_spin": "unknown",
+        "catalyst_and_active_state": "remote",
+        "computational_protocol_and_validation": "remote",
+        "coordination_ion_pair_additives_and_solvent": "unknown",
+        "elementary_step_and_atom_correspondence": "close",
+        "experimental_conditions": "exact",
+        "net_transformation": "exact",
+        "stereochemical_channel": "remote",
+        "substrate_electronics_sterics_and_groups": "exact"
+      },
+      "discovery": {
+        "lexical_score": 11,
+        "metadata_only": true,
+        "screening_tier": "system_relevant_requires_full_text"
+      },
+      "evidence": {
+        "active_catalyst_state": {
+          "paraphrase": "The supporting information reports in situ CAT2 generation and a nonlinear catalyst-ee/product-ee relationship, but it does not identify a unique CAT2 aggregation or substrate-bound active state.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI S22-S23 and S66",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "alternative_pathway": {
+          "paraphrase": "The reviewed SI record contains BF3 and B(C6F5)3 mechanistic submodels, but this smoke review did not find an exhaustive comparison of alternative CAT2 pathways.",
+          "source_locations": [],
+          "status": "source_ambiguous"
+        },
+        "barrier_or_energy_profile": {
+          "paraphrase": "Figure S4 reports 9.2 kcal mol-1 for BF3-TS1 and 16.9 kcal mol-1 for the BF3-TS2-B1/B2 C-C-forming topologies; the exact common energy-zero definition remains unresolved.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI S76-S77, Figure S4",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "computational_protocol": {
+          "paraphrase": "The SI reports Gaussian 09, omega-B97XD/6-31G(d) optimization and frequency calculations with SMD, followed by omega-B97XD/def2-TZVPP single points with SMD at 298.15 K. Solvent identity, full route options, standard state, and low-frequency treatment are not resolved in the reviewed record.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI computational-methods section",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "coordinates": {
+          "paraphrase": "Cartesian coordinates are reported for BF3-TS1 and the BF3-TS2-B1/B2 models; these are achiral Lewis-acid submodels rather than CAT2 structures.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI S116-S121",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "elementary_step": {
+          "paraphrase": "The source reports a BF3-associated proton-transfer TS from 2-ethylbenzoxazole to Barton's base and subsequent BF3-associated C-C-forming topologies with tert-butyl acrylate.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI S76-S77, Figure S4",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "irc": {
+          "paraphrase": "The SI states generally that IRC calculations were used to determine connectivity of minima and transition states, but candidate-specific directions and identified endpoint structures are not reported in the reviewed record.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI computational-methods section",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "normal_mode": {
+          "paraphrase": "Figure S4 associates featured imaginary frequencies of -1455.35, -389.10, and -351.55 cm-1 with BF3-TS1, BF3-TS2-B1, and BF3-TS2-B2. This review did not inspect animated modes, so reaction-coordinate validation remains unresolved.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI S76-S77, Figure S4",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "proposed_mechanism": {
+          "paraphrase": "The source reports proton transfer followed by C-C bond formation in BF3 and B(C6F5)3 computational submodels. It does not establish that this achiral sequence is the operative CAT2 active-state mechanism.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI S67-S78",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "selectivity_model": {
+          "paraphrase": "The source reports product 4a in 86% isolated yield and 92% ee and gives a nonlinear-effect series, but it does not report a CAT2 transition-state ensemble that quantitatively models enantioselectivity.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI S23 and S66",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        },
+        "transition_state_model": {
+          "paraphrase": "The SI reports BF3-TS1 and the achiral BF3-TS2-B1/B2 topology pair. These structures can inform step topology only and are not CAT2 enantioselectivity transition states.",
+          "source_locations": [
+            {
+              "checked_at": "2026-07-14",
+              "locator": "SI S76-S77, Figure S4; coordinates S116-S121",
+              "source_type": "supporting_information",
+              "url_or_doi": "10.1021/jacs.4c09067.s001"
+            }
+          ],
+          "status": "source_reports"
+        }
+      },
+      "exact_quotes": [],
+      "reported_protocol": {
+        "dispersion": null,
+        "low_frequency_treatment": null,
+        "optimization_frequency": "omega-B97XD/6-31G(d) optimization and frequency",
+        "program_version": "Gaussian 09",
+        "single_point": "omega-B97XD/def2-TZVPP",
+        "solvation": "SMD; solvent identity unresolved in the reviewed method record",
+        "standard_state": null,
+        "status": "source_incomplete_not_approved_protocol",
+        "temperature_k": 298.15
+      },
+      "reported_ts_path": {
+        "charge_multiplicity": null,
+        "coordinates_available": true,
+        "identified_endpoints": [],
+        "imaginary_frequencies_cm1": [
+          -1455.35,
+          -389.1,
+          -351.55
+        ],
+        "irc_directions_reported": [
+          "general IRC connectivity statement only; directions and endpoints are not candidate-specific"
+        ],
+        "model_truncations": "BF3 and B(C6F5)3 achiral Lewis-acid submodels; not a CAT2 active-state or enantioselectivity ensemble",
+        "normal_mode_interpretation": "Featured imaginary frequencies are source-reported, but animated normal modes were not inspected in this review.",
+        "ts_labels": [
+          "BF3-TS1",
+          "BF3-TS2-B1",
+          "BF3-TS2-B2"
+        ]
+      },
+      "reviewer_decision": {
+        "bounded_use": "ts_topology_support",
+        "rationale": "The DOI and version-matched SI establish the exact experimental reaction and report achiral BF3/BCF elementary-step and TS topologies. Because the primary article full text was not accessible in this smoke and the computed catalyst model is not CAT2, the record is retained as source-checked background for topology only, not as a direct CAT2 mechanism or selectivity precedent.",
+        "reviewed_at": "2026-07-14T23:10:00+08:00",
+        "status": "source_checked_background"
+      },
+      "source_checks": {
+        "access_notes": [
+          "OpenAlex live metadata resolved DOI 10.1021/jacs.4c09067 and reported is_retracted=false.",
+          "ACS Figshare API resolved version-1 supporting information DOI 10.1021/jacs.4c09067.s001, resource DOI 10.1021/jacs.4c09067, file ja4c09067_si_001.pdf, and CC BY-NC 4.0 metadata.",
+          "The publisher article full text was not accessible in this smoke; article-level support is limited to the DOI record, abstract evidence preserved in forward-study.json, and the version-matched SI review preserved in repository records.",
+          "No PDF was downloaded during this smoke; the repository preserves the previously reviewed SI SHA-256 record only."
+        ],
+        "correction_or_retraction_checked": true,
+        "doi_or_publisher_record_checked": true,
+        "primary_article_checked": false,
+        "supporting_information_checked": true
+      }
+    },
+    {
+      "bibliography": {
+        "authors": [
+          "Rui Chang",
+          "Yubing Pang",
+          "Juntao Ye"
+        ],
+        "doi": "10.1002/cjoc.70375",
+        "publication_type": "article",
+        "title": "Borane Exchange Enables Photocatalytic Alkylation of Pyridylic C(sp 3 )−H Bonds with Olefins",
+        "url": "https://doi.org/10.1002/cjoc.70375",
+        "venue": "Chinese Journal of Chemistry",
+        "year": 2025
+      },
+      "candidate_id": "lit-0002",
+      "directness_dimensions": {
+        "atom_inventory_charge_multiplicity_and_spin": "unknown",
+        "catalyst_and_active_state": "remote",
+        "computational_protocol_and_validation": "unknown",
+        "coordination_ion_pair_additives_and_solvent": "unknown",
+        "elementary_step_and_atom_correspondence": "remote",
+        "experimental_conditions": "remote",
+        "net_transformation": "remote",
+        "stereochemical_channel": "remote",
+        "substrate_electronics_sterics_and_groups": "remote"
+      },
+      "discovery": {
+        "lexical_score": 2,
+        "metadata_only": true,
+        "screening_tier": "low_lexical_match"
+      },
+      "evidence": {
+        "active_catalyst_state": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "alternative_pathway": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "barrier_or_energy_profile": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "computational_protocol": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "coordinates": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "elementary_step": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "irc": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "normal_mode": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "proposed_mechanism": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "selectivity_model": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        },
+        "transition_state_model": {
+          "paraphrase": null,
+          "source_locations": [],
+          "status": "not_reviewed"
+        }
+      },
+      "exact_quotes": [],
+      "reported_protocol": {
+        "dispersion": null,
+        "low_frequency_treatment": null,
+        "optimization_frequency": null,
+        "program_version": null,
+        "single_point": null,
+        "solvation": null,
+        "standard_state": null,
+        "status": "not_reviewed_not_approved_protocol",
+        "temperature_k": null
+      },
+      "reported_ts_path": {
+        "charge_multiplicity": null,
+        "coordinates_available": null,
+        "identified_endpoints": [],
+        "imaginary_frequencies_cm1": [],
+        "irc_directions_reported": [],
+        "model_truncations": null,
+        "normal_mode_interpretation": null,
+        "ts_labels": []
+      },
+      "reviewer_decision": {
+        "bounded_use": "not_applicable_to_target",
+        "rationale": "Live metadata screening identifies a photocatalytic pyridylic C(sp3)-H alkylation rather than the chiral-bisborane-catalyzed alpha-alkylation of 2-alkylbenzoxazoles. Its low lexical score and remote transformation, substrate, catalyst, and stereochemical dimensions justify exclusion without promoting any mechanism or TS claim.",
+        "reviewed_at": "2026-07-14T23:10:00+08:00",
+        "status": "exclude"
+      },
+      "source_checks": {
+        "access_notes": [
+          "OpenAlex live metadata resolved DOI 10.1002/cjoc.70375 and reported is_retracted=false.",
+          "Full article and supporting information were not opened because the metadata-level transformation and substrate mismatch was sufficient for exclusion."
+        ],
+        "correction_or_retraction_checked": true,
+        "doi_or_publisher_record_checked": true,
+        "primary_article_checked": false,
+        "supporting_information_checked": false
+      }
+    }
+  ],
+  "schema": "gaussian-reaction-literature-evidence/1",
+  "upstream_artifacts": {
+    "condition_model": null,
+    "knowledge_snapshot": null,
+    "reaction_intake": null,
+    "species_registry": null
+  },
+  "validated_at": "2026-07-14T14:55:39+00:00",
+  "w2_binding_status": "standalone_search_not_promotable"
+}
