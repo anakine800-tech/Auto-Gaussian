@@ -1,0 +1,6 @@
+%oldchk=w24_bf3ts2_b1_s01.chk
+%chk=w24_bf3b1_ir2.chk
+%mem=120GB
+%nprocshared=44
+#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,reverse,maxpoints=60,stepsize=3,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)
+
