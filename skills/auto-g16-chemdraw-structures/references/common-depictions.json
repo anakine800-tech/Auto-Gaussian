@@ -1,0 +1,1048 @@
+{
+  "version": 2,
+  "count": 50,
+  "selection": "High-frequency drug and medicinal-chemistry ring systems, excluding stereochemically fragile generic cores such as cephems, penams, steroids, tropanes, and morphinans.",
+  "sources": [
+    {
+      "doi": "10.1021/jm4017625",
+      "title": "Rings in Drugs",
+      "role": "FDA Orange Book ring-system frequency and top-100 baseline"
+    },
+    {
+      "doi": "10.1021/jm501100b",
+      "title": "Analysis of the Structural Diversity, Substitution Patterns, and Frequency of Nitrogen Heterocycles among U.S. FDA Approved Pharmaceuticals",
+      "role": "top-25 nitrogen-heterocycle baseline"
+    },
+    {
+      "doi": "10.1021/acs.jmedchem.4c01122",
+      "title": "An Update on the Nitrogen Heterocycle Compositions and Properties of U.S. FDA-Approved Pharmaceuticals (2013-2023)",
+      "role": "recent FDA frequency update"
+    },
+    {
+      "doi": "10.1039/D5MD00403A",
+      "title": "Analysis of the structural diversity of heterocycles amongst European medicines agency approved pharmaceuticals (2014-2023)",
+      "role": "recent EMA heterocycle and fused-ring update"
+    }
+  ],
+  "entries": [
+    {
+      "key": "benzene",
+      "names": [
+        "benzene",
+        "phenyl",
+        "Ph",
+        "苯",
+        "苯基"
+      ],
+      "smiles": "C1=CC=CC=C1",
+      "pubchem_cid": 241,
+      "orientation": "Use a regular hexagon with vertical left and right sides; keep analog series on one rotation and never distort it to fill space.",
+      "template_mol": "assets/common-templates/benzene.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccccc1",
+      "scaffold_smiles": "c1ccccc1"
+    },
+    {
+      "key": "cyclopropane",
+      "names": [
+        "cyclopropane",
+        "cyclopropyl",
+        "环丙烷",
+        "环丙基"
+      ],
+      "smiles": "C1CC1",
+      "pubchem_cid": 6351,
+      "orientation": "Use an equilateral triangle; put singly attached substituents on exterior-sector bisectors and keep all three sides equal.",
+      "template_mol": "assets/common-templates/cyclopropane.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CC1",
+      "scaffold_smiles": "C1CC1"
+    },
+    {
+      "key": "cyclobutane",
+      "names": [
+        "cyclobutane",
+        "cyclobutyl",
+        "环丁烷",
+        "环丁基"
+      ],
+      "smiles": "C1CCC1",
+      "pubchem_cid": 9250,
+      "orientation": "Use a square or gently diamond-oriented square with equal sides; do not draw an arbitrary trapezoid.",
+      "template_mol": "assets/common-templates/cyclobutane.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "modern-small-ring"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CCC1",
+      "scaffold_smiles": "C1CCC1"
+    },
+    {
+      "key": "cyclopentane",
+      "names": [
+        "cyclopentane",
+        "cyclopentyl",
+        "环戊烷",
+        "环戊基"
+      ],
+      "smiles": "C1CCCC1",
+      "pubchem_cid": 9253,
+      "orientation": "Use a regular pentagon for an unconstrained 2D scaffold; place substituents on exterior angle bisectors.",
+      "template_mol": "assets/common-templates/cyclopentane.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CCCC1",
+      "scaffold_smiles": "C1CCCC1"
+    },
+    {
+      "key": "cyclohexane",
+      "names": [
+        "cyclohexane",
+        "cyclohexyl",
+        "环己烷",
+        "环己基"
+      ],
+      "smiles": "C1CCCCC1",
+      "pubchem_cid": 8078,
+      "orientation": "Use a regular planar hexagon in ordinary schemes; use a chair only when conformation or axial/equatorial stereochemistry is chemically meaningful.",
+      "template_mol": "assets/common-templates/cyclohexane.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CCCCC1",
+      "scaffold_smiles": "C1CCCCC1"
+    },
+    {
+      "key": "naphthalene",
+      "names": [
+        "naphthalene",
+        "naphthyl",
+        "萘",
+        "萘基"
+      ],
+      "smiles": "C1=CC=C2C=CC=CC2=C1",
+      "pubchem_cid": 931,
+      "orientation": "Use two regular fused hexagons with the long axis horizontal and a shared vertical edge; keep naphthyl analogs on one rotation.",
+      "template_mol": "assets/common-templates/naphthalene.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2ccccc2c1",
+      "scaffold_smiles": "c1ccc2ccccc2c1"
+    },
+    {
+      "key": "pyridine",
+      "names": [
+        "pyridine",
+        "pyridyl",
+        "吡啶",
+        "吡啶基"
+      ],
+      "smiles": "C1=CC=NC=C1",
+      "pubchem_cid": 1049,
+      "orientation": "Use a regular hexagon with N on a left-side vertex in the base template; rotate only to expose substituents and keep a series consistent.",
+      "template_mol": "assets/common-templates/pyridine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-25",
+        "Marshall-2024-rank-1"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccncc1",
+      "scaffold_smiles": "c1ccncc1"
+    },
+    {
+      "key": "piperidine",
+      "names": [
+        "piperidine",
+        "piperidyl",
+        "哌啶",
+        "哌啶基"
+      ],
+      "smiles": "C1CCNCC1",
+      "pubchem_cid": 8082,
+      "orientation": "Use a regular hexagon with N on a left-side vertex; place N-substituents along the exterior angle bisector unless the source fixes another view.",
+      "template_mol": "assets/common-templates/piperidine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-rank-1",
+        "Marshall-2024-rank-2"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CCNCC1",
+      "scaffold_smiles": "C1CCNCC1"
+    },
+    {
+      "key": "piperazine",
+      "names": [
+        "piperazine",
+        "piperazinyl",
+        "哌嗪",
+        "哌嗪基"
+      ],
+      "smiles": "C1CNCCN1",
+      "pubchem_cid": 4837,
+      "orientation": "Use a regular hexagon with the two para nitrogens on opposite vertices; direct N-substituents outward and keep the ring symmetric.",
+      "template_mol": "assets/common-templates/piperazine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-3",
+        "Marshall-top-10"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CNCCN1",
+      "scaffold_smiles": "C1CNCCN1"
+    },
+    {
+      "key": "pyrrolidine",
+      "names": [
+        "pyrrolidine",
+        "pyrrolidinyl",
+        "吡咯烷",
+        "吡咯烷基"
+      ],
+      "smiles": "C1CCNC1",
+      "pubchem_cid": 31268,
+      "orientation": "Use a regular pentagon with N at an upper-left or lower vertex according to reaction flow; place an N-substituent on the exterior bisector.",
+      "template_mol": "assets/common-templates/pyrrolidine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-5",
+        "Marshall-top-3",
+        "EMA-2025-common"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CCNC1",
+      "scaffold_smiles": "C1CCNC1"
+    },
+    {
+      "key": "azetidine",
+      "names": [
+        "azetidine",
+        "azetidinyl",
+        "氮杂环丁烷",
+        "氮杂环丁基"
+      ],
+      "smiles": "C1CNC1",
+      "pubchem_cid": 10422,
+      "orientation": "Use a square with N on one vertex and equal side lengths; direct N-substitution outward rather than into the ring.",
+      "template_mol": "assets/common-templates/azetidine.mol",
+      "evidence_tags": [
+        "recent-INN-top-ring",
+        "modern-small-ring"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CNC1",
+      "scaffold_smiles": "C1CNC1"
+    },
+    {
+      "key": "morpholine",
+      "names": [
+        "morpholine",
+        "morpholinyl",
+        "吗啉",
+        "吗啉基"
+      ],
+      "smiles": "C1COCCN1",
+      "pubchem_cid": 8083,
+      "orientation": "Use a regular hexagon with O and N on opposite vertices; keep both heteroatom labels exterior and direct N-substitution outward.",
+      "template_mol": "assets/common-templates/morpholine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Marshall-2024-rank-9"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1COCCN1",
+      "scaffold_smiles": "C1COCCN1"
+    },
+    {
+      "key": "tetrahydrofuran",
+      "names": [
+        "tetrahydrofuran",
+        "THF",
+        "oxolane",
+        "四氢呋喃",
+        "氧杂环戊烷"
+      ],
+      "smiles": "C1CCOC1",
+      "pubchem_cid": 8028,
+      "orientation": "Use a regular pentagon with O on a left or upper vertex; do not preserve accidental screenshot distortion.",
+      "template_mol": "assets/common-templates/tetrahydrofuran.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "EMA-2025-common"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CCOC1",
+      "scaffold_smiles": "C1CCOC1"
+    },
+    {
+      "key": "tetrahydropyran",
+      "names": [
+        "tetrahydropyran",
+        "oxane",
+        "THP",
+        "四氢吡喃",
+        "氧杂环己烷"
+      ],
+      "smiles": "C1CCOCC1",
+      "pubchem_cid": 8894,
+      "orientation": "Use a regular hexagon with O on a left-side vertex; use a chair only when conformation or sugar stereochemistry matters.",
+      "template_mol": "assets/common-templates/tetrahydropyran.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "C1CCOCC1",
+      "scaffold_smiles": "C1CCOCC1"
+    },
+    {
+      "key": "pyrrole",
+      "names": [
+        "pyrrole",
+        "pyrrolyl",
+        "吡咯",
+        "吡咯基"
+      ],
+      "smiles": "C1=CNC=C1",
+      "pubchem_cid": 8027,
+      "orientation": "Use a regular pentagon with [NH] on an upper-left or bottom vertex; keep the two double bonds balanced and N-substitution exterior.",
+      "template_mol": "assets/common-templates/pyrrole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "recent-INN-gaining"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1cc[nH]c1",
+      "scaffold_smiles": "c1cc[nH]c1"
+    },
+    {
+      "key": "imidazole",
+      "names": [
+        "imidazole",
+        "imidazolyl",
+        "咪唑",
+        "咪唑基"
+      ],
+      "smiles": "C1=CN=CN1",
+      "pubchem_cid": 795,
+      "orientation": "Use a regular pentagon with the pyridine-like N and [NH] clearly separated at 1,3 positions; keep the selected tautomer explicit and consistent.",
+      "template_mol": "assets/common-templates/imidazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-10",
+        "Marshall-top-10"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1c[nH]cn1",
+      "scaffold_smiles": "c1c[nH]cn1"
+    },
+    {
+      "key": "pyrazole",
+      "names": [
+        "pyrazole",
+        "pyrazolyl",
+        "吡唑",
+        "吡唑基"
+      ],
+      "smiles": "C1=CNN=C1",
+      "pubchem_cid": 1048,
+      "orientation": "Use a regular pentagon with adjacent N atoms at the left side or upper-left edge; preserve the specified N-H tautomer.",
+      "template_mol": "assets/common-templates/pyrazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-25",
+        "Marshall-2024-rank-6",
+        "EMA-2025-common"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1cn[nH]c1",
+      "scaffold_smiles": "c1cn[nH]c1"
+    },
+    {
+      "key": "1,2,3-triazole",
+      "names": [
+        "1,2,3-triazole",
+        "1,2,3-triazolyl",
+        "1,2,3-三唑"
+      ],
+      "smiles": "C1=NNN=C1",
+      "pubchem_cid": 67516,
+      "orientation": "Use a regular pentagon with the three adjacent nitrogens grouped along one side; keep the selected N-H tautomer explicit.",
+      "template_mol": "assets/common-templates/1-2-3-triazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "click-chemistry-common"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1cn[nH]n1",
+      "scaffold_smiles": "c1cn[nH]n1"
+    },
+    {
+      "key": "1,2,4-triazole",
+      "names": [
+        "1,2,4-triazole",
+        "1,2,4-triazolyl",
+        "1,2,4-三唑"
+      ],
+      "smiles": "C1=NC=NN1",
+      "pubchem_cid": 9257,
+      "orientation": "Use a regular pentagon with adjacent N-N and the third N separated at the 4-position; preserve the specified tautomer.",
+      "template_mol": "assets/common-templates/1-2-4-triazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-25"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1nc[nH]n1",
+      "scaffold_smiles": "c1nc[nH]n1"
+    },
+    {
+      "key": "tetrazole",
+      "names": [
+        "tetrazole",
+        "tetrazolyl",
+        "四唑",
+        "四唑基"
+      ],
+      "smiles": "C1=NNN=N1",
+      "pubchem_cid": 67519,
+      "orientation": "Use a regular pentagon with four consecutive nitrogens and one carbon; preserve protonation, charge, and N-H tautomer explicitly.",
+      "template_mol": "assets/common-templates/tetrazole.mol",
+      "evidence_tags": [
+        "Vitaku-top-25",
+        "common-acid-bioisostere"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1nn[nH]n1",
+      "scaffold_smiles": "c1nn[nH]n1"
+    },
+    {
+      "key": "furan",
+      "names": [
+        "furan",
+        "furyl",
+        "furanyl",
+        "呋喃",
+        "呋喃基"
+      ],
+      "smiles": "C1=COC=C1",
+      "pubchem_cid": 8029,
+      "orientation": "Use a regular pentagon with O on an upper-left or bottom vertex; keep both double bonds balanced and analogs on one rotation.",
+      "template_mol": "assets/common-templates/furan.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccoc1",
+      "scaffold_smiles": "c1ccoc1"
+    },
+    {
+      "key": "thiophene",
+      "names": [
+        "thiophene",
+        "thienyl",
+        "thiophenyl",
+        "噻吩",
+        "噻吩基"
+      ],
+      "smiles": "C1=CSC=C1",
+      "pubchem_cid": 8030,
+      "orientation": "Use a regular pentagon with S on an upper-left or bottom vertex; keep the aromatic double bonds balanced.",
+      "template_mol": "assets/common-templates/thiophene.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccsc1",
+      "scaffold_smiles": "c1ccsc1"
+    },
+    {
+      "key": "oxazole",
+      "names": [
+        "oxazole",
+        "oxazolyl",
+        "噁唑",
+        "恶唑",
+        "噁唑基"
+      ],
+      "smiles": "C1=COC=N1",
+      "pubchem_cid": 9255,
+      "orientation": "Use a regular pentagon with O and N at 1,3 positions; keep O upper-left and N lower-left in the base template.",
+      "template_mol": "assets/common-templates/oxazole.mol",
+      "evidence_tags": [
+        "recent-INN-top-ring",
+        "common-azole"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1cocn1",
+      "scaffold_smiles": "c1cocn1"
+    },
+    {
+      "key": "isoxazole",
+      "names": [
+        "isoxazole",
+        "isoxazolyl",
+        "异噁唑",
+        "异恶唑",
+        "异噁唑基"
+      ],
+      "smiles": "C1=CON=C1",
+      "pubchem_cid": 9254,
+      "orientation": "Use a regular pentagon with adjacent O-N atoms on one side and the remaining double bonds balanced.",
+      "template_mol": "assets/common-templates/isoxazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-25"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1cnoc1",
+      "scaffold_smiles": "c1cnoc1"
+    },
+    {
+      "key": "thiazole",
+      "names": [
+        "thiazole",
+        "thiazolyl",
+        "噻唑",
+        "噻唑基"
+      ],
+      "smiles": "C1=CSC=N1",
+      "pubchem_cid": 9256,
+      "orientation": "Use a regular pentagon with S and N at 1,3 positions; keep S upper-left and N lower-left in the base template.",
+      "template_mol": "assets/common-templates/thiazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-10"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1cscn1",
+      "scaffold_smiles": "c1cscn1"
+    },
+    {
+      "key": "1,3,4-oxadiazole",
+      "names": [
+        "1,3,4-oxadiazole",
+        "1,3,4-oxadiazolyl",
+        "1,3,4-噁二唑"
+      ],
+      "smiles": "C1=NN=CO1",
+      "pubchem_cid": 97428,
+      "orientation": "Use a regular pentagon with adjacent N-N at the upper side and O at the separated lower vertex; preserve positional isomer identity.",
+      "template_mol": "assets/common-templates/1-3-4-oxadiazole.mol",
+      "evidence_tags": [
+        "common-azole",
+        "medicinal-chemistry-bioisostere"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1nnco1",
+      "scaffold_smiles": "c1nnco1"
+    },
+    {
+      "key": "1,3,4-thiadiazole",
+      "names": [
+        "1,3,4-thiadiazole",
+        "1,3,4-thiadiazolyl",
+        "1,3,4-噻二唑"
+      ],
+      "smiles": "C1=NN=CS1",
+      "pubchem_cid": 119391,
+      "orientation": "Use a regular pentagon with adjacent N-N at the upper side and S at the separated lower vertex; preserve positional isomer identity.",
+      "template_mol": "assets/common-templates/1-3-4-thiadiazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "common-azole"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1nncs1",
+      "scaffold_smiles": "c1nncs1"
+    },
+    {
+      "key": "pyrimidine",
+      "names": [
+        "pyrimidine",
+        "pyrimidinyl",
+        "嘧啶",
+        "嘧啶基"
+      ],
+      "smiles": "C1=CN=CN=C1",
+      "pubchem_cid": 9260,
+      "orientation": "Use a regular hexagon with the two 1,3 nitrogens on the same side in the base template; preserve position numbering across analogs.",
+      "template_mol": "assets/common-templates/pyrimidine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Marshall-2024-rank-5",
+        "kinase-scaffold-common"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1cncnc1",
+      "scaffold_smiles": "c1cncnc1"
+    },
+    {
+      "key": "pyrazine",
+      "names": [
+        "pyrazine",
+        "pyrazinyl",
+        "吡嗪",
+        "吡嗪基"
+      ],
+      "smiles": "C1=CN=CC=N1",
+      "pubchem_cid": 9261,
+      "orientation": "Use a regular hexagon with the two para nitrogens on opposite vertices and keep the ring symmetric.",
+      "template_mol": "assets/common-templates/pyrazine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "recent-INN-gaining"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1cnccn1",
+      "scaffold_smiles": "c1cnccn1"
+    },
+    {
+      "key": "1,3,5-triazine",
+      "names": [
+        "1,3,5-triazine",
+        "s-triazine",
+        "1,3,5-三嗪",
+        "均三嗪"
+      ],
+      "smiles": "C1=NC=NC=N1",
+      "pubchem_cid": 9262,
+      "orientation": "Use a regular symmetric hexagon with alternating C and N atoms; keep substitution vectors at 120-degree intervals.",
+      "template_mol": "assets/common-templates/1-3-5-triazine.mol",
+      "evidence_tags": [
+        "common-medicinal-agrochemical-ring"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ncncn1",
+      "scaffold_smiles": "c1ncncn1"
+    },
+    {
+      "key": "indole",
+      "names": [
+        "indole",
+        "indolyl",
+        "N-methylindole",
+        "吲哚",
+        "吲哚基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)C=CN2",
+      "pubchem_cid": 798,
+      "orientation": "Place benzene on the left and the five-member N ring on the right, with N at the bottom and C3 at the upper-right; direct N-substitution downward when space permits.",
+      "template_mol": "assets/common-templates/indole.mol",
+      "template_transform": {
+        "mirror_y": true
+      },
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-10",
+        "EMA-2025-common-fused"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2[nH]ccc2c1",
+      "scaffold_smiles": "c1ccc2[nH]ccc2c1"
+    },
+    {
+      "key": "indazole",
+      "names": [
+        "indazole",
+        "indazolyl",
+        "吲唑",
+        "吲唑基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)C=NN2",
+      "pubchem_cid": 9221,
+      "orientation": "Place benzene on the left and pyrazole on the right, with [NH] at the lower-right; preserve the selected N-H tautomer.",
+      "template_mol": "assets/common-templates/indazole.mol",
+      "template_transform": {
+        "mirror_y": true
+      },
+      "evidence_tags": [
+        "Taylor-top-100",
+        "recent-INN-newcomer"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2[nH]ncc2c1",
+      "scaffold_smiles": "c1ccc2[nH]ncc2c1"
+    },
+    {
+      "key": "benzimidazole",
+      "names": [
+        "benzimidazole",
+        "benzimidazolyl",
+        "苯并咪唑",
+        "苯并咪唑基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)NC=N2",
+      "pubchem_cid": 5798,
+      "orientation": "Place benzene on the left and imidazole on the right, with [NH] at the lower-right and imine N at the upper-right; preserve tautomer identity.",
+      "template_mol": "assets/common-templates/benzimidazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-25",
+        "Marshall-top-10",
+        "EMA-2025-common-fused"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2[nH]cnc2c1",
+      "scaffold_smiles": "c1ccc2[nH]cnc2c1"
+    },
+    {
+      "key": "benzoxazole",
+      "names": [
+        "benzoxazole",
+        "benzoxazolyl",
+        "苯并噁唑",
+        "苯并恶唑"
+      ],
+      "smiles": "C1=CC=C2C(=C1)N=CO2",
+      "pubchem_cid": 9228,
+      "orientation": "Place benzene on the left and oxazole on the right with O upper-right and N lower-right; use the shared fused edge consistently.",
+      "template_mol": "assets/common-templates/benzoxazole.mol",
+      "evidence_tags": [
+        "common-fused-azole"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2ocnc2c1",
+      "scaffold_smiles": "c1ccc2ocnc2c1"
+    },
+    {
+      "key": "benzothiazole",
+      "names": [
+        "benzothiazole",
+        "benzothiazolyl",
+        "苯并噻唑",
+        "苯并噻唑基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)N=CS2",
+      "pubchem_cid": 7222,
+      "orientation": "Place benzene on the left and thiazole on the right with S upper-right and N lower-right; use the shared fused edge consistently.",
+      "template_mol": "assets/common-templates/benzothiazole.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "common-fused-azole"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2scnc2c1",
+      "scaffold_smiles": "c1ccc2scnc2c1"
+    },
+    {
+      "key": "benzofuran",
+      "names": [
+        "benzofuran",
+        "benzofuranyl",
+        "苯并呋喃",
+        "苯并呋喃基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)C=CO2",
+      "pubchem_cid": 9223,
+      "orientation": "Place benzene on the left and furan on the right with O at the upper-right; keep the long fused axis horizontal.",
+      "template_mol": "assets/common-templates/benzofuran.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2occc2c1",
+      "scaffold_smiles": "c1ccc2occc2c1"
+    },
+    {
+      "key": "benzothiophene",
+      "names": [
+        "benzothiophene",
+        "benzothienyl",
+        "苯并噻吩",
+        "苯并噻吩基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)C=CS2",
+      "pubchem_cid": 7221,
+      "orientation": "Place benzene on the left and thiophene on the right with S at the upper-right; keep the long fused axis horizontal.",
+      "template_mol": "assets/common-templates/benzothiophene.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2sccc2c1",
+      "scaffold_smiles": "c1ccc2sccc2c1"
+    },
+    {
+      "key": "quinoline",
+      "names": [
+        "quinoline",
+        "quinolyl",
+        "喹啉",
+        "喹啉基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)C=CC=N2",
+      "pubchem_cid": 7047,
+      "orientation": "Place benzene on the left and pyridine on the right with the long fused axis horizontal; keep N at the upper-right fusion-side position in the base template.",
+      "template_mol": "assets/common-templates/quinoline.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "EMA-2025-common-fused"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2ncccc2c1",
+      "scaffold_smiles": "c1ccc2ncccc2c1"
+    },
+    {
+      "key": "isoquinoline",
+      "names": [
+        "isoquinoline",
+        "isoquinolyl",
+        "异喹啉",
+        "异喹啉基"
+      ],
+      "smiles": "C1=CC=C2C=NC=CC2=C1",
+      "pubchem_cid": 8405,
+      "orientation": "Place benzene on the left and the N-containing ring on the right with the long axis horizontal; keep the ring N on the outer upper-right side.",
+      "template_mol": "assets/common-templates/isoquinoline.mol",
+      "evidence_tags": [
+        "Taylor-top-100"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2cnccc2c1",
+      "scaffold_smiles": "c1ccc2cnccc2c1"
+    },
+    {
+      "key": "quinazoline",
+      "names": [
+        "quinazoline",
+        "quinazolinyl",
+        "喹唑啉",
+        "喹唑啉基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)C=NC=N2",
+      "pubchem_cid": 9210,
+      "orientation": "Place benzene on the left and pyrimidine on the right with the long axis horizontal; keep the two N atoms at the upper-right and lower-right positions.",
+      "template_mol": "assets/common-templates/quinazoline.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "EMA-2025-common-fused",
+        "kinase-scaffold-common"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2ncncc2c1",
+      "scaffold_smiles": "c1ccc2ncncc2c1"
+    },
+    {
+      "key": "quinoxaline",
+      "names": [
+        "quinoxaline",
+        "quinoxalinyl",
+        "喹噁啉",
+        "喹恶啉",
+        "喹噁啉基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)N=CC=N2",
+      "pubchem_cid": 7045,
+      "orientation": "Place benzene on the left and pyrazine on the right with N atoms at the upper and lower fusion-side vertices; keep the long axis horizontal.",
+      "template_mol": "assets/common-templates/quinoxaline.mol",
+      "evidence_tags": [
+        "common-fused-diazine"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2nccnc2c1",
+      "scaffold_smiles": "c1ccc2nccnc2c1"
+    },
+    {
+      "key": "purine",
+      "names": [
+        "purine",
+        "purinyl",
+        "嘌呤",
+        "嘌呤基"
+      ],
+      "smiles": "C1=C2C(=NC=N1)N=CN2",
+      "pubchem_cid": 1044,
+      "orientation": "Use the five-member imidazole ring on the left and six-member pyrimidine ring on the right with the long axis horizontal; preserve tautomer and N-H placement.",
+      "template_mol": "assets/common-templates/purine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "Vitaku-top-25",
+        "nucleobase-core"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ncc2[nH]cnc2n1",
+      "scaffold_smiles": "c1ncc2[nH]cnc2n1"
+    },
+    {
+      "key": "imidazo[1,2-a]pyridine",
+      "names": [
+        "imidazo[1,2-a]pyridine",
+        "imidazopyridine",
+        "咪唑并[1,2-a]吡啶"
+      ],
+      "smiles": "C1=CC2=NC=CN2C=C1",
+      "pubchem_cid": 78960,
+      "orientation": "Place the five-member imidazole ring on the left and six-member pyridine ring on the right; keep the shared N at the upper fused junction and the long axis horizontal.",
+      "template_mol": "assets/common-templates/imidazo-1-2-a-pyridine.mol",
+      "evidence_tags": [
+        "fused-N-heterocycle-growth",
+        "medicinal-chemistry-common"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccn2ccnc2c1",
+      "scaffold_smiles": "c1ccn2ccnc2c1"
+    },
+    {
+      "key": "pyrrolo[2,3-d]pyrimidine",
+      "names": [
+        "7H-pyrrolo[2,3-d]pyrimidine",
+        "pyrrolopyrimidine",
+        "7-deazapurine",
+        "吡咯并[2,3-d]嘧啶",
+        "7-脱氮嘌呤"
+      ],
+      "smiles": "C1=CNC2=NC=NC=C21",
+      "pubchem_cid": 261591,
+      "orientation": "Place pyrrole on the left and pyrimidine on the right with [NH] at the lower-left; keep the long fused axis horizontal and preserve tautomer identity.",
+      "template_mol": "assets/common-templates/pyrrolo-2-3-d-pyrimidine.mol",
+      "evidence_tags": [
+        "EMA-2025-common-fused",
+        "kinase-scaffold-common"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ncc2cc[nH]c2n1",
+      "scaffold_smiles": "c1ncc2cc[nH]c2n1"
+    },
+    {
+      "key": "tetrahydroisoquinoline",
+      "names": [
+        "1,2,3,4-tetrahydroisoquinoline",
+        "tetrahydroisoquinoline",
+        "THIQ",
+        "四氢异喹啉"
+      ],
+      "smiles": "C1CNCC2=CC=CC=C21",
+      "pubchem_cid": 7046,
+      "orientation": "Place benzene on the left and the saturated N ring on the right with N at the lower-right; keep the fused shared edge vertical and N-substitution exterior.",
+      "template_mol": "assets/common-templates/tetrahydroisoquinoline.mol",
+      "template_transform": {
+        "rotate": 180
+      },
+      "evidence_tags": [
+        "Taylor-top-100",
+        "common-alkaloid-medicinal-core"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2c(c1)CCNC2",
+      "scaffold_smiles": "c1ccc2c(c1)CCNC2"
+    },
+    {
+      "key": "oxindole",
+      "names": [
+        "oxindole",
+        "indolin-2-one",
+        "2-oxindole",
+        "氧化吲哚",
+        "吲哚-2-酮"
+      ],
+      "smiles": "C1C2=CC=CC=C2NC1=O",
+      "pubchem_cid": 321710,
+      "orientation": "Place benzene on the left and the five-member lactam on the right, with N at the lower-right and the C2 carbonyl directed outward to the right.",
+      "template_mol": "assets/common-templates/oxindole.mol",
+      "template_transform": {
+        "rotate": 180
+      },
+      "evidence_tags": [
+        "Taylor-top-100",
+        "common-kinase-natural-product-core"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "O=C1Cc2ccccc2N1",
+      "scaffold_smiles": "O=C1Cc2ccccc2N1"
+    },
+    {
+      "key": "phenothiazine",
+      "names": [
+        "phenothiazine",
+        "phenothiazinyl",
+        "吩噻嗪",
+        "吩噻嗪基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)NC3=CC=CC=C3S2",
+      "pubchem_cid": 7108,
+      "orientation": "Use two benzene rings left and right, S at the top bridge and N at the bottom bridge; direct N-substitution downward and keep the tricycle centered.",
+      "template_mol": "assets/common-templates/phenothiazine.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "approved-user-example"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2c(c1)Nc1ccccc1S2",
+      "scaffold_smiles": "c1ccc2c(c1)Nc1ccccc1S2"
+    },
+    {
+      "key": "phenoxazine",
+      "names": [
+        "phenoxazine",
+        "phenoxazinyl",
+        "吩噁嗪",
+        "吩恶嗪",
+        "吩噁嗪基"
+      ],
+      "smiles": "C1=CC=C2C(=C1)NC3=CC=CC=C3O2",
+      "pubchem_cid": 67278,
+      "orientation": "Use two benzene rings left and right, O at the top bridge and N at the bottom bridge; direct N-substitution downward and keep the tricycle centered.",
+      "template_mol": "assets/common-templates/phenoxazine.mol",
+      "evidence_tags": [
+        "frequent-phenothiazine-analogue",
+        "approved-user-example"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "c1ccc2c(c1)Nc1ccccc1O2",
+      "scaffold_smiles": "c1ccc2c(c1)Nc1ccccc1O2"
+    },
+    {
+      "key": "2-pyrrolidone",
+      "names": [
+        "2-pyrrolidone",
+        "pyrrolidin-2-one",
+        "2-吡咯烷酮",
+        "γ-内酰胺"
+      ],
+      "smiles": "C1CC(=O)NC1",
+      "pubchem_cid": 12025,
+      "orientation": "Use a regular five-member lactam with the carbonyl directed outward and N on the adjacent upper vertex; keep N-substitution exterior.",
+      "template_mol": "assets/common-templates/2-pyrrolidone.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "common-lactam"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "O=C1CCCN1",
+      "scaffold_smiles": "O=C1CCCN1"
+    },
+    {
+      "key": "2-oxazolidinone",
+      "names": [
+        "2-oxazolidinone",
+        "oxazolidin-2-one",
+        "2-噁唑烷酮",
+        "2-恶唑烷酮"
+      ],
+      "smiles": "C1COC(=O)N1",
+      "pubchem_cid": 73949,
+      "orientation": "Use a regular five-member cyclic carbamate with the carbonyl directed outward and adjacent O/N labels separated clearly; keep N-substitution exterior.",
+      "template_mol": "assets/common-templates/2-oxazolidinone.mol",
+      "evidence_tags": [
+        "Taylor-top-100",
+        "common-cyclic-carbamate"
+      ],
+      "status": "literature-reviewed",
+      "canonical_smiles": "O=C1NCCO1",
+      "scaffold_smiles": "O=C1NCCO1"
+    }
+  ]
+}
