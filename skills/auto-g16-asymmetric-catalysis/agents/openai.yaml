@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 Asymmetric Catalysis"
+  short_description: "Audit asymmetric catalytic TS ensembles and selectivity"
+  default_prompt: "Use $auto-g16-asymmetric-catalysis to plan and audit a literature-grounded asymmetric catalytic transition-state study."

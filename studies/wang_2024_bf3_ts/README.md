@@ -68,7 +68,7 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
 Rebuild without overwriting the checked artifact:
 
 ```bash
-python3 skills/gaussian-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   build-literature-benchmark studies/wang_2024_bf3_ts/benchmark-source.json \
   --output /tmp/wang2024-bf3-ledger.json
 cmp /tmp/wang2024-bf3-ledger.json \

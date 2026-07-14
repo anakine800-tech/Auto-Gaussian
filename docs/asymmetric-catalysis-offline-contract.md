@@ -1,4 +1,4 @@
-# Asymmetric-catalysis offline data contract
+# Auto-G16 Asymmetric-Catalysis Offline Data Contract
 
 Status: normative version 1 contract for offline artifacts. These artifacts are
 non-runnable and grant no SSH, PBS, Gaussian, deployment, cancellation, or
@@ -206,7 +206,7 @@ resolved. Promotion still leaves `calculation_ready: false`.
 For metal candidates, version 1 requires
 `support_status: unsupported_transition_metal`. For a closed-shell chiral-boron
 candidate, `supported_main_group_closed_shell` is allowed only if the scientific
-state is otherwise within `gaussian-ts-irc` scope.
+state is otherwise within `auto-g16-ts-irc` scope.
 
 ### 4.1 Transition-metal support-design artifact
 
@@ -395,10 +395,10 @@ and does not prove that the candidate search is complete.
 The deterministic builder is also standard-library only:
 
 ```bash
-python3 skills/gaussian-asymmetric-catalysis/scripts/asymmetric_catalysis.py --help
+python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py --help
 ```
 
-`ingest-result` derives validation levels from existing `gaussian-ts-irc`
+`ingest-result` derives validation levels from existing `auto-g16-ts-irc`
 evidence and hash-bound review decisions. `aggregate` uses log-sum-exp and emits
 lowest-TS-only, adversarial energy-shift, and leave-one-out sensitivity where
 applicable. Its highest automatic status is `provisional`.

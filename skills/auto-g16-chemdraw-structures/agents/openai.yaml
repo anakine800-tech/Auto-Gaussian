@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 ChemDraw Structures"
+  short_description: "Create ChemDraw-ready MOL/SDF structures"
+  default_prompt: "Use $auto-g16-chemdraw-structures to create ChemDraw-compatible structure files from compound names, SMILES, images, or chiral ligand requests."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 View RT Win"
+  short_description: "生成审计结构与手性保持的 Gaussian 构象集合"
+  default_prompt: "Use $auto-g16-view-rt-win to prepare, review, and optionally open an audited Gaussian structure or conformer ensemble on my Windows PC."
