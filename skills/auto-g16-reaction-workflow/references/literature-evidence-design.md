@@ -1,7 +1,9 @@
 # Literature Evidence and Transition-State Precedent Design
 
-Status: future W2 design contract. No general search, full-text extraction, or
-transition-state seed builder is implemented by this reference.
+Status: W2 design contract. `auto-g16-reaction-literature` implements the query,
+metadata retrieval, screening, and editable/finalized evidence-record stages.
+Automated full-text extraction, mechanism-support matrices, and transition-state
+precedent/seed builders remain unimplemented.
 
 Every artifact described here must retain:
 
@@ -44,8 +46,9 @@ rendering, or live execution.
 
 ## 2. Planned artifact chain
 
-The future `auto-g16-reaction-literature` component should emit four immutable,
-hash-bound artifact types:
+The `auto-g16-reaction-literature` component is designed to emit four immutable,
+hash-bound artifact types. Version 1 emits the first two; the last two remain
+future extensions:
 
 | Artifact | Required role |
 | --- | --- |
@@ -256,7 +259,7 @@ must not rank it out of view merely because it does not yield a usable seed.
 
 ## 11. Future implementation acceptance
 
-The future tool is not complete until offline tests demonstrate:
+The complete four-stage tool is not finished until offline tests demonstrate:
 
 - deterministic query and evidence artifacts from frozen search fixtures;
 - DOI/version deduplication and correction/retraction linking;
