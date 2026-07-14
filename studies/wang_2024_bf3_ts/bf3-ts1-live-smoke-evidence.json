@@ -1,0 +1,86 @@
+{
+  "schema": "gaussian-asymmetric-live-smoke-evidence/1",
+  "evidence_id": "wang2024_bf3_ts1_r01_smoke_evidence",
+  "status": "passed",
+  "recorded_date": "2026-07-14",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "sanitized": true,
+  "contains_job_id": false,
+  "contains_server_path": false,
+  "contains_gaussian_log": false,
+  "contains_checkpoint": false,
+  "source_bindings": {
+    "smoke_proposal": {
+      "sha256": "78e7f26ae7949c6c5ceffbfd5e2c195c98ad9da75d8a249eaea089a9ff84240f"
+    },
+    "literature_ledger": {
+      "sha256": "1d1c1530965cfb999433548866822bc300236b874ed9ce1bded627f36a491d94"
+    },
+    "protocol_options": {
+      "sha256": "a31c98ae3890e20850f9e255970ebda7f8ad42703ff00497b5a727f5332427e2"
+    },
+    "protocol_selection": {
+      "sha256": "74f29c9f562925c2b2da585aeddc52540bab83edec332dd23da2f52926f55ed6"
+    },
+    "input_approval": {
+      "sha256": "24b2e11519937020e80be89296f35d14557689f9708571b99a440fad5366e178"
+    },
+    "input": {
+      "sha256": "1d7e4f15d8b564435f549cc3042d4d715870823c4d7d8fbcff9196438ddea613"
+    },
+    "job_record": {
+      "sha256": "8a0e4ef3362d086834f4e1efee6f455480909e3c16de5c2cd930555e8ebb7481"
+    },
+    "parsed_ts_result": {
+      "sha256": "689ecb17b9947c5cdf52c364f42146d4201c960f06b9d3c306e23307c9276882"
+    },
+    "mode_review": {
+      "sha256": "12e4330781346b24098e3c57d3713e27edfe46e3055c406c5dba7ca009545d6a"
+    },
+    "mode_decision": {
+      "sha256": "8e7b3eeb10faac0f2b3894f73f1816640a05157a90ba2b878668780925b0f4f7"
+    }
+  },
+  "chemical_system": {
+    "candidate_id": "wang2024_bf3_ts1",
+    "formula": "C18H30BF3N4O",
+    "atom_count": 57,
+    "charge": 0,
+    "multiplicity": 1,
+    "canonical_coordinate_block_sha256": "418b5249b3efa2baef0c9ee18c7fe8ffd9cd500042f8ff90ecfe6497974369f8"
+  },
+  "execution": {
+    "g16_revision": "Gaussian 16 A.03",
+    "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) opt=(ts,readfc,tight,noeigentest,maxstep=5,maxcycle=100) freq int=ultrafine scf=(tight,xqc,maxcycle=128)",
+    "resource_tier": "complex",
+    "memory": "120GB",
+    "nprocshared": 44,
+    "terminal_state_confirmed": true,
+    "transport_hashes_verified": true,
+    "fresh_project_guard_passed": true,
+    "resource_policy_reviewed": true
+  },
+  "ts_validation": {
+    "normal_termination": true,
+    "error_termination": false,
+    "stationary_point": true,
+    "frequency_complete": true,
+    "raw_imaginary_frequency_count": 1,
+    "first_order_saddle_candidate": true,
+    "featured_imaginary_frequency_cm1": -1465.4205
+  },
+  "mode_validation": {
+    "decision": "accepted",
+    "confirmed": true,
+    "intended_coordinate": "H14 displacement along the reviewed C13-H14-N23 proton-transfer coordinate",
+    "coordinate_projection_reviewed": true
+  },
+  "limitations": [
+    "This is sanitized evidence for the exact BF3-TS1 r01 run; it contains no job ID, server path, Gaussian log, or checkpoint.",
+    "The accepted mode establishes a mode-consistent first-order saddle candidate, not bidirectional IRC connectivity.",
+    "No quantitative barrier or enantioselectivity reproduction claim is made.",
+    "This record authorizes neither BF3-TS2-B1, BF3-TS2-B2, IRC, retry, cancellation, cleanup, nor another live action."
+  ],
+  "evidence_payload_sha256": "3232f40d282434bcdd702a7a72e9ae78c5699f6c60d54733a708fee92b679efb"
+}

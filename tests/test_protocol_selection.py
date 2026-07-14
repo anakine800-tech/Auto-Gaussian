@@ -249,6 +249,35 @@ class ProtocolSelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(PROTOCOL.ContractError, "request file hash mismatch"):
                 PROTOCOL.validate_options(options)
 
+    def test_repository_local_bindings_use_portable_relative_paths(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            root = Path(tmp)
+            request_path, _, options_path, options = self.build_files(root)
+            self.assertEqual(
+                options["request_source"]["path"],
+                str(request_path.resolve().relative_to(ROOT.resolve())),
+            )
+
+            approval_path = root / "approval.json"
+            dump(
+                approval_path,
+                {
+                    "decision": "selected",
+                    "tier": "standard",
+                    "explicit_confirmation": True,
+                    "decision_reason": "Explicit portable-path selection.",
+                },
+            )
+            selection = PROTOCOL.build_selection(options_path, "standard", approval_path)
+            self.assertEqual(
+                selection["options_source"]["path"],
+                str(options_path.resolve().relative_to(ROOT.resolve())),
+            )
+            self.assertEqual(
+                selection["approval_evidence"]["path"],
+                str(approval_path.resolve().relative_to(ROOT.resolve())),
+            )
+
     def test_missing_duplicate_or_identical_tiers_are_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,0 +1,114 @@
+{
+  "schema": "wang-bf3-transition-state-workflow-status/1",
+  "ledger_id": "wang2024_bf3_ts_workflow_status",
+  "recorded_date": "2026-07-14",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "literature_ledger": {
+    "path": "studies/wang_2024_bf3_ts/candidate-ledger.json",
+    "sha256": "1d1c1530965cfb999433548866822bc300236b874ed9ce1bded627f36a491d94",
+    "status": "immutable_literature_source"
+  },
+  "candidates": [
+    {
+      "candidate_id": "wang2024_bf3_ts1",
+      "literature_label": "BF3-TS1",
+      "workflow_status": "mode_consistent_first_order_saddle_candidate",
+      "sequence_gate": "satisfied",
+      "scientific_evidence": {
+        "stationary_point": true,
+        "raw_imaginary_frequency_count": 1,
+        "featured_imaginary_frequency_cm1": -1465.4205,
+        "mode_decision": "accepted",
+        "reaction_coordinate": "C13-H14-N23 proton transfer",
+        "path_validated": false
+      },
+      "sanitized_live_evidence": {
+        "path": "studies/wang_2024_bf3_ts/bf3-ts1-live-smoke-evidence.json",
+        "sha256": "4acdb786b1a59b4e2fa51935940768a02acb179ce9c97b06ef59d59858780e5f"
+      },
+      "next_authority": "No retry or IRC is authorized; a separately approved candidate may proceed through its own gates."
+    },
+    {
+      "candidate_id": "wang2024_bf3_ts2_b1",
+      "literature_label": "BF3-TS2-B1",
+      "workflow_status": "exact_approved_live_job_running_pending_terminal_evidence",
+      "sequence_gate": "bf3_ts1_prerequisite_satisfied",
+      "scientific_scope": {
+        "formula": "C25H42BF3N4O3",
+        "atom_count": 78,
+        "charge": 0,
+        "multiplicity": 1,
+        "reaction_coordinate": "C13-C21 bond formation",
+        "starting_distance_angstrom": 2.15133529,
+        "reported_featured_imaginary_frequency_cm1": -389.1
+      },
+      "protocol_selection": {
+        "tier": "standard",
+        "resource_tier": "complex",
+        "memory": "120GB",
+        "nprocshared": 44,
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/protocol-selection-standard.json",
+        "sha256": "2fc39b7953601667fe714d7b65105002e125cd9f714c08f9df799db5100e5c35"
+      },
+      "input_draft": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/w24_bf3ts2_b1_s01.gjf",
+        "sha256": "0f26f244dfec97ad04fe757f7447b52bd39fb295af58b0ed463033a807ff37ad",
+        "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/input-draft-manifest.json",
+        "manifest_sha256": "ce6b98c4b63f2140c49815c12c98ebfde924147d779284c43db8f2b4b2b9eace",
+        "offline_audit_passed": true,
+        "coordinates_match_literature_xyz_exactly": true
+      },
+      "live_authority_history": {
+        "exact_input_hash_approved": true,
+        "fresh_project_approved": true,
+        "upload_authorized": true,
+        "submission_authorized": true,
+        "authorization_exercised": true,
+        "new_live_action_authorized": false,
+        "note": "The exact one-time approval was exercised outside this non-authorizing status ledger; it grants no retry, resubmission, IRC, cancellation, or cleanup authority."
+      },
+      "last_verified_live_snapshot": {
+        "recorded_at": "2026-07-14T14:09:33+08:00",
+        "state": "running",
+        "pbs_state": "R",
+        "process_alive": true,
+        "input_sha256": "0f26f244dfec97ad04fe757f7447b52bd39fb295af58b0ed463033a807ff37ad",
+        "transport_hashes_verified": true,
+        "memory": "120GB",
+        "nprocshared": 44,
+        "log_size_bytes": 106547,
+        "optimization_steps": 0,
+        "scf_calculations_parsed": 0,
+        "normal_termination_count": 0,
+        "error_termination_count": 0,
+        "stationary_point_found": false,
+        "frequency_count": 0,
+        "scientific_acceptance": "pending",
+        "contains_job_id": false,
+        "contains_server_path": false
+      },
+      "next_gate": "Wait for a stable terminal state, fetch and parse the complete log, require stationary-point evidence and exactly one raw imaginary frequency, then perform a hash-bound manual C13-C21 mode review."
+    },
+    {
+      "candidate_id": "wang2024_bf3_ts2_b2",
+      "literature_label": "BF3-TS2-B2",
+      "workflow_status": "literature_coordinates_only",
+      "sequence_gate": "not_started",
+      "live_authority": {
+        "submission_authorized": false
+      }
+    }
+  ],
+  "deferred_benchmarks": [
+    {
+      "benchmark_id": "wang2024_bcf_ts1",
+      "status": "deferred_not_materialized"
+    },
+    {
+      "benchmark_id": "wang2024_bcf_ts2_b1",
+      "status": "deferred_not_materialized"
+    }
+  ],
+  "status_payload_sha256": "e05c3c1e7c5583c5da14f0ea0b447b3557b2fbcc39ca27195fe4d591b5fed964"
+}

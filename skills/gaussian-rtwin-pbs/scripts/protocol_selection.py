@@ -68,6 +68,15 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def portable_artifact_path(path: Path) -> str:
+    """Keep repository-local bindings reproducible across workspace roots."""
+    resolved = path.expanduser().resolve()
+    try:
+        return str(resolved.relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(resolved)
+
+
 def payload_sha256(value: Any) -> str:
     encoded = (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -299,7 +308,7 @@ def build_options(request_path: Path, profiles_path: Path) -> dict[str, Any]:
         "calculation_ready": False,
         "no_input_render_authorization": True,
         "no_submission_authorization": True,
-        "request_source": {"path": str(request_path), "sha256": sha256_file(request_path)},
+        "request_source": {"path": portable_artifact_path(request_path), "sha256": sha256_file(request_path)},
         "request_snapshot": request,
         "difficulty_assessment": profiles.get("difficulty_assessment"),
         "common_constraints": profiles.get("common_constraints"),
@@ -390,7 +399,7 @@ def build_selection(
         "status": "selected_for_input_draft",
         "calculation_ready": False,
         "no_submission_authorization": True,
-        "options_source": {"path": str(options_path), "sha256": sha256_file(options_path)},
+        "options_source": {"path": portable_artifact_path(options_path), "sha256": sha256_file(options_path)},
         "request_sha256": options["request_source"]["sha256"],
         "proposal_payload_sha256": options["proposal_payload_sha256"],
         "selected_option": {
@@ -406,7 +415,7 @@ def build_selection(
         },
         "approval_evidence": {
             "kind": "explicit_user_selection",
-            "path": str(approval_record_path),
+            "path": portable_artifact_path(approval_record_path),
             "sha256": sha256_file(approval_record_path),
             "explicit_confirmation": True,
         },

@@ -1,0 +1,29 @@
+{
+  "schema": "gaussian-calculation-request/1",
+  "request_id": "wang2024_bf3_ts2_b1_opt_freq",
+  "goal": "Prepare three reviewed offline protocols for reproducing the published BF3-TS2-B1 carbon-carbon bond-forming transition-state candidate.",
+  "claim_scope": "One neutral closed-shell main-group first-order-saddle candidate whose sole imaginary mode must project onto C13-C21 bond formation; no IRC, barrier, or selectivity claim.",
+  "task_types": [
+    "transition_state_optimization",
+    "harmonic_frequency"
+  ],
+  "structure": {
+    "sha256": "00ca3ebbb29291c885635a4f72a06919df39a849a571d1ce430edd401d118d77",
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "elements": [
+      "B",
+      "C",
+      "F",
+      "H",
+      "N",
+      "O"
+    ],
+    "charge": 0,
+    "multiplicity": 1
+  },
+  "system_class": "main_group_closed_shell",
+  "support_status": "supported",
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}
