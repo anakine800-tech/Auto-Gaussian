@@ -14,6 +14,7 @@ EXPECTED = {
     "auto-g16-asymmetric-catalysis",
     "auto-g16-chemdraw-pipeline",
     "auto-g16-chemdraw-structures",
+    "auto-g16-reaction-workflow",
     "auto-g16-rtwin-pbs",
     "auto-g16-ts-irc",
     "auto-g16-view-rt-win",

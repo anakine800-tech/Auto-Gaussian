@@ -1,0 +1,275 @@
+# Literature Evidence and Transition-State Precedent Design
+
+Status: future W2 design contract. No general search, full-text extraction, or
+transition-state seed builder is implemented by this reference.
+
+Every artifact described here must retain:
+
+- `calculation_ready: false`; and
+- `no_submission_authorization: true`.
+
+Literature similarity does not prove the current mechanism, validate a
+transition state, select a computational method, or authorize Gaussian work.
+
+## Contents
+
+1. Purpose and boundary
+2. Planned artifact chain
+3. Search strategy
+4. Source and evidence requirements
+5. Computational-detail extraction
+6. Applicability assessment
+7. Mechanism support
+8. Transition-state precedent map
+9. Human review gates
+10. Failure and uncertainty semantics
+11. Future implementation acceptance
+
+## 1. Purpose and boundary
+
+Transition-state initial guesses are scientific models, not generic 3D
+embeddings. The future literature layer should find and understand primary
+sources that can support:
+
+- active-catalyst and resting-state hypotheses;
+- plausible elementary-step classes and competing mechanisms;
+- forming, breaking, and transferring atom pairs;
+- coordination, ion-pair, additive, and stereochemical approach models;
+- published TS geometries or geometry constraints; and
+- candidate methods and validation practices used for related chemistry.
+
+The layer is evidence acquisition and translation. It must stop before
+mechanism promotion, geometry generation, method selection, Gaussian input
+rendering, or live execution.
+
+## 2. Planned artifact chain
+
+The future `auto-g16-reaction-literature` component should emit four immutable,
+hash-bound artifact types:
+
+| Artifact | Required role |
+| --- | --- |
+| `gaussian-reaction-literature-query/1` | records the decomposed scientific question, search ladder, databases, exact queries, dates, filters, and coverage limits |
+| `gaussian-reaction-literature-evidence/1` | records primary sources, exact source locations, extracted claims, computational details, structures, contradictory evidence, and extraction confidence |
+| `gaussian-reaction-mechanism-support/1` | maps each reviewed source claim to included, competing, contradicted, or still-unsupported mechanism hypotheses |
+| `gaussian-ts-precedent-map/1` | translates applicable evidence into reviewed TS-family and initial-seed proposals with atom-map, geometry, provenance, and uncertainty fields |
+
+Each child artifact must bind the exact payload hashes of the reaction intake,
+species registry, condition model, applicable
+`auto-g16-knowledge-snapshot/1`, and its direct literature parent. Search the
+reviewed literature/book registry before external discovery. Later mechanism-
+network or TS-candidate artifacts may reference accepted evidence; they must
+not copy an unsupported conclusion into a stronger evidence state. New sources
+or extracted claims may enter `auto-g16-knowledge-base` only through its
+separate identity, anchor, applicability, permission, and revision review.
+
+## 3. Search strategy
+
+### 3.1 Query decomposition
+
+Build the search specification from reviewed fields rather than one natural-
+language sentence:
+
+- net transformation and named reaction, when known;
+- proposed elementary-step class;
+- forming, breaking, and transferring atom types or mapped atoms;
+- substrate and functional-group motifs;
+- catalyst, ligand, precatalyst, and plausible active-state families;
+- oxidation, charge, spin, coordination, and aggregation hypotheses;
+- solvent, counterion, additive, base/acid, atmosphere, and temperature;
+- regio-, diastereo-, and enantioselective channels;
+- experimental-mechanism terms such as kinetics, isotope effects, labeling,
+  poisoning, trapping, and intermediate observation; and
+- computational terms such as DFT, mechanism, transition state, IRC,
+  coordinates, supporting information, and potential-energy surface.
+
+Unresolved reaction-intake fields must remain explicit query branches or
+blockers. The search tool must not silently choose an active catalyst or named
+mechanism to make the query easier.
+
+### 3.2 Search ladder
+
+Search and report coverage in this order:
+
+1. exact transformation with the exact catalyst or catalyst family;
+2. close substrate transformation with the same catalyst family;
+3. the same elementary step with a closely related catalyst or active state;
+4. a broader computational or structural precedent for the intended TS class;
+5. experimental mechanistic studies that constrain the computed hypothesis;
+6. reviews used only to discover terminology and primary sources; and
+7. contradictory, alternative-mechanism, failed-computation, correction, or
+   retraction evidence.
+
+Absence of an exact precedent is a result and must not be hidden by presenting
+a remote analogy as an exact match.
+
+### 3.3 Reproducibility
+
+Record database or search provider, exact query string, query date, filters,
+result identifiers, deduplication decisions, inclusion/exclusion rationale,
+language limits, access limits, and the last result page reviewed. A later
+search run creates a new artifact; it does not overwrite the old search.
+
+## 4. Source and evidence requirements
+
+Prefer evidence in this order:
+
+1. primary article and its supporting information;
+2. correction, retraction, data repository, or author-supplied coordinates;
+3. dissertation, preprint, or repository copy when it contains otherwise
+   unavailable computational detail; and
+4. review or database summary for discovery only.
+
+For every retained source, record DOI or stable identifier, complete
+bibliographic identity, source URL or repository identifier, version, access
+date, source-file SHA-256 when legally retained, and exact page, section,
+scheme, figure, table, or supporting-information anchors.
+
+Separate verbatim source statements from reviewer interpretation. Respect
+publisher access and copyright constraints; store structured facts, citations,
+short necessary excerpts, and hashes rather than redistributing full texts.
+
+Claims without a primary-source location remain `unverified_secondary` and
+cannot support a TS seed promotion.
+
+## 5. Computational-detail extraction
+
+Extract, when reported:
+
+- program and revision;
+- geometry, frequency, single-point, and composite-energy levels;
+- functional, basis set by element, ECP, dispersion, and solvation model;
+- integration grid, SCF, optimization, relativistic, and wavefunction policy;
+- charge, multiplicity, oxidation state, spin state, and broken-symmetry use;
+- temperature, pressure, standard state, concentration correction,
+  low-frequency treatment, entropy treatment, and quasi-harmonic policy;
+- conformer, catalyst-state, ion-pair, explicit-solvent, and additive coverage;
+- TS search route, initial-guess source, QST/scan/path settings, constraints,
+  and Hessian use;
+- raw imaginary frequency, normal-mode assignment, IRC or endpoint evidence;
+- relative electronic, enthalpic, and free energies with their reference zero;
+- atom ordering, Cartesian coordinates, key bond distances/angles/dihedrals,
+  coordination contacts, and figure-view limitations; and
+- failed searches, alternative saddles, or sensitivity calculations.
+
+Mark every field as `reported`, `derived`, `ambiguous`, `not_reported`, or
+`not_applicable`. Do not fill a missing method or geometry field from common
+practice.
+
+## 6. Applicability assessment
+
+Do not collapse relevance into one opaque similarity score. Compare the target
+and precedent explicitly across:
+
+- net transformation;
+- elementary-step class and atom correspondence;
+- substrate electronics, sterics, and functional groups;
+- catalyst identity, ligand environment, and active-state hypothesis;
+- atom inventory, association state, charge, multiplicity, and spin surface;
+- coordination, ion pairing, explicit additives, and solvent participation;
+- stereochemical approach and product channel;
+- experimental conditions; and
+- computational protocol and validation evidence.
+
+For each dimension record `exact`, `close`, `remote`, `contradictory`,
+`unknown`, or `not_applicable`, with a rationale and source anchor. A reviewer
+then assigns the bounded use: `discovery_only`, `mechanism_support`,
+`ts_topology_support`, `geometry_seed_support`, `protocol_candidate_support`,
+or `not_applicable_to_target`.
+
+## 7. Mechanism support
+
+The mechanism-support artifact should make a matrix whose rows are proposed
+active states or elementary edges and whose columns are evidence records. For
+each intersection record:
+
+- the exact claim supported or contradicted;
+- direct versus analogous evidence;
+- experimental versus computational evidence;
+- applicability dimensions and important mismatches;
+- alternative explanations;
+- confidence and reviewer decision; and
+- whether the hypothesis remains mandatory, optional, contradicted, or
+  unresolved in the planned network.
+
+The artifact proposes a bounded hypothesis space. It does not establish which
+mechanism operates in the target reaction.
+
+## 8. Transition-state precedent map
+
+For every proposed mechanism edge and stereochemical channel, record:
+
+- target state IDs and stable atom IDs;
+- forming, breaking, and transferring atom pairs;
+- catalyst state, coordination, ion-pair/additive placement, charge, and spin;
+- approach topology, facial/orientational relationship, and conformer family;
+- precedent source and exact structure/figure/coordinate anchor;
+- available atom ordering and a reviewed source-to-target atom correspondence;
+- reported key distances, angles, dihedrals, or coordination contacts;
+- proposed seed route: published coordinates, reviewed structure rebuild,
+  endpoint/QST family, relaxed scan, Hessian-guided guess, or unsupported;
+- information that may be transferred and information that must be rebuilt;
+- uncertainty, conflicting precedents, and missing alternatives; and
+- reviewer disposition: `proposed`, `accepted_for_candidate_construction`,
+  `rejected`, or `blocked`.
+
+Published coordinates may be reused only after identity, atom-order,
+stereochemistry, charge, multiplicity, coordination, and source-hash audit.
+Coordinates unavailable from the source must not be fabricated by reading
+precise 3D positions from a schematic figure. A figure may support topology
+and approximate relationships only, with that limitation recorded.
+
+## 9. Human review gates
+
+Four distinct approvals are required:
+
+1. search-scope review: query decomposition and coverage limits are adequate;
+2. evidence-extraction review: the source anchors and extracted facts are
+   accurate;
+3. applicability review: similarities and mismatches justify the bounded use;
+4. promotion review: one mechanism hypothesis or TS seed strategy may enter
+   the next offline construction stage.
+
+None of these approvals selects a Gaussian protocol or authorizes a job. Exact
+structure, method, resources, server directory, rendered input hash, and live
+scope retain their later independent gates.
+
+## 10. Failure and uncertainty semantics
+
+Retain and distinguish:
+
+- `no_exact_precedent_found`;
+- `search_access_incomplete`;
+- `primary_source_unavailable`;
+- `supporting_information_missing`;
+- `computational_details_incomplete`;
+- `coordinates_unavailable`;
+- `atom_mapping_ambiguous`;
+- `analogy_too_remote`;
+- `contradictory_evidence`;
+- `reported_ts_not_path_validated`;
+- `reported_method_not_transferable`; and
+- `candidate_construction_blocked`.
+
+A failed or negative precedent is evidence and remains in the ledger. The tool
+must not rank it out of view merely because it does not yield a usable seed.
+
+## 11. Future implementation acceptance
+
+The future tool is not complete until offline tests demonstrate:
+
+- deterministic query and evidence artifacts from frozen search fixtures;
+- DOI/version deduplication and correction/retraction linking;
+- exact primary-source and supporting-information anchors;
+- strict separation of reported facts, derived facts, and interpretation;
+- decomposed applicability decisions with contradictory examples;
+- preservation of missing data and access limitations as blockers;
+- source-to-target atom-map and coordinate-provenance refusal cases;
+- TS precedent maps covering exact, close, remote, and unusable analogies;
+- no fabricated coordinates or computational settings;
+- immutable hashes, supersession, and fail-closed validation; and
+- unconditional refusal to mark calculation readiness or submission authority.
+
+Only after those offline gates pass should a separately approved real-reaction
+search smoke be proposed. A literature search smoke is not a Gaussian live
+smoke and authorizes no calculation.

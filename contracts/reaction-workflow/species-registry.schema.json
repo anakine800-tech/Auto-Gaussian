@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/species-registry.schema.json",
+  "title": "Gaussian reaction species registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "study_id",
+    "intake",
+    "review_source",
+    "species",
+    "source_bindings",
+    "balance_review",
+    "blockers",
+    "review",
+    "gate_status",
+    "calculation_ready",
+    "no_submission_authorization",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gaussian-reaction-species-registry/1"
+    },
+    "study_id": {
+      "$ref": "#/$defs/id"
+    },
+    "intake": {
+      "$ref": "#/$defs/boundArtifact"
+    },
+    "review_source": {
+      "$ref": "#/$defs/artifact"
+    },
+    "species": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "species_id",
+          "preferred_label",
+          "origin",
+          "required_for_claim",
+          "source_refs",
+          "represented_form",
+          "structure",
+          "formula",
+          "formal_charge",
+          "multiplicity",
+          "component_count",
+          "stereochemistry_status",
+          "protonation_status",
+          "salt_solvate_status",
+          "atom_identity",
+          "review_status",
+          "blockers",
+          "notes"
+        ],
+        "properties": {
+          "species_id": {
+            "$ref": "#/$defs/id"
+          },
+          "preferred_label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "origin": {
+            "type": "string"
+          },
+          "required_for_claim": {
+            "type": "boolean"
+          },
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "represented_form": {
+            "type": "string"
+          },
+          "structure": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "sha256", "size_bytes", "format", "representation_limits"],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "$ref": "#/$defs/sha256"
+                  },
+                  "size_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "format": {
+                    "type": "string"
+                  },
+                  "representation_limits": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "formula": {
+            "type": ["string", "null"]
+          },
+          "formal_charge": {
+            "type": ["integer", "null"]
+          },
+          "multiplicity": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "component_count": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "stereochemistry_status": {
+            "type": "string"
+          },
+          "protonation_status": {
+            "type": "string"
+          },
+          "salt_solvate_status": {
+            "type": "string"
+          },
+          "atom_identity": {
+            "type": "object"
+          },
+          "review_status": {
+            "type": "string"
+          },
+          "blockers": {
+            "type": "array"
+          },
+          "notes": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    "source_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_id", "species_id", "coefficient"],
+        "properties": {
+          "source_id": {
+            "type": "string"
+          },
+          "species_id": {
+            "$ref": "#/$defs/id"
+          },
+          "coefficient": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "balance_review": {
+      "type": "object"
+    },
+    "blockers": {
+      "type": "array"
+    },
+    "review": {
+      "type": "object"
+    },
+    "gate_status": {
+      "enum": ["reviewed", "reviewed_with_blockers", "blocked"]
+    },
+    "calculation_ready": {
+      "const": false
+    },
+    "no_submission_authorization": {
+      "const": true
+    },
+    "payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "boundArtifact": {
+      "type": "object",
+      "required": ["path", "sha256", "payload_sha256"],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
