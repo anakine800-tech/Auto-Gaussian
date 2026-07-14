@@ -124,6 +124,72 @@ def metal_support_instance() -> dict:
     }
 
 
+def live_smoke_evidence_instance() -> dict:
+    evidence = {
+        "schema": "gaussian-asymmetric-live-smoke-evidence/1",
+        "evidence_id": "bf3_ts1_smoke_evidence_fixture",
+        "status": "passed",
+        "recorded_date": "2026-07-14",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "sanitized": True,
+        "contains_job_id": False,
+        "contains_server_path": False,
+        "contains_gaussian_log": False,
+        "contains_checkpoint": False,
+        "source_bindings": {
+            name: {"sha256": character * 64}
+            for name, character in zip(
+                (
+                    "smoke_proposal", "literature_ledger", "input_approval", "input",
+                    "job_record", "parsed_ts_result", "mode_review", "mode_decision",
+                ),
+                "abcdef01",
+                strict=True,
+            )
+        },
+        "chemical_system": {
+            "candidate_id": "wang2024_bf3_ts1",
+            "formula": "C18H30BF3N4O",
+            "atom_count": 57,
+            "charge": 0,
+            "multiplicity": 1,
+            "canonical_coordinate_block_sha256": "9" * 64,
+        },
+        "execution": {
+            "g16_revision": "Gaussian 16 reviewed revision",
+            "route": "reviewed exact route bound by the input hash",
+            "resource_tier": "simple",
+            "memory": "12GB",
+            "nprocshared": 8,
+            "terminal_state_confirmed": True,
+            "transport_hashes_verified": True,
+            "fresh_project_guard_passed": True,
+            "resource_policy_reviewed": True,
+        },
+        "ts_validation": {
+            "normal_termination": True,
+            "error_termination": False,
+            "stationary_point": True,
+            "frequency_complete": True,
+            "raw_imaginary_frequency_count": 1,
+            "first_order_saddle_candidate": True,
+            "featured_imaginary_frequency_cm1": -1455.35,
+        },
+        "mode_validation": {
+            "decision": "accepted",
+            "confirmed": True,
+            "intended_coordinate": "H14 displacement along the reviewed C13-H14-N23 coordinate",
+            "coordinate_projection_reviewed": True,
+        },
+        "limitations": [
+            "Sanitized workflow evidence only; it does not authorize another job or an IRC calculation."
+        ],
+    }
+    evidence["evidence_payload_sha256"] = CONTRACT.payload_sha256(evidence)
+    return evidence
+
+
 class AsymmetricSchemaValidationTests(unittest.TestCase):
     def artifact_instances(self) -> dict[str, dict]:
         result = load(FIXTURES / "boron_result_r.json")
@@ -140,10 +206,11 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
             "materializations": materializations_instance(),
             "metal-support": metal_support_instance(),
             "smoke-proposal": load(ROOT / "docs" / "asymmetric-catalysis-smoke-proposal.json"),
+            "live-smoke-evidence": live_smoke_evidence_instance(),
             "literature-benchmark": load(ROOT / "studies" / "wang_2024_bf3_ts" / "candidate-ledger.json"),
         }
 
-    def test_all_eleven_schema_documents_use_supported_keywords(self) -> None:
+    def test_all_twelve_schema_documents_use_supported_keywords(self) -> None:
         expected = set(CONTRACT.SCHEMA_IDS)
         found = set()
         for path in SCHEMAS.glob("*.schema.json"):
@@ -156,7 +223,7 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(CONTRACT.ContractError, "unsupported keyword"):
             CONTRACT.validate_schema_document(unsupported)
 
-    def test_all_eleven_artifact_types_have_a_structural_entry_point(self) -> None:
+    def test_all_twelve_artifact_types_have_a_structural_entry_point(self) -> None:
         instances = self.artifact_instances()
         self.assertEqual(set(instances), set(CONTRACT.SCHEMA_IDS))
         for kind, instance in instances.items():
@@ -249,6 +316,33 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(CONTRACT.ContractError, "atom order/count mismatch"):
             CONTRACT.validate_literature_benchmark(bad_inventory)
+
+    def test_live_smoke_evidence_requires_complete_approval_and_mode_chain(self) -> None:
+        evidence = live_smoke_evidence_instance()
+        CONTRACT.validate_live_smoke_evidence(evidence)
+
+        tampered = copy.deepcopy(evidence)
+        tampered["source_bindings"]["input"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(CONTRACT.ContractError, "payload hash mismatch"):
+            CONTRACT.validate_live_smoke_evidence(tampered)
+
+        missing_approval = copy.deepcopy(evidence)
+        missing_approval["source_bindings"].pop("input_approval")
+        missing_approval["evidence_payload_sha256"] = CONTRACT.payload_sha256(
+            {key: value for key, value in missing_approval.items() if key != "evidence_payload_sha256"}
+        )
+        with self.assertRaisesRegex(CONTRACT.ContractError, "missing required"):
+            CONTRACT.validate_live_smoke_evidence(missing_approval)
+
+        unreviewed_mode = copy.deepcopy(evidence)
+        unreviewed_mode["mode_validation"].update(
+            decision="not_reviewed", confirmed=False, coordinate_projection_reviewed=False
+        )
+        unreviewed_mode["evidence_payload_sha256"] = CONTRACT.payload_sha256(
+            {key: value for key, value in unreviewed_mode.items() if key != "evidence_payload_sha256"}
+        )
+        with self.assertRaisesRegex(CONTRACT.ContractError, "accepted mode decision"):
+            CONTRACT.validate_live_smoke_evidence(unreviewed_mode)
 
     def test_ledger_rejects_cross_channel_deduplication_and_bad_counts(self) -> None:
         ledger = ledger_instance()
