@@ -4,14 +4,17 @@ This repository is the version-controlled source for the Gaussian automation Ski
 
 ## Current repository status
 
-As of 2026-07-14, the guarded RTwin/PBS workflow and the audited main-group
-TS–Freq–IRC workflow are both present on `main`. The current feature branch,
-`codex/Chiral-Ligand`, adds an offline asymmetric-catalysis planning/audit
-Skill, literature record, design contract, schemas, deterministic offline
-builders, validator, and synthetic fixtures. It does not authorize a Gaussian
-submission.
+As of 2026-07-14, the guarded RTwin/PBS workflow, audited main-group
+TS–Freq–IRC workflow, and the offline asymmetric-catalysis planning/audit
+module are present on `main`. The asymmetric module includes its literature
+record, design contract, schemas, deterministic offline builders, validator,
+and synthetic fixtures. It does not authorize a Gaussian submission.
 
 See `docs/repository-status.md` for the evidence, limitations, and next gates.
+See `docs/end-to-end-reaction-computation-workflow.md` for the project target:
+an auditable workflow from a ChemDraw reaction and experimental conditions to
+reviewed mechanism networks, calculation evidence, thermochemistry,
+kinetics/selectivity, uncertainty, and bounded conclusions.
 
 ## Baseline Skills
 
@@ -47,13 +50,18 @@ All Skill-managed server data and scratch must remain below `/home/user100/SDL`.
 ## Development sequence
 
 1. Keep the baseline Skills stable on `main`.
-2. Keep asymmetric-catalysis work on `codex/Chiral-Ligand` until its offline
-   contracts, validators, and fixtures are accepted.
-3. Review the implemented offline builders, deduplication, result ingestion,
-   ensemble aggregation, refusal-preserving metal TS design, and candidate-
-   bound metal atom/state/coordination audit templates; the existing
+2. Reconcile repository/deployed Skill drift, then develop new workflow slices
+   on `codex/` feature branches with offline tests first.
+3. Implement the reaction-intake, species/atom-map, condition-model,
+   mechanism-network, calculation-DAG, and evidence-index layer described in
+   the end-to-end design. Existing Skills remain specialist components rather
+   than a monolithic automatic mechanism generator.
+4. Connect candidate/protocol/input and result/energy adapters, then validate a
+   small closed-shell main-group reaction from ChemDraw through minima, TS,
+   path, and common-reference energy evidence.
+5. Continue the refusal-preserving transition-metal M1–M3 design; the existing
    `gaussian-ts-irc` transition-metal refusal must not be bypassed.
-4. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision and separately
+6. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision and separately
    submitted bidirectional IRC work. BF3-TS2-B2 now has a B1-matched standard
    offline input candidate with exact coordinate, route and hash audits. That
    exact B2 input subsequently received one-time live approval and is queued;

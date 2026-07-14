@@ -2,9 +2,17 @@
 
 Status date: 2026-07-14
 
-Feature branch: `codex/Chiral-Ligand`
+Feature line: `codex/Chiral-Ligand`, fast-forwarded into local `main` at
+`3c65879` after the recorded offline merge gates passed.
 
-Baseline commit: `02ae9bb` (`main` and `origin/main` when this note was written)
+Baseline commit for the feature diff: `02ae9bb` (`main` and `origin/main` when
+this work started)
+
+The target architecture beyond this feature line is specified in
+`docs/end-to-end-reaction-computation-workflow.md`. It defines the missing
+reaction-intake, species/atom-map, condition-model, mechanism-network,
+calculation-DAG, free-energy/kinetic, and final-report layers needed to progress
+from a ChemDraw reaction to an auditable whole-reaction study.
 
 ## Current capability
 
@@ -29,10 +37,10 @@ The repository contains tracked live-smoke evidence for the endpoint workflow
 and for scheduler-zombie cleanup. Those records are historical evidence only;
 they do not authorize another live calculation.
 
-## Work started on this branch
+## Work completed in this feature line
 
-This branch establishes the design, offline data boundary, literature record,
-and planning/audit Skill for `gaussian-asymmetric-catalysis`. The intended
+This feature line established the design, offline data boundary, literature
+record, and planning/audit Skill for `gaussian-asymmetric-catalysis`. The intended
 scientific scope is method-development work involving:
 
 1. transition-metal catalysts bearing chiral ligands; and
