@@ -19,7 +19,7 @@ SPEC = importlib.util.spec_from_file_location("validate_asymmetric_contract", MO
 assert SPEC and SPEC.loader
 CONTRACT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CONTRACT)
-BUILDER_PATH = ROOT / "skills" / "gaussian-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
+BUILDER_PATH = ROOT / "skills" / "auto-g16-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
 BUILDER_SPEC = importlib.util.spec_from_file_location("asymmetric_catalysis_contract_fixture", BUILDER_PATH)
 assert BUILDER_SPEC and BUILDER_SPEC.loader
 BUILDER = importlib.util.module_from_spec(BUILDER_SPEC)

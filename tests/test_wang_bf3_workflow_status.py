@@ -32,11 +32,11 @@ CONTRACT = load_module(
 )
 PROTOCOL = load_module(
     "protocol_selection_bf3_status",
-    ROOT / "skills" / "gaussian-rtwin-pbs" / "scripts" / "protocol_selection.py",
+    ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts" / "protocol_selection.py",
 )
 TS = load_module(
     "ts_irc_bf3_status",
-    ROOT / "skills" / "gaussian-ts-irc" / "scripts" / "ts_irc.py",
+    ROOT / "skills" / "auto-g16-ts-irc" / "scripts" / "ts_irc.py",
 )
 
 

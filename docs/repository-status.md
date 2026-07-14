@@ -1,4 +1,4 @@
-# Repository status
+# Auto-G16 Repository Status
 
 Status date: 2026-07-14
 
@@ -40,7 +40,7 @@ they do not authorize another live calculation.
 ## Work completed in this feature line
 
 This feature line established the design, offline data boundary, literature
-record, and planning/audit Skill for `gaussian-asymmetric-catalysis`. The intended
+record, and planning/audit Skill for `auto-g16-asymmetric-catalysis`. The intended
 scientific scope is method-development work involving:
 
 1. transition-metal catalysts bearing chiral ligands; and
@@ -61,11 +61,11 @@ chiral-boron capability work is deliberately sequenced after this milestone.
 
 ## Deliberate limitations
 
-- The `gaussian-asymmetric-catalysis` Skill is runnable only as an offline
+- The `auto-g16-asymmetric-catalysis` Skill is runnable only as an offline
   planning, deterministic-building, ingestion, and audit workflow. It has no
   Gaussian execution builder or live submission path,
   transition-metal calculation support, or automatic method selection.
-- The current `gaussian-ts-irc` Skill explicitly refuses transition-metal,
+- The current `auto-g16-ts-irc` Skill explicitly refuses transition-metal,
   broken-symmetry, excited-state, multireference, periodic, and ONIOM jobs.
   The new design preserves that refusal. Metal support needs a separately
   reviewed scientific extension before any candidate can become calculation-
@@ -129,7 +129,7 @@ chiral-boron capability work is deliberately sequenced after this milestone.
   examples.
 - `scripts/validate_asymmetric_contract.py`: standard-library-only offline
   structural and cross-artifact semantic validator.
-- `skills/gaussian-asymmetric-catalysis/`: offline workflow plus a verified
+- `skills/auto-g16-asymmetric-catalysis/`: offline workflow plus a verified
   Wang-group computational-precedent audit and a candidate/selectivity
   protocol, deterministic builder, and transition-metal support design.
   Publisher PDFs are not stored in the repository.

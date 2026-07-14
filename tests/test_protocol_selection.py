@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
-MODULE = ROOT / "skills" / "gaussian-rtwin-pbs" / "scripts" / "protocol_selection.py"
+MODULE = ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts" / "protocol_selection.py"
 SPEC = importlib.util.spec_from_file_location("protocol_selection", MODULE)
 assert SPEC and SPEC.loader
 PROTOCOL = importlib.util.module_from_spec(SPEC)

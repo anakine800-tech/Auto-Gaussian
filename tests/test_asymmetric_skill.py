@@ -8,14 +8,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
-SKILL = ROOT / "skills" / "gaussian-asymmetric-catalysis"
+SKILL = ROOT / "skills" / "auto-g16-asymmetric-catalysis"
 
 
 class AsymmetricCatalysisSkillTests(unittest.TestCase):
     def test_skill_has_no_scaffold_placeholders(self) -> None:
         skill_text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         self.assertNotIn("TODO", skill_text)
-        self.assertIn("name: gaussian-asymmetric-catalysis", skill_text)
+        self.assertIn("name: auto-g16-asymmetric-catalysis", skill_text)
         self.assertIn("offline scientific-orchestration Skill", skill_text)
 
     def test_transition_metal_boundary_is_preserved(self) -> None:

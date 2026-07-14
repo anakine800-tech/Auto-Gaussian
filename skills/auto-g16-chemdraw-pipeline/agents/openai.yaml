@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 ChemDraw to Gaussian"
+  short_description: "Create checked Cartesian inputs and GaussView previews"
+  default_prompt: "Use $auto-g16-chemdraw-pipeline to convert this ChemDraw file into a checked Cartesian Gaussian input and open it in GaussView without running a calculation."

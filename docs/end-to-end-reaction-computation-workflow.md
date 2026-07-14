@@ -1,4 +1,4 @@
-# End-to-end reaction computation workflow
+# Auto-G16 End-to-End Reaction Computation Workflow
 
 Status: target architecture and implementation roadmap. This document grants no
 Gaussian, SSH, PBS, deployment, retry, cancellation, or server-data authority.
@@ -86,13 +86,13 @@ The intended ownership is:
 
 | Layer | Owning component | Responsibility |
 | --- | --- | --- |
-| structure and scheme intake | `chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
-| 2D-to-3D review | `chemdraw-gaussian-pipeline`, `gaussian-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
+| structure and scheme intake | `auto-g16-chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
+| 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
 | reaction-study orchestration | future top-level module | species registry, condition model, mechanism network, calculation DAG, study state |
-| asymmetric-catalysis domain | `gaussian-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
-| protocol selection | `gaussian-rtwin-pbs` protocol gate | reviewed `loose`/`standard`/`strict` candidates and explicit selection |
-| live execution | `gaussian-rtwin-pbs` | fresh SDL projects, transfer hashes, PBS lifecycle, fetch, generic result parsing |
-| TS scientific evidence | `gaussian-ts-irc` | TS/Freq, mode review, checkpoint lineage, IRC, endpoint evidence |
+| asymmetric-catalysis domain | `auto-g16-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
+| protocol selection | `auto-g16-rtwin-pbs` protocol gate | reviewed `loose`/`standard`/`strict` candidates and explicit selection |
+| live execution | `auto-g16-rtwin-pbs` | fresh SDL projects, transfer hashes, PBS lifecycle, fetch, generic result parsing |
+| TS scientific evidence | `auto-g16-ts-irc` | TS/Freq, mode review, checkpoint lineage, IRC, endpoint evidence |
 | future energy/kinetic layer | future top-level module | balanced free energies, profiles, energetic span or microkinetics, uncertainty |
 
 The top-level orchestrator must not duplicate the specialist parsers. It should
@@ -525,13 +525,13 @@ top-level reaction workflow.
 
 | Capability | Current status | Boundary |
 | --- | --- | --- |
-| ChemDraw molecule reconstruction and stereochemical review | partial in repository | the installed `chemdraw-structures` copy has a newer strict reaction-package workflow, but repository source currently drifts and must be reconciled |
+| ChemDraw molecule reconstruction and stereochemical review | partial in repository | the installed `auto-g16-chemdraw-structures` copy has a newer strict reaction-package workflow, but repository source currently drifts and must be reconciled |
 | ChemDraw/CDX/MOL/SDF to audited Cartesian input | implemented for reviewed, mainly ordinary main-group structures | no automatic metal, ion-pair, active-catalyst, or TS model |
 | connected-molecule conformer generation and promotion | implemented | ETKDG/MMFF/UFF is prescreening; disconnected complexes, metal coordination, and axial chirality need manual/specialized support |
 | reaction intake/species registry/stoichiometric balance/atom-map proposal | missing as a versioned top-level contract | current tools can parse structures, but do not build a complete reaction study from a scheme |
 | condition-to-model mapping | missing | solvent/additive/counterion treatment remains manual and unstructured across a whole study |
 | mechanism network and catalyst-cycle DAG | partially represented in asymmetric study artifacts | no general network builder, cycle closure audit, step dependency engine, or project-level state machine |
-| deterministic asymmetric study/candidate ledgers | implemented offline in repository | `gaussian-asymmetric-catalysis` is not yet deployed; geometry construction still requires reviewed XYZ/atom maps |
+| deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is not yet deployed; geometry construction still requires reviewed XYZ/atom maps |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
 | transition-metal state/search design | M0 and candidate-bound M2a implemented offline | calculation input, parser, wavefunction/coordination acceptance, path model, and all live submission remain intentionally refused |
 | protocol `loose`/`standard`/`strict` proposal and selection | implemented as a standalone gate | does not choose a protocol or authorize input submission; the current generic automatic execution entry does not yet require and consume the selection artifact end to end |
@@ -563,12 +563,12 @@ to hand-edit JSON between them.
 
 ### P0 — Repository and runtime integrity
 
-- reconcile `chemdraw-structures` so the richer deployed reaction intake is
+- reconcile `auto-g16-chemdraw-structures` so the richer deployed reaction intake is
   reviewed, tested, and version-controlled rather than existing only in the
   installed copy;
-- deploy the repository `gaussian-asymmetric-catalysis` Skill only after named
+- deploy the repository `auto-g16-asymmetric-catalysis` Skill only after named
   validation and exact diff review;
-- synchronize the repository `gaussian-ts-irc` terminal-intake/protocol changes
+- synchronize the repository `auto-g16-ts-irc` terminal-intake/protocol changes
   into its deployed copy; and
 - keep all further work on a feature branch with offline validation before a
   live smoke test.
@@ -686,7 +686,7 @@ common-reference barrier.
 
 ### W5 — Asymmetric ensemble workflow
 
-Connect the reaction network to `gaussian-asymmetric-catalysis`, add chemistry-
+Connect the reaction network to `auto-g16-asymmetric-catalysis`, add chemistry-
 aware complex materialization, calculate all retained candidates under a
 common protocol, and aggregate product-channel ensembles.
 
