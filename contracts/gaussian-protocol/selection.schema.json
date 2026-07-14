@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/gaussian-protocol/selection.schema.json",
+  "title": "Explicit Gaussian protocol-tier selection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "selection_id", "status", "calculation_ready",
+    "no_submission_authorization", "options_source", "request_sha256",
+    "proposal_payload_sha256", "selected_option", "scope_binding",
+    "approval_evidence", "decision_reason", "alternatives_reviewed",
+    "authorizations", "selection_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-protocol-selection/1"},
+    "selection_id": {"$ref": "#/$defs/id"},
+    "status": {"const": "selected_for_input_draft"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "options_source": {"$ref": "#/$defs/artifact"},
+    "request_sha256": {"$ref": "#/$defs/sha256"},
+    "proposal_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "selected_option": {"type": "object"},
+    "scope_binding": {"type": "object"},
+    "approval_evidence": {"type": "object"},
+    "decision_reason": {"type": "string", "minLength": 1},
+    "alternatives_reviewed": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {"enum": ["loose", "standard", "strict"]}, "uniqueItems": true
+    },
+    "authorizations": {"type": "object"},
+    "selection_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}
+    }
+  }
+}

@@ -147,7 +147,7 @@ On 2026-07-14:
 - the real CAT2 forward study preserved the literature reaction identity and
   both stereochemical comparison channels without fabricating catalyst
   structures, atom maps, candidate geometries, or an ee ensemble;
-- the full repository suite completed 82 tests successfully;
+- the full repository suite completed 91 tests successfully;
 - the `skill-creator` structural validator reported `Skill is valid!`;
 - the literature ledger and smoke-proposal payload hashes were independently
   reproduced; and
@@ -159,6 +159,45 @@ was part of this validation.
 
 This snapshot is offline development evidence, not Gaussian or chemical
 validation.
+
+## Protocol-rigor gate implemented offline
+
+The input-preparation workflow now has a prospective three-candidate protocol
+gate for every new calculation need:
+
+1. create `gaussian-protocol-options/1` with `loose`, `standard` and `strict`
+   protocol candidates before writing a Gaussian input;
+2. mark scientifically unresolved or unsupported candidates `blocked` instead
+   of inferring a functional, basis/ECP, solvent, spin treatment, TS/IRC method
+   or thermochemistry policy;
+3. record the user's explicit selection as a separate immutable, hash-bound
+   `gaussian-protocol-selection/1` decision; and
+4. allow only the exact offline input draft from that decision, while retaining
+   the separate rendered-input hash and live submission approval gate.
+
+The standard-library `protocol_selection.py` CLI implements
+`propose`/`select --confirmed`/`validate`, refuses overwrite, and creates no
+Gaussian input, SSH, PBS or live action. Its options artifacts intentionally
+contain no route, input, project, server or job fields.
+
+Offline tests cover exact three-tier membership, Chinese display labels,
+scientifically distinct candidates, request/proposal/option/selection/approval
+hashes, complete per-element basis/ECP coverage, unresolved and unsupported
+blocking, selection of blocked candidates, authorization boundaries, resource-
+rigor independence, overwrite refusal and CLI round trips. Two independent
+forward tests also refused both premature standard-input generation and an
+automatically selected strict Pd-TS protocol.
+
+`strict` denotes stronger convergence, evidence or method-sensitivity work and
+is not an accuracy guarantee. Protocol rigor is independent of the
+`simple`/`general`/`complex` resource tiers.
+
+This gate is prospective. The BF3-TS1 calculation already in progress retains
+its real historical approval/input evidence and must not receive a backdated
+proposal or selection. Any retry, IRC, endpoint or later BF3 candidate uses the
+new gate. A sanitized evidence summary for the current run may preserve null
+protocol-option/selection bindings only as `incomplete`; this governance label
+does not replace the separate scientific assessment of the calculation.
 
 ## Next approval gates
 
@@ -172,9 +211,10 @@ validation.
 5. When the separately approved BF3-TS1 run reaches a stable terminal state,
    verify transport hashes, parse the final TS/Freq evidence, and review the
    imaginary-mode displacement against C13-H14-N23.
-6. Create the sanitized live-smoke evidence record only from that exact
-   approval/input/job/TS/mode chain. BF3-TS2-B1/B2 and IRC remain separately
-   gated even if BF3-TS1 passes.
+6. Create the sanitized live-smoke evidence record from that exact historical
+   approval/input/job/TS/mode chain, with null prospective protocol bindings
+   and `status: incomplete`. BF3-TS2-B1/B2 and IRC remain separately gated even
+   if the BF3-TS1 scientific checks pass.
 
 ## Working-tree note
 

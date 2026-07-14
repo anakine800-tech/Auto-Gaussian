@@ -1,5 +1,19 @@
 # Protocol selection
 
+Before using any protocol below, read
+[`protocol-rigor.md`](protocol-rigor.md). Every new calculation request must
+first receive a three-candidate `loose`/`standard`/`strict`
+`gaussian-protocol-options/1` proposal and a separate explicit
+`gaussian-protocol-selection/1` user selection. Do not write a Gaussian input
+before that selection exists. The selected candidate authorizes only an
+offline input draft; the rendered input hash and live job still require their
+own approval.
+
+The built-in entries below are constrained examples, not the three rigor
+candidates and not universal defaults. They cannot bypass a blocked proposal
+or supply missing method, basis, solvent, charge, multiplicity, spin, TS, IRC,
+thermochemistry or low-frequency decisions.
+
 ## Built-in protocols
 
 ### smoke-test
@@ -24,9 +38,28 @@
 
 Keep the smoke-test exception at 4 cores and 2 GB. Treat the resource tier independently from method/basis selection: a larger tier does not make an unsuitable chemical protocol valid. Show the selected tier, exact `%mem`, and `%nprocshared` before submission. For an existing `.gjf` or `.com`, do not silently rewrite resources; verify that its Link 0 values match the selected tier or stop for review.
 
+Resource tiers are orthogonal to protocol rigor. Do not map `loose` to
+`simple`, `standard` to `general`, or `strict` to `complex`. System size and
+execution demand determine resources after the scientific protocol candidate
+has been reviewed.
+
 ## Approval rules
 
+If any scientific field needed by a candidate is unresolved, mark that
+candidate `blocked`. Keep all three candidate names visible, but do not invent a
+runnable route to complete the table. Unsupported transition-metal, open-shell,
+broken-symmetry, excited-state or multireference cases remain blocked under the
+owning scientific Skill.
+
 Require explicit method, basis, job type, charge, multiplicity, cores, and memory before submission. Treat a command containing `--confirmed` as valid only when those exact values were shown or supplied by the user.
+
+Protocol selection is not submission confirmation. It authorizes only
+rendering the exact selected offline input draft. Any later change in method,
+basis, solvent, numerical settings, thermochemistry, resources or job type
+requires a new proposal and selection, followed by a new input-hash approval.
+
+`strict` means a stronger evidence, convergence or sensitivity plan for the
+stated question. It does not guarantee accuracy or validate the chemical model.
 
 Do not automatically add `Freq` after `Opt`. Do not automatically retry with `SCF=XQC`, `Opt=CalcFC`, `Opt=Restart`, solvent, dispersion, or a different basis. Generate diagnostics and request approval first.
 

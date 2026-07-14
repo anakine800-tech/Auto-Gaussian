@@ -27,12 +27,15 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "smoke_proposal", "literature_ledger", "input_approval", "input",
-        "job_record", "parsed_ts_result", "mode_review", "mode_decision"
+        "smoke_proposal", "literature_ledger", "protocol_options",
+        "protocol_selection", "input_approval", "input", "job_record",
+        "parsed_ts_result", "mode_review", "mode_decision"
       ],
       "properties": {
         "smoke_proposal": {"$ref": "#/$defs/hashOnlyArtifact"},
         "literature_ledger": {"$ref": "#/$defs/hashOnlyArtifact"},
+        "protocol_options": {"anyOf": [{"$ref": "#/$defs/hashOnlyArtifact"}, {"type": "null"}]},
+        "protocol_selection": {"anyOf": [{"$ref": "#/$defs/hashOnlyArtifact"}, {"type": "null"}]},
         "input_approval": {"$ref": "#/$defs/hashOnlyArtifact"},
         "input": {"$ref": "#/$defs/hashOnlyArtifact"},
         "job_record": {"$ref": "#/$defs/hashOnlyArtifact"},

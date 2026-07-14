@@ -141,10 +141,11 @@ def live_smoke_evidence_instance() -> dict:
             name: {"sha256": character * 64}
             for name, character in zip(
                 (
-                    "smoke_proposal", "literature_ledger", "input_approval", "input",
-                    "job_record", "parsed_ts_result", "mode_review", "mode_decision",
+                    "smoke_proposal", "literature_ledger", "protocol_options",
+                    "protocol_selection", "input_approval", "input", "job_record",
+                    "parsed_ts_result", "mode_review", "mode_decision",
                 ),
-                "abcdef01",
+                "abcdef0123",
                 strict=True,
             )
         },
@@ -333,6 +334,23 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(CONTRACT.ContractError, "missing required"):
             CONTRACT.validate_live_smoke_evidence(missing_approval)
+
+        legacy_protocol_selection = copy.deepcopy(evidence)
+        legacy_protocol_selection["source_bindings"]["protocol_selection"] = None
+        legacy_protocol_selection["evidence_payload_sha256"] = CONTRACT.payload_sha256(
+            {key: value for key, value in legacy_protocol_selection.items() if key != "evidence_payload_sha256"}
+        )
+        with self.assertRaisesRegex(CONTRACT.ContractError, "pre-input protocol selection"):
+            CONTRACT.validate_live_smoke_evidence(legacy_protocol_selection)
+
+        legacy_protocol_selection["status"] = "incomplete"
+        legacy_protocol_selection["limitations"].append(
+            "This run predates the three-tier protocol selection gate and cannot be retroactively signed."
+        )
+        legacy_protocol_selection["evidence_payload_sha256"] = CONTRACT.payload_sha256(
+            {key: value for key, value in legacy_protocol_selection.items() if key != "evidence_payload_sha256"}
+        )
+        CONTRACT.validate_live_smoke_evidence(legacy_protocol_selection)
 
         unreviewed_mode = copy.deepcopy(evidence)
         unreviewed_mode["mode_validation"].update(

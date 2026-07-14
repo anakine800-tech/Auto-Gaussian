@@ -1,11 +1,41 @@
 ---
 name: gaussian-rtwin-pbs
-description: Prepare, submit, monitor, fetch, and analyze Gaussian 16 calculations through the user's RTwin Windows SSH bridge to the private PBS server, including audited Opt-Freq-single-point Link1 workflows, thermochemistry and Boltzmann aggregation, reviewed conformer handoff, per-hop SHA-256, duplicate/overwrite prevention, robust state classification, automatic repeated-evidence PBS zombie cleanup, and explicit-confirmation active-job cancellation. Use for organic Gaussian jobs on 10.40.11.7 reachable only through RTwin. All server data and scratch are strictly confined to /home/user100/SDL.
+description: Present and record hash-bound loose/standard/strict Gaussian protocol candidates before input drafting, then prepare, submit, monitor, fetch, and analyze approved Gaussian 16 calculations through the user's RTwin Windows SSH bridge to the private PBS server. Includes audited Opt-Freq-single-point workflows, thermochemistry, conformer aggregation, per-hop SHA-256, overwrite prevention, robust state classification, scheduler-zombie cleanup, and confirmation-gated cancellation. Use for protocol-rigor comparisons or organic Gaussian jobs on 10.40.11.7 reachable only through RTwin. All server data and scratch are confined to /home/user100/SDL.
 ---
 
 # Gaussian RTwin PBS
 
-Use `scripts/gaussian_auto.py` for the closed loop and `scripts/gaussian_rtwin_pbs.py` for individual operations. Keep scientific approval as the only human gate; after approval, allow preparation, submission, monitoring, fetching, and analysis to run unattended.
+Use `scripts/gaussian_auto.py` for the closed loop and `scripts/gaussian_rtwin_pbs.py` for individual operations. Keep scientific approval as the only human gate; after separate exact live approval, allow preparation, submission, monitoring, fetching, and analysis to run unattended.
+
+## Input-before protocol gate
+
+For every new calculation need, read
+[`references/protocol-rigor.md`](references/protocol-rigor.md) before writing a
+Gaussian input. First present exactly three reviewed protocol candidates named
+`loose`, `standard` and `strict` in a `gaussian-protocol-options/1` artifact,
+then record the user's explicit selection in a separate hash-bound
+`gaussian-protocol-selection/1` artifact. Use
+`scripts/protocol_selection.py` for proposal, selection and validation. Do not
+infer or auto-select a functional,
+basis/ECP, solvent, numerical settings, thermochemistry or path method from the
+molecule or the requested label.
+
+Keep the options artifact route-free and input-free. Record stage-specific
+method, basis/ECP, environment, numerical, thermochemistry, validation and
+resource fields instead. Only a confirmed selection may authorize composing
+the exact offline Gaussian route and input draft for the separate input-hash
+review.
+
+Any candidate with unresolved chemistry or unsupported electronic structure
+must remain `blocked`; all three labels may be shown without making all three
+runnable. `strict` is a stronger evidence or sensitivity plan, not an accuracy
+guarantee. Protocol rigor is independent of the `simple`, `general` and
+`complex` resource tiers.
+
+The selection authorizes only creation of the exact offline input draft. It
+does not authorize transfer, server-directory creation, PBS submission, IRC,
+retry, cancellation or cleanup. After rendering, show the full input and its
+SHA-256 and use the existing exact live approval gate.
 
 ## Fixed environment
 
@@ -29,11 +59,12 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 
 ## One-command workflow
 
-1. Resolve structure, stereochemistry, charge, multiplicity, protocol, and resource tier. Use `general` when complexity is not clearly simple or complex. For CDX/CDXML, rely on the corrected explicit-H/CFG importer in `gaussian-view-rt-win`.
-2. Run `prepare` when approval is still needed. Show source hash, identity, warnings, route, charge/multiplicity, atom count, cores, memory, and remote directory.
-3. After exact approval, run `auto --confirmed --watch`. It prepares or audits the input, submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
-4. Classify state from three sources: PBS record, PBS session process, and Gaussian log. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate. After terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
-5. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and require explicit approval for any restart.
+1. Resolve structure, stereochemistry, charge, multiplicity and scientific scope. For CDX/CDXML, rely on the corrected explicit-H/CFG importer in `gaussian-view-rt-win`.
+2. Create the three-candidate protocol proposal, show every candidate and blocked reason, and record the user's hash-bound selection. Select the resource tier separately; use `general` when execution complexity is not clearly simple or complex.
+3. Only after selection, render or audit the offline input draft. Show source hash, identity, warnings, exact route, charge/multiplicity, atom count, cores, memory and remote directory.
+4. After separate exact approval of the rendered input and job, run the approved execution path. It submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
+5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate. After terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
+6. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and create a new proposal and selection for any changed restart.
 
 ```bash
 AUTO="$HOME/.codex/skills/gaussian-rtwin-pbs/scripts/gaussian_auto.py"
@@ -61,7 +92,15 @@ python3 "$AUTO" auto 'O' \
   --confirmed --watch --poll-seconds 5 --timeout-seconds 600
 ```
 
-Read [references/protocols.md](references/protocols.md) before choosing a default protocol.
+Read [references/protocols.md](references/protocols.md) before proposing protocol candidates.
+
+The command examples below the gate describe input preparation and execution
+syntax only. Run them only after the required options and selection artifacts
+exist and after applying the separate approval appropriate to the action.
+
+The BF3-TS1 run already in progress predates this gate. Never backdate a
+proposal or selection for it. Apply the gate to every later retry, candidate,
+IRC or endpoint.
 
 ## Opt-Freq-single-point workflow
 
@@ -153,6 +192,8 @@ Read [references/environment-and-failures.md](references/environment-and-failure
 
 ## Bundled scripts
 
+- `scripts/protocol_selection.py`: standard-library-only three-tier proposal,
+  explicit selection, hash verification and offline input-draft authorization.
 - `scripts/gaussian_auto.py`: one-command preparation through analyzed results.
 - `scripts/gaussian_rtwin_pbs.py`: preflight, stage, submit, inspect, watch, fetch, analyze, repeated-evidence automatic zombie cleanup, and confirmation-gated active-job cancellation.
 - `scripts/gaussian_log.py`: deterministic Gaussian result and geometry parser.

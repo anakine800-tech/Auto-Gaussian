@@ -36,6 +36,13 @@ not a menu of default methods.
 - Do not infer a functional, basis/ECP, solvent model, dispersion correction,
   grid, SCF strategy, spin state, broken-symmetry state, TS algorithm, IRC
   settings, temperature, standard state, or low-frequency treatment.
+- After a calculation need is defined and before any Gaussian input is written,
+  require the core protocol-rigor workflow to create
+  `gaussian-protocol-options/1` with `loose`, `standard` and `strict`, and
+  record the user's separate hash-bound `gaussian-protocol-selection/1`.
+  Mark unresolved or unsupported candidates `blocked`; do not fill a tier by
+  inferring chemistry. `strict` is a stronger evidence/sensitivity plan, not an
+  accuracy guarantee, and it is independent of the PBS resource tier.
 - Do not infer an active catalyst from a precatalyst drawing. Record ligand
   count, coordination, protonation, counterion, aggregation, additive and
   substrate binding as explicit hypotheses.
@@ -131,6 +138,13 @@ solvation, thermochemistry and path-validation stack. All compared members
 must share atom inventory or a balanced reference cycle, protocol,
 temperature, standard state, low-frequency policy and energy zero.
 
+First create the three-candidate protocol proposal for the stated calculation
+and claim, then record the user's selection before rendering any input. The
+selection authorizes only the exact offline input draft. It does not authorize
+submission, a TS retry, either IRC direction, an endpoint or another candidate.
+Choose `simple`, `general` or `complex` resources separately from protocol
+rigor.
+
 Literature settings may justify candidates for a benchmark matrix, but never
 become defaults for a new reaction.
 
@@ -208,12 +222,20 @@ If a separately approved live smoke run later reaches a terminal state, keep
 the full input, job, log, checkpoint, parsed TS, mode-review and decision
 artifacts in their owning execution/TS Skills. Record only a sanitized
 `gaussian-asymmetric-live-smoke-evidence/1` summary here, with SHA-256 bindings
-to the exact proposal, approval, input and evidence chain. Validate it with
+to the exact proposal, protocol options, protocol selection, input approval,
+input and evidence chain. Validate it with
 `scripts/validate_asymmetric_contract.py --artifact`. Never mark it `passed`
-without normal termination, complete frequencies, exactly one raw imaginary
-mode, and an explicitly accepted coordinate-displacement review. This evidence
-does not authorize a retry, IRC, another candidate, deployment, cancellation,
-or cleanup.
+without prospective protocol-selection provenance, normal termination,
+complete frequencies, exactly one raw imaginary mode, and an explicitly
+accepted coordinate-displacement review. This evidence does not authorize a
+retry, IRC, another candidate, deployment, cancellation, or cleanup.
+
+The BF3-TS1 run already in progress predates the protocol-rigor gate. Do not
+backdate or manufacture a proposal/selection for it. Preserve its actual
+approval provenance and record the new governance evidence as `incomplete`
+rather than retrospectively signing it. This does not alter the separately
+reviewed scientific result. Apply the new gate to any BF3-TS1 retry,
+BF3-TS2-B1/B2, IRC, endpoint or other new calculation request.
 
 ## Claim levels
 
