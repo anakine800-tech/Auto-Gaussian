@@ -1,0 +1,62 @@
+{
+  "schema": "gaussian-irc-terminal-evidence-summary/1",
+  "candidate_id": "wang2024_bf3_ts2_b1",
+  "literature_label": "BF3-TS2-B1",
+  "recorded_date": "2026-07-14",
+  "status": "bidirectional_irc_incomplete_forward_failed_reverse_ready_for_structure_review",
+  "directions": [
+    {
+      "direction": "forward",
+      "project": "w24_bf3b1_if1",
+      "input_sha256": "486635c5a21ef1e67d11257f5673c61cd7e3aba2eefd47694b985ece653e308d",
+      "terminal_intake_template_sha256": "1945dc5e85576bdf46a5dc9972aa36abb13f72c263924602098f02a26c2c327e",
+      "terminal_intake_sha256": "db8ef55d41cb30369a1f319d0199a7909c7b1ccf70034ea71f81de88c579933c",
+      "log_sha256": "6c43f4805cee96e9db8d1b25baa60ede3b2a0a64b1ecb83890f788f3ca99e248",
+      "log_size_bytes": 2070339,
+      "job_state": "failed",
+      "normal_termination_count": 0,
+      "error_termination_count": 1,
+      "acceptance_status": "not_accepted",
+      "outcome": "error_or_interrupted_termination",
+      "completed_point": 20,
+      "maximum_points": 30,
+      "corrector_convergence_count": 20,
+      "final_energy_hartree": -1746.7406839,
+      "failure_evidence": "Maximum number of corrector steps exceded",
+      "path_validated": false,
+      "next_action": "Stop this direction. Any retry or IRC-integrator change requires a fresh three-tier scientific proposal and explicit approval."
+    },
+    {
+      "direction": "reverse",
+      "project": "w24_bf3b1_ir1",
+      "input_sha256": "3e30690795645560a075f73aa98c577014cd6b0ed410438a0c77133be0e0520c",
+      "terminal_intake_template_sha256": "219c8c1c987f46d863e7b1aadc431cc30509474a671077e73e4982b1bf8e9bfa",
+      "terminal_intake_sha256": "58b700a73aacdcfd753288bd4c51a83dd875604422feef1b64c03cf0abb195f8",
+      "log_sha256": "057e377eb0436116dc32f2ec56697060790743cc9a81c8300570916685f51abf",
+      "log_size_bytes": 1153302,
+      "job_state": "completed",
+      "normal_termination_count": 1,
+      "error_termination_count": 0,
+      "acceptance_status": "structural_review_required",
+      "outcome": "ready_for_endpoint_structure_review",
+      "completed_point": 30,
+      "maximum_points": 30,
+      "corrector_convergence_count": 30,
+      "final_energy_hartree": -1746.73144506,
+      "chemical_side_assignment": "pending_structural_review",
+      "path_validated": false,
+      "next_required_artifacts": [
+        "reviewed chemical-side assignment",
+        "gaussian-irc-endpoint-audit/1"
+      ]
+    }
+  ],
+  "bidirectional_path_validated": false,
+  "automatic_action_authorized": false,
+  "no_submission_authorization": true,
+  "contains_job_id": false,
+  "contains_server_path": false,
+  "contains_gaussian_log": false,
+  "contains_checkpoint": false,
+  "summary_payload_sha256": "49a1dd197b2d5b9e7f9a573d741b83aba6c499cf828f7ab6c459a40819a813cf"
+}
