@@ -1,0 +1,35 @@
+{
+  "group_by": [],
+  "meta": {
+    "cost_usd": 0.001,
+    "count": 0,
+    "db_response_time_ms": 37,
+    "groups_count": null,
+    "page": 1,
+    "per_page": 20,
+    "x_query": {
+      "oql": "works where date >= (2000-01-01)\n  and full text has (stemmed \"CAT2 borane catalyst\" \"benzoxazole conjugate addition to electron-deficient olefins\")\n  and date <= (2026-12-31)",
+      "oqo": {
+        "filter_rows": [
+          {
+            "column_id": "from_publication_date",
+            "value": "2000-01-01"
+          },
+          {
+            "column_id": "fulltext.search",
+            "operator": "has",
+            "value": "\"CAT2 borane catalyst\" \"benzoxazole conjugate addition to electron-deficient olefins\""
+          },
+          {
+            "column_id": "to_publication_date",
+            "value": "2026-12-31"
+          }
+        ],
+        "get_rows": "works",
+        "per_page": 20
+      },
+      "url": "/works?filter=from_publication_date:2000-01-01,fulltext.search:%22CAT2 borane catalyst%22 %22benzoxazole conjugate addition to electron-deficient olefins%22,to_publication_date:2026-12-31&per_page=20"
+    }
+  },
+  "results": []
+}

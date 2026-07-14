@@ -1,0 +1,45 @@
+{
+  "schema": "gaussian-reaction-literature-request/1",
+  "request_id": "fixture-borane-alpha-alkylation",
+  "scientific_question": "Which publications report mechanism and transition-state evidence relevant to this reviewed borane-catalyzed alpha-alkylation?",
+  "reaction": {
+    "transformation_class": "borane-catalyzed alpha-alkylation of 2-alkylbenzoxazoles",
+    "components": [
+      {"role": "substrate", "name": "2-alkylbenzoxazole", "identifiers": {}},
+      {"role": "electrophile", "name": "electron-deficient olefin", "identifiers": {}}
+    ],
+    "catalyst_states": [],
+    "bond_changes": [],
+    "unresolved": ["active borane coordination state"]
+  },
+  "search_terms": {
+    "exact_phrases": ["Borane-Catalyzed Enantioselective alpha-Alkylation"],
+    "catalyst_terms": ["chiral bisborane", "borane catalyst"],
+    "substrate_terms": ["2-alkylbenzoxazole"],
+    "transformation_terms": ["alpha-alkylation"],
+    "mechanism_terms": ["deprotonation", "carbon-carbon bond formation"],
+    "exclusions": []
+  },
+  "mechanism_hypotheses": [
+    {
+      "hypothesis_id": "h1",
+      "label": "stepwise deprotonation and conjugate addition",
+      "keywords": ["stepwise deprotonation", "conjugate addition"]
+    }
+  ],
+  "target_evidence": [
+    "proposed_mechanism",
+    "active_catalyst_state",
+    "transition_state_model",
+    "computational_protocol",
+    "barrier_or_energy_profile",
+    "normal_mode",
+    "irc",
+    "coordinates"
+  ],
+  "known_citations": [
+    {"doi": "10.1021/jacs.4c09067", "role": "known experimental and computational seed"}
+  ],
+  "publication_years": {"from": 2000, "until": 2026},
+  "review_status": "reviewed_for_search_only"
+}

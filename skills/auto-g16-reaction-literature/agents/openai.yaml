@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 Reaction Literature"
+  short_description: "Retrieve and audit mechanism and transition-state literature"
+  default_prompt: "Use $auto-g16-reaction-literature to retrieve and audit literature relevant to my reaction mechanism and transition-state hypotheses."

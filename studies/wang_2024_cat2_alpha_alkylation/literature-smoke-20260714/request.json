@@ -1,0 +1,117 @@
+{
+  "schema": "gaussian-reaction-literature-request/1",
+  "request_id": "wang2024-cat2-literature-smoke-20260714",
+  "scientific_question": "Which primary publications report mechanism, active-catalyst-state, computational, and transition-state evidence directly relevant or explicitly analogous to the chiral-bisborane-catalyzed alpha-alkylation of 2-ethylbenzoxazole with tert-butyl acrylate?",
+  "reaction": {
+    "transformation_class": "chiral-bisborane-catalyzed alpha-alkylation of 2-alkylbenzoxazoles with electron-deficient olefins",
+    "components": [
+      {
+        "role": "substrate",
+        "name": "2-ethylbenzoxazole",
+        "identifiers": {
+          "source_label": "1a"
+        }
+      },
+      {
+        "role": "electrophile",
+        "name": "tert-butyl acrylate",
+        "identifiers": {
+          "source_label": "2b"
+        }
+      },
+      {
+        "role": "base",
+        "name": "Barton's base",
+        "identifiers": {}
+      },
+      {
+        "role": "precatalyst_component",
+        "name": "HB(C6F5)2",
+        "identifiers": {}
+      },
+      {
+        "role": "chiral_ligand",
+        "name": "chiral diene L2",
+        "identifiers": {}
+      }
+    ],
+    "catalyst_states": [
+      "source label CAT2 generated in situ from HB(C6F5)2 and chiral diene L2; complete active state unresolved"
+    ],
+    "bond_changes": [
+      "alpha C-H deprotonation is a literature submodel hypothesis",
+      "carbon-carbon bond formation between the benzoxazole alpha carbon and the acrylate beta carbon is a literature submodel hypothesis"
+    ],
+    "unresolved": [
+      "complete CAT2 active-state identity",
+      "aggregation and boron coordination states",
+      "whether the achiral BF3 or B(C6F5)3 sequence transfers to CAT2",
+      "CAT2 selectivity-determining transition-state family"
+    ]
+  },
+  "search_terms": {
+    "exact_phrases": [
+      "Borane-Catalyzed Enantioselective alpha-Alkylation of Unactivated 2-Alkylbenzoxazoles with Electron-Deficient Olefins"
+    ],
+    "catalyst_terms": [
+      "chiral bisborane",
+      "CAT2 borane catalyst",
+      "HB(C6F5)2 chiral diene"
+    ],
+    "substrate_terms": [
+      "2-ethylbenzoxazole",
+      "2-alkylbenzoxazole",
+      "tert-butyl acrylate"
+    ],
+    "transformation_terms": [
+      "alpha-alkylation of 2-alkylbenzoxazoles",
+      "benzoxazole conjugate addition to electron-deficient olefins"
+    ],
+    "mechanism_terms": [
+      "borane-catalyzed deprotonation",
+      "carbon-carbon bond formation",
+      "bisborane catalysis mechanism"
+    ],
+    "exclusions": []
+  },
+  "mechanism_hypotheses": [
+    {
+      "hypothesis_id": "published-achiral-submodel-transfer",
+      "label": "The published BF3 or B(C6F5)3 proton-transfer and carbon-carbon bond-forming sequence may be relevant to CAT2 without establishing the CAT2 enantiodetermining pathway.",
+      "keywords": [
+        "borane proton transfer transition state",
+        "borane carbon-carbon bond formation transition state"
+      ]
+    }
+  ],
+  "target_evidence": [
+    "proposed_mechanism",
+    "alternative_pathway",
+    "active_catalyst_state",
+    "elementary_step",
+    "transition_state_model",
+    "computational_protocol",
+    "barrier_or_energy_profile",
+    "normal_mode",
+    "irc",
+    "selectivity_model",
+    "coordinates"
+  ],
+  "known_citations": [
+    {
+      "doi": "10.1021/jacs.4c09067",
+      "role": "direct experimental publication and published achiral mechanistic submodel seed"
+    }
+  ],
+  "publication_years": {
+    "from": 2000,
+    "until": 2026
+  },
+  "upstream_artifacts": {
+    "reaction_intake": null,
+    "species_registry": null,
+    "condition_model": null,
+    "knowledge_snapshot": null
+  },
+  "review_status": "reviewed_for_one_approved_live_literature_search_smoke_on_2026-07-14"
+}
