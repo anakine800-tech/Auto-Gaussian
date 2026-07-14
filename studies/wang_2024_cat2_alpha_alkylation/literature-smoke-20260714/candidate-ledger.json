@@ -1,0 +1,120 @@
+{
+  "calculation_ready": false,
+  "candidate_ledger_payload_sha256": "da8b8c4c9137fe6dd2ec8cb31c7f1cef59605d46b69708f438229dfe4f65656c",
+  "candidates": [
+    {
+      "authors": [
+        "Rui Chang",
+        "Yubing Pang",
+        "Juntao Ye"
+      ],
+      "candidate_id": "lit-0001",
+      "cited_by_count": 3,
+      "deduplication_key": "doi:10.1002/cjoc.70375",
+      "directness": "not_reviewed",
+      "discovery_observations": [
+        {
+          "lane": "exact_system",
+          "query_id": "q001",
+          "raw_sha256": "2f67abe449d695e876ba86a5eb022ea441f0454089f90936444a18fe083edbb2",
+          "source": "openalex"
+        }
+      ],
+      "doi": "10.1002/cjoc.70375",
+      "lexical_score": 2,
+      "metadata_abstract_available": true,
+      "publication_type": "article",
+      "record_status_signals": {
+        "crossref_relation_present": null,
+        "crossref_update_to_present": null,
+        "openalex_is_retracted": false
+      },
+      "score_breakdown": {
+        "matched_terms": {
+          "catalyst_terms": [],
+          "evidence_abstract": [
+            "mechanistic",
+            "irc"
+          ],
+          "evidence_title": [],
+          "exact_phrases": [],
+          "exclusions": [],
+          "mechanism_terms": [],
+          "substrate_terms": [],
+          "transformation_terms": []
+        },
+        "points": {
+          "catalyst_terms": 0,
+          "evidence_abstract": 2,
+          "evidence_title": 0,
+          "exact_phrases": 0,
+          "exclusions": 0,
+          "mechanism_terms": 0,
+          "substrate_terms": 0,
+          "transformation_terms": 0
+        }
+      },
+      "screening_status": "metadata_only_unverified",
+      "screening_tier": "low_lexical_match",
+      "title": "Borane Exchange Enables Photocatalytic Alkylation of Pyridylic C(sp 3 )−H Bonds with Olefins",
+      "url": "https://doi.org/10.1002/cjoc.70375",
+      "venue": "Chinese Journal of Chemistry",
+      "year": 2025
+    }
+  ],
+  "counts": {
+    "candidates_retained": 1,
+    "normalized_raw_records": 1,
+    "unique_candidates": 1
+  },
+  "created_at": "2026-07-14T14:48:20+00:00",
+  "limitations": [
+    "No title, abstract, snippet, API relevance score, or citation count is accepted as mechanism or TS evidence.",
+    "Primary article and version-matched SI review are still required.",
+    "Preprint/version-of-record relations and corrections require manual verification."
+  ],
+  "no_submission_authorization": true,
+  "promotable_to_mechanism_support": false,
+  "promotable_to_ts_precedent_map": false,
+  "promotion_blockers": [
+    "missing_upstream_binding:reaction_intake",
+    "missing_upstream_binding:species_registry",
+    "missing_upstream_binding:condition_model",
+    "missing_upstream_binding:knowledge_snapshot"
+  ],
+  "ranking_policy": {
+    "citation_count_used_in_score": false,
+    "scientific_acceptance_performed": false,
+    "type": "transparent_lexical_screening_only"
+  },
+  "request_id": "wang2024-cat2-literature-smoke-20260714",
+  "retrieval_artifact": {
+    "path": "studies/wang_2024_cat2_alpha_alkylation/literature-smoke-20260714/retrieval-openalex-001/retrieval.json",
+    "sha256": "3a6ae5b9608f10b3bf96e5edc0e7e15f790b2ddf7445bceb76818db6600261d8"
+  },
+  "schema": "gaussian-reaction-literature-candidate-ledger/1",
+  "search_plan_artifact": {
+    "path": "studies/wang_2024_cat2_alpha_alkylation/literature-smoke-20260714/search-plan.json",
+    "sha256": "57887c75c35d7121af426e8287b51831d1f681779bf7f0312988eed4dfe608d7"
+  },
+  "target_evidence": [
+    "proposed_mechanism",
+    "alternative_pathway",
+    "active_catalyst_state",
+    "elementary_step",
+    "transition_state_model",
+    "computational_protocol",
+    "barrier_or_energy_profile",
+    "normal_mode",
+    "irc",
+    "selectivity_model",
+    "coordinates"
+  ],
+  "upstream_artifacts": {
+    "condition_model": null,
+    "knowledge_snapshot": null,
+    "reaction_intake": null,
+    "species_registry": null
+  },
+  "w2_binding_status": "standalone_search_not_promotable"
+}

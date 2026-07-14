@@ -11,15 +11,19 @@ so this capability is eligible for integration into `codex/Auto-Gaussian`.
 
 Stable baseline: local `main` at `3c65879`.
 
-All seven repository-owned Skill folders and machine names now use the
-`auto-g16-` prefix, and all seven human-facing display names begin with
-`Auto-G16`. The W1 `auto-g16-reaction-workflow` and strict
-`auto-g16-chemdraw-structures` repository/deployed pairs are synchronized.
-Separate pre-existing drift remains in `auto-g16-asymmetric-catalysis`,
-`auto-g16-chemdraw-pipeline`, `auto-g16-ts-irc`, and
-`auto-g16-view-rt-win`; this W1 integration does not deploy or overwrite those
-copies. The namespace remains mandatory for future project Skills; versioned
-scientific schemas and immutable historical records retain their identifiers.
+All eight repository-owned Skill folders and machine names now use the
+`auto-g16-` prefix, and all eight human-facing display names begin with
+`Auto-G16`. The W1 `auto-g16-reaction-workflow`, strict
+`auto-g16-chemdraw-structures`, and new `auto-g16-reaction-literature`
+repository/deployed pairs are synchronized. The literature Skill was deployed
+only after its separately approved real-search smoke, offline regression,
+structural validation, sensitive-string scan, and exact named-directory diff
+passed. Separate pre-existing drift remains in
+`auto-g16-asymmetric-catalysis`, `auto-g16-chemdraw-pipeline`,
+`auto-g16-ts-irc`, and `auto-g16-view-rt-win`; this integration does not deploy
+or overwrite those copies. The namespace remains mandatory for future project
+Skills; versioned scientific schemas and immutable historical records retain
+their identifiers.
 
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the missing
@@ -48,7 +52,11 @@ The version-controlled source under `skills/` currently provides:
   active-state hypotheses, candidate-space coverage, comparable TS ensembles,
   and bounded selectivity claims; and
 - an integrated offline top-level intake adapter with hash-bound reaction
-  intake, species registry, balance review and condition-to-model artifacts.
+  intake, species registry, balance review and condition-to-model artifacts;
+- an offline-first reaction-literature Skill with reviewed query planning,
+  Crossref/OpenAlex metadata retrieval, raw-response hashes, DOI deduplication,
+  transparent lexical screening, source-located evidence templates and fail-
+  closed evidence validation.
 
 The W1 builder assigns stable step/occurrence/condition IDs, binds every drawn
 reactant/product exactly once, refuses missing condition decisions, preserves
@@ -63,13 +71,12 @@ deterministic migrations/indexes, dry-run importers, and immutable per-study
 knowledge snapshots. The future W2 design is recorded in
 `skills/auto-g16-reaction-workflow/references/knowledge-database-design.md`.
 
-The repository does not yet provide a general tool that reproducibly searches
-primary papers and supporting information, extracts computation/mechanism/TS
-evidence, audits target-versus-precedent applicability, or translates a source
-structure into a reviewed target TS-seed proposal. The existing BF3 and
-asymmetric-catalysis literature records are valuable fixed precedents, but they
-are not that search and evidence-acquisition layer. The future W2 design is now
-recorded in
+The repository now provides reproducible metadata discovery and source-evidence
+review scaffolding, but not automatic lawful full-text/SI extraction,
+mechanism-support matrices, source-to-target atom correspondence, or reviewed
+target TS-seed proposals. The existing BF3 and asymmetric-catalysis records
+remain fixed precedents rather than automatic target-mechanism proof. The full
+W2 contract and remaining stages are recorded in
 `skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
 
 The TS–Freq–IRC feature and its endpoint workflow have been merged to `main`.
@@ -231,9 +238,17 @@ On 2026-07-14:
   re-extraction, sole-product `S` CIP review, balanced occurrence accounting
   and all three hash-bound W1 validators while retaining two species and six
   condition-model blockers;
-- the isolated integration suite completed 119 tests successfully, including the
-  repository-wide Auto-G16 naming gate and the non-authorizing reusable-
-  knowledge-database design boundary;
+- the approved live OpenAlex smoke resolved the target JACS DOI
+  `10.1021/jacs.4c09067`, ranked it above an unrelated photocatalytic hit, and
+  finalized a hash-bound evidence review while preserving the CAT2-versus-
+  achiral-BF3/BCF model boundary and all missing-upstream promotion blockers;
+- Crossref was intentionally skipped because no contact email was configured,
+  publisher full text remained inaccessible, and those coverage limits were
+  retained explicitly rather than silently upgraded to primary-article proof;
+- the full repository suite completed 127 tests successfully, including the
+  repository-wide Auto-G16 naming gate, reaction-literature fixture replay,
+  evidence-review refusals and the non-authorizing reusable-knowledge-database
+  and literature boundaries;
 - the `skill-creator` structural validator reported `Skill is valid!`;
 - the literature ledger and smoke-proposal payload hashes were independently
   reproduced; and
@@ -241,11 +256,12 @@ On 2026-07-14:
   no problem in the scoped change files.
 
 No live SSH, PBS, Gaussian, cancellation, or server-data command was part of
-this validation. Named local Skill synchronization is deployment maintenance,
-not Gaussian or PBS authority.
+this validation. The approved external actions were limited to metadata search
+and synchronization of the one named local Skill; neither grants Gaussian or
+PBS authority.
 
-This snapshot is offline development evidence, not Gaussian or chemical
-validation.
+This snapshot contains offline development evidence plus the approved metadata-
+search smoke. It is not Gaussian or chemical validation.
 
 ## Protocol-rigor gate implemented offline
 

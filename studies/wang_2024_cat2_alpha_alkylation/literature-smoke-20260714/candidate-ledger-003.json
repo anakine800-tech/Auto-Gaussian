@@ -1,0 +1,184 @@
+{
+  "calculation_ready": false,
+  "candidate_ledger_payload_sha256": "78d0788219a518b6fe620d42bfe2b09f0c282f36a3dd812b3b3c19240eb0aa62",
+  "candidates": [
+    {
+      "authors": [
+        "Chongren Ai",
+        "Lu Liu",
+        "Xiaochen Wang"
+      ],
+      "candidate_id": "lit-0001",
+      "cited_by_count": 12,
+      "deduplication_key": "doi:10.1021/jacs.4c09067",
+      "directness": "not_reviewed",
+      "discovery_observations": [
+        {
+          "lane": "seed_doi",
+          "query_id": "q021",
+          "raw_sha256": "23278503c414a643193eca040c79bcd0a4a105ef7a1709067e4f3c8baabb7b3d",
+          "source": "openalex"
+        }
+      ],
+      "doi": "10.1021/jacs.4c09067",
+      "lexical_score": 11,
+      "metadata_abstract_available": true,
+      "publication_type": "article",
+      "record_status_signals": {
+        "crossref_relation_present": null,
+        "crossref_update_to_present": null,
+        "openalex_is_retracted": false
+      },
+      "score_breakdown": {
+        "matched_terms": {
+          "catalyst_terms": [
+            "chiral bisborane"
+          ],
+          "evidence_abstract": [
+            "selectivity"
+          ],
+          "evidence_title": [],
+          "exact_phrases": [
+            "Borane-Catalyzed Enantioselective alpha-Alkylation of Unactivated 2-Alkylbenzoxazoles with Electron-Deficient Olefins"
+          ],
+          "exclusions": [],
+          "mechanism_terms": [],
+          "substrate_terms": [
+            "2-alkylbenzoxazole"
+          ],
+          "transformation_terms": []
+        },
+        "points": {
+          "catalyst_terms": 3,
+          "evidence_abstract": 1,
+          "evidence_title": 0,
+          "exact_phrases": 5,
+          "exclusions": 0,
+          "mechanism_terms": 0,
+          "substrate_terms": 2,
+          "transformation_terms": 0
+        }
+      },
+      "screening_status": "metadata_only_unverified",
+      "screening_tier": "system_relevant_requires_full_text",
+      "title": "Borane-Catalyzed Enantioselective α-Alkylation of Unactivated 2-Alkylbenzoxazoles with Electron-Deficient Olefins",
+      "url": "https://doi.org/10.1021/jacs.4c09067",
+      "venue": "Journal of the American Chemical Society",
+      "year": 2024
+    },
+    {
+      "authors": [
+        "Rui Chang",
+        "Yubing Pang",
+        "Juntao Ye"
+      ],
+      "candidate_id": "lit-0002",
+      "cited_by_count": 3,
+      "deduplication_key": "doi:10.1002/cjoc.70375",
+      "directness": "not_reviewed",
+      "discovery_observations": [
+        {
+          "lane": "exact_system",
+          "query_id": "q001",
+          "raw_sha256": "07f8ee3bee0dbd21df97d975ad0ebd0687ee843e7526b8a52c7148ea73d65261",
+          "source": "openalex"
+        }
+      ],
+      "doi": "10.1002/cjoc.70375",
+      "lexical_score": 2,
+      "metadata_abstract_available": true,
+      "publication_type": "article",
+      "record_status_signals": {
+        "crossref_relation_present": null,
+        "crossref_update_to_present": null,
+        "openalex_is_retracted": false
+      },
+      "score_breakdown": {
+        "matched_terms": {
+          "catalyst_terms": [],
+          "evidence_abstract": [
+            "mechanistic",
+            "irc"
+          ],
+          "evidence_title": [],
+          "exact_phrases": [],
+          "exclusions": [],
+          "mechanism_terms": [],
+          "substrate_terms": [],
+          "transformation_terms": []
+        },
+        "points": {
+          "catalyst_terms": 0,
+          "evidence_abstract": 2,
+          "evidence_title": 0,
+          "exact_phrases": 0,
+          "exclusions": 0,
+          "mechanism_terms": 0,
+          "substrate_terms": 0,
+          "transformation_terms": 0
+        }
+      },
+      "screening_status": "metadata_only_unverified",
+      "screening_tier": "low_lexical_match",
+      "title": "Borane Exchange Enables Photocatalytic Alkylation of Pyridylic C(sp 3 )−H Bonds with Olefins",
+      "url": "https://doi.org/10.1002/cjoc.70375",
+      "venue": "Chinese Journal of Chemistry",
+      "year": 2025
+    }
+  ],
+  "counts": {
+    "candidates_retained": 2,
+    "normalized_raw_records": 2,
+    "unique_candidates": 2
+  },
+  "created_at": "2026-07-14T14:51:50+00:00",
+  "limitations": [
+    "No title, abstract, snippet, API relevance score, or citation count is accepted as mechanism or TS evidence.",
+    "Primary article and version-matched SI review are still required.",
+    "Preprint/version-of-record relations and corrections require manual verification."
+  ],
+  "no_submission_authorization": true,
+  "promotable_to_mechanism_support": false,
+  "promotable_to_ts_precedent_map": false,
+  "promotion_blockers": [
+    "missing_upstream_binding:reaction_intake",
+    "missing_upstream_binding:species_registry",
+    "missing_upstream_binding:condition_model",
+    "missing_upstream_binding:knowledge_snapshot"
+  ],
+  "ranking_policy": {
+    "citation_count_used_in_score": false,
+    "scientific_acceptance_performed": false,
+    "type": "transparent_lexical_screening_only"
+  },
+  "request_id": "wang2024-cat2-literature-smoke-20260714",
+  "retrieval_artifact": {
+    "path": "studies/wang_2024_cat2_alpha_alkylation/literature-smoke-20260714/retrieval-openalex-002/retrieval.json",
+    "sha256": "330cbdf8ad008d65a402b7419d77f932e32baca4ca4e3ca60575a45666ff4573"
+  },
+  "schema": "gaussian-reaction-literature-candidate-ledger/1",
+  "search_plan_artifact": {
+    "path": "studies/wang_2024_cat2_alpha_alkylation/literature-smoke-20260714/search-plan.json",
+    "sha256": "57887c75c35d7121af426e8287b51831d1f681779bf7f0312988eed4dfe608d7"
+  },
+  "target_evidence": [
+    "proposed_mechanism",
+    "alternative_pathway",
+    "active_catalyst_state",
+    "elementary_step",
+    "transition_state_model",
+    "computational_protocol",
+    "barrier_or_energy_profile",
+    "normal_mode",
+    "irc",
+    "selectivity_model",
+    "coordinates"
+  ],
+  "upstream_artifacts": {
+    "condition_model": null,
+    "knowledge_snapshot": null,
+    "reaction_intake": null,
+    "species_registry": null
+  },
+  "w2_binding_status": "standalone_search_not_promotable"
+}

@@ -1,0 +1,28 @@
+{
+  "status": "ok",
+  "message-type": "work-list",
+  "message": {
+    "items": [
+      {
+        "DOI": "10.1021/jacs.4c09067",
+        "title": ["Borane-Catalyzed Enantioselective α-Alkylation: Mechanism and Transition State Analysis"],
+        "author": [{"given": "Example", "family": "Author"}],
+        "published-online": {"date-parts": [[2024, 10, 1]]},
+        "container-title": ["Journal of the American Chemical Society"],
+        "URL": "https://doi.org/10.1021/jacs.4c09067",
+        "type": "journal-article",
+        "is-referenced-by-count": 7,
+        "abstract": "<jats:p>A computational transition state and activation barrier are discussed.</jats:p>"
+      },
+      {
+        "DOI": "10.5555/unrelated",
+        "title": ["An unrelated materials report"],
+        "published": {"date-parts": [[2025]]},
+        "container-title": ["Unrelated Journal"],
+        "URL": "https://doi.org/10.5555/unrelated",
+        "type": "journal-article",
+        "is-referenced-by-count": 9999
+      }
+    ]
+  }
+}

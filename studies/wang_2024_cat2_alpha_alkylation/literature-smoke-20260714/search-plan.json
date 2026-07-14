@@ -1,0 +1,533 @@
+{
+  "calculation_ready": false,
+  "created_at": "2026-07-14T14:47:56+00:00",
+  "intake_artifact": {
+    "path": "studies/wang_2024_cat2_alpha_alkylation/literature-smoke-20260714/request.json",
+    "sha256": "ccb476d2a54e862e10dcb765ce34fc685cd71244a09352ca18cd767a207eea44"
+  },
+  "limitations": [
+    "Queries combine only reviewed intake terms and generic evidence words.",
+    "No structure or substructure search is performed.",
+    "A finite zero-result search does not prove absence of precedent.",
+    "All returned records remain metadata-only candidates pending primary/SI review."
+  ],
+  "mechanism_hypotheses": [
+    {
+      "hypothesis_id": "published-achiral-submodel-transfer",
+      "keywords": [
+        "borane proton transfer transition state",
+        "borane carbon-carbon bond formation transition state"
+      ],
+      "label": "The published BF3 or B(C6F5)3 proton-transfer and carbon-carbon bond-forming sequence may be relevant to CAT2 without establishing the CAT2 enantiodetermining pathway.",
+      "status": "unselected_hypothesis"
+    }
+  ],
+  "no_submission_authorization": true,
+  "promotable_to_mechanism_support": false,
+  "promotable_to_ts_precedent_map": false,
+  "promotion_blockers": [
+    "missing_upstream_binding:reaction_intake",
+    "missing_upstream_binding:species_registry",
+    "missing_upstream_binding:condition_model",
+    "missing_upstream_binding:knowledge_snapshot"
+  ],
+  "publication_years": {
+    "from": 2000,
+    "until": 2026
+  },
+  "queries": [
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "exact_system",
+      "mode": "bibliographic",
+      "query_id": "q001",
+      "query_text": "\"Borane-Catalyzed Enantioselective alpha-Alkylation of Unactivated 2-Alkylbenzoxazoles with Electron-Deficient Olefins\"",
+      "rationale": "User-supplied exact phrase for high-precision discovery.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "catalyst_transformation",
+      "mode": "bibliographic",
+      "query_id": "q002",
+      "query_text": "\"chiral bisborane\" \"alpha-alkylation of 2-alkylbenzoxazoles\"",
+      "rationale": "Preserve catalyst and transformation while relaxing exact substrates.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "catalyst_transformation",
+      "mode": "bibliographic",
+      "query_id": "q003",
+      "query_text": "\"chiral bisborane\" \"benzoxazole conjugate addition to electron-deficient olefins\"",
+      "rationale": "Preserve catalyst and transformation while relaxing exact substrates.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "catalyst_transformation",
+      "mode": "bibliographic",
+      "query_id": "q004",
+      "query_text": "\"CAT2 borane catalyst\" \"alpha-alkylation of 2-alkylbenzoxazoles\"",
+      "rationale": "Preserve catalyst and transformation while relaxing exact substrates.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "catalyst_transformation",
+      "mode": "bibliographic",
+      "query_id": "q005",
+      "query_text": "\"CAT2 borane catalyst\" \"benzoxazole conjugate addition to electron-deficient olefins\"",
+      "rationale": "Preserve catalyst and transformation while relaxing exact substrates.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "substrate_transformation",
+      "mode": "bibliographic",
+      "query_id": "q006",
+      "query_text": "2-ethylbenzoxazole \"alpha-alkylation of 2-alkylbenzoxazoles\"",
+      "rationale": "Preserve substrate and transformation while allowing catalyst analogies.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "substrate_transformation",
+      "mode": "bibliographic",
+      "query_id": "q007",
+      "query_text": "2-ethylbenzoxazole \"benzoxazole conjugate addition to electron-deficient olefins\"",
+      "rationale": "Preserve substrate and transformation while allowing catalyst analogies.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "substrate_transformation",
+      "mode": "bibliographic",
+      "query_id": "q008",
+      "query_text": "2-alkylbenzoxazole \"alpha-alkylation of 2-alkylbenzoxazoles\"",
+      "rationale": "Preserve substrate and transformation while allowing catalyst analogies.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "substrate_transformation",
+      "mode": "bibliographic",
+      "query_id": "q009",
+      "query_text": "2-alkylbenzoxazole \"benzoxazole conjugate addition to electron-deficient olefins\"",
+      "rationale": "Preserve substrate and transformation while allowing catalyst analogies.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "elementary_step"
+      ],
+      "lane": "mechanism_hypothesis",
+      "mode": "bibliographic",
+      "query_id": "q010",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"borane-catalyzed deprotonation\" mechanism",
+      "rationale": "Search an explicit, unselected mechanism term from the intake.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "elementary_step"
+      ],
+      "lane": "mechanism_hypothesis",
+      "mode": "bibliographic",
+      "query_id": "q011",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"carbon-carbon bond formation\" mechanism",
+      "rationale": "Search an explicit, unselected mechanism term from the intake.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "elementary_step"
+      ],
+      "lane": "mechanism_hypothesis",
+      "mode": "bibliographic",
+      "query_id": "q012",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"bisborane catalysis mechanism\" mechanism",
+      "rationale": "Search an explicit, unselected mechanism term from the intake.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "elementary_step"
+      ],
+      "lane": "mechanism_hypothesis",
+      "mode": "bibliographic",
+      "query_id": "q013",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"borane proton transfer transition state\"",
+      "rationale": "Search explicit keywords for unselected hypothesis published-achiral-submodel-transfer.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "elementary_step"
+      ],
+      "lane": "mechanism_hypothesis",
+      "mode": "bibliographic",
+      "query_id": "q014",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"borane carbon-carbon bond formation transition state\"",
+      "rationale": "Search explicit keywords for unselected hypothesis published-achiral-submodel-transfer.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "barrier_or_energy_profile",
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "selectivity_model",
+        "transition_state_model"
+      ],
+      "lane": "ts_computational",
+      "mode": "bibliographic",
+      "query_id": "q015",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"chiral bisborane\" \"transition state\"",
+      "rationale": "Add a generic computational-evidence term without selecting a method.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "barrier_or_energy_profile",
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "selectivity_model",
+        "transition_state_model"
+      ],
+      "lane": "ts_computational",
+      "mode": "bibliographic",
+      "query_id": "q016",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"chiral bisborane\" DFT",
+      "rationale": "Add a generic computational-evidence term without selecting a method.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "barrier_or_energy_profile",
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "selectivity_model",
+        "transition_state_model"
+      ],
+      "lane": "ts_computational",
+      "mode": "bibliographic",
+      "query_id": "q017",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"chiral bisborane\" \"activation barrier\"",
+      "rationale": "Add a generic computational-evidence term without selecting a method.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "barrier_or_energy_profile",
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "selectivity_model",
+        "transition_state_model"
+      ],
+      "lane": "ts_computational",
+      "mode": "bibliographic",
+      "query_id": "q018",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"chiral bisborane\" IRC",
+      "rationale": "Add a generic computational-evidence term without selecting a method.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "barrier_or_energy_profile",
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "selectivity_model",
+        "transition_state_model"
+      ],
+      "lane": "elementary_step_analogy",
+      "mode": "bibliographic",
+      "query_id": "q019",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" \"transition state\"",
+      "rationale": "Broaden to the transformation class; any result is analogy until reviewed.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism"
+      ],
+      "lane": "review_vocabulary",
+      "mode": "bibliographic",
+      "query_id": "q020",
+      "query_text": "\"alpha-alkylation of 2-alkylbenzoxazoles\" mechanism review",
+      "rationale": "Find review vocabulary and seed citations; reviews are not candidate-specific evidence.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "barrier_or_energy_profile",
+        "normal_mode",
+        "irc",
+        "selectivity_model",
+        "coordinates"
+      ],
+      "lane": "seed_doi",
+      "mode": "doi",
+      "query_id": "q021",
+      "query_text": "10.1021/jacs.4c09067",
+      "rationale": "Retrieve user-supplied DOI seed (direct experimental publication and published achiral mechanistic submodel seed).",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    }
+  ],
+  "query_count": 21,
+  "ranking_terms": {
+    "catalyst_terms": [
+      "chiral bisborane",
+      "CAT2 borane catalyst",
+      "HB(C6F5)2 chiral diene"
+    ],
+    "exact_phrases": [
+      "Borane-Catalyzed Enantioselective alpha-Alkylation of Unactivated 2-Alkylbenzoxazoles with Electron-Deficient Olefins"
+    ],
+    "exclusions": [],
+    "mechanism_terms": [
+      "borane-catalyzed deprotonation",
+      "carbon-carbon bond formation",
+      "bisborane catalysis mechanism"
+    ],
+    "substrate_terms": [
+      "2-ethylbenzoxazole",
+      "2-alkylbenzoxazole",
+      "tert-butyl acrylate"
+    ],
+    "transformation_terms": [
+      "alpha-alkylation of 2-alkylbenzoxazoles",
+      "benzoxazole conjugate addition to electron-deficient olefins"
+    ]
+  },
+  "reaction_summary": {
+    "transformation_class": "chiral-bisborane-catalyzed alpha-alkylation of 2-alkylbenzoxazoles with electron-deficient olefins",
+    "unresolved": [
+      "complete CAT2 active-state identity",
+      "aggregation and boron coordination states",
+      "whether the achiral BF3 or B(C6F5)3 sequence transfers to CAT2",
+      "CAT2 selectivity-determining transition-state family"
+    ]
+  },
+  "request_id": "wang2024-cat2-literature-smoke-20260714",
+  "schema": "gaussian-reaction-literature-query/1",
+  "scientific_question": "Which primary publications report mechanism, active-catalyst-state, computational, and transition-state evidence directly relevant or explicitly analogous to the chiral-bisborane-catalyzed alpha-alkylation of 2-ethylbenzoxazole with tert-butyl acrylate?",
+  "search_plan_payload_sha256": "60f96a7b630c35e2cd06787cc66b51d9f239ad382df65b1743de7f335f375834",
+  "target_evidence": [
+    "proposed_mechanism",
+    "alternative_pathway",
+    "active_catalyst_state",
+    "elementary_step",
+    "transition_state_model",
+    "computational_protocol",
+    "barrier_or_energy_profile",
+    "normal_mode",
+    "irc",
+    "selectivity_model",
+    "coordinates"
+  ],
+  "upstream_artifacts": {
+    "condition_model": null,
+    "knowledge_snapshot": null,
+    "reaction_intake": null,
+    "species_registry": null
+  },
+  "w2_binding_status": "standalone_search_not_promotable"
+}
