@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
-MODULE = ROOT / "skills" / "gaussian-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
+MODULE = ROOT / "skills" / "auto-g16-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
 CASE_DIR = ROOT / "studies" / "wang_2024_cat2_alpha_alkylation"
 CASE_PATH = CASE_DIR / "forward-study.json"
 BF3_DIR = ROOT / "studies" / "wang_2024_bf3_ts"

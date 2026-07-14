@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-MODULE = ROOT / "skills" / "gaussian-view-rt-win" / "scripts" / "windows_gaussview.py"
+MODULE = ROOT / "skills" / "auto-g16-view-rt-win" / "scripts" / "windows_gaussview.py"
 SPEC = importlib.util.spec_from_file_location("windows_gaussview", MODULE)
 assert SPEC and SPEC.loader
 GVIEW = importlib.util.module_from_spec(SPEC)

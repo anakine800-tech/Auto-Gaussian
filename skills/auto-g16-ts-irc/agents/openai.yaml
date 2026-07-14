@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 TS–Freq–IRC"
+  short_description: "安全审计过渡态、双向 IRC 及单体或分离组分端点证据"
+  default_prompt: "Use $auto-g16-ts-irc to audit my approved TS–Freq–IRC workflow and prepare separately reviewed connected or disconnected-fragment endpoint evidence."
