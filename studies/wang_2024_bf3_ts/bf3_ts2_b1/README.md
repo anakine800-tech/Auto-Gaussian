@@ -1,6 +1,6 @@
-# BF3-TS2-B1 preparation and in-flight run
+# BF3-TS2-B1 accepted TS and bidirectional IRC follow-up
 
-Status: `exact_approved_live_job_running_pending_terminal_evidence`
+Status: `mode_accepted_bidirectional_irc_running_pending_terminal_evidence`
 
 The user selected the `standard` protocol with the `complex` resource tier
 (120 GB, 44 cores). The version-controlled files preserve the offline,
@@ -32,14 +32,22 @@ retry, IRC, cancellation, or cleanup.
 
 The original offline manifest intentionally retains its pre-submission
 non-authorization state. The separate workflow-status ledger records that the
-approved action was exercised and that scientific acceptance remains pending.
+approved TS/Freq action was exercised, the job completed normally with all 228
+modes and one raw imaginary frequency, and the hash-bound C13-C21 animation
+decision was accepted.
 The machine-local `live/` bundle preserves the input copy, checksums, PBS script
 and job record but is ignored by Git.
 
-The next gate is terminal evidence: confirm the final scheduler/process state,
-fetch and parse the completed log, require a stationary point and exactly one
-raw imaginary frequency, then perform a new hash-bound manual review that the
-mode follows C13-C21 bond formation. No retry, BF3-TS2-B2, or IRC is implied.
+The separately approved forward and reverse IRC inputs are under `irc/`.
+`irc/forward/terminal-intake-template.json` and
+`irc/reverse/terminal-intake-template.json` bind their exact projects, input
+hashes, directions, 30-point ceilings, 78-atom identity, and C13-C21 review
+coordinate. After each job reaches stable terminal evidence and its complete
+log is fetched, run the offline `ingest-terminal` command. A
+`ready_for_endpoint_structure_review` outcome still requires independent
+reactant/product assignment and `audit-irc-endpoint`; it is not path validation.
+No retry, integrator change, cancellation, cleanup, or endpoint calculation is
+authorized.
 
 `terminal-acceptance-plan.json` freezes these checks before the result is
 known. It requires 228 harmonic modes for this 78-atom nonlinear system,

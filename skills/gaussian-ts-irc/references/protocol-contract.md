@@ -39,6 +39,27 @@ For QST2/QST3, validate atom correspondence locally but keep raw multi-structure
 
 ## Results
 
+`gaussian-terminal-intake-template/1` is a pre-result, offline-only contract
+for one exact project and input SHA-256. It records `task_kind` (`ts_freq` or
+`irc`), expected charge/multiplicity/atom count, terminal-evidence requirements,
+and stage-specific acceptance gates. IRC templates require an explicit
+direction and maximum point count. TS/Freq templates require the exact expected
+frequency count and one raw imaginary mode. The canonical payload hash excludes
+only `template_payload_sha256`. Keep runtime job IDs out of committed templates;
+read them only from the machine-local `job.json`. A template grants no
+submission, retry, cancellation, cleanup, method change, or chemical decision.
+
+`gaussian-terminal-intake/1` binds the template, exact input, local job record,
+and fetched full log by SHA-256. Require a terminal `completed`, `failed`, or
+`interrupted` job/inspection pair, fetched results, no live Gaussian process,
+matching inspected/local log size and full termination counts, and verified
+submission transport hashes. Provenance mismatch is an audit error; a cleanly
+ingested scientific failure is an explicit non-accepted outcome. For TS/Freq,
+`ready_for_manual_mode_review` is not mode acceptance. For IRC,
+`ready_for_endpoint_structure_review` is not a reactant/product assignment,
+minimum, or validated reaction path. The command must never contact PBS or
+perform a live action.
+
 `gaussian-ts-freq-result/1` holds termination/error evidence, stationary-point status, energy, frequencies, raw imaginary count, parsed displacement vectors, final geometry, candidate status, mode-review status, hashes, and diagnostics. Exactly one negative frequency makes `first_order_saddle_candidate` true only when normal/stationary/frequency evidence is also present.
 
 `gaussian-ts-mode-review/1` is an immutable evidence artifact bound to the TS-result SHA-256. Its plus/minus XYZ files are immutable visualization sources. On RTwin, derive a hash-bound, non-runnable MOL preview with `gaussian-view-rt-win`; never disguise an XYZ displacement as a runnable Gaussian input, and never accept process-start evidence without document-level load confirmation. `gaussian-ts-mode-decision/1` is a separate, explicitly confirmed record bound to both the review and TS-result hashes. Never mutate the TS result or mode-review artifact to record acceptance. A changed source hash invalidates the decision.

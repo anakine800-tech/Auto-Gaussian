@@ -118,9 +118,11 @@
             "project": "w24_bf3b1_if1",
             "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/w24_bf3b1_if1.gjf",
             "input_sha256": "486635c5a21ef1e67d11257f5673c61cd7e3aba2eefd47694b985ece653e308d",
-            "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/w24_bf3b1_if1.json",
-            "manifest_sha256": "a2f473c96567e8f7ff0dc48b0f47d2708209883cfe1b497ab7262c2ba5488ae1",
-            "last_verified_scheduler_state": "R",
+          "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/w24_bf3b1_if1.json",
+          "manifest_sha256": "a2f473c96567e8f7ff0dc48b0f47d2708209883cfe1b497ab7262c2ba5488ae1",
+          "terminal_intake_template_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/terminal-intake-template.json",
+          "terminal_intake_template_sha256": "1945dc5e85576bdf46a5dc9972aa36abb13f72c263924602098f02a26c2c327e",
+          "last_verified_scheduler_state": "R",
             "terminal_evidence": false
           },
           {
@@ -128,9 +130,11 @@
             "project": "w24_bf3b1_ir1",
             "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.gjf",
             "input_sha256": "3e30690795645560a075f73aa98c577014cd6b0ed410438a0c77133be0e0520c",
-            "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.json",
-            "manifest_sha256": "1af06c27c44177c4236850b65a6ce19c728a477c91fe2c94bd55b26b8f64d979",
-            "last_verified_scheduler_state": "Q",
+          "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.json",
+          "manifest_sha256": "1af06c27c44177c4236850b65a6ce19c728a477c91fe2c94bd55b26b8f64d979",
+          "terminal_intake_template_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/terminal-intake-template.json",
+          "terminal_intake_template_sha256": "219c8c1c987f46d863e7b1aadc431cc30509474a671077e73e4982b1bf8e9bfa",
+          "last_verified_scheduler_state": "Q",
             "terminal_evidence": false
           }
         ],
@@ -186,6 +190,12 @@
         "sha256": "5744ca0e078911a2a546988f0d003fa1227ab81d482940fdef87b2050a6e249e",
         "status": "prepared_before_live_decision"
       },
+      "terminal_intake_template": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/terminal-intake-template.json",
+        "sha256": "5adb31de049c44fb007f355a1f3ecfe32808702ff8a67493f9f291f9a988af3a",
+        "status": "prepared_offline",
+        "next_outcome_if_gates_pass": "ready_for_manual_mode_review"
+      },
       "live_submission_approval": {
         "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/live-submission-approval.json",
         "sha256": "3300eae5715734b81c8047d4d7ef11f3b6a9fcd81787ba70d9497ac4cb27109f",
@@ -207,7 +217,7 @@
         "contains_job_id": false,
         "contains_server_path": false
       },
-      "next_gate": "Wait for terminal process and PBS evidence, fetch the complete Opt/Freq result, then require stationary-point evidence, 228 modes, exactly one raw imaginary frequency and an independent C13-C21 animation decision."
+      "next_gate": "Wait for terminal process and PBS evidence, fetch the complete Opt/Freq result, run the hash-bound offline terminal intake, then require an independent C13-C21 animation decision."
     }
   ],
   "deferred_benchmarks": [
@@ -220,5 +230,5 @@
       "status": "deferred_not_materialized"
     }
   ],
-  "status_payload_sha256": "c5979efb7be5454958d5119484b3de7a7c7eb682d5dcdacf082d9f8d24335d26"
+  "status_payload_sha256": "9836d1610383c4d17f648c94416d3378a285e888a473674eab2152aa18aed3d3"
 }

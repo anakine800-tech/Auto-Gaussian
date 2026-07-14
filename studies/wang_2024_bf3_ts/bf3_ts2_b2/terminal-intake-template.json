@@ -1,0 +1,53 @@
+{
+  "schema": "gaussian-terminal-intake-template/1",
+  "template_id": "wang2024_bf3_ts2_b2_ts_freq_terminal",
+  "status": "prepared_offline",
+  "task_kind": "ts_freq",
+  "project": "w24_bf3t2b2_s1",
+  "runtime_job_id_binding": "read only from the fetched local job record",
+  "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/w24_bf3ts2_b2_s01.gjf",
+  "input_sha256": "bc8dc95cd4877e93ea0f10b46f239595fb3d7d7e6201e852998770fa695264a1",
+  "expected_system": {
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "charge": 0,
+    "multiplicity": 1
+  },
+  "terminal_gate": {
+    "allowed_job_states": [
+      "completed",
+      "failed",
+      "interrupted"
+    ],
+    "results_fetched_required": true,
+    "terminal_process_evidence_required": true,
+    "input_and_transport_hashes_required": true,
+    "partial_log_forbidden": true
+  },
+  "acceptance_gate": {
+    "optimization_completed_required": true,
+    "stationary_point_required": true,
+    "expected_frequency_count": 228,
+    "required_raw_imaginary_frequency_count": 1,
+    "reaction_coordinate_kind": "forming",
+    "reaction_coordinate_atom_pair": [
+      13,
+      21
+    ],
+    "manual_mode_review_required": true,
+    "static_distance_is_sufficient": false,
+    "literature_featured_imaginary_frequency_cm1": -351.55,
+    "numerical_frequency_match_required": false
+  },
+  "claim_limit": "Terminal intake can identify a first-order-saddle candidate ready for manual mode review; it cannot accept the C13-C21 mode or validate an IRC path.",
+  "no_submission_authorization": true,
+  "forbidden_automatic_actions": [
+    "accept the imaginary mode",
+    "retry or resubmit",
+    "change method, structure, resources, or numerical controls",
+    "submit IRC",
+    "cancel or clean up a scheduler record",
+    "delete evidence"
+  ],
+  "template_payload_sha256": "2c5493cd33c5139937d9d7d05d2325a68934d5152105843443daf4b9c838b83e"
+}
