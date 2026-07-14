@@ -81,7 +81,12 @@ settings, or low-frequency treatment.
 - `studies/wang_2024_bf3_ts/`: BF3-TS1 and BF3-TS2-B1/B2 SI coordinates,
   identities, exact hashes, geometry fingerprints, reaction-coordinate maps,
   reported target values, scientific gates, and the deterministic aggregate
-  ledger. Full BCF TS1/TS2-B1 remain deferred 87/108-atom benchmarks.
+  ledger. It now also contains a separate workflow-status ledger, sanitized
+  accepted BF3-TS1 `r01` evidence, and the selected/audited BF3-TS2-B1
+  `standard` input lineage. The exact B1 input received separate live approval
+  and is recorded as running pending terminal evidence; operational job files
+  remain local and ignored. Full BCF TS1/TS2-B1 remain deferred 87/108-atom
+  benchmarks.
 - `studies/wang_2024_cat2_alpha_alkylation/`: a real-reaction offline forward
   study that records the reported CAT2 reaction, conditions and selectivity,
   while leaving the unresolved active state, charge/multiplicity, structures,
@@ -136,8 +141,10 @@ On 2026-07-14:
   rejected a tampered coordinate fixture by canonical coordinate-block hash;
 - BF3-TS1/B1/B2 atom counts, formulas, exact XYZ hashes, geometry fingerprints,
   and declared reaction-coordinate distances were reproduced offline;
-- the BF3-TS1 closed-shell main-group plan remained
-  `planned_not_submitted`, with no rendered input or server project;
+- the original BF3-TS1 closed-shell main-group proposal remained historical
+  and non-authorizing, while the exact successful `r01` run was recorded in a
+  separate sanitized evidence artifact as a mode-consistent first-order
+  saddle candidate;
 - the sanitized BF3-TS1 evidence contract rejected missing approval provenance,
   payload tampering, and unreviewed vibrational-mode decisions;
 - command-line end-to-end tests reproduced the checked BF3 literature ledger,
@@ -147,7 +154,7 @@ On 2026-07-14:
 - the real CAT2 forward study preserved the literature reaction identity and
   both stereochemical comparison channels without fabricating catalyst
   structures, atom maps, candidate geometries, or an ee ensemble;
-- the full repository suite completed 91 tests successfully;
+- the full repository suite completed 96 tests successfully;
 - the `skill-creator` structural validator reported `Skill is valid!`;
 - the literature ledger and smoke-proposal payload hashes were independently
   reproduced; and
@@ -192,12 +199,13 @@ automatically selected strict Pd-TS protocol.
 is not an accuracy guarantee. Protocol rigor is independent of the
 `simple`/`general`/`complex` resource tiers.
 
-This gate is prospective. The BF3-TS1 calculation already in progress retains
-its real historical approval/input evidence and must not receive a backdated
-proposal or selection. Any retry, IRC, endpoint or later BF3 candidate uses the
-new gate. A sanitized evidence summary for the current run may preserve null
-protocol-option/selection bindings only as `incomplete`; this governance label
-does not replace the separate scientific assessment of the calculation.
+This gate is prospective. The original BF3-TS1 attempt must not receive a
+backdated proposal or selection. The successful Hessian-informed `r01`
+recovery, however, was prospectively bound to the reviewed three-tier options,
+the user's explicit `standard + complex` selection, the rendered input, and
+the exact live approval. Its sanitized evidence can therefore be `passed`
+without manufacturing provenance. Any retry, IRC, endpoint or later BF3
+candidate still requires its own new gate.
 
 ## Next approval gates
 
@@ -208,13 +216,15 @@ does not replace the separate scientific assessment of the calculation.
 3. Review the selectivity model, coverage equivalence and sensitivity policy.
 4. Review the separate transition-metal scientific design; runtime support
    remains refused.
-5. When the separately approved BF3-TS1 run reaches a stable terminal state,
-   verify transport hashes, parse the final TS/Freq evidence, and review the
-   imaginary-mode displacement against C13-H14-N23.
-6. Create the sanitized live-smoke evidence record from that exact historical
-   approval/input/job/TS/mode chain, with null prospective protocol bindings
-   and `status: incomplete`. BF3-TS2-B1/B2 and IRC remain separately gated even
-   if the BF3-TS1 scientific checks pass.
+5. Preserve BF3-TS1 as a mode-consistent first-order saddle candidate; do not
+   claim reaction-path validation without separately approved bidirectional
+   IRC and identified endpoints.
+6. Let the separately approved BF3-TS2-B1 job reach a stable terminal state;
+   do not infer progress or failure from an unavailable live connection.
+7. Fetch and parse the final B1 log, require stationary-point evidence and
+   exactly one raw imaginary frequency, and manually review the C13-C21 mode.
+8. Keep any B1 retry, BF3-TS2-B2, all IRC work, and full BCF benchmarks
+   separately gated.
 
 ## Working-tree note
 

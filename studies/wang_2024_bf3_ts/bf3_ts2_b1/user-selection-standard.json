@@ -1,0 +1,22 @@
+{
+  "schema": "gaussian-protocol-user-decision/1",
+  "decision": "selected",
+  "tier": "standard",
+  "explicit_confirmation": true,
+  "decision_reason": "The user selected standard with 44 cores and 120 GB after the three BF3-TS2-B1 offline protocol candidates were prepared.",
+  "user_message": "使用standard，44核120GB",
+  "resource_selection": {
+    "resource_tier": "complex",
+    "memory": "120GB",
+    "nprocshared": 44
+  },
+  "authorization_scope": {
+    "render_offline_input_draft": true,
+    "submit": false,
+    "create_server_directory": false,
+    "retry": false,
+    "irc": false,
+    "cancel": false,
+    "cleanup": false
+  }
+}
