@@ -1,0 +1,58 @@
+{
+  "schema": "gaussian-reaction-intake-request/1",
+  "study_id": "blocked_catalytic_fixture",
+  "source_files": [
+    {
+      "source_id": "source_cdxml",
+      "path": "source_scheme.cdxml",
+      "role": "chemdraw_source",
+      "description": "Synthetic catalytic scheme used only for blocker tests."
+    }
+  ],
+  "claim_scope": {
+    "questions": [
+      "selectivity",
+      "catalytic_turnover"
+    ],
+    "claim_ceiling": "intake_and_blocker_inventory_only",
+    "non_goals": [
+      "Do not infer the active palladium catalyst or ligand identity.",
+      "Do not generate a metal Gaussian input."
+    ]
+  },
+  "unresolved_transcription": [
+    {
+      "blocker_id": "ligand_identity_unresolved",
+      "scope": "step_001_component_002",
+      "description": "The source does not resolve the exact chiral ligand identity.",
+      "required_for": [
+        "species_registry",
+        "condition_model",
+        "reaction_network"
+      ]
+    },
+    {
+      "blocker_id": "product_stereochemistry_unresolved",
+      "scope": "step_001_product_001",
+      "description": "The product absolute configuration is unreadable.",
+      "required_for": [
+        "species_registry",
+        "selectivity_model"
+      ]
+    },
+    {
+      "blocker_id": "unshown_balance_species",
+      "scope": "reaction",
+      "description": "Counterions, catalyst activation products and inorganic byproducts are not represented.",
+      "required_for": [
+        "species_registry",
+        "reaction_network",
+        "reference_state"
+      ]
+    }
+  ],
+  "review_decision": "accepted_with_blockers",
+  "review_notes": [
+    "The fixture must remain blocked and non-runnable."
+  ]
+}

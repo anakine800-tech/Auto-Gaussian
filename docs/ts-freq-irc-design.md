@@ -4,7 +4,7 @@ Status: design contract; no live TS or IRC submission is authorized by this docu
 
 ## 1. Objective
 
-Create a separate `gaussian-ts-irc` Skill that can prepare, submit, pause for scientific review, resume, retrieve, and audit a Gaussian 16 transition-state workflow through the existing RTwin/PBS transport.
+Create a separate `auto-g16-ts-irc` Skill that can prepare, submit, pause for scientific review, resume, retrieve, and audit a Gaussian 16 transition-state workflow through the existing RTwin/PBS transport.
 
 The workflow must establish all of the following before reporting a validated reaction path:
 
@@ -20,7 +20,7 @@ This is a first-order saddle-point and connectivity workflow. It is not by itsel
 
 ## 2. Layer boundaries
 
-### New Skill: `gaussian-ts-irc`
+### New Skill: `auto-g16-ts-irc`
 
 Own:
 
@@ -41,8 +41,8 @@ Do not own:
 
 ### Existing dependencies
 
-- Use `gaussian-view-rt-win` for reviewed Cartesian structures, stereochemistry, GaussView display, and any conformer handoff.
-- Use `gaussian-rtwin-pbs` for preflight, immutable per-hop hashes, PBS execution, monitoring, retrieval, and the `/home/user100/SDL` boundary.
+- Use `auto-g16-view-rt-win` for reviewed Cartesian structures, stereochemistry, GaussView display, and any conformer handoff.
+- Use `auto-g16-rtwin-pbs` for preflight, immutable per-hop hashes, PBS execution, monitoring, retrieval, and the `/home/user100/SDL` boundary.
 - Add generic checkpoint/dependency-file transport to the PBS layer only if TS/IRC requires it. Do not add TS scientific decisions to the PBS layer.
 
 ## 3. Non-negotiable boundaries
@@ -310,7 +310,7 @@ Offline tests must never invoke SSH, `qsub`, `qdel`, or Gaussian.
 6. Add hashed checkpoint/dependency handoff to the generic PBS layer if required.
 7. Implement forward/reverse IRC builders and parsers.
 8. Implement endpoint extraction, Opt/Freq preparation, and identity comparison.
-9. Add the `gaussian-ts-irc` SKILL.md and UI metadata.
+9. Add the `auto-g16-ts-irc` SKILL.md and UI metadata.
 10. Run full offline validation.
 11. Present a separately approved minimal real-test plan.
 12. Only after the TS workflow is stable, design `gaussian-asymmetric-selectivity` against its structured outputs.

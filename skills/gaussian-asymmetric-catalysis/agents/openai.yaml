@@ -1,4 +1,0 @@
-interface:
-  display_name: "Gaussian Asymmetric Catalysis"
-  short_description: "Audit asymmetric catalytic TS ensembles and selectivity"
-  default_prompt: "Use $gaussian-asymmetric-catalysis to plan and audit a literature-grounded asymmetric catalytic transition-state study."

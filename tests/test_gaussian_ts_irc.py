@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-MODULE = ROOT / "skills" / "gaussian-ts-irc" / "scripts" / "ts_irc.py"
+MODULE = ROOT / "skills" / "auto-g16-ts-irc" / "scripts" / "ts_irc.py"
 DA_FRAGMENT_FIXTURES = ROOT / "tests" / "fixtures" / "da_fragment_endpoint"
 SPEC = importlib.util.spec_from_file_location("ts_irc", MODULE)
 assert SPEC and SPEC.loader

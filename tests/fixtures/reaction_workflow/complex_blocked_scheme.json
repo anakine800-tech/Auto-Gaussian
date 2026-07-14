@@ -1,0 +1,98 @@
+{
+  "scheme_id": "blocked_catalytic_fixture",
+  "steps": [
+    {
+      "step_id": "asymmetric_step",
+      "arrow": {
+        "type": "forward",
+        "direction": "right",
+        "geometry": "horizontal"
+      },
+      "reactants": [
+        {
+          "label": "substrate A",
+          "confidence": "certain"
+        },
+        {
+          "label": "electrophile B",
+          "confidence": "certain"
+        }
+      ],
+      "products": [
+        {
+          "label": "chiral product C",
+          "confidence": "uncertain",
+          "stereochemistry_note": "absolute configuration unreadable"
+        }
+      ],
+      "text_above": [
+        "Pd(OAc)2 (5 mol%), L* (6 mol%), Cs2CO3 (2.0 equiv), THF"
+      ],
+      "text_below": [
+        "−20 °C, 12 h; then sat. NH4Cl; 81%, 92% ee"
+      ],
+      "components": [
+        {
+          "raw_text": "Pd(OAc)2 (5 mol%)",
+          "normalized_name": "palladium(II) acetate",
+          "role": "catalyst",
+          "mol_percent": 5,
+          "confidence": "certain",
+          "alternatives": []
+        },
+        {
+          "raw_text": "L* (6 mol%)",
+          "normalized_name": "chiral ligand L*",
+          "role": "ligand",
+          "mol_percent": 6,
+          "confidence": "uncertain",
+          "alternatives": [
+            "ligand identity unresolved"
+          ]
+        },
+        {
+          "raw_text": "Cs2CO3 (2.0 equiv)",
+          "normalized_name": "cesium carbonate",
+          "role": "base",
+          "equivalents": 2.0,
+          "confidence": "certain",
+          "alternatives": []
+        },
+        {
+          "raw_text": "THF",
+          "normalized_name": "tetrahydrofuran",
+          "role": "solvent",
+          "confidence": "certain",
+          "alternatives": []
+        }
+      ],
+      "temperature": {
+        "raw_text": "−20 °C",
+        "value": -20,
+        "unit": "°C"
+      },
+      "time": {
+        "raw_text": "12 h",
+        "value": 12,
+        "unit": "h"
+      },
+      "workup": {
+        "raw_text": "then sat. NH4Cl"
+      },
+      "yield": {
+        "raw_text": "81%",
+        "value": 81,
+        "unit": "%"
+      },
+      "selectivity": {
+        "raw_text": "92% ee",
+        "value": 92,
+        "unit": "% ee"
+      },
+      "confidence": "probable",
+      "notes": [
+        "Synthetic refusal fixture; no active catalyst is defined."
+      ]
+    }
+  ]
+}

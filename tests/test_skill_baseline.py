@@ -15,7 +15,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).parents[1]
-PBS_SCRIPTS = ROOT / "skills" / "gaussian-rtwin-pbs" / "scripts"
+PBS_SCRIPTS = ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts"
 MODULE = PBS_SCRIPTS / "gaussian_rtwin_pbs.py"
 sys.path.insert(0, str(PBS_SCRIPTS))
 SPEC = importlib.util.spec_from_file_location("gaussian_rtwin_pbs", MODULE)
@@ -26,11 +26,11 @@ SPEC.loader.exec_module(PBS)
 
 class RepositoryBaselineTests(unittest.TestCase):
     def test_pbs_q_is_documented_as_normal_waiting_not_failure(self) -> None:
-        skill = (ROOT / "skills" / "gaussian-rtwin-pbs" / "SKILL.md").read_text()
+        skill = (ROOT / "skills" / "auto-g16-rtwin-pbs" / "SKILL.md").read_text()
         failures = (
             ROOT
             / "skills"
-            / "gaussian-rtwin-pbs"
+            / "auto-g16-rtwin-pbs"
             / "references"
             / "environment-and-failures.md"
         ).read_text()
@@ -450,7 +450,7 @@ class RepositoryBaselineTests(unittest.TestCase):
         self.assertNotIn(".master", serialized)
 
     def test_ts_skill_documents_disconnected_endpoint_gates(self) -> None:
-        text = (ROOT / "skills" / "gaussian-ts-irc" / "SKILL.md").read_text()
+        text = (ROOT / "skills" / "auto-g16-ts-irc" / "SKILL.md").read_text()
         for command in (
             "propose-endpoint-components",
             "build-fragment-endpoints",
