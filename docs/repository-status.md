@@ -2,23 +2,35 @@
 
 Status date: 2026-07-14
 
-Feature line: `codex/Chiral-Ligand`, fast-forwarded into local `main` at
-`3c65879` after the recorded offline merge gates passed.
+Canonical final integration branch: `codex/Auto-Gaussian` at `43cbc0e` before
+the W0/W1 feature work began.
 
-Baseline commit for the feature diff: `02ae9bb` (`main` and `origin/main` when
-this work started)
+Current isolated feature branch: `codex/w0-w1-reaction-intake`. Do not merge it
+into `codex/Auto-Gaussian` before the offline gates and a separately approved
+real strict-intake smoke test pass.
 
-The target architecture beyond this feature line is specified in
+Stable baseline: local `main` at `3c65879`.
+
+All seven repository-owned Skill folders and machine names now use the
+`auto-g16-` prefix, and all seven human-facing display names begin with
+`Auto-G16`. Their repository and deployed copies are synchronized. The same
+namespace is mandatory for future project Skills; versioned scientific schemas
+and immutable historical records retain their existing identifiers.
+
+The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the missing
-reaction-intake, species/atom-map, condition-model, mechanism-network,
-calculation-DAG, free-energy/kinetic, and final-report layers needed to progress
-from a ChemDraw reaction to an auditable whole-reaction study.
+reusable structure/method/literature knowledge databases, general literature-
+evidence/TS-precedent, mechanism-network, calculation-DAG, free-energy/kinetic,
+and final-report layers needed to progress from the new W1 reaction foundation
+to an auditable whole-reaction study.
 
 ## Current capability
 
 The version-controlled source under `skills/` currently provides:
 
 - ChemDraw structure reconstruction and explicit stereochemical review;
+- strict whole-scheme transcription, source-exact/normalized conditions and
+  editable reaction-package artifacts recovered into repository source;
 - audited ChemDraw/SMILES-to-Cartesian conversion;
 - conformer preparation and visible GaussView handoff on RTwin;
 - guarded Gaussian 16 transport through RTwin to PBS, including immutable
@@ -27,10 +39,35 @@ The version-controlled source under `skills/` currently provides:
 - an offline TS–Freq–IRC scientific layer with single-guess and QST family
   audits, hash-bound terminal-result intake, exactly-one-imaginary-mode review,
   checkpoint-bound AllCheck continuations, separately approved IRC directions,
-  and connected or reviewed fragmented endpoint evidence; and
+  and connected or reviewed fragmented endpoint evidence;
 - a literature-grounded, offline asymmetric-catalysis planning/audit Skill for
   active-state hypotheses, candidate-space coverage, comparable TS ensembles,
-  and bounded selectivity claims.
+  and bounded selectivity claims; and
+- on the isolated W0/W1 feature branch, an offline top-level intake adapter
+  with hash-bound reaction intake, species registry, balance review and
+  condition-to-model artifacts.
+
+The W1 builder assigns stable step/occurrence/condition IDs, binds every drawn
+reactant/product exactly once, refuses missing condition decisions, preserves
+source-exact values, records blockers and never produces a calculation-ready
+or submission-authorizing artifact. It does not yet create a mechanism,
+reference basin, candidate geometry, protocol or calculation DAG.
+
+The repository does not yet provide `auto-g16-knowledge-base` or a reusable
+group registry for reviewed catalyst/ligand structures, complete computational
+methods, or papers/SI/books. It also lacks typed cross-links, permissions,
+deterministic migrations/indexes, dry-run importers, and immutable per-study
+knowledge snapshots. The future W2 design is recorded in
+`skills/auto-g16-reaction-workflow/references/knowledge-database-design.md`.
+
+The repository does not yet provide a general tool that reproducibly searches
+primary papers and supporting information, extracts computation/mechanism/TS
+evidence, audits target-versus-precedent applicability, or translates a source
+structure into a reviewed target TS-seed proposal. The existing BF3 and
+asymmetric-catalysis literature records are valuable fixed precedents, but they
+are not that search and evidence-acquisition layer. The future W2 design is now
+recorded in
+`skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
 
 The TS–Freq–IRC feature and its endpoint workflow have been merged to `main`.
 The repository contains tracked live-smoke evidence for the endpoint workflow
@@ -40,7 +77,7 @@ they do not authorize another live calculation.
 ## Work completed in this feature line
 
 This feature line established the design, offline data boundary, literature
-record, and planning/audit Skill for `gaussian-asymmetric-catalysis`. The intended
+record, and planning/audit Skill for `auto-g16-asymmetric-catalysis`. The intended
 scientific scope is method-development work involving:
 
 1. transition-metal catalysts bearing chiral ligands; and
@@ -61,11 +98,11 @@ chiral-boron capability work is deliberately sequenced after this milestone.
 
 ## Deliberate limitations
 
-- The `gaussian-asymmetric-catalysis` Skill is runnable only as an offline
+- The `auto-g16-asymmetric-catalysis` Skill is runnable only as an offline
   planning, deterministic-building, ingestion, and audit workflow. It has no
   Gaussian execution builder or live submission path,
   transition-metal calculation support, or automatic method selection.
-- The current `gaussian-ts-irc` Skill explicitly refuses transition-metal,
+- The current `auto-g16-ts-irc` Skill explicitly refuses transition-metal,
   broken-symmetry, excited-state, multireference, periodic, and ONIOM jobs.
   The new design preserves that refusal. Metal support needs a separately
   reviewed scientific extension before any candidate can become calculation-
@@ -129,7 +166,7 @@ chiral-boron capability work is deliberately sequenced after this milestone.
   examples.
 - `scripts/validate_asymmetric_contract.py`: standard-library-only offline
   structural and cross-artifact semantic validator.
-- `skills/gaussian-asymmetric-catalysis/`: offline workflow plus a verified
+- `skills/auto-g16-asymmetric-catalysis/`: offline workflow plus a verified
   Wang-group computational-precedent audit and a candidate/selectivity
   protocol, deterministic builder, and transition-metal support design.
   Publisher PDFs are not stored in the repository.
@@ -186,15 +223,18 @@ On 2026-07-14:
 - the real CAT2 forward study preserved the literature reaction identity and
   both stereochemical comparison channels without fabricating catalyst
   structures, atom maps, candidate geometries, or an ee ensemble;
-- the full repository suite completed 103 tests successfully;
+- the full repository suite completed 116 tests successfully, including the
+  repository-wide Auto-G16 naming gate and the non-authorizing reusable-
+  knowledge-database design boundary;
 - the `skill-creator` structural validator reported `Skill is valid!`;
 - the literature ledger and smoke-proposal payload hashes were independently
   reproduced; and
 - `git diff --check` plus the targeted password/API-key/private-key scan found
   no problem in the scoped change files.
 
-No live SSH, PBS, Gaussian, deployment, cancellation, or server-data command
-was part of this validation.
+No live SSH, PBS, Gaussian, cancellation, or server-data command was part of
+this validation. Named local Skill synchronization is deployment maintenance,
+not Gaussian or PBS authority.
 
 This snapshot is offline development evidence, not Gaussian or chemical
 validation.
@@ -241,22 +281,31 @@ candidate still requires its own new gate.
 
 ## Next approval gates
 
-1. Select a concrete metal–chiral-ligand reaction for milestone M1 and review
+1. Complete W1 with one reviewed real strict ChemDraw reaction package while
+   preserving unresolved active-state/mechanism fields as blockers; this grants
+   no Gaussian live authority.
+2. Implement the W2 `auto-g16-knowledge-base` structure/method/source/link/
+   snapshot contracts, deterministic SQLite MVP and permission-negative tests
+   against frozen fixtures. Then implement the literature query/evidence/
+   mechanism-support/TS-precedent contracts. Only after offline acceptance,
+   separately approve one real-reaction literature-search smoke; it must not
+   generate an input or authorize calculation.
+3. Select a concrete metal–chiral-ligand reaction for milestone M1 and review
    its oxidation/electron accounting, spin surfaces, wavefunctions,
    coordination states, elementary-step classes and three candidate TS-search
    strategies. Runtime support remains refused.
-2. Define the offline M2 input/audit/parser contracts and M3 adversarial
+4. Define the offline M2 input/audit/parser contracts and M3 adversarial
    fixtures without rendering a metal Gaussian input or enabling submission.
-3. After each BF3-TS2-B1 IRC direction terminates, fetch it, run the exact
+5. After each BF3-TS2-B1 IRC direction terminates, fetch it, run the exact
    offline terminal-intake template, and independently review its endpoint;
    do not label endpoints or claim path validation before both terminate and
    their endpoint structures are identified.
-4. Monitor the approved BF3-TS2-B2 standard job to stable termination, fetch the
+6. Monitor the approved BF3-TS2-B2 standard job to stable termination, fetch the
    complete Opt/Freq output, run the exact offline intake template, and apply
    the precommitted 228-mode/one-imaginary-mode/C13–C21 animation gates before
    any TS claim.
-5. Keep any B1/B2 retry, B2 IRC and full BCF benchmarks separately gated.
-6. Resume broader chiral-boron complex construction and enumeration after the
+7. Keep any B1/B2 retry, B2 IRC and full BCF benchmarks separately gated.
+8. Resume broader chiral-boron complex construction and enumeration after the
    transition-metal design milestone.
 
 The exact merge/deployment preparation and B1 acceptance checklist are in

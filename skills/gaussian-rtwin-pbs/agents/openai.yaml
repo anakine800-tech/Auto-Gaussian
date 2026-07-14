@@ -1,4 +1,0 @@
-interface:
-  display_name: "Gaussian RTwin PBS"
-  short_description: "自动运行 Gaussian 工作流并安全处理 PBS 僵尸记录"
-  default_prompt: "Use $gaussian-rtwin-pbs to run my approved Gaussian workflow and automatically clear only a repeatedly proven terminal PBS scheduler zombie."

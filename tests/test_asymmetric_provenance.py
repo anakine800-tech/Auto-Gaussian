@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
-MODULE = ROOT / "skills" / "gaussian-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
+MODULE = ROOT / "skills" / "auto-g16-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
 FIXTURES = ROOT / "tests" / "fixtures" / "asymmetric_catalysis"
 SPEC = importlib.util.spec_from_file_location("asymmetric_catalysis_provenance", MODULE)
 assert SPEC and SPEC.loader

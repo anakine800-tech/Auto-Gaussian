@@ -9,6 +9,13 @@ These rules apply to the entire repository.
 - Before deploying a Skill, validate the repository copy, compare the planned diff, then synchronize only that named Skill.
 - Keep experimental workflow code on a feature branch. Merge it only after offline tests and an explicitly approved live smoke test.
 
+## Auto-G16 Skill naming
+
+- Name every repository-owned Skill in this project with the machine prefix `auto-g16-` and make its folder name exactly match the `name` in `SKILL.md`.
+- Use `Auto-G16` at the beginning of each human-facing Skill display name and document title.
+- Apply the same prefix to every future project Skill, including literature, mechanism-network, TS-seed, reaction-analysis, and transition-metal extensions.
+- Do not rename versioned scientific artifact schemas, historical immutable records, Gaussian program terminology, or external dependency Skills solely because a Skill is renamed. Preserve their compatibility and provenance.
+
 ## Server safety boundary
 
 - Permit Skill-managed server data and scratch only below `/home/user100/SDL`.

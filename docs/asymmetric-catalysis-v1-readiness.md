@@ -31,7 +31,7 @@ Before merge:
 4. the intended staged paths receive sensitive-string and private-key scans;
 5. the staged list contains no unrelated local file;
 6. transition-metal submission remains refused in schema, builder, validator,
-   tests and the downstream `gaussian-ts-irc` boundary; and
+   tests and the downstream `auto-g16-ts-irc` boundary; and
 7. the B1 terminal package is recognized as an acceptance plan, not authority
    for a retry, B2, IRC, cancellation or cleanup.
 
@@ -42,22 +42,20 @@ The repository `skills/` tree is the source of truth. Installed copies under
 
 After merge approval, compare and synchronize only these named Skills:
 
-1. `gaussian-asymmetric-catalysis` — new deployed Skill;
-2. `gaussian-rtwin-pbs` — protocol-rigor documentation and offline selector;
-3. `gaussian-ts-irc` — protocol contract and preserved metal refusal.
+1. `auto-g16-asymmetric-catalysis` — deployed Skill;
+2. `auto-g16-rtwin-pbs` — protocol-rigor documentation and offline selector;
+3. `auto-g16-ts-irc` — protocol contract and preserved metal refusal.
 
 For each name, validate the repository copy, review the exact repo-to-installed
 diff, synchronize that directory only, and rerun the sync comparison. Do not
 deploy studies, contracts, tests, docs, server data or machine-local files into
 the Skill directory.
 
-Current comparison before deployment:
+Current comparison after the Auto-G16 namespace migration:
 
-- `gaussian-asymmetric-catalysis`: installed copy is absent;
-- `gaussian-rtwin-pbs`: repository protocol-rigor additions differ from the
-  installed copy; and
-- `gaussian-ts-irc`: repository Skill/protocol contract differs from the
-  installed copy.
+- `auto-g16-asymmetric-catalysis`: synchronized;
+- `auto-g16-rtwin-pbs`: synchronized; and
+- `auto-g16-ts-irc`: synchronized.
 
 ## B1 terminal acceptance package
 
