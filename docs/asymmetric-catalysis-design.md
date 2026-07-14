@@ -471,7 +471,11 @@ The implemented contract consists of:
   approval gates; and
 - `gaussian-asymmetric-smoke-proposal/1` — priority-1, non-runnable closed-
   shell main-group proposal. It contains no input while protocol fields remain
-  unresolved.
+  unresolved; and
+- `gaussian-asymmetric-live-smoke-evidence/1` — sanitized post-run evidence
+  bound to the exact approval, input, job record, parsed TS result, mode review,
+  and mode decision. It contains no job ID, server path, log, or checkpoint and
+  grants no authority for another action.
 
 Schemas provide structural validation. The semantic validator additionally
 checks cross-artifact IDs, hashes, channel membership, no-submission flags,

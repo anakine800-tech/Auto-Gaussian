@@ -19,6 +19,7 @@ server-data authority.
 | metal support | `gaussian-asymmetric-metal-support-design/1` | separate scientific checklist with mandatory submission refusal |
 | literature benchmark | `gaussian-asymmetric-literature-benchmark-ledger/1` | hash-bound literature coordinates, identities, expected observables, and unresolved gates |
 | smoke proposal | `gaussian-asymmetric-smoke-proposal/1` | priority-1 closed-shell main-group plan with no live authority |
+| live-smoke evidence | `gaussian-asymmetric-live-smoke-evidence/1` | sanitized, hash-bound terminal/run/TS/mode evidence with no job ID, server path, log, or checkpoint |
 
 The JSON Schemas are in `contracts/asymmetric-catalysis/`. Draft 2020-12
 structural validity is necessary but not sufficient. Cross-file and scientific
@@ -61,6 +62,28 @@ neutral singlet may be recorded with its inference basis, but it requires
 separate approval and does not become a source-reported charge/multiplicity.
 The ledger must not contain a Gaussian route, rendered input, resources,
 project, job ID, or submission authority.
+
+### 2.2 Sanitized live-smoke evidence
+
+Live-smoke evidence is a post-run summary, never a proposal or approval. It
+binds the exact smoke proposal, literature ledger, pre-submission approval,
+rendered input, job record, parsed TS result, mode review, and mode decision by
+SHA-256. The source artifacts remain under their owning Skills and are not
+copied into this sanitized record.
+
+`status: passed` requires all of the following:
+
+- confirmed terminal state, verified transport hashes, a passed fresh-project
+  guard, and reviewed resources;
+- normal termination, no error termination, a stationary point, complete
+  frequency evidence, and exactly one raw imaginary frequency; and
+- an explicitly accepted, confirmed mode decision whose displacement was
+  reviewed against the intended reaction coordinate.
+
+Missing approval provenance or incomplete TS/mode evidence must remain
+`incomplete` or `failed`. The artifact contains no job ID, server path,
+Gaussian log, or checkpoint. It authorizes neither a retry nor IRC, another
+candidate, deployment, cancellation, or cleanup.
 
 ## 3. Study contract
 
@@ -317,6 +340,14 @@ The repository validator uses only the Python standard library:
 python3 scripts/validate_asymmetric_contract.py \
   --study tests/fixtures/asymmetric_catalysis/boron_study.json \
   --candidate tests/fixtures/asymmetric_catalysis/boron_candidate.json
+```
+
+Standalone artifacts, including a sanitized live-smoke record, use repeatable
+`--artifact` arguments:
+
+```bash
+python3 scripts/validate_asymmetric_contract.py \
+  --artifact path/to/sanitized-live-smoke-evidence.json
 ```
 
 It performs no network or subprocess operation. A successful exit means the

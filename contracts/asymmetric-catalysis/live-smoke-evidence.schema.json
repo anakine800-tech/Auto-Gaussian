@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/live-smoke-evidence.schema.json",
+  "title": "Sanitized asymmetric-catalysis live-smoke evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "evidence_id", "status", "recorded_date", "calculation_ready",
+    "no_submission_authorization", "sanitized", "contains_job_id",
+    "contains_server_path", "contains_gaussian_log", "contains_checkpoint",
+    "source_bindings", "chemical_system", "execution", "ts_validation",
+    "mode_validation", "limitations", "evidence_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-live-smoke-evidence/1"},
+    "evidence_id": {"$ref": "#/$defs/id"},
+    "status": {"enum": ["passed", "failed", "incomplete"]},
+    "recorded_date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "sanitized": {"const": true},
+    "contains_job_id": {"const": false},
+    "contains_server_path": {"const": false},
+    "contains_gaussian_log": {"const": false},
+    "contains_checkpoint": {"const": false},
+    "source_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "smoke_proposal", "literature_ledger", "input_approval", "input",
+        "job_record", "parsed_ts_result", "mode_review", "mode_decision"
+      ],
+      "properties": {
+        "smoke_proposal": {"$ref": "#/$defs/hashOnlyArtifact"},
+        "literature_ledger": {"$ref": "#/$defs/hashOnlyArtifact"},
+        "input_approval": {"$ref": "#/$defs/hashOnlyArtifact"},
+        "input": {"$ref": "#/$defs/hashOnlyArtifact"},
+        "job_record": {"$ref": "#/$defs/hashOnlyArtifact"},
+        "parsed_ts_result": {"$ref": "#/$defs/hashOnlyArtifact"},
+        "mode_review": {"$ref": "#/$defs/hashOnlyArtifact"},
+        "mode_decision": {"$ref": "#/$defs/hashOnlyArtifact"}
+      }
+    },
+    "chemical_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id", "formula", "atom_count", "charge", "multiplicity",
+        "canonical_coordinate_block_sha256"
+      ],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "formula": {"type": "string", "minLength": 1},
+        "atom_count": {"type": "integer", "minimum": 1},
+        "charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "canonical_coordinate_block_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "g16_revision", "route", "resource_tier", "memory", "nprocshared",
+        "terminal_state_confirmed", "transport_hashes_verified",
+        "fresh_project_guard_passed", "resource_policy_reviewed"
+      ],
+      "properties": {
+        "g16_revision": {"type": "string", "minLength": 3},
+        "route": {"type": "string", "minLength": 3},
+        "resource_tier": {"enum": ["simple", "general", "complex", "custom_reviewed"]},
+        "memory": {"type": "string", "minLength": 2},
+        "nprocshared": {"type": "integer", "minimum": 1, "maximum": 44},
+        "terminal_state_confirmed": {"type": "boolean"},
+        "transport_hashes_verified": {"type": "boolean"},
+        "fresh_project_guard_passed": {"type": "boolean"},
+        "resource_policy_reviewed": {"type": "boolean"}
+      }
+    },
+    "ts_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normal_termination", "error_termination", "stationary_point",
+        "frequency_complete", "raw_imaginary_frequency_count",
+        "first_order_saddle_candidate", "featured_imaginary_frequency_cm1"
+      ],
+      "properties": {
+        "normal_termination": {"type": "boolean"},
+        "error_termination": {"type": "boolean"},
+        "stationary_point": {"type": "boolean"},
+        "frequency_complete": {"type": "boolean"},
+        "raw_imaginary_frequency_count": {"type": "integer", "minimum": 0},
+        "first_order_saddle_candidate": {"type": "boolean"},
+        "featured_imaginary_frequency_cm1": {"type": ["number", "null"]}
+      }
+    },
+    "mode_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision", "confirmed", "intended_coordinate",
+        "coordinate_projection_reviewed"
+      ],
+      "properties": {
+        "decision": {"enum": ["accepted", "rejected", "unclear", "not_reviewed"]},
+        "confirmed": {"type": "boolean"},
+        "intended_coordinate": {"type": "string", "minLength": 3},
+        "coordinate_projection_reviewed": {"type": "boolean"}
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 3}
+    },
+    "evidence_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hashOnlyArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {"sha256": {"$ref": "#/$defs/sha256"}}
+    }
+  }
+}

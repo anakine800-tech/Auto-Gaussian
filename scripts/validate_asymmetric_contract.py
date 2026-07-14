@@ -28,6 +28,7 @@ SCHEMA_IDS = {
     "materializations": "gaussian-asymmetric-materializations/1",
     "metal-support": "gaussian-asymmetric-metal-support-design/1",
     "smoke-proposal": "gaussian-asymmetric-smoke-proposal/1",
+    "live-smoke-evidence": "gaussian-asymmetric-live-smoke-evidence/1",
     "literature-benchmark": "gaussian-asymmetric-literature-benchmark-ledger/1",
 }
 SCHEMAS = SCHEMA_IDS
@@ -529,6 +530,38 @@ def validate_smoke_proposal(
         require(chemical.get("coordinate_artifact") == candidate.get("geometry", {}).get("artifact"), "smoke-proposal: coordinate artifact mismatch")
 
 
+def validate_live_smoke_evidence(evidence: dict[str, Any]) -> None:
+    validate_structure(evidence, "live-smoke-evidence")
+    expected = payload_sha256({key: value for key, value in evidence.items() if key != "evidence_payload_sha256"})
+    require(evidence.get("evidence_payload_sha256") == expected, "live-smoke-evidence: payload hash mismatch")
+    if evidence.get("status") != "passed":
+        return
+    execution = evidence.get("execution", {})
+    for field in (
+        "terminal_state_confirmed", "transport_hashes_verified",
+        "fresh_project_guard_passed", "resource_policy_reviewed",
+    ):
+        require(execution.get(field) is True, f"live-smoke-evidence: passed status requires {field}")
+    ts = evidence.get("ts_validation", {})
+    require(ts.get("normal_termination") is True, "live-smoke-evidence: passed status requires normal termination")
+    require(ts.get("error_termination") is False, "live-smoke-evidence: passed status conflicts with error termination")
+    require(ts.get("stationary_point") is True, "live-smoke-evidence: passed status requires a stationary point")
+    require(ts.get("frequency_complete") is True, "live-smoke-evidence: passed status requires complete frequencies")
+    require(ts.get("raw_imaginary_frequency_count") == 1, "live-smoke-evidence: passed status requires exactly one raw imaginary frequency")
+    require(ts.get("first_order_saddle_candidate") is True, "live-smoke-evidence: passed status requires a first-order saddle candidate")
+    require(
+        isinstance(ts.get("featured_imaginary_frequency_cm1"), (int, float))
+        and not isinstance(ts.get("featured_imaginary_frequency_cm1"), bool)
+        and math.isfinite(ts["featured_imaginary_frequency_cm1"])
+        and ts["featured_imaginary_frequency_cm1"] < 0,
+        "live-smoke-evidence: passed status requires one finite negative featured frequency",
+    )
+    mode = evidence.get("mode_validation", {})
+    require(mode.get("decision") == "accepted", "live-smoke-evidence: passed status requires an accepted mode decision")
+    require(mode.get("confirmed") is True, "live-smoke-evidence: passed status requires a confirmed mode decision")
+    require(mode.get("coordinate_projection_reviewed") is True, "live-smoke-evidence: passed status requires coordinate review")
+
+
 def validate_literature_benchmark(ledger: dict[str, Any]) -> None:
     validate_structure(ledger, "literature-benchmark")
     expected = payload_sha256({key: value for key, value in ledger.items() if key != "ledger_payload_sha256"})
@@ -741,7 +774,8 @@ def validate_analysis(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--study", type=Path, required=True)
+    parser.add_argument("--artifact", type=Path, action="append", default=[])
+    parser.add_argument("--study", type=Path)
     parser.add_argument("--candidate", type=Path, action="append", default=[])
     parser.add_argument("--result", type=Path, action="append", default=[])
     parser.add_argument("--analysis", type=Path)
@@ -750,13 +784,36 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    study = load_json(args.study)
-    validate_study(study)
+    artifact_kinds: list[str] = []
+    standalone_validators = {
+        "study": validate_study,
+        "space": validate_space,
+        "ledger": validate_ledger,
+        "energy-record": validate_energy_record,
+        "materializations": validate_materializations,
+        "metal-support": validate_metal_support,
+        "smoke-proposal": validate_smoke_proposal,
+        "live-smoke-evidence": validate_live_smoke_evidence,
+        "literature-benchmark": validate_literature_benchmark,
+    }
+    for path in args.artifact:
+        artifact_data = load_json(path)
+        kind = validate_structure(artifact_data)
+        validator = standalone_validators.get(kind)
+        if validator is not None:
+            validator(artifact_data)
+        artifact_kinds.append(kind)
+
+    require(args.study is not None or artifact_kinds, "supply --study and/or at least one --artifact")
+    require(args.study is not None or not (args.candidate or args.result or args.analysis), "candidate/result/analysis validation requires --study")
+    study = load_json(args.study) if args.study is not None else None
+    if study is not None:
+        validate_study(study)
 
     candidates: dict[str, tuple[dict[str, Any], Path]] = {}
     for path in args.candidate:
         candidate = load_json(path)
-        validate_candidate(candidate, study, args.study)
+        validate_candidate(candidate, study, args.study)  # type: ignore[arg-type]
         candidate_id = candidate["candidate_id"]
         require(candidate_id not in candidates, f"duplicate candidate input {candidate_id}")
         candidates[candidate_id] = (candidate, path)
@@ -773,16 +830,18 @@ def main() -> int:
         results[result_id] = (result, path)
 
     if args.analysis:
-        validate_analysis(load_json(args.analysis), study, args.study, results)
+        validate_analysis(load_json(args.analysis), study, args.study, results)  # type: ignore[arg-type]
 
     print(
         json.dumps(
             {
                 "valid": True,
-                "study_id": study["study_id"],
+                "study_id": study["study_id"] if study is not None else None,
                 "candidate_count": len(candidates),
                 "result_count": len(results),
                 "analysis_checked": args.analysis is not None,
+                "artifact_count": len(artifact_kinds),
+                "artifact_kinds": artifact_kinds,
                 "live_actions": False,
             },
             indent=2,

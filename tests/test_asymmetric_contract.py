@@ -28,7 +28,7 @@ class AsymmetricCatalysisContractTests(unittest.TestCase):
         expected = {
             "study", "candidate", "result", "analysis", "space", "ledger",
             "energy-record", "materializations", "metal-support", "smoke-proposal",
-            "literature-benchmark",
+            "live-smoke-evidence", "literature-benchmark",
         }
         found = set()
         for path in SCHEMAS.glob("*.schema.json"):

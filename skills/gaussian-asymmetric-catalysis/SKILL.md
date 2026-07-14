@@ -204,6 +204,17 @@ python3 skills/gaussian-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   --output docs/asymmetric-catalysis-smoke-proposal.json
 ```
 
+If a separately approved live smoke run later reaches a terminal state, keep
+the full input, job, log, checkpoint, parsed TS, mode-review and decision
+artifacts in their owning execution/TS Skills. Record only a sanitized
+`gaussian-asymmetric-live-smoke-evidence/1` summary here, with SHA-256 bindings
+to the exact proposal, approval, input and evidence chain. Validate it with
+`scripts/validate_asymmetric_contract.py --artifact`. Never mark it `passed`
+without normal termination, complete frequencies, exactly one raw imaginary
+mode, and an explicitly accepted coordinate-displacement review. This evidence
+does not authorize a retry, IRC, another candidate, deployment, cancellation,
+or cleanup.
+
 ## Claim levels
 
 - `first_order_saddle_candidate`: stationary point, complete frequency, one
@@ -230,8 +241,9 @@ contract:
 - coverage, aggregation, uncertainty and claim-level analysis.
 
 The candidate-space, ledger, materialization, explicit-energy, metal-support,
-and smoke-proposal artifacts are defined in
-`contracts/asymmetric-catalysis/`. The smoke proposal is not a live artifact.
+smoke-proposal, and sanitized live-smoke-evidence artifacts are defined in
+`contracts/asymmetric-catalysis/`. Neither the proposal nor the evidence record
+grants live authority.
 
 End with a prioritized gap list. Typical priorities are active-state review,
 candidate-space coverage, transition-metal scientific support, deterministic

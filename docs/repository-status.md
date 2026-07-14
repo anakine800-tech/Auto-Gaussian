@@ -91,7 +91,9 @@ settings, or low-frequency treatment.
 - `contracts/asymmetric-catalysis/*.schema.json`: Draft 2020-12 schemas for the
   study, candidate space, ledger, materializations, candidate, energy record,
   result, analysis, metal-support design, literature benchmark, and smoke
-  proposal.
+  proposal, plus a sanitized live-smoke evidence record that binds the exact
+  approval/input/job/TS/mode chain without retaining a job ID, server path,
+  Gaussian log, or checkpoint.
 - `tests/fixtures/asymmetric_catalysis/`: non-runnable metal and chiral-boron
   examples.
 - `scripts/validate_asymmetric_contract.py`: standard-library-only offline
@@ -109,7 +111,7 @@ deployment, cancellation, or server cleanup operation.
 
 On 2026-07-14:
 
-- all eleven artifact types passed the repository's fail-closed Draft 2020-12
+- all twelve artifact types passed the repository's fail-closed Draft 2020-12
   schema subset validator; unknown schema keywords are refused until the
   validator and tests are extended;
 - strict JSON loading rejected duplicate keys and non-standard `NaN` or
@@ -136,10 +138,16 @@ On 2026-07-14:
   and declared reaction-coordinate distances were reproduced offline;
 - the BF3-TS1 closed-shell main-group plan remained
   `planned_not_submitted`, with no rendered input or server project;
+- the sanitized BF3-TS1 evidence contract rejected missing approval provenance,
+  payload tampering, and unreviewed vibrational-mode decisions;
+- command-line end-to-end tests reproduced the checked BF3 literature ledger,
+  generated only a non-runnable smoke proposal, retained the metal submission
+  refusal, validated standalone artifacts and the full synthetic hash chain,
+  and refused output overwrite;
 - the real CAT2 forward study preserved the literature reaction identity and
   both stereochemical comparison channels without fabricating catalyst
   structures, atom maps, candidate geometries, or an ee ensemble;
-- the full repository suite completed 78 tests successfully;
+- the full repository suite completed 82 tests successfully;
 - the `skill-creator` structural validator reported `Skill is valid!`;
 - the literature ledger and smoke-proposal payload hashes were independently
   reproduced; and
@@ -161,13 +169,12 @@ validation.
 3. Review the selectivity model, coverage equivalence and sensitivity policy.
 4. Review the separate transition-metal scientific design; runtime support
    remains refused.
-5. Review BF3-TS1 charge 0/multiplicity 1 as an explicit hypothesis, then choose
-   the exact TS/Freq route, SMD solvent identity, thermochemistry, resources,
-   and fresh project. The current proposal contains none of those approvals.
-6. Only after that review, verify the installed G16 revision, render and re-hash
-   the final input, and request explicit approval for that exact job. BF3-TS2-
-   B1/B2 remain gated on successful BF3-TS1 completion and accepted manual mode
-   review.
+5. When the separately approved BF3-TS1 run reaches a stable terminal state,
+   verify transport hashes, parse the final TS/Freq evidence, and review the
+   imaginary-mode displacement against C13-H14-N23.
+6. Create the sanitized live-smoke evidence record only from that exact
+   approval/input/job/TS/mode chain. BF3-TS2-B1/B2 and IRC remain separately
+   gated even if BF3-TS1 passes.
 
 ## Working-tree note
 
