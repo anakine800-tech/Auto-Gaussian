@@ -25,7 +25,7 @@ RTwin uses the dedicated server key and alias `gaussian-server`. The Mac uses th
 - SDL containment or symlink check fails: stop. Do not choose another directory, follow the symlink, or bypass `realpath` checks.
 - Server project directory is non-empty: stop and preserve it. Use a new project name unless the user explicitly requests a separately audited recovery operation.
 - Ambiguous `qsub` result caused by connection loss: query `qstat -f` and search the exact job name before any retry.
-- PBS `Q`: report queued state and wait; do not submit another copy.
+- PBS `Q`: report a normal queued state and wait; do not submit another copy, cancel, lower resources, or change the calculation. A 44-core full-node job commonly remains queued while no suitable node is free, but `Q` alone is not proof that the server is full. Attribute the delay to capacity, priority, policy, or another cause only when PBS provides matching reason/comment evidence.
 - PBS `R`: inspect the Gaussian log; scheduling alone is not chemical success.
 - `Error termination`: preserve the input/log and diagnose the final 80–120 lines before changing resources or chemistry.
 - `End of file in ZSymb`: check required blank lines and malformed Gaussian sections.
@@ -56,7 +56,7 @@ For an optimization, require `Normal termination` plus optimization/stationary-p
 
 ## State classification
 
-- `queued`: PBS `Q`.
+- `queued`: PBS `Q`; the job is waiting for scheduling and is not a failed launch. Absence of a session, Gaussian process, or log is expected before execution begins.
 - `running`: PBS `R` and the recorded PBS session process exists.
 - `stale`: PBS `R`, session process absent, log not yet proven stable.
 - `confirmed_scheduler_zombie`: two stable observations prove a terminal Gaussian job with a lingering PBS `R` record and absent session process; eligible for one automatic exact scheduler cleanup.

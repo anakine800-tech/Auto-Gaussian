@@ -92,11 +92,15 @@ chiral-boron capability work is deliberately sequenced after this milestone.
   ledger. It now also contains a separate workflow-status ledger, sanitized
   accepted BF3-TS1 `r01` evidence, and the selected/audited BF3-TS2-B1
   `standard` input lineage. The exact B1 input received separate live approval
-  and is recorded as running pending terminal evidence. A precommitted,
-  hash-bound B1 terminal-acceptance plan defines process/log, stationary-point,
-  228-mode, exactly-one-imaginary-frequency and manual C13–C21 motion gates;
-  operational job files remain local and ignored. Full BCF TS1/TS2-B1 remain
-  deferred 87/108-atom benchmarks.
+  and completed normally in 28 optimization steps and 29 SCF calculations. Its
+  228 modes contain the sole -389.3384 cm⁻¹ imaginary frequency, and its
+  hash-bound C13–C21 animation decision is accepted. Separately approved B1
+  bidirectional IRC work remains endpoint-incomplete. B2 now has a B1-matched
+  standard offline input candidate, exact coordinate/route/hash audits and a
+  precommitted terminal acceptance plan. That exact B2 input subsequently
+  received one-time live approval and is queued; no retry or replacement is
+  authorized. Operational job files remain local and ignored. Full BCF
+  TS1/TS2-B1 remain deferred 87/108-atom benchmarks.
 - `studies/wang_2024_cat2_alpha_alkylation/`: a real-reaction offline forward
   study that records the reported CAT2 reaction, conditions and selectivity,
   while leaving the unresolved active state, charge/multiplicity, structures,
@@ -167,7 +171,7 @@ On 2026-07-14:
 - the real CAT2 forward study preserved the literature reaction identity and
   both stereochemical comparison channels without fabricating catalyst
   structures, atom maps, candidate geometries, or an ee ensemble;
-- the full repository suite completed 97 tests successfully;
+- the full repository suite completed 99 tests successfully;
 - the `skill-creator` structural validator reported `Skill is valid!`;
 - the literature ledger and smoke-proposal payload hashes were independently
   reproduced; and
@@ -228,11 +232,13 @@ candidate still requires its own new gate.
    strategies. Runtime support remains refused.
 2. Define the offline M2 input/audit/parser contracts and M3 adversarial
    fixtures without rendering a metal Gaussian input or enabling submission.
-3. Let the separately approved BF3-TS2-B1 job reach a stable terminal state;
-   then apply the precommitted terminal plan, parse all 228 modes, require
-   exactly one imaginary frequency, and manually review C13–C21 motion.
-4. Decide whether to prepare BF3-TS2-B2 only after the B1 mode is accepted.
-5. Keep any B1 retry, all IRC work and full BCF benchmarks separately gated.
+3. Fetch and independently review both BF3-TS2-B1 numerical IRC directions;
+   do not label endpoints or claim path validation before both terminate and
+   their endpoint structures are identified.
+4. Monitor the approved BF3-TS2-B2 standard job to stable termination, fetch the
+   complete Opt/Freq output, and apply the precommitted 228-mode/one-imaginary-
+   mode/C13–C21 animation gates before any TS claim.
+5. Keep any B1/B2 retry, B2 IRC and full BCF benchmarks separately gated.
 6. Resume broader chiral-boron complex construction and enumeration after the
    transition-metal design milestone.
 

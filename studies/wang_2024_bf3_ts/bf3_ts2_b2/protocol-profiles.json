@@ -1,0 +1,514 @@
+{
+  "schema": "gaussian-protocol-profile-source/1",
+  "proposal_id": "wang2024_bf3_ts2_b2_three_tiers",
+  "difficulty_assessment": {
+    "class": "moderate_to_high",
+    "drivers": [
+      "78-atom four-component transition-state complex",
+      "low-magnitude literature imaginary frequency near -352 cm-1",
+      "carbon-carbon bond-forming coordinate with a 2.22 angstrom starting distance",
+      "no reusable candidate-specific analytic Hessian"
+    ],
+    "evidence": [
+      "Hash-bound SI geometry and expected result in candidate-ledger.json",
+      "BF3-TS1 completed at the same user-selected base method and solvent",
+      "BF3-TS2-B2 remains a fresh candidate requiring its own protocol selection and exact approval",
+      "BF3-TS2-B1 has completed numerically but its C13-C21 mode decision remains pending"
+    ],
+    "review_status": "reviewed_offline_proposal"
+  },
+  "common_constraints": {
+    "temperature_k": 298.15,
+    "standard_state": "Gaussian default ideal-gas 1 atm for the isolated TS/Freq evidence",
+    "low_frequency_policy": "none; preserve raw harmonic frequencies",
+    "comparison_scope": "Do not mix protocol tiers in a quantitative barrier comparison; all tiers require an independent C13-C21 mode review."
+  },
+  "options": [
+    {
+      "option_id": "wang2024_bf3_ts2_b2_loose",
+      "tier": "loose",
+      "rigor_rank": 1,
+      "option_status": "selectable",
+      "purpose": "Lowest-cost direct single-guess TS reoptimization from the published Cartesian geometry, followed by an analytic harmonic frequency calculation.",
+      "applicability": {
+        "task_types": [
+          "transition_state_optimization",
+          "harmonic_frequency"
+        ],
+        "system_classes": [
+          "main_group_closed_shell"
+        ],
+        "prerequisites": [
+          "explicit approval of the neutral-singlet hypothesis",
+          "reviewed 78-atom literature geometry and C13-C21 atom map",
+          "accepted hash-bound BF3-TS2-B1 C13-C21 mode decision before rendering a B2 input"
+        ],
+        "exclusions": [
+          "transition metals",
+          "open-shell or broken-symmetry states",
+          "quantitative barrier or selectivity claims"
+        ],
+        "fit_assessment": "reviewed",
+        "reason": "Useful as a fast geometry-recovery attempt when the published structure is already close to the intended saddle."
+      },
+      "method_profiles": [
+        {
+          "profile_id": "wang2024_bf3_ts2_b2_loose_profile",
+          "stages": [
+            "transition_state_optimization",
+            "harmonic_frequency"
+          ],
+          "functional_or_method": "omega-B97XD",
+          "basis_stack": [
+            {
+              "elements": [
+                "B",
+                "C",
+                "F",
+                "H",
+                "N",
+                "O"
+              ],
+              "orbital_basis": "6-31G(d)",
+              "ecp": null,
+              "ecp_core_electrons": null,
+              "aux_basis": null
+            }
+          ],
+          "dispersion": {
+            "mode": "intrinsic",
+            "detail": "omega-B97XD built-in dispersion treatment"
+          },
+          "solvation": {
+            "mode": "continuum",
+            "model": "SMD",
+            "solvent_identity": "toluene",
+            "explicit_species": []
+          },
+          "grid": "Gaussian 16 default DFT integration grid",
+          "scf": {
+            "reference": "restricted_closed_shell",
+            "convergence": "default convergence with XQC fallback proposed",
+            "max_cycles": 128,
+            "stability_check": "not included in the primary optimization",
+            "broken_symmetry_policy": "not_applicable"
+          },
+          "optimization_controls": {
+            "algorithm": "single-guess Berny transition-state optimization",
+            "hessian_strategy": "initial analytic force constants",
+            "convergence": "default geometry convergence",
+            "maximum_step": 10,
+            "maximum_cycles": 100
+          },
+          "frequency_controls": {
+            "type": "analytic harmonic frequencies at the final geometry"
+          },
+          "relativistic_treatment": "not required for B, C, F, H, N, and O",
+          "software_compatibility": "reviewed for Gaussian 16 A.03 main-group closed-shell execution"
+        }
+      ],
+      "task_plan": [
+        {
+          "stage_type": "direct_ts_opt_freq",
+          "profile_id": "wang2024_bf3_ts2_b2_loose_profile",
+          "required": true,
+          "acceptance_checks": [
+            "normal termination and stationary-point evidence",
+            "complete 228-mode harmonic frequency analysis",
+            "exactly one raw imaginary frequency",
+            "fresh hash-bound manual review against C13-C21 bond formation"
+          ]
+        }
+      ],
+      "validation_plan": {
+        "minimum_acceptance": [
+          "first-order saddle candidate",
+          "accepted C13-C21 mode decision"
+        ],
+        "claim_limit": "Diagnostic mode-consistent TS only; default numerical convergence is not the primary reproduction protocol."
+      },
+      "coverage_plan": {
+        "structures": "published BF3-TS2-B2 geometry only",
+        "sensitivity": "none"
+      },
+      "resources": {
+        "resource_tier": "complex",
+        "mem_gb": 120,
+        "cores": 44,
+        "job_count": 1,
+        "relative_cost_units": 1,
+        "assumptions": [
+          "Qualitative estimate only; convergence behavior dominates wall time.",
+          "Protocol rigor and resource tier remain independent decisions."
+        ]
+      },
+      "expected_cost": {
+        "band": "low",
+        "drivers": [
+          "one analytic initial Hessian",
+          "one TS optimization",
+          "one final analytic frequency calculation"
+        ],
+        "confidence": "qualitative"
+      },
+      "limitations": [
+        "Default geometry convergence and grid provide weaker numerical evidence than the standard option.",
+        "No IRC or endpoint identity is included."
+      ],
+      "provenance": [
+        "User-selected omega-B97XD/6-31G(d), SMD toluene base method for the BF3 benchmark sequence.",
+        "Published BF3-TS2-B2 Cartesian geometry and C13-C21 target from DOI 10.1021/jacs.4c09067 SI."
+      ],
+      "unresolved": []
+    },
+    {
+      "option_id": "wang2024_bf3_ts2_b2_standard",
+      "tier": "standard",
+      "rigor_rank": 2,
+      "option_status": "selectable",
+      "purpose": "Primary literature-aligned reproduction using an initial analytic Hessian, tight TS convergence, a restrained optimization step, and final analytic frequencies.",
+      "applicability": {
+        "task_types": [
+          "transition_state_optimization",
+          "harmonic_frequency"
+        ],
+        "system_classes": [
+          "main_group_closed_shell"
+        ],
+        "prerequisites": [
+          "explicit approval of the neutral-singlet hypothesis",
+          "reviewed 78-atom literature geometry and C13-C21 atom map",
+          "accepted hash-bound BF3-TS2-B1 C13-C21 mode decision before rendering a B2 input"
+        ],
+        "exclusions": [
+          "transition metals",
+          "open-shell or broken-symmetry states",
+          "IRC without a separate direction-specific approval"
+        ],
+        "fit_assessment": "reviewed",
+        "reason": "Balances numerical control and cost for the second BF3 carbon-carbon bond-forming topology."
+      },
+      "method_profiles": [
+        {
+          "profile_id": "wang2024_bf3_ts2_b2_standard_profile",
+          "stages": [
+            "transition_state_optimization",
+            "harmonic_frequency"
+          ],
+          "functional_or_method": "omega-B97XD",
+          "basis_stack": [
+            {
+              "elements": [
+                "B",
+                "C",
+                "F",
+                "H",
+                "N",
+                "O"
+              ],
+              "orbital_basis": "6-31G(d)",
+              "ecp": null,
+              "ecp_core_electrons": null,
+              "aux_basis": null
+            }
+          ],
+          "dispersion": {
+            "mode": "intrinsic",
+            "detail": "omega-B97XD built-in dispersion treatment"
+          },
+          "solvation": {
+            "mode": "continuum",
+            "model": "SMD",
+            "solvent_identity": "toluene",
+            "explicit_species": []
+          },
+          "grid": "UltraFine",
+          "scf": {
+            "reference": "restricted_closed_shell",
+            "convergence": "Tight with XQC fallback",
+            "max_cycles": 128,
+            "stability_check": "not included in the primary optimization",
+            "broken_symmetry_policy": "not_applicable"
+          },
+          "optimization_controls": {
+            "algorithm": "single-guess Berny transition-state optimization with eigenvalue testing disabled during the search",
+            "hessian_strategy": "initial analytic force constants",
+            "convergence": "Tight geometry convergence",
+            "maximum_step": 5,
+            "maximum_cycles": 100
+          },
+          "frequency_controls": {
+            "type": "analytic harmonic frequencies at the final geometry"
+          },
+          "relativistic_treatment": "not required for B, C, F, H, N, and O",
+          "software_compatibility": "reviewed for Gaussian 16 A.03 main-group closed-shell execution"
+        }
+      ],
+      "task_plan": [
+        {
+          "stage_type": "controlled_ts_opt_freq",
+          "profile_id": "wang2024_bf3_ts2_b2_standard_profile",
+          "required": true,
+          "acceptance_checks": [
+            "normal termination and all Tight stationary-point criteria",
+            "complete 228-mode harmonic frequency analysis",
+            "exactly one raw imaginary frequency",
+            "fresh hash-bound manual review against C13-C21 bond formation",
+            "comparison with the reported -351.55 cm-1 feature without requiring numerical identity"
+          ]
+        }
+      ],
+      "validation_plan": {
+        "minimum_acceptance": [
+          "first-order saddle candidate",
+          "accepted C13-C21 mode decision"
+        ],
+        "claim_limit": "Primary mode-consistent TS reproduction; no path or barrier validation."
+      },
+      "coverage_plan": {
+        "structures": "published BF3-TS2-B2 geometry only",
+        "sensitivity": "retain BF3-TS2-B1 as the completed-but-mode-pending topology comparison"
+      },
+      "resources": {
+        "resource_tier": "complex",
+        "mem_gb": 120,
+        "cores": 44,
+        "job_count": 1,
+        "relative_cost_units": 2.5,
+        "assumptions": [
+          "Qualitative estimate only; the 78-atom analytic Hessians and optimization cycles dominate cost.",
+          "Protocol rigor and resource tier remain independent decisions."
+        ]
+      },
+      "expected_cost": {
+        "band": "medium",
+        "drivers": [
+          "UltraFine grid",
+          "Tight SCF and geometry convergence",
+          "one initial and one final analytic Hessian"
+        ],
+        "confidence": "qualitative"
+      },
+      "limitations": [
+        "A single starting topology can still converge to a wrong mode or a nearby saddle.",
+        "No IRC or endpoint identity is included."
+      ],
+      "provenance": [
+        "User-selected omega-B97XD/6-31G(d), SMD toluene base method for the BF3 benchmark sequence.",
+        "Numerical controls follow the reviewed BF3-TS1 standard protocol, replacing ReadFC with an initial analytic Hessian because B2 has no approved checkpoint.",
+        "Published BF3-TS2-B2 Cartesian geometry and C13-C21 target from DOI 10.1021/jacs.4c09067 SI."
+      ],
+      "unresolved": []
+    },
+    {
+      "option_id": "wang2024_bf3_ts2_b2_strict",
+      "tier": "strict",
+      "rigor_rank": 3,
+      "option_status": "selectable",
+      "purpose": "Two-job Hessian-informed protocol: first diagnose the published geometry by analytic frequency, then bind that Hessian into a tighter, smaller-step TS reoptimization with final frequencies.",
+      "applicability": {
+        "task_types": [
+          "transition_state_optimization",
+          "harmonic_frequency"
+        ],
+        "system_classes": [
+          "main_group_closed_shell"
+        ],
+        "prerequisites": [
+          "explicit approval of the neutral-singlet hypothesis",
+          "reviewed 78-atom literature geometry and C13-C21 atom map",
+          "accepted hash-bound BF3-TS2-B1 C13-C21 mode decision before rendering a B2 input",
+          "a normally terminated fixed-geometry diagnostic with a reviewed intended imaginary mode before reoptimization"
+        ],
+        "exclusions": [
+          "transition metals",
+          "open-shell or broken-symmetry states",
+          "automatic continuation after a wrong or multiple-imaginary diagnostic"
+        ],
+        "fit_assessment": "reviewed",
+        "reason": "Provides stronger Hessian provenance and numerical convergence evidence at substantially higher cost."
+      },
+      "method_profiles": [
+        {
+          "profile_id": "wang2024_bf3_ts2_b2_strict_diagnostic_profile",
+          "stages": [
+            "fixed_geometry_harmonic_frequency"
+          ],
+          "functional_or_method": "omega-B97XD",
+          "basis_stack": [
+            {
+              "elements": [
+                "B",
+                "C",
+                "F",
+                "H",
+                "N",
+                "O"
+              ],
+              "orbital_basis": "6-31G(d)",
+              "ecp": null,
+              "ecp_core_electrons": null,
+              "aux_basis": null
+            }
+          ],
+          "dispersion": {
+            "mode": "intrinsic",
+            "detail": "omega-B97XD built-in dispersion treatment"
+          },
+          "solvation": {
+            "mode": "continuum",
+            "model": "SMD",
+            "solvent_identity": "toluene",
+            "explicit_species": []
+          },
+          "grid": "UltraFine",
+          "scf": {
+            "reference": "restricted_closed_shell",
+            "convergence": "Tight with XQC fallback",
+            "max_cycles": 128,
+            "stability_check": "not included",
+            "broken_symmetry_policy": "not_applicable"
+          },
+          "frequency_controls": {
+            "type": "fixed-geometry analytic harmonic diagnostic",
+            "handoff": "checkpoint Hessian may be used only after a fresh accepted C13-C21 mode review"
+          },
+          "relativistic_treatment": "not required for B, C, F, H, N, and O",
+          "software_compatibility": "reviewed for Gaussian 16 A.03 main-group closed-shell execution"
+        },
+        {
+          "profile_id": "wang2024_bf3_ts2_b2_strict_reoptimization_profile",
+          "stages": [
+            "transition_state_optimization",
+            "harmonic_frequency"
+          ],
+          "functional_or_method": "omega-B97XD",
+          "basis_stack": [
+            {
+              "elements": [
+                "B",
+                "C",
+                "F",
+                "H",
+                "N",
+                "O"
+              ],
+              "orbital_basis": "6-31G(d)",
+              "ecp": null,
+              "ecp_core_electrons": null,
+              "aux_basis": null
+            }
+          ],
+          "dispersion": {
+            "mode": "intrinsic",
+            "detail": "omega-B97XD built-in dispersion treatment"
+          },
+          "solvation": {
+            "mode": "continuum",
+            "model": "SMD",
+            "solvent_identity": "toluene",
+            "explicit_species": []
+          },
+          "grid": "SuperFineGrid",
+          "scf": {
+            "reference": "restricted_closed_shell",
+            "convergence": "VeryTight with XQC fallback",
+            "max_cycles": 256,
+            "stability_check": "separate post-TS diagnostic only if scientifically approved",
+            "broken_symmetry_policy": "not_applicable"
+          },
+          "optimization_controls": {
+            "algorithm": "single-guess Berny transition-state optimization with eigenvalue testing disabled during the search",
+            "hessian_strategy": "read exact force constants from the accepted diagnostic checkpoint",
+            "convergence": "VeryTight geometry convergence",
+            "maximum_step": 3,
+            "maximum_cycles": 150
+          },
+          "frequency_controls": {
+            "type": "analytic harmonic frequencies at the final geometry"
+          },
+          "relativistic_treatment": "not required for B, C, F, H, N, and O",
+          "software_compatibility": "reviewed for Gaussian 16 A.03 main-group closed-shell execution"
+        }
+      ],
+      "task_plan": [
+        {
+          "stage_type": "fixed_geometry_frequency_diagnostic",
+          "profile_id": "wang2024_bf3_ts2_b2_strict_diagnostic_profile",
+          "required": true,
+          "acceptance_checks": [
+            "normal termination and complete 228-mode frequency analysis",
+            "manual review that the intended mode projects onto C13-C21",
+            "stop without reoptimization when the intended mode is absent or ambiguous"
+          ]
+        },
+        {
+          "stage_type": "hessian_informed_ts_opt_freq",
+          "profile_id": "wang2024_bf3_ts2_b2_strict_reoptimization_profile",
+          "required": true,
+          "acceptance_checks": [
+            "hash-bound diagnostic checkpoint handoff",
+            "normal termination and all VeryTight stationary-point criteria",
+            "complete 228-mode harmonic frequency analysis",
+            "exactly one raw imaginary frequency",
+            "fresh hash-bound manual review against C13-C21 bond formation"
+          ]
+        }
+      ],
+      "validation_plan": {
+        "minimum_acceptance": [
+          "accepted diagnostic mode before Hessian handoff",
+          "final first-order saddle candidate",
+          "accepted final C13-C21 mode decision"
+        ],
+        "claim_limit": "Higher numerical rigor for one topology; still no path, barrier, or mechanism validation."
+      },
+      "coverage_plan": {
+        "structures": "published BF3-TS2-B2 geometry with a hash-bound diagnostic-to-reoptimization chain",
+        "sensitivity": "tighter grid, SCF, geometry convergence, and smaller step than standard"
+      },
+      "resources": {
+        "resource_tier": "complex",
+        "mem_gb": 120,
+        "cores": 44,
+        "job_count": 2,
+        "relative_cost_units": 5,
+        "assumptions": [
+          "Qualitative estimate only; two analytic frequency calculations plus a TS optimization are required.",
+          "Protocol rigor and resource tier remain independent decisions."
+        ]
+      },
+      "expected_cost": {
+        "band": "high",
+        "drivers": [
+          "separate fixed-geometry analytic Hessian",
+          "SuperFineGrid and VeryTight convergence",
+          "second final analytic Hessian"
+        ],
+        "confidence": "qualitative"
+      },
+      "limitations": [
+        "Strict is not an accuracy guarantee and can be slower without changing the chemical model.",
+        "The diagnostic does not itself establish a stationary point.",
+        "No IRC or endpoint identity is included."
+      ],
+      "provenance": [
+        "User-selected omega-B97XD/6-31G(d), SMD toluene base method for the BF3 benchmark sequence.",
+        "Hessian-informed structure follows the successful BF3-TS1 recovery pattern but requires a fresh B2 diagnostic and approval.",
+        "Published BF3-TS2-B2 Cartesian geometry and C13-C21 target from DOI 10.1021/jacs.4c09067 SI."
+      ],
+      "unresolved": []
+    }
+  ],
+  "comparison_notes": [
+    "The standard option is the primary one-job reproduction candidate; loose weakens numerical controls, while strict adds a separately reviewed Hessian diagnostic.",
+    "All three retain the same literature method and solvent so the choice isolates numerical protocol rather than changing the electronic-structure model.",
+    "Difficulty, protocol rigor, and the complex 120 GB/44-core resource proposal remain separate decisions."
+  ],
+  "non_claims": [
+    "Strict is not an accuracy guarantee and does not prove the chemical model.",
+    "No option authorizes input rendering, server-directory creation, submission, retry, IRC, cancellation, or cleanup.",
+    "This proposal does not treat the numerical B1 result as an accepted mode decision and cannot bypass that prerequisite.",
+    "Agreement with the reported imaginary frequency would not by itself validate the normal mode or reaction path."
+  ]
+}

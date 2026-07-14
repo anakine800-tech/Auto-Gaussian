@@ -1,0 +1,34 @@
+{
+  "schema": "gaussian-calculation-request/1",
+  "request_id": "wang2024_bf3_ts2_b2_opt_freq",
+  "goal": "Prepare three reviewed offline protocols for reproducing the published BF3-TS2-B2 carbon-carbon bond-forming transition-state candidate.",
+  "claim_scope": "One neutral closed-shell main-group first-order-saddle candidate whose sole imaginary mode must project onto C13-C21 bond formation; no IRC, barrier, topology ranking, or selectivity claim.",
+  "task_types": [
+    "transition_state_optimization",
+    "harmonic_frequency"
+  ],
+  "structure": {
+    "sha256": "d7032327ffea0705b3a6b0f55561f482aef41f40426fa74c323b289143874a0d",
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "elements": [
+      "B",
+      "C",
+      "F",
+      "H",
+      "N",
+      "O"
+    ],
+    "charge": 0,
+    "multiplicity": 1
+  },
+  "workflow_prerequisites": [
+    "The BF3-TS2-B1 result must receive an accepted hash-bound C13-C21 mode decision before a B2 Gaussian input is rendered.",
+    "The charge-zero singlet state remains an explicit B2 review proposal rather than source-reported Gaussian metadata.",
+    "B2 requires its own protocol selection, resource decision, fresh project, rendered-input hash review, and exact live approval."
+  ],
+  "system_class": "main_group_closed_shell",
+  "support_status": "supported",
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}

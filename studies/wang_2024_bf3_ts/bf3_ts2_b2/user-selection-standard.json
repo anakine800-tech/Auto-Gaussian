@@ -1,0 +1,23 @@
+{
+  "schema": "gaussian-protocol-user-decision/1",
+  "decision": "selected",
+  "tier": "standard",
+  "explicit_confirmation": true,
+  "decision_reason": "The user selected the same standard protocol candidate used for BF3-TS2-B1 and requested an exact offline BF3-TS2-B2 input review before any submission decision.",
+  "user_message": "离线准备 BF₃-TS2-B2，使用与 B1 相同的 standard 协议作为候选，完成精确输入审查后再决定是否提交",
+  "resource_selection": {
+    "resource_tier": "complex",
+    "memory": "120GB",
+    "nprocshared": 44,
+    "status": "offline_candidate_inherited_from_b1_standard_not_live_approved"
+  },
+  "authorization_scope": {
+    "render_offline_input_draft": true,
+    "submit": false,
+    "create_server_directory": false,
+    "retry": false,
+    "irc": false,
+    "cancel": false,
+    "cleanup": false
+  }
+}

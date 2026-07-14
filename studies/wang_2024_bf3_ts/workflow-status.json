@@ -32,7 +32,7 @@
     {
       "candidate_id": "wang2024_bf3_ts2_b1",
       "literature_label": "BF3-TS2-B1",
-      "workflow_status": "exact_approved_live_job_running_pending_terminal_evidence",
+      "workflow_status": "mode_consistent_first_order_saddle_candidate_irc_submitted",
       "sequence_gate": "bf3_ts1_prerequisite_satisfied",
       "scientific_scope": {
         "formula": "C25H42BF3N4O3",
@@ -69,40 +69,145 @@
         "note": "The exact one-time approval was exercised outside this non-authorizing status ledger; it grants no retry, resubmission, IRC, cancellation, or cleanup authority."
       },
       "last_verified_live_snapshot": {
-        "recorded_at": "2026-07-14T14:09:33+08:00",
-        "state": "running",
-        "pbs_state": "R",
-        "process_alive": true,
+        "recorded_at": "2026-07-14T15:29:57+08:00",
+        "state": "completed",
+        "pbs_state": null,
+        "process_alive": null,
         "input_sha256": "0f26f244dfec97ad04fe757f7447b52bd39fb295af58b0ed463033a807ff37ad",
         "transport_hashes_verified": true,
         "memory": "120GB",
         "nprocshared": 44,
-        "log_size_bytes": 106547,
-        "optimization_steps": 0,
-        "scf_calculations_parsed": 0,
-        "normal_termination_count": 0,
+        "log_size_bytes": 2914143,
+        "optimization_steps": 28,
+        "scf_calculations_parsed": 29,
+        "normal_termination_count": 2,
         "error_termination_count": 0,
-        "stationary_point_found": false,
-        "frequency_count": 0,
-        "scientific_acceptance": "pending",
+        "stationary_point_found": true,
+        "frequency_count": 228,
+        "raw_imaginary_frequency_count": 1,
+        "featured_imaginary_frequency_cm1": -389.3384,
+        "scientific_acceptance": "mode_consistent_first_order_saddle_candidate",
         "contains_job_id": false,
         "contains_server_path": false
       },
       "terminal_acceptance_plan": {
         "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/terminal-acceptance-plan.json",
         "sha256": "364ea97269e6d8a8ec12081ac9e528fb3ebee84acaa530ac3a27e9598a379333",
-        "status": "prepared_waiting_terminal_result"
+        "status": "terminal_evidence_passed_mode_review_accepted"
       },
-      "next_gate": "Wait for a stable terminal state, fetch and parse the complete log, require stationary-point evidence and exactly one raw imaginary frequency, then perform a hash-bound manual C13-C21 mode review."
+      "mode_review_decision": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/live/w24_bf3t2b1_s1/results/mode_review/mode_decision.json",
+        "sha256": "2a1a225f0fc6e1dc47100753e2e1d48462d0e53481f0673c751f6386f262b882",
+        "decision": "accepted",
+        "confirmed": true,
+        "reaction_coordinate": "C13-C21 bond formation"
+      },
+      "irc_submission_history": {
+        "protocol_proposal": {
+          "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc-protocol-proposal.json",
+          "sha256": "6acfd8998225efe7d5985692ad23cca7ff73b4c755f0dd3470ec907c09e048c5"
+        },
+        "plan": {
+          "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/irc_plan.json",
+          "sha256": "3ac4099cadc9f03178e058164742fd51b5fca51acd95ecc01c365491dd7b2187"
+        },
+        "checkpoint_sha256": "2df61f303797d138ea8d0b94db951b19ad68983c5b56eaa14294aee0dfcfc632",
+        "directions": [
+          {
+            "direction": "forward",
+            "project": "w24_bf3b1_if1",
+            "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/w24_bf3b1_if1.gjf",
+            "input_sha256": "486635c5a21ef1e67d11257f5673c61cd7e3aba2eefd47694b985ece653e308d",
+            "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/w24_bf3b1_if1.json",
+            "manifest_sha256": "a2f473c96567e8f7ff0dc48b0f47d2708209883cfe1b497ab7262c2ba5488ae1",
+            "last_verified_scheduler_state": "R",
+            "terminal_evidence": false
+          },
+          {
+            "direction": "reverse",
+            "project": "w24_bf3b1_ir1",
+            "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.gjf",
+            "input_sha256": "3e30690795645560a075f73aa98c577014cd6b0ed410438a0c77133be0e0520c",
+            "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.json",
+            "manifest_sha256": "1af06c27c44177c4236850b65a6ce19c728a477c91fe2c94bd55b26b8f64d979",
+            "last_verified_scheduler_state": "Q",
+            "terminal_evidence": false
+          }
+        ],
+        "resources_per_direction": {
+          "memory": "120GB",
+          "nprocshared": 44
+        },
+        "contains_job_id": false,
+        "contains_server_path": false,
+        "new_live_action_authorized": false
+      },
+      "next_gate": "Fetch and independently review both submitted numerical IRC directions before assigning endpoint identities or claiming path validation."
     },
     {
       "candidate_id": "wang2024_bf3_ts2_b2",
       "literature_label": "BF3-TS2-B2",
-      "workflow_status": "literature_coordinates_only",
-      "sequence_gate": "not_started",
-      "live_authority": {
-        "submission_authorized": false
-      }
+      "workflow_status": "standard_ts_freq_submitted_queued",
+      "sequence_gate": "bf3_ts2_b1_mode_decision_satisfied",
+      "scientific_scope": {
+        "formula": "C25H42BF3N4O3",
+        "atom_count": 78,
+        "charge": 0,
+        "multiplicity": 1,
+        "reaction_coordinate": "C13-C21 bond formation",
+        "starting_distance_angstrom": 2.22485843,
+        "reported_featured_imaginary_frequency_cm1": -351.55
+      },
+      "protocol_options": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/protocol-options.json",
+        "sha256": "f5070beed675bdd9de25fb2f024ea741409c9661ffa27372f909360be6fe1446",
+        "status": "ready_for_selection",
+        "selected_tier": "standard",
+        "input_render_authorized": true
+      },
+      "protocol_selection": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/protocol-selection-standard.json",
+        "sha256": "7758fb6c87323954272546d0f1e22a607af44e9cdb7fc0ec05d69ca7410693f1",
+        "tier": "standard",
+        "resource_tier_candidate": "complex",
+        "memory_candidate": "120GB",
+        "nprocshared_candidate": 44
+      },
+      "input_draft": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/w24_bf3ts2_b2_s01.gjf",
+        "sha256": "bc8dc95cd4877e93ea0f10b46f239595fb3d7d7e6201e852998770fa695264a1",
+        "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/input-draft-manifest.json",
+        "manifest_sha256": "b24840ca289ab345299ff73414345b918f6322344689a884e3af055acdbede34",
+        "offline_audit_passed": true,
+        "coordinates_match_literature_xyz_exactly": true
+      },
+      "terminal_acceptance_plan": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/terminal-acceptance-plan.json",
+        "sha256": "5744ca0e078911a2a546988f0d003fa1227ab81d482940fdef87b2050a6e249e",
+        "status": "prepared_before_live_decision"
+      },
+      "live_submission_approval": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/live-submission-approval.json",
+        "sha256": "3300eae5715734b81c8047d4d7ef11f3b6a9fcd81787ba70d9497ac4cb27109f",
+        "single_upload_and_qsub_authorized": true,
+        "authorization_exercised": true,
+        "new_live_action_authorized": false
+      },
+      "last_verified_live_snapshot": {
+        "state": "queued",
+        "pbs_state": "Q",
+        "process_alive": null,
+        "input_sha256": "bc8dc95cd4877e93ea0f10b46f239595fb3d7d7e6201e852998770fa695264a1",
+        "transport_hashes_verified": true,
+        "memory": "120GB",
+        "nprocshared": 44,
+        "log_size_bytes": null,
+        "normal_termination_count": 0,
+        "error_termination_count": 0,
+        "contains_job_id": false,
+        "contains_server_path": false
+      },
+      "next_gate": "Wait for terminal process and PBS evidence, fetch the complete Opt/Freq result, then require stationary-point evidence, 228 modes, exactly one raw imaginary frequency and an independent C13-C21 animation decision."
     }
   ],
   "deferred_benchmarks": [
@@ -115,5 +220,5 @@
       "status": "deferred_not_materialized"
     }
   ],
-  "status_payload_sha256": "eecb892887f2381d715422f4571f53eea09ab8cd1c918d641bae53dbab07bc08"
+  "status_payload_sha256": "c5979efb7be5454958d5119484b3de7a7c7eb682d5dcdacf082d9f8d24335d26"
 }

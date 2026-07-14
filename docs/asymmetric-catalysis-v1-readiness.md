@@ -72,10 +72,12 @@ hashes. On a stable terminal state it requires:
 - independent manual confirmation that its displacement follows the intended
   C13–C21 bond-forming coordinate.
 
-The reported literature value of -389.1 cm⁻¹ is a comparison datum only.
-Frequency count, numerical proximity or the static C13–C21 distance cannot
-replace animation review. Every non-accepted outcome stops without automatic
-retry. Even an accepted B1 proves no IRC path and grants no B2 authority.
+The completed B1 result passed the numerical terminal gates with 228 modes and
+one -389.3384 cm⁻¹ imaginary frequency; the reported literature value is
+-389.1 cm⁻¹. Frequency count, numerical proximity or the static C13–C21
+distance cannot replace animation review. Every non-accepted outcome stops
+without automatic retry. Even an accepted B1 proves no IRC path and grants no
+B2 live authority.
 
 ## Development priority after v1
 
@@ -83,6 +85,9 @@ retry. Even an accepted B1 proves no IRC path and grants no B2 authority.
    metal–chiral-ligand reaction.
 2. Design M2/M3 offline contracts, parsers and adversarial fixtures while
    retaining runtime refusal.
-3. Independently finish B1 terminal/mode acceptance when the running job ends.
-4. Decide whether to prepare B2 only after B1 manual acceptance.
+3. Ingest and independently review both submitted B1 IRC directions; keep
+   Forward/Reverse as numerical labels until both endpoints are structurally
+   identified.
+4. Ingest the submitted B2 Opt/Freq result only after stable terminal evidence,
+   then apply the precommitted 228-mode/one-imaginary-mode/C13–C21 review gate.
 5. Return to broader chiral-boron construction and enumeration afterward.

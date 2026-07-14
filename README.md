@@ -51,9 +51,11 @@ All Skill-managed server data and scratch must remain below `/home/user100/SDL`.
 3. Review the implemented offline builders, deduplication, result ingestion,
    ensemble aggregation, and refusal-preserving metal TS design; the existing
    `gaussian-ts-irc` transition-metal refusal must not be bypassed.
-4. Accept BF3-TS2-B1 only after stable terminal evidence, a complete frequency
-   parse with exactly one imaginary mode, and manual review of the C13–C21
-   motion. That decision does not authorize B2, a retry, or IRC.
+4. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision and separately
+   submitted bidirectional IRC work. BF3-TS2-B2 now has a B1-matched standard
+   offline input candidate with exact coordinate, route and hash audits. That
+   exact B2 input subsequently received one-time live approval and is queued;
+   no retry, replacement, IRC, cancellation or cleanup is authorized.
 
 See `docs/ts-freq-irc-design.md` for the implemented TS–Freq–IRC design history.
 Repository-wide operational rules are in `AGENTS.md`.

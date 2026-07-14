@@ -1,0 +1,123 @@
+{
+  "schema": "gaussian-ts-terminal-acceptance-plan/1",
+  "plan_id": "wang2024_bf3_ts2_b2_terminal_acceptance",
+  "candidate_id": "wang2024_bf3_ts2_b2",
+  "literature_label": "BF3-TS2-B2",
+  "status": "prepared_before_live_decision",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "source_bindings": {
+    "literature_ledger": {
+      "path": "studies/wang_2024_bf3_ts/candidate-ledger.json",
+      "sha256": "1d1c1530965cfb999433548866822bc300236b874ed9ce1bded627f36a491d94"
+    },
+    "input_manifest": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/input-draft-manifest.json",
+      "sha256": "b24840ca289ab345299ff73414345b918f6322344689a884e3af055acdbede34"
+    },
+    "protocol_selection": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/protocol-selection-standard.json",
+      "sha256": "7758fb6c87323954272546d0f1e22a607af44e9cdb7fc0ec05d69ca7410693f1"
+    },
+    "atom_map": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/atom-map.json",
+      "sha256": "405e00e36363fd6a69d9d2623901263967e1105d2a475f2a965f41b6b09375dc"
+    },
+    "rendered_input": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b2/w24_bf3ts2_b2_s01.gjf",
+      "sha256": "bc8dc95cd4877e93ea0f10b46f239595fb3d7d7e6201e852998770fa695264a1"
+    }
+  },
+  "expected_system": {
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "charge": 0,
+    "multiplicity": 1,
+    "nonlinear": true,
+    "expected_harmonic_mode_count": 228
+  },
+  "terminal_evidence_gate": {
+    "required": [
+      "exact local job record remains bound to the approved input hash",
+      "Gaussian process is no longer alive after a stable terminal observation",
+      "complete log is fetched after terminal process evidence",
+      "transport hashes remain verified",
+      "scheduler state is terminal, self-purged, or separately classified as a repeatedly proven terminal zombie"
+    ],
+    "precedence_rule": "A live PBS session process outranks an intermediate Normal termination marker; never parse a partial Opt/Freq log as final."
+  },
+  "ts_acceptance_gate": {
+    "normal_termination_required": true,
+    "error_termination_allowed": false,
+    "optimization_completed_required": true,
+    "stationary_point_required": true,
+    "frequency_complete_required": true,
+    "expected_frequency_count": 228,
+    "required_raw_imaginary_frequency_count": 1
+  },
+  "mode_review_gate": {
+    "decision_required": "accepted",
+    "coordinate_kind": "forming",
+    "atom_pair": [13, 21],
+    "expected_displacement": "The sole imaginary mode must project onto C13-C21 bond formation in both plus and minus displacement structures.",
+    "static_distance_is_sufficient": false,
+    "literature_featured_imaginary_frequency_cm1": -351.55,
+    "numerical_frequency_match_required": false,
+    "required_artifacts": [
+      "gaussian-ts-freq-result/1",
+      "gaussian-ts-mode-review/1",
+      "gaussian-ts-mode-decision/1"
+    ]
+  },
+  "outcome_matrix": [
+    {
+      "outcome": "accepted_mode_consistent_ts",
+      "conditions": "All terminal and TS gates pass and the separately confirmed C13-C21 mode decision is accepted.",
+      "next_action": "Record sanitized B2 evidence; any B1/B2 topology comparison or IRC requires a separate scientific review.",
+      "automatic_action": false
+    },
+    {
+      "outcome": "zero_imaginary_modes",
+      "conditions": "The final stationary point has no raw imaginary frequency.",
+      "next_action": "Classify as the wrong stationary-point type and stop for diagnosis.",
+      "automatic_action": false
+    },
+    {
+      "outcome": "multiple_imaginary_modes",
+      "conditions": "The final frequency calculation has more than one raw imaginary frequency.",
+      "next_action": "Classify as a higher-order saddle candidate and stop for diagnosis.",
+      "automatic_action": false
+    },
+    {
+      "outcome": "wrong_or_ambiguous_mode",
+      "conditions": "Exactly one imaginary frequency exists but its reviewed displacement does not clearly follow C13-C21 bond formation.",
+      "next_action": "Reject mode consistency and stop for a new three-tier retry proposal.",
+      "automatic_action": false
+    },
+    {
+      "outcome": "nonstationary_or_incomplete",
+      "conditions": "Optimization, stationary-point, terminal, or complete-frequency evidence is absent.",
+      "next_action": "Preserve artifacts, report incomplete evidence, and do not infer a TS.",
+      "automatic_action": false
+    },
+    {
+      "outcome": "error_termination",
+      "conditions": "Gaussian reports an error termination or the terminal process evidence is interrupted.",
+      "next_action": "Preserve and diagnose the exact failed run without changing chemistry or resubmitting.",
+      "automatic_action": false
+    }
+  ],
+  "path_claim": {
+    "irc_completed": false,
+    "path_validated": false,
+    "claim_limit": "An accepted mode establishes only a mode-consistent first-order saddle candidate; bidirectional IRC remains separately gated."
+  },
+  "forbidden_automatic_actions": [
+    "retry or resubmit B2",
+    "change method, basis, solvent, route, structure, charge, multiplicity, memory, or cores",
+    "submit either IRC direction",
+    "cancel an active job",
+    "delete server or local evidence"
+  ],
+  "plan_payload_sha256": "be200cdfc30039ea33f0f111b2d328b048336e4c118abfa07a62b84876e61b4c"
+}

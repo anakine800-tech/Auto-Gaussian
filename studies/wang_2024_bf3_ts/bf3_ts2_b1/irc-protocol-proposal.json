@@ -1,0 +1,77 @@
+{
+  "schema": "gaussian-irc-protocol-proposal/1",
+  "proposal_id": "wang2024_bf3_ts2_b1_bidirectional_irc_standard_v1",
+  "status": "ready_for_exact_scientific_review",
+  "calculation_ready": false,
+  "submission_authorized": false,
+  "scientific_scope": {
+    "candidate": "BF3-TS2-B1",
+    "purpose": "Trace both numerical directions from the accepted C13-C21 first-order-saddle candidate; do not label either direction reactant or product before endpoint review.",
+    "forming_pair": [13, 21],
+    "g16_revision": "A.03"
+  },
+  "source_bindings": {
+    "checkpoint_audit": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/live/w24_bf3t2b1_s1/results/checkpoint_audit.json",
+      "sha256": "a140f7615cd8392e95a9a79a805da26e687844178136bb4580b6fba88c697337"
+    },
+    "checkpoint": {
+      "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/live/w24_bf3t2b1_s1/results/w24_bf3ts2_b1_s01.chk",
+      "sha256": "2df61f303797d138ea8d0b94db951b19ad68983c5b56eaa14294aee0dfcfc632"
+    },
+    "ts_result_sha256": "080bbff50f9b364e86d69e6037503d77fb7f7ec0c1ce2aee2d64402deb894a3e",
+    "mode_review_sha256": "1b4d159a68019a4fe0547c0c748113c45b01391cc5bb2025923a9b5e01080346",
+    "mode_decision_sha256": "2a1a225f0fc6e1dc47100753e2e1d48462d0e53481f0673c751f6386f262b882"
+  },
+  "common_protocol": {
+    "method": "omega-B97XD",
+    "basis": "6-31G(d)",
+    "solvation": "SMD toluene",
+    "force_constants": "RCFC from the audited TS checkpoint",
+    "geometry_and_guess": "Geom=AllCheck Guess=Read",
+    "integrator": "Gaussian default HPC IRC integrator",
+    "step_size": 5,
+    "max_points_per_direction": 30,
+    "max_corrector_cycles_per_point": 40,
+    "recorrect": "Yes",
+    "grid": "UltraFine",
+    "scf": "Tight with XQC fallback, MaxCycle=128"
+  },
+  "directions": [
+    {
+      "direction": "forward",
+      "project": "w24_bf3b1_if1",
+      "remote_directory": "/home/user100/SDL/w24_bf3b1_if1",
+      "input_basename": "w24_bf3b1_if1.gjf",
+      "checkpoint_basename": "w24_bf3b1_if1.chk",
+      "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,forward,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)"
+    },
+    {
+      "direction": "reverse",
+      "project": "w24_bf3b1_ir1",
+      "remote_directory": "/home/user100/SDL/w24_bf3b1_ir1",
+      "input_basename": "w24_bf3b1_ir1.gjf",
+      "checkpoint_basename": "w24_bf3b1_ir1.chk",
+      "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,reverse,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)"
+    }
+  ],
+  "resources_per_direction": {
+    "resource_tier": "complex",
+    "memory": "120GB",
+    "nprocshared": 44,
+    "scheduling_note": "Each direction requests the full 44-core node; the two jobs should be expected to run sequentially rather than concurrently on the stated single-node capacity."
+  },
+  "acceptance_and_stop_rules": [
+    "Treat Forward and Reverse as numerical labels until endpoint structures are reviewed.",
+    "A path ending only because MaxPoints is reached is not a minimum and does not establish endpoint identity.",
+    "On any corrector failure, fetch and preserve evidence, then stop without changing StepSize, MaxCycle, ReCorrect, integrator, method, solvent, resources, or chemistry.",
+    "No endpoint optimization, retry, cancellation, or IRC resubmission is authorized by approval of this proposal unless separately stated."
+  ],
+  "approval_required": [
+    "Both exact direction-specific routes",
+    "StepSize=5, MaxPoints=30, MaxCycle=40, and ReCorrect=Yes",
+    "120GB and 44 cores for each direction",
+    "Both fresh project names and remote directories",
+    "Permission to render coordinate-free AllCheck inputs and subsequently upload and submit each approved direction"
+  ]
+}
