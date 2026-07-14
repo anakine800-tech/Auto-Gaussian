@@ -12,11 +12,12 @@ evidence plan. Treat selectivity as a comparison between covered ensembles of
 chemically comparable transition structures, not as one hand-built major/minor
 pair.
 
-This Skill covers two initial classes:
+This Skill covers two classes in the following development priority:
 
-- chiral boron Lewis-acid, borane, borate, or multi-boron catalysis; and
-- transition-metal catalysis with a chiral ligand, currently as an offline and
-  explicitly unsupported calculation plan.
+1. transition-metal catalysis with a chiral ligand, currently as a detailed
+   deterministic offline TS-capability design with execution refused; and
+2. chiral boron Lewis-acid, borane, borate, or multi-boron catalysis after the
+   transition-metal design milestone.
 
 ## Read the relevant references
 
@@ -106,6 +107,13 @@ hypothesis, total charge and multiplicity, ligand identity and conformation,
 coordination geometry, hapticity, labile sites, counterion placement and every
 spin/coordination alternative included or excluded. Stop promotion when
 broken-symmetry or multireference concerns are unresolved.
+
+Immediately run `design-metal-support` for a metal study. Treat its output as
+the primary capability artifact: it expands every metal state into explicit
+electron-accounting, spin, wavefunction, coordination and method-review
+blocks, and every mechanism into three unselected TS seed-strategy candidates
+(Hessian-guided single guess, reviewed QST2/QST3, and reviewed relaxed scan).
+It must retain all blockers and the unconditional execution refusal.
 
 ### 3. Build the candidate matrix
 
@@ -201,8 +209,11 @@ artifact and hash recorded by the ledger, and all energies, temperatures and
 degeneracies must be finite and valid. Automatically generated analyses remain
 `provisional` at best; only a separate reviewer decision can validate a claim.
 
-For a metal study, use `design-metal-support` only to produce the refusal-
-preserving scientific checklist. Do not hand it to an execution Skill.
+For a metal study, use `design-metal-support` to produce the refusal-preserving
+state-space and TS-search design. Validate its payload hash, exact study/state/
+mechanism bindings, complete three-strategy inventory, cross-state separation
+rules and extension milestones. Do not select a strategy, infer an elementary-
+step class, write a route or hand the artifact to an execution Skill.
 
 After all offline tests pass, `propose-smoke` may bind the reviewed priority-1
 closed-shell main-group literature candidate into a plan with
@@ -230,12 +241,11 @@ complete frequencies, exactly one raw imaginary mode, and an explicitly
 accepted coordinate-displacement review. This evidence does not authorize a
 retry, IRC, another candidate, deployment, cancellation, or cleanup.
 
-The BF3-TS1 run already in progress predates the protocol-rigor gate. Do not
-backdate or manufacture a proposal/selection for it. Preserve its actual
-approval provenance and record the new governance evidence as `incomplete`
-rather than retrospectively signing it. This does not alter the separately
-reviewed scientific result. Apply the new gate to any BF3-TS1 retry,
-BF3-TS2-B1/B2, IRC, endpoint or other new calculation request.
+The successful BF3-TS1 `r01` recovery and the in-flight BF3-TS2-B1 job have
+their own prospective, hash-bound protocol and live-approval evidence. Do not
+reuse either approval for a retry, BF3-TS2-B2, IRC, endpoint or another
+candidate. Apply a fresh three-tier gate and exact approval to every such
+action.
 
 ## Claim levels
 
@@ -267,7 +277,9 @@ smoke-proposal, and sanitized live-smoke-evidence artifacts are defined in
 `contracts/asymmetric-catalysis/`. Neither the proposal nor the evidence record
 grants live authority.
 
-End with a prioritized gap list. Typical priorities are active-state review,
-candidate-space coverage, transition-metal scientific support, deterministic
-deduplication, ensemble aggregation, and only then an explicitly approved live
-smoke test.
+End with a prioritized gap list. For the current roadmap, prioritize transition-
+metal active/electronic-state review, coordination inventory, TS seed-strategy
+selection criteria, metal-specific offline parsers and refusal tests. Keep B1
+terminal/mode acceptance as an independent evidence gate, and defer the real
+chiral-boron candidate-space study until the metal design milestone is
+complete.

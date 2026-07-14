@@ -27,7 +27,9 @@ See `docs/repository-status.md` for the evidence, limitations, and next gates.
   audit workflow for metal–chiral-ligand and chiral-boron catalytic TS
   ensembles, stereochemical-channel coverage, candidate ledgers, TS-result
   ingestion, and selectivity aggregation. It contains no Gaussian execution
-  builder or live handoff. Its design and
+  builder or live handoff. Its current development priority is the
+  refusal-preserving transition-metal TS state/search design; chiral-boron
+  expansion follows that milestone. Its design and
   versioned data contracts are in `docs/asymmetric-catalysis-design.md` and
   `docs/asymmetric-catalysis-offline-contract.md`.
 - `studies/wang_2024_bf3_ts`: hash-bound, non-runnable literature coordinates
@@ -47,12 +49,11 @@ All Skill-managed server data and scratch must remain below `/home/user100/SDL`.
 2. Keep asymmetric-catalysis work on `codex/Chiral-Ligand` until its offline
    contracts, validators, and fixtures are accepted.
 3. Review the implemented offline builders, deduplication, result ingestion,
-   ensemble aggregation, and refusal-preserving metal design; the existing
+   ensemble aggregation, and refusal-preserving metal TS design; the existing
    `gaussian-ts-irc` transition-metal refusal must not be bypassed.
-4. Treat the BF3-TS1 closed-shell main-group smoke artifact as a proposal only;
-   it contains no rendered Gaussian input or submission authority.
-   A live run still requires separate approval for the final chemistry, route,
-   resources, fresh server directory, Gaussian revision, and input hash.
+4. Accept BF3-TS2-B1 only after stable terminal evidence, a complete frequency
+   parse with exactly one imaginary mode, and manual review of the C13–C21
+   motion. That decision does not authorize B2, a retry, or IRC.
 
 See `docs/ts-freq-irc-design.md` for the implemented TS–Freq–IRC design history.
 Repository-wide operational rules are in `AGENTS.md`.

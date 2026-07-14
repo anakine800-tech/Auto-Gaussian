@@ -1101,30 +1101,182 @@ def aggregate(study_path: Path, ledger_path: Path, result_paths: list[Path], out
 def design_metal_support(study_path: Path, output: Path) -> dict[str, Any]:
     study = load_json(study_path)
     require(study.get("catalyst_class") in {"metal_chiral_ligand", "metal_and_chiral_boron_cooperative"}, "study is not a transition-metal case")
+    mechanisms = study.get("mechanism_hypotheses", [])
+    require(isinstance(mechanisms, list) and mechanisms, "metal study has no mechanism hypotheses")
     states = []
     for state in study.get("catalyst_states", []):
         if not state.get("metal_centers"):
             continue
+        state_mechanisms = sorted(
+            item["mechanism_id"]
+            for item in mechanisms
+            if item.get("active_catalyst_state_id") == state.get("state_id")
+        )
+        centers = [
+            {
+                "atom_index": center["atom_index"],
+                "element": center["element"],
+                "formal_oxidation_state": center.get("oxidation_state"),
+                "d_electron_count": None,
+                "coordination_number": center.get("coordination_number"),
+                "geometry": center.get("geometry"),
+                "spin_hypothesis": center.get("spin_hypothesis"),
+                "assignment_basis": center.get("assignment_basis", "No assignment basis supplied."),
+                "review_status": "unreviewed_hypothesis",
+            }
+            for center in state["metal_centers"]
+        ]
         states.append({
             "state_id": state["state_id"], "support_status": "unsupported_transition_metal", "submission_decision": "refused",
-            "checks": {
-                "oxidation_state_and_electron_count": {"status": "review_required", "items": ["formal oxidation state per center", "d-electron count", "overall charge/electron parity", "non-innocent ligand alternatives"]},
-                "spin_state_space": {"status": "review_required", "items": ["all chemically credible multiplicities", "spin crossover and minimum-energy crossing relevance", "state-specific reference energies"]},
-                "wavefunction": {"status": "review_required", "items": ["restricted/unrestricted/RO choice", "SCF stability", "<S^2> and spin contamination", "broken-symmetry alternatives", "multireference diagnostics"]},
-                "coordination": {"status": "review_required", "items": ["coordination number and geometry", "hapticity", "counterions and ion pairing", "solvent/ligand occupancy", "agostic and secondary contacts"]},
-                "method_protocol": {"status": "review_required", "items": ["metal/ligand basis and ECP", "relativistic treatment", "dispersion, solvent, grid and SCF", "spin-state-specific benchmarking"]},
+            "metal_centers": centers,
+            "electron_accounting": {
+                "status": "review_required",
+                "declared": {
+                    "total_charge": state.get("total_charge"),
+                    "multiplicity": state.get("multiplicity"),
+                    "formal_oxidation_states": [item["formal_oxidation_state"] for item in centers],
+                    "d_electron_counts": [None for _ in centers],
+                    "electron_parity_consistency": None,
+                    "ligand_charge_conventions": [],
+                    "non_innocent_ligand_alternatives": [],
+                },
+                "required_review": ["formal oxidation state per metal", "explicit ligand charge convention", "d-electron count per metal", "overall electron count and parity", "non-innocent ligand alternatives"],
+                "blockers": ["d-electron counts and ligand charge conventions have not been reviewed", "electron parity has not been cross-checked against multiplicity"],
+            },
+            "spin_state_space": {
+                "status": "review_required",
+                "declared": {
+                    "study_multiplicity": state.get("multiplicity"),
+                    "credible_multiplicities": [],
+                    "relative_energy_reference": None,
+                    "spin_crossover_relevance": "unresolved",
+                    "minimum_energy_crossing_relevance": "unresolved",
+                },
+                "required_review": ["enumerate every chemically credible multiplicity for each coordination state", "define common spin-state reference energies", "assess spin crossover and minimum-energy crossing points"],
+                "blockers": ["the study multiplicity is a hypothesis, not an accepted spin-state space"],
+            },
+            "wavefunction": {
+                "status": "unresolved",
+                "declared": {
+                    "reference_candidates": [],
+                    "broken_symmetry": "unresolved",
+                    "multireference_concern": "unresolved",
+                    "stability_analysis": None,
+                    "spin_contamination_threshold": None,
+                },
+                "required_review": ["restricted, unrestricted, RO, or broken-symmetry reference", "SCF stability evidence", "<S^2> and spin-contamination assessment", "alternative broken-symmetry solutions", "system-appropriate multireference diagnostics"],
+                "blockers": ["no wavefunction reference or diagnostic policy is approved"],
+            },
+            "coordination": {
+                "status": "review_required",
+                "declared": {
+                    "nuclearity": state.get("nuclearity"),
+                    "center_coordination_numbers": [item["coordination_number"] for item in centers],
+                    "center_geometries": [item["geometry"] for item in centers],
+                    "ligand_and_binding_notes": state.get("ligand_and_binding_notes"),
+                    "hapticity_assignments": [],
+                    "counterion_models": [],
+                    "solvent_additive_occupancy": [],
+                    "agostic_or_secondary_contacts": [],
+                },
+                "required_review": ["coordination number and geometry", "ligand stoichiometry, denticity and hapticity", "labile and vacant sites", "counterion and ion-pair placement", "solvent/additive occupancy", "agostic and secondary contacts", "substrate binding face"],
+                "blockers": ["explicit donor/acceptor coordination map and competing associated/dissociated states are absent"],
+            },
+            "method_protocol": {
+                "status": "unresolved",
+                "declared": {
+                    "functional_or_method": None,
+                    "basis_and_ecp": [],
+                    "relativistic_treatment": None,
+                    "dispersion": None,
+                    "solvation": None,
+                    "grid": None,
+                    "scf_controls": None,
+                    "spin_state_benchmark": None,
+                },
+                "required_review": ["three-tier protocol proposal", "basis/ECP coverage for every element", "relativistic treatment", "dispersion and solvation", "grid and SCF controls", "spin-state and wavefunction sensitivity"],
+                "blockers": ["no transition-metal protocol may be inferred from the molecule or literature precedent"],
+            },
+            "ts_search_readiness": {
+                "status": "blocked_offline_design_only",
+                "mechanism_ids": state_mechanisms,
+                "blocking_reasons": ["transition-metal input and execution support is not implemented", "electronic-state and coordination audits are incomplete", "no TS seed strategy has been scientifically selected"],
             },
             "known_hypotheses": state.get("metal_centers", []),
-            "unresolved": ["No transition-metal execution backend is implemented.", "No route or submission artifact may be generated from this design."],
+            "unresolved": ["No transition-metal execution backend is implemented.", "No route, Gaussian input, PBS plan, or submission artifact may be generated from this design."],
         })
     require(states, "no metal centers found")
+    state_ids = {item["state_id"] for item in states}
+    ts_search_families = []
+    for mechanism in mechanisms:
+        active_state = mechanism.get("active_catalyst_state_id")
+        if active_state not in state_ids:
+            continue
+        mechanism_id = mechanism["mechanism_id"]
+        strategies = [
+            {
+                "strategy_id": f"mts_{sha256_data([mechanism_id, 'single_guess'])[:12]}",
+                "strategy": "single_guess_hessian_guided",
+                "status": "design_candidate_not_selected",
+                "prerequisites": ["reviewed TS-like geometry", "explicit reaction-coordinate atom map", "reviewed electronic and coordination state", "approved Hessian provenance"],
+                "limitations": ["a plausible guess can converge to the wrong saddle or coordination state", "current transition-metal TS audit and execution support is absent"],
+            },
+            {
+                "strategy_id": f"mts_{sha256_data([mechanism_id, 'qst'])[:12]}",
+                "strategy": "endpoint_qst2_qst3",
+                "status": "design_candidate_not_selected",
+                "prerequisites": ["reviewed reactant and product structures on the same electronic surface", "identical atom order and explicit atom map", "verified installed-Gaussian syntax"],
+                "limitations": ["QST endpoints do not resolve spin crossing or multireference surfaces", "raw multi-structure syntax must not be guessed"],
+            },
+            {
+                "strategy_id": f"mts_{sha256_data([mechanism_id, 'scan'])[:12]}",
+                "strategy": "reviewed_relaxed_coordinate_scan",
+                "status": "design_candidate_not_selected",
+                "prerequisites": ["explicit scan coordinates and direction", "reviewed constraints that preserve coordination and stereochemistry", "separate rule for promoting scan maxima to TS guesses"],
+                "limitations": ["a one-dimensional scan can miss coupled coordinates and alternative surfaces", "the current workflow has no metal scan execution backend"],
+            },
+        ]
+        ts_search_families.append({
+            "mechanism_id": mechanism_id,
+            "active_state_id": active_state,
+            "channel_ids": sorted(mechanism.get("channel_ids", [])),
+            "coordinate_changes": copy.deepcopy(mechanism.get("coordinate_changes", [])),
+            "elementary_step_class": "unassigned_requires_review",
+            "surface_model": {
+                "status": "unresolved",
+                "declared": {"single_surface_assumption": None, "included_multiplicities": [], "spin_crossing_model": None, "surface_hopping_or_mecp_required": "unresolved"},
+                "required_review": ["assign the elementary-step class", "define the electronic surface for every endpoint and TS guess", "decide whether spin crossing or an MECP is mechanistically relevant"],
+                "blockers": ["the TS cannot be searched until the state/surface relationship is reviewed"],
+            },
+            "seed_strategy_candidates": strategies,
+            "required_pre_ts_evidence": ["reviewed atom map and intended forming/breaking/transferring coordinates", "reviewed oxidation, charge, multiplicity and wavefunction state", "reviewed coordination/hapticity and ligand/counterion inventory", "selected three-tier protocol candidate", "strategy-specific endpoint, Hessian, or scan evidence"],
+            "blockers": ["no seed strategy is selected", "no transition-metal TS parser/input audit exists", "no execution handoff is authorized"],
+        })
+    require(ts_search_families, "no metal mechanism is bound to a reviewed metal state")
     design = {
         "schema": "gaussian-asymmetric-metal-support-design/1", "study_id": study["study_id"], "study_sha256": sha256_file(study_path),
         "calculation_ready": False, "no_submission_authorization": True, "runtime_support_status": "unsupported_requires_extension", "submission_decision": "refused",
+        "scope": {
+            "priority": "transition_metal_ts_design_first",
+            "current_capability": "deterministic_offline_design_and_refusal_audit",
+            "output_scope": "state_space_and_ts_search_plan_only",
+            "execution_scope": "no_transition_metal_execution",
+            "chiral_boron_priority": "deferred_until_after_transition_metal_design",
+        },
         "states": states,
-        "acceptance_gates": ["chemical-state inventory reviewed", "oxidation/electron-count assignments reviewed", "spin alternatives reviewed", "wavefunction diagnostics specified", "coordination and counterion alternatives reviewed", "method/basis/ECP/relativity benchmark protocol reviewed", "offline fixtures and refusal tests passed", "separate execution-layer implementation reviewed"],
-        "refusal_tests": ["candidate promotion remains forbidden", "calculation_ready remains false", "no Gaussian/PBS input builder is called", "no route is inferred", "no default singlet or oxidation state is accepted"],
+        "ts_search_families": ts_search_families,
+        "cross_state_rules": ["Never compare or deduplicate candidates across oxidation, charge, multiplicity, nuclearity, coordination, hapticity, ligand-count, or wavefunction hypotheses.", "Never reuse a Hessian, checkpoint, endpoint, or TS guess across electronic states without a separately reviewed provenance map.", "Never mix spin surfaces in one Boltzmann ensemble; use a separately approved crossing/kinetic model when surfaces communicate.", "A normal mode must be reviewed for the intended chemical coordinate and for unintended ligand, counterion, or coordination loss."],
+        "extension_milestones": [
+            {"milestone_id": "metal_m0_offline_design", "status": "implemented_offline", "deliverable": "Deterministic state, audit, TS-seed-strategy, blocker, and refusal artifact."},
+            {"milestone_id": "metal_m1_scientific_review", "status": "pending_scientific_review", "deliverable": "Reviewed oxidation/electron count, spin, wavefunction, coordination, method and TS strategy for a bounded example."},
+            {"milestone_id": "metal_m2_offline_runtime_contract", "status": "blocked", "deliverable": "Metal-specific input audit, parser, wavefunction/coordination checks, negative fixtures and promotion gates."},
+            {"milestone_id": "metal_m3_execution_boundary", "status": "blocked", "deliverable": "Separately reviewed execution-layer design that cannot bypass exact scientific and live approval."},
+            {"milestone_id": "metal_m4_live_smoke", "status": "blocked", "deliverable": "Explicitly approved small closed-shell single-reference metal TS smoke only after M1-M3 pass."},
+        ],
+        "acceptance_gates": ["chemical-state and elementary-step inventory reviewed", "oxidation/electron-count assignments reviewed", "spin alternatives and surface model reviewed", "wavefunction diagnostics and rejection thresholds specified", "coordination, hapticity, ligand count and counterion alternatives reviewed", "method/basis/ECP/relativity benchmark protocol reviewed", "TS seed strategy and coordinate evidence reviewed", "offline parser, builder, negative and refusal fixtures passed", "separate execution-layer implementation reviewed"],
+        "refusal_tests": ["candidate promotion remains forbidden", "calculation_ready remains false", "no Gaussian/PBS input builder is called", "no route or TS algorithm is inferred", "no default singlet, oxidation state, d-electron count, wavefunction or coordination state is accepted", "no cross-state deduplication or aggregation is permitted"],
     }
+    design["design_payload_sha256"] = sha256_data({key: value for key, value in design.items() if key != "design_payload_sha256"})
     write_json(output, design)
     return design
 

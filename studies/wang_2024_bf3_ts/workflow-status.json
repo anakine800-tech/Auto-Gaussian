@@ -88,6 +88,11 @@
         "contains_job_id": false,
         "contains_server_path": false
       },
+      "terminal_acceptance_plan": {
+        "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/terminal-acceptance-plan.json",
+        "sha256": "364ea97269e6d8a8ec12081ac9e528fb3ebee84acaa530ac3a27e9598a379333",
+        "status": "prepared_waiting_terminal_result"
+      },
       "next_gate": "Wait for a stable terminal state, fetch and parse the complete log, require stationary-point evidence and exactly one raw imaginary frequency, then perform a hash-bound manual C13-C21 mode review."
     },
     {
@@ -110,5 +115,5 @@
       "status": "deferred_not_materialized"
     }
   ],
-  "status_payload_sha256": "e05c3c1e7c5583c5da14f0ea0b447b3557b2fbcc39ca27195fe4d591b5fed964"
+  "status_payload_sha256": "eecb892887f2381d715422f4571f53eea09ab8cd1c918d641bae53dbab07bc08"
 }

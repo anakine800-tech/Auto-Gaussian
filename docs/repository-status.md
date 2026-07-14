@@ -46,6 +46,11 @@ TS generator and it will not
 choose a research method, basis/ECP, solvent, spin state, TS algorithm, IRC
 settings, or low-frequency treatment.
 
+The current development priority is the transition-metal TS capability design.
+Version 1 now materializes deterministic state audits and mechanism-bound
+search families while retaining an unconditional execution refusal. Further
+chiral-boron capability work is deliberately sequenced after this milestone.
+
 ## Deliberate limitations
 
 - The `gaussian-asymmetric-catalysis` Skill is runnable only as an offline
@@ -74,6 +79,9 @@ settings, or low-frequency treatment.
   semantics, and implementation sequence.
 - `docs/asymmetric-catalysis-offline-contract.md`: normative semantic rules for
   the versioned JSON artifacts.
+- `docs/asymmetric-catalysis-v1-readiness.md`: non-authorizing merge gates,
+  named-Skill deployment plan, B1 terminal acceptance checklist, and post-v1
+  priority order.
 - `docs/asymmetric-catalysis-smoke-proposal.json`: exact closed-shell main-group
   BF3-TS1 literature proposal bound to the reviewed coordinate ledger. Missing
   route, solvent, charge/multiplicity approval, resources, and project fields
@@ -84,9 +92,11 @@ settings, or low-frequency treatment.
   ledger. It now also contains a separate workflow-status ledger, sanitized
   accepted BF3-TS1 `r01` evidence, and the selected/audited BF3-TS2-B1
   `standard` input lineage. The exact B1 input received separate live approval
-  and is recorded as running pending terminal evidence; operational job files
-  remain local and ignored. Full BCF TS1/TS2-B1 remain deferred 87/108-atom
-  benchmarks.
+  and is recorded as running pending terminal evidence. A precommitted,
+  hash-bound B1 terminal-acceptance plan defines process/log, stationary-point,
+  228-mode, exactly-one-imaginary-frequency and manual C13–C21 motion gates;
+  operational job files remain local and ignored. Full BCF TS1/TS2-B1 remain
+  deferred 87/108-atom benchmarks.
 - `studies/wang_2024_cat2_alpha_alkylation/`: a real-reaction offline forward
   study that records the reported CAT2 reaction, conditions and selectivity,
   while leaving the unresolved active state, charge/multiplicity, structures,
@@ -135,7 +145,10 @@ On 2026-07-14:
   models or non-finite thermochemical inputs;
 - the synthetic metal candidate passed only in the mandatory
   `unsupported_transition_metal` state;
-- the metal-support design retained `unsupported_requires_extension` and an
+- the metal-support design reproduced the study's explicit oxidation-state
+  hypotheses without inferring d-electron counts, bound each mechanism to
+  three unselected TS-search strategies, exposed spin/wavefunction/
+  coordination/method blockers, recorded extension milestones, and retained an
   unconditional submission refusal; and
 - the BF3 literature builder reproduced the checked ledger byte-for-byte and
   rejected a tampered coordinate fixture by canonical coordinate-block hash;
@@ -154,7 +167,7 @@ On 2026-07-14:
 - the real CAT2 forward study preserved the literature reaction identity and
   both stereochemical comparison channels without fabricating catalyst
   structures, atom maps, candidate geometries, or an ee ensemble;
-- the full repository suite completed 96 tests successfully;
+- the full repository suite completed 97 tests successfully;
 - the `skill-creator` structural validator reported `Skill is valid!`;
 - the literature ledger and smoke-proposal payload hashes were independently
   reproduced; and
@@ -209,22 +222,23 @@ candidate still requires its own new gate.
 
 ## Next approval gates
 
-1. Review the literature evidence labels, chemical scope, contract fields, and
-   aggregation semantics.
-2. Review materialized atom maps, stereochemistry and chemistry-aware complex
-   construction needs for a real chiral-boron study.
-3. Review the selectivity model, coverage equivalence and sensitivity policy.
-4. Review the separate transition-metal scientific design; runtime support
-   remains refused.
-5. Preserve BF3-TS1 as a mode-consistent first-order saddle candidate; do not
-   claim reaction-path validation without separately approved bidirectional
-   IRC and identified endpoints.
-6. Let the separately approved BF3-TS2-B1 job reach a stable terminal state;
-   do not infer progress or failure from an unavailable live connection.
-7. Fetch and parse the final B1 log, require stationary-point evidence and
-   exactly one raw imaginary frequency, and manually review the C13-C21 mode.
-8. Keep any B1 retry, BF3-TS2-B2, all IRC work, and full BCF benchmarks
-   separately gated.
+1. Select a concrete metal–chiral-ligand reaction for milestone M1 and review
+   its oxidation/electron accounting, spin surfaces, wavefunctions,
+   coordination states, elementary-step classes and three candidate TS-search
+   strategies. Runtime support remains refused.
+2. Define the offline M2 input/audit/parser contracts and M3 adversarial
+   fixtures without rendering a metal Gaussian input or enabling submission.
+3. Let the separately approved BF3-TS2-B1 job reach a stable terminal state;
+   then apply the precommitted terminal plan, parse all 228 modes, require
+   exactly one imaginary frequency, and manually review C13–C21 motion.
+4. Decide whether to prepare BF3-TS2-B2 only after the B1 mode is accepted.
+5. Keep any B1 retry, all IRC work and full BCF benchmarks separately gated.
+6. Resume broader chiral-boron complex construction and enumeration after the
+   transition-metal design milestone.
+
+The exact merge/deployment preparation and B1 acceptance checklist are in
+`docs/asymmetric-catalysis-v1-readiness.md`. That document does not authorize
+either action.
 
 ## Working-tree note
 

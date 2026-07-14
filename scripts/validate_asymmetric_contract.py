@@ -487,7 +487,45 @@ def validate_materializations(
 
 def validate_metal_support(design: dict[str, Any], study: dict[str, Any] | None = None, study_path: Path | None = None) -> None:
     validate_structure(design, "metal-support")
+    expected_payload = payload_sha256({key: value for key, value in design.items() if key != "design_payload_sha256"})
+    require(design.get("design_payload_sha256") == expected_payload, "metal-support: payload hash mismatch")
+    require(design.get("calculation_ready") is False, "metal-support: calculation_ready must remain false")
+    require(design.get("no_submission_authorization") is True, "metal-support: submission authority is forbidden")
+    require(design.get("runtime_support_status") == "unsupported_requires_extension", "metal-support: runtime support must remain blocked")
+    require(design.get("submission_decision") == "refused", "metal-support: submission decision must remain refused")
+    scope = design.get("scope", {})
+    require(scope.get("priority") == "transition_metal_ts_design_first", "metal-support: transition-metal TS design priority changed")
+    require(scope.get("execution_scope") == "no_transition_metal_execution", "metal-support: execution scope was widened")
     states = unique_index(design.get("states", []), "state_id", "metal-support.states")
+    for state_id, state in states.items():
+        require(state.get("support_status") == "unsupported_transition_metal", f"metal-support: state {state_id} support refusal changed")
+        require(state.get("submission_decision") == "refused", f"metal-support: state {state_id} submission refusal changed")
+        require(state.get("ts_search_readiness", {}).get("status") == "blocked_offline_design_only", f"metal-support: state {state_id} TS readiness bypassed")
+        centers = state.get("metal_centers", [])
+        require(isinstance(centers, list) and centers, f"metal-support: state {state_id} has no metal-center audit")
+        for center in centers:
+            require(center.get("review_status") == "unreviewed_hypothesis", f"metal-support: state {state_id} contains an accepted metal assignment")
+            require(center.get("d_electron_count") is None, f"metal-support: state {state_id} inferred a d-electron count")
+        for block in ("electron_accounting", "spin_state_space", "wavefunction", "coordination", "method_protocol"):
+            require(state.get(block, {}).get("status") in {"review_required", "unresolved"}, f"metal-support: state {state_id} {block} review was bypassed")
+            require(state.get(block, {}).get("blockers"), f"metal-support: state {state_id} {block} lacks blockers")
+
+    families = unique_index(design.get("ts_search_families", []), "mechanism_id", "metal-support.ts_search_families")
+    expected_strategies = {"single_guess_hessian_guided", "endpoint_qst2_qst3", "reviewed_relaxed_coordinate_scan"}
+    for mechanism_id, family in families.items():
+        require(family.get("active_state_id") in states, f"metal-support: mechanism {mechanism_id} references an unknown state")
+        require(family.get("elementary_step_class") == "unassigned_requires_review", f"metal-support: mechanism {mechanism_id} inferred an elementary-step class")
+        strategies = family.get("seed_strategy_candidates", [])
+        require({item.get("strategy") for item in strategies} == expected_strategies, f"metal-support: mechanism {mechanism_id} TS strategy inventory is incomplete")
+        require(all(item.get("status") == "design_candidate_not_selected" for item in strategies), f"metal-support: mechanism {mechanism_id} selected a TS strategy")
+        require(family.get("surface_model", {}).get("status") == "unresolved", f"metal-support: mechanism {mechanism_id} inferred an electronic surface")
+        require(family.get("blockers"), f"metal-support: mechanism {mechanism_id} lacks execution blockers")
+
+    milestones = unique_index(design.get("extension_milestones", []), "milestone_id", "metal-support.extension_milestones")
+    require(milestones.get("metal_m0_offline_design", {}).get("status") == "implemented_offline", "metal-support: offline design milestone is missing")
+    for milestone_id, milestone in milestones.items():
+        if milestone_id != "metal_m0_offline_design":
+            require(milestone.get("status") != "implemented_offline", f"metal-support: unsupported milestone {milestone_id} was marked implemented")
     if study is None:
         return
     require(study_path is not None, "metal-support: study_path is required when a study is supplied")
@@ -496,6 +534,20 @@ def validate_metal_support(design: dict[str, Any], study: dict[str, Any] | None 
     require(design.get("study_sha256") == sha256(study_path), "metal-support: study hash mismatch")
     metal_states = {item["state_id"] for item in study.get("catalyst_states", []) if item.get("metal_centers")}
     require(set(states) == metal_states, "metal-support: reviewed metal states mismatch")
+    state_by_id = {item["state_id"]: item for item in study.get("catalyst_states", [])}
+    for state_id, design_state in states.items():
+        source_centers = state_by_id[state_id].get("metal_centers", [])
+        design_centers = design_state.get("metal_centers", [])
+        require(len(design_centers) == len(source_centers), f"metal-support: state {state_id} metal-center count mismatch")
+        for source, audited in zip(source_centers, design_centers, strict=True):
+            require(audited.get("atom_index") == source.get("atom_index") and audited.get("element") == source.get("element"), f"metal-support: state {state_id} metal-center identity mismatch")
+            require(audited.get("formal_oxidation_state") == source.get("oxidation_state"), f"metal-support: state {state_id} oxidation-state provenance mismatch")
+    metal_mechanisms = {
+        item["mechanism_id"]
+        for item in study.get("mechanism_hypotheses", [])
+        if item.get("active_catalyst_state_id") in metal_states
+    }
+    require(set(families) == metal_mechanisms, "metal-support: metal mechanism TS-search inventory mismatch")
 
 
 def validate_smoke_proposal(

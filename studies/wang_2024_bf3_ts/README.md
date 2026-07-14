@@ -39,8 +39,10 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
   and accepted-mode evidence for the exact BF3-TS1 `r01` run.
 - `bf3_ts2_b1/`: three-tier protocol review, explicit `standard` selection,
   identity atom map, audited Gaussian input draft, input-draft manifest, and a
-  sanitized in-flight status. Its machine-local `live/` operation bundle is
-  preserved but excluded from version control.
+  sanitized in-flight status. Its precommitted `terminal-acceptance-plan.json`
+  binds the exact input and defines terminal, TS/frequency, and manual C13–C21
+  mode gates plus fail-closed outcome classes. Its machine-local `live/`
+  operation bundle is preserved but excluded from version control.
 
 Rebuild without overwriting the checked artifact:
 

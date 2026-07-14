@@ -207,6 +207,38 @@ For metal candidates, version 1 requires
 candidate, `supported_main_group_closed_shell` is allowed only if the scientific
 state is otherwise within `gaussian-ts-irc` scope.
 
+### 4.1 Transition-metal support-design artifact
+
+`gaussian-asymmetric-metal-support/1` is a deterministic, hash-bound scientific
+design artifact, not a runnable candidate. It must preserve the study's exact
+metal-center and formal-oxidation-state declarations without deriving a
+d-electron count, spin state, charge or coordination assignment from another
+field. Each catalyst state contains unresolved review blocks for:
+
+- oxidation state and electron accounting;
+- multiplicity and competing spin surfaces;
+- restricted/unrestricted or broken-symmetry wavefunction treatment, stability
+  and spin-contamination checks;
+- coordination number, geometry, hapticity, counterion and association state;
+  and
+- method, per-element basis/ECP, relativistic, solvation, dispersion, grid and
+  SCF policy.
+
+Each declared mechanism produces exactly one search family containing the
+Hessian-guided single-guess, endpoint-bound QST2/QST3 and reviewed relaxed-scan
+strategies. All three have `status: design_candidate_not_selected`. The family
+must name its catalyst state, stereochemical channels and intended coordinates;
+unassigned elementary-step class or unresolved reaction-surface model blocks
+selection.
+
+Milestone `M0` records the implemented offline design/refusal audit. `M1`
+through `M4` cover scientific state review, offline execution-layer design,
+negative fixtures and a separately approved smoke test. They are not
+implemented in version 1. The artifact always carries
+`submission_decision: refused`, `calculation_ready: false` and
+`no_submission_authorization: true`; filling review fields cannot change those
+values.
+
 `duplicate_of` may reference another candidate only when the chemical state,
 channel, atom map, stereochemistry, and geometry equivalence have been reviewed.
 Candidates in different stereochemical channels are never deduplicated solely

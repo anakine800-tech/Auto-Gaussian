@@ -1,13 +1,176 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/contracts/asymmetric-catalysis/metal-support.schema.json",
-  "title": "Refusal-preserving transition-metal support design",
-  "type": "object", "additionalProperties": false,
-  "required": ["schema", "study_id", "study_sha256", "calculation_ready", "no_submission_authorization", "runtime_support_status", "submission_decision", "states", "acceptance_gates", "refusal_tests"],
+  "title": "Refusal-preserving transition-metal TS capability design",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "study_sha256", "design_payload_sha256",
+    "calculation_ready", "no_submission_authorization",
+    "runtime_support_status", "submission_decision", "scope", "states",
+    "ts_search_families", "cross_state_rules", "extension_milestones",
+    "acceptance_gates", "refusal_tests"
+  ],
   "properties": {
-    "schema": {"const": "gaussian-asymmetric-metal-support-design/1"}, "study_id": {"$ref": "#/$defs/id"}, "study_sha256": {"$ref": "#/$defs/sha256"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "runtime_support_status": {"const": "unsupported_requires_extension"}, "submission_decision": {"const": "refused"},
-    "states": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["state_id", "support_status", "submission_decision", "checks", "known_hypotheses", "unresolved"], "properties": {"state_id": {"$ref": "#/$defs/id"}, "support_status": {"const": "unsupported_transition_metal"}, "submission_decision": {"const": "refused"}, "checks": {"type": "object"}, "known_hypotheses": {"type": "array"}, "unresolved": {"type": "array"}}, "additionalProperties": false}},
-    "acceptance_gates": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "refusal_tests": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+    "schema": {"const": "gaussian-asymmetric-metal-support-design/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "study_sha256": {"$ref": "#/$defs/sha256"},
+    "design_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "runtime_support_status": {"const": "unsupported_requires_extension"},
+    "submission_decision": {"const": "refused"},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "current_capability", "output_scope", "execution_scope", "chiral_boron_priority"],
+      "properties": {
+        "priority": {"const": "transition_metal_ts_design_first"},
+        "current_capability": {"const": "deterministic_offline_design_and_refusal_audit"},
+        "output_scope": {"const": "state_space_and_ts_search_plan_only"},
+        "execution_scope": {"const": "no_transition_metal_execution"},
+        "chiral_boron_priority": {"const": "deferred_until_after_transition_metal_design"}
+      }
+    },
+    "states": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state_id", "support_status", "submission_decision", "metal_centers",
+          "electron_accounting", "spin_state_space", "wavefunction",
+          "coordination", "method_protocol", "ts_search_readiness",
+          "known_hypotheses", "unresolved"
+        ],
+        "properties": {
+          "state_id": {"$ref": "#/$defs/id"},
+          "support_status": {"const": "unsupported_transition_metal"},
+          "submission_decision": {"const": "refused"},
+          "metal_centers": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["atom_index", "element", "formal_oxidation_state", "d_electron_count", "coordination_number", "geometry", "spin_hypothesis", "assignment_basis", "review_status"],
+              "properties": {
+                "atom_index": {"type": "integer", "minimum": 1},
+                "element": {"type": "string", "minLength": 1},
+                "formal_oxidation_state": {"type": ["integer", "null"]},
+                "d_electron_count": {"type": ["integer", "null"], "minimum": 0},
+                "coordination_number": {"type": ["integer", "null"], "minimum": 0},
+                "geometry": {"type": ["string", "null"]},
+                "spin_hypothesis": {"type": ["string", "null"]},
+                "assignment_basis": {"type": "string"},
+                "review_status": {"const": "unreviewed_hypothesis"}
+              }
+            }
+          },
+          "electron_accounting": {"$ref": "#/$defs/review_block"},
+          "spin_state_space": {"$ref": "#/$defs/review_block"},
+          "wavefunction": {"$ref": "#/$defs/review_block"},
+          "coordination": {"$ref": "#/$defs/review_block"},
+          "method_protocol": {"$ref": "#/$defs/review_block"},
+          "ts_search_readiness": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "mechanism_ids", "blocking_reasons"],
+            "properties": {
+              "status": {"const": "blocked_offline_design_only"},
+              "mechanism_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+              "blocking_reasons": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+            }
+          },
+          "known_hypotheses": {"type": "array", "items": {"type": "object"}},
+          "unresolved": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+        }
+      }
+    },
+    "ts_search_families": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mechanism_id", "active_state_id", "channel_ids",
+          "coordinate_changes", "elementary_step_class", "surface_model",
+          "seed_strategy_candidates", "required_pre_ts_evidence", "blockers"
+        ],
+        "properties": {
+          "mechanism_id": {"$ref": "#/$defs/id"},
+          "active_state_id": {"$ref": "#/$defs/id"},
+          "channel_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+          "coordinate_changes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "atoms", "description"],
+              "properties": {
+                "kind": {"enum": ["forming", "breaking", "transferring"]},
+                "atoms": {"type": "array", "minItems": 2, "items": {"type": "integer", "minimum": 1}},
+                "description": {"type": "string", "minLength": 1}
+              }
+            }
+          },
+          "elementary_step_class": {"const": "unassigned_requires_review"},
+          "surface_model": {"$ref": "#/$defs/review_block"},
+          "seed_strategy_candidates": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["strategy_id", "strategy", "status", "prerequisites", "limitations"],
+              "properties": {
+                "strategy_id": {"$ref": "#/$defs/id"},
+                "strategy": {"enum": ["single_guess_hessian_guided", "endpoint_qst2_qst3", "reviewed_relaxed_coordinate_scan"]},
+                "status": {"const": "design_candidate_not_selected"},
+                "prerequisites": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                "limitations": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+              }
+            }
+          },
+          "required_pre_ts_evidence": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "blockers": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+        }
+      }
+    },
+    "cross_state_rules": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "extension_milestones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["milestone_id", "status", "deliverable"],
+        "properties": {
+          "milestone_id": {"$ref": "#/$defs/id"},
+          "status": {"enum": ["implemented_offline", "pending_scientific_review", "blocked"]},
+          "deliverable": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "acceptance_gates": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "refusal_tests": {"type": "array", "minItems": 1, "items": {"type": "string"}}
   },
-  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "review_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "declared", "required_review", "blockers"],
+      "properties": {
+        "status": {"enum": ["review_required", "unresolved"]},
+        "declared": {"type": "object"},
+        "required_review": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "blockers": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    }
+  }
 }

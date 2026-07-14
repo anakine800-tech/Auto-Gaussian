@@ -145,6 +145,27 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         self.assertFalse(snapshot["contains_server_path"])
         self.assertTrue(status["no_submission_authorization"])
 
+    def test_b1_terminal_acceptance_plan_is_precommitted_and_non_authorizing(self) -> None:
+        plan_path = B1 / "terminal-acceptance-plan.json"
+        plan = load(plan_path)
+        self.assertEqual(
+            plan["plan_payload_sha256"],
+            payload_digest(plan, "plan_payload_sha256"),
+        )
+        self.assertEqual(plan["source_bindings"]["rendered_input"]["sha256"], digest(B1 / "w24_bf3ts2_b1_s01.gjf"))
+        self.assertEqual(plan["expected_system"]["expected_harmonic_mode_count"], 228)
+        self.assertEqual(plan["ts_acceptance_gate"]["required_raw_imaginary_frequency_count"], 1)
+        self.assertEqual(plan["mode_review_gate"]["atom_pair"], [13, 21])
+        self.assertFalse(plan["mode_review_gate"]["static_distance_is_sufficient"])
+        self.assertFalse(plan["mode_review_gate"]["numerical_frequency_match_required"])
+        self.assertFalse(plan["path_claim"]["path_validated"])
+        self.assertTrue(plan["no_submission_authorization"])
+        self.assertTrue(all(not item["automatic_action"] for item in plan["outcome_matrix"]))
+
+        status = load(STUDY / "workflow-status.json")
+        b1 = next(item for item in status["candidates"] if item["candidate_id"] == "wang2024_bf3_ts2_b1")
+        self.assertEqual(b1["terminal_acceptance_plan"]["sha256"], digest(plan_path))
+
 
 if __name__ == "__main__":
     unittest.main()

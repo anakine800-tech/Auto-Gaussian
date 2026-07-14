@@ -104,6 +104,10 @@ class AsymmetricCommandLineTests(unittest.TestCase):
             design = json.loads(metal.read_text(encoding="utf-8"))
             self.assertEqual(design["submission_decision"], "refused")
             self.assertFalse(design["calculation_ready"])
+            self.assertEqual(design["scope"]["priority"], "transition_metal_ts_design_first")
+            validated_metal = self.run_python(VALIDATOR, "--artifact", str(metal))
+            self.assert_success(validated_metal)
+            self.assertFalse(json.loads(validated_metal.stdout)["live_actions"])
 
             study = root / "study.json"
             built_study = self.run_python(
