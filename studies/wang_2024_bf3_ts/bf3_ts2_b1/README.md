@@ -1,6 +1,6 @@
 # BF3-TS2-B1 accepted TS and bidirectional IRC follow-up
 
-Status: `mode_accepted_irc_incomplete_forward_failed_reverse_pending_endpoint_review`
+Status: `mode_accepted_irc_recalculation_v2_ready_pending_exact_live_approval`
 
 The user selected the `standard` protocol with the `complex` resource tier
 (120 GB, 44 cores). The version-controlled files preserve the offline,
@@ -50,6 +50,24 @@ reached all 30 points and has the outcome
 reactant/product assignment and `audit-irc-endpoint`. Because forward failed,
 the bidirectional path is not validated. No retry, integrator change,
 cancellation, cleanup, or endpoint calculation is authorized.
+
+## Bidirectional IRC recalculation v2
+
+After reviewing both complete first-attempt logs, the user selected the
+`standard` recalculation protocol for both directions and separately selected
+120 GB/44 cores per job. The revised protocol keeps the accepted TS state,
+omega-B97XD/6-31G(d), SMD toluene, UltraFine grid, Tight/XQC SCF, RCFC,
+Geom=AllCheck, Guess=Read, the default HPC integrator, ReCorrect=Yes and the
+40-cycle corrector ceiling. It changes only `StepSize` from 5 to 3 and
+`MaxPoints` from 30 to 60. This targets the observed forward corrector
+oscillation without hiding it by merely increasing `MaxCycle`, and extends the
+reverse path beyond its first 30-point ceiling.
+
+The exact offline inputs and terminal-intake templates are under
+`irc/recalc_v2/`. They use fresh projects `w24_bf3b1_if2` and
+`w24_bf3b1_ir2`. The protocol selection authorizes only these offline drafts;
+upload and submission remain pending a separate review of both exact input
+hashes, routes, resources and remote directories.
 
 `terminal-acceptance-plan.json` freezes these checks before the result is
 known. It requires 228 harmonic modes for this 78-atom nonlinear system,

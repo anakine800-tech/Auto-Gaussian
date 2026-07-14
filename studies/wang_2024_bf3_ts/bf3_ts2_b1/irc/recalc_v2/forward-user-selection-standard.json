@@ -1,0 +1,24 @@
+{
+  "schema": "gaussian-protocol-user-decision/1",
+  "decision": "selected",
+  "tier": "standard",
+  "explicit_confirmation": true,
+  "decision_reason": "The user explicitly selected the standard protocol for recalculating both BF3-TS2-B1 IRC directions after reviewing the forward corrector failure and reverse maximum-point limitation.",
+  "user_message": "直接采用标准模式",
+  "direction_scope": "forward",
+  "resource_selection": {
+    "resource_tier": "complex",
+    "memory": "120GB",
+    "nprocshared": 44,
+    "status": "explicitly_selected_for_offline_input_pending_exact_live_approval"
+  },
+  "authorization_scope": {
+    "render_offline_input_draft": true,
+    "submit": false,
+    "create_server_directory": false,
+    "retry": false,
+    "irc": false,
+    "cancel": false,
+    "cleanup": false
+  }
+}

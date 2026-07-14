@@ -1,0 +1,35 @@
+{
+  "schema": "gaussian-calculation-request/1",
+  "request_id": "wang2024_bf3_b1_irc_reverse_recalc_v2",
+  "goal": "Recalculate the BF3-TS2-B1 reverse intrinsic reaction coordinate with the same revised numerical protocol as the forward direction and extend beyond the first run's 30-point ceiling.",
+  "claim_scope": "Numerically trace the reverse direction from the accepted C13-C21 first-order-saddle candidate. Do not assign reactant or product identity, claim an endpoint minimum, or validate the reaction path without endpoint review and the separately completed forward direction.",
+  "task_types": [
+    "intrinsic_reaction_coordinate_reverse"
+  ],
+  "structure": {
+    "sha256": "0f26f244dfec97ad04fe757f7447b52bd39fb295af58b0ed463033a807ff37ad",
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "elements": [
+      "B",
+      "C",
+      "F",
+      "H",
+      "N",
+      "O"
+    ],
+    "charge": 0,
+    "multiplicity": 1
+  },
+  "direction": "reverse",
+  "prior_run_evidence": {
+    "completed_points": 30,
+    "prior_step_size": 5,
+    "termination_reason": "Maximum number of points reached with normal reverse-path completion.",
+    "review_limit": "The final point was not thereby proven to be a minimum."
+  },
+  "system_class": "main_group_closed_shell",
+  "support_status": "supported",
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}

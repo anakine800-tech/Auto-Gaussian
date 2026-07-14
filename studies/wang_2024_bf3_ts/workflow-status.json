@@ -32,7 +32,7 @@
     {
       "candidate_id": "wang2024_bf3_ts2_b1",
       "literature_label": "BF3-TS2-B1",
-      "workflow_status": "mode_consistent_first_order_saddle_candidate_irc_incomplete_forward_failed_reverse_pending_endpoint_review",
+      "workflow_status": "mode_consistent_first_order_saddle_candidate_irc_recalculation_v2_inputs_ready_pending_exact_live_approval",
       "sequence_gate": "bf3_ts1_prerequisite_satisfied",
       "scientific_scope": {
         "formula": "C25H42BF3N4O3",
@@ -108,6 +108,22 @@
         "status": "bidirectional_irc_incomplete_forward_failed_reverse_ready_for_structure_review",
         "bidirectional_path_validated": false
       },
+      "irc_recalculation_v2": {
+        "plan_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/recalculation-plan.json",
+        "plan_sha256": "ff6421aba1f20bcabc5d0080fafc80c3a2bfb857885063edafdf17716324adf9",
+        "selected_tier": "standard",
+        "step_size": 3,
+        "maximum_points_per_direction": 60,
+        "maximum_corrector_cycles_per_point": 40,
+        "memory_per_direction": "120GB",
+        "nprocshared_per_direction": 44,
+        "forward_project": "w24_bf3b1_if2",
+        "forward_input_sha256": "726a53b02eb496dc5784e748d5d01a59d84e6fc8b31a7c25d8ff4eb908fc6819",
+        "reverse_project": "w24_bf3b1_ir2",
+        "reverse_input_sha256": "feef276a1d4972de34c008938e610a21830646a26cd6406bb6cf24f04c01d12c",
+        "live_submission_authorized": false,
+        "path_validated": false
+      },
       "irc_submission_history": {
         "protocol_proposal": {
           "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc-protocol-proposal.json",
@@ -167,7 +183,7 @@
         "contains_server_path": false,
         "new_live_action_authorized": false
       },
-      "next_gate": "Independently review the reverse endpoint structure and create its endpoint audit. The failed forward direction prevents bidirectional path validation; any retry requires a fresh three-tier scientific proposal and explicit approval."
+      "next_gate": "Review and approve the exact recalculation-v2 input hashes, routes, resources and fresh SDL directories before one upload and one qsub per direction."
     },
     {
       "candidate_id": "wang2024_bf3_ts2_b2",
@@ -251,5 +267,5 @@
       "status": "deferred_not_materialized"
     }
   ],
-  "status_payload_sha256": "22908fced10250edb13b839ba9c41cbe7eb10e08bd1c592b02340b99062467cf"
+  "status_payload_sha256": "aa4a2730eb9d6c531368f68a53bfd090c79937e7e22ab659a4692eb921192405"
 }

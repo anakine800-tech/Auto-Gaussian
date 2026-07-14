@@ -23,7 +23,10 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
    hash-bound C13–C21 animation decision. Its forward IRC stopped at point 20
    after exceeding the maximum corrector steps and is recorded as failed. The
    reverse IRC reached all 30 points and is ready only for independent endpoint
-   structure review; the bidirectional path is not validated.
+   structure review; the bidirectional path is not validated. A matched
+   `standard` recalculation with `StepSize=3` and `MaxPoints=60` has now been
+   selected and rendered offline for both fresh directions, pending exact live
+   approval.
 3. BF3-TS2-B2 has selected the B1-matched `standard` protocol for offline
    review and now has an exact, hash-bound Cartesian input under `bf3_ts2_b2/`.
    The exact input, 120 GB/44-core resources and fresh SDL project subsequently
