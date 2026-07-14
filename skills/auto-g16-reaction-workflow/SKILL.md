@@ -129,13 +129,15 @@ networks or TS seed strategies. Read
 [references/literature-evidence-design.md](references/literature-evidence-design.md)
 when planning that future layer.
 
-The proposed `auto-g16-knowledge-base` and `auto-g16-reaction-literature`
-components are not implemented by this W1 Skill. Do not claim that a database
-was queried or updated, claim that a search was performed, infer a mechanism
-from a citation, transfer an unreviewed structure/geometry, or emit their
-planned artifacts from the current builder. A database match and literature
-similarity do not prove the target mechanism or TS and grant no calculation
-authorization.
+The proposed `auto-g16-knowledge-base` is not implemented. The separate
+`auto-g16-reaction-literature` Skill now implements the query, metadata
+retrieval, screening and source-evidence stages, but not the planned mechanism-
+support or TS-precedent-map stages. This W1 builder still performs none of those
+actions. Do not claim that a database was queried or updated, claim that a
+search was performed without its immutable artifacts, infer a mechanism from a
+citation, or transfer an unreviewed structure/geometry. A database match and
+literature similarity do not prove the target mechanism or TS and grant no
+calculation authorization.
 
 ## Scientific boundaries
 
@@ -161,8 +163,9 @@ authorization.
 - `references/knowledge-database-design.md`: future W2 structure, method, and
   literature/book registries, immutable study snapshots, permissions and
   storage/index architecture; design only, with no current database capability.
-- `references/literature-evidence-design.md`: future W2 reproducible search,
-  evidence extraction, applicability review and TS-precedent contract; design
-  only, with no current search or calculation capability.
+- `references/literature-evidence-design.md`: W2 reproducible search, evidence
+  extraction, applicability review and TS-precedent contract. The query and
+  evidence stages are implemented by `auto-g16-reaction-literature`; later
+  mechanism-support and TS-precedent stages remain design-only.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry and condition-model artifacts.

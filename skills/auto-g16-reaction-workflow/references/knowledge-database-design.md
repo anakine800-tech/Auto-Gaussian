@@ -180,9 +180,10 @@ interpretation. Do not use a book citation without edition and page/chapter
 anchors. Do not redistribute publisher PDFs or books when storage rights do not
 permit it; retain citation metadata, lawful local-path references, and hashes.
 
-The future `auto-g16-reaction-literature` Skill searches and extracts evidence.
-The knowledge base accepts only records that pass identity, anchor, extraction,
-and applicability review.
+The `auto-g16-reaction-literature` Skill searches metadata and creates reviewed
+evidence records. Its later knowledge-base import handoff remains unimplemented;
+the knowledge base may accept only records that pass identity, anchor,
+extraction, and applicability review.
 
 ## 6. Cross-registry relationships
 
