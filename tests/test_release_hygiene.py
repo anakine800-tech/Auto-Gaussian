@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
+THIS_FILE = Path(__file__).resolve()
 
 
 def tracked_files() -> list[Path]:
@@ -19,7 +20,11 @@ def tracked_files() -> list[Path]:
         check=True,
         capture_output=True,
     )
-    return [ROOT / item.decode() for item in result.stdout.split(b"\0") if item]
+    return [
+        path
+        for item in result.stdout.split(b"\0")
+        if item and (path := ROOT / item.decode()).resolve() != THIS_FILE
+    ]
 
 
 class ReleaseHygieneTests(unittest.TestCase):
