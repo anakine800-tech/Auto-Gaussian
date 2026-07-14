@@ -6,11 +6,22 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-PIPELINE = Path.home() / ".codex/skills/auto-g16-chemdraw-pipeline/scripts"
+from runtime_config import setting
+
+
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+PIPELINE = Path(
+    setting(
+        "AUTO_G16_PIPELINE_SCRIPTS",
+        "chemdraw_pipeline_scripts",
+        str(CODEX_HOME / "skills" / "auto-g16-chemdraw-pipeline" / "scripts"),
+    )
+)
 INSPECT = PIPELINE / "inspect_chemdraw.py"
 MAKE = PIPELINE / "make_gaussian_input.py"
 AUDIT = PIPELINE / "audit_cartesian_input.py"

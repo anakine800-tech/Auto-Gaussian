@@ -7,16 +7,25 @@ description: Convert ChemDraw CDX/CDXML/MOL/SDF or SMILES structures into chemic
 
 Run one integrated preview workflow. Do not invoke the older component Skills unless this Skill reports a missing dependency or an unsupported chemistry case.
 
-## Fixed environment
+## Local configuration
 
-- RDKit Python: `<MAC_HOME>/miniforge3/envs/chem/bin/python`
-- Windows SSH: `<WINDOWS_USER>@<RTWIN_PRIVATE_IP>`
-- SSH control socket: `/tmp/codex-windows-gaussview.sock`
-- Windows project root: `<WINDOWS_HOME>\Desktop\GaussianProjects`
-- GaussView: `D:\gs\g16\G16W\gview.exe`
+Copy the repository's `config/runtime.example.json` to
+`~/.config/auto-g16/runtime.json` and fill only local, non-secret paths. An
+environment variable overrides the matching JSON value.
+
+- RDKit Python: `AUTO_G16_RDKIT_PYTHON`
+- Windows SSH target or alias: `AUTO_G16_WINDOWS_TARGET`
+- Mac SSH config: `AUTO_G16_RTWIN_SSH_CONFIG`
+- SSH control socket: `AUTO_G16_WINDOWS_CONTROL_SOCKET` (optional)
+- Windows project root: `AUTO_G16_WINDOWS_PROJECT_ROOT`
+- GaussView executable: `AUTO_G16_GAUSSVIEW_EXE`
+- ChemDraw pipeline scripts: `AUTO_G16_PIPELINE_SCRIPTS`
 - Local outputs: current workspace `outputs/<project>/`
 
+Keep resolved values in the local environment or ignored SSH configuration.
 Never store or echo a password. Windows Hello PIN is not an SSH password.
+Use an absolute Windows project root without whitespace or shell metacharacters;
+the transfer wrapper refuses ambiguous remote paths.
 
 ## Fast accurate workflow
 
@@ -34,7 +43,7 @@ Never store or echo a password. Windows Hello PIN is not an SSH password.
 Prepare a preview:
 
 ```bash
-<MAC_HOME>/miniforge3/envs/chem/bin/python \
+$AUTO_G16_RDKIT_PYTHON \
   ~/.codex/skills/auto-g16-view-rt-win/scripts/prepare_preview.py \
   /path/to/structure.cdx --output-dir /path/to/outputs/project
 ```
@@ -44,14 +53,14 @@ Pass `--charge` or `--multiplicity` when known. For a visual-only review of unre
 Open/reuse the SSH master:
 
 ```bash
-<MAC_HOME>/miniforge3/envs/chem/bin/python \
+$AUTO_G16_RDKIT_PYTHON \
   ~/.codex/skills/auto-g16-view-rt-win/scripts/windows_gaussview.py master
 ```
 
 Transfer, verify, and open:
 
 ```bash
-<MAC_HOME>/miniforge3/envs/chem/bin/python \
+$AUTO_G16_RDKIT_PYTHON \
   ~/.codex/skills/auto-g16-view-rt-win/scripts/windows_gaussview.py \
   open /path/to/project_cartesian.gjf --project project
 ```
@@ -99,7 +108,7 @@ Read [references/chemistry-boundaries.md](references/chemistry-boundaries.md) on
 Generate multiple candidates only when the chemical identity, tetrahedral stereochemistry, charge, multiplicity, Opt route, and resource tier are resolved:
 
 ```bash
-CHEM_PY=<MAC_HOME>/miniforge3/envs/chem/bin/python
+CHEM_PY=$AUTO_G16_RDKIT_PYTHON
 CONF="$HOME/.codex/skills/auto-g16-view-rt-win/scripts/prepare_conformers.py"
 
 "$CHEM_PY" "$CONF" generate /path/to/structure.cdx \

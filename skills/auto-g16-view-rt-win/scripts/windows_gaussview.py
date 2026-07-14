@@ -13,12 +13,26 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-HOST = "<RTWIN_PRIVATE_IP>"
-USER = "<WINDOWS_USER>"
-TARGET = f"{USER}@{HOST}"
-SOCKET = "/tmp/codex-windows-gaussview.sock"
-REMOTE_ROOT = r"<WINDOWS_HOME>\Desktop\GaussianProjects"
-GVIEW = r"D:\gs\g16\G16W\gview.exe"
+from runtime_config import setting
+
+
+TARGET = setting("AUTO_G16_WINDOWS_TARGET", "windows_target", "rtwin")
+SSH_CONFIG = setting(
+    "AUTO_G16_RTWIN_SSH_CONFIG",
+    "rtwin_ssh_config",
+    str(Path.home() / ".ssh" / "config"),
+)
+SOCKET = setting(
+    "AUTO_G16_WINDOWS_CONTROL_SOCKET",
+    "windows_control_socket",
+    "/tmp/codex-windows-gaussview.sock",
+)
+REMOTE_ROOT = setting(
+    "AUTO_G16_WINDOWS_PROJECT_ROOT", "windows_project_root", r"C:\GaussianProjects"
+)
+GVIEW = setting(
+    "AUTO_G16_GAUSSVIEW_EXE", "gaussview_exe", r"C:\Gaussian\gview.exe"
+)
 OPEN_SUFFIXES = {".gjf", ".com", ".mol", ".sdf", ".xyz"}
 DIRECT_OPEN_SUFFIXES = {".gjf", ".com", ".mol", ".sdf"}
 VISUAL_PREVIEW_SCHEMA = "gaussview-visual-preview/1"
@@ -66,11 +80,26 @@ def run(command: list[str], *, check: bool = True) -> subprocess.CompletedProces
 
 
 def master_ready() -> bool:
-    return run(["ssh", "-S", SOCKET, "-O", "check", TARGET], check=False).returncode == 0
+    return run(
+        ["ssh", "-F", SSH_CONFIG, "-S", SOCKET, "-O", "check", TARGET],
+        check=False,
+    ).returncode == 0
 
 
 def ssh(remote_command: str) -> str:
-    return run(["ssh", "-S", SOCKET, TARGET, remote_command]).stdout
+    return run(["ssh", "-F", SSH_CONFIG, "-S", SOCKET, TARGET, remote_command]).stdout
+
+
+def scp_destination(project: str, filename: str) -> str:
+    if not re.fullmatch(r"[A-Za-z]:\\[^\r\n'\"*?<>|\s]+", REMOTE_ROOT):
+        raise ValueError(
+            "AUTO_G16_WINDOWS_PROJECT_ROOT must be an absolute Windows path "
+            "without whitespace or shell metacharacters"
+        )
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", filename):
+        raise ValueError("remote transfer filename contains unsafe characters")
+    root = REMOTE_ROOT.replace("\\", "/").rstrip("/")
+    return f"{TARGET}:{root}/{project}/{filename}"
 
 
 def sha256(path: Path) -> str:
@@ -85,7 +114,10 @@ def open_master() -> int:
     if master_ready():
         print(json.dumps({"master": "ready", "socket": SOCKET, "target": TARGET}))
         return 0
-    command = f"ssh -M -S {shlex.quote(SOCKET)} -o ControlPersist=15m -N -f {TARGET}"
+    command = (
+        f"ssh -F {shlex.quote(SSH_CONFIG)} -M -S {shlex.quote(SOCKET)} "
+        f"-o ControlPersist=15m -N -f {shlex.quote(TARGET)}"
+    )
     apple = f'tell application "Terminal" to do script {json.dumps(command)}'
     subprocess.run(["osascript", "-e", 'tell application "Terminal" to activate', "-e", apple], check=True)
     print(json.dumps({
@@ -300,6 +332,8 @@ def open_structure(source: Path, project: str) -> int:
     project = re.sub(r"[^A-Za-z0-9_-]+", "_", project).strip("_")
     if not project:
         raise SystemExit("Project name becomes empty after sanitization")
+    if "'" in GVIEW or "\r" in GVIEW or "\n" in GVIEW:
+        raise SystemExit("AUTO_G16_GAUSSVIEW_EXE contains unsafe characters")
 
     remote_dir = REMOTE_ROOT + "\\" + project
     remote_source = remote_dir + "\\" + source.name
@@ -320,10 +354,13 @@ def open_structure(source: Path, project: str) -> int:
         transfer_files.append(manifest_path)
     remote_hashes: dict[str, str] = {}
     for local_file in transfer_files:
-        remote_scp_path = (
-            f"{TARGET}:<WINDOWS_HOME>/Desktop/GaussianProjects/{project}/{local_file.name}"
+        remote_scp_path = scp_destination(project, local_file.name)
+        run(
+            [
+                "scp", "-F", SSH_CONFIG, "-o", f"ControlPath={SOCKET}",
+                str(local_file), remote_scp_path,
+            ]
         )
-        run(["scp", "-o", f"ControlPath={SOCKET}", str(local_file), remote_scp_path])
         local_hash = sha256(local_file)
         remote_path = remote_dir + "\\" + local_file.name
         remote_hash = ssh(
@@ -338,8 +375,13 @@ def open_structure(source: Path, project: str) -> int:
     launcher = source.parent / f".{project}_{launcher_name}"
     launcher.write_text(f'@echo off\r\nstart "" "{GVIEW}" "{remote_file}"\r\n', encoding="utf-8", newline="")
     try:
-        launcher_remote_scp = f"{TARGET}:<WINDOWS_HOME>/Desktop/GaussianProjects/{project}/{launcher_name}"
-        run(["scp", "-o", f"ControlPath={SOCKET}", str(launcher), launcher_remote_scp])
+        launcher_remote_scp = scp_destination(project, launcher_name)
+        run(
+            [
+                "scp", "-F", SSH_CONFIG, "-o", f"ControlPath={SOCKET}",
+                str(launcher), launcher_remote_scp,
+            ]
+        )
         ssh(f"schtasks /Create /TN {task} /TR {remote_launcher} /SC ONCE /ST 23:59 /RU INTERACTIVE /F")
         try:
             ssh(f"schtasks /Run /TN {task}")
@@ -353,10 +395,13 @@ def open_structure(source: Path, project: str) -> int:
         raise SystemExit("GaussView was not confirmed in the visible Console session")
     if not PROBE_SCRIPT.is_file():
         raise SystemExit(f"GaussView load probe is missing: {PROBE_SCRIPT}")
-    probe_remote_scp = (
-        f"{TARGET}:<WINDOWS_HOME>/Desktop/GaussianProjects/{project}/gaussview_load_probe.ps1"
+    probe_remote_scp = scp_destination(project, "gaussview_load_probe.ps1")
+    run(
+        [
+            "scp", "-F", SSH_CONFIG, "-o", f"ControlPath={SOCKET}",
+            str(PROBE_SCRIPT), probe_remote_scp,
+        ]
     )
-    run(["scp", "-o", f"ControlPath={SOCKET}", str(PROBE_SCRIPT), probe_remote_scp])
     probe_powershell = (
         f'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
         f'-File "{remote_probe}" -ExpectedPath "{remote_file}" '
@@ -371,16 +416,21 @@ def open_structure(source: Path, project: str) -> int:
         newline="",
     )
     try:
-        probe_launcher_scp = (
-            f"{TARGET}:<WINDOWS_HOME>/Desktop/GaussianProjects/{project}/run_gaussview_load_probe.vbs"
+        probe_launcher_scp = scp_destination(
+            project, "run_gaussview_load_probe.vbs"
         )
-        run(["scp", "-o", f"ControlPath={SOCKET}", str(probe_vbs), probe_launcher_scp])
+        run(
+            [
+                "scp", "-F", SSH_CONFIG, "-o", f"ControlPath={SOCKET}",
+                str(probe_vbs), probe_launcher_scp,
+            ]
+        )
         stale_result_cleanup = (
             f'powershell -NoProfile -Command "Remove-Item -LiteralPath \'{remote_probe_result}\' '
             f'-Force -ErrorAction SilentlyContinue; exit 0"'
         )
         run(
-            ["ssh", "-S", SOCKET, TARGET, stale_result_cleanup],
+            ["ssh", "-F", SSH_CONFIG, "-S", SOCKET, TARGET, stale_result_cleanup],
             check=False,
         )
         ssh(
@@ -395,7 +445,10 @@ def open_structure(source: Path, project: str) -> int:
             f'{{ Get-Content -Raw -LiteralPath \'{remote_probe_result}\'; exit 0 }}; '
             'Start-Sleep -Milliseconds 250 }; exit 54"'
         )
-        probe_process = run(["ssh", "-S", SOCKET, TARGET, result_command], check=False)
+        probe_process = run(
+            ["ssh", "-F", SSH_CONFIG, "-S", SOCKET, TARGET, result_command],
+            check=False,
+        )
         payload = probe_process.stdout.strip()
         if not payload:
             raise ValueError(
@@ -408,7 +461,7 @@ def open_structure(source: Path, project: str) -> int:
     finally:
         probe_vbs.unlink(missing_ok=True)
         run(
-            ["ssh", "-S", SOCKET, TARGET, f"schtasks /Delete /TN {probe_task} /F"],
+            ["ssh", "-F", SSH_CONFIG, "-S", SOCKET, TARGET, f"schtasks /Delete /TN {probe_task} /F"],
             check=False,
         )
         cleanup_command = (
@@ -417,7 +470,7 @@ def open_structure(source: Path, project: str) -> int:
             f'-Force -ErrorAction SilentlyContinue"'
         )
         run(
-            ["ssh", "-S", SOCKET, TARGET, cleanup_command],
+            ["ssh", "-F", SSH_CONFIG, "-S", SOCKET, TARGET, cleanup_command],
             check=False,
         )
 

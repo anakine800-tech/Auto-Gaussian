@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-command structure preparation, PBS submission, monitoring, and results."""
+"""Run an already reviewed Gaussian input after an exact live-approval gate."""
 
 from __future__ import annotations
 
@@ -11,25 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import gaussian_rtwin_pbs as transport
-
-
-RDKIT_PYTHON = Path("<MAC_HOME>/miniforge3/envs/chem/bin/python")
-PREPARE_PREVIEW = Path.home() / ".codex/skills/auto-g16-view-rt-win/scripts/prepare_preview.py"
 TRANSPORT = Path(__file__).with_name("gaussian_rtwin_pbs.py")
-PROTOCOLS = {
-    "smoke-test": {
-        "route": "#p b3lyp/sto-3g opt",
-        "mem": "2GB",
-        "nproc": 4,
-        "purpose": "Fast workflow validation only; not a research recommendation.",
-    },
-    "organic-opt": {
-        "route": "#p b3lyp/6-31g(d) opt",
-        "mem": "50GB",
-        "nproc": 22,
-        "purpose": "Previously approved basic closed-shell organic optimization example.",
-    },
-}
 RESOURCE_TIERS = {
     "simple": {"mem": "12GB", "nproc": 8},
     "general": {"mem": "50GB", "nproc": 22},
@@ -57,27 +39,6 @@ def guarded_local_dir(path: Path) -> Path:
     return path
 
 
-def selected_protocol(args) -> dict[str, Any]:
-    protocol = dict(PROTOCOLS[args.protocol])
-    tier = args.resource_tier
-    if tier is None and args.protocol != "smoke-test":
-        tier = "general"
-    if tier:
-        protocol.update(RESOURCE_TIERS[tier])
-        protocol["resource_tier"] = tier
-    else:
-        protocol["resource_tier"] = "smoke-test"
-    if args.route:
-        protocol["route"] = args.route
-    if args.mem:
-        protocol["mem"] = args.mem
-    if args.nproc:
-        protocol["nproc"] = args.nproc
-    if args.mem or args.nproc:
-        protocol["resource_tier"] = "custom"
-    return protocol
-
-
 def matching_resource_tier(mem: str, nproc: int) -> str:
     for name, tier in RESOURCE_TIERS.items():
         if transport.parse_memory(mem) == transport.parse_memory(tier["mem"]) and nproc == tier["nproc"]:
@@ -89,61 +50,34 @@ def prepare_source(args) -> dict[str, Any]:
     project = transport.validate_project(args.project)
     local_dir = guarded_local_dir(Path(args.local_dir))
     source_path = Path(args.source).expanduser()
-    if source_path.is_file() and source_path.suffix.lower() in {".gjf", ".com"}:
-        gjf = source_path.resolve()
-        report = None
-        workflow = None
-        existing_audit = transport.parse_gaussian(gjf)
-        manifest_path = gjf.with_suffix(".json")
-        if manifest_path.is_file():
-            manifest_value = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if manifest_value.get("schema") == "gaussian-opt-freq-sp/1":
-                workflow = {
-                    "species_id": manifest_value.get("species_id"),
-                    "stages": manifest_value.get("stages"),
-                    "temperature_k": manifest_value.get("temperature_k"),
-                    "standard_state": manifest_value.get("standard_state"),
-                    "quasi_harmonic_correction": manifest_value.get("quasi_harmonic_correction"),
-                }
-        if args.resource_tier or args.mem or args.nproc:
-            requested = selected_protocol(args)
-            if (
-                transport.parse_memory(existing_audit["mem"]) != transport.parse_memory(requested["mem"])
-                or existing_audit["nprocshared"] != requested["nproc"]
-            ):
-                fail(
-                    "existing Gaussian input resources do not match the requested tier/overrides; "
-                    "review and update the audited input before submission"
-                )
-        protocol = {
-            "route": existing_audit["route"],
-            "mem": existing_audit["mem"],
-            "nproc": existing_audit["nprocshared"],
-            "resource_tier": matching_resource_tier(existing_audit["mem"], existing_audit["nprocshared"]),
-            "purpose": "Existing audited Gaussian input",
-        }
-    else:
-        workflow = None
-        protocol = selected_protocol(args)
-        if not RDKIT_PYTHON.is_file() or not PREPARE_PREVIEW.is_file():
-            fail("auto-g16-view-rt-win preparation dependency is missing")
-        command = [
-            str(RDKIT_PYTHON), str(PREPARE_PREVIEW), args.source,
-            "--output-dir", str(local_dir), "--project", project,
-            "--route", protocol["route"], "--mem", protocol["mem"],
-            "--nproc", str(protocol["nproc"]),
-            "--charge", str(args.charge), "--multiplicity", str(args.multiplicity),
-        ]
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode:
-            fail((result.stderr or result.stdout).strip())
-        gjf = local_dir / f"{project}_cartesian.gjf"
-        report_path = local_dir / f"{project}_preview_report.json"
-        if not gjf.is_file() or not report_path.is_file():
-            fail("preparation did not produce the expected Gaussian input/report")
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-        if report.get("warnings"):
-            fail("preparation report contains unresolved warnings: " + "; ".join(report["warnings"]))
+    if not source_path.is_file() or source_path.suffix.lower() not in {".gjf", ".com"}:
+        fail(
+            "gaussian_auto accepts only an existing reviewed .gjf/.com input; "
+            "create a protocol-options artifact, record a hash-bound selection, "
+            "and render the exact offline input before using this runner"
+        )
+    gjf = source_path.resolve()
+    report = None
+    workflow = None
+    existing_audit = transport.parse_gaussian(gjf)
+    manifest_path = gjf.with_suffix(".json")
+    if manifest_path.is_file():
+        manifest_value = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_value.get("schema") == "gaussian-opt-freq-sp/1":
+            workflow = {
+                "species_id": manifest_value.get("species_id"),
+                "stages": manifest_value.get("stages"),
+                "temperature_k": manifest_value.get("temperature_k"),
+                "standard_state": manifest_value.get("standard_state"),
+                "quasi_harmonic_correction": manifest_value.get("quasi_harmonic_correction"),
+            }
+    protocol = {
+        "route": existing_audit["route"],
+        "mem": existing_audit["mem"],
+        "nproc": existing_audit["nprocshared"],
+        "resource_tier": matching_resource_tier(existing_audit["mem"], existing_audit["nprocshared"]),
+        "purpose": "Existing audited Gaussian input",
+    }
     audit = transport.parse_gaussian(gjf)
     summary = {
         "schema": "gaussian-auto-preflight/1",
@@ -167,6 +101,39 @@ def prepare_source(args) -> dict[str, Any]:
     return summary
 
 
+def validate_live_approval(path: Path, summary: dict[str, Any]) -> dict[str, Any]:
+    try:
+        approval = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot read live approval record: {exc}")
+    expected = {
+        "project": summary["project"],
+        "remote_workdir": summary["remote_workdir"],
+        "input_sha256": summary["input_sha256"],
+        "route": summary["protocol"]["route"],
+        "mem": summary["protocol"]["mem"],
+        "nprocshared": summary["protocol"]["nproc"],
+        "charge": summary["charge"],
+        "multiplicity": summary["multiplicity"],
+    }
+    if approval.get("schema") != "auto-g16-live-submission-approval/1":
+        fail("live approval record has the wrong schema")
+    if approval.get("decision") != "approved" or approval.get("explicit_confirmation") is not True:
+        fail("live approval record lacks an explicit approved decision")
+    if approval.get("scope") != expected:
+        fail("live approval scope does not exactly match the current preflight")
+    if approval.get("authorizations") != {
+        "create_server_directory": True,
+        "submit": True,
+        "retry": False,
+        "cancel": False,
+        "cleanup": False,
+        "delete_server_data": False,
+    }:
+        fail("live approval authorization boundary changed")
+    return approval
+
+
 def connection_arguments(args) -> list[str]:
     values = []
     for option in ("mac_ssh_config", "rtwin_alias", "windows_root", "windows_server_config", "server_alias"):
@@ -182,8 +149,14 @@ def command_prepare(args) -> None:
 
 def command_auto(args) -> None:
     if not args.confirmed:
-        fail("auto requires --confirmed after approval of source, protocol, charge, multiplicity, and resources")
+        fail("auto requires --confirmed after exact live approval")
     summary = prepare_source(args)
+    if not args.dry_run:
+        if not args.approval_record:
+            fail("a hash-bound --approval-record is required for live submission")
+        validate_live_approval(Path(args.approval_record), summary)
+    elif args.approval_record:
+        validate_live_approval(Path(args.approval_record), summary)
     print(json.dumps({"approved_preflight": summary}, ensure_ascii=False, indent=2), flush=True)
     submit_command = [
         sys.executable, str(TRANSPORT), "submit", summary["gaussian_input"],
@@ -216,16 +189,9 @@ def command_auto(args) -> None:
 
 
 def add_prepare_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("source", help="CDX/CDXML/MOL/SDF/SMILES, or an existing .gjf/.com")
+    parser.add_argument("source", help="existing reviewed .gjf/.com input")
     parser.add_argument("--project", required=True)
     parser.add_argument("--local-dir", required=True)
-    parser.add_argument("--protocol", choices=sorted(PROTOCOLS), default="organic-opt")
-    parser.add_argument("--resource-tier", choices=sorted(RESOURCE_TIERS))
-    parser.add_argument("--route")
-    parser.add_argument("--mem")
-    parser.add_argument("--nproc", type=int)
-    parser.add_argument("--charge", type=int, default=0)
-    parser.add_argument("--multiplicity", type=int, default=1)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -237,6 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
     auto = sub.add_parser("auto", help="prepare, submit once, watch, fetch, and analyze")
     add_prepare_options(auto)
     auto.add_argument("--confirmed", action="store_true")
+    auto.add_argument("--approval-record")
     auto.add_argument("--watch", action="store_true")
     auto.add_argument("--dry-run", action="store_true")
     auto.add_argument("--output-dir")

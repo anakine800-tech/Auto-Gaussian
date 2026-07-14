@@ -1,0 +1,29 @@
+name: Offline tests
+
+on:
+  push:
+    branches: [main, codex/Auto-Gaussian]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile Python sources
+        run: python -m compileall -q scripts skills tests
+      - name: Run offline unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Check shell syntax
+        run: bash -n scripts/check_rtwin_connection.sh scripts/probe_gaussian_server.sh templates/g16_job.pbs.template

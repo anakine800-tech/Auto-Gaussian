@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).parents[1]
 MODULE = ROOT / "skills" / "auto-g16-view-rt-win" / "scripts" / "windows_gaussview.py"
+sys.path.insert(0, str(MODULE.parent))
 SPEC = importlib.util.spec_from_file_location("windows_gaussview", MODULE)
 assert SPEC and SPEC.loader
 GVIEW = importlib.util.module_from_spec(SPEC)
@@ -17,6 +20,20 @@ SPEC.loader.exec_module(GVIEW)
 
 
 class GaussViewModeHandoffTests(unittest.TestCase):
+    def test_scp_destination_uses_configured_target_and_root(self) -> None:
+        with mock.patch.object(GVIEW, "TARGET", "rtwin-test"), mock.patch.object(
+            GVIEW, "REMOTE_ROOT", r"D:\ReviewedProjects"
+        ):
+            self.assertEqual(
+                GVIEW.scp_destination("project_1", "input.gjf"),
+                "rtwin-test:D:/ReviewedProjects/project_1/input.gjf",
+            )
+
+    def test_scp_destination_refuses_ambiguous_remote_paths(self) -> None:
+        with mock.patch.object(GVIEW, "REMOTE_ROOT", r"D:\Fresh Projects"):
+            with self.assertRaisesRegex(ValueError, "without whitespace"):
+                GVIEW.scp_destination("project_1", "input.gjf")
+
     def test_xyz_is_allowed_for_visual_mode_review(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "mode_plus.xyz"
