@@ -32,7 +32,7 @@
     {
       "candidate_id": "wang2024_bf3_ts2_b1",
       "literature_label": "BF3-TS2-B1",
-      "workflow_status": "mode_consistent_first_order_saddle_candidate_irc_submitted",
+      "workflow_status": "mode_consistent_first_order_saddle_candidate_irc_recalculation_v2_inputs_ready_pending_exact_live_approval",
       "sequence_gate": "bf3_ts1_prerequisite_satisfied",
       "scientific_scope": {
         "formula": "C25H42BF3N4O3",
@@ -102,6 +102,28 @@
         "confirmed": true,
         "reaction_coordinate": "C13-C21 bond formation"
       },
+      "irc_terminal_evidence_summary": {
+        "path": "studies/wang_2024_bf3_ts/bf3-ts2-b1-irc-terminal-evidence.json",
+        "sha256": "cf7b5e72977103ea4b310f9d0dfd1b4b2acc5aec803dbe72de8433a6bf974589",
+        "status": "bidirectional_irc_incomplete_forward_failed_reverse_ready_for_structure_review",
+        "bidirectional_path_validated": false
+      },
+      "irc_recalculation_v2": {
+        "plan_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/recalculation-plan.json",
+        "plan_sha256": "ff6421aba1f20bcabc5d0080fafc80c3a2bfb857885063edafdf17716324adf9",
+        "selected_tier": "standard",
+        "step_size": 3,
+        "maximum_points_per_direction": 60,
+        "maximum_corrector_cycles_per_point": 40,
+        "memory_per_direction": "120GB",
+        "nprocshared_per_direction": 44,
+        "forward_project": "w24_bf3b1_if2",
+        "forward_input_sha256": "726a53b02eb496dc5784e748d5d01a59d84e6fc8b31a7c25d8ff4eb908fc6819",
+        "reverse_project": "w24_bf3b1_ir2",
+        "reverse_input_sha256": "feef276a1d4972de34c008938e610a21830646a26cd6406bb6cf24f04c01d12c",
+        "live_submission_authorized": false,
+        "path_validated": false
+      },
       "irc_submission_history": {
         "protocol_proposal": {
           "path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc-protocol-proposal.json",
@@ -118,24 +140,39 @@
             "project": "w24_bf3b1_if1",
             "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/w24_bf3b1_if1.gjf",
             "input_sha256": "486635c5a21ef1e67d11257f5673c61cd7e3aba2eefd47694b985ece653e308d",
-          "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/w24_bf3b1_if1.json",
-          "manifest_sha256": "a2f473c96567e8f7ff0dc48b0f47d2708209883cfe1b497ab7262c2ba5488ae1",
-          "terminal_intake_template_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/terminal-intake-template.json",
-          "terminal_intake_template_sha256": "1945dc5e85576bdf46a5dc9972aa36abb13f72c263924602098f02a26c2c327e",
-          "last_verified_scheduler_state": "R",
-            "terminal_evidence": false
+            "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/w24_bf3b1_if1.json",
+            "manifest_sha256": "a2f473c96567e8f7ff0dc48b0f47d2708209883cfe1b497ab7262c2ba5488ae1",
+            "terminal_intake_template_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/forward/terminal-intake-template.json",
+            "terminal_intake_template_sha256": "1945dc5e85576bdf46a5dc9972aa36abb13f72c263924602098f02a26c2c327e",
+            "last_verified_scheduler_state": "terminal_record_absent",
+            "terminal_evidence": true,
+            "terminal_job_state": "failed",
+            "terminal_outcome": "error_or_interrupted_termination",
+            "acceptance_status": "not_accepted",
+            "completed_point": 20,
+            "maximum_points": 30,
+            "corrector_convergence_count": 20,
+            "path_validated": false
           },
           {
             "direction": "reverse",
             "project": "w24_bf3b1_ir1",
             "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.gjf",
             "input_sha256": "3e30690795645560a075f73aa98c577014cd6b0ed410438a0c77133be0e0520c",
-          "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.json",
-          "manifest_sha256": "1af06c27c44177c4236850b65a6ce19c728a477c91fe2c94bd55b26b8f64d979",
-          "terminal_intake_template_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/terminal-intake-template.json",
-          "terminal_intake_template_sha256": "219c8c1c987f46d863e7b1aadc431cc30509474a671077e73e4982b1bf8e9bfa",
-          "last_verified_scheduler_state": "Q",
-            "terminal_evidence": false
+            "manifest_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.json",
+            "manifest_sha256": "1af06c27c44177c4236850b65a6ce19c728a477c91fe2c94bd55b26b8f64d979",
+            "terminal_intake_template_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/terminal-intake-template.json",
+            "terminal_intake_template_sha256": "219c8c1c987f46d863e7b1aadc431cc30509474a671077e73e4982b1bf8e9bfa",
+            "last_verified_scheduler_state": "terminal_record_absent",
+            "terminal_evidence": true,
+            "terminal_job_state": "completed",
+            "terminal_outcome": "ready_for_endpoint_structure_review",
+            "acceptance_status": "structural_review_required",
+            "completed_point": 30,
+            "maximum_points": 30,
+            "corrector_convergence_count": 30,
+            "chemical_side_assignment": "pending_structural_review",
+            "path_validated": false
           }
         ],
         "resources_per_direction": {
@@ -146,7 +183,7 @@
         "contains_server_path": false,
         "new_live_action_authorized": false
       },
-      "next_gate": "Fetch and independently review both submitted numerical IRC directions before assigning endpoint identities or claiming path validation."
+      "next_gate": "Review and approve the exact recalculation-v2 input hashes, routes, resources and fresh SDL directories before one upload and one qsub per direction."
     },
     {
       "candidate_id": "wang2024_bf3_ts2_b2",
@@ -230,5 +267,5 @@
       "status": "deferred_not_materialized"
     }
   ],
-  "status_payload_sha256": "9836d1610383c4d17f648c94416d3378a285e888a473674eab2152aa18aed3d3"
+  "status_payload_sha256": "aa4a2730eb9d6c531368f68a53bfd090c79937e7e22ab659a4692eb921192405"
 }

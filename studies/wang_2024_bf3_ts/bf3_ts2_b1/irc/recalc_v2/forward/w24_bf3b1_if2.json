@@ -1,0 +1,409 @@
+{
+  "schema": "gaussian-allcheck-input-manifest/1",
+  "calculation_ready": true,
+  "candidate_only": false,
+  "warnings": [],
+  "geometry_source": "geom_allcheck_from_reviewed_checkpoint",
+  "no_explicit_molecule_specification": true,
+  "direction": "forward",
+  "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,forward,maxpoints=60,stepsize=3,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)",
+  "input_sha256": "726a53b02eb496dc5784e748d5d01a59d84e6fc8b31a7c25d8ff4eb908fc6819",
+  "checkpoint_geometry_audit_sha256": "a140f7615cd8392e95a9a79a805da26e687844178136bb4580b6fba88c697337",
+  "checkpoint_file": "w24_bf3ts2_b1_s01.chk",
+  "checkpoint_sha256": "2df61f303797d138ea8d0b94db951b19ad68983c5b56eaa14294aee0dfcfc632",
+  "charge": 0,
+  "multiplicity": 1,
+  "atom_count": 78,
+  "atom_order": [
+    {
+      "index": 1,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 2,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 3,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 4,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 5,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 6,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 7,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 8,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 9,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 10,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 11,
+      "atomic_number": 8,
+      "element": "O"
+    },
+    {
+      "index": 12,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 13,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 14,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 15,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 16,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 17,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 18,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 19,
+      "atomic_number": 7,
+      "element": "N"
+    },
+    {
+      "index": 20,
+      "atomic_number": 5,
+      "element": "B"
+    },
+    {
+      "index": 21,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 22,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 23,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 24,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 25,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 26,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 27,
+      "atomic_number": 8,
+      "element": "O"
+    },
+    {
+      "index": 28,
+      "atomic_number": 8,
+      "element": "O"
+    },
+    {
+      "index": 29,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 30,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 31,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 32,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 33,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 34,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 35,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 36,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 37,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 38,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 39,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 40,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 41,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 42,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 43,
+      "atomic_number": 7,
+      "element": "N"
+    },
+    {
+      "index": 44,
+      "atomic_number": 7,
+      "element": "N"
+    },
+    {
+      "index": 45,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 46,
+      "atomic_number": 7,
+      "element": "N"
+    },
+    {
+      "index": 47,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 48,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 49,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 50,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 51,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 52,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 53,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 54,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 55,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 56,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 57,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 58,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 59,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 60,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 61,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 62,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 63,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 64,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 65,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 66,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 67,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 68,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 69,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 70,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 71,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 72,
+      "atomic_number": 6,
+      "element": "C"
+    },
+    {
+      "index": 73,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 74,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 75,
+      "atomic_number": 1,
+      "element": "H"
+    },
+    {
+      "index": 76,
+      "atomic_number": 9,
+      "element": "F"
+    },
+    {
+      "index": 77,
+      "atomic_number": 9,
+      "element": "F"
+    },
+    {
+      "index": 78,
+      "atomic_number": 9,
+      "element": "F"
+    }
+  ]
+}

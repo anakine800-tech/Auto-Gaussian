@@ -1,0 +1,403 @@
+{
+  "schema": "gaussian-protocol-profile-source/1",
+  "proposal_id": "wang2024_bf3_b1_irc_recalc_v2",
+  "difficulty_assessment": {
+    "class": "high_numerical_path_following_risk",
+    "drivers": [
+      "78-atom closed-shell main-group transition-state complex",
+      "the prior forward path failed at target point 21 through corrector oscillation",
+      "the prior reverse path ended at its 30-point ceiling rather than a reviewed endpoint minimum",
+      "both directions must remain comparable and independently reviewed"
+    ],
+    "review_status": "diagnosed_from_complete_terminal_logs"
+  },
+  "common_constraints": {
+    "electronic_structure": "restricted closed-shell omega-B97XD/6-31G(d)",
+    "environment": "SMD continuum with toluene",
+    "force_constants": "RCFC from the previously audited accepted TS Hessian",
+    "geometry_and_guess": "Geom=AllCheck and Guess=Read from the audited accepted TS state",
+    "integrator_family": "Gaussian default HPC intrinsic-reaction-coordinate integrator",
+    "recorrection": "Yes",
+    "grid": "UltraFine",
+    "scf": "Tight convergence with XQC fallback and 128 cycles",
+    "thermochemistry": "not applicable to the IRC stage",
+    "low_frequency_policy": "not applicable to the IRC stage",
+    "endpoint_policy": "A maximum-point structure is not a minimum; chemical-side assignment and endpoint validation remain separate gates."
+  },
+  "options": [
+    {
+      "option_id": "wang2024_bf3_b1_irc_recalc_loose",
+      "tier": "loose",
+      "rigor_rank": 1,
+      "option_status": "selectable",
+      "purpose": "Lower-cost diagnostic rerun that reduces the path step modestly while retaining the prior corrector-cycle ceiling.",
+      "applicability": {
+        "task_types": [
+          "intrinsic_reaction_coordinate"
+        ],
+        "system_classes": [
+          "main_group_closed_shell"
+        ],
+        "fit_assessment": "diagnostic_only",
+        "reason": "Tests whether a modest step reduction removes the point-21 oscillation at limited extra cost."
+      },
+      "method_profiles": [
+        {
+          "profile_id": "wang2024_bf3_b1_irc_recalc_loose_profile",
+          "stages": [
+            "intrinsic_reaction_coordinate"
+          ],
+          "functional_or_method": "omega-B97XD",
+          "basis_stack": [
+            {
+              "elements": [
+                "B",
+                "C",
+                "F",
+                "H",
+                "N",
+                "O"
+              ],
+              "orbital_basis": "6-31G(d)",
+              "ecp": null,
+              "ecp_core_electrons": null,
+              "aux_basis": null
+            }
+          ],
+          "dispersion": {
+            "mode": "intrinsic",
+            "detail": "omega-B97XD built-in dispersion treatment"
+          },
+          "solvation": {
+            "mode": "continuum",
+            "model": "SMD",
+            "solvent_identity": "toluene",
+            "explicit_species": []
+          },
+          "grid": "UltraFine",
+          "scf": {
+            "reference": "restricted_closed_shell",
+            "convergence": "Tight with XQC fallback",
+            "max_cycles": 128
+          },
+          "irc_controls": {
+            "integrator": "default HPC",
+            "force_constants": "RCFC",
+            "step_size": 4,
+            "maximum_points": 40,
+            "maximum_corrector_cycles": 40,
+            "recorrection": "Yes"
+          },
+          "relativistic_treatment": "not required for B, C, F, H, N, and O",
+          "software_compatibility": "reviewed for Gaussian 16 A.03 main-group closed-shell execution"
+        }
+      ],
+      "task_plan": [
+        {
+          "stage_type": "direction_specific_irc_diagnostic",
+          "profile_id": "wang2024_bf3_b1_irc_recalc_loose_profile",
+          "required": true,
+          "acceptance_checks": [
+            "normal direction-specific termination",
+            "corrector convergence at every completed point",
+            "complete fetched terminal evidence",
+            "manual endpoint structure review before any chemical-side assignment"
+          ]
+        }
+      ],
+      "validation_plan": {
+        "minimum_acceptance": [
+          "numerically complete direction-specific diagnostic path"
+        ],
+        "claim_limit": "Diagnostic only; the shorter and coarser path is not the primary endpoint-coverage protocol."
+      },
+      "coverage_plan": {
+        "step_size": 4,
+        "maximum_points": 40,
+        "intended_use": "corrector-stability diagnosis"
+      },
+      "resources": {
+        "resource_tier": "complex",
+        "mem_gb": 120,
+        "cores": 44,
+        "job_count": 1,
+        "relative_cost_units": 1.0,
+        "assumptions": [
+          "One direction per full-node job.",
+          "Wall time remains dominated by path behavior rather than resource size."
+        ]
+      },
+      "expected_cost": {
+        "band": "low_to_medium",
+        "drivers": [
+          "40 maximum IRC points",
+          "reused audited TS force constants",
+          "44-core full-node execution"
+        ]
+      },
+      "limitations": [
+        "The modest step reduction may not eliminate the prior forward oscillation.",
+        "The total path coverage may be shorter than needed for endpoint interpretation."
+      ],
+      "provenance": [
+        "Complete forward and reverse terminal logs from the first bidirectional attempt.",
+        "User-approved omega-B97XD/6-31G(d), SMD toluene model for this benchmark."
+      ],
+      "unresolved": []
+    },
+    {
+      "option_id": "wang2024_bf3_b1_irc_recalc_standard",
+      "tier": "standard",
+      "rigor_rank": 2,
+      "option_status": "selectable",
+      "purpose": "Primary matched bidirectional rerun that reduces the step size enough to address corrector oscillation and extends both paths beyond the previous 30-point ceiling without merely increasing corrector cycles.",
+      "applicability": {
+        "task_types": [
+          "intrinsic_reaction_coordinate"
+        ],
+        "system_classes": [
+          "main_group_closed_shell"
+        ],
+        "fit_assessment": "primary_recalculation_candidate",
+        "reason": "Directly targets the observed numerical instability while keeping the original integrator, force constants, electronic structure, and corrector-cycle ceiling fixed."
+      },
+      "method_profiles": [
+        {
+          "profile_id": "wang2024_bf3_b1_irc_recalc_standard_profile",
+          "stages": [
+            "intrinsic_reaction_coordinate"
+          ],
+          "functional_or_method": "omega-B97XD",
+          "basis_stack": [
+            {
+              "elements": [
+                "B",
+                "C",
+                "F",
+                "H",
+                "N",
+                "O"
+              ],
+              "orbital_basis": "6-31G(d)",
+              "ecp": null,
+              "ecp_core_electrons": null,
+              "aux_basis": null
+            }
+          ],
+          "dispersion": {
+            "mode": "intrinsic",
+            "detail": "omega-B97XD built-in dispersion treatment"
+          },
+          "solvation": {
+            "mode": "continuum",
+            "model": "SMD",
+            "solvent_identity": "toluene",
+            "explicit_species": []
+          },
+          "grid": "UltraFine",
+          "scf": {
+            "reference": "restricted_closed_shell",
+            "convergence": "Tight with XQC fallback",
+            "max_cycles": 128
+          },
+          "irc_controls": {
+            "integrator": "default HPC",
+            "force_constants": "RCFC",
+            "step_size": 3,
+            "maximum_points": 60,
+            "maximum_corrector_cycles": 40,
+            "recorrection": "Yes"
+          },
+          "relativistic_treatment": "not required for B, C, F, H, N, and O",
+          "software_compatibility": "reviewed for Gaussian 16 A.03 main-group closed-shell execution"
+        }
+      ],
+      "task_plan": [
+        {
+          "stage_type": "direction_specific_irc_primary_recalculation",
+          "profile_id": "wang2024_bf3_b1_irc_recalc_standard_profile",
+          "required": true,
+          "acceptance_checks": [
+            "normal direction-specific termination",
+            "corrector convergence at every completed point",
+            "complete fetched terminal evidence",
+            "matched numerical settings in the opposite direction",
+            "manual endpoint structure review before any chemical-side assignment"
+          ]
+        }
+      ],
+      "validation_plan": {
+        "minimum_acceptance": [
+          "numerically complete matched forward and reverse paths",
+          "separate endpoint structure decisions"
+        ],
+        "claim_limit": "Primary numerical path evidence only; endpoint minima and reaction-path validation remain separately gated."
+      },
+      "coverage_plan": {
+        "step_size": 3,
+        "maximum_points": 60,
+        "intended_use": "matched bidirectional recalculation with extended path coverage"
+      },
+      "resources": {
+        "resource_tier": "complex",
+        "mem_gb": 120,
+        "cores": 44,
+        "job_count": 1,
+        "relative_cost_units": 2.0,
+        "assumptions": [
+          "One direction per full-node job.",
+          "The two full-node jobs may queue or run sequentially depending on capacity."
+        ]
+      },
+      "expected_cost": {
+        "band": "medium",
+        "drivers": [
+          "60 maximum IRC points",
+          "smaller step size than the first attempt",
+          "44-core full-node execution"
+        ]
+      },
+      "limitations": [
+        "A smaller HPC step does not guarantee convergence through a genuinely bifurcating or very flat region.",
+        "Reaching 60 points still does not prove that the final geometry is a minimum."
+      ],
+      "provenance": [
+        "Complete first-attempt logs show point-21 forward corrector oscillation rather than SCF or resource failure.",
+        "The successful reverse run shows stable HPC behavior through 30 points at the same electronic-structure model."
+      ],
+      "unresolved": []
+    },
+    {
+      "option_id": "wang2024_bf3_b1_irc_recalc_strict",
+      "tier": "strict",
+      "rigor_rank": 3,
+      "option_status": "selectable",
+      "purpose": "Finer matched bidirectional HPC sampling with the same total nominal path reach as standard but 90 smaller steps, retaining the original corrector-cycle ceiling to avoid concealing divergence.",
+      "applicability": {
+        "task_types": [
+          "intrinsic_reaction_coordinate"
+        ],
+        "system_classes": [
+          "main_group_closed_shell"
+        ],
+        "fit_assessment": "higher_cost_numerical_sensitivity",
+        "reason": "Provides a finer discretization sensitivity test without changing to LQA, EulerPC, DVV, or another integrator family."
+      },
+      "method_profiles": [
+        {
+          "profile_id": "wang2024_bf3_b1_irc_recalc_strict_profile",
+          "stages": [
+            "intrinsic_reaction_coordinate"
+          ],
+          "functional_or_method": "omega-B97XD",
+          "basis_stack": [
+            {
+              "elements": [
+                "B",
+                "C",
+                "F",
+                "H",
+                "N",
+                "O"
+              ],
+              "orbital_basis": "6-31G(d)",
+              "ecp": null,
+              "ecp_core_electrons": null,
+              "aux_basis": null
+            }
+          ],
+          "dispersion": {
+            "mode": "intrinsic",
+            "detail": "omega-B97XD built-in dispersion treatment"
+          },
+          "solvation": {
+            "mode": "continuum",
+            "model": "SMD",
+            "solvent_identity": "toluene",
+            "explicit_species": []
+          },
+          "grid": "UltraFine",
+          "scf": {
+            "reference": "restricted_closed_shell",
+            "convergence": "Tight with XQC fallback",
+            "max_cycles": 128
+          },
+          "irc_controls": {
+            "integrator": "default HPC",
+            "force_constants": "RCFC",
+            "step_size": 2,
+            "maximum_points": 90,
+            "maximum_corrector_cycles": 40,
+            "recorrection": "Yes"
+          },
+          "relativistic_treatment": "not required for B, C, F, H, N, and O",
+          "software_compatibility": "reviewed for Gaussian 16 A.03 main-group closed-shell execution"
+        }
+      ],
+      "task_plan": [
+        {
+          "stage_type": "direction_specific_irc_fine_sampling_sensitivity",
+          "profile_id": "wang2024_bf3_b1_irc_recalc_strict_profile",
+          "required": true,
+          "acceptance_checks": [
+            "normal direction-specific termination",
+            "corrector convergence at every completed point",
+            "complete fetched terminal evidence",
+            "matched fine sampling in the opposite direction",
+            "manual endpoint structure review before any chemical-side assignment"
+          ]
+        }
+      ],
+      "validation_plan": {
+        "minimum_acceptance": [
+          "numerically complete finely sampled forward and reverse paths",
+          "separate endpoint structure decisions"
+        ],
+        "claim_limit": "Numerical step-size sensitivity only; strict is not a guarantee of the chemical model or endpoint identity."
+      },
+      "coverage_plan": {
+        "step_size": 2,
+        "maximum_points": 90,
+        "intended_use": "fine-grid matched bidirectional sensitivity"
+      },
+      "resources": {
+        "resource_tier": "complex",
+        "mem_gb": 120,
+        "cores": 44,
+        "job_count": 1,
+        "relative_cost_units": 3.0,
+        "assumptions": [
+          "One direction per full-node job.",
+          "Finer sampling increases gradients and wall time even though the nominal path reach is similar to standard."
+        ]
+      },
+      "expected_cost": {
+        "band": "high",
+        "drivers": [
+          "90 maximum IRC points",
+          "smallest proposed HPC step",
+          "44-core full-node execution"
+        ]
+      },
+      "limitations": [
+        "The substantially higher cost may not add useful chemistry if standard already yields smooth, reviewable endpoints.",
+        "The same HPC integrator can still fail in a bifurcating or pathological region."
+      ],
+      "provenance": [
+        "Finer step-size sensitivity is proposed in response to the observed forward corrector oscillation.",
+        "No alternate IRC integrator is introduced without a separate scientific-method approval."
+      ],
+      "unresolved": []
+    }
+  ],
+  "comparison_notes": [
+    "All three candidates keep the electronic-structure model, solvent, grid, SCF treatment, RCFC source, HPC integrator, recorrection policy, and 40-cycle corrector ceiling fixed.",
+    "The primary differences are IRC step size and the number of points needed to preserve or extend nominal path coverage.",
+    "Forward and reverse require separate hash-bound selections and exact live approvals even when the same tier is chosen."
+  ],
+  "non_claims": [
+    "Strict is not an accuracy guarantee and does not validate the chemical model.",
+    "No candidate assigns forward or reverse to reactant or product before endpoint structure review.",
+    "No candidate proves an endpoint minimum merely by reaching its maximum point count."
+  ]
+}

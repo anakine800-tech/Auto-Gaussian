@@ -1,0 +1,36 @@
+{
+  "schema": "gaussian-calculation-request/1",
+  "request_id": "wang2024_bf3_b1_irc_forward_recalc_v2",
+  "goal": "Recalculate the BF3-TS2-B1 forward intrinsic reaction coordinate after the first run failed at point 21 through corrector oscillation.",
+  "claim_scope": "Numerically trace the forward direction from the accepted C13-C21 first-order-saddle candidate. Do not assign reactant or product identity, claim an endpoint minimum, or validate the reaction path without endpoint review and the separately completed reverse direction.",
+  "task_types": [
+    "intrinsic_reaction_coordinate_forward"
+  ],
+  "structure": {
+    "sha256": "0f26f244dfec97ad04fe757f7447b52bd39fb295af58b0ed463033a807ff37ad",
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "elements": [
+      "B",
+      "C",
+      "F",
+      "H",
+      "N",
+      "O"
+    ],
+    "charge": 0,
+    "multiplicity": 1
+  },
+  "direction": "forward",
+  "failure_evidence": {
+    "prior_completed_points": 20,
+    "failed_target_point": 21,
+    "prior_step_size": 5,
+    "prior_maximum_corrector_cycles": 40,
+    "diagnosis": "The modified Bulirsch-Stoer corrector oscillated between geometries and did not meet the 0.01 delta-x threshold; SCF, memory, and scheduler failure were not implicated."
+  },
+  "system_class": "main_group_closed_shell",
+  "support_status": "supported",
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}

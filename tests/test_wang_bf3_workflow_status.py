@@ -15,6 +15,7 @@ ROOT = Path(__file__).parents[1]
 STUDY = ROOT / "studies" / "wang_2024_bf3_ts"
 B1 = STUDY / "bf3_ts2_b1"
 B2 = STUDY / "bf3_ts2_b2"
+RECALC = B1 / "irc" / "recalc_v2"
 
 
 def load_module(name: str, path: Path):
@@ -150,6 +151,32 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         self.assertTrue(status["no_submission_authorization"])
 
         irc = b1["irc_submission_history"]
+        summary_path = STUDY / "bf3-ts2-b1-irc-terminal-evidence.json"
+        summary = load(summary_path)
+        self.assertEqual(
+            b1["irc_terminal_evidence_summary"]["sha256"], digest(summary_path)
+        )
+        self.assertEqual(
+            summary["summary_payload_sha256"],
+            payload_digest(summary, "summary_payload_sha256"),
+        )
+        self.assertFalse(summary["bidirectional_path_validated"])
+        self.assertFalse(summary["automatic_action_authorized"])
+        self.assertFalse(summary["contains_job_id"])
+        self.assertFalse(summary["contains_server_path"])
+        self.assertFalse(summary["contains_gaussian_log"])
+        self.assertFalse(summary["contains_checkpoint"])
+        forward, reverse = summary["directions"]
+        self.assertEqual(forward["direction"], "forward")
+        self.assertEqual(forward["job_state"], "failed")
+        self.assertEqual(forward["outcome"], "error_or_interrupted_termination")
+        self.assertEqual(forward["completed_point"], 20)
+        self.assertFalse(forward["path_validated"])
+        self.assertEqual(reverse["direction"], "reverse")
+        self.assertEqual(reverse["job_state"], "completed")
+        self.assertEqual(reverse["outcome"], "ready_for_endpoint_structure_review")
+        self.assertEqual(reverse["completed_point"], 30)
+        self.assertFalse(reverse["path_validated"])
         self.assertEqual(irc["protocol_proposal"]["sha256"], digest(B1 / "irc-protocol-proposal.json"))
         self.assertEqual(irc["plan"]["sha256"], digest(B1 / "irc/irc_plan.json"))
         self.assertEqual([item["direction"] for item in irc["directions"]], ["forward", "reverse"])
@@ -160,7 +187,7 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
                 item["terminal_intake_template_sha256"],
                 digest(ROOT / item["terminal_intake_template_path"]),
             )
-            self.assertFalse(item["terminal_evidence"])
+            self.assertTrue(item["terminal_evidence"])
         self.assertFalse(irc["contains_job_id"])
         self.assertFalse(irc["contains_server_path"])
         self.assertFalse(irc["new_live_action_authorized"])
@@ -185,6 +212,61 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         status = load(STUDY / "workflow-status.json")
         b1 = next(item for item in status["candidates"] if item["candidate_id"] == "wang2024_bf3_ts2_b1")
         self.assertEqual(b1["terminal_acceptance_plan"]["sha256"], digest(plan_path))
+
+    def test_b1_irc_recalculation_v2_is_standard_hash_bound_and_offline_only(self) -> None:
+        plan_path = RECALC / "recalculation-plan.json"
+        plan = load(plan_path)
+        self.assertEqual(
+            plan["plan_payload_sha256"], payload_digest(plan, "plan_payload_sha256")
+        )
+        self.assertEqual(plan["selected_protocol"]["step_size"], 3)
+        self.assertEqual(plan["selected_protocol"]["maximum_points_per_direction"], 60)
+        self.assertEqual(plan["selected_protocol"]["maximum_corrector_cycles_per_point"], 40)
+        self.assertFalse(plan["live_submission_authorization"])
+        self.assertFalse(plan["path_validated"])
+
+        cases = [
+            ("forward", "w24_bf3b1_if2", "726a53b02eb496dc5784e748d5d01a59d84e6fc8b31a7c25d8ff4eb908fc6819"),
+            ("reverse", "w24_bf3b1_ir2", "feef276a1d4972de34c008938e610a21830646a26cd6406bb6cf24f04c01d12c"),
+        ]
+        for direction, stem, input_hash in cases:
+            with self.subTest(direction=direction):
+                options_path = RECALC / f"{direction}-protocol-options.json"
+                selection_path = RECALC / f"{direction}-protocol-selection-standard.json"
+                _, _, selected = PROTOCOL.load_validated_selection(selection_path, options_path)
+                self.assertEqual(selected["tier"], "standard")
+                controls = selected["method_profiles"][0]["irc_controls"]
+                self.assertEqual(controls["integrator"], "default HPC")
+                self.assertEqual(controls["step_size"], 3)
+                self.assertEqual(controls["maximum_points"], 60)
+                self.assertEqual(controls["maximum_corrector_cycles"], 40)
+                self.assertEqual(controls["recorrection"], "Yes")
+                self.assertEqual(selected["resources"]["mem_gb"], 120)
+                self.assertEqual(selected["resources"]["cores"], 44)
+
+                input_path = RECALC / direction / f"{stem}.gjf"
+                manifest_path = RECALC / direction / f"{stem}.json"
+                template_path = RECALC / direction / "terminal-intake-template.json"
+                text = input_path.read_text(encoding="utf-8")
+                self.assertEqual(digest(input_path), input_hash)
+                self.assertIn(f"%chk={stem}.chk", text)
+                self.assertIn(f"{direction},maxpoints=60,stepsize=3,maxcycle=40,recorrect=yes", text.lower())
+                self.assertTrue(text.endswith("\n\n"))
+                manifest = load(manifest_path)
+                self.assertEqual(manifest["input_sha256"], input_hash)
+                self.assertEqual(manifest["checkpoint_sha256"], plan["source_bindings"]["ts_state_sha256"])
+                template = load(template_path)
+                TS.validate_terminal_intake_template(template, input_path)
+                self.assertEqual(template["acceptance_gate"]["direction"], direction)
+                self.assertEqual(template["acceptance_gate"]["maximum_points"], 60)
+                self.assertTrue(template["no_submission_authorization"])
+
+        status = load(STUDY / "workflow-status.json")
+        b1 = next(item for item in status["candidates"] if item["candidate_id"] == "wang2024_bf3_ts2_b1")
+        recalc = b1["irc_recalculation_v2"]
+        self.assertEqual(recalc["plan_sha256"], digest(plan_path))
+        self.assertFalse(recalc["live_submission_authorized"])
+        self.assertFalse(recalc["path_validated"])
 
     def test_three_terminal_intake_templates_are_hash_bound_and_non_authorizing(self) -> None:
         cases = [

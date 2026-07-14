@@ -20,8 +20,13 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
    selected, and a hash-bound offline input draft is under `bf3_ts2_b1/`. The
    exact input later received a separate live approval and completed normally.
    It is now a mode-consistent first-order-saddle candidate with an accepted
-   hash-bound C13–C21 animation decision; its separately approved numerical
-   Forward/Reverse IRC jobs do not yet establish endpoint identities.
+   hash-bound C13–C21 animation decision. Its forward IRC stopped at point 20
+   after exceeding the maximum corrector steps and is recorded as failed. The
+   reverse IRC reached all 30 points and is ready only for independent endpoint
+   structure review; the bidirectional path is not validated. A matched
+   `standard` recalculation with `StepSize=3` and `MaxPoints=60` has now been
+   selected and rendered offline for both fresh directions, pending exact live
+   approval.
 3. BF3-TS2-B2 has selected the B1-matched `standard` protocol for offline
    review and now has an exact, hash-bound Cartesian input under `bf3_ts2_b2/`.
    The exact input, 120 GB/44-core resources and fresh SDL project subsequently
@@ -44,6 +49,9 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
   literature ledger.
 - `bf3-ts1-live-smoke-evidence.json`: sanitized, hash-bound successful TS/Freq
   and accepted-mode evidence for the exact BF3-TS1 `r01` run.
+- `bf3-ts2-b1-irc-terminal-evidence.json`: sanitized, hash-bound summary of
+  the failed forward IRC and the numerically complete reverse IRC. It contains
+  no job ID, server path, Gaussian log, or checkpoint and grants no retry.
 - `bf3_ts2_b1/`: three-tier protocol review, explicit `standard` selection,
   identity atom map, audited Gaussian input draft, input-draft manifest, and a
   sanitized execution history. Its precommitted `terminal-acceptance-plan.json`
