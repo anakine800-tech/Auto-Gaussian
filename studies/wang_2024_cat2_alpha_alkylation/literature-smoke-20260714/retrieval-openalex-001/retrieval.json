@@ -1,0 +1,121 @@
+{
+  "calculation_ready": false,
+  "crossref_contact_supplied": false,
+  "entries": [
+    {
+      "mode": "bibliographic",
+      "query_id": "q001",
+      "raw_path": "raw/q001.openalex.json",
+      "raw_sha256": "2f67abe449d695e876ba86a5eb022ea441f0454089f90936444a18fe083edbb2",
+      "request_url": "https://api.openalex.org/works?per_page=20&search=%22Borane-Catalyzed+Enantioselective+alpha-Alkylation+of+Unactivated+2-Alkylbenzoxazoles+with+Electron-Deficient+Olefins%22&filter=from_publication_date%3A2000-01-01%2Cto_publication_date%3A2026-12-31",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "10",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "980",
+        "X-RateLimit-Reset": "33113"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "bibliographic",
+      "query_id": "q002",
+      "raw_path": "raw/q002.openalex.json",
+      "raw_sha256": "99f0f76747e2dd6c5541bd3521727fc5c5a3515c87735072a08596d29f0376f9",
+      "request_url": "https://api.openalex.org/works?per_page=20&search=%22chiral+bisborane%22+%22alpha-alkylation+of+2-alkylbenzoxazoles%22&filter=from_publication_date%3A2000-01-01%2Cto_publication_date%3A2026-12-31",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "10",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "970",
+        "X-RateLimit-Reset": "33112"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "bibliographic",
+      "query_id": "q003",
+      "raw_path": "raw/q003.openalex.json",
+      "raw_sha256": "04cada77f5660c606f689f6c72bf950681d70db188a18c83dc8f5df74cf16092",
+      "request_url": "https://api.openalex.org/works?per_page=20&search=%22chiral+bisborane%22+%22benzoxazole+conjugate+addition+to+electron-deficient+olefins%22&filter=from_publication_date%3A2000-01-01%2Cto_publication_date%3A2026-12-31",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "10",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "960",
+        "X-RateLimit-Reset": "33110"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "bibliographic",
+      "query_id": "q004",
+      "raw_path": "raw/q004.openalex.json",
+      "raw_sha256": "f2695e29274b685ea6f1f4e893443cad9fd9b2fa19fead9833ba4878fbe5b1c2",
+      "request_url": "https://api.openalex.org/works?per_page=20&search=%22CAT2+borane+catalyst%22+%22alpha-alkylation+of+2-alkylbenzoxazoles%22&filter=from_publication_date%3A2000-01-01%2Cto_publication_date%3A2026-12-31",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "10",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "950",
+        "X-RateLimit-Reset": "33109"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "bibliographic",
+      "query_id": "q005",
+      "raw_path": "raw/q005.openalex.json",
+      "raw_sha256": "42529208d348b42df0acfb79e2474d0122a1d95fbc39255abbe61c384852927a",
+      "request_url": "https://api.openalex.org/works?per_page=20&search=%22CAT2+borane+catalyst%22+%22benzoxazole+conjugate+addition+to+electron-deficient+olefins%22&filter=from_publication_date%3A2000-01-01%2Cto_publication_date%3A2026-12-31",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "10",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "940",
+        "X-RateLimit-Reset": "33108"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "bibliographic",
+      "query_id": "q006",
+      "raw_path": "raw/q006.openalex.json",
+      "raw_sha256": "87d460f37bf875a80a3e913d5014dfd061f6ee8502eabef00c0a2c4f24065c79",
+      "request_url": "https://api.openalex.org/works?per_page=20&search=2-ethylbenzoxazole+%22alpha-alkylation+of+2-alkylbenzoxazoles%22&filter=from_publication_date%3A2000-01-01%2Cto_publication_date%3A2026-12-31",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "10",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "930",
+        "X-RateLimit-Reset": "33107"
+      },
+      "source": "openalex",
+      "status": "success"
+    }
+  ],
+  "limitations": [
+    "Only metadata API payloads were retrieved; no publisher full text or SI was fetched.",
+    "API relevance order and citation counts are discovery signals, not scientific evidence."
+  ],
+  "mode": "live_metadata_api",
+  "no_submission_authorization": true,
+  "openalex_api_key_supplied": false,
+  "plan_artifact": {
+    "path": "studies/wang_2024_cat2_alpha_alkylation/literature-smoke-20260714/search-plan.json",
+    "sha256": "57887c75c35d7121af426e8287b51831d1f681779bf7f0312988eed4dfe608d7"
+  },
+  "request_id": "wang2024-cat2-literature-smoke-20260714",
+  "retrieval_payload_sha256": "362877fbfefd0d3b39f4ee6089d2d983e18851c65a6a3d4b2bfe662068b4e3f8",
+  "retrieved_at": "2026-07-14T14:48:14+00:00",
+  "rows_per_query": 20,
+  "schema": "gaussian-reaction-literature-retrieval/1",
+  "sources_requested": [
+    "openalex"
+  ],
+  "summary": {
+    "failed_or_skipped_payloads": 0,
+    "query_count": 6,
+    "request_count": 6,
+    "successful_payloads": 6
+  }
+}

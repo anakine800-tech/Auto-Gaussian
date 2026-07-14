@@ -106,7 +106,7 @@ The intended ownership is:
 | 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
 | reusable knowledge databases | future `auto-g16-knowledge-base` | reviewed structure/catalyst, computational-method, and literature/book registries; typed links, permissions, provenance, immutable study snapshots |
 | reaction-study orchestration | future top-level module | species registry, condition model, mechanism network, calculation DAG, study state |
-| literature evidence and TS precedent | future `auto-g16-reaction-literature` | reproducible search, primary/SI evidence extraction, decomposed applicability review, mechanism support, reviewed TS-seed proposals |
+| literature evidence and TS precedent | `auto-g16-reaction-literature` plus future extensions | implemented reproducible metadata search and reviewed evidence records; future mechanism-support matrices and reviewed TS-seed proposals |
 | asymmetric-catalysis domain | `auto-g16-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
 | protocol selection | `auto-g16-rtwin-pbs` protocol gate | reviewed `loose`/`standard`/`strict` candidates and explicit selection |
 | live execution | `auto-g16-rtwin-pbs` | fresh SDL projects, transfer hashes, PBS lifecycle, fetch, generic result parsing |
@@ -740,7 +740,7 @@ scientific decisions. Stored popularity, group custom, a matching structure, or
 a previous successful calculation cannot authorize a method, geometry, input,
 or Gaussian job.
 
-### P3 — Missing literature evidence and TS-precedent tool
+### P3 — Partially implemented literature evidence and TS-precedent tool
 
 - reproducible multi-provider search from exact reaction/catalyst precedent to
   elementary-step analogies, including contradictory and negative evidence;
@@ -755,9 +755,11 @@ or Gaussian job.
 - correction/retraction handling, source drift, supersession, frozen fixtures,
   semantic validation and fail-closed behavior.
 
-This future `auto-g16-reaction-literature` component must produce reviewed
-evidence proposals, not a citation list. It must never treat similarity as
-mechanism proof, fabricate unavailable coordinates, select a method, or grant
+The current `auto-g16-reaction-literature` query/evidence stages produce
+reviewable metadata and source-evidence records rather than a bare citation
+list. Mechanism-support matrices, source-to-target atom maps, and TS-precedent
+promotion remain missing. Every stage must never treat similarity as mechanism
+proof, fabricate unavailable coordinates, select a method, or grant
 calculation/submission authority.
 
 ### P4 — Missing structure and TS construction
@@ -806,7 +808,10 @@ tests. Repository-new `auto-g16-ts-irc`, `auto-g16-asymmetric-catalysis` and the
 W1 Skill have been synchronized individually after named validation and exact
 dry-run diff review. The W1 and strict ChemDraw pairs match their deployed
 copies; unrelated pre-existing drift in four baseline Skills remains a separate
-deployment-maintenance task and is not overwritten by this integration.
+deployment-maintenance task and is not overwritten by this integration. The
+new `auto-g16-reaction-literature` pair was synchronized separately after an
+explicitly approved live OpenAlex reaction search, source-evidence review, full
+offline regression, sensitive-string scan, and exact named-directory diff.
 
 ### W1 — Reaction intake foundation
 
@@ -846,21 +851,21 @@ conflict fixtures, access-negative tests, stable snapshots after database
 updates, and unconditional refusal to grant calculation authority. A later
 multi-user PostgreSQL/chemical-search service remains a separate milestone.
 
-Develop the future `auto-g16-reaction-literature` component as a separate,
-offline-first evidence layer. Implement the four planned query, evidence,
-mechanism-support, and TS-precedent contracts before connecting it to mechanism
-or geometry construction.
+Extend the separate, offline-first `auto-g16-reaction-literature` evidence
+layer. Its query and evidence contracts are implemented; mechanism-support and
+TS-precedent contracts remain future work before connection to mechanism or
+geometry construction.
 
-The first version should use frozen search/full-text/SI fixtures to test exact
-query provenance, DOI/version deduplication, primary-source anchors,
-computational-detail extraction, contradictory evidence, decomposed
-applicability, source-to-target atom mapping, coordinate provenance, and
-unavailable-data refusal. It must not generate a Gaussian input.
+The first version uses frozen metadata fixtures to test exact query provenance,
+DOI deduplication, primary-source locator requirements, decomposed
+applicability, copyright-bounded excerpts, immutable hashes, and unavailable-
+data refusal. Full-text/SI extraction fixtures, DOI-version relationship
+linking, source-to-target atom mapping, and coordinate provenance remain later
+acceptance work. It must not generate a Gaussian input.
 
-After offline acceptance, run one separately reviewed real-reaction literature
-search smoke. Acceptance is a complete, reviewable evidence package and honest
-gap inventory—not a required usable TS coordinate and not agreement with a
-preferred mechanism.
+The separately reviewed real-reaction literature smoke passed with a complete,
+reviewable evidence package and explicit gap inventory; it did not require a
+usable TS coordinate or agreement with a preferred mechanism.
 
 ### W3 — Mechanism network and calculation DAG
 

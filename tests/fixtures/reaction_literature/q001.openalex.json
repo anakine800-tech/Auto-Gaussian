@@ -1,0 +1,29 @@
+{
+  "meta": {"count": 2, "per_page": 20, "cost_usd": 0.001},
+  "results": [
+    {
+      "id": "https://openalex.org/W000000001",
+      "doi": "https://doi.org/10.1021/jacs.4c09067",
+      "display_name": "Borane-Catalyzed Enantioselective α-Alkylation: Mechanism and Transition State Analysis",
+      "publication_year": 2024,
+      "authorships": [{"author": {"display_name": "Example Author"}}],
+      "primary_location": {"source": {"display_name": "Journal of the American Chemical Society"}},
+      "type": "article",
+      "cited_by_count": 8,
+      "abstract_inverted_index": {
+        "Density": [0], "functional": [1], "transition": [2], "state": [3], "analysis": [4]
+      }
+    },
+    {
+      "id": "https://openalex.org/W000000002",
+      "doi": "https://doi.org/10.5555/analogy",
+      "display_name": "Transition State Study of an Analogous alpha-Alkylation",
+      "publication_year": 2022,
+      "authorships": [],
+      "primary_location": {"source": {"display_name": "Computational Chemistry Examples"}},
+      "type": "article",
+      "cited_by_count": 3,
+      "abstract_inverted_index": {"activation": [0], "barrier": [1]}
+    }
+  ]
+}
