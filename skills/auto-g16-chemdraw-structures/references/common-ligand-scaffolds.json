@@ -1,0 +1,1859 @@
+{
+  "version": 1,
+  "count": 50,
+  "selection": "Fifty recurring ligand scaffold families selected by breadth of use across homogeneous catalysis reviews, ligand databases, and privileged-chiral-ligand literature. Entries are editable scaffold prototypes, not claims that one named commercial ligand represents the whole family.",
+  "policy": "Preserve donor topology and literature-conventional orientation. Expand variable sites from the supplied source. Tetrahedral chirality is encoded and CIP-read back; axial, spiro, and ferrocene-planar chirality requires native ChemDraw/literature review and must never be mirrored automatically.",
+  "sources": [
+    {
+      "doi": "10.1021/jacs.1c09718",
+      "title": "Kraken: A Large-Scale Ligand Knowledge Base for Monodentate P-Donor Ligands",
+      "role": "high-coverage organophosphorus baseline"
+    },
+    {
+      "doi": "10.1021/om700840h",
+      "title": "Ligand Knowledge Base for Bidentate P,P- and P,N-Donor Ligands",
+      "role": "bidentate donor-topology baseline"
+    },
+    {
+      "doi": "10.1002/9783527635207",
+      "title": "Privileged Chiral Ligands and Catalysts",
+      "role": "recurring chiral scaffold families"
+    },
+    {
+      "doi": "10.1021/acs.chemrev.0c00844",
+      "title": "Oxazoline Ligands",
+      "role": "BOX, PyBOX, PyOx, and PHOX families"
+    },
+    {
+      "doi": "10.1021/acs.chemrev.9b00074",
+      "title": "Chiral Salen Complexes",
+      "role": "salen and reduced-salen families"
+    },
+    {
+      "doi": "10.1021/cr990376z",
+      "title": "Bipyridine and Phenanthroline Ligands",
+      "role": "polypyridyl ligand prevalence"
+    },
+    {
+      "doi": "10.1021/acs.chemrev.8b00148",
+      "title": "N-Heterocyclic Carbene and Mesoionic Carbene Ligands",
+      "role": "carbene scaffold families"
+    },
+    {
+      "doi": "10.1016/j.poly.2017.08.017",
+      "title": "Pincer Ligands",
+      "role": "PCP, PNP, POCOP, and NCN donor topologies"
+    },
+    {
+      "doi": "10.1021/acs.chemrev.4c00295",
+      "title": "Planar-Chiral Ferrocenes",
+      "role": "ferrocene scaffold and planar-chirality handling"
+    },
+    {
+      "doi": "10.1021/cr00019a006",
+      "title": "Recent Advances in Poly(pyrazolyl)borate (Scorpionate) Chemistry",
+      "role": "tripodal scorpionate family baseline"
+    }
+  ],
+  "entries": [
+    {
+      "key": "triarylphosphine",
+      "names": [
+        "triarylphosphine",
+        "triphenylphosphine-type",
+        "PAr3",
+        "三芳基膦",
+        "三苯基膦骨架"
+      ],
+      "family": "monodentate-P",
+      "smiles": "P(c1ccccc1)(c1ccccc1)c1ccccc1",
+      "donors": [
+        "P"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "all three aryl rings and their substitution patterns"
+      ],
+      "orientation": "Place P at the visual hub and fan the three aryl groups evenly; keep the principal substituted aryl ring horizontal when the source distinguishes one arm.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/triarylphosphine.mol",
+      "evidence_tags": [
+        "Kraken",
+        "ubiquitous-P(III)"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "c1ccc(P(c2ccccc2)c2ccccc2)cc1",
+      "scaffold_smiles": "c1ccc(P(c2ccccc2)c2ccccc2)cc1"
+    },
+    {
+      "key": "trialkylphosphine",
+      "names": [
+        "trialkylphosphine",
+        "PR3",
+        "三烷基膦"
+      ],
+      "family": "monodentate-P",
+      "smiles": "P(C)(C)C",
+      "donors": [
+        "P"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "three alkyl substituents"
+      ],
+      "orientation": "Use a balanced three-arm fan around P; do not imply stereochemistry unless the three carbon substituents are constitutionally different and the source specifies it.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/trialkylphosphine.mol",
+      "evidence_tags": [
+        "Kraken",
+        "ubiquitous-P(III)"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)C",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "dialkylbiarylphosphine",
+      "names": [
+        "dialkylbiarylphosphine",
+        "Buchwald-type phosphine",
+        "Buchwald膦骨架",
+        "联芳基二烷基膦"
+      ],
+      "family": "monodentate-P",
+      "smiles": "CP(C)c1ccccc1-c1ccccc1",
+      "donors": [
+        "P"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "two P-alkyl groups",
+        "both biaryl rings"
+      ],
+      "orientation": "Draw the biaryl axis left-to-right with P on the lower or outer ortho position, following the cited reaction panel; keep the remote aryl ring unobstructed.",
+      "chirality": {
+        "class": "possible atropisomerism; not asserted by parent prototype",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/dialkylbiarylphosphine.mol",
+      "evidence_tags": [
+        "Kraken",
+        "cross-coupling"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)c1ccccc1-c1ccccc1",
+      "scaffold_smiles": "c1ccc(-c2ccccc2)cc1"
+    },
+    {
+      "key": "phosphite",
+      "names": [
+        "phosphite ligand",
+        "phosphite P(OR)3",
+        "亚磷酸酯配体骨架"
+      ],
+      "family": "monodentate-P",
+      "smiles": "P(OC)(OC)OC",
+      "donors": [
+        "P"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "three O-bound substituents",
+        "cyclic or acyclic O framework"
+      ],
+      "orientation": "Fan the three P-O bonds evenly and show every intervening oxygen explicitly.",
+      "chirality": {
+        "class": "none in acyclic prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/phosphite.mol",
+      "evidence_tags": [
+        "Kraken",
+        "P(OR)3"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "COP(OC)OC",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "phosphoramidite",
+      "names": [
+        "phosphoramidite",
+        "亚磷酰胺酯配体骨架",
+        "P(OR)2NR2"
+      ],
+      "family": "monodentate-P",
+      "smiles": "P(OC)(OC)N(C)C",
+      "donors": [
+        "P"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "O framework",
+        "N substituents",
+        "P substituent topology"
+      ],
+      "orientation": "Show two P-O arms and the P-N arm distinctly; for BINOL-derived members preserve the literature axial orientation and source stereolabel.",
+      "chirality": {
+        "class": "often axial and/or P-stereogenic; parent prototype unspecified",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/phosphoramidite.mol",
+      "evidence_tags": [
+        "Kraken",
+        "privileged-chiral"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "COP(OC)N(C)C",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "dppm-backbone",
+      "names": [
+        "bisphosphinomethane",
+        "dppm-type",
+        "双膦甲烷骨架"
+      ],
+      "family": "bidentate-PP",
+      "smiles": "P(C)(C)CP(C)C",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "central methylene substitution"
+      ],
+      "orientation": "Use a shallow P-CH2-P chelate V with both P donors on the same visual side when drawn as a free ligand.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/dppm-backbone.mol",
+      "evidence_tags": [
+        "LKB-PP",
+        "small-bite-angle"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)CP(C)C",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "dppe-backbone",
+      "names": [
+        "1,2-bisphosphinoethane",
+        "dppe-type",
+        "乙撑双膦骨架"
+      ],
+      "family": "bidentate-PP",
+      "smiles": "P(C)(C)CCP(C)C",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "ethylene backbone"
+      ],
+      "orientation": "Keep P-CH2-CH2-P as an open zigzag with the two donor atoms visually accessible; avoid folding the P arms over the backbone.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/dppe-backbone.mol",
+      "evidence_tags": [
+        "LKB-PP",
+        "classic-chelate"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)CCP(C)C",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "dppp-backbone",
+      "names": [
+        "1,3-bisphosphinopropane",
+        "dppp-type",
+        "丙撑双膦骨架"
+      ],
+      "family": "bidentate-PP",
+      "smiles": "P(C)(C)CCCP(C)C",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "propylene backbone"
+      ],
+      "orientation": "Use an extended zigzag P-(CH2)3-P chain and keep the P arms outside the carbon-chain envelope.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/dppp-backbone.mol",
+      "evidence_tags": [
+        "LKB-PP",
+        "classic-chelate"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)CCCP(C)C",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "ortho-phenylene-bisphosphine",
+      "names": [
+        "o-phenylene bisphosphine",
+        "1,2-bisphosphinobenzene",
+        "邻苯撑双膦骨架"
+      ],
+      "family": "bidentate-PP",
+      "smiles": "P(C)(C)c1ccccc1P(C)C",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "phenylene substituents"
+      ],
+      "orientation": "Use a regular benzene with both P donors at adjacent top or side vertices and directed outward without ring distortion.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/ortho-phenylene-bisphosphine.mol",
+      "evidence_tags": [
+        "LKB-PP",
+        "rigid-chelate"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)c1ccccc1P(C)C",
+      "scaffold_smiles": "c1ccccc1"
+    },
+    {
+      "key": "xanthene-pp",
+      "names": [
+        "xanthene diphosphine",
+        "Xantphos family",
+        "Xantphos骨架",
+        "氧杂蒽双膦骨架"
+      ],
+      "family": "wide-bite-PP",
+      "smiles": "CC1(C)c2cccc(P(c3ccccc3)c3ccccc3)c2Oc2c(P(c3ccccc3)c3ccccc3)cccc21",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "two P substituent pairs",
+        "xanthene ring substituents",
+        "9-position bridge substituents"
+      ],
+      "orientation": "Draw the xanthene core horizontally with O centered low or high and the two P donors symmetrically at the outer aryl positions; preserve the wide-bite visual span.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/xanthene-pp.mol",
+      "pubchem_2d_name": "Xantphos",
+      "preserve_curated_coordinates": true,
+      "evidence_tags": [
+        "LKB-PP",
+        "wide-bite-angle"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CC1(C)c2cccc(P(c3ccccc3)c3ccccc3)c2Oc2c(P(c3ccccc3)c3ccccc3)cccc21",
+      "scaffold_smiles": "c1ccc(P(c2ccccc2)c2cccc3c2Oc2c(cccc2P(c2ccccc2)c2ccccc2)C3)cc1",
+      "coordinate_provenance": "PubChem PUG REST 2D record"
+    },
+    {
+      "key": "diphenyl-ether-pp",
+      "names": [
+        "diphenyl ether diphosphine",
+        "DPEphos family",
+        "DPEphos骨架",
+        "二苯醚双膦骨架"
+      ],
+      "family": "wide-bite-PP",
+      "smiles": "c1ccc(P(c2ccccc2)c2ccccc2)c(Oc2ccccc2P(c2ccccc2)c2ccccc2)c1",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P aryl groups",
+        "diphenyl ether substitution"
+      ],
+      "orientation": "Place the ether oxygen near the center and open the two phenyl rings into a broad V; position the P donors at the outside ortho sites.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/diphenyl-ether-pp.mol",
+      "pubchem_2d_name": "DPEphos",
+      "preserve_curated_coordinates": true,
+      "evidence_tags": [
+        "LKB-PP",
+        "wide-bite-angle"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "c1ccc(P(c2ccccc2)c2ccccc2Oc2ccccc2P(c2ccccc2)c2ccccc2)cc1",
+      "scaffold_smiles": "c1ccc(P(c2ccccc2)c2ccccc2Oc2ccccc2P(c2ccccc2)c2ccccc2)cc1",
+      "coordinate_provenance": "PubChem PUG REST 2D record"
+    },
+    {
+      "key": "ferrocene-11-pp",
+      "names": [
+        "1,1'-ferrocene diphosphine",
+        "dppf family",
+        "dppf骨架",
+        "1,1'-二茂铁双膦骨架"
+      ],
+      "family": "ferrocene-PP",
+      "smiles": "[CH-]1C=CC(=C1)P(c1ccccc1)c1ccccc1.[CH-]1C=CC(=C1)P(c1ccccc1)c1ccccc1.[Fe+2]",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "both Cp rings"
+      ],
+      "orientation": "Use ChemDraw's conventional ferrocene depiction with aligned Cp rings and Fe centered; place the two P arms at corresponding 1,1' positions.",
+      "chirality": {
+        "class": "possible planar chirality after unsymmetrical substitution",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "evidence_tags": [
+        "LKB-PP",
+        "ferrocene"
+      ],
+      "status": "native-template-required",
+      "validation_level": "strict",
+      "representation_limit": "Disconnected MOL fragments cannot encode eta-5 ferrocene bonding faithfully; reconstruct in native ChemDraw.",
+      "canonical_smiles": "[Fe+2].c1ccc(P(c2ccccc2)c2cc[cH-]c2)cc1.c1ccc(P(c2ccccc2)c2cc[cH-]c2)cc1",
+      "scaffold_smiles": "c1ccc(P(c2ccccc2)c2cc[cH-]c2)cc1.c1ccc(P(c2ccccc2)c2cc[cH-]c2)cc1"
+    },
+    {
+      "key": "binaphthyl-pp",
+      "names": [
+        "binaphthyl diphosphine",
+        "BINAP family",
+        "BINAP骨架",
+        "联萘双膦骨架"
+      ],
+      "family": "axial-chiral-PP",
+      "smiles": "C1=CC=C(C=C1)P(C2=CC=CC=C2)C3=C(C4=CC=CC=C4C=C3)C5=C(C=CC6=CC=CC=C65)P(C7=CC=CC=C7)C8=CC=CC=C8",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "binaphthyl positions"
+      ],
+      "orientation": "Place the biaryl axis near horizontal and the two P donors on the inner 2,2' positions; retain the source's conventional axial hand and never mirror for packing.",
+      "chirality": {
+        "class": "axial",
+        "prototype": "BINAP connectivity only",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/binaphthyl-pp.mol",
+      "pubchem_2d_name": "BINAP",
+      "preserve_curated_coordinates": true,
+      "evidence_tags": [
+        "privileged-chiral",
+        "LKB-PP"
+      ],
+      "status": "literature-reviewed-connectivity",
+      "validation_level": "strict",
+      "canonical_smiles": "c1ccc(P(c2ccccc2)c2ccc3ccccc3c2-c2c(P(c3ccccc3)c3ccccc3)ccc3ccccc23)cc1",
+      "scaffold_smiles": "c1ccc(P(c2ccccc2)c2ccc3ccccc3c2-c2c(P(c3ccccc3)c3ccccc3)ccc3ccccc23)cc1",
+      "coordinate_provenance": "PubChem PUG REST 2D record"
+    },
+    {
+      "key": "biphenyl-pp",
+      "names": [
+        "biphenyl diphosphine",
+        "BIPHEP family",
+        "MeO-BIPHEP family",
+        "联苯双膦骨架"
+      ],
+      "family": "axial-chiral-PP",
+      "smiles": "COc1cccc(P(c2ccccc2)c2ccccc2)c1-c1c(OC)cccc1P(c1ccccc1)c1ccccc1",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "biphenyl ortho and remote positions"
+      ],
+      "orientation": "Keep the biphenyl axis horizontal with inner P donors facing the chelation pocket; preserve any source-defined atropisomeric hand.",
+      "chirality": {
+        "class": "axial",
+        "prototype": "MeO-BIPHEP connectivity",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/biphenyl-pp.mol",
+      "pubchem_2d_name": "MeO-BIPHEP",
+      "preserve_curated_coordinates": true,
+      "evidence_tags": [
+        "privileged-chiral",
+        "LKB-PP"
+      ],
+      "status": "literature-reviewed-connectivity",
+      "validation_level": "strict",
+      "canonical_smiles": "COc1cccc(P(c2ccccc2)c2ccccc2)c1-c1c(OC)cccc1P(c1ccccc1)c1ccccc1",
+      "scaffold_smiles": "c1ccc(P(c2ccccc2)c2ccccc2-c2ccccc2P(c2ccccc2)c2ccccc2)cc1",
+      "coordinate_provenance": "PubChem PUG REST 2D record"
+    },
+    {
+      "key": "segphos-backbone",
+      "names": [
+        "SEGPHOS family",
+        "SEGPHOS骨架",
+        "联苯二氧亚甲基双膦骨架"
+      ],
+      "family": "axial-chiral-PP",
+      "smiles": "C1OC2=C(O1)C(=C(C=C2)P(C3=CC=CC=C3)C4=CC=CC=C4)C5=C(C=CC6=C5OCO6)P(C7=CC=CC=C7)C8=CC=CC=C8",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "biaryl backbone"
+      ],
+      "orientation": "Draw the fused dioxole-capped biaryl core horizontally with the two P donors facing the central chelation region; never mirror an assigned atropisomer.",
+      "chirality": {
+        "class": "axial",
+        "prototype": "SEGPHOS connectivity",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/segphos-backbone.mol",
+      "pubchem_2d_name": "SEGPHOS",
+      "preserve_curated_coordinates": true,
+      "evidence_tags": [
+        "privileged-chiral",
+        "LKB-PP"
+      ],
+      "status": "literature-reviewed-connectivity",
+      "validation_level": "strict",
+      "canonical_smiles": "c1ccc(P(c2ccccc2)c2ccc3c(c2-c2c(P(c4ccccc4)c4ccccc4)ccc4c2OCO4)OCO3)cc1",
+      "scaffold_smiles": "c1ccc(P(c2ccccc2)c2ccc3c(c2-c2c(P(c4ccccc4)c4ccccc4)ccc4c2OCO4)OCO3)cc1",
+      "coordinate_provenance": "PubChem PUG REST 2D record"
+    },
+    {
+      "key": "duphos-backbone",
+      "names": [
+        "DuPhos family",
+        "DuPhos骨架",
+        "手性磷杂环双膦骨架"
+      ],
+      "family": "central-chiral-PP",
+      "smiles": "C[C@@H]1CC[C@H](P1c1ccccc1P1[C@@H](CC[C@H]1C)C)C",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "2,5-substituents on both phospholanes",
+        "phenylene backbone"
+      ],
+      "orientation": "Use a central horizontal o-phenylene unit with matched phospholane rings on adjacent sites; keep all four source-defined stereocenters and wedge directions.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-Me-DuPhos-type",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/duphos-backbone.mol",
+      "pubchem_2d_name": "(R,R)-Me-DuPhos",
+      "preserve_curated_coordinates": true,
+      "evidence_tags": [
+        "privileged-chiral",
+        "LKB-PP"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "C[C@@H]1CC[C@@H](C)P1c1ccccc1P1[C@H](C)CC[C@H]1C",
+      "scaffold_smiles": "c1ccc(P2CCCC2)c(P2CCCC2)c1",
+      "expected_cip": {
+        "2": "R",
+        "3": "R",
+        "4": "R",
+        "5": "R"
+      },
+      "coordinate_provenance": "PubChem PUG REST 2D record"
+    },
+    {
+      "key": "bpe-backbone",
+      "names": [
+        "BPE family",
+        "Ph-BPE family",
+        "BPE骨架",
+        "双磷杂环乙烷骨架"
+      ],
+      "family": "central-chiral-PP",
+      "smiles": "C1C[C@@H](P([C@H]1c1ccccc1)CCP1[C@H](CC[C@@H]1c1ccccc1)c1ccccc1)c1ccccc1",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "phospholane carbon substituents",
+        "P substituents",
+        "ethylene linker"
+      ],
+      "orientation": "Keep the P-CH2-CH2-P bridge central and the two phospholane rings on opposite outer sides; preserve all source-defined tetrahedral stereocenters.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-Ph-BPE-type",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/bpe-backbone.mol",
+      "pubchem_2d_name": "(R,R)-Ph-BPE",
+      "preserve_curated_coordinates": true,
+      "evidence_tags": [
+        "privileged-chiral",
+        "LKB-PP"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "c1ccc([C@H]2CC[C@H](c3ccccc3)P2CCP2[C@@H](c3ccccc3)CC[C@@H]2c2ccccc2)cc1",
+      "scaffold_smiles": "c1ccc([C@H]2CC[C@H](c3ccccc3)P2CCP2[C@@H](c3ccccc3)CC[C@@H]2c2ccccc2)cc1",
+      "expected_cip": {
+        "2": "R",
+        "3": "R",
+        "4": "R",
+        "5": "R"
+      },
+      "coordinate_provenance": "PubChem PUG REST 2D record"
+    },
+    {
+      "key": "chiraphos-backbone",
+      "names": [
+        "CHIRAPHOS family",
+        "CHIRAPHOS骨架",
+        "手性乙烷双膦骨架"
+      ],
+      "family": "central-chiral-PP",
+      "smiles": "C[C@H]([C@@H](C)P(c1ccccc1)c1ccccc1)P(c1ccccc1)c1ccccc1",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four P substituents",
+        "two backbone substituents"
+      ],
+      "orientation": "Draw the chiral C-C backbone as a clear zigzag between the P atoms and keep both methyl stereobonds visible without crossing P-aryl bonds.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-CHIRAPHOS-type",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/chiraphos-backbone.mol",
+      "pubchem_2d_name": "(R,R)-CHIRAPHOS",
+      "preserve_curated_coordinates": true,
+      "evidence_tags": [
+        "privileged-chiral",
+        "LKB-PP"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "C[C@H]([C@@H](C)P(c1ccccc1)c1ccccc1)P(c1ccccc1)c1ccccc1",
+      "scaffold_smiles": "c1ccc(P(CCP(c2ccccc2)c2ccccc2)c2ccccc2)cc1",
+      "expected_cip": {
+        "2": "R",
+        "3": "R"
+      },
+      "coordinate_provenance": "PubChem PUG REST 2D record"
+    },
+    {
+      "key": "josiphos-backbone",
+      "names": [
+        "Josiphos family",
+        "Josiphos骨架",
+        "二茂铁P,P手性骨架"
+      ],
+      "family": "ferrocene-planar-chiral-PP",
+      "smiles": "C[C@H]([c-]1cccc1P(C1CCCCC1)C1CCCCC1)P(C(C)(C)C)C(C)(C)C.[cH-]1cccc1.[Fe+2]",
+      "donors": [
+        "P",
+        "P"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both P substituent sets",
+        "side-chain substituent",
+        "ferrocene ring substitution"
+      ],
+      "orientation": "Use native ChemDraw ferrocene notation with the planar-chiral substituted Cp ring explicit; place the side-chain P and ring-bound P in the literature-standard chelating orientation.",
+      "chirality": {
+        "class": "ferrocene planar plus tetrahedral",
+        "prototype": "Josiphos connectivity",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "evidence_tags": [
+        "privileged-chiral",
+        "ferrocene"
+      ],
+      "status": "native-template-required",
+      "validation_level": "strict",
+      "representation_limit": "A disconnected MOL cannot faithfully encode eta-5 bonding or ferrocene planar chirality.",
+      "canonical_smiles": "C[C@H]([c-]1cccc1P(C1CCCCC1)C1CCCCC1)P(C(C)(C)C)C(C)(C)C.[Fe+2].c1cc[cH-]c1",
+      "scaffold_smiles": "[c-]1cccc1P(C1CCCCC1)C1CCCCC1.c1cc[cH-]c1"
+    },
+    {
+      "key": "phox-backbone",
+      "names": [
+        "PHOX",
+        "phosphinooxazoline",
+        "PHOX骨架",
+        "膦-噁唑啉骨架"
+      ],
+      "family": "chiral-PN",
+      "smiles": "C[C@@H]1COC(=N1)c1ccccc1P(c1ccccc1)c1ccccc1",
+      "donors": [
+        "P",
+        "oxazoline-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "oxazoline stereocenter substituent",
+        "P substituents",
+        "aryl linker"
+      ],
+      "orientation": "Place the aryl linker horizontally with P and oxazoline N facing the same chelation pocket; preserve the oxazoline stereocenter and avoid flipping the five-membered ring.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R)-PHOX-type",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/phox-backbone.mol",
+      "evidence_tags": [
+        "oxazoline-review",
+        "privileged-chiral",
+        "LKB-PN"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "C[C@@H]1COC(c2ccccc2P(c2ccccc2)c2ccccc2)=N1",
+      "scaffold_smiles": "c1ccc(P(c2ccccc2)c2ccccc2C2=NCCO2)cc1",
+      "expected_cip": {
+        "1": "R"
+      }
+    },
+    {
+      "key": "22-bipyridine",
+      "names": [
+        "2,2'-bipyridine",
+        "bpy",
+        "联吡啶",
+        "2,2'-联吡啶骨架"
+      ],
+      "family": "polypyridyl-NN",
+      "smiles": "n1ccccc1-c1ccccn1",
+      "donors": [
+        "pyridyl-N",
+        "pyridyl-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both pyridine rings"
+      ],
+      "orientation": "Draw the inter-ring bond horizontally and rotate both pyridine N atoms inward toward the same chelation cleft; use regular six-membered rings.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/22-bipyridine.mol",
+      "evidence_tags": [
+        "polypyridyl-review",
+        "ubiquitous-NN"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "c1ccc(-c2ccccn2)nc1",
+      "scaffold_smiles": "c1ccc(-c2ccccn2)nc1"
+    },
+    {
+      "key": "110-phenanthroline",
+      "names": [
+        "1,10-phenanthroline",
+        "phen",
+        "邻菲啰啉",
+        "1,10-菲咯啉骨架"
+      ],
+      "family": "polypyridyl-NN",
+      "smiles": "n1c2ccccc2c2ccccc2c1",
+      "donors": [
+        "ring-N",
+        "ring-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "phenanthroline ring positions"
+      ],
+      "orientation": "Use the conventional flat three-ring fused system with the two N atoms at the inner terminal positions and an open chelation bay.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/110-phenanthroline.mol",
+      "evidence_tags": [
+        "polypyridyl-review",
+        "ubiquitous-NN"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "c1ccc2c(c1)cnc1ccccc12",
+      "scaffold_smiles": "c1ccc2c(c1)cnc1ccccc12"
+    },
+    {
+      "key": "terpyridine",
+      "names": [
+        "2,2':6',2''-terpyridine",
+        "terpy",
+        "三联吡啶",
+        "terpyridine骨架"
+      ],
+      "family": "polypyridyl-NNN",
+      "smiles": "n1ccccc1-c1cccc(-c2ccccn2)n1",
+      "donors": [
+        "pyridyl-N",
+        "pyridyl-N",
+        "pyridyl-N"
+      ],
+      "denticity": 3,
+      "variable_sites": [
+        "three pyridine rings"
+      ],
+      "orientation": "Draw the three rings in an extended shallow arc with all three N atoms facing one common coordination side.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/terpyridine.mol",
+      "evidence_tags": [
+        "polypyridyl-review",
+        "common-NNN"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "c1ccc(-c2cccc(-c3ccccn3)n2)nc1",
+      "scaffold_smiles": "c1ccc(-c2cccc(-c3ccccn3)n2)nc1"
+    },
+    {
+      "key": "alpha-diimine",
+      "names": [
+        "alpha-diimine",
+        "1,2-diimine",
+        "α-二亚胺",
+        "二亚胺骨架"
+      ],
+      "family": "diimine-NN",
+      "smiles": "CN=C(C)C(C)=NC",
+      "donors": [
+        "imine-N",
+        "imine-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both N substituents",
+        "both imine-carbon substituents"
+      ],
+      "orientation": "Keep N=C-C=N in an s-cis chelating arrangement with both N lone-pair directions visually inward; show E/Z geometry only if the source specifies it.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/alpha-diimine.mol",
+      "evidence_tags": [
+        "common-NN",
+        "polymerization-catalysis"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CN=C(C)C(C)=NC",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "ethylenediamine",
+      "names": [
+        "ethylenediamine",
+        "en ligand",
+        "乙二胺骨架"
+      ],
+      "family": "diamine-NN",
+      "smiles": "NCCN",
+      "donors": [
+        "amine-N",
+        "amine-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both nitrogens",
+        "ethylene backbone"
+      ],
+      "orientation": "Use an open N-C-C-N zigzag with both N atoms at the outside ends and normal tetrahedral carbon angles.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/ethylenediamine.mol",
+      "evidence_tags": [
+        "classic-chelate",
+        "common-NN"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "NCCN",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "rr-dach",
+      "names": [
+        "trans-1,2-diaminocyclohexane",
+        "DACH",
+        "(R,R)-DACH",
+        "反式-1,2-二氨基环己烷骨架"
+      ],
+      "family": "central-chiral-NN",
+      "smiles": "N[C@@H]1CCCC[C@@H]1N",
+      "donors": [
+        "amine-N",
+        "amine-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both nitrogens",
+        "cyclohexane positions"
+      ],
+      "orientation": "Use a regular 2D cyclohexane hexagon unless the paper uses a chair; place adjacent amino groups with explicit trans stereobonds and preserve the named enantiomer.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-DACH",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/rr-dach.mol",
+      "evidence_tags": [
+        "privileged-chiral",
+        "diamine"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "N[C@@H]1CCCC[C@@H]1N",
+      "scaffold_smiles": "C1CCCCC1",
+      "expected_cip": {
+        "1": "R",
+        "6": "S"
+      }
+    },
+    {
+      "key": "bisoxazoline",
+      "names": [
+        "bisoxazoline",
+        "BOX ligand",
+        "BOX骨架",
+        "双噁唑啉骨架"
+      ],
+      "family": "chiral-NN",
+      "smiles": "C(C1=N[C@H](C)CO1)C1=N[C@H](C)CO1",
+      "donors": [
+        "oxazoline-N",
+        "oxazoline-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both oxazoline stereocenter substituents",
+        "central bridge"
+      ],
+      "orientation": "Draw two regular five-membered oxazoline rings symmetrically about the central bridge with both N atoms facing inward; preserve the matched stereocenters.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-BOX-type",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/bisoxazoline.mol",
+      "evidence_tags": [
+        "oxazoline-review",
+        "privileged-chiral"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "C[C@@H]1COC(CC2=N[C@H](C)CO2)=N1",
+      "scaffold_smiles": "C1COC(CC2=NCCO2)=N1",
+      "expected_cip": {
+        "3": "R",
+        "9": "R"
+      }
+    },
+    {
+      "key": "pybox",
+      "names": [
+        "pyridine-bisoxazoline",
+        "PyBOX",
+        "PyBOX骨架",
+        "吡啶双噁唑啉骨架"
+      ],
+      "family": "chiral-NNN",
+      "smiles": "C[C@@H]1COC(=N1)c1cccc(n1)C1=N[C@H](C)CO1",
+      "donors": [
+        "oxazoline-N",
+        "pyridyl-N",
+        "oxazoline-N"
+      ],
+      "denticity": 3,
+      "variable_sites": [
+        "both oxazoline stereocenter substituents",
+        "pyridine positions"
+      ],
+      "orientation": "Center the pyridine horizontally and place matched oxazoline rings at both 2,6 positions; all three N donors must face the same coordination pocket.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-PyBOX-type",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/pybox.mol",
+      "evidence_tags": [
+        "oxazoline-review",
+        "privileged-chiral"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "C[C@@H]1COC(c2cccc(C3=N[C@H](C)CO3)n2)=N1",
+      "scaffold_smiles": "c1cc(C2=NCCO2)nc(C2=NCCO2)c1",
+      "expected_cip": {
+        "1": "R",
+        "14": "R"
+      }
+    },
+    {
+      "key": "pyox",
+      "names": [
+        "pyridyloxazoline",
+        "PyOx",
+        "PyOx骨架",
+        "吡啶噁唑啉骨架"
+      ],
+      "family": "chiral-NN",
+      "smiles": "C[C@@H]1COC(=N1)c1ccccn1",
+      "donors": [
+        "oxazoline-N",
+        "pyridyl-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "oxazoline stereocenter substituent",
+        "pyridine and oxazoline positions"
+      ],
+      "orientation": "Place pyridine and oxazoline side-by-side with both N donors inward; use a regular five-membered ring and preserve the stereobond.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R)-PyOx-type",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/pyox.mol",
+      "evidence_tags": [
+        "oxazoline-review",
+        "privileged-chiral"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "C[C@@H]1COC(c2ccccn2)=N1",
+      "scaffold_smiles": "c1ccc(C2=NCCO2)nc1",
+      "expected_cip": {
+        "1": "R"
+      }
+    },
+    {
+      "key": "salen",
+      "names": [
+        "salen",
+        "salicylidene diamine",
+        "salen骨架",
+        "水杨醛缩二胺骨架"
+      ],
+      "family": "chiral-N2O2",
+      "smiles": "Oc1ccccc1C=N[C@@H]1CCCC[C@H]1N=Cc1ccccc1O",
+      "donors": [
+        "phenolate-O",
+        "imine-N",
+        "imine-N",
+        "phenolate-O"
+      ],
+      "denticity": 4,
+      "variable_sites": [
+        "both salicylidene rings",
+        "diamine backbone",
+        "imine substituents"
+      ],
+      "orientation": "Use the familiar nearly C2-symmetric open N2O2 pocket: salicylidene rings outside, O donors low/outward and imine N donors inward; preserve diamine stereochemistry.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-cyclohexanediamine-derived salen",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/salen.mol",
+      "evidence_tags": [
+        "salen-review",
+        "privileged-chiral"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "Oc1ccccc1C=N[C@@H]1CCCC[C@H]1N=Cc1ccccc1O",
+      "scaffold_smiles": "C(=N[C@@H]1CCCC[C@H]1N=Cc1ccccc1)c1ccccc1",
+      "expected_cip": {
+        "9": "R",
+        "14": "R"
+      }
+    },
+    {
+      "key": "binol",
+      "names": [
+        "BINOL",
+        "1,1'-bi-2-naphthol",
+        "联萘酚骨架",
+        "BINOL骨架"
+      ],
+      "family": "axial-chiral-OO",
+      "smiles": "Oc1ccc2ccccc2c1-c1c(O)ccc2ccccc12",
+      "donors": [
+        "O",
+        "O"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "3,3' positions",
+        "6,6' positions",
+        "both hydroxy derivatizations"
+      ],
+      "orientation": "Place the binaphthyl axis horizontal with the two 2,2'-O groups forming the inner pocket; preserve the cited axial hand and do not mirror to fit a panel.",
+      "chirality": {
+        "class": "axial",
+        "prototype": "BINOL connectivity",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/binol.mol",
+      "evidence_tags": [
+        "privileged-chiral",
+        "axial"
+      ],
+      "status": "literature-reviewed-connectivity",
+      "validation_level": "strict",
+      "canonical_smiles": "Oc1ccc2ccccc2c1-c1c(O)ccc2ccccc12",
+      "scaffold_smiles": "c1ccc2c(-c3cccc4ccccc34)cccc2c1"
+    },
+    {
+      "key": "spinol",
+      "names": [
+        "SPINOL",
+        "spirobiindane diol",
+        "螺环二酚骨架",
+        "SPINOL骨架"
+      ],
+      "family": "spiro-chiral-OO",
+      "smiles": "Oc1ccc2c(c1)CCC21CCCc2ccc(O)cc21",
+      "donors": [
+        "O",
+        "O"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both aromatic rings",
+        "both hydroxy derivatizations"
+      ],
+      "orientation": "Use the conventional orthogonal spirobiindane projection with the central spiro atom clear and both O groups readable; preserve the source's spiro hand.",
+      "chirality": {
+        "class": "spiro",
+        "prototype": "SPINOL connectivity",
+        "encoding": "visual-only"
+      },
+      "mirror_forbidden": true,
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/spinol.mol",
+      "ring_geometry": "preserve",
+      "evidence_tags": [
+        "privileged-chiral",
+        "spiro"
+      ],
+      "status": "literature-reviewed-connectivity",
+      "validation_level": "strict",
+      "canonical_smiles": "Oc1ccc2c(c1)CCC21CCCc2ccc(O)cc21",
+      "scaffold_smiles": "c1ccc2c(c1)CCCC21CCc2ccccc21"
+    },
+    {
+      "key": "taddol",
+      "names": [
+        "TADDOL",
+        "TADDOL backbone",
+        "TADDOL骨架",
+        "四芳基二氧戊环二甲醇骨架"
+      ],
+      "family": "central-chiral-OO",
+      "smiles": "CC1(O[C@H]([C@@H](O1)C(c1ccccc1)(c1ccccc1)O)C(c1ccccc1)(c1ccccc1)O)C",
+      "donors": [
+        "O",
+        "O"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "four aryl groups",
+        "acetal substituents",
+        "both hydroxy derivatizations"
+      ],
+      "orientation": "Keep the dioxolane ring as a regular five-membered core and distribute the four aryl groups without overlap; preserve both acetal stereocenters.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "TADDOL stereochemical prototype",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/taddol.mol",
+      "evidence_tags": [
+        "privileged-chiral"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "CC1(C)O[C@@H](C(O)(c2ccccc2)c2ccccc2)[C@H](C(O)(c2ccccc2)c2ccccc2)O1",
+      "scaffold_smiles": "c1ccc(C(c2ccccc2)[C@@H]2OCO[C@H]2C(c2ccccc2)c2ccccc2)cc1",
+      "expected_cip": {
+        "3": "R",
+        "4": "R"
+      }
+    },
+    {
+      "key": "porphyrin",
+      "names": [
+        "porphyrin",
+        "porphyrin ligand",
+        "卟啉骨架"
+      ],
+      "family": "macrocyclic-N4",
+      "smiles": "C1=CC2=CC3=CC=C(N3)C=C3C=CC(=N3)C=C3C=CC(=N3)C=C1N2",
+      "donors": [
+        "N",
+        "N",
+        "N",
+        "N"
+      ],
+      "denticity": 4,
+      "variable_sites": [
+        "meso positions",
+        "beta-pyrrolic positions",
+        "inner nitrogens"
+      ],
+      "orientation": "Draw the macrocycle as a balanced square-like ring with four pyrrole units and a centered N4 cavity; use consistent alternating double bonds and avoid squeezing one quadrant.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/porphyrin.mol",
+      "ring_geometry": "preserve",
+      "evidence_tags": [
+        "macrocycle",
+        "ubiquitous-N4"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "C1=Cc2cc3ccc(cc4ccc(cc5nc(cc1n2)C=C5)[nH]4)[nH]3",
+      "scaffold_smiles": "C1=Cc2cc3ccc(cc4ccc(cc5nc(cc1n2)C=C5)[nH]4)[nH]3"
+    },
+    {
+      "key": "acetylacetonate",
+      "names": [
+        "acetylacetonate",
+        "acac",
+        "beta-diketonate",
+        "乙酰丙酮骨架",
+        "β-二酮配体"
+      ],
+      "family": "anionic-OO",
+      "smiles": "CC(=O)[CH-]C(C)=O",
+      "donors": [
+        "O",
+        "O"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both terminal carbon substituents",
+        "central carbon"
+      ],
+      "orientation": "Use a symmetric O-C-C-C-O chelating arc and a consistent delocalized resonance choice; do not mix neutral diketone and anionic diketonate without source evidence.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/acetylacetonate.mol",
+      "evidence_tags": [
+        "classic-anionic-chelate"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CC(=O)[CH-]C(C)=O",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "normal-nhc",
+      "names": [
+        "normal NHC",
+        "imidazol-2-ylidene",
+        "NHC骨架",
+        "咪唑-2-卡宾骨架"
+      ],
+      "family": "carbene-C",
+      "smiles": "[C]1N(C)C=CN1C",
+      "donors": [
+        "carbene-C"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "both N substituents",
+        "4,5 positions",
+        "saturated versus unsaturated ring"
+      ],
+      "orientation": "Use a regular five-membered imidazolylidene ring with carbene carbon at the metal-facing vertex and both N substituents spreading away from that vertex.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/normal-nhc.mol",
+      "evidence_tags": [
+        "NHC-review",
+        "ubiquitous-carbene"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CN1[C]N(C)C=C1",
+      "scaffold_smiles": "[C]1NC=CN1"
+    },
+    {
+      "key": "saturated-nhc",
+      "names": [
+        "saturated NHC",
+        "imidazolidin-2-ylidene",
+        "饱和NHC骨架",
+        "咪唑烷-2-卡宾骨架"
+      ],
+      "family": "carbene-C",
+      "smiles": "[C]1N(C)CCN1C",
+      "donors": [
+        "carbene-C"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "both N substituents",
+        "4,5 carbon substituents"
+      ],
+      "orientation": "Use a regular saturated five-membered ring with carbene carbon at the coordination vertex and preserve any 4,5 stereocenters from the source.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/saturated-nhc.mol",
+      "evidence_tags": [
+        "NHC-review",
+        "common-carbene"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CN1[C]N(C)CC1",
+      "scaffold_smiles": "[C]1NCCN1"
+    },
+    {
+      "key": "triazolylidene-mic",
+      "names": [
+        "triazolylidene",
+        "mesoionic carbene",
+        "MIC",
+        "三唑卡宾骨架",
+        "介离子卡宾骨架"
+      ],
+      "family": "mesoionic-carbene-C",
+      "smiles": "C[n+]1=NN(C)C=[C-]1",
+      "donors": [
+        "carbene-C"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "three ring substituent sites",
+        "triazole regioisomer"
+      ],
+      "orientation": "Use a regular five-membered triazolylidene ring, keep formal charge/resonance internally consistent, and place the carbene carbon at the metal-facing edge.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/triazolylidene-mic.mol",
+      "evidence_tags": [
+        "NHC-MIC-review"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "Cn1c[c-][n+](C)n1",
+      "scaffold_smiles": "[c-]1c[nH]n[nH+]1"
+    },
+    {
+      "key": "caac",
+      "names": [
+        "cyclic alkyl amino carbene",
+        "CAAC",
+        "环状烷基氨基卡宾骨架"
+      ],
+      "family": "carbene-C",
+      "smiles": "[C]1N(C)C(C)(C)CC1",
+      "donors": [
+        "carbene-C"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "N substituent",
+        "quaternary carbon substituents",
+        "ring size"
+      ],
+      "orientation": "Draw the saturated five-membered ring with carbene carbon at the coordination vertex, N on one adjacent side, and the quaternary carbon on the other; avoid compressing its bond angles.",
+      "chirality": {
+        "class": "possible tetrahedral chirality in substituted members; parent unspecified"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/caac.mol",
+      "evidence_tags": [
+        "NHC-MIC-review",
+        "common-carbene"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CN1[C]CCC1(C)C",
+      "scaffold_smiles": "[C]1CCCN1"
+    },
+    {
+      "key": "aryl-pcp-pincer",
+      "names": [
+        "PCP pincer",
+        "aryl PCP pincer",
+        "PCP钳形骨架",
+        "芳基双膦钳形配体骨架"
+      ],
+      "family": "pincer-PCP",
+      "smiles": "P(C)(C)Cc1cccc(CP(C)C)c1",
+      "donors": [
+        "P",
+        "aryl-C",
+        "P"
+      ],
+      "denticity": 3,
+      "variable_sites": [
+        "four P substituents",
+        "methylene arms",
+        "aryl backbone"
+      ],
+      "orientation": "Draw the aryl backbone horizontally with two P arms at flanking positions and both P donors aimed toward the same side as the central aryl-C donor.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/aryl-pcp-pincer.mol",
+      "evidence_tags": [
+        "pincer-review",
+        "common-PCP"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)Cc1cccc(CP(C)C)c1",
+      "scaffold_smiles": "c1ccccc1"
+    },
+    {
+      "key": "aryl-pnp-pincer",
+      "names": [
+        "aryl PNP pincer",
+        "pyridyl PNP pincer",
+        "PNP钳形骨架",
+        "芳基PNP骨架"
+      ],
+      "family": "pincer-PNP",
+      "smiles": "P(C)(C)Cc1cccc(CP(C)C)n1",
+      "donors": [
+        "P",
+        "pyridyl-N",
+        "P"
+      ],
+      "denticity": 3,
+      "variable_sites": [
+        "four P substituents",
+        "methylene arms",
+        "pyridine positions"
+      ],
+      "orientation": "Center the pyridine ring with N at the coordination side and arrange both phosphine arms symmetrically toward that same pocket.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/aryl-pnp-pincer.mol",
+      "evidence_tags": [
+        "pincer-review",
+        "common-PNP"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)Cc1cccc(CP(C)C)n1",
+      "scaffold_smiles": "c1ccncc1"
+    },
+    {
+      "key": "aliphatic-pnp-pincer",
+      "names": [
+        "aliphatic PNP pincer",
+        "amine PNP pincer",
+        "脂肪族PNP钳形骨架"
+      ],
+      "family": "pincer-PNP",
+      "smiles": "N(CCP(C)C)CCP(C)C",
+      "donors": [
+        "P",
+        "amine-N",
+        "P"
+      ],
+      "denticity": 3,
+      "variable_sites": [
+        "four P substituents",
+        "N substituent",
+        "linker lengths"
+      ],
+      "orientation": "Use a symmetric P-arm/N-center/P-arm W or shallow bowl with all three donors facing one coordination region and normal tetrahedral N/C angles.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/aliphatic-pnp-pincer.mol",
+      "evidence_tags": [
+        "pincer-review",
+        "common-PNP"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)CCNCCP(C)C",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "aryl-pocop-pincer",
+      "names": [
+        "POCOP pincer",
+        "aryl POCOP pincer",
+        "POCOP钳形骨架",
+        "双亚磷酸酯钳形骨架"
+      ],
+      "family": "pincer-POCOP",
+      "smiles": "P(C)(C)Oc1cccc(OP(C)C)c1",
+      "donors": [
+        "P",
+        "aryl-C",
+        "P"
+      ],
+      "denticity": 3,
+      "variable_sites": [
+        "four P substituents",
+        "aryl backbone"
+      ],
+      "orientation": "Draw the aryl ring horizontally with two O-P arms on flanking positions; retain explicit O atoms and aim both P donors toward the central aryl-C coordination side.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/aryl-pocop-pincer.mol",
+      "evidence_tags": [
+        "pincer-review",
+        "common-POCOP"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CP(C)Oc1cccc(OP(C)C)c1",
+      "scaffold_smiles": "c1ccccc1"
+    },
+    {
+      "key": "aryl-ncn-pincer",
+      "names": [
+        "NCN pincer",
+        "aryl NCN pincer",
+        "NCN钳形骨架",
+        "双胺甲基芳基钳形骨架"
+      ],
+      "family": "pincer-NCN",
+      "smiles": "CN(C)Cc1cccc(CN(C)C)c1",
+      "donors": [
+        "amine-N",
+        "aryl-C",
+        "amine-N"
+      ],
+      "denticity": 3,
+      "variable_sites": [
+        "both amine substituent sets",
+        "methylene arms",
+        "aryl backbone"
+      ],
+      "orientation": "Use a horizontal aryl backbone with two aminomethyl arms opening toward the same side as the central aryl-C donor; keep the N atoms outside crowded ring edges.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/aryl-ncn-pincer.mol",
+      "evidence_tags": [
+        "pincer-review",
+        "common-NCN"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CN(C)Cc1cccc(CN(C)C)c1",
+      "scaffold_smiles": "c1ccccc1"
+    },
+    {
+      "key": "cyclopentadienyl",
+      "names": [
+        "cyclopentadienyl",
+        "Cp ligand",
+        "Cp骨架",
+        "环戊二烯基骨架"
+      ],
+      "family": "pi-ligand",
+      "smiles": "[cH-]1cccc1",
+      "donors": [
+        "eta-5 Cp face"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "all five ring positions"
+      ],
+      "orientation": "Use a regular pentagon with delocalized anionic Cp notation or the source's circle convention; when coordinated, center the metal over the ring face using native ChemDraw hapticity notation.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/cyclopentadienyl.mol",
+      "evidence_tags": [
+        "pi-ligand",
+        "ubiquitous-Cp"
+      ],
+      "status": "connectivity-template",
+      "validation_level": "strict",
+      "representation_limit": "MOL prototype records the anionic ring only, not eta-5 metal bonding.",
+      "canonical_smiles": "c1cc[cH-]c1",
+      "scaffold_smiles": "c1cc[cH-]c1"
+    },
+    {
+      "key": "indenyl",
+      "names": [
+        "indenyl ligand",
+        "indenyl",
+        "茚基配体骨架"
+      ],
+      "family": "pi-ligand",
+      "smiles": "c1ccc2[cH-]ccc2c1",
+      "donors": [
+        "eta-5 indenyl face"
+      ],
+      "denticity": 1,
+      "variable_sites": [
+        "five-membered and benzene ring positions"
+      ],
+      "orientation": "Draw a regular fused benzene/five-membered indenyl system with the five-membered ring facing the metal; use native hapticity notation for complexes.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "native_review_required": true,
+      "template_mol": "assets/ligand-scaffold-templates/indenyl.mol",
+      "evidence_tags": [
+        "pi-ligand",
+        "common-indenyl"
+      ],
+      "status": "connectivity-template",
+      "validation_level": "strict",
+      "representation_limit": "MOL prototype records the anionic ring only, not eta-5 metal bonding.",
+      "canonical_smiles": "c1ccc2[cH-]ccc2c1",
+      "scaffold_smiles": "c1ccc2[cH-]ccc2c1"
+    },
+    {
+      "key": "beta-diketiminate",
+      "names": [
+        "beta-diketiminate",
+        "nacnac",
+        "β-二亚胺骨架",
+        "nacnac骨架"
+      ],
+      "family": "anionic-NN",
+      "smiles": "CN=C(C)CC(C)=NC",
+      "donors": [
+        "imine-N",
+        "imine-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both N substituents",
+        "both imine-carbon substituents",
+        "central carbon"
+      ],
+      "orientation": "Use an open N-C-C-C-N chelating arc with both N donors facing inward; for the anion, keep charge and double-bond resonance consistent with the cited drawing.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/beta-diketiminate.mol",
+      "evidence_tags": [
+        "common-supporting-ligand",
+        "nacnac"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "CN=C(C)CC(C)=NC",
+      "scaffold_smiles": ""
+    },
+    {
+      "key": "trispyrazolylborate",
+      "names": [
+        "hydrotris(pyrazolyl)borate",
+        "Tp ligand",
+        "scorpionate",
+        "三吡唑硼酸盐骨架",
+        "蝎型配体骨架"
+      ],
+      "family": "tripodal-NNN",
+      "smiles": "[BH-](n1nccc1)(n1nccc1)n1nccc1",
+      "donors": [
+        "pyrazolyl-N",
+        "pyrazolyl-N",
+        "pyrazolyl-N"
+      ],
+      "denticity": 3,
+      "variable_sites": [
+        "all three pyrazole rings",
+        "B-H substitution"
+      ],
+      "orientation": "Place B at the upper or rear hub with three pyrazolyl arms forming a balanced tripod and all three distal N donors directed toward one metal-binding face.",
+      "chirality": {
+        "class": "none in parent prototype"
+      },
+      "template_mol": "assets/ligand-scaffold-templates/trispyrazolylborate.mol",
+      "evidence_tags": [
+        "scorpionate",
+        "common-tripodal"
+      ],
+      "status": "literature-reviewed",
+      "validation_level": "strict",
+      "canonical_smiles": "c1cnn([BH-](n2cccn2)n2cccn2)c1",
+      "scaffold_smiles": "c1cnn([BH-](n2cccn2)n2cccn2)c1"
+    },
+    {
+      "key": "rr-dpen",
+      "names": [
+        "1,2-diphenylethylenediamine",
+        "DPEN",
+        "(R,R)-DPEN",
+        "二苯基乙二胺骨架"
+      ],
+      "family": "central-chiral-NN",
+      "smiles": "N[C@@H](c1ccccc1)[C@@H](N)c1ccccc1",
+      "donors": [
+        "amine-N",
+        "amine-N"
+      ],
+      "denticity": 2,
+      "variable_sites": [
+        "both nitrogens",
+        "both aryl rings",
+        "backbone substituents"
+      ],
+      "orientation": "Draw the C-C backbone centrally, fan phenyl groups away from the N-N chelation side, and preserve both source-defined stereocenters.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-DPEN",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/rr-dpen.mol",
+      "evidence_tags": [
+        "privileged-chiral",
+        "diamine"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "N[C@@H](c1ccccc1)[C@@H](N)c1ccccc1",
+      "scaffold_smiles": "c1ccc(CCc2ccccc2)cc1",
+      "expected_cip": {
+        "1": "S",
+        "8": "S"
+      }
+    },
+    {
+      "key": "salan",
+      "names": [
+        "salan",
+        "reduced salen",
+        "salan骨架",
+        "还原salen骨架"
+      ],
+      "family": "chiral-N2O2",
+      "smiles": "Oc1ccccc1CN[C@@H]1CCCC[C@H]1NCc1ccccc1O",
+      "donors": [
+        "phenolate-O",
+        "amine-N",
+        "amine-N",
+        "phenolate-O"
+      ],
+      "denticity": 4,
+      "variable_sites": [
+        "both phenol rings",
+        "diamine backbone",
+        "both nitrogens"
+      ],
+      "orientation": "Use the same open C2-like N2O2 pocket as salen but show saturated C-N bonds; preserve the diamine stereocenters and normal amine bond angles.",
+      "chirality": {
+        "class": "tetrahedral",
+        "prototype": "(R,R)-cyclohexanediamine-derived salan",
+        "encoding": "isomeric-smiles-and-wedged-mol"
+      },
+      "mirror_forbidden": true,
+      "template_mol": "assets/ligand-scaffold-templates/salan.mol",
+      "evidence_tags": [
+        "salen-review",
+        "privileged-chiral"
+      ],
+      "status": "CIP-validated",
+      "validation_level": "strict",
+      "canonical_smiles": "Oc1ccccc1CN[C@@H]1CCCC[C@H]1NCc1ccccc1O",
+      "scaffold_smiles": "c1ccc(CN[C@@H]2CCCC[C@H]2NCc2ccccc2)cc1",
+      "expected_cip": {
+        "9": "R",
+        "14": "R"
+      }
+    }
+  ]
+}

@@ -1,4 +1,4 @@
 interface:
   display_name: "Auto-G16 ChemDraw Structures"
-  short_description: "Create ChemDraw-ready MOL/SDF structures"
-  default_prompt: "Use $auto-g16-chemdraw-structures to create ChemDraw-compatible structure files from compound names, SMILES, images, or chiral ligand requests."
+  short_description: "Quick or strict editable ChemDraw reconstruction"
+  default_prompt: "Use $auto-g16-chemdraw-structures to rebuild this structure or reaction panel as one editable ChemDraw file. A final suffix `，快速` requests the two-minute quick-draft path; `，严格` requests full chemical and native ChemDraw validation."

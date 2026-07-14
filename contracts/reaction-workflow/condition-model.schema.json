@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/condition-model.schema.json",
+  "title": "Gaussian reaction condition model",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "study_id",
+    "intake",
+    "species_registry",
+    "review_source",
+    "global_model",
+    "decisions",
+    "blockers",
+    "review",
+    "gate_status",
+    "calculation_ready",
+    "no_submission_authorization",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gaussian-reaction-condition-model/1"
+    },
+    "study_id": {
+      "$ref": "#/$defs/id"
+    },
+    "intake": {
+      "$ref": "#/$defs/boundArtifact"
+    },
+    "species_registry": {
+      "$ref": "#/$defs/boundArtifact"
+    },
+    "review_source": {
+      "$ref": "#/$defs/artifact"
+    },
+    "global_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standard_state",
+        "temperature_policy",
+        "concentration_policy",
+        "pressure_policy",
+        "explicit_component_policy"
+      ],
+      "properties": {
+        "standard_state": {
+          "$ref": "#/$defs/policy"
+        },
+        "temperature_policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "concentration_policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "pressure_policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "explicit_component_policy": {
+          "$ref": "#/$defs/policy"
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["condition_id", "treatment", "species_ids", "model", "rationale", "review_status"],
+        "properties": {
+          "condition_id": {
+            "$ref": "#/$defs/id"
+          },
+          "treatment": {
+            "enum": [
+              "explicit_component",
+              "continuum_environment",
+              "chemical_potential",
+              "computational_parameter",
+              "experimental_context_only",
+              "excluded_spectator",
+              "workup_only",
+              "unresolved"
+            ]
+          },
+          "species_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "model": {
+            "type": ["object", "null"]
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "review_status": {
+            "enum": ["reviewed", "blocked"]
+          }
+        }
+      }
+    },
+    "blockers": {
+      "type": "array"
+    },
+    "review": {
+      "type": "object"
+    },
+    "gate_status": {
+      "enum": ["reviewed", "reviewed_with_blockers", "blocked"]
+    },
+    "calculation_ready": {
+      "const": false
+    },
+    "no_submission_authorization": {
+      "const": true
+    },
+    "payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "boundArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "payload_sha256"],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "value", "unit", "model", "rationale"],
+      "properties": {
+        "status": {
+          "enum": ["reviewed", "not_applicable", "unresolved", "blocked"]
+        },
+        "value": {},
+        "unit": {},
+        "model": {},
+        "rationale": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "record_type": "auto-g16-strict-chemdraw-w1-smoke-evidence",
+  "record_version": 1,
+  "evidence_id": "wang2024_cat2_strict_w1_smoke_20260714",
+  "recorded_date": "2026-07-14",
+  "status": "passed_with_scientific_blockers",
+  "study_id": "wang2024_cat2_w1_strict_smoke",
+  "source": {
+    "citation": "Wang et al., JACS 2024",
+    "doi": "10.1021/jacs.4c09067",
+    "supporting_information_region": "S23",
+    "source_capture_sha256": "f34ac32fa17e7ea6c7d7598b40842d8dfdfabd8a700ec3f17ed56ec6820447e5"
+  },
+  "strict_chemdraw": {
+    "execution_mode": "strict",
+    "validation_status": "validated",
+    "native_roundtrip": true,
+    "validation_warnings": [],
+    "counts": {
+      "fragments": 3,
+      "texts": 15,
+      "graphics": 1,
+      "schemes": 1,
+      "red_bonds": 0
+    },
+    "final_cdxml_sha256": "1041ad7095ef075d266fdc99e3d659fe29c4c870db18360aa0675ba4d307b404",
+    "preview_sha256": "9990f7ba0cd6afde71992c7c34a2c6deb80c62c03ee3fb369793714b724da5f7",
+    "validation_report_sha256": "458a745cfd69c9d72dee10688e78d6d133ff174aeeea36763d8b5ecbeb587329",
+    "reextracted_structures": [
+      {
+        "label": "1a",
+        "formula": "C9H9NO",
+        "formal_charge": 0,
+        "canonical_isomeric_smiles": "CCc1nc2ccccc2o1"
+      },
+      {
+        "label": "2b",
+        "formula": "C7H12O2",
+        "formal_charge": 0,
+        "canonical_isomeric_smiles": "C=CC(=O)OC(C)(C)C"
+      },
+      {
+        "label": "4a",
+        "formula": "C16H21NO3",
+        "formal_charge": 0,
+        "canonical_isomeric_smiles": "C[C@@H](CCC(=O)OC(C)(C)C)c1nc2ccccc2o1",
+        "cip_assignments": ["S"]
+      }
+    ]
+  },
+  "w1_chain": {
+    "reaction_intake": {
+      "gate_status": "reviewed",
+      "blocker_count": 0,
+      "file_sha256": "83134ea4e8c27db0fc4b505e7cb2319b39fa0be9a2405bc4e36c232446c56fba",
+      "payload_sha256": "6456f26a46315a71595520b248df4f822a3b1c3a2d968855c180b6ce26eb5d16"
+    },
+    "species_registry": {
+      "gate_status": "reviewed_with_blockers",
+      "blocker_count": 2,
+      "file_sha256": "8a2cb0e66ca061d3d1f2970a4292cd39f46beec17dcec6e204985b333969a93d",
+      "payload_sha256": "935bb2856f3670568f9b2b57b59395704ba2616dc890b443cbf1dd21566fe4f2"
+    },
+    "condition_model": {
+      "gate_status": "reviewed_with_blockers",
+      "blocker_count": 6,
+      "file_sha256": "ea65858364edd52931f61e6141703271bd5bf634a55a384c3be68807c8f11fd1",
+      "payload_sha256": "4848e4bc9c62742fe811f5b98fe7dfda330b03b8ed8c5e7a2713ce9f7d07c353"
+    },
+    "balance": {
+      "element_balance": "passed",
+      "charge_balance": "passed",
+      "net_formula_equation": "C9H9NO + C7H12O2 -> C16H21NO3"
+    },
+    "calculation_ready": false,
+    "no_submission_authorization": true
+  },
+  "offline_validation": {
+    "reaction_workflow_tests_passed": 12,
+    "isolated_integration_tests_passed": 119
+  },
+  "scientific_blockers": [
+    "CAT2 active molecular state, aggregation, charge, multiplicity, coordination, binding mode and atom inventory remain unresolved.",
+    "The exact modeled form and treatment of Barton's base remain unresolved.",
+    "Toluene treatment, computational standard state, concentration and explicit-component policies remain unresolved."
+  ],
+  "sanitization": {
+    "contains_source_pdf": false,
+    "contains_source_screenshot": false,
+    "contains_native_cdxml": false,
+    "contains_server_path": false,
+    "contains_job_id": false,
+    "contains_gaussian_output": false,
+    "contains_checkpoint": false
+  },
+  "limitations": [
+    "This record preserves hashes and validation outcomes but not the ignored local source and run artifacts.",
+    "The scientific blockers are correct W1 gate outcomes rather than smoke-test failures.",
+    "This record authorizes neither mechanism inference, protocol selection, Gaussian input generation, SSH, PBS, deployment nor any live calculation."
+  ]
+}
