@@ -38,21 +38,22 @@ Use this Skill for the scientific layer only. Use `gaussian-rtwin-pbs` for the R
    protocol candidate and preserve the proposal/selection hashes. It neither
    submits nor writes to the server.
 4. After the user approves the exact TS project, use `gaussian-rtwin-pbs` to stage and run the separately prepared TS/Freq input. Fetch the log and checkpoint before proceeding.
-5. Fetch after terminal process/PBS evidence, then run `analyze-ts` and create `mode-review` artifacts. Require normal TS/Freq termination, stationary-point evidence, exactly one raw negative frequency, and a complete displacement block. Re-fetch if an earlier automatic snapshot ended after Opt but before Freq.
-6. Hand `mode_plus.xyz` and `mode_minus.xyz` to `gaussian-view-rt-win`. Keep each XYZ immutable; that Skill derives a hash-bound, non-runnable MOL preview and must confirm the exact document loaded without a GaussView error dialog. Show the displacement table and declared-distance changes, then obtain a scientific decision with `record-mode-decision --confirmed`. The command creates a separate immutable decision record bound to the TS-result and mode-review hashes; it never edits either source artifact. A distance projection is evidence, not automatic acceptance.
-7. Before a checkpoint-dependent IRC, run `audit-checkpoint`. It binds the checkpoint SHA-256 to the reviewed TS input, completed log, TS result, imaginary-mode displacement order, mode review, and accepted decision. This is a provenance audit: it does not claim to decode the binary checkpoint.
-8. Before a coordinate-free IRC or retry input, create and select a fresh
+5. Before a live result exists, prepare one hash-bound `gaussian-terminal-intake-template/1` per approved project. After terminal process/PBS evidence, fetch the complete log and run `ingest-terminal` against the exact local input and mutable `job.json`. The command refuses non-terminal, unfetched, process-alive, size/count-mismatched, transport-unverified, project-mismatched, input-hash-mismatched, or template-hash-mismatched evidence. A committed template contains no runtime job ID and grants no live authority.
+6. For TS/Freq, proceed to `analyze-ts` and `mode-review` only when intake reports `ready_for_manual_mode_review`. Require normal TS/Freq termination, stationary-point evidence, the exact expected mode count, exactly one raw negative frequency, and a complete displacement block. Re-fetch if an earlier automatic snapshot ended after Opt but before Freq.
+7. Hand `mode_plus.xyz` and `mode_minus.xyz` to `gaussian-view-rt-win`. Keep each XYZ immutable; that Skill derives a hash-bound, non-runnable MOL preview and must confirm the exact document loaded without a GaussView error dialog. Show the displacement table and declared-distance changes, then obtain a scientific decision with `record-mode-decision --confirmed`. The command creates a separate immutable decision record bound to the TS-result and mode-review hashes; it never edits either source artifact. A distance projection is evidence, not automatic acceptance.
+8. Before a checkpoint-dependent IRC, run `audit-checkpoint`. It binds the checkpoint SHA-256 to the reviewed TS input, completed log, TS result, imaginary-mode displacement order, mode review, and accepted decision. This is a provenance audit: it does not claim to decode the binary checkpoint.
+9. Before a coordinate-free IRC or retry input, create and select a fresh
    stage-specific three-candidate proposal. Then use `build-allcheck-irc` with
    the exact selected route. Require `Geom=AllCheck Guess=Read RCFC`, an
    explicit direction, a passed checkpoint audit, and no
    title/charge/coordinates after the route. The builder refuses
    `ReCorrect=Never`.
-9. Only after exact IRC approval, use `plan-irc` to create two new, hash-bound PBS submission plans for a normal bidirectional family. Supply the verified installed G16 revision plus complete, verified routes containing explicit and non-swapped `Forward`/`Reverse` direction keywords—this Skill does not manufacture Gaussian IRC keywords. A one-direction diagnostic retry remains a fresh, separately approved project and does not replace two-direction validation.
-10. Submit each approved direction through `gaussian-rtwin-pbs` into a fresh project, fetch results, then assess endpoints separately. Never submit a replacement automatically.
-11. After both IRC directions complete, run `audit-irc-endpoint` separately on each final point. Require direction-specific path completion, every expected point's corrector convergence, normal termination, matching log/result atom order and coordinates, a fetched job record, and an exact final IRC checkpoint hash. Chemical-side labels must come from reviewed structural evidence.
-12. For a connected endpoint, build the job with `build-allcheck-endpoint`. Require a separately approved route containing `Opt Freq Geom=AllCheck Guess=Read`, a fresh project, and an exact audited IRC checkpoint.
-13. For a disconnected endpoint, run `propose-endpoint-components`. Treat its covalent-radius connectivity as a review proposal only. Require a hash-bound `gaussian-irc-component-review/1` that explicitly accepts every atom partition and supplies each identity, fresh project, charge, multiplicity, and a spin-coupling note. Then run `build-fragment-endpoints`; it emits explicit Cartesian inputs and no submission authorization.
-14. Submit each fragment only after exact per-project approval. Run `audit-fragment-endpoints` on fetched results and require every fragment to optimize normally with a complete frequency calculation and zero imaginary frequencies. Report the electronic-energy sum only as an isolated-fragment electronic energy, never as a reaction Gibbs energy.
+10. Only after exact IRC approval, use `plan-irc` to create two new, hash-bound PBS submission plans for a normal bidirectional family. Supply the verified installed G16 revision plus complete, verified routes containing explicit and non-swapped `Forward`/`Reverse` direction keywords—this Skill does not manufacture Gaussian IRC keywords. A one-direction diagnostic retry remains a fresh, separately approved project and does not replace two-direction validation.
+11. Submit each approved direction through `gaussian-rtwin-pbs` into a fresh project, fetch results, then run `ingest-terminal` separately for each direction. `ready_for_endpoint_structure_review` means only that the numerical path reached a clean, direction-specific final point with the declared corrector evidence; it does not label the endpoint or validate the path. Never submit a replacement automatically.
+12. After both IRC directions complete and their structures are reviewed, run `audit-irc-endpoint` separately on each final point. Require direction-specific path completion, every expected point's corrector convergence, normal termination, matching log/result atom order and coordinates, a fetched job record, and an exact final IRC checkpoint hash. Chemical-side labels must come from reviewed structural evidence.
+13. For a connected endpoint, build the job with `build-allcheck-endpoint`. Require a separately approved route containing `Opt Freq Geom=AllCheck Guess=Read`, a fresh project, and an exact audited IRC checkpoint.
+14. For a disconnected endpoint, run `propose-endpoint-components`. Treat its covalent-radius connectivity as a review proposal only. Require a hash-bound `gaussian-irc-component-review/1` that explicitly accepts every atom partition and supplies each identity, fresh project, charge, multiplicity, and a spin-coupling note. Then run `build-fragment-endpoints`; it emits explicit Cartesian inputs and no submission authorization.
+15. Submit each fragment only after exact per-project approval. Run `audit-fragment-endpoints` on fetched results and require every fragment to optimize normally with a complete frequency calculation and zero imaginary frequencies. Report the electronic-energy sum only as an isolated-fragment electronic energy, never as a reaction Gibbs energy.
 
 ## Offline commands
 
@@ -63,6 +64,11 @@ python3 "$TOOL" validate-inputs --mode qst2 \
   --reactant reactant.gjf --product product.gjf --atom-map atom_map.json
 python3 "$TOOL" create-family --input-audit input_audit.json \
   --protocol approved_protocol.json --output family.json
+
+python3 "$TOOL" ingest-terminal \
+  --template terminal-intake-template.json --input exact_input.gjf \
+  --job live/project/job.json --log live/project/results/exact_input.log \
+  --output live/project/results/terminal_intake.json
 
 python3 "$TOOL" analyze-ts ts_freq.log --output ts_freq_result.json
 python3 "$TOOL" mode-review ts_freq_result.json --output-dir mode_review \
@@ -123,7 +129,7 @@ python3 "$TOOL" audit-fragment-endpoints \
   --output fragment_endpoint_validation.json
 ```
 
-All audit/build/plan commands create new local artifacts and refuse overwrite. The AllCheck builders emit a same-stem `gaussian-allcheck-input-manifest/1` companion; the PBS preflight recomputes both input and checkpoint hashes and audits the one-based atom order before staging. Fragment builders emit a family plan rather than same-stem PBS manifests and require fresh per-fragment project names. `audit-irc-endpoint` does not treat a MaxPoints structure as a minimum; it only binds a completed final path point to its checkpoint and reviewed structural label. `plan-irc` refuses decisions other than hash-bound `accepted`, a changed TS result, projects outside the PBS-safe naming rule, missing checkpoint hashes, absent G16 revision, placeholder routes, or swapped/missing direction keywords.
+All audit/build/plan/intake commands create new local artifacts and refuse overwrite. `ingest-terminal` is offline-only and never fetches, submits, cancels, cleans up, retries, or changes a calculation. The AllCheck builders emit a same-stem `gaussian-allcheck-input-manifest/1` companion; the PBS preflight recomputes both input and checkpoint hashes and audits the one-based atom order before staging. Fragment builders emit a family plan rather than same-stem PBS manifests and require fresh per-fragment project names. `audit-irc-endpoint` does not treat a MaxPoints structure as a minimum; it only binds a completed final path point to its checkpoint and reviewed structural label. `plan-irc` refuses decisions other than hash-bound `accepted`, a changed TS result, projects outside the PBS-safe naming rule, missing checkpoint hashes, absent G16 revision, placeholder routes, or swapped/missing direction keywords.
 
 The already-running BF3-TS1 job predates the protocol-rigor gate. Do not
 manufacture a retrospective proposal or selection. Any retry, IRC or later BF3
@@ -141,7 +147,7 @@ Do not label forward/reverse chemically until endpoint identity comparison. If a
 
 ## Resources
 
-- `scripts/ts_irc.py`: deterministic offline validators, TS/Freq parser, displacement review artifacts, decision recording, checkpoint provenance/atom-order audits, coordinate-free AllCheck IRC and endpoint builders, endpoint evidence, and IRC plans.
+- `scripts/ts_irc.py`: deterministic offline validators, terminal-evidence intake, TS/Freq parser, displacement review artifacts, decision recording, checkpoint provenance/atom-order audits, coordinate-free AllCheck IRC and endpoint builders, endpoint evidence, and IRC plans.
 - `references/protocol-contract.md`: required manifest fields, result schemas, stages, and non-default decisions.
 
 For this repository's subsequent explicitly approved live development tests, propose the user-selected `general` tier (50 GB/22 cores). Still display the exact resources and obtain submission approval for every fresh project; unit tests remain offline.

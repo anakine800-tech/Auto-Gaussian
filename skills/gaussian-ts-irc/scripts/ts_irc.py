@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "gaussian-ts-irc-workflow/1"
+TERMINAL_TEMPLATE_SCHEMA = "gaussian-terminal-intake-template/1"
+TERMINAL_INTAKE_SCHEMA = "gaussian-terminal-intake/1"
 PROJECT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,14}$")
 ELEMENTS = """X H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og""".split()
 COVALENT_RADII_ANGSTROM = {
@@ -1014,6 +1016,244 @@ def analyze_ts_log_text(text: str) -> dict[str, Any]:
     return {"schema": "gaussian-ts-freq-result/1", "status": "completed" if normal_count and not error_count else "failed" if error_count else "incomplete", "g16_revision": revision.group(1).strip() if revision else None, "normal_termination_count": normal_count, "error_termination_count": error_count, "optimization_completed": optimization, "stationary_point_found": stationary, "final_energy_hartree": _float(energy[-1]) if energy else None, "frequency_count": len(frequencies), "frequencies_cm-1": frequencies, "raw_imaginary_frequency_count": len(negative), "imaginary_modes": negative, "final_coordinates": _last_orientation(text), "first_order_saddle_candidate": candidate, "mode_review_status": "pending" if candidate else "not_eligible", "diagnostics": diagnostics}
 
 
+def terminal_template_payload_sha256(template: dict[str, Any]) -> str:
+    """Hash the semantic template payload without its self-hash field."""
+    payload = dict(template)
+    payload.pop("template_payload_sha256", None)
+    rendered = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def validate_terminal_intake_template(
+    template: dict[str, Any], input_path: Path
+) -> dict[str, Any]:
+    """Validate one offline terminal-intake template and its exact input."""
+    if template.get("schema") != TERMINAL_TEMPLATE_SCHEMA:
+        raise ValueError("unrecognized terminal-intake template schema")
+    if template.get("status") != "prepared_offline" or template.get("no_submission_authorization") is not True:
+        raise ValueError("terminal-intake template must be prepared offline and grant no submission authority")
+    expected_hash = template.get("template_payload_sha256")
+    if not isinstance(expected_hash, str) or expected_hash != terminal_template_payload_sha256(template):
+        raise ValueError("terminal-intake template payload hash does not match")
+    project = template.get("project")
+    if not isinstance(project, str) or not PROJECT_RE.fullmatch(project):
+        raise ValueError("terminal-intake template has an invalid project")
+    task_kind = template.get("task_kind")
+    if task_kind not in {"irc", "ts_freq"}:
+        raise ValueError("terminal-intake task_kind must be irc or ts_freq")
+    if not input_path.is_file() or input_path.is_symlink():
+        raise ValueError("terminal-intake input must be an existing non-symlink file")
+    input_hash = template.get("input_sha256")
+    if not isinstance(input_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", input_hash):
+        raise ValueError("terminal-intake template has an invalid input SHA-256")
+    if sha256(input_path) != input_hash:
+        raise ValueError("terminal-intake input hash differs from the template")
+    expected = template.get("expected_system")
+    if not isinstance(expected, dict):
+        raise ValueError("terminal-intake template lacks expected_system")
+    for key in ("atom_count", "charge", "multiplicity"):
+        if not isinstance(expected.get(key), int):
+            raise ValueError(f"expected_system.{key} must be an integer")
+    if expected["atom_count"] < 1 or expected["multiplicity"] < 1:
+        raise ValueError("expected atom count and multiplicity must be positive")
+    acceptance = template.get("acceptance_gate")
+    if not isinstance(acceptance, dict):
+        raise ValueError("terminal-intake template lacks acceptance_gate")
+    if task_kind == "irc":
+        direction = acceptance.get("direction")
+        if direction not in {"forward", "reverse"}:
+            raise ValueError("IRC terminal template requires an explicit direction")
+        if not isinstance(acceptance.get("maximum_points"), int) or acceptance["maximum_points"] < 1:
+            raise ValueError("IRC terminal template requires a positive maximum_points")
+    else:
+        if not isinstance(acceptance.get("expected_frequency_count"), int) or acceptance["expected_frequency_count"] < 1:
+            raise ValueError("TS/Freq terminal template requires expected_frequency_count")
+        if acceptance.get("required_raw_imaginary_frequency_count") != 1:
+            raise ValueError("TS/Freq terminal template must preserve the exactly-one-imaginary-mode gate")
+    return template
+
+
+def _load_terminal_file(path: Path, label: str) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"{label} must be an existing non-symlink JSON file")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must contain a JSON object")
+    return value
+
+
+def _audit_terminal_job(
+    template: dict[str, Any], input_path: Path, job_path: Path, log_path: Path
+) -> tuple[dict[str, Any], str]:
+    """Require stable, fetched local terminal evidence before scientific parsing."""
+    if not log_path.is_file() or log_path.is_symlink():
+        raise ValueError("Gaussian log must be an existing non-symlink file")
+    job = _load_terminal_file(job_path, "job record")
+    project = template["project"]
+    if job.get("schema") != "gaussian-rtwin-pbs/1" or job.get("project") != project:
+        raise ValueError("job record is not bound to the template project")
+    if job.get("input_sha256") != sha256(input_path):
+        raise ValueError("job record input hash differs from the template-bound input")
+    if job.get("status") not in {"completed", "failed", "interrupted"}:
+        raise ValueError("job record is not terminal")
+    if job.get("results_fetched") is not True:
+        raise ValueError("terminal job results have not been fetched")
+    if job.get("rtwin_sha256_verified") is not True or job.get("server_sha256_verified") is not True:
+        raise ValueError("job record lacks verified submission transport hashes")
+    inspection = job.get("last_inspection")
+    if not isinstance(inspection, dict) or inspection.get("schema") != "gaussian-job-inspection/1":
+        raise ValueError("job record lacks a terminal Gaussian inspection")
+    if inspection.get("project") != project or inspection.get("job_id") != job.get("job_id"):
+        raise ValueError("terminal inspection is not bound to the job record")
+    if inspection.get("state") != job.get("status") or inspection.get("state") not in {"completed", "failed", "interrupted"}:
+        raise ValueError("job and inspection terminal states disagree")
+    if inspection.get("process_alive") is True:
+        raise ValueError("Gaussian process is still alive; the log is not terminal evidence")
+    if inspection.get("log_size") != log_path.stat().st_size:
+        raise ValueError("fetched log size differs from the terminal inspection")
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    normal_count = text.count("Normal termination of Gaussian")
+    error_count = text.count("Error termination")
+    if inspection.get("full_normal_termination_count") != normal_count or inspection.get("full_error_termination_count") != error_count:
+        raise ValueError("fetched log termination counts differ from the terminal inspection")
+    return job, text
+
+
+def ingest_terminal_artifacts(
+    template_path: Path,
+    input_path: Path,
+    job_path: Path,
+    log_path: Path,
+) -> dict[str, Any]:
+    """Ingest a fetched TS/Freq or IRC terminal state without making a chemical decision."""
+    template = _load_terminal_file(template_path, "terminal-intake template")
+    validate_terminal_intake_template(template, input_path)
+    job, text = _audit_terminal_job(template, input_path, job_path, log_path)
+    expected = template["expected_system"]
+    charge, multiplicity = _charge_multiplicity_from_log(text)
+    if (charge, multiplicity) != (expected["charge"], expected["multiplicity"]):
+        raise ValueError("completed log charge/multiplicity differs from the terminal template")
+
+    common = {
+        "schema": TERMINAL_INTAKE_SCHEMA,
+        "template_id": template.get("template_id"),
+        "template_sha256": sha256(template_path),
+        "template_payload_sha256": template["template_payload_sha256"],
+        "task_kind": template["task_kind"],
+        "project": template["project"],
+        "runtime_job_id": job.get("job_id"),
+        "artifacts": {
+            "input_sha256": sha256(input_path),
+            "job_sha256": sha256(job_path),
+            "log_sha256": sha256(log_path),
+            "log_size_bytes": log_path.stat().st_size,
+        },
+        "terminal_evidence": {
+            "status": "passed",
+            "job_state": job["status"],
+            "results_fetched": True,
+            "process_alive": job["last_inspection"].get("process_alive"),
+            "submission_transport_hashes_verified": True,
+            "normal_termination_count": text.count("Normal termination of Gaussian"),
+            "error_termination_count": text.count("Error termination"),
+        },
+        "automatic_action_authorized": False,
+    }
+
+    if template["task_kind"] == "ts_freq":
+        parsed = analyze_ts_log_text(text)
+        acceptance = template["acceptance_gate"]
+        geometry_complete = len(parsed["final_coordinates"]) == expected["atom_count"]
+        frequency_complete = parsed["frequency_count"] == acceptance["expected_frequency_count"]
+        if parsed["error_termination_count"] or job["status"] != "completed":
+            outcome = "error_or_interrupted_termination"
+        elif not parsed["optimization_completed"] or not parsed["stationary_point_found"] or not geometry_complete:
+            outcome = "nonstationary_or_incomplete"
+        elif not frequency_complete:
+            outcome = "incomplete_frequency_analysis"
+        elif parsed["raw_imaginary_frequency_count"] == 0:
+            outcome = "zero_imaginary_modes"
+        elif parsed["raw_imaginary_frequency_count"] > 1:
+            outcome = "multiple_imaginary_modes"
+        else:
+            outcome = "ready_for_manual_mode_review"
+        common.update(
+            {
+                "acceptance_status": "manual_review_required" if outcome == "ready_for_manual_mode_review" else "not_accepted",
+                "outcome": outcome,
+                "scientific_evidence": {
+                    "optimization_completed": parsed["optimization_completed"],
+                    "stationary_point_found": parsed["stationary_point_found"],
+                    "atom_count": len(parsed["final_coordinates"]),
+                    "expected_atom_count": expected["atom_count"],
+                    "frequency_count": parsed["frequency_count"],
+                    "expected_frequency_count": acceptance["expected_frequency_count"],
+                    "raw_imaginary_frequency_count": parsed["raw_imaginary_frequency_count"],
+                    "imaginary_frequencies_cm-1": [
+                        mode["frequency_cm-1"] for mode in parsed["imaginary_modes"]
+                    ],
+                    "first_order_saddle_candidate": outcome == "ready_for_manual_mode_review",
+                    "mode_review_status": "pending" if outcome == "ready_for_manual_mode_review" else "not_eligible",
+                },
+                "path_validated": False,
+                "next_required_artifacts": [
+                    "gaussian-ts-freq-result/1",
+                    "gaussian-ts-mode-review/1",
+                    "gaussian-ts-mode-decision/1",
+                ] if outcome == "ready_for_manual_mode_review" else [],
+            }
+        )
+        return common
+
+    acceptance = template["acceptance_gate"]
+    direction = acceptance["direction"]
+    point_numbers = [int(value) for value in re.findall(r"Point Number:\s*(\d+)", text)]
+    completed_point = max(point_numbers) if point_numbers else 0
+    corrector_count = text.count("Delta-x Convergence Met")
+    direction_complete = f"Calculation of {direction.upper()} path complete." in text
+    geometry = _last_orientation(text)
+    geometry_complete = len(geometry) == expected["atom_count"]
+    clean_termination = (
+        job["status"] == "completed"
+        and text.count("Normal termination of Gaussian") > 0
+        and text.count("Error termination") == 0
+    )
+    if not clean_termination:
+        outcome = "error_or_interrupted_termination"
+    elif completed_point < 1 or completed_point > acceptance["maximum_points"]:
+        outcome = "invalid_or_missing_path_points"
+    elif corrector_count < completed_point:
+        outcome = "incomplete_corrector_convergence"
+    elif not direction_complete:
+        outcome = "directional_path_incomplete"
+    elif not geometry_complete:
+        outcome = "endpoint_geometry_incomplete"
+    else:
+        outcome = "ready_for_endpoint_structure_review"
+    common.update(
+        {
+            "acceptance_status": "structural_review_required" if outcome == "ready_for_endpoint_structure_review" else "not_accepted",
+            "outcome": outcome,
+            "scientific_evidence": {
+                "direction": direction,
+                "directional_path_complete": direction_complete,
+                "completed_point": completed_point,
+                "maximum_points": acceptance["maximum_points"],
+                "corrector_convergence_count": corrector_count,
+                "atom_count": len(geometry),
+                "expected_atom_count": expected["atom_count"],
+                "chemical_side_assignment": "pending_structural_review",
+            },
+            "path_validated": False,
+            "next_required_artifacts": [
+                "reviewed chemical-side assignment",
+                "gaussian-irc-endpoint-audit/1",
+            ] if outcome == "ready_for_endpoint_structure_review" else [],
+        }
+    )
+    return common
+
+
 def _distance(a: dict[str, Any], b: dict[str, Any]) -> float:
     return math.sqrt((a["x"] - b["x"]) ** 2 + (a["y"] - b["y"]) ** 2 + (a["z"] - b["z"]) ** 2)
 
@@ -1130,6 +1370,7 @@ def main() -> int:
     components = sub.add_parser("propose-endpoint-components"); components.add_argument("--endpoint-audit", required=True); components.add_argument("--irc-result", required=True); components.add_argument("--bond-scale", type=float, default=1.25); components.add_argument("--output", required=True)
     fragment_build = sub.add_parser("build-fragment-endpoints"); fragment_build.add_argument("--component-proposal", required=True); fragment_build.add_argument("--component-review", required=True); fragment_build.add_argument("--output-dir", required=True); fragment_build.add_argument("--route", required=True); fragment_build.add_argument("--memory", required=True); fragment_build.add_argument("--nprocshared", type=int, required=True)
     fragment_audit = sub.add_parser("audit-fragment-endpoints"); fragment_audit.add_argument("--plan", required=True); fragment_audit.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit.add_argument("--output", required=True)
+    terminal = sub.add_parser("ingest-terminal"); terminal.add_argument("--template", required=True); terminal.add_argument("--input", required=True); terminal.add_argument("--job", required=True); terminal.add_argument("--log", required=True); terminal.add_argument("--output", required=True)
     args = parser.parse_args()
     try:
         if args.command == "validate-inputs":
@@ -1182,7 +1423,7 @@ def main() -> int:
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "build-fragment-endpoints":
             build_fragment_endpoint_inputs(Path(args.component_proposal), Path(args.component_review), Path(args.output_dir), args.route, args.memory, args.nprocshared)
-        else:
+        elif args.command == "audit-fragment-endpoints":
             output_path = Path(args.output)
             if output_path.exists(): raise ValueError("refusing to overwrite an existing fragment endpoint validation")
             assignments: dict[str, dict[str, Path]] = {}
@@ -1195,6 +1436,13 @@ def main() -> int:
                     parsed[project] = Path(value)
                 assignments[label] = parsed
             result = audit_fragment_endpoint_results(Path(args.plan), assignments["result"], assignments["job"])
+            output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        else:
+            output_path = Path(args.output)
+            if output_path.exists(): raise ValueError("refusing to overwrite an existing terminal-intake result")
+            result = ingest_terminal_artifacts(
+                Path(args.template), Path(args.input), Path(args.job), Path(args.log)
+            )
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         parser.error(str(exc))

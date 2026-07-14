@@ -46,13 +46,16 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
   and accepted-mode evidence for the exact BF3-TS1 `r01` run.
 - `bf3_ts2_b1/`: three-tier protocol review, explicit `standard` selection,
   identity atom map, audited Gaussian input draft, input-draft manifest, and a
-  sanitized in-flight status. Its precommitted `terminal-acceptance-plan.json`
+  sanitized execution history. Its precommitted `terminal-acceptance-plan.json`
   binds the exact input and defines terminal, TS/frequency, and manual C13–C21
-  mode gates plus fail-closed outcome classes. Its machine-local `live/`
-  operation bundle is preserved but excluded from version control.
+  mode gates plus fail-closed outcome classes. The forward/reverse IRC folders
+  each contain a hash-bound offline terminal-intake template that cannot assign
+  endpoint identity. Machine-local `live/` bundles are preserved but excluded
+  from version control.
 - `bf3_ts2_b2/`: verified identity map, calculation request, deterministic
   loose/standard/strict proposal, standard selection, exact offline Gaussian
-  input, input audit and precommitted terminal/mode acceptance plan.
+  input, input audit, precommitted terminal/mode acceptance plan, and an offline
+  terminal-intake template that stops at manual C13–C21 mode review.
 
 Rebuild without overwriting the checked artifact:
 

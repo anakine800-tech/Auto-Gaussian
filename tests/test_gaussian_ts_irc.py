@@ -40,6 +40,51 @@ LOG = """\
 
 
 class TsIrcTests(unittest.TestCase):
+    def _terminal_job(
+        self, project: str, input_path: Path, log_path: Path, *, state: str = "completed"
+    ) -> dict:
+        return {
+            "schema": "gaussian-rtwin-pbs/1",
+            "project": project,
+            "job_id": "900.master",
+            "status": state,
+            "results_fetched": True,
+            "input_sha256": TS.sha256(input_path),
+            "rtwin_sha256_verified": True,
+            "server_sha256_verified": True,
+            "last_inspection": {
+                "schema": "gaussian-job-inspection/1",
+                "project": project,
+                "job_id": "900.master",
+                "state": state,
+                "process_alive": False,
+                "log_size": log_path.stat().st_size,
+                "full_normal_termination_count": log_path.read_text().count(
+                    "Normal termination of Gaussian"
+                ),
+                "full_error_termination_count": log_path.read_text().count(
+                    "Error termination"
+                ),
+            },
+        }
+
+    def _terminal_template(
+        self, project: str, input_path: Path, task_kind: str, acceptance: dict
+    ) -> dict:
+        template = {
+            "schema": TS.TERMINAL_TEMPLATE_SCHEMA,
+            "template_id": f"{project}_{task_kind}_terminal",
+            "status": "prepared_offline",
+            "task_kind": task_kind,
+            "project": project,
+            "input_sha256": TS.sha256(input_path),
+            "expected_system": {"atom_count": 2, "charge": 0, "multiplicity": 1},
+            "acceptance_gate": acceptance,
+            "no_submission_authorization": True,
+        }
+        template["template_payload_sha256"] = TS.terminal_template_payload_sha256(template)
+        return template
+
     def test_one_imaginary_mode_is_candidate_and_displacement_parses(self) -> None:
         result = TS.analyze_ts_log_text(LOG)
         self.assertTrue(result["first_order_saddle_candidate"])
@@ -52,6 +97,120 @@ class TsIrcTests(unittest.TestCase):
         result = TS.analyze_ts_log_text(LOG.replace("-500.00  100.00  200.00", "-500.00 -100.00  200.00"))
         self.assertFalse(result["first_order_saddle_candidate"])
         self.assertEqual(result["raw_imaginary_frequency_count"], 2)
+
+    def test_offline_ts_terminal_intake_stops_at_manual_mode_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            input_path = root / "ts.gjf"
+            input_path.write_text("%chk=ts.chk\n#p opt=(ts) freq\n\nTS\n\n0 1\nH 0 0 0\nH 1 0 0\n\n")
+            log_path = root / "ts.log"
+            log_path.write_text(" Charge = 0 Multiplicity = 1\n" + LOG)
+            template = self._terminal_template(
+                "test_ts", input_path, "ts_freq",
+                {"expected_frequency_count": 3, "required_raw_imaginary_frequency_count": 1},
+            )
+            template_path = root / "template.json"
+            template_path.write_text(json.dumps(template))
+            job_path = root / "job.json"
+            job_path.write_text(json.dumps(self._terminal_job("test_ts", input_path, log_path)))
+
+            intake = TS.ingest_terminal_artifacts(
+                template_path, input_path, job_path, log_path
+            )
+            self.assertEqual(intake["outcome"], "ready_for_manual_mode_review")
+            self.assertEqual(intake["acceptance_status"], "manual_review_required")
+            self.assertFalse(intake["path_validated"])
+            self.assertFalse(intake["automatic_action_authorized"])
+            self.assertEqual(intake["scientific_evidence"]["raw_imaginary_frequency_count"], 1)
+
+            template["acceptance_gate"]["expected_frequency_count"] = 4
+            template["template_payload_sha256"] = TS.terminal_template_payload_sha256(template)
+            template_path.write_text(json.dumps(template))
+            incomplete = TS.ingest_terminal_artifacts(
+                template_path, input_path, job_path, log_path
+            )
+            self.assertEqual(incomplete["outcome"], "incomplete_frequency_analysis")
+            self.assertEqual(incomplete["acceptance_status"], "not_accepted")
+
+    def test_offline_irc_terminal_intake_requires_endpoint_identity_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            input_path = root / "irc.gjf"
+            input_path.write_text(
+                "%oldchk=ts.chk\n%chk=irc.chk\n"
+                "#p irc=(rcfc,forward,maxpoints=2) geom=allcheck guess=read\n\n"
+            )
+            log_path = root / "irc.log"
+            log_path.write_text(
+                " Charge = 0 Multiplicity = 1\n"
+                " Delta-x Convergence Met\n Point Number: 1 Path Number: 1\n"
+                " Delta-x Convergence Met\n Point Number: 2 Path Number: 1\n"
+                " Standard orientation:\n"
+                " ---------------------------------------------------------------------\n"
+                " Center     Atomic      Atomic             Coordinates (Angstroms)\n"
+                " Number     Number       Type             X           Y           Z\n"
+                " ---------------------------------------------------------------------\n"
+                "      1          1           0        0.000000    0.000000    0.000000\n"
+                "      2          1           0        1.000000    0.000000    0.000000\n"
+                " ---------------------------------------------------------------------\n"
+                " Calculation of FORWARD path complete.\n"
+                " Normal termination of Gaussian 16\n"
+            )
+            template = self._terminal_template(
+                "test_if", input_path, "irc",
+                {"direction": "forward", "maximum_points": 2},
+            )
+            template_path = root / "template.json"
+            template_path.write_text(json.dumps(template))
+            job = self._terminal_job("test_if", input_path, log_path)
+            job_path = root / "job.json"
+            job_path.write_text(json.dumps(job))
+
+            intake = TS.ingest_terminal_artifacts(
+                template_path, input_path, job_path, log_path
+            )
+            self.assertEqual(intake["outcome"], "ready_for_endpoint_structure_review")
+            self.assertEqual(intake["acceptance_status"], "structural_review_required")
+            self.assertEqual(
+                intake["scientific_evidence"]["chemical_side_assignment"],
+                "pending_structural_review",
+            )
+            self.assertFalse(intake["path_validated"])
+
+            job["last_inspection"]["process_alive"] = True
+            job_path.write_text(json.dumps(job))
+            with self.assertRaisesRegex(ValueError, "still alive"):
+                TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)
+
+    def test_terminal_intake_rejects_template_or_job_hash_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            input_path = root / "ts.gjf"
+            input_path.write_text("input\n")
+            log_path = root / "ts.log"
+            log_path.write_text(" Charge = 0 Multiplicity = 1\n" + LOG)
+            template = self._terminal_template(
+                "hash_ts", input_path, "ts_freq",
+                {"expected_frequency_count": 3, "required_raw_imaginary_frequency_count": 1},
+            )
+            template_path = root / "template.json"
+            template_path.write_text(json.dumps(template))
+            job = self._terminal_job("hash_ts", input_path, log_path)
+            job_path = root / "job.json"
+            job_path.write_text(json.dumps(job))
+
+            template["expected_system"]["atom_count"] = 3
+            template_path.write_text(json.dumps(template))
+            with self.assertRaisesRegex(ValueError, "payload hash"):
+                TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)
+
+            template["expected_system"]["atom_count"] = 2
+            template["template_payload_sha256"] = TS.terminal_template_payload_sha256(template)
+            template_path.write_text(json.dumps(template))
+            job["input_sha256"] = "0" * 64
+            job_path.write_text(json.dumps(job))
+            with self.assertRaisesRegex(ValueError, "input hash"):
+                TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)
 
     def test_qst2_rejects_atom_order_mismatch(self) -> None:
         structure = {"charge": 0, "multiplicity": 1, "atoms": [{"element": "C"}, {"element": "H"}]}

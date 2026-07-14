@@ -1,0 +1,49 @@
+{
+  "schema": "gaussian-terminal-intake-template/1",
+  "template_id": "wang2024_bf3_ts2_b1_irc_reverse_terminal",
+  "status": "prepared_offline",
+  "task_kind": "irc",
+  "project": "w24_bf3b1_ir1",
+  "runtime_job_id_binding": "read only from the fetched local job record",
+  "input_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/reverse/w24_bf3b1_ir1.gjf",
+  "input_sha256": "3e30690795645560a075f73aa98c577014cd6b0ed410438a0c77133be0e0520c",
+  "expected_system": {
+    "formula": "C25H42BF3N4O3",
+    "atom_count": 78,
+    "charge": 0,
+    "multiplicity": 1
+  },
+  "terminal_gate": {
+    "allowed_job_states": [
+      "completed",
+      "failed",
+      "interrupted"
+    ],
+    "results_fetched_required": true,
+    "terminal_process_evidence_required": true,
+    "input_and_transport_hashes_required": true,
+    "partial_log_forbidden": true
+  },
+  "acceptance_gate": {
+    "direction": "reverse",
+    "maximum_points": 30,
+    "direction_specific_completion_required": true,
+    "corrector_convergence_required_for_each_completed_point": true,
+    "reaction_coordinate_atom_pair": [
+      13,
+      21
+    ],
+    "chemical_side_assignment": "requires separate endpoint structure review",
+    "endpoint_identity_inferred_automatically": false
+  },
+  "claim_limit": "Terminal intake can make the final reverse IRC point ready for structural review; it cannot assign reactant/product identity or validate a reaction path.",
+  "no_submission_authorization": true,
+  "forbidden_automatic_actions": [
+    "retry or resubmit",
+    "change IRC integration settings",
+    "assign endpoint chemical identity",
+    "cancel or clean up a scheduler record",
+    "delete evidence"
+  ],
+  "template_payload_sha256": "4f6795581072a2514b964514e2bdf71e74dd4e46c43356dc6a0d3378dcd77f81"
+}

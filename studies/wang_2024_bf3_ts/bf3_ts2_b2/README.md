@@ -40,6 +40,9 @@ observation is queued.
   route, resource, coordinate and authorization-boundary evidence.
 - `terminal-acceptance-plan.json`: precommitted stationary-point, frequency
   count and manual C13–C21 mode-review gates; it authorizes no calculation.
+- `terminal-intake-template.json`: exact project/input-hash contract for local
+  post-fetch intake. It contains no PBS job ID and cannot accept a mode, retry,
+  cancel, clean up, or submit IRC.
 - `live-submission-approval.json`: exact one-time upload/qsub approval bound to
   the input hash, resources and fresh project; that authority has been used.
 
@@ -47,9 +50,11 @@ observation is queued.
 
 1. Wait for stable terminal process/PBS evidence and fetch the complete log and
    checkpoint without interpreting an intermediate Opt termination as final.
-2. Require normal optimization/stationary-point evidence, 228 harmonic modes
-   and exactly one raw imaginary frequency.
-3. Perform a new hash-bound animation review of C13–C21 motion before accepting
+2. Run the offline `gaussian-ts-irc ingest-terminal` command with this template,
+   the exact tracked input, machine-local `job.json`, and fetched complete log.
+   Continue only from `ready_for_manual_mode_review`.
+3. Generate the full TS result and perform a new hash-bound animation review of
+   C13–C21 motion before accepting
    B2 as mode-consistent.
 4. Treat any retry, replacement or IRC as a new separately approved action.
 

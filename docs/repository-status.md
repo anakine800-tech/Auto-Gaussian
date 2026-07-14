@@ -17,9 +17,9 @@ The version-controlled source under `skills/` currently provides:
   hashes, fresh-project enforcement, monitoring, fetch, result parsing, and
   repeated-evidence terminal scheduler-zombie cleanup;
 - an offline TS–Freq–IRC scientific layer with single-guess and QST family
-  audits, exactly-one-imaginary-mode review, checkpoint-bound AllCheck
-  continuations, separately approved IRC directions, and connected or reviewed
-  fragmented endpoint evidence; and
+  audits, hash-bound terminal-result intake, exactly-one-imaginary-mode review,
+  checkpoint-bound AllCheck continuations, separately approved IRC directions,
+  and connected or reviewed fragmented endpoint evidence; and
 - a literature-grounded, offline asymmetric-catalysis planning/audit Skill for
   active-state hypotheses, candidate-space coverage, comparable TS ensembles,
   and bounded selectivity claims.
@@ -95,9 +95,12 @@ chiral-boron capability work is deliberately sequenced after this milestone.
   and completed normally in 28 optimization steps and 29 SCF calculations. Its
   228 modes contain the sole -389.3384 cm⁻¹ imaginary frequency, and its
   hash-bound C13–C21 animation decision is accepted. Separately approved B1
-  bidirectional IRC work remains endpoint-incomplete. B2 now has a B1-matched
+  bidirectional IRC work remains endpoint-incomplete; each direction now has a
+  project/input-hash-bound offline terminal-intake template that stops before
+  chemical-side assignment. B2 now has a B1-matched
   standard offline input candidate, exact coordinate/route/hash audits and a
-  precommitted terminal acceptance plan. That exact B2 input subsequently
+  precommitted terminal acceptance plan plus an offline intake template that
+  stops at manual C13–C21 mode review. That exact B2 input subsequently
   received one-time live approval and is queued; no retry or replacement is
   authorized. Operational job files remain local and ignored. Full BCF
   TS1/TS2-B1 remain deferred 87/108-atom benchmarks.
@@ -171,7 +174,7 @@ On 2026-07-14:
 - the real CAT2 forward study preserved the literature reaction identity and
   both stereochemical comparison channels without fabricating catalyst
   structures, atom maps, candidate geometries, or an ee ensemble;
-- the full repository suite completed 99 tests successfully;
+- the full repository suite completed 103 tests successfully;
 - the `skill-creator` structural validator reported `Skill is valid!`;
 - the literature ledger and smoke-proposal payload hashes were independently
   reproduced; and
@@ -232,12 +235,14 @@ candidate still requires its own new gate.
    strategies. Runtime support remains refused.
 2. Define the offline M2 input/audit/parser contracts and M3 adversarial
    fixtures without rendering a metal Gaussian input or enabling submission.
-3. Fetch and independently review both BF3-TS2-B1 numerical IRC directions;
+3. After each BF3-TS2-B1 IRC direction terminates, fetch it, run the exact
+   offline terminal-intake template, and independently review its endpoint;
    do not label endpoints or claim path validation before both terminate and
    their endpoint structures are identified.
 4. Monitor the approved BF3-TS2-B2 standard job to stable termination, fetch the
-   complete Opt/Freq output, and apply the precommitted 228-mode/one-imaginary-
-   mode/C13–C21 animation gates before any TS claim.
+   complete Opt/Freq output, run the exact offline intake template, and apply
+   the precommitted 228-mode/one-imaginary-mode/C13–C21 animation gates before
+   any TS claim.
 5. Keep any B1/B2 retry, B2 IRC and full BCF benchmarks separately gated.
 6. Resume broader chiral-boron complex construction and enumeration after the
    transition-metal design milestone.

@@ -156,6 +156,10 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         for item in irc["directions"]:
             self.assertEqual(item["input_sha256"], digest(ROOT / item["input_path"]))
             self.assertEqual(item["manifest_sha256"], digest(ROOT / item["manifest_path"]))
+            self.assertEqual(
+                item["terminal_intake_template_sha256"],
+                digest(ROOT / item["terminal_intake_template_path"]),
+            )
             self.assertFalse(item["terminal_evidence"])
         self.assertFalse(irc["contains_job_id"])
         self.assertFalse(irc["contains_server_path"])
@@ -181,6 +185,52 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         status = load(STUDY / "workflow-status.json")
         b1 = next(item for item in status["candidates"] if item["candidate_id"] == "wang2024_bf3_ts2_b1")
         self.assertEqual(b1["terminal_acceptance_plan"]["sha256"], digest(plan_path))
+
+    def test_three_terminal_intake_templates_are_hash_bound_and_non_authorizing(self) -> None:
+        cases = [
+            (
+                B1 / "irc/forward/terminal-intake-template.json",
+                B1 / "irc/forward/w24_bf3b1_if1.gjf",
+                "w24_bf3b1_if1",
+                "irc",
+                "forward",
+            ),
+            (
+                B1 / "irc/reverse/terminal-intake-template.json",
+                B1 / "irc/reverse/w24_bf3b1_ir1.gjf",
+                "w24_bf3b1_ir1",
+                "irc",
+                "reverse",
+            ),
+            (
+                B2 / "terminal-intake-template.json",
+                B2 / "w24_bf3ts2_b2_s01.gjf",
+                "w24_bf3t2b2_s1",
+                "ts_freq",
+                None,
+            ),
+        ]
+        for template_path, input_path, project, task_kind, direction in cases:
+            with self.subTest(project=project):
+                template = load(template_path)
+                TS.validate_terminal_intake_template(template, input_path)
+                self.assertEqual(
+                    template["template_payload_sha256"],
+                    TS.terminal_template_payload_sha256(template),
+                )
+                self.assertEqual(template["input_sha256"], digest(input_path))
+                self.assertEqual(template["project"], project)
+                self.assertEqual(template["task_kind"], task_kind)
+                self.assertEqual(template["expected_system"]["atom_count"], 78)
+                self.assertTrue(template["no_submission_authorization"])
+                self.assertNotRegex(template_path.read_text(), r"\b(?:590|591|592)\.master\b")
+                if direction:
+                    self.assertEqual(template["acceptance_gate"]["direction"], direction)
+                    self.assertEqual(template["acceptance_gate"]["reaction_coordinate_atom_pair"], [13, 21])
+                else:
+                    self.assertEqual(template["acceptance_gate"]["expected_frequency_count"], 228)
+                    self.assertEqual(template["acceptance_gate"]["required_raw_imaginary_frequency_count"], 1)
+                    self.assertTrue(template["acceptance_gate"]["manual_mode_review_required"])
 
     def test_b2_standard_input_is_hash_bound_and_still_offline_only(self) -> None:
         request = load(B2 / "calculation-request.json")
@@ -259,6 +309,14 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         self.assertEqual(b2["input_draft"]["sha256"], digest(input_path))
         self.assertEqual(b2["input_draft"]["manifest_sha256"], digest(manifest_path))
         self.assertEqual(b2["terminal_acceptance_plan"]["sha256"], digest(plan_path))
+        self.assertEqual(
+            b2["terminal_intake_template"]["sha256"],
+            digest(B2 / "terminal-intake-template.json"),
+        )
+        self.assertEqual(
+            b2["terminal_intake_template"]["next_outcome_if_gates_pass"],
+            "ready_for_manual_mode_review",
+        )
         self.assertEqual(
             b2["live_submission_approval"]["sha256"],
             digest(B2 / "live-submission-approval.json"),
