@@ -1,10 +1,10 @@
-# Asymmetric-catalysis module design
+# Auto-G16 Asymmetric-Catalysis Module Design
 
 Status: offline planning/audit Skill and design contract. No Gaussian input,
 live submission, or reaction-specific computational protocol is authorized by
 this document.
 
-Module name: `gaussian-asymmetric-catalysis`
+Module name: `auto-g16-asymmetric-catalysis`
 
 ## 1. Objective
 
@@ -42,7 +42,7 @@ result must remain `provisional` and state the missing evidence.
 
 ## 3. Why this is a separate module
 
-`gaussian-ts-irc` validates a reviewed TS family and its path. It currently
+`auto-g16-ts-irc` validates a reviewed TS family and its path. It currently
 refuses transition-metal, broken-symmetry, excited-state, multireference,
 periodic, and ONIOM workflows. That refusal is scientifically material and must
 not be bypassed by an orchestration wrapper.
@@ -57,8 +57,8 @@ The new module owns a different layer:
 - uncertainty and claim-level reporting.
 
 It delegates only supported, separately reviewed TS families to
-`gaussian-ts-irc`, visible structure/mode review to `gaussian-view-rt-win`, and
-approved transport/execution to `gaussian-rtwin-pbs`.
+`auto-g16-ts-irc`, visible structure/mode review to `auto-g16-view-rt-win`, and
+approved transport/execution to `auto-g16-rtwin-pbs`.
 
 ## 4. Non-negotiable boundaries
 
@@ -554,7 +554,7 @@ The first literature audit focused on Xiao-Chen Wang group papers relevant to
 chiral bisboranes, pyridine functionalization, borane/transition-metal
 cooperative catalysis, and mechanistic transition-state calculations. Exact
 paper-by-paper evidence is maintained in
-`skills/gaussian-asymmetric-catalysis/references/wang-group-computational-precedents.md`.
+`skills/auto-g16-asymmetric-catalysis/references/wang-group-computational-precedents.md`.
 
 The audit changes the implementation plan in five ways:
 

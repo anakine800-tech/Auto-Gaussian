@@ -1,4 +1,4 @@
-# RTwin Gaussian automation Skills
+# Auto-G16 RTwin Gaussian Automation Skills
 
 This repository is the version-controlled source for the Gaussian automation Skills used on this Mac. Installed copies under `~/.codex/skills` are deployment targets, not the development source of truth.
 
@@ -16,17 +16,22 @@ an auditable workflow from a ChemDraw reaction and experimental conditions to
 reviewed mechanism networks, calculation evidence, thermochemistry,
 kinetics/selectivity, uncertainty, and bounded conclusions.
 
+All repository-owned Skill machine names and folders use the `auto-g16-`
+prefix; their human-facing display names begin with `Auto-G16`. Versioned
+scientific artifact schemas retain their existing identifiers for compatibility
+and provenance.
+
 ## Baseline Skills
 
-- `skills/chemdraw-structures`: ChemDraw-compatible structure generation and stereochemical review artifacts.
-- `skills/chemdraw-gaussian-pipeline`: audited ChemDraw-to-Cartesian conversion.
-- `skills/gaussian-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
-- `skills/gaussian-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
-- `skills/gaussian-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
+- `skills/auto-g16-chemdraw-structures`: ChemDraw-compatible structure generation and stereochemical review artifacts.
+- `skills/auto-g16-chemdraw-pipeline`: audited ChemDraw-to-Cartesian conversion.
+- `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
+- `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
+- `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
 
 ## Offline planning/audit module
 
-- `skills/gaussian-asymmetric-catalysis`: literature-grounded planning and
+- `skills/auto-g16-asymmetric-catalysis`: literature-grounded planning and
   audit workflow for metal–chiral-ligand and chiral-boron catalytic TS
   ensembles, stereochemical-channel coverage, candidate ledgers, TS-result
   ingestion, and selectivity aggregation. It contains no Gaussian execution
@@ -60,7 +65,7 @@ All Skill-managed server data and scratch must remain below `/home/user100/SDL`.
    small closed-shell main-group reaction from ChemDraw through minima, TS,
    path, and common-reference energy evidence.
 5. Continue the refusal-preserving transition-metal M1–M3 design; the existing
-   `gaussian-ts-irc` transition-metal refusal must not be bypassed.
+   `auto-g16-ts-irc` transition-metal refusal must not be bypassed.
 6. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision and separately
    submitted bidirectional IRC work. BF3-TS2-B2 now has a B1-matched standard
    offline input candidate with exact coordinate, route and hash audits. That

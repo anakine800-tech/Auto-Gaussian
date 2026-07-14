@@ -50,7 +50,7 @@ observation is queued.
 
 1. Wait for stable terminal process/PBS evidence and fetch the complete log and
    checkpoint without interpreting an intermediate Opt termination as final.
-2. Run the offline `gaussian-ts-irc ingest-terminal` command with this template,
+2. Run the offline `auto-g16-ts-irc ingest-terminal` command with this template,
    the exact tracked input, machine-local `job.json`, and fetched complete log.
    Continue only from `ready_for_manual_mode_review`.
 3. Generate the full TS result and perform a new hash-bound animation review of

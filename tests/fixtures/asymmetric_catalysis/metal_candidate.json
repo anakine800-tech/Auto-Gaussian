@@ -91,7 +91,7 @@
     "metal_approach_face": "re"
   },
   "warnings": [
-    "Transition-metal workflow unsupported by gaussian-ts-irc.",
+    "Transition-metal workflow unsupported by auto-g16-ts-irc.",
     "Protocol, electronic-state alternatives, and candidate coverage unresolved."
   ],
   "review": {"reviewer": null, "decision": "pending", "decision_record": null}

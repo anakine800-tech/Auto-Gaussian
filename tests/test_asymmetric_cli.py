@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
-TOOL = ROOT / "skills" / "gaussian-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
+TOOL = ROOT / "skills" / "auto-g16-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
 VALIDATOR = ROOT / "scripts" / "validate_asymmetric_contract.py"
 FIXTURES = ROOT / "tests" / "fixtures" / "asymmetric_catalysis"
 BF3 = ROOT / "studies" / "wang_2024_bf3_ts"
