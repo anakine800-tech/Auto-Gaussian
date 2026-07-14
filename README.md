@@ -1,18 +1,24 @@
-# Auto-G16 RTwin Gaussian Automation Skills
+# Auto-G16 — Auto-Gaussian 2.1.0
 
-This repository is the version-controlled source for the Gaussian automation Skills used on this Mac. Installed copies under `~/.codex/skills` are deployment targets, not the development source of truth.
+Auto-Gaussian is the repository and release brand for a guarded family of
+Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
+every human-facing Skill name begins with `Auto-G16`.
+
+This repository is the version-controlled source of truth. Installed copies
+under `~/.codex/skills` are deployment targets and must not be edited
+independently.
 
 ## Current repository status
 
-As of 2026-07-14, the guarded RTwin/PBS workflow, audited main-group
+As of 2026-07-14, Auto-G16 2.1.0 includes the guarded RTwin/PBS workflow,
+audited main-group
 TS–Freq–IRC workflow, offline asymmetric-catalysis planning/audit module, and
-the W1 reaction-intake foundation are integrated on `codex/Auto-Gaussian`.
+the W1 reaction-intake and reaction-literature foundations.
 These layers retain their individual scientific and live-action approval gates.
 
-`codex/Auto-Gaussian` is the sole target integration branch for the final
-whole-reaction workflow. W0/W1 was developed on
-`codex/w0-w1-reaction-intake`; its offline gates and separately approved real
-strict native-ChemDraw smoke test passed on 2026-07-14 before integration.
+`main` is the stable release branch. `codex/Auto-Gaussian` remains the target
+integration branch for the future whole-reaction workflow; feature work uses
+separate `codex/` branches and reaches `main` only through reviewed integration.
 
 See `docs/repository-status.md` for the evidence, limitations, and next gates.
 See `docs/end-to-end-reaction-computation-workflow.md` for the project target:
@@ -35,18 +41,21 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
   species registry, balance review and condition-to-model decisions. Its W1
-  artifacts explicitly grant no calculation or live authorization. Its future
-  W2 references define a reusable structure/method/literature knowledge layer,
-  reproducible literature search, evidence extraction, applicability review and
-  TS-precedent artifacts; those tools are not yet implemented.
+  artifacts explicitly grant no calculation or live authorization.
+- `skills/auto-g16-reaction-literature`: offline-first query planning,
+  Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
+  screening, evidence templates and fail-closed source-review validation. It
+  does not infer a mechanism, choose a computational protocol, or authorize a
+  calculation.
 
 ## Planned W2 knowledge modules
 
 - `auto-g16-knowledge-base`: future reviewed structure/catalyst,
   computational-method, and literature/book registries with permissions,
   provenance, typed links and immutable per-study snapshots.
-- `auto-g16-reaction-literature`: future reproducible primary/SI search,
-  extraction, applicability audit and TS-precedent translation layer.
+- mechanism-support matrices, source-to-target atom correspondence, and
+  reviewed target TS-seed proposals remain future extensions to the implemented
+  reaction-literature layer.
 
 ## Offline planning/audit module
 
@@ -69,11 +78,42 @@ retain their existing names for compatibility and provenance.
 
 ## Safety boundary
 
-All Skill-managed server data and scratch must remain below `/home/user100/SDL`. The repository contains no password, private key, local SSH configuration, Gaussian checkpoint, or calculation output.
+All Skill-managed server data and scratch must remain below `/home/user100/SDL`.
+That root is fixed and has no runtime override. The repository contains no
+password, private key, local SSH configuration, Gaussian checkpoint, or
+calculation output.
+
+## Installation and local configuration
+
+The offline planning, parsing and audit layers use Python 3.11 or later. The
+ChemDraw and conformer layers additionally require an RDKit environment; some
+rendering paths require Pillow and NumPy. ChemDraw, GaussView, Gaussian and PBS
+remain separately licensed external software and are not distributed here.
+
+Copy `config/*.example` to the corresponding ignored local files and configure
+SSH aliases locally. For desktop use, copy `config/runtime.example.json` to
+`~/.config/auto-g16/runtime.json`; set `AUTO_G16_RUNTIME_CONFIG` only when a
+different local path is needed. Environment variables override the JSON keys:
+
+- `AUTO_G16_RDKIT_PYTHON`
+- `AUTO_G16_RTWIN_SSH_CONFIG`
+- `AUTO_G16_WINDOWS_TARGET`
+- `AUTO_G16_WINDOWS_HOST` (connection probe only)
+- `AUTO_G16_WINDOWS_CONTROL_SOCKET` (optional)
+- `AUTO_G16_WINDOWS_PROJECT_ROOT`
+- `AUTO_G16_WINDOWS_SERVER_CONFIG`
+- `AUTO_G16_GAUSSVIEW_EXE`
+- `AUTO_G16_PIPELINE_SCRIPTS`
+
+Do not commit the resolved values. Run the offline suite with:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ## Development sequence
 
-1. Keep `main` stable and use `codex/Auto-Gaussian` as the sole final workflow
+1. Keep `main` stable and use `codex/Auto-Gaussian` as the final workflow
    integration branch.
 2. Develop each workflow slice on a separate `codex/` feature branch, run
    offline validation first, and merge only after the applicable explicitly
@@ -106,3 +146,8 @@ Repository-wide operational rules are in `AGENTS.md`.
 - `config/*.example` contains placeholders only; real SSH/server configuration stays ignored.
 - `scripts/check_skill_sync.py` compares repository Skill hashes with installed copies.
 - `templates/g16_job.pbs.template` preserves the SDL-only work/scratch guard for review and testing.
+
+## License
+
+Auto-Gaussian is released under the [MIT License](LICENSE). Gaussian,
+GaussView, ChemDraw and other external tools retain their own licenses.

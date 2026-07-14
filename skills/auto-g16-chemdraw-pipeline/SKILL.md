@@ -13,7 +13,7 @@ This skill is an orchestrator, not a replacement for chemical judgment. A struct
 
 ## Runtime prerequisites
 
-- Use an RDKit environment; the configured default is `/Users/sundeli/miniforge3/envs/chem/bin/python`.
+- Set `AUTO_G16_RDKIT_PYTHON` to an RDKit-enabled Python interpreter.
 - For direct `.cdx/.cdxml` parsing, require `Chem.HasChemDrawCDXSupport()`. If unavailable, ask for a ChemDraw-exported MOL/SDF instead of attempting to decode the binary format manually.
 - For Windows execution or GaussView opening, require the `gaussian-parallels-vm` Skill and its configured VM credentials. The bundled scripts do not store credentials.
 
@@ -80,7 +80,7 @@ Ask for confirmation when the user has not already provided the route, charge, m
 Run the bundled deterministic converter:
 
 ```bash
-/Users/sundeli/miniforge3/envs/chem/bin/python \
+$AUTO_G16_RDKIT_PYTHON \
   /path/to/auto-g16-chemdraw-pipeline/scripts/make_gaussian_input.py \
   /path/to/structure.cdx \
   --output /path/to/outputs/example.gjf \
@@ -106,24 +106,24 @@ Keep at least one blank line after the charge/multiplicity line and after the fi
 For a structure-only preview, use the normalized review artifacts and `.gjf`; do not run Gaussian:
 
 ```bash
-/Users/sundeli/miniforge3/envs/chem/bin/python \
+$AUTO_G16_RDKIT_PYTHON \
   /path/to/auto-g16-chemdraw-pipeline/scripts/inspect_chemdraw.py \
   /path/to/AAtest.cdx /path/to/outputs/AAtest
 
-/Users/sundeli/miniforge3/envs/chem/bin/python \
+$AUTO_G16_RDKIT_PYTHON \
   /path/to/auto-g16-chemdraw-pipeline/scripts/make_gaussian_input.py \
   /path/to/AAtest.cdx \
   --output /path/to/outputs/AAtest/AAtest_cartesian.gjf \
   --charge 0 --multiplicity 1 \
   --allow-ambiguous-stereo
 
-python3 /Users/sundeli/.codex/skills/gaussian-parallels-vm/scripts/gaussian_vm.py \
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
   copy-to-vm /path/to/outputs/AAtest/AAtest_cartesian.gjf \
-  'C:\Users\sundeli\Desktop\GaussianProjects\AAtest_cartesian\AAtest_cartesian.gjf'
+  '<WINDOWS_PROJECT_ROOT>\AAtest_cartesian\AAtest_cartesian.gjf'
 
-python3 /Users/sundeli/.codex/skills/gaussian-parallels-vm/scripts/gaussian_vm.py \
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
   open-gview --kill-existing \
-  'C:\Users\sundeli\Desktop\GaussianProjects\AAtest_cartesian\AAtest_cartesian.gjf'
+  '<WINDOWS_PROJECT_ROOT>\AAtest_cartesian\AAtest_cartesian.gjf'
 ```
 
 Report the local `.gjf` link, the Windows path, the formula/atom count, and all stereochemistry warnings. A Gaussian input opened this way contains Cartesian coordinates after the charge/multiplicity line; it is not evidence that Gaussian has run.
@@ -145,7 +145,7 @@ In preview mode, unresolved stereo may remain only when explicitly marked in the
 Run the Cartesian audit after conversion, before copying any complex input to the VM:
 
 ```bash
-/Users/sundeli/miniforge3/envs/chem/bin/python \
+$AUTO_G16_RDKIT_PYTHON \
   /path/to/auto-g16-chemdraw-pipeline/scripts/audit_cartesian_input.py \
   /path/to/outputs/example.gjf
 ```
@@ -159,8 +159,8 @@ For stereogenic or atropisomeric molecules, retain the ChemDraw preview and mani
 Use the existing Gaussian VM skill and its bundled script. The local `.gjf` should be the reviewed artifact:
 
 ```bash
-python3 /Users/sundeli/.codex/skills/gaussian-parallels-vm/scripts/gaussian_vm.py status
-python3 /Users/sundeli/.codex/skills/gaussian-parallels-vm/scripts/gaussian_vm.py \
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" status
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
   run /path/to/outputs/example.gjf --project-name example --wait
 ```
 
@@ -173,8 +173,8 @@ Treat `Normal termination` near the end of the log as success. For `Error termin
 After a successful run, open the Windows-side `.log` or `.chk` with:
 
 ```bash
-python3 /Users/sundeli/.codex/skills/gaussian-parallels-vm/scripts/gaussian_vm.py \
-  open-gview 'C:\Users\sundeli\Desktop\GaussianProjects\example\example.log'
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
+  open-gview '<WINDOWS_PROJECT_ROOT>\example\example.log'
 ```
 
 If GaussView is not visible, use `--kill-existing`, confirm that the visible Windows session is logged in, and check that the path exists before relaunching. Report whether the calculation terminated normally, not merely that GaussView opened.

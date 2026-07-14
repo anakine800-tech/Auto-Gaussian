@@ -6,20 +6,34 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
+from runtime_config import setting
 
-PIPELINE = Path.home() / ".codex/skills/auto-g16-chemdraw-pipeline/scripts"
-sys.path.insert(0, str(PIPELINE))
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+PIPELINE = Path(
+    setting(
+        "AUTO_G16_PIPELINE_SCRIPTS",
+        "chemdraw_pipeline_scripts",
+        str(CODEX_HOME / "skills" / "auto-g16-chemdraw-pipeline" / "scripts"),
+    )
+)
 
-try:
-    import make_gaussian_input as gaussian_input
-except ImportError as exc:
-    raise SystemExit(f"ERROR: could not import ChemDraw Gaussian pipeline: {exc}") from exc
+
+def load_gaussian_input():
+    sys.path.insert(0, str(PIPELINE))
+    try:
+        import make_gaussian_input
+    except ImportError as exc:
+        raise SystemExit(
+            f"ERROR: could not import ChemDraw Gaussian pipeline from {PIPELINE}: {exc}"
+        ) from exc
+    return make_gaussian_input
 
 
 RESOURCE_TIERS = {
@@ -154,6 +168,7 @@ def write_candidate(
 
 
 def command_generate(args) -> None:
+    gaussian_input = load_gaussian_input()
     project = safe_project(args.project)
     if not 2 <= args.num_conformers <= 1000:
         fail("num-conformers must be between 2 and 1000")

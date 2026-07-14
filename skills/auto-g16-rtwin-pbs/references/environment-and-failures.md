@@ -6,9 +6,10 @@ The working path is Mac OpenSSH → RTwin OpenSSH over Tailscale → server Open
 
 RTwin uses the dedicated server key and alias `gaussian-server`. The Mac uses the dedicated `rtwin` alias. Do not replace either host key silently and do not copy passwords into automation.
 
-## Proven server values
+## Reviewed server contract
 
-- Host/user: `10.40.11.7`, `user100`
+- Host/user: resolved only from the ignored RTwin SSH configuration; never
+  publish the private address or credentials
 - Work root: `/home/user100/SDL`
 - Queue: `batch`
 - Resource syntax: `nodes=1:ppn=44`
