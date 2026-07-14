@@ -249,17 +249,27 @@ coordinates and a reaction-surface hypothesis. Unknown elementary-step class,
 oxidation-state change, spin crossover, coordination change or surface model
 is a blocker, not an inference.
 
+`build-metal-ts-audit-template` then binds one unsupported metal candidate to
+the exact support-design and candidate SHA-256 values. It freezes the one-based
+atom order, metal-center identities, intended coordinate, candidate
+coordination contacts and complete unselected strategy inventory. Its six
+audit sections separately block electron accounting, spin/surface,
+wavefunction, coordination, method protocol and TS/path acceptance. It leaves
+d-electron counts and coordination distance windows unset and cannot render an
+input.
+
 The versioned extension milestones are:
 
 1. `M0`: deterministic offline state/search design and refusal audit;
 2. `M1`: scientific review of oxidation states, electron counts, spin
    surfaces, wavefunctions, coordination states and mechanism families;
-3. `M2`: offline metal-specific input/audit/parser implementation;
-4. `M3`: malformed, wrong-state, wrong-coordination, spin and wavefunction
+3. `M2a`: candidate-bound offline atom/state/coordination audit template;
+4. `M2`: offline metal-specific structured-result and parser implementation;
+5. `M3`: malformed, wrong-state, wrong-coordination, spin and wavefunction
    failure fixtures; and
-5. `M4`: a separately approved exact live smoke test.
+6. `M4`: a separately approved exact live smoke test.
 
-Only `M0` is implemented. The submission decision remains unconditionally
+`M0` and `M2a` are implemented offline. The submission decision remains unconditionally
 `refused`, including when every review field is filled.
 
 ## 8. Chiral-boron-specific design
@@ -490,7 +500,9 @@ The implemented contract consists of:
   `gaussian-asymmetric-energy-record/1` — explicit geometry and comparison-
   energy inputs;
 - `gaussian-asymmetric-metal-support-design/1` — refusal-preserving metal
-  scientific design; and
+  scientific design;
+- `gaussian-asymmetric-metal-ts-audit-template/1` — candidate-bound blocked
+  electron/spin/wavefunction/coordination/method/TS audit contract; and
 - `gaussian-asymmetric-literature-benchmark-ledger/1` — reviewed literature
   coordinates, exact hashes, identities, expected observables, and unresolved
   approval gates; and
@@ -515,7 +527,8 @@ same-channel geometry deduplication; real-file candidate hashing; TS evidence
 ingestion; log-sum-exp ensemble aggregation; ee and sensitivity scenarios;
 transition-metal state/search-family design with explicit oxidation/electron,
 spin, wavefunction, coordination and method review blocks, three unselected TS
-strategy candidates, extension milestones and enforced refusal; and a precise
+strategy candidates, candidate-bound metal TS audit templates, extension
+milestones and enforced refusal; and a precise
 BF3-TS1/BF3-TS2-B1/B2 literature ledger plus a
 historical BF3-TS1 evidence chain and an in-flight BF3-TS2-B1 lineage.
 
@@ -526,7 +539,8 @@ Remaining work is scientific review rather than live execution:
    states, elementary-step classes and TS-search families;
 2. define M1 acceptance criteria while preserving the unconditional runtime
    refusal;
-3. prepare M2/M3 offline contracts, parsers and negative fixtures before any
+3. use the implemented M2a candidate template while preparing the remaining
+   M2/M3 structured-result parsers and negative fixtures before any
    metal input builder is considered;
 4. independently accept or reject BF3-TS2-B1 from stable terminal evidence,
    exactly one imaginary frequency and manual C13–C21 mode review;

@@ -1219,7 +1219,7 @@ def design_metal_support(study_path: Path, output: Path) -> dict[str, Any]:
                 "strategy": "single_guess_hessian_guided",
                 "status": "design_candidate_not_selected",
                 "prerequisites": ["reviewed TS-like geometry", "explicit reaction-coordinate atom map", "reviewed electronic and coordination state", "approved Hessian provenance"],
-                "limitations": ["a plausible guess can converge to the wrong saddle or coordination state", "current transition-metal TS audit and execution support is absent"],
+                "limitations": ["a plausible guess can converge to the wrong saddle or coordination state", "current transition-metal structured-result parser and execution support are absent"],
             },
             {
                 "strategy_id": f"mts_{sha256_data([mechanism_id, 'qst'])[:12]}",
@@ -1269,6 +1269,7 @@ def design_metal_support(study_path: Path, output: Path) -> dict[str, Any]:
         "extension_milestones": [
             {"milestone_id": "metal_m0_offline_design", "status": "implemented_offline", "deliverable": "Deterministic state, audit, TS-seed-strategy, blocker, and refusal artifact."},
             {"milestone_id": "metal_m1_scientific_review", "status": "pending_scientific_review", "deliverable": "Reviewed oxidation/electron count, spin, wavefunction, coordination, method and TS strategy for a bounded example."},
+            {"milestone_id": "metal_m2a_candidate_audit_template", "status": "implemented_offline", "deliverable": "Candidate-bound atom-order, metal-center, coordination-contact, electronic-state, method, TS/path and seed-strategy audit template with unconditional execution refusal."},
             {"milestone_id": "metal_m2_offline_runtime_contract", "status": "blocked", "deliverable": "Metal-specific input audit, parser, wavefunction/coordination checks, negative fixtures and promotion gates."},
             {"milestone_id": "metal_m3_execution_boundary", "status": "blocked", "deliverable": "Separately reviewed execution-layer design that cannot bypass exact scientific and live approval."},
             {"milestone_id": "metal_m4_live_smoke", "status": "blocked", "deliverable": "Explicitly approved small closed-shell single-reference metal TS smoke only after M1-M3 pass."},
@@ -1279,6 +1280,239 @@ def design_metal_support(study_path: Path, output: Path) -> dict[str, Any]:
     design["design_payload_sha256"] = sha256_data({key: value for key, value in design.items() if key != "design_payload_sha256"})
     write_json(output, design)
     return design
+
+
+def build_metal_ts_audit_template(
+    design_path: Path,
+    candidate_path: Path,
+    output: Path,
+) -> dict[str, Any]:
+    """Bind one unsupported metal TS candidate to a fail-closed offline audit template."""
+    design = load_json(design_path)
+    candidate = load_json(candidate_path)
+    require(
+        design.get("schema") == "gaussian-asymmetric-metal-support-design/1",
+        "metal TS audit template requires a metal-support design",
+    )
+    require(
+        design.get("design_payload_sha256")
+        == sha256_data({key: value for key, value in design.items() if key != "design_payload_sha256"}),
+        "metal-support design payload hash mismatch",
+    )
+    require(
+        design.get("calculation_ready") is False
+        and design.get("no_submission_authorization") is True
+        and design.get("submission_decision") == "refused",
+        "metal-support design widened the execution boundary",
+    )
+    require(
+        candidate.get("schema") == "gaussian-asymmetric-ts-candidate/1"
+        and candidate.get("support_status") == "unsupported_transition_metal",
+        "metal TS audit template requires an unsupported transition-metal candidate",
+    )
+    require(
+        candidate.get("calculation_ready") is False
+        and candidate.get("no_submission_authorization") is True
+        and candidate.get("review_status") != "promoted_offline",
+        "metal TS audit template refuses a promotable or calculation-ready candidate",
+    )
+    require(
+        candidate.get("study_id") == design.get("study_id")
+        and candidate.get("study_sha256") == design.get("study_sha256"),
+        "metal candidate and support design study bindings differ",
+    )
+
+    states = {item["state_id"]: item for item in design.get("states", [])}
+    state_id = candidate.get("catalyst_state_id")
+    require(state_id in states, "metal candidate references a state absent from the support design")
+    state = states[state_id]
+    families = {item["mechanism_id"]: item for item in design.get("ts_search_families", [])}
+    mechanism_id = candidate.get("mechanism_id")
+    require(mechanism_id in families, "metal candidate references a mechanism absent from the support design")
+    family = families[mechanism_id]
+    require(family.get("active_state_id") == state_id, "metal candidate mechanism/state binding differs from the support design")
+    require(candidate.get("channel_id") in family.get("channel_ids", []), "metal candidate channel is outside the support design")
+
+    expected_atom_order = _candidate_atom_order(candidate)
+    atom_map = candidate["atom_map"]
+    role_by_index = {item["index"]: item.get("role", "unassigned") for item in atom_map}
+    element_by_index = {item["index"]: item["element"] for item in atom_map}
+    centers = []
+    for center in state.get("metal_centers", []):
+        atom_index = center.get("atom_index")
+        require(atom_index in element_by_index, "metal-center atom index is outside the candidate atom map")
+        require(element_by_index[atom_index] == center.get("element"), "metal-center element differs from the candidate atom map")
+        centers.append(
+            {
+                "atom_index": atom_index,
+                "element": center["element"],
+                "formal_oxidation_state": center.get("formal_oxidation_state"),
+                "d_electron_count": None,
+                "coordination_number": center.get("coordination_number"),
+                "geometry": center.get("geometry"),
+                "review_status": "unreviewed_hypothesis",
+            }
+        )
+    require(centers, "metal TS audit template has no bound metal center")
+
+    contacts = []
+    for contact in candidate.get("binding_mode", {}).get("coordination_contacts", []):
+        donor = contact.get("donor_atom")
+        acceptor = contact.get("acceptor_atom")
+        require(donor in element_by_index and acceptor in element_by_index, "coordination contact is outside the candidate atom map")
+        contacts.append(
+            {
+                "donor_atom": donor,
+                "acceptor_atom": acceptor,
+                "kind": contact.get("kind"),
+                "distance_window_angstrom": None,
+                "review_status": "pending",
+            }
+        )
+    contacts.sort(key=lambda item: (item["acceptor_atom"], item["donor_atom"], str(item["kind"])))
+
+    audit_sections = {
+        "electron_accounting": {
+            "status": "blocked_pending_review",
+            "required_evidence": [
+                "reviewed ligand-charge and metal-metal bonding conventions",
+                "formal oxidation state and d-electron count for every metal",
+                "total valence-electron count, parity, charge and multiplicity consistency",
+                "explicit non-innocent-ligand alternatives",
+            ],
+            "rejection_conditions": [
+                "any electron count or ligand-charge convention is inferred",
+                "electron parity and multiplicity are inconsistent or unreviewed",
+            ],
+        },
+        "spin_surface": {
+            "status": "blocked_pending_review",
+            "required_evidence": [
+                "credible multiplicity inventory for the exact coordination state",
+                "common reference for spin-state comparisons",
+                "single-surface, spin-crossover and MECP relevance decision",
+            ],
+            "rejection_conditions": [
+                "a multiplicity is selected from electron parity alone",
+                "different spin surfaces are mixed in one TS ensemble",
+            ],
+        },
+        "wavefunction": {
+            "status": "blocked_pending_review",
+            "required_evidence": [
+                "explicit restricted, unrestricted, RO or broken-symmetry hypothesis",
+                "state-specific SCF stability and occupation-inspection policy",
+                "expected S(S+1), spin-contamination threshold and alternative-solution checks",
+                "system-appropriate single-reference or multireference diagnostics",
+            ],
+            "rejection_conditions": [
+                "SCF convergence is used as electronic-state validation",
+                "wavefunction stability, occupations or multireference risk remain unresolved",
+            ],
+        },
+        "coordination": {
+            "status": "blocked_pending_review",
+            "required_evidence": [
+                "one-based metal-donor map with reviewed distance windows",
+                "ligand count, denticity, hapticity and hemilability inventory",
+                "substrate, counterion, solvent and additive occupancy alternatives",
+                "pre/post geometry audit for coordination-number or binding-mode drift",
+            ],
+            "rejection_conditions": [
+                "a ligand, counterion or substrate contact changes outside its reviewed window",
+                "coordination or hapticity changes are silently treated as the same state",
+            ],
+        },
+        "method_protocol": {
+            "status": "blocked_pending_review",
+            "required_evidence": [
+                "three-tier protocol proposal after state review",
+                "basis/ECP and core-electron accounting for every element",
+                "relativity, dispersion, solvent, grid and SCF policies",
+                "spin-state, wavefunction and geometry/frequency sensitivity plan",
+            ],
+            "rejection_conditions": [
+                "a literature method is copied as an unreviewed default",
+                "any element lacks an explicit basis/ECP/relativity assignment",
+            ],
+        },
+        "ts_and_path": {
+            "status": "blocked_pending_review",
+            "required_evidence": [
+                "reviewed elementary-step class and atom correspondence",
+                "selected seed strategy with strategy-specific provenance",
+                "normal stationary-point and complete frequency evidence",
+                "exactly one raw imaginary mode reviewed for the intended coordinate and unintended coordination loss",
+                "metal-specific endpoint or crossing model appropriate to the reviewed surface",
+            ],
+            "rejection_conditions": [
+                "frequency count alone is used to accept a TS",
+                "main-group IRC logic is used to claim metal path connectivity",
+            ],
+        },
+    }
+    strategies = [
+        {
+            "strategy_id": item["strategy_id"],
+            "strategy": item["strategy"],
+            "status": item["status"],
+        }
+        for item in sorted(family.get("seed_strategy_candidates", []), key=lambda value: value["strategy"])
+    ]
+    require(
+        {item["strategy"] for item in strategies}
+        == {"single_guess_hessian_guided", "endpoint_qst2_qst3", "reviewed_relaxed_coordinate_scan"},
+        "metal support design lacks the complete seed-strategy inventory",
+    )
+
+    template = {
+        "schema": "gaussian-asymmetric-metal-ts-audit-template/1",
+        "template_id": f"metal_audit_{sha256_data([design['study_id'], candidate['candidate_id']])[:12]}",
+        "design_source": {"sha256": sha256_file(design_path)},
+        "candidate_source": {"sha256": sha256_file(candidate_path)},
+        "study_id": design["study_id"],
+        "candidate_id": candidate["candidate_id"],
+        "mechanism_id": mechanism_id,
+        "channel_id": candidate["channel_id"],
+        "catalyst_state_id": state_id,
+        "status": "blocked_pending_scientific_review",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "submission_decision": "refused",
+        "identity_binding": {
+            "charge": candidate["chemical_state"]["charge"],
+            "multiplicity": candidate["chemical_state"]["multiplicity"],
+            "atom_count": candidate["atom_inventory"]["atom_count"],
+            "atom_order": [
+                {"index": item["index"], "element": item["element"], "role": role_by_index[item["index"]]}
+                for item in expected_atom_order
+            ],
+            "metal_centers": centers,
+            "coordinate_changes": copy.deepcopy(candidate["coordinate_changes"]),
+            "coordination_contacts": contacts,
+        },
+        "audit_sections": audit_sections,
+        "seed_strategy_gate": {
+            "inventory": strategies,
+            "selected_strategy_id": None,
+            "selection_status": "not_selected",
+            "selection_required": True,
+        },
+        "hard_rejections": [
+            "Do not render a Gaussian route or input from this template.",
+            "Do not stage, upload, submit, retry, cancel or clean up a metal job.",
+            "Do not promote the candidate while any audit section is blocked.",
+            "Do not reuse a checkpoint, Hessian, guess or energy across unreviewed electronic or coordination states.",
+            "Do not aggregate different spin surfaces without a separately reviewed crossing or kinetic model.",
+        ],
+        "claim_ceiling": "design_only_no_ts_or_selectivity_claim",
+    }
+    template["template_payload_sha256"] = sha256_data(
+        {key: value for key, value in template.items() if key != "template_payload_sha256"}
+    )
+    write_json(output, template)
+    return template
 
 
 def propose_smoke(ledger_path: Path, candidate_id: str, output: Path) -> dict[str, Any]:
@@ -1338,6 +1572,7 @@ def parser() -> argparse.ArgumentParser:
     ingest = sub.add_parser("ingest-result"); ingest.add_argument("candidate"); ingest.add_argument("ts_result"); ingest.add_argument("energy_record"); ingest.add_argument("--mode-review"); ingest.add_argument("--mode-decision"); ingest.add_argument("--forward-audit"); ingest.add_argument("--reverse-audit"); ingest.add_argument("--input"); ingest.add_argument("--log"); ingest.add_argument("--checkpoint"); ingest.add_argument("--checkpoint-audit"); ingest.add_argument("--irc-plan"); ingest.add_argument("--output", required=True)
     agg = sub.add_parser("aggregate"); agg.add_argument("study"); agg.add_argument("ledger"); agg.add_argument("results", nargs="+"); agg.add_argument("--energy-shift-kcal", type=float, default=1.0); agg.add_argument("--output", required=True)
     metal = sub.add_parser("design-metal-support"); metal.add_argument("study"); metal.add_argument("--output", required=True)
+    metal_audit = sub.add_parser("build-metal-ts-audit-template"); metal_audit.add_argument("metal_support"); metal_audit.add_argument("candidate"); metal_audit.add_argument("--output", required=True)
     smoke = sub.add_parser("propose-smoke"); smoke.add_argument("ledger"); smoke.add_argument("--candidate-id", required=True); smoke.add_argument("--output", required=True)
     return root
 
@@ -1352,6 +1587,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "ingest-result": ingest_result(Path(args.candidate), Path(args.ts_result), Path(args.energy_record), Path(args.output), Path(args.mode_review) if args.mode_review else None, Path(args.mode_decision) if args.mode_decision else None, Path(args.forward_audit) if args.forward_audit else None, Path(args.reverse_audit) if args.reverse_audit else None, Path(args.input) if args.input else None, Path(args.log) if args.log else None, Path(args.checkpoint) if args.checkpoint else None, Path(args.checkpoint_audit) if args.checkpoint_audit else None, Path(args.irc_plan) if args.irc_plan else None)
         elif args.command == "aggregate": aggregate(Path(args.study), Path(args.ledger), [Path(item) for item in args.results], Path(args.output), args.energy_shift_kcal)
         elif args.command == "design-metal-support": design_metal_support(Path(args.study), Path(args.output))
+        elif args.command == "build-metal-ts-audit-template": build_metal_ts_audit_template(Path(args.metal_support), Path(args.candidate), Path(args.output))
         elif args.command == "propose-smoke": propose_smoke(Path(args.ledger), args.candidate_id, Path(args.output))
         else: raise AssertionError(args.command)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:

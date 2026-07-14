@@ -83,7 +83,8 @@ B2 live authority.
 
 1. Complete transition-metal milestone M1 scientific review using a concrete
    metal–chiral-ligand reaction.
-2. Design M2/M3 offline contracts, parsers and adversarial fixtures while
+2. Apply the implemented candidate-bound M2a audit template, then design the
+   remaining M2/M3 structured-result parsers and adversarial fixtures while
    retaining runtime refusal.
 3. Ingest and independently review both submitted B1 IRC directions; keep
    Forward/Reverse as numerical labels until both endpoints are structurally

@@ -35,7 +35,7 @@ class AsymmetricCommandLineTests(unittest.TestCase):
         commands = (
             "build-study", "enumerate-boron", "build-literature-benchmark",
             "build-candidates", "ingest-result", "aggregate",
-            "design-metal-support", "propose-smoke",
+            "design-metal-support", "build-metal-ts-audit-template", "propose-smoke",
         )
         for command in commands:
             with self.subTest(command=command):
@@ -108,6 +108,22 @@ class AsymmetricCommandLineTests(unittest.TestCase):
             validated_metal = self.run_python(VALIDATOR, "--artifact", str(metal))
             self.assert_success(validated_metal)
             self.assertFalse(json.loads(validated_metal.stdout)["live_actions"])
+
+            metal_template = root / "metal-ts-audit-template.json"
+            templated = self.run_python(
+                TOOL,
+                "build-metal-ts-audit-template", str(metal),
+                str(FIXTURES / "metal_candidate.json"),
+                "--output", str(metal_template),
+            )
+            self.assert_success(templated)
+            template = json.loads(metal_template.read_text(encoding="utf-8"))
+            self.assertEqual(template["submission_decision"], "refused")
+            validated_template = self.run_python(
+                VALIDATOR, "--artifact", str(metal_template)
+            )
+            self.assert_success(validated_template)
+            self.assertFalse(json.loads(validated_template.stdout)["live_actions"])
 
             study = root / "study.json"
             built_study = self.run_python(

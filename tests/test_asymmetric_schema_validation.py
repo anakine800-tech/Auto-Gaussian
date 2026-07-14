@@ -196,10 +196,87 @@ def metal_support_instance() -> dict:
         "extension_milestones": [
             {"milestone_id": "metal_m0_offline_design", "status": "implemented_offline", "deliverable": "offline design"},
             {"milestone_id": "metal_m1_scientific_review", "status": "pending_scientific_review", "deliverable": "scientific review"},
+            {"milestone_id": "metal_m2a_candidate_audit_template", "status": "implemented_offline", "deliverable": "candidate audit template"},
         ],
         "acceptance_gates": ["review required"],
         "refusal_tests": ["submission remains refused"],
     }
+
+
+def metal_ts_audit_instance() -> dict:
+    instance = {
+        "schema": "gaussian-asymmetric-metal-ts-audit-template/1",
+        "template_id": "metal_audit_fixture",
+        "design_source": {"sha256": "1" * 64},
+        "candidate_source": {"sha256": "2" * 64},
+        "study_id": "study_fixture",
+        "candidate_id": "candidate_fixture",
+        "mechanism_id": "mechanism_fixture",
+        "channel_id": "channel_fixture",
+        "catalyst_state_id": "state_fixture",
+        "status": "blocked_pending_scientific_review",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "submission_decision": "refused",
+        "identity_binding": {
+            "charge": 0,
+            "multiplicity": 1,
+            "atom_count": 2,
+            "atom_order": [
+                {"index": 1, "element": "Pd", "role": "metal_center"},
+                {"index": 2, "element": "P", "role": "ligand_donor"},
+            ],
+            "metal_centers": [
+                {
+                    "atom_index": 1,
+                    "element": "Pd",
+                    "formal_oxidation_state": 0,
+                    "d_electron_count": None,
+                    "coordination_number": 1,
+                    "geometry": "unreviewed",
+                    "review_status": "unreviewed_hypothesis",
+                }
+            ],
+            "coordinate_changes": [
+                {"kind": "forming", "atoms": [1, 2], "description": "fixture coordinate"}
+            ],
+            "coordination_contacts": [
+                {
+                    "donor_atom": 2,
+                    "acceptor_atom": 1,
+                    "kind": "metal_coordination",
+                    "distance_window_angstrom": None,
+                    "review_status": "pending",
+                }
+            ],
+        },
+        "audit_sections": {
+            name: {
+                "status": "blocked_pending_review",
+                "required_evidence": ["review evidence"],
+                "rejection_conditions": ["unresolved"],
+            }
+            for name in (
+                "electron_accounting", "spin_surface", "wavefunction",
+                "coordination", "method_protocol", "ts_and_path",
+            )
+        },
+        "seed_strategy_gate": {
+            "inventory": [
+                {"strategy_id": "strategy_single", "strategy": "single_guess_hessian_guided", "status": "design_candidate_not_selected"},
+                {"strategy_id": "strategy_qst", "strategy": "endpoint_qst2_qst3", "status": "design_candidate_not_selected"},
+                {"strategy_id": "strategy_scan", "strategy": "reviewed_relaxed_coordinate_scan", "status": "design_candidate_not_selected"},
+            ],
+            "selected_strategy_id": None,
+            "selection_status": "not_selected",
+            "selection_required": True,
+        },
+        "hard_rejections": ["no execution"],
+        "claim_ceiling": "design_only_no_ts_or_selectivity_claim",
+    }
+    instance["template_payload_sha256"] = CONTRACT.payload_sha256(instance)
+    return instance
 
 
 def live_smoke_evidence_instance() -> dict:
@@ -284,12 +361,13 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
             "energy-record": energy_instance(),
             "materializations": materializations_instance(),
             "metal-support": metal_support_instance(),
+            "metal-ts-audit-template": metal_ts_audit_instance(),
             "smoke-proposal": load(ROOT / "docs" / "asymmetric-catalysis-smoke-proposal.json"),
             "live-smoke-evidence": live_smoke_evidence_instance(),
             "literature-benchmark": load(ROOT / "studies" / "wang_2024_bf3_ts" / "candidate-ledger.json"),
         }
 
-    def test_all_twelve_schema_documents_use_supported_keywords(self) -> None:
+    def test_all_schema_documents_use_supported_keywords(self) -> None:
         expected = set(CONTRACT.SCHEMA_IDS)
         found = set()
         for path in SCHEMAS.glob("*.schema.json"):
@@ -302,7 +380,7 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(CONTRACT.ContractError, "unsupported keyword"):
             CONTRACT.validate_schema_document(unsupported)
 
-    def test_all_twelve_artifact_types_have_a_structural_entry_point(self) -> None:
+    def test_all_artifact_types_have_a_structural_entry_point(self) -> None:
         instances = self.artifact_instances()
         self.assertEqual(set(instances), set(CONTRACT.SCHEMA_IDS))
         for kind, instance in instances.items():

@@ -27,6 +27,7 @@ SCHEMA_IDS = {
     "energy-record": "gaussian-asymmetric-energy-record/1",
     "materializations": "gaussian-asymmetric-materializations/1",
     "metal-support": "gaussian-asymmetric-metal-support-design/1",
+    "metal-ts-audit-template": "gaussian-asymmetric-metal-ts-audit-template/1",
     "smoke-proposal": "gaussian-asymmetric-smoke-proposal/1",
     "live-smoke-evidence": "gaussian-asymmetric-live-smoke-evidence/1",
     "literature-benchmark": "gaussian-asymmetric-literature-benchmark-ledger/1",
@@ -523,8 +524,9 @@ def validate_metal_support(design: dict[str, Any], study: dict[str, Any] | None 
 
     milestones = unique_index(design.get("extension_milestones", []), "milestone_id", "metal-support.extension_milestones")
     require(milestones.get("metal_m0_offline_design", {}).get("status") == "implemented_offline", "metal-support: offline design milestone is missing")
+    require(milestones.get("metal_m2a_candidate_audit_template", {}).get("status") == "implemented_offline", "metal-support: candidate audit-template milestone is missing")
     for milestone_id, milestone in milestones.items():
-        if milestone_id != "metal_m0_offline_design":
+        if milestone_id not in {"metal_m0_offline_design", "metal_m2a_candidate_audit_template"}:
             require(milestone.get("status") != "implemented_offline", f"metal-support: unsupported milestone {milestone_id} was marked implemented")
     if study is None:
         return
@@ -548,6 +550,112 @@ def validate_metal_support(design: dict[str, Any], study: dict[str, Any] | None 
         if item.get("active_catalyst_state_id") in metal_states
     }
     require(set(families) == metal_mechanisms, "metal-support: metal mechanism TS-search inventory mismatch")
+
+
+def validate_metal_ts_audit_template(
+    template: dict[str, Any],
+    design: dict[str, Any] | None = None,
+    design_path: Path | None = None,
+    candidate: dict[str, Any] | None = None,
+    candidate_path: Path | None = None,
+) -> None:
+    validate_structure(template, "metal-ts-audit-template")
+    expected_payload = payload_sha256(
+        {key: value for key, value in template.items() if key != "template_payload_sha256"}
+    )
+    require(
+        template.get("template_payload_sha256") == expected_payload,
+        "metal TS audit template: payload hash mismatch",
+    )
+    require(template.get("calculation_ready") is False, "metal TS audit template: calculation_ready must remain false")
+    require(template.get("no_submission_authorization") is True, "metal TS audit template: submission authority is forbidden")
+    require(template.get("runtime_support_status") == "unsupported_requires_extension", "metal TS audit template: runtime support must remain blocked")
+    require(template.get("submission_decision") == "refused", "metal TS audit template: submission decision must remain refused")
+    require(template.get("status") == "blocked_pending_scientific_review", "metal TS audit template: scientific review gate was bypassed")
+    require(template.get("claim_ceiling") == "design_only_no_ts_or_selectivity_claim", "metal TS audit template: claim ceiling was widened")
+
+    identity = template.get("identity_binding", {})
+    atom_order = identity.get("atom_order", [])
+    require(
+        [item.get("index") for item in atom_order] == list(range(1, len(atom_order) + 1)),
+        "metal TS audit template: atom order must be contiguous and one-based",
+    )
+    require(identity.get("atom_count") == len(atom_order), "metal TS audit template: atom count differs from atom order")
+    centers = identity.get("metal_centers", [])
+    require(isinstance(centers, list) and centers, "metal TS audit template: metal centers are missing")
+    elements = {item.get("index"): item.get("element") for item in atom_order}
+    for center in centers:
+        require(elements.get(center.get("atom_index")) == center.get("element"), "metal TS audit template: metal-center identity differs from atom order")
+        require(center.get("d_electron_count") is None, "metal TS audit template: d-electron count was inferred")
+        require(center.get("review_status") == "unreviewed_hypothesis", "metal TS audit template: metal-center hypothesis was accepted")
+    for contact in identity.get("coordination_contacts", []):
+        require(contact.get("donor_atom") in elements and contact.get("acceptor_atom") in elements, "metal TS audit template: coordination contact is outside atom order")
+        require(contact.get("distance_window_angstrom") is None, "metal TS audit template: coordination distance window was inferred")
+        require(contact.get("review_status") == "pending", "metal TS audit template: coordination contact was accepted")
+
+    section_names = {
+        "electron_accounting", "spin_surface", "wavefunction",
+        "coordination", "method_protocol", "ts_and_path",
+    }
+    sections = template.get("audit_sections", {})
+    require(set(sections) == section_names, "metal TS audit template: audit-section inventory is incomplete")
+    for section_name, section in sections.items():
+        require(section.get("status") == "blocked_pending_review", f"metal TS audit template: {section_name} review was bypassed")
+        require(section.get("required_evidence"), f"metal TS audit template: {section_name} lacks evidence requirements")
+        require(section.get("rejection_conditions"), f"metal TS audit template: {section_name} lacks rejection conditions")
+
+    gate = template.get("seed_strategy_gate", {})
+    strategies = gate.get("inventory", [])
+    require(
+        {item.get("strategy") for item in strategies}
+        == {"single_guess_hessian_guided", "endpoint_qst2_qst3", "reviewed_relaxed_coordinate_scan"},
+        "metal TS audit template: seed-strategy inventory is incomplete",
+    )
+    require(all(item.get("status") == "design_candidate_not_selected" for item in strategies), "metal TS audit template: a seed strategy was selected")
+    require(gate.get("selected_strategy_id") is None and gate.get("selection_status") == "not_selected", "metal TS audit template: strategy selection was bypassed")
+    require(template.get("hard_rejections"), "metal TS audit template: hard rejections are missing")
+
+    if design is not None:
+        require(design_path is not None, "metal TS audit template: design_path is required with a design")
+        validate_metal_support(design)
+        require(template.get("design_source", {}).get("sha256") == sha256(design_path), "metal TS audit template: design hash mismatch")
+        require(template.get("study_id") == design.get("study_id"), "metal TS audit template: design study ID mismatch")
+        states = {item["state_id"]: item for item in design.get("states", [])}
+        families = {item["mechanism_id"]: item for item in design.get("ts_search_families", [])}
+        require(template.get("catalyst_state_id") in states, "metal TS audit template: unknown design state")
+        family = families.get(template.get("mechanism_id"))
+        require(family is not None and family.get("active_state_id") == template.get("catalyst_state_id"), "metal TS audit template: design mechanism/state mismatch")
+        require(template.get("channel_id") in family.get("channel_ids", []), "metal TS audit template: channel outside design family")
+        require(
+            {(item.get("strategy_id"), item.get("strategy"), item.get("status")) for item in strategies}
+            == {(item.get("strategy_id"), item.get("strategy"), item.get("status")) for item in family.get("seed_strategy_candidates", [])},
+            "metal TS audit template: seed strategies differ from the design",
+        )
+
+    if candidate is not None:
+        require(candidate_path is not None, "metal TS audit template: candidate_path is required with a candidate")
+        validate_structure(candidate, "candidate")
+        require(candidate.get("support_status") == "unsupported_transition_metal", "metal TS audit template: candidate is not an unsupported metal case")
+        require(candidate.get("review_status") != "promoted_offline", "metal TS audit template: unsupported candidate was promoted")
+        require(template.get("candidate_source", {}).get("sha256") == sha256(candidate_path), "metal TS audit template: candidate hash mismatch")
+        for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+            require(template.get(key) == candidate.get(key), f"metal TS audit template: candidate {key} mismatch")
+        expected_order = [
+            {"index": item.get("index"), "element": item.get("element"), "role": item.get("role")}
+            for item in candidate.get("atom_map", [])
+        ]
+        require(atom_order == expected_order, "metal TS audit template: candidate atom order mismatch")
+        require(identity.get("charge") == candidate.get("chemical_state", {}).get("charge"), "metal TS audit template: candidate charge mismatch")
+        require(identity.get("multiplicity") == candidate.get("chemical_state", {}).get("multiplicity"), "metal TS audit template: candidate multiplicity mismatch")
+        expected_contacts = {
+            (item.get("donor_atom"), item.get("acceptor_atom"), item.get("kind"))
+            for item in candidate.get("binding_mode", {}).get("coordination_contacts", [])
+        }
+        actual_contacts = {
+            (item.get("donor_atom"), item.get("acceptor_atom"), item.get("kind"))
+            for item in identity.get("coordination_contacts", [])
+        }
+        require(actual_contacts == expected_contacts, "metal TS audit template: candidate coordination contacts mismatch")
 
 
 def validate_smoke_proposal(
@@ -847,6 +955,7 @@ def main() -> int:
         "energy-record": validate_energy_record,
         "materializations": validate_materializations,
         "metal-support": validate_metal_support,
+        "metal-ts-audit-template": validate_metal_ts_audit_template,
         "smoke-proposal": validate_smoke_proposal,
         "live-smoke-evidence": validate_live_smoke_evidence,
         "literature-benchmark": validate_literature_benchmark,
