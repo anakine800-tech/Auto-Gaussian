@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/candidate.schema.json",
+  "title": "Gaussian asymmetric transition-state offline candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "candidate_id", "study_id", "study_sha256", "comparison_group_id",
+    "mechanism_id", "channel_id", "catalyst_state_id", "protocol_id",
+    "calculation_ready", "no_submission_authorization", "support_status",
+    "review_status", "chemical_state", "candidate_dimensions", "binding_mode",
+    "approach_topology", "conformer_sources", "electronic_state", "atom_inventory",
+    "atom_map", "coordinate_changes", "geometry", "resource_tier_proposal",
+    "deduplication", "coverage_tags", "warnings", "review"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-ts-candidate/1"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "study_sha256": {"$ref": "#/$defs/sha256"},
+    "comparison_group_id": {"$ref": "#/$defs/id"},
+    "mechanism_id": {"$ref": "#/$defs/id"},
+    "channel_id": {"$ref": "#/$defs/id"},
+    "catalyst_state_id": {"$ref": "#/$defs/id"},
+    "protocol_id": {"$ref": "#/$defs/id"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "support_status": {
+      "enum": [
+        "supported_main_group_closed_shell",
+        "unsupported_transition_metal",
+        "unsupported_electronic_structure",
+        "unresolved"
+      ]
+    },
+    "review_status": {"enum": ["proposed", "promoted_offline", "rejected", "superseded"]},
+    "chemical_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "charge", "multiplicity", "component_count", "stereochemistry_status"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 3},
+        "charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "component_count": {"type": "integer", "minimum": 1},
+        "stereochemistry_status": {"enum": ["assigned", "unassigned", "not_applicable"]}
+      }
+    },
+    "candidate_dimensions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "binding_mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "coordination_contacts", "review_notes"],
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "coordination_contacts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/contact"}
+        },
+        "review_notes": {"type": "string", "minLength": 1}
+      }
+    },
+    "approach_topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "substrate_face", "topology_notes"],
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "substrate_face": {"enum": ["re", "si", "pro_r", "pro_s", "not_applicable", "unknown"]},
+        "topology_notes": {"type": "string", "minLength": 1}
+      }
+    },
+    "conformer_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "conformer_id", "source", "prescreen_method", "prescreen_energy", "energy_unit"],
+        "properties": {
+          "role": {"enum": ["catalyst", "substrate", "complex", "ion_pair", "explicit_environment"]},
+          "conformer_id": {"$ref": "#/$defs/id"},
+          "source": {"$ref": "#/$defs/artifact"},
+          "prescreen_method": {"type": "string", "minLength": 1},
+          "prescreen_energy": {"type": ["number", "null"]},
+          "energy_unit": {"enum": ["kcal_mol", "kj_mol", "hartree", "not_available"]}
+        }
+      }
+    },
+    "electronic_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["charge", "multiplicity", "oxidation_state_notes", "spin_state_notes", "broken_symmetry", "multireference_concern"],
+      "properties": {
+        "charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "oxidation_state_notes": {"type": "string"},
+        "spin_state_notes": {"type": "string", "minLength": 1},
+        "broken_symmetry": {"enum": ["not_applicable", "not_requested", "required", "unknown"]},
+        "multireference_concern": {"enum": ["none_identified", "present", "unknown"]}
+      }
+    },
+    "atom_inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formula", "atom_count", "element_counts", "inventory_key"],
+      "properties": {
+        "formula": {"type": "string", "minLength": 1},
+        "atom_count": {"type": "integer", "minimum": 1},
+        "element_counts": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"pattern": "^[A-Z][a-z]?$"},
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        },
+        "inventory_key": {"type": "string", "minLength": 3}
+      }
+    },
+    "atom_map": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "element", "role", "source_atom_id"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 1},
+          "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"},
+          "role": {"type": "string", "minLength": 1},
+          "source_atom_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "coordinate_changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "atoms", "description"],
+        "properties": {
+          "kind": {"enum": ["forming", "breaking", "transferring"]},
+          "atoms": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 3,
+            "items": {"type": "integer", "minimum": 1}
+          },
+          "description": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "artifact", "construction_method", "stereochemistry_reviewed", "clash_reviewed"],
+      "properties": {
+        "format": {"enum": ["gjf_cartesian", "xyz", "mol", "sdf"]},
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "construction_method": {"type": "string", "minLength": 3},
+        "stereochemistry_reviewed": {"type": "boolean"},
+        "clash_reviewed": {"type": "boolean"}
+      }
+    },
+    "resource_tier_proposal": {"enum": ["simple", "general", "complex", "unresolved"]},
+    "deduplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "duplicate_of", "method", "review_notes"],
+      "properties": {
+        "status": {"enum": ["unique", "duplicate", "unresolved"]},
+        "duplicate_of": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "method": {"type": "string", "minLength": 1},
+        "review_notes": {"type": "string"}
+      }
+    },
+    "coverage_tags": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "warnings": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "decision", "decision_record"],
+      "properties": {
+        "reviewer": {"type": ["string", "null"]},
+        "decision": {"enum": ["pending", "promoted_offline", "rejected", "superseded"]},
+        "decision_record": {"anyOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]}
+      }
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["donor_atom", "acceptor_atom", "kind"],
+      "properties": {
+        "donor_atom": {"type": "integer", "minimum": 1},
+        "acceptor_atom": {"type": "integer", "minimum": 1},
+        "kind": {"enum": ["metal_coordination", "boron_coordination", "hydrogen_bond", "ion_pair", "other"]}
+      }
+    }
+  }
+}

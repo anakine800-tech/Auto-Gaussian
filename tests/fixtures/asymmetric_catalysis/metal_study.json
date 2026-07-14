@@ -1,0 +1,182 @@
+{
+  "schema": "gaussian-asymmetric-catalysis-study/1",
+  "study_id": "fixture_metal_selectivity",
+  "status": "draft",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "title": "Synthetic metal-chiral-ligand refusal fixture",
+  "objective": "Exercise explicit metal state fields and preserve the version 1 transition-metal runtime refusal.",
+  "catalyst_class": "metal_chiral_ligand",
+  "selectivity_types": ["enantioselectivity"],
+  "conditions": {
+    "temperature_k": 298.15,
+    "standard_state": "1M",
+    "solvent_model": "unresolved",
+    "concentration_notes": "No research conditions have been approved."
+  },
+  "species": [
+    {
+      "species_id": "metal_precatalyst",
+      "role": "precatalyst",
+      "identity": "synthetic Pd precursor",
+      "formula": "Pd",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 1,
+      "component_count": 1,
+      "stereochemistry": {"status": "not_applicable", "descriptors": [], "review_notes": "Synthetic fixture."},
+      "source": {"path": "synthetic://pd.mol", "sha256": "1414141414141414141414141414141414141414141414141414141414141414"}
+    },
+    {
+      "species_id": "chiral_ligand",
+      "role": "ligand",
+      "identity": "synthetic chiral ligand",
+      "formula": "PH",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 2,
+      "component_count": 1,
+      "stereochemistry": {
+        "status": "assigned",
+        "descriptors": [{"kind": "other", "atom_indices": [2], "label": "fixture_chiral"}],
+        "review_notes": "Synthetic fixture."
+      },
+      "source": {"path": "synthetic://ligand.mol", "sha256": "1515151515151515151515151515151515151515151515151515151515151515"}
+    },
+    {
+      "species_id": "metal_substrate",
+      "role": "substrate",
+      "identity": "synthetic prochiral alkene",
+      "formula": "C2H2",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 4,
+      "component_count": 1,
+      "stereochemistry": {"status": "not_applicable", "descriptors": [], "review_notes": "Prochiral fixture."},
+      "source": {"path": "synthetic://alkene.mol", "sha256": "1616161616161616161616161616161616161616161616161616161616161616"}
+    },
+    {
+      "species_id": "metal_product_r",
+      "role": "product",
+      "identity": "synthetic R metal-catalysis product",
+      "formula": "C2H3",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 5,
+      "component_count": 1,
+      "stereochemistry": {"status": "assigned", "descriptors": [{"kind": "tetrahedral", "atom_indices": [1], "label": "R"}], "review_notes": "Synthetic fixture."},
+      "source": {"path": "synthetic://metal_product_r.mol", "sha256": "1717171717171717171717171717171717171717171717171717171717171717"}
+    },
+    {
+      "species_id": "metal_product_s",
+      "role": "product",
+      "identity": "synthetic S metal-catalysis product",
+      "formula": "C2H3",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 5,
+      "component_count": 1,
+      "stereochemistry": {"status": "assigned", "descriptors": [{"kind": "tetrahedral", "atom_indices": [1], "label": "S"}], "review_notes": "Synthetic fixture."},
+      "source": {"path": "synthetic://metal_product_s.mol", "sha256": "1818181818181818181818181818181818181818181818181818181818181818"}
+    }
+  ],
+  "catalyst_states": [
+    {
+      "state_id": "pd_ligand_state",
+      "catalyst_class": "metal_chiral_ligand",
+      "identity": "synthetic mononuclear Pd-ligand state",
+      "structure": {"path": "synthetic://pd_ligand_state.xyz", "sha256": "1919191919191919191919191919191919191919191919191919191919191919"},
+      "composition": [{"species_id": "metal_precatalyst", "count": 1}, {"species_id": "chiral_ligand", "count": 1}],
+      "total_charge": 0,
+      "multiplicity": 1,
+      "nuclearity": 1,
+      "metal_centers": [
+        {
+          "atom_index": 1,
+          "element": "Pd",
+          "oxidation_state": 0,
+          "coordination_number": 2,
+          "geometry": "synthetic linear hypothesis",
+          "spin_hypothesis": "singlet hypothesis",
+          "assignment_basis": "Synthetic fixture only; not reviewed for chemistry."
+        }
+      ],
+      "boron_centers": [],
+      "ligand_and_binding_notes": "One synthetic monodentate chiral ligand; labile sites unresolved.",
+      "state_role": "on_cycle_intermediate",
+      "support_status": "unsupported_transition_metal",
+      "inclusion_rationale": "Exercises explicit metal fields and mandatory refusal."
+    }
+  ],
+  "mechanism_hypotheses": [
+    {
+      "mechanism_id": "metal_insertion_step",
+      "name": "Synthetic metal-mediated insertion",
+      "active_catalyst_state_id": "pd_ligand_state",
+      "reactant_species_ids": ["metal_precatalyst", "chiral_ligand", "metal_substrate"],
+      "product_species_ids": ["metal_product_r", "metal_product_s"],
+      "channel_ids": ["metal_channel_r", "metal_channel_s"],
+      "coordinate_changes": [{"kind": "forming", "atoms": [1, 4], "description": "Synthetic metal-carbon contact change."}],
+      "selectivity_determining_step": true,
+      "turnover_limiting_step_claim": "unknown",
+      "reversibility": "unknown",
+      "status": "unresolved",
+      "evidence_and_assumptions": "No research mechanism has been approved."
+    }
+  ],
+  "channels": [
+    {"channel_id": "metal_channel_r", "product_species_id": "metal_product_r", "outcome_label": "R product channel", "stereochemical_descriptors": ["R"], "substrate_face": "re", "regio_label": "same_regioisomer"},
+    {"channel_id": "metal_channel_s", "product_species_id": "metal_product_s", "outcome_label": "S product channel", "stereochemical_descriptors": ["S"], "substrate_face": "si", "regio_label": "same_regioisomer"}
+  ],
+  "protocol_sets": [
+    {
+      "protocol_id": "metal_protocol_pending",
+      "resolution_status": "pending",
+      "routes": {"ts_optimization": null, "frequency": null, "irc_forward": null, "irc_reverse": null, "endpoint_opt_freq": null, "single_point": null},
+      "method": null,
+      "basis_and_ecp": [],
+      "dispersion": null,
+      "solvent": null,
+      "grid": null,
+      "scf": null,
+      "relativistic_treatment": null,
+      "low_frequency_policy": null,
+      "temperature_k": 298.15,
+      "standard_state": "1M",
+      "resource_tier": "unresolved",
+      "expected_stage_counts": {},
+      "review_notes": "All electronic-structure choices are unresolved."
+    }
+  ],
+  "comparison_groups": [
+    {
+      "comparison_group_id": "metal_face_pair",
+      "mechanism_id": "metal_insertion_step",
+      "channel_ids": ["metal_channel_r", "metal_channel_s"],
+      "protocol_id": "metal_protocol_pending",
+      "reference_state": {
+        "definition": "Unresolved common metal-ligand-substrate reference",
+        "species_inventory": [{"species_id": "metal_precatalyst", "count": 1}, {"species_id": "chiral_ligand", "count": 1}, {"species_id": "metal_substrate", "count": 1}],
+        "energy_formula": "Unresolved pending scientific review",
+        "balanced_cycle_required": false
+      },
+      "aggregation_model": "boltzmann_ts_ensemble",
+      "required_validation_level": "path_validated",
+      "coverage_dimension_ids": ["metal_coordination", "metal_spin_state", "metal_approach_face"]
+    }
+  ],
+  "coverage_dimensions": [
+    {"dimension_id": "metal_coordination", "name": "Metal coordination state", "applicable": true, "expected_levels": ["pd_ligand_state"], "review_rule": "Additional ligand, counterion, and substrate-bound states remain unresolved."},
+    {"dimension_id": "metal_spin_state", "name": "Metal spin state", "applicable": true, "expected_levels": ["singlet_hypothesis"], "review_rule": "Alternative states require scientific review."},
+    {"dimension_id": "metal_approach_face", "name": "Substrate face", "applicable": true, "expected_levels": ["re", "si"], "review_rule": "Both product channels must be represented after metal support exists."}
+  ],
+  "unresolved_questions": ["Transition-metal scientific support is absent.", "Method, basis/ECP, solvent, spin alternatives, and reference state are unresolved."],
+  "gates": [
+    {"gate_id": "g0", "name": "Offline chemical-space review", "status": "pending", "reviewer": null, "decision_record": null},
+    {"gate_id": "g1", "name": "Candidate promotion", "status": "pending", "reviewer": null, "decision_record": null},
+    {"gate_id": "g2", "name": "Live job approval", "status": "pending", "reviewer": null, "decision_record": null},
+    {"gate_id": "g3", "name": "Mode review", "status": "pending", "reviewer": null, "decision_record": null},
+    {"gate_id": "g4", "name": "Path review", "status": "pending", "reviewer": null, "decision_record": null},
+    {"gate_id": "g5", "name": "Aggregation review", "status": "pending", "reviewer": null, "decision_record": null}
+  ]
+}

@@ -1,0 +1,232 @@
+{
+  "schema": "gaussian-asymmetric-catalysis-study/1",
+  "study_id": "fixture_boron_selectivity",
+  "status": "reviewed_offline",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "title": "Synthetic chiral-boron two-channel contract fixture",
+  "objective": "Exercise offline active-state, channel, coverage, and ensemble contracts without defining a research protocol.",
+  "catalyst_class": "chiral_boron",
+  "selectivity_types": ["enantioselectivity"],
+  "conditions": {
+    "temperature_k": 298.15,
+    "standard_state": "1M",
+    "solvent_model": "synthetic_fixture_solvent",
+    "concentration_notes": "Fixture-only common 1 M reference; not a scientific recommendation."
+  },
+  "species": [
+    {
+      "species_id": "boron_catalyst",
+      "role": "catalyst",
+      "identity": "synthetic chiral three-coordinate boron Lewis acid",
+      "formula": "BCH",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 3,
+      "component_count": 1,
+      "stereochemistry": {
+        "status": "assigned",
+        "descriptors": [{"kind": "relative", "atom_indices": [2], "label": "fixture_chiral"}],
+        "review_notes": "Synthetic fixture descriptor."
+      },
+      "source": {"path": "synthetic://boron_catalyst.mol", "sha256": "1111111111111111111111111111111111111111111111111111111111111111"}
+    },
+    {
+      "species_id": "carbonyl_substrate",
+      "role": "substrate",
+      "identity": "synthetic prochiral carbonyl substrate",
+      "formula": "CO",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 2,
+      "component_count": 1,
+      "stereochemistry": {"status": "not_applicable", "descriptors": [], "review_notes": "Prochiral fixture."},
+      "source": {"path": "synthetic://carbonyl.mol", "sha256": "2222222222222222222222222222222222222222222222222222222222222222"}
+    },
+    {
+      "species_id": "carbon_nucleophile",
+      "role": "reagent",
+      "identity": "synthetic carbon nucleophile",
+      "formula": "CH",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 2,
+      "component_count": 1,
+      "stereochemistry": {"status": "not_applicable", "descriptors": [], "review_notes": "Achiral fixture."},
+      "source": {"path": "synthetic://nucleophile.mol", "sha256": "3333333333333333333333333333333333333333333333333333333333333333"}
+    },
+    {
+      "species_id": "product_r",
+      "role": "product",
+      "identity": "synthetic R product",
+      "formula": "C2OH",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 4,
+      "component_count": 1,
+      "stereochemistry": {
+        "status": "assigned",
+        "descriptors": [{"kind": "tetrahedral", "atom_indices": [2], "label": "R"}],
+        "review_notes": "Synthetic fixture."
+      },
+      "source": {"path": "synthetic://product_r.mol", "sha256": "4444444444444444444444444444444444444444444444444444444444444444"}
+    },
+    {
+      "species_id": "product_s",
+      "role": "product",
+      "identity": "synthetic S product",
+      "formula": "C2OH",
+      "charge": 0,
+      "multiplicity": 1,
+      "atom_count": 4,
+      "component_count": 1,
+      "stereochemistry": {
+        "status": "assigned",
+        "descriptors": [{"kind": "tetrahedral", "atom_indices": [2], "label": "S"}],
+        "review_notes": "Synthetic fixture."
+      },
+      "source": {"path": "synthetic://product_s.mol", "sha256": "5555555555555555555555555555555555555555555555555555555555555555"}
+    }
+  ],
+  "catalyst_states": [
+    {
+      "state_id": "boron_free_state",
+      "catalyst_class": "chiral_boron",
+      "identity": "synthetic free three-coordinate chiral boron state",
+      "structure": {"path": "synthetic://boron_free_state.xyz", "sha256": "6666666666666666666666666666666666666666666666666666666666666666"},
+      "composition": [{"species_id": "boron_catalyst", "count": 1}],
+      "total_charge": 0,
+      "multiplicity": 1,
+      "nuclearity": 1,
+      "metal_centers": [],
+      "boron_centers": [
+        {
+          "atom_index": 1,
+          "coordination_number": 3,
+          "geometry": "trigonal_planar",
+          "activation_state": "lewis_acid",
+          "binding_sites": ["carbonyl_oxygen_site"],
+          "equivalence_class": "b_site_a"
+        }
+      ],
+      "ligand_and_binding_notes": "One reviewed synthetic boron site; substrate binding is represented in candidates.",
+      "state_role": "on_cycle_intermediate",
+      "support_status": "supported_main_group_closed_shell",
+      "inclusion_rationale": "Exercises the chiral-boron state contract."
+    }
+  ],
+  "mechanism_hypotheses": [
+    {
+      "mechanism_id": "boron_c_c_formation",
+      "name": "Synthetic boron-activated carbon-carbon bond formation",
+      "active_catalyst_state_id": "boron_free_state",
+      "reactant_species_ids": ["boron_catalyst", "carbonyl_substrate", "carbon_nucleophile"],
+      "product_species_ids": ["product_r", "product_s"],
+      "channel_ids": ["channel_r", "channel_s"],
+      "coordinate_changes": [{"kind": "forming", "atoms": [3, 4], "description": "Synthetic forming C-C pair in candidate atom order."}],
+      "selectivity_determining_step": true,
+      "turnover_limiting_step_claim": "unknown",
+      "reversibility": "unknown",
+      "status": "included",
+      "evidence_and_assumptions": "Fixture assumption used only to exercise the offline contract."
+    }
+  ],
+  "channels": [
+    {
+      "channel_id": "channel_r",
+      "product_species_id": "product_r",
+      "outcome_label": "R product channel",
+      "stereochemical_descriptors": ["new center R"],
+      "substrate_face": "re",
+      "regio_label": "same_regioisomer"
+    },
+    {
+      "channel_id": "channel_s",
+      "product_species_id": "product_s",
+      "outcome_label": "S product channel",
+      "stereochemical_descriptors": ["new center S"],
+      "substrate_face": "si",
+      "regio_label": "same_regioisomer"
+    }
+  ],
+  "protocol_sets": [
+    {
+      "protocol_id": "fixture_boron_protocol",
+      "resolution_status": "reviewed",
+      "routes": {
+        "ts_optimization": "#p fixture_ts_optimization",
+        "frequency": "#p fixture_frequency",
+        "irc_forward": null,
+        "irc_reverse": null,
+        "endpoint_opt_freq": null,
+        "single_point": "#p fixture_single_point"
+      },
+      "method": "fixture_only_method",
+      "basis_and_ecp": ["fixture basis for B,C,O,H"],
+      "dispersion": "fixture_only",
+      "solvent": "fixture_only",
+      "grid": "fixture_only",
+      "scf": "fixture_only",
+      "relativistic_treatment": "not_applicable_for_fixture",
+      "low_frequency_policy": "raw harmonic fixture values; no correction",
+      "temperature_k": 298.15,
+      "standard_state": "1M",
+      "resource_tier": "simple",
+      "expected_stage_counts": {"ts_frequency": 2, "single_point": 1},
+      "review_notes": "Syntactically explicit but deliberately non-runnable fixture protocol."
+    }
+  ],
+  "comparison_groups": [
+    {
+      "comparison_group_id": "boron_face_pair",
+      "mechanism_id": "boron_c_c_formation",
+      "channel_ids": ["channel_r", "channel_s"],
+      "protocol_id": "fixture_boron_protocol",
+      "reference_state": {
+        "definition": "Common synthetic catalyst plus substrate plus nucleophile inventory",
+        "species_inventory": [
+          {"species_id": "boron_catalyst", "count": 1},
+          {"species_id": "carbonyl_substrate", "count": 1},
+          {"species_id": "carbon_nucleophile", "count": 1}
+        ],
+        "energy_formula": "fixture comparison_free_energy relative to one common zero",
+        "balanced_cycle_required": false
+      },
+      "aggregation_model": "boltzmann_ts_ensemble",
+      "required_validation_level": "mode_reviewed",
+      "coverage_dimension_ids": ["binding_mode", "catalyst_conformer", "approach_face"]
+    }
+  ],
+  "coverage_dimensions": [
+    {
+      "dimension_id": "binding_mode",
+      "name": "Boron-substrate binding mode",
+      "applicable": true,
+      "expected_levels": ["mono_o_at_b_site_a"],
+      "review_rule": "Both stereochemical channels use the same reviewed monodentate O binding mode."
+    },
+    {
+      "dimension_id": "catalyst_conformer",
+      "name": "Catalyst conformer",
+      "applicable": true,
+      "expected_levels": ["cat_conf_a"],
+      "review_rule": "Fixture contains one synthetic catalyst conformer."
+    },
+    {
+      "dimension_id": "approach_face",
+      "name": "Substrate face",
+      "applicable": true,
+      "expected_levels": ["re", "si"],
+      "review_rule": "Both enantiomeric product channels must be represented."
+    }
+  ],
+  "unresolved_questions": ["Path validation is deliberately absent from this synthetic mode-reviewed fixture."],
+  "gates": [
+    {"gate_id": "g0", "name": "Offline chemical-space review", "status": "accepted", "reviewer": "fixture", "decision_record": {"path": "synthetic://g0.json", "sha256": "7777777777777777777777777777777777777777777777777777777777777777"}},
+    {"gate_id": "g1", "name": "Candidate promotion", "status": "pending", "reviewer": null, "decision_record": null},
+    {"gate_id": "g2", "name": "Live job approval", "status": "pending", "reviewer": null, "decision_record": null},
+    {"gate_id": "g3", "name": "Mode review", "status": "pending", "reviewer": null, "decision_record": null},
+    {"gate_id": "g4", "name": "Path review", "status": "not_applicable", "reviewer": "fixture", "decision_record": null},
+    {"gate_id": "g5", "name": "Aggregation review", "status": "pending", "reviewer": null, "decision_record": null}
+  ]
+}

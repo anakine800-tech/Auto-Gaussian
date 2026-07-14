@@ -1,0 +1,237 @@
+{
+  "schema": "gaussian-asymmetric-real-offline-forward-study/1",
+  "case_id": "wang2024_cat2_alpha_alkylation",
+  "status": "reviewed_offline_blocked",
+  "formal_contract_status": "not_emitted_because_required_science_is_unresolved",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "purpose": "Forward-test the asymmetric-catalysis workflow on a real chiral-bisborane reaction while preserving every unresolved scientific gate.",
+  "citation": {
+    "title": "Borane-Catalyzed Enantioselective alpha-Alkylation of Unactivated 2-Alkylbenzoxazoles with Electron-Deficient Olefins",
+    "authors": ["Chong-Ren Ai", "Lu Liu", "Xiao-Chen Wang"],
+    "journal": "Journal of the American Chemical Society",
+    "year": 2024,
+    "doi": "10.1021/jacs.4c09067",
+    "article_url": "https://pubs.acs.org/doi/10.1021/jacs.4c09067",
+    "supporting_information_doi": "10.1021/jacs.4c09067.s001",
+    "supporting_information_url": "https://acs.figshare.com/articles/journal_contribution/Borane-Catalyzed_Enantioselective_Alkylation_of_Unactivated_2_Alkylbenzoxazoles_with_Electron-Deficient_Olefins/26791191",
+    "supporting_information_sha256": "e81d7b62a850e9db86f634112098c597d08b9e1e06fed1544d376f404047569b",
+    "supporting_information_storage": "hash_record_only_pdf_not_stored_in_repository"
+  },
+  "evidence_scope": {
+    "article_abstract": "Establishes chiral-bisborane-catalyzed enantioselective alpha-alkylation of unactivated 2-alkylbenzoxazoles with electron-deficient olefins.",
+    "si_s22_s23": "Establishes in situ CAT2 generation, reaction quantities and temperatures, the 1a plus 2b to 4a reaction drawing, and the substrate-scope procedure.",
+    "si_s23": "Reports tert-butyl (S)-4-(benzo[d]oxazol-2-yl)pentanoate (4a), 86 percent isolated yield and 92 percent ee.",
+    "si_s66": "Reports a nonlinear relationship series between CAT2 ee and product 4a ee; it does not by itself identify one active aggregation state.",
+    "si_s67_s78_and_coordinates": "Reports BF3 and B(C6F5)3 mechanistic calculations, not a CAT2 enantioselectivity ensemble.",
+    "independent_structure_reconstruction": false
+  },
+  "experimental_case": {
+    "substrate": {
+      "source_label": "1a",
+      "identity": "2-ethylbenzoxazole",
+      "formula": "C9H9NO",
+      "machine_readable_structure": null,
+      "atom_map": null
+    },
+    "electrophile": {
+      "source_label": "2b",
+      "identity": "tert-butyl acrylate",
+      "formula": "C7H12O2",
+      "machine_readable_structure": null,
+      "atom_map": null
+    },
+    "product": {
+      "source_label": "4a",
+      "source_assigned_identity": "tert-butyl (S)-4-(benzo[d]oxazol-2-yl)pentanoate",
+      "source_assigned_configuration": "S",
+      "assignment_status": "accepted_as_literature_label_not_independently_reconstructed",
+      "isolated_yield_percent": 86,
+      "ee_percent": 92,
+      "machine_readable_structure": null,
+      "atom_map": null
+    },
+    "catalyst_generation": {
+      "catalyst_label": "CAT2",
+      "precursors": [
+        {"identity": "HB(C6F5)2", "amount_mmol": 0.02, "loading_mol_percent": 10},
+        {"identity": "chiral diene L2", "amount_mmol": 0.01, "loading_mol_percent": 5}
+      ],
+      "solvent": "dry toluene",
+      "solvent_volume_ml": 0.5,
+      "generation_temperature_c": 40,
+      "generation_time_min": 15,
+      "reported_cat2_loading_mol_percent": 5,
+      "complete_active_state_identity": null
+    },
+    "reaction_conditions": {
+      "substrate_amount_mmol": 0.2,
+      "substrate_equivalents": 1.0,
+      "bartons_base_amount_mmol": 0.04,
+      "bartons_base_mol_percent": 20,
+      "electrophile_amount_mmol": 0.28,
+      "electrophile_equivalents": 1.4,
+      "reaction_temperature_c": -10,
+      "reaction_temperature_k": 263.15,
+      "reaction_time_h": 27,
+      "atmosphere": "nitrogen-filled glovebox"
+    }
+  },
+  "active_catalyst_state_hypothesis": {
+    "state_id": "cat2_in_situ_identity_incomplete",
+    "identity_claim": "The SI reports in situ generation of CAT2 from HB(C6F5)2 and L2; this record does not equate the isolated CAT2-pyridine adduct with the catalytic active state.",
+    "status": "unresolved_not_a_formal_catalyst_state",
+    "structure": null,
+    "atom_inventory": null,
+    "charge": null,
+    "multiplicity": null,
+    "aggregation_state": null,
+    "coordination_state": null,
+    "substrate_binding": null,
+    "base_binding": null,
+    "counterion_or_ion_pair": null,
+    "boron_centers": [
+      {"center_id": "cat2_boron_a_unmapped", "atom_index": null, "equivalence_assumed": false},
+      {"center_id": "cat2_boron_b_unmapped", "atom_index": null, "equivalence_assumed": false}
+    ]
+  },
+  "mechanism_hypothesis": {
+    "hypothesis_id": "cat2_extension_of_published_achiral_submodel",
+    "status": "unresolved_review_hypothesis_only",
+    "description": "Test whether the published achiral BF3 or B(C6F5)3 proton-transfer and C-C-forming sequence is relevant to CAT2 without assuming that it controls enantioselectivity.",
+    "selectivity_determining_step": null,
+    "turnover_limiting_step": null,
+    "reversibility": null,
+    "common_reference_basin": null,
+    "competing_mechanisms_complete": false,
+    "transfer_from_bf3_or_bcf_to_cat2_established": false
+  },
+  "stereochemical_channels": [
+    {
+      "channel_id": "channel_si_assigned_s_4a",
+      "status": "literature_product_label_only",
+      "product_label": "4a",
+      "configuration": "S",
+      "substrate_face": null,
+      "candidate_atom_map": null,
+      "endpoint_mapping": null
+    },
+    {
+      "channel_id": "channel_counterfactual_r_4a",
+      "status": "required_comparison_hypothesis_not_source_observation",
+      "product_label": "enantiomer_of_4a",
+      "configuration": "R",
+      "substrate_face": null,
+      "candidate_atom_map": null,
+      "endpoint_mapping": null
+    }
+  ],
+  "candidate_space_review": {
+    "ready_for_enumeration": false,
+    "cartesian_product_generated": false,
+    "deduplication_performed": false,
+    "dimensions": [
+      {
+        "dimension_id": "active_catalyst_state",
+        "status": "blocked",
+        "review_levels": ["cat2_in_situ_identity_incomplete"],
+        "blocker": "The reported catalyst label is not a complete atom-inventory, coordination, aggregation, charge and multiplicity definition."
+      },
+      {
+        "dimension_id": "boron_center",
+        "status": "review_required",
+        "review_levels": ["cat2_boron_a_unmapped", "cat2_boron_b_unmapped"],
+        "blocker": "The two boron centers have no reviewed atom indices or equivalence mapping; they must not be collapsed."
+      },
+      {
+        "dimension_id": "boron_coordination_state",
+        "status": "blocked",
+        "review_levels": [],
+        "blocker": "Free, substrate-bound, base-bound and other coordination states have not been assigned for CAT2."
+      },
+      {
+        "dimension_id": "binding_mode",
+        "status": "blocked",
+        "review_levels": [],
+        "blocker": "No reviewed CAT2-substrate binding-mode inventory or donor-to-boron atom mapping is available."
+      },
+      {
+        "dimension_id": "catalyst_conformer",
+        "status": "blocked",
+        "review_levels": [],
+        "blocker": "No stereochemistry-preserving CAT2 conformer ensemble has been generated or reviewed."
+      },
+      {
+        "dimension_id": "approach_topology",
+        "status": "blocked",
+        "review_levels": ["targets_s_4a_without_face_map", "targets_r_4a_without_face_map"],
+        "blocker": "Product-channel targets exist, but re/si or pro-R/pro-S mappings and Cartesian approaches do not."
+      },
+      {
+        "dimension_id": "mechanistic_stage",
+        "status": "submodel_only",
+        "review_levels": ["proton_transfer_like_bf3_ts1", "c_c_formation_like_bf3_ts2"],
+        "blocker": "The stages are supported only for the published achiral mechanistic models and are not established as the CAT2 selectivity-determining family."
+      },
+      {
+        "dimension_id": "base_additive_placement",
+        "status": "blocked",
+        "review_levels": [],
+        "blocker": "Barton's base is experimentally present, but its placement in a CAT2 TS candidate has not been reviewed."
+      }
+    ]
+  },
+  "published_bf3_mechanistic_submodel": {
+    "artifact": {
+      "path": "../wang_2024_bf3_ts/candidate-ledger.json",
+      "sha256": "1d1c1530965cfb999433548866822bc300236b874ed9ce1bded627f36a491d94"
+    },
+    "candidate_ids": ["wang2024_bf3_ts1", "wang2024_bf3_ts2_b1", "wang2024_bf3_ts2_b2"],
+    "role": "achiral_mechanistic_submodel_only",
+    "is_cat2_geometry": false,
+    "is_ee_ensemble": false,
+    "can_supply_cat2_atom_map": false,
+    "can_authorize_candidate_promotion": false
+  },
+  "comparison_protocol": {
+    "approved": false,
+    "optimization_and_frequency_route": null,
+    "single_point_route": null,
+    "method": null,
+    "basis_and_ecp": null,
+    "solvent_model": null,
+    "temperature_k": null,
+    "standard_state": null,
+    "low_frequency_policy": null,
+    "reference_energy_definition": null,
+    "aggregation_model": null,
+    "note": "The published BF3 or B(C6F5)3 protocol is literature evidence, not an approved CAT2 protocol."
+  },
+  "materialization": {
+    "candidate_count": 0,
+    "candidate_xyz": null,
+    "complete_atom_maps": null,
+    "stereochemistry_reviews": null,
+    "clash_reviews": null,
+    "promotion_allowed": false,
+    "smoke_allowed": false
+  },
+  "gates": [
+    {"gate_id": "literature_identity", "status": "accepted_offline", "scope": "citation, reaction labels, conditions, source-assigned 4a configuration, yield and ee"},
+    {"gate_id": "active_state", "status": "blocked", "scope": "complete CAT2 identity, atom inventory, aggregation, coordination, charge and multiplicity"},
+    {"gate_id": "mechanism", "status": "blocked", "scope": "CAT2 mechanism alternatives and selectivity-determining step"},
+    {"gate_id": "channel_mapping", "status": "blocked", "scope": "reviewed product structures, atom maps and face-to-configuration mapping"},
+    {"gate_id": "candidate_coverage", "status": "blocked", "scope": "binding modes, conformers, approaches, boron states and additive placements"},
+    {"gate_id": "comparison_protocol", "status": "blocked", "scope": "method, routes, solvent, thermochemistry, reference and aggregation model"},
+    {"gate_id": "candidate_promotion", "status": "refused", "scope": "no materialized candidate exists"},
+    {"gate_id": "live_smoke", "status": "refused", "scope": "this case is not a literature smoke ledger and has no runnable input"}
+  ],
+  "required_next_evidence": [
+    "Reviewed machine-readable structures for 1a, 2b, both product channels, CAT2 and every explicit component.",
+    "A complete active-state matrix with charge, multiplicity, atom inventory, aggregation, coordination, substrate/base binding and both boron centers mapped.",
+    "Stereochemistry-preserving Cartesian conformers and complete one-based atom maps for every promoted candidate.",
+    "An explicit CAT2 mechanism and selectivity-determining-step review that does not promote the achiral BF3 submodel by analogy.",
+    "A reviewed common reference basin, comparison protocol, thermochemistry policy and aggregation model.",
+    "Independent stereochemical and clash review before any candidate can be promoted."
+  ]
+}

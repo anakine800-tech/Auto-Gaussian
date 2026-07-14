@@ -1,0 +1,61 @@
+{
+  "schema": "gaussian-asymmetric-ts-result/1",
+  "result_id": "boron_result_s_a",
+  "candidate_id": "boron_ts_s_conf_a",
+  "candidate_sha256": "fd9e7e3300fa4f2a0c28ad9c72a1ba61ac3a6fc24dc723f135cd04afa9e62b02",
+  "study_id": "fixture_boron_selectivity",
+  "comparison_group_id": "boron_face_pair",
+  "channel_id": "channel_s",
+  "protocol_id": "fixture_boron_protocol",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "validation_level": "mode_reviewed",
+  "artifacts": {
+    "input": {"path": "synthetic://boron_s.gjf", "sha256": "6060606060606060606060606060606060606060606060606060606060606060"},
+    "log": {"path": "synthetic://boron_s.log", "sha256": "7070707070707070707070707070707070707070707070707070707070707070"},
+    "checkpoint": null,
+    "parsed_ts_result": {"path": "synthetic://boron_s_ts.json", "sha256": "8080808080808080808080808080808080808080808080808080808080808080"},
+    "mode_review": {"path": "synthetic://boron_s_mode.json", "sha256": "9090909090909090909090909090909090909090909090909090909090909090"},
+    "mode_decision": {"path": "synthetic://boron_s_decision.json", "sha256": "1212121212121212121212121212121212121212121212121212121212121212"},
+    "checkpoint_audit": null,
+    "irc_plan": null,
+    "forward_path": null,
+    "reverse_path": null
+  },
+  "termination": {
+    "normal_termination": true,
+    "error_termination": false,
+    "stationary_point": true,
+    "frequency_complete": true
+  },
+  "frequency_evidence": {
+    "frequencies_cm1": [-280.0, 95.0, 210.0],
+    "raw_imaginary_frequency_count": 1,
+    "reviewed_imaginary_frequency_cm1": -280.0
+  },
+  "mode_evidence": {
+    "decision": "accepted",
+    "coordinate_projection_reviewed": true,
+    "review_notes": "Synthetic forming-bond mode accepted for fixture testing only."
+  },
+  "path_evidence": {
+    "forward": "not_run",
+    "reverse": "not_run",
+    "endpoint_identity_reviewed": false,
+    "review_notes": "Path validation intentionally omitted; analysis must remain provisional."
+  },
+  "energies": {
+    "energy_unit": "kcal_mol",
+    "electronic_energy": -99.998,
+    "thermal_gibbs_correction": 10.2,
+    "comparison_free_energy": 11.5,
+    "comparison_energy_definition": "Synthetic fixture free energy relative to the common comparison zero.",
+    "temperature_k": 298.15,
+    "standard_state": "1M",
+    "low_frequency_policy": "raw harmonic fixture values; no correction",
+    "inventory_key": "fixture_c2h2bo_neutral_singlet",
+    "degeneracy": 1
+  },
+  "comparison_eligibility": {"eligible": true, "reasons": ["Mode-reviewed synthetic fixture with a common protocol and inventory."]},
+  "diagnostics": ["Synthetic data; not a Gaussian result and not scientific evidence."]
+}

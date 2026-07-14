@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/literature-benchmark.schema.json",
+  "title": "Hash-bound offline literature transition-state benchmark ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "ledger_id", "status", "calculation_ready",
+    "no_submission_authorization", "source_spec", "citation",
+    "reported_protocol", "unresolved_submission_fields", "candidates",
+    "deferred_benchmarks", "workflow_order", "ledger_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-literature-benchmark-ledger/1"},
+    "ledger_id": {"$ref": "#/$defs/id"},
+    "status": {"const": "offline_literature_reference"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "source_spec": {"$ref": "#/$defs/artifact"},
+    "citation": {"$ref": "#/$defs/citation"},
+    "reported_protocol": {"$ref": "#/$defs/reportedProtocol"},
+    "unresolved_submission_fields": {
+      "type": "array", "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "candidates": {
+      "type": "array", "minItems": 1,
+      "items": {"$ref": "#/$defs/candidate"}
+    },
+    "deferred_benchmarks": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/deferredBenchmark"}
+    },
+    "workflow_order": {
+      "type": "array", "minItems": 1,
+      "items": {"type": "object"}
+    },
+    "ledger_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "citation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title", "doi", "article_url", "supporting_information_url"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "doi": {"const": "10.1021/jacs.4c09067"},
+        "article_url": {"type": "string", "format": "uri"},
+        "supporting_information_url": {"type": "string", "format": "uri"}
+      }
+    },
+    "reportedProtocol": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "status", "program", "optimization_and_frequency", "single_point",
+        "temperature_k", "irc_statement", "solvent_identity", "route_keywords",
+        "standard_state", "low_frequency_policy",
+        "candidate_specific_irc_endpoint_identities"
+      ],
+      "properties": {
+        "status": {"const": "literature_record_not_approved_protocol"},
+        "program": {"type": "string"},
+        "optimization_and_frequency": {"type": "string"},
+        "single_point": {"type": "string"},
+        "temperature_k": {"type": "number", "exclusiveMinimum": 0},
+        "irc_statement": {"type": "string"},
+        "solvent_identity": {"type": ["string", "null"]},
+        "route_keywords": {"type": ["string", "null"]},
+        "standard_state": {"type": ["string", "null"]},
+        "low_frequency_policy": {"type": ["string", "null"]},
+        "candidate_specific_irc_endpoint_identities": {"type": ["object", "null"]}
+      }
+    },
+    "candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "candidate_id", "literature_label", "priority", "stage", "identity",
+        "geometry", "atom_inventory", "electronic_state", "coordinate_changes",
+        "expected_result", "calculation_ready", "no_submission_authorization",
+        "review_status", "gates"
+      ],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "literature_label": {"type": "string", "minLength": 1},
+        "priority": {"type": "integer", "minimum": 1},
+        "stage": {"type": "string", "minLength": 1},
+        "identity": {"type": "object"},
+        "geometry": {"$ref": "#/$defs/geometry"},
+        "atom_inventory": {"$ref": "#/$defs/atomInventory"},
+        "electronic_state": {"$ref": "#/$defs/electronicState"},
+        "coordinate_changes": {
+          "type": "array", "minItems": 1,
+          "items": {"$ref": "#/$defs/coordinateChange"}
+        },
+        "expected_result": {"$ref": "#/$defs/expectedResult"},
+        "calculation_ready": {"const": false},
+        "no_submission_authorization": {"const": true},
+        "review_status": {"const": "literature_coordinates_verified_offline"},
+        "gates": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "geometry": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "format", "artifact", "canonical_coordinate_block_sha256",
+        "geometry_fingerprint", "source_pages", "extraction_review"
+      ],
+      "properties": {
+        "format": {"const": "xyz"},
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "canonical_coordinate_block_sha256": {"$ref": "#/$defs/sha256"},
+        "geometry_fingerprint": {
+          "type": "object", "additionalProperties": false,
+          "required": ["method", "sha256"],
+          "properties": {
+            "method": {"const": "ordered_atom_pair_distance_matrix_v1"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "source_pages": {"type": "object"},
+        "extraction_review": {"type": "string", "minLength": 1}
+      }
+    },
+    "atomInventory": {
+      "type": "object", "additionalProperties": false,
+      "required": ["formula", "atom_count", "element_counts", "atom_order"],
+      "properties": {
+        "formula": {"type": "string", "minLength": 1},
+        "atom_count": {"type": "integer", "minimum": 1},
+        "element_counts": {
+          "type": "object", "minProperties": 1,
+          "propertyNames": {"pattern": "^[A-Z][a-z]?$"},
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        },
+        "atom_order": {
+          "type": "array", "minItems": 1,
+          "items": {"type": "string", "pattern": "^[A-Z][a-z]?$"}
+        }
+      }
+    },
+    "electronicState": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "source_reported_charge", "source_reported_multiplicity",
+        "proposed_charge", "proposed_multiplicity", "proposal_basis", "review_status"
+      ],
+      "properties": {
+        "source_reported_charge": {"type": ["integer", "null"]},
+        "source_reported_multiplicity": {"type": ["integer", "null"]},
+        "proposed_charge": {"type": "integer"},
+        "proposed_multiplicity": {"type": "integer", "minimum": 1},
+        "proposal_basis": {"type": "string", "minLength": 1},
+        "review_status": {"const": "requires_explicit_approval"}
+      }
+    },
+    "coordinateChange": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "atoms", "description", "distance_pairs"],
+      "properties": {
+        "kind": {"enum": ["forming", "breaking", "transferring"]},
+        "atoms": {"type": "array", "minItems": 2, "maxItems": 3, "items": {"type": "integer", "minimum": 1}},
+        "description": {"type": "string", "minLength": 1},
+        "distance_pairs": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["atoms", "role", "reported_figure_angstrom", "measured_from_coordinates_angstrom"],
+            "properties": {
+              "atoms": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 1}},
+              "role": {"type": "string", "minLength": 1},
+              "reported_figure_angstrom": {"type": "number", "exclusiveMinimum": 0},
+              "measured_from_coordinates_angstrom": {"type": "number", "exclusiveMinimum": 0}
+            }
+          }
+        }
+      }
+    },
+    "expectedResult": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "source_status", "reported_featured_imaginary_frequency_cm1",
+        "acceptance_raw_imaginary_frequency_count", "reported_delta_g_dagger_kcal_mol",
+        "barrier_reference_status", "expected_mode_description",
+        "manual_mode_review_required", "candidate_specific_irc_endpoints_reported"
+      ],
+      "properties": {
+        "source_status": {"const": "reported_in_si_figure"},
+        "reported_featured_imaginary_frequency_cm1": {"type": "number", "exclusiveMaximum": 0},
+        "acceptance_raw_imaginary_frequency_count": {"const": 1},
+        "reported_delta_g_dagger_kcal_mol": {"type": "number"},
+        "barrier_reference_status": {"type": "string", "minLength": 1},
+        "expected_mode_description": {"type": "string", "minLength": 1},
+        "manual_mode_review_required": {"const": true},
+        "candidate_specific_irc_endpoints_reported": {"const": false}
+      }
+    },
+    "deferredBenchmark": {
+      "type": "object", "additionalProperties": false,
+      "required": ["benchmark_id", "literature_label", "atom_count_from_si_coordinates", "status", "reason"],
+      "properties": {
+        "benchmark_id": {"$ref": "#/$defs/id"},
+        "literature_label": {"type": "string", "minLength": 1},
+        "atom_count_from_si_coordinates": {"type": "integer", "minimum": 1},
+        "status": {"const": "deferred_not_materialized"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

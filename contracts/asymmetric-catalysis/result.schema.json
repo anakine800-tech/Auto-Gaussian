@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/result.schema.json",
+  "title": "Gaussian asymmetric transition-state result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "result_id", "candidate_id", "candidate_sha256", "study_id",
+    "comparison_group_id", "channel_id", "protocol_id", "calculation_ready",
+    "no_submission_authorization", "validation_level", "artifacts", "termination",
+    "frequency_evidence", "mode_evidence", "path_evidence", "energies",
+    "comparison_eligibility", "diagnostics"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-ts-result/1"},
+    "result_id": {"$ref": "#/$defs/id"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "candidate_sha256": {"$ref": "#/$defs/sha256"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "comparison_group_id": {"$ref": "#/$defs/id"},
+    "channel_id": {"$ref": "#/$defs/id"},
+    "protocol_id": {"$ref": "#/$defs/id"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "validation_level": {
+      "enum": ["failed", "first_order_saddle_candidate", "mode_reviewed", "path_validated"]
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "log", "checkpoint", "parsed_ts_result", "mode_review", "mode_decision", "checkpoint_audit", "irc_plan", "forward_path", "reverse_path"],
+      "properties": {
+        "input": {"$ref": "#/$defs/nullableArtifact"},
+        "log": {"$ref": "#/$defs/nullableArtifact"},
+        "checkpoint": {"$ref": "#/$defs/nullableArtifact"},
+        "parsed_ts_result": {"$ref": "#/$defs/nullableArtifact"},
+        "mode_review": {"$ref": "#/$defs/nullableArtifact"},
+        "mode_decision": {"$ref": "#/$defs/nullableArtifact"},
+        "checkpoint_audit": {"$ref": "#/$defs/nullableArtifact"},
+        "irc_plan": {"$ref": "#/$defs/nullableArtifact"},
+        "forward_path": {"$ref": "#/$defs/nullableArtifact"},
+        "reverse_path": {"$ref": "#/$defs/nullableArtifact"}
+      }
+    },
+    "termination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normal_termination", "error_termination", "stationary_point", "frequency_complete"],
+      "properties": {
+        "normal_termination": {"type": "boolean"},
+        "error_termination": {"type": "boolean"},
+        "stationary_point": {"type": "boolean"},
+        "frequency_complete": {"type": "boolean"}
+      }
+    },
+    "frequency_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frequencies_cm1", "raw_imaginary_frequency_count", "reviewed_imaginary_frequency_cm1"],
+      "properties": {
+        "frequencies_cm1": {"type": "array", "items": {"type": "number"}},
+        "raw_imaginary_frequency_count": {"type": "integer", "minimum": 0},
+        "reviewed_imaginary_frequency_cm1": {"type": ["number", "null"]}
+      }
+    },
+    "mode_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "coordinate_projection_reviewed", "review_notes"],
+      "properties": {
+        "decision": {"enum": ["pending", "accepted", "rejected", "unclear", "not_available"]},
+        "coordinate_projection_reviewed": {"type": "boolean"},
+        "review_notes": {"type": "string"}
+      }
+    },
+    "path_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forward", "reverse", "endpoint_identity_reviewed", "review_notes"],
+      "properties": {
+        "forward": {"enum": ["not_run", "failed", "completed_unidentified", "completed_and_identified"]},
+        "reverse": {"enum": ["not_run", "failed", "completed_unidentified", "completed_and_identified"]},
+        "endpoint_identity_reviewed": {"type": "boolean"},
+        "review_notes": {"type": "string"}
+      }
+    },
+    "energies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "energy_unit", "electronic_energy", "thermal_gibbs_correction",
+        "comparison_free_energy", "comparison_energy_definition",
+        "temperature_k", "standard_state", "low_frequency_policy",
+        "inventory_key", "degeneracy"
+      ],
+      "properties": {
+        "energy_unit": {"enum": ["hartree", "kcal_mol", "kj_mol"]},
+        "electronic_energy": {"type": ["number", "null"]},
+        "thermal_gibbs_correction": {"type": ["number", "null"]},
+        "comparison_free_energy": {"type": ["number", "null"]},
+        "comparison_energy_definition": {"type": "string", "minLength": 3},
+        "temperature_k": {"type": "number", "exclusiveMinimum": 0},
+        "standard_state": {"enum": ["1M", "1atm", "explicit_custom"]},
+        "low_frequency_policy": {"type": "string", "minLength": 1},
+        "inventory_key": {"type": "string", "minLength": 3},
+        "degeneracy": {"type": "integer", "minimum": 1}
+      }
+    },
+    "comparison_eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible", "reasons"],
+      "properties": {
+        "eligible": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "diagnostics": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "nullableArtifact": {
+      "anyOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]
+    }
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "schema": "gaussian-asymmetric-ts-candidate/1",
+  "candidate_id": "metal_ts_r_unresolved",
+  "study_id": "fixture_metal_selectivity",
+  "study_sha256": "c4e32a787fa39e7c077a609305b0149fc9499ed0272997b04b0a8e5c44205f82",
+  "comparison_group_id": "metal_face_pair",
+  "mechanism_id": "metal_insertion_step",
+  "channel_id": "metal_channel_r",
+  "catalyst_state_id": "pd_ligand_state",
+  "protocol_id": "metal_protocol_pending",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "support_status": "unsupported_transition_metal",
+  "review_status": "proposed",
+  "chemical_state": {
+    "identity": "synthetic unresolved Pd-ligand-substrate assembly",
+    "charge": 0,
+    "multiplicity": 1,
+    "component_count": 1,
+    "stereochemistry_status": "assigned"
+  },
+  "candidate_dimensions": {
+    "metal_coordination": "pd_ligand_state",
+    "metal_spin_state": "singlet_hypothesis",
+    "metal_approach_face": "re"
+  },
+  "binding_mode": {
+    "label": "synthetic_pi_bound_substrate",
+    "coordination_contacts": [
+      {"donor_atom": 3, "acceptor_atom": 1, "kind": "metal_coordination"},
+      {"donor_atom": 4, "acceptor_atom": 1, "kind": "metal_coordination"}
+    ],
+    "review_notes": "Coordination model is unresolved and cannot be promoted."
+  },
+  "approach_topology": {
+    "label": "synthetic_re_face",
+    "substrate_face": "re",
+    "topology_notes": "Synthetic fixture only."
+  },
+  "conformer_sources": [
+    {
+      "role": "complex",
+      "conformer_id": "metal_complex_unresolved",
+      "source": {"path": "synthetic://metal_complex.xyz", "sha256": "2121212121212121212121212121212121212121212121212121212121212121"},
+      "prescreen_method": "not_performed",
+      "prescreen_energy": null,
+      "energy_unit": "not_available"
+    }
+  ],
+  "electronic_state": {
+    "charge": 0,
+    "multiplicity": 1,
+    "oxidation_state_notes": "Pd(0) formal assignment is a synthetic fixture hypothesis.",
+    "spin_state_notes": "Singlet hypothesis has not been scientifically reviewed.",
+    "broken_symmetry": "unknown",
+    "multireference_concern": "unknown"
+  },
+  "atom_inventory": {
+    "formula": "C2H3PPd",
+    "atom_count": 7,
+    "element_counts": {"Pd": 1, "P": 1, "C": 2, "H": 3},
+    "inventory_key": "fixture_c2h3ppd_neutral_singlet_hypothesis"
+  },
+  "atom_map": [
+    {"index": 1, "element": "Pd", "role": "metal_center", "source_atom_id": "metal_pd1"},
+    {"index": 2, "element": "P", "role": "chiral_ligand_donor", "source_atom_id": "lig_p1"},
+    {"index": 3, "element": "C", "role": "alkene_carbon_a", "source_atom_id": "sub_c1"},
+    {"index": 4, "element": "C", "role": "alkene_carbon_b", "source_atom_id": "sub_c2"},
+    {"index": 5, "element": "H", "role": "substrate_hydrogen", "source_atom_id": "sub_h1"},
+    {"index": 6, "element": "H", "role": "substrate_hydrogen", "source_atom_id": "sub_h2"},
+    {"index": 7, "element": "H", "role": "ligand_hydrogen", "source_atom_id": "lig_h1"}
+  ],
+  "coordinate_changes": [{"kind": "forming", "atoms": [1, 4], "description": "Synthetic Pd-C contact change."}],
+  "geometry": {
+    "format": "xyz",
+    "artifact": {"path": "synthetic://metal_ts_r_unresolved.xyz", "sha256": "2323232323232323232323232323232323232323232323232323232323232323"},
+    "construction_method": "Synthetic non-runnable metal fixture.",
+    "stereochemistry_reviewed": false,
+    "clash_reviewed": false
+  },
+  "resource_tier_proposal": "unresolved",
+  "deduplication": {
+    "status": "unresolved",
+    "duplicate_of": null,
+    "method": "Not performed.",
+    "review_notes": "Metal scientific support and candidate inventory are incomplete."
+  },
+  "coverage_tags": {
+    "metal_coordination": "pd_ligand_state",
+    "metal_spin_state": "singlet_hypothesis",
+    "metal_approach_face": "re"
+  },
+  "warnings": [
+    "Transition-metal workflow unsupported by gaussian-ts-irc.",
+    "Protocol, electronic-state alternatives, and candidate coverage unresolved."
+  ],
+  "review": {"reviewer": null, "decision": "pending", "decision_record": null}
+}
