@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/reviewed-energy-record.schema.json",
+  "title": "Blocked or electronic-only reviewed energy record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "energy_record_id", "candidate_id", "status", "energy", "scientific_classification", "comparison_eligible", "blockers", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-reviewed-energy-record/1"},
+    "energy_record_id": {"$ref": "#/$defs/id"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "status": {"enum": ["blocked", "electronic_only"]},
+    "energy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["electronic_energy", "thermal_gibbs_correction", "comparison_free_energy"],
+      "properties": {
+        "electronic_energy": {"type": "object", "additionalProperties": false, "required": ["value", "unit", "source_field"], "properties": {"value": {"type": ["number", "null"]}, "unit": {"const": "hartree"}, "source_field": {"const": "final_energy_hartree"}}},
+        "thermal_gibbs_correction": {"type": "null"},
+        "comparison_free_energy": {"type": "null"}
+      }
+    },
+    "scientific_classification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["parsed_result_schema", "parsed_status", "first_order_saddle_candidate", "mode_decision"],
+      "properties": {"parsed_result_schema": {"const": "gaussian-ts-freq-result/1"}, "parsed_status": {"type": ["string", "null"]}, "first_order_saddle_candidate": {"type": ["boolean", "null"]}, "mode_decision": {"type": ["string", "null"]}}
+    },
+    "comparison_eligible": {"const": false},
+    "blockers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "status": {"const": "blocked"},
+        "energy": {"properties": {"electronic_energy": {"properties": {"value": {"type": "null"}}}}}
+      }
+    },
+    {
+      "properties": {
+        "status": {"const": "electronic_only"},
+        "energy": {"properties": {"electronic_energy": {"properties": {"value": {"type": "number"}}}}}
+      }
+    }
+  ],
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

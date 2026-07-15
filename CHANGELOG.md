@@ -16,6 +16,21 @@ All notable public release changes are recorded here. The project follows
 - Exact mechanism-support binding in `gaussian-ts-precedent-map/1` plus a
   source-free de novo endpoint/QST, scan or reviewed-rebuild planning path for
   exploration-eligible novel hypotheses.
+- A standard-library-only offline calculation-artifact adapter in
+  `auto-g16-reaction-workflow`, with closed schemas for stable candidate-target
+  imports, exact reviewed candidate/protocol-to-input handoffs,
+  blocked/electronic-only energy records and lineage, sanitized job
+  observations, and immutable six-artifact attempt links with an exact bound
+  TS mode-review file.
+- Deterministic sanitized fixtures and adversarial tests for exact source
+  hashes/sizes/payloads, candidate/XYZ/protocol/input drift, unsupported
+  variants, strict JSON, symlinks, overwrite refusal, specialist-validator
+  delegation, and fully rehashed derived-fact or preserved-classification
+  forgery.
+- Narrow TS-specialist helpers now own parsed-result and terminal
+  classification recomputation plus exact mode-review geometry arithmetic;
+  the adapter also refuses parsed element/atomic-number/order drift from the
+  reviewed input handoff.
 
 ### Changed
 
@@ -30,6 +45,10 @@ All notable public release changes are recorded here. The project follows
   `calculation_ready: false` and `no_submission_authorization: true`; de novo
   plans contain no source precedent or source coordinates and grant no method,
   Gaussian, PBS, deployment or live authority.
+- Adapter artifacts retain `calculation_ready: false` and
+  `no_submission_authorization: true`. The adapter implements no DAG plan or
+  node mutation, staging, SSH, PBS, Gaussian, retry, cancellation, cleanup,
+  deployment, or live-smoke action.
 
 ## [2.2.0] - 2026-07-15
 

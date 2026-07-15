@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/sanitized-job-observation.schema.json",
+  "title": "Sanitized immutable job observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "observation_id", "source_job_sha256", "input_sha256", "status", "last_inspection_state", "redacted_fields", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-sanitized-job-observation/1"},
+    "observation_id": {"$ref": "#/$defs/id"},
+    "source_job_sha256": {"$ref": "#/$defs/sha256"},
+    "input_sha256": {"$ref": "#/$defs/sha256"},
+    "status": {"type": "string", "minLength": 1},
+    "last_inspection_state": {"type": ["string", "null"]},
+    "redacted_fields": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1},
+      "allOf": [
+        {"contains": {"const": "job_id"}, "minContains": 1, "maxContains": 1},
+        {"contains": {"const": "remote_workdir"}, "minContains": 1, "maxContains": 1}
+      ]
+    },
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

@@ -1,0 +1,38 @@
+{
+  "schema": "gaussian-ts-freq-result/1",
+  "status": "completed",
+  "g16_revision": "synthetic fixture",
+  "normal_termination_count": 1,
+  "error_termination_count": 0,
+  "optimization_completed": true,
+  "stationary_point_found": true,
+  "final_energy_hartree": -123.456789,
+  "frequency_count": 3,
+  "frequencies_cm-1": [-250.0, 100.0, 150.0],
+  "raw_imaginary_frequency_count": 1,
+  "imaginary_modes": [
+    {
+      "frequency_cm-1": -250.0,
+      "displacements": [
+        {"index": 1, "atomic_number": 5, "x": 0.01, "y": 0.0, "z": 0.0},
+        {"index": 2, "atomic_number": 8, "x": -0.01, "y": 0.0, "z": 0.0},
+        {"index": 3, "atomic_number": 6, "x": 0.02, "y": 0.0, "z": 0.0},
+        {"index": 4, "atomic_number": 6, "x": -0.02, "y": 0.0, "z": 0.0},
+        {"index": 5, "atomic_number": 1, "x": 0.0, "y": 0.01, "z": 0.0},
+        {"index": 6, "atomic_number": 1, "x": 0.0, "y": -0.01, "z": 0.0}
+      ]
+    }
+  ],
+  "final_coordinates": [
+    {"index": 1, "atomic_number": 5, "element": "B", "x": 0.0, "y": 0.0, "z": 0.0},
+    {"index": 2, "atomic_number": 8, "element": "O", "x": 1.35, "y": 0.0, "z": 0.0},
+    {"index": 3, "atomic_number": 6, "element": "C", "x": 2.55, "y": 0.25, "z": 0.0},
+    {"index": 4, "atomic_number": 6, "element": "C", "x": 3.95, "y": 0.1, "z": 0.0},
+    {"index": 5, "atomic_number": 1, "element": "H", "x": 2.6, "y": 1.3, "z": 0.0},
+    {"index": 6, "atomic_number": 1, "element": "H", "x": 4.35, "y": 1.1, "z": 0.0}
+  ],
+  "first_order_saddle_candidate": true,
+  "mode_review_status": "pending",
+  "diagnostics": ["Sanitized parsed JSON fixture; no raw Gaussian log is retained."],
+  "log_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
