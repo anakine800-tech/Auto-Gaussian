@@ -1,0 +1,36 @@
+{
+  "schema": "gaussian-reaction-mechanism-network-negative-fixtures/1",
+  "base_fixture": "mechanism_network_review.template.json",
+  "cases": [
+    {
+      "case_id": "missing_atom_mapping",
+      "mutation": "remove_edge_direct_last_atom_mapping",
+      "expected_error": "atom mapping must cover both state atom inventories exactly"
+    },
+    {
+      "case_id": "connectivity_mismatch",
+      "mutation": "remove_edge_activation_first_connection_change",
+      "expected_error": "declared connection changes do not match"
+    },
+    {
+      "case_id": "catalyst_projection_open",
+      "mutation": "change_product_catalyst_oxidation_state",
+      "expected_error": "catalyst projection does not close"
+    },
+    {
+      "case_id": "catalyst_boundary_connection_open",
+      "mutation": "add_product_palladium_iodine_connection",
+      "expected_error": "catalyst projection does not close"
+    },
+    {
+      "case_id": "partial_registry_component",
+      "mutation": "split_hydrogen_component_without_full_registry_inventory",
+      "expected_error": "does not cover the complete registry species atom inventory"
+    },
+    {
+      "case_id": "charge_nonconservation",
+      "mutation": "set_product_component_and_state_charge_to_one",
+      "expected_blocker": "edge_direct_charge_balance"
+    }
+  ]
+}

@@ -1,0 +1,233 @@
+{
+  "schema": "gaussian-reaction-mechanism-network-review/1",
+  "study_id": "mechanism_network_fixture",
+  "intake_payload_sha256": "__INTAKE_PAYLOAD_SHA256__",
+  "registry_payload_sha256": "__REGISTRY_PAYLOAD_SHA256__",
+  "condition_model_payload_sha256": "__CONDITION_MODEL_PAYLOAD_SHA256__",
+  "states": [
+    {
+      "state_id": "state_reactants",
+      "label": "separated H2, I2, and Pd fixture",
+      "state_class": "reactant_basin",
+      "atoms": [
+        {"atom_id": "r_h1", "element": "H", "registry_atom_refs": [{"species_id": "hydrogen", "atom_id": "hydrogen_h1"}]},
+        {"atom_id": "r_h2", "element": "H", "registry_atom_refs": [{"species_id": "hydrogen", "atom_id": "hydrogen_h2"}]},
+        {"atom_id": "r_i1", "element": "I", "registry_atom_refs": [{"species_id": "iodine", "atom_id": "iodine_i1"}]},
+        {"atom_id": "r_i2", "element": "I", "registry_atom_refs": [{"species_id": "iodine", "atom_id": "iodine_i2"}]},
+        {"atom_id": "r_pd", "element": "Pd", "registry_atom_refs": [{"species_id": "palladium", "atom_id": "palladium_pd"}]}
+      ],
+      "components": [
+        {"component_id": "reactant_hydrogen", "label": "H2", "atom_ids": ["r_h1", "r_h2"], "formal_charge": 0, "multiplicity": 1, "registry_species_id": "hydrogen", "represented_form": "neutral singlet fixture"},
+        {"component_id": "reactant_iodine", "label": "I2", "atom_ids": ["r_i1", "r_i2"], "formal_charge": 0, "multiplicity": 1, "registry_species_id": "iodine", "represented_form": "neutral singlet fixture"},
+        {"component_id": "reactant_palladium", "label": "Pd", "atom_ids": ["r_pd"], "formal_charge": 0, "multiplicity": 1, "registry_species_id": "palladium", "represented_form": "closed-shell contract fixture"}
+      ],
+      "formal_charge": 0,
+      "multiplicity": 1,
+      "connections": [
+        {"atom_ids": ["r_h1", "r_h2"], "kind": "covalent", "order": "single"},
+        {"atom_ids": ["r_i1", "r_i2"], "kind": "covalent", "order": "single"}
+      ],
+      "connectivity_complete": true,
+      "stereochemistry": {"status": "not_applicable", "assignments": [], "notes": []},
+      "environment_model": {"condition_decision_ids": ["step_001_component_001"], "additional_terms": [], "review_status": "reviewed", "rationale": "Bound to the explicit Pd fixture condition decision."},
+      "catalyst_projection": {"status": "reviewed", "catalyst_atom_ids": ["r_pd"], "formal_charge": 0, "multiplicity": 1, "oxidation_state": "Pd(0) fixture hypothesis", "ligand_environment": ["unligated fixture"], "protonation_state": "none", "notes": ["Fixture bookkeeping, not an oxidation-state inference."]},
+      "review_status": "reviewed_hypothesis",
+      "blockers": [],
+      "notes": ["Closed-shell contract fixture only."]
+    },
+    {
+      "state_id": "state_activated",
+      "label": "synthetic activated Pd-H contact state",
+      "state_class": "intermediate_hypothesis",
+      "atoms": [
+        {"atom_id": "m_h1", "element": "H", "registry_atom_refs": [{"species_id": "hydrogen", "atom_id": "hydrogen_h1"}]},
+        {"atom_id": "m_h2", "element": "H", "registry_atom_refs": [{"species_id": "hydrogen", "atom_id": "hydrogen_h2"}]},
+        {"atom_id": "m_i1", "element": "I", "registry_atom_refs": [{"species_id": "iodine", "atom_id": "iodine_i1"}]},
+        {"atom_id": "m_i2", "element": "I", "registry_atom_refs": [{"species_id": "iodine", "atom_id": "iodine_i2"}]},
+        {"atom_id": "m_pd", "element": "Pd", "registry_atom_refs": [{"species_id": "palladium", "atom_id": "palladium_pd"}]}
+      ],
+      "components": [
+        {"component_id": "activated_complex", "label": "activated complex fixture", "atom_ids": ["m_h1", "m_h2", "m_i1", "m_i2", "m_pd"], "formal_charge": 0, "multiplicity": 1, "registry_species_id": null, "represented_form": "reviewed synthetic connectivity hypothesis"}
+      ],
+      "formal_charge": 0,
+      "multiplicity": 1,
+      "connections": [
+        {"atom_ids": ["m_h1", "m_pd"], "kind": "coordination", "order": "unspecified"},
+        {"atom_ids": ["m_h2", "m_pd"], "kind": "coordination", "order": "unspecified"},
+        {"atom_ids": ["m_i1", "m_i2"], "kind": "covalent", "order": "single"}
+      ],
+      "connectivity_complete": true,
+      "stereochemistry": {"status": "not_applicable", "assignments": [], "notes": []},
+      "environment_model": {"condition_decision_ids": ["step_001_component_001"], "additional_terms": [], "review_status": "reviewed", "rationale": "Same immutable condition-model decision as the reference state."},
+      "catalyst_projection": {"status": "reviewed", "catalyst_atom_ids": ["m_pd"], "formal_charge": 0, "multiplicity": 1, "oxidation_state": "Pd(II) fixture hypothesis", "ligand_environment": ["two hydrogen contacts fixture"], "protonation_state": "none", "notes": ["Fixture bookkeeping only."]},
+      "review_status": "reviewed_hypothesis",
+      "blockers": [],
+      "notes": ["This intermediate is not evidence for a real pathway."]
+    },
+    {
+      "state_id": "state_products",
+      "label": "two HI and regenerated Pd fixture",
+      "state_class": "product_basin",
+      "atoms": [
+        {"atom_id": "p_h1", "element": "H", "registry_atom_refs": [{"species_id": "hydrogen_iodide", "atom_id": "hi_h"}]},
+        {"atom_id": "p_h2", "element": "H", "registry_atom_refs": [{"species_id": "hydrogen_iodide", "atom_id": "hi_h"}]},
+        {"atom_id": "p_i1", "element": "I", "registry_atom_refs": [{"species_id": "hydrogen_iodide", "atom_id": "hi_i"}]},
+        {"atom_id": "p_i2", "element": "I", "registry_atom_refs": [{"species_id": "hydrogen_iodide", "atom_id": "hi_i"}]},
+        {"atom_id": "p_pd", "element": "Pd", "registry_atom_refs": [{"species_id": "palladium", "atom_id": "palladium_pd"}]}
+      ],
+      "components": [
+        {"component_id": "product_hi_one", "label": "HI occurrence 1", "atom_ids": ["p_h1", "p_i1"], "formal_charge": 0, "multiplicity": 1, "registry_species_id": "hydrogen_iodide", "represented_form": "neutral singlet fixture"},
+        {"component_id": "product_hi_two", "label": "HI occurrence 2", "atom_ids": ["p_h2", "p_i2"], "formal_charge": 0, "multiplicity": 1, "registry_species_id": "hydrogen_iodide", "represented_form": "neutral singlet fixture"},
+        {"component_id": "product_palladium", "label": "regenerated Pd", "atom_ids": ["p_pd"], "formal_charge": 0, "multiplicity": 1, "registry_species_id": "palladium", "represented_form": "closed-shell contract fixture"}
+      ],
+      "formal_charge": 0,
+      "multiplicity": 1,
+      "connections": [
+        {"atom_ids": ["p_h1", "p_i1"], "kind": "covalent", "order": "single"},
+        {"atom_ids": ["p_h2", "p_i2"], "kind": "covalent", "order": "single"}
+      ],
+      "connectivity_complete": true,
+      "stereochemistry": {"status": "not_applicable", "assignments": [], "notes": []},
+      "environment_model": {"condition_decision_ids": ["step_001_component_001"], "additional_terms": [], "review_status": "reviewed", "rationale": "Same immutable condition-model decision as the reference state."},
+      "catalyst_projection": {"status": "reviewed", "catalyst_atom_ids": ["p_pd"], "formal_charge": 0, "multiplicity": 1, "oxidation_state": "Pd(0) fixture hypothesis", "ligand_environment": ["unligated fixture"], "protonation_state": "none", "notes": ["Fixture bookkeeping, not an oxidation-state inference."]},
+      "review_status": "reviewed_hypothesis",
+      "blockers": [],
+      "notes": ["Closed-shell contract fixture only."]
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "edge_direct",
+      "label": "direct competing fixture edge",
+      "from_state_id": "state_reactants",
+      "to_state_id": "state_products",
+      "atom_mapping": [
+        {"from_atom_id": "r_h1", "to_atom_id": "p_h1"}, {"from_atom_id": "r_h2", "to_atom_id": "p_h2"},
+        {"from_atom_id": "r_i1", "to_atom_id": "p_i1"}, {"from_atom_id": "r_i2", "to_atom_id": "p_i2"},
+        {"from_atom_id": "r_pd", "to_atom_id": "p_pd"}
+      ],
+      "connection_changes": [
+        {"atom_ids": ["r_h1", "r_h2"], "kind": "covalent", "before_order": "single", "after_order": null},
+        {"atom_ids": ["r_i1", "r_i2"], "kind": "covalent", "before_order": "single", "after_order": null},
+        {"atom_ids": ["r_h1", "r_i1"], "kind": "covalent", "before_order": null, "after_order": "single"},
+        {"atom_ids": ["r_h2", "r_i2"], "kind": "covalent", "before_order": null, "after_order": "single"}
+      ],
+      "transfers": [],
+      "molecularity": 2,
+      "reversibility": "unresolved",
+      "state_changes": {"oxidation_state": "net catalyst projection unchanged", "spin": "singlet fixture throughout", "ligand": "none", "coordination": "no retained catalyst contact", "protonation": "none"},
+      "stereochemical_channel": null,
+      "support_claim_ids": [],
+      "review_status": "reviewed_hypothesis",
+      "blockers": [],
+      "notes": ["No mechanism-support claim is available."]
+    },
+    {
+      "edge_id": "edge_activation",
+      "label": "stepwise fixture activation edge",
+      "from_state_id": "state_reactants",
+      "to_state_id": "state_activated",
+      "atom_mapping": [
+        {"from_atom_id": "r_h1", "to_atom_id": "m_h1"}, {"from_atom_id": "r_h2", "to_atom_id": "m_h2"},
+        {"from_atom_id": "r_i1", "to_atom_id": "m_i1"}, {"from_atom_id": "r_i2", "to_atom_id": "m_i2"},
+        {"from_atom_id": "r_pd", "to_atom_id": "m_pd"}
+      ],
+      "connection_changes": [
+        {"atom_ids": ["r_h1", "r_h2"], "kind": "covalent", "before_order": "single", "after_order": null},
+        {"atom_ids": ["r_h1", "r_pd"], "kind": "coordination", "before_order": null, "after_order": "unspecified"},
+        {"atom_ids": ["r_h2", "r_pd"], "kind": "coordination", "before_order": null, "after_order": "unspecified"}
+      ],
+      "transfers": [],
+      "molecularity": 2,
+      "reversibility": "reversible",
+      "state_changes": {"oxidation_state": "Pd(0) fixture to Pd(II) fixture hypothesis", "spin": "singlet fixture throughout", "ligand": "none", "coordination": "two Pd-H contacts form", "protonation": "none"},
+      "stereochemical_channel": null,
+      "support_claim_ids": [],
+      "review_status": "reviewed_hypothesis",
+      "blockers": [],
+      "notes": ["No mechanism-support claim is available."]
+    },
+    {
+      "edge_id": "edge_release",
+      "label": "stepwise fixture release edge",
+      "from_state_id": "state_activated",
+      "to_state_id": "state_products",
+      "atom_mapping": [
+        {"from_atom_id": "m_h1", "to_atom_id": "p_h1"}, {"from_atom_id": "m_h2", "to_atom_id": "p_h2"},
+        {"from_atom_id": "m_i1", "to_atom_id": "p_i1"}, {"from_atom_id": "m_i2", "to_atom_id": "p_i2"},
+        {"from_atom_id": "m_pd", "to_atom_id": "p_pd"}
+      ],
+      "connection_changes": [
+        {"atom_ids": ["m_h1", "m_pd"], "kind": "coordination", "before_order": "unspecified", "after_order": null},
+        {"atom_ids": ["m_h2", "m_pd"], "kind": "coordination", "before_order": "unspecified", "after_order": null},
+        {"atom_ids": ["m_i1", "m_i2"], "kind": "covalent", "before_order": "single", "after_order": null},
+        {"atom_ids": ["m_h1", "m_i1"], "kind": "covalent", "before_order": null, "after_order": "single"},
+        {"atom_ids": ["m_h2", "m_i2"], "kind": "covalent", "before_order": null, "after_order": "single"}
+      ],
+      "transfers": [
+        {"atom_id": "m_h1", "donor_atom_id": "m_pd", "acceptor_atom_id": "m_i1"},
+        {"atom_id": "m_h2", "donor_atom_id": "m_pd", "acceptor_atom_id": "m_i2"}
+      ],
+      "molecularity": 1,
+      "reversibility": "unresolved",
+      "state_changes": {"oxidation_state": "Pd(II) fixture to Pd(0) fixture hypothesis", "spin": "singlet fixture throughout", "ligand": "none", "coordination": "Pd-H contacts release", "protonation": "none"},
+      "stereochemical_channel": null,
+      "support_claim_ids": [],
+      "review_status": "reviewed_hypothesis",
+      "blockers": [],
+      "notes": ["No mechanism-support claim is available."]
+    }
+  ],
+  "networks": [
+    {
+      "network_id": "network_stepwise",
+      "label": "primary stepwise fixture hypothesis",
+      "role": "primary",
+      "state_ids": ["state_reactants", "state_activated", "state_products"],
+      "edge_ids": ["edge_activation", "edge_release"],
+      "entry_state_id": "state_reactants",
+      "exit_state_id": "state_products",
+      "catalyst_cycle": {"required": true, "start_state_id": "state_reactants", "regenerated_state_id": "state_products", "closure_edge_ids": ["edge_activation", "edge_release"], "review_status": "reviewed", "rationale": "Exact atom maps return the Pd projection to the reviewed entry descriptor."},
+      "disposition": "included_hypothesis",
+      "review_status": "reviewed_hypothesis",
+      "blockers": [],
+      "notes": ["Primary means bookkeeping priority only, not evidentiary preference."]
+    },
+    {
+      "network_id": "network_direct",
+      "label": "competing direct fixture hypothesis",
+      "role": "competing",
+      "state_ids": ["state_reactants", "state_products"],
+      "edge_ids": ["edge_direct"],
+      "entry_state_id": "state_reactants",
+      "exit_state_id": "state_products",
+      "catalyst_cycle": {"required": true, "start_state_id": "state_reactants", "regenerated_state_id": "state_products", "closure_edge_ids": ["edge_direct"], "review_status": "reviewed", "rationale": "Exact atom maps return the Pd projection to the reviewed entry descriptor."},
+      "disposition": "competing_hypothesis",
+      "review_status": "reviewed_hypothesis",
+      "blockers": [],
+      "notes": ["Retained to enforce explicit competition coverage."]
+    }
+  ],
+  "reference_basins": [
+    {
+      "basin_id": "basin_common_reactants",
+      "label": "common separated-reactant fixture basin",
+      "network_ids": ["network_stepwise", "network_direct"],
+      "edge_ids": ["edge_activation", "edge_release", "edge_direct"],
+      "reference_state_id": "state_reactants",
+      "reference_type": "separated_species",
+      "condition_decision_ids": ["step_001_component_001"],
+      "aggregation_model": "explicit kinetic network required before any energy aggregation",
+      "equilibration_assumptions": ["No equilibration assumption is inferred by this fixture."],
+      "symmetry_degeneracy_policy": "not assigned; later review required",
+      "review_status": "reviewed",
+      "blockers": [],
+      "notes": ["The builder checks common explicit element and charge inventory only; it computes no energy."]
+    }
+  ],
+  "review_decision": "accepted_with_blockers",
+  "review_notes": [
+    "Closed-shell synthetic fixture accepted only for offline contract verification.",
+    "gaussian-reaction-mechanism-support/1 is unavailable and must remain a blocker."
+  ]
+}
