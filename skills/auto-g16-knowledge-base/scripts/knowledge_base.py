@@ -175,9 +175,12 @@ def payload_sha256(record: dict[str, Any]) -> str:
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
-    require(not path.exists(), f"refusing to overwrite existing artifact: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(canonical_bytes(value))
+    try:
+        with path.open("xb") as handle:
+            handle.write(canonical_bytes(value))
+    except FileExistsError:
+        raise OfflineError(f"refusing to overwrite existing artifact: {path}") from None
 
 
 def exact_keys(

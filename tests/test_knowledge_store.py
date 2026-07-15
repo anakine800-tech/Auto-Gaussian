@@ -74,6 +74,8 @@ class KnowledgeStoreTests(unittest.TestCase):
         migration = (SKILL / "scripts" / "migrations" / "001_initial.sql").read_text(encoding="utf-8")
         for forbidden in ("import subprocess", "import socket", "requests", "paramiko", "qsub", "qdel"):
             self.assertNotIn(forbidden, store_code)
+        self.assertIn("os.link(temporary_path, output_path)", store_code)
+        self.assertNotIn("os.replace(temporary_path, output_path)", store_code)
         self.assertIn("CREATE TABLE records", migration)
         self.assertIn("PRAGMA foreign_keys = ON", migration)
         self.assertNotIn("DROP TABLE", migration)

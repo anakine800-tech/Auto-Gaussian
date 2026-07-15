@@ -542,7 +542,11 @@ def rebuild_index(store_path: Path, output_path: Path) -> dict[str, Any]:
         connection.execute("VACUUM")
         connection.close()
         database_sha256 = hash_file(temporary_path)
-        os.replace(temporary_path, output_path)
+        try:
+            os.link(temporary_path, output_path)
+        except FileExistsError:
+            raise StoreError(f"refusing to overwrite existing index: {output_path}") from None
+        temporary_path.unlink()
     except Exception:
         temporary_path.unlink(missing_ok=True)
         raise

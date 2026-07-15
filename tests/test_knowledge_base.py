@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).parents[1]
@@ -52,6 +53,15 @@ class KnowledgeBaseTests(unittest.TestCase):
         rehash(record)
         with self.assertRaisesRegex(KB.OfflineError, expected):
             KB.validate_record(record)
+
+    def test_write_json_remains_exclusive_if_precheck_state_is_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "existing.json"
+            output.write_bytes(b"sentinel\n")
+            with mock.patch.object(Path, "exists", return_value=False):
+                with self.assertRaisesRegex(KB.OfflineError, "refusing to overwrite"):
+                    KB.write_json(output, {"replacement": True})
+            self.assertEqual(output.read_bytes(), b"sentinel\n")
 
     def test_skill_metadata_and_offline_boundaries_are_complete(self) -> None:
         skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
