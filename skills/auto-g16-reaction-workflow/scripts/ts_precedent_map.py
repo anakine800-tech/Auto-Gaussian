@@ -104,6 +104,19 @@ def _resolve(reference: dict[str, Any], owner: Path) -> Path:
     return path if path.is_absolute() else owner.parent / path
 
 
+def _require_regular_file(path: Path, label: str) -> None:
+    rw.require(path.is_file() and not path.is_symlink(), f"{label} is missing or a symlink")
+
+
+def _write_json_exclusive(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("xb") as handle:
+            handle.write(rw.canonical_bytes(data))
+    except FileExistsError:
+        raise rw.OfflineError(f"refusing to overwrite existing artifact: {path}") from None
+
+
 def _verify_file_ref(value: Any, owner: Path, label: str) -> dict[str, Any]:
     ref = _exact(value, {"path", "sha256", "size_bytes"}, label)
     path = _resolve(ref, owner)
@@ -144,6 +157,12 @@ def _artifact_binding_path(binding: Any, owner: Path, label: str) -> tuple[Path,
 
 
 def _load_upstream(mechanism_path: Path, snapshot_path: Path, evidence_path: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, tuple[Path, dict[str, Any]]]]:
+    for path, label in (
+        (mechanism_path, "mechanism-network input"),
+        (snapshot_path, "knowledge-snapshot input"),
+        (evidence_path, "literature-evidence input"),
+    ):
+        _require_regular_file(path, label)
     mn.validate(mechanism_path)
     mechanism = rw.load_json(mechanism_path)
 
@@ -420,6 +439,7 @@ def _normalize_geometry(
     states: dict[str, dict[str, Any]],
     source: dict[str, Any],
     source_structure: dict[str, Any],
+    mapping: list[dict[str, str]],
     label: str,
 ) -> list[dict[str, Any]]:
     rw.require(isinstance(raw, list), f"{label} must be an array")
@@ -427,6 +447,13 @@ def _normalize_geometry(
     ids: set[str] = set()
     allowed_states = {target["from_state_id"], target["to_state_id"]}
     state_atoms = {state_id: {item["atom_id"] for item in states[state_id]["atoms"]} for state_id in allowed_states}
+    mapped_target_atoms = {
+        (target["from_state_id"], item["from_atom_id"])
+        for item in mapping
+    } | {
+        (target["to_state_id"], item["to_atom_id"])
+        for item in mapping
+    }
     for index, raw_item in enumerate(raw):
         keys = {"geometry_item_id", "kind", "transfer_status", "descriptor", "value", "range", "unit", "atom_refs", "provenance", "applicability", "limitations"}
         item = _exact(raw_item, keys, f"{label}[{index}]")
@@ -450,7 +477,15 @@ def _normalize_geometry(
         else:
             rw.require(bool(atom_refs), f"{label}.{item_id} requires target atom references")
         unit = rw._require_string(item["unit"], f"{label}.{item_id}.unit")
-        expected_unit = "angstrom" if kind in {"distance", "coordination_contact"} else "degree" if kind in {"angle", "dihedral"} else "not_applicable"
+        expected_unit = (
+            "not_applicable"
+            if transfer_status == "rebuild_required"
+            else "angstrom"
+            if kind in {"distance", "coordination_contact"}
+            else "degree"
+            if kind in {"angle", "dihedral"}
+            else "not_applicable"
+        )
         rw.require(unit == expected_unit, f"{label}.{item_id}.unit must be {expected_unit}")
         descriptor = item["descriptor"]
         rw.require(descriptor is None or (isinstance(descriptor, str) and descriptor.strip()), f"{label}.{item_id}.descriptor must be null or a non-empty string")
@@ -481,6 +516,10 @@ def _normalize_geometry(
         rw.require(evidence_form in {"published_coordinates", "reported_value", "figure_or_topology", "reviewer_assessment"}, f"{label}.{item_id}.evidence_form is invalid")
         limitations = rw._string_list(item["limitations"], f"{label}.{item_id}.limitations", nonempty=True)
         if transfer_status == "transferable":
+            rw.require(
+                all((ref["state_id"], ref["atom_id"]) in mapped_target_atoms for ref in atom_refs),
+                f"{label}.{item_id}: transferable geometry references a target atom without source correspondence",
+            )
             rw.require(evidence_form != "reviewer_assessment", f"{label}.{item_id}: reviewer assessment alone cannot authorize geometry transfer")
         if evidence_form == "published_coordinates":
             rw.require(source["evidence_target"] == "coordinates" and source_structure["coordinate_provenance"]["status"] == "published_coordinates", f"{label}.{item_id}: published-coordinate geometry requires matching published source coordinates")
@@ -567,7 +606,7 @@ def _normalize_record(raw: dict[str, Any], edges: dict[str, dict[str, Any]], sta
     source_structure = _normalize_source_structure(data["source_structure"], source, review_path, f"precedent {precedent_id}.source_structure")
     mapping = _normalize_mapping(data["source_to_target_atom_mapping"], source_structure, edge, states, f"precedent {precedent_id}.source_to_target_atom_mapping")
     context = _normalize_context(data["target_context"], target, states, f"precedent {precedent_id}.target_context")
-    geometry = _normalize_geometry(data["geometry_transfer"], target, states, source, source_structure, f"precedent {precedent_id}.geometry_transfer")
+    geometry = _normalize_geometry(data["geometry_transfer"], target, states, source, source_structure, mapping, f"precedent {precedent_id}.geometry_transfer")
     if any(item["transfer_status"] == "transferable" for item in geometry):
         rw.require(source_structure["atom_order_review_status"] == "reviewed" and bool(mapping), f"precedent {precedent_id}: geometry transfer requires reviewed source atom ordering and explicit correspondence")
     strategy = rw._require_string(data["seed_strategy"], f"precedent {precedent_id}.seed_strategy")
@@ -653,6 +692,7 @@ def _normalize_review(review: dict[str, Any], mechanism: dict[str, Any], snapsho
 
 def build(mechanism_path: Path, snapshot_path: Path, evidence_path: Path, review_path: Path, output: Path) -> dict[str, Any]:
     mechanism, snapshot, evidence, w1 = _load_upstream(mechanism_path, snapshot_path, evidence_path)
+    _require_regular_file(review_path, "TS-precedent review input")
     review = rw.load_json(review_path)
     records, decision, notes = _normalize_review(review, mechanism, snapshot, evidence, review_path)
     blocker = rw._blocker(
@@ -677,7 +717,7 @@ def build(mechanism_path: Path, snapshot_path: Path, evidence_path: Path, review
         "calculation_ready": False, "no_submission_authorization": True,
     }
     rw.finalize_artifact(artifact)
-    rw.write_json(output, artifact)
+    _write_json_exclusive(output, artifact)
     return artifact
 
 

@@ -265,7 +265,8 @@
           "transfer_status": {"const": "rebuild_required"},
           "descriptor": {"type": "null"},
           "value": {"type": "null"},
-          "range": {"type": "null"}
+          "range": {"type": "null"},
+          "unit": {"const": "not_applicable"}
         }}
       ]
     },

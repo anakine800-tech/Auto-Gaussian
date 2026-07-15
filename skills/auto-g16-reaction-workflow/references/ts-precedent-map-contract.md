@@ -39,12 +39,14 @@ records remain in the map.
 
 Any transferable geometry item requires reviewed source atom ordering and an
 explicit one-to-one source/from-state/to-state correspondence consistent with
-the edge atom map. Known source elements must be preserved. Target-context
+the edge atom map; every transferred target atom reference must occur in that
+correspondence. Known source elements must be preserved. Target-context
 formal charge and multiplicity must equal both reviewed endpoint states.
 Geometry items separate `transferable` from `rebuild_required`. Quantitative
 distance/angle/dihedral/contact items carry exactly one finite value or bounded
 range; qualitative topology/facial/orientational/conformer items instead carry
-an explicit descriptor and no numeric surrogate. Every item retains stable
+an explicit descriptor and no numeric surrogate. Rebuild-required items carry
+no descriptor, value, range or transferable unit. Every item retains stable
 target atom references, exact provenance, applicability and limitations.
 Approximate figure/topology evidence may contribute a qualitative descriptor
 or a finite, increasing quantitative range; it never supplies a precise

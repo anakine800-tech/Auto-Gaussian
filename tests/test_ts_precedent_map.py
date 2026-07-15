@@ -332,6 +332,18 @@ class TsPrecedentMapTests(unittest.TestCase):
                 self.assertIn(expected, result.stderr)
                 self.assertFalse(output.exists())
 
+        with tempfile.TemporaryDirectory() as temp:
+            def remove_geometry_correspondence(review):
+                record = next(item for item in review["records"] if item["precedent_id"] == "precedent_close")
+                record["source_to_target_atom_mapping"] = [
+                    item for item in record["source_to_target_atom_mapping"]
+                    if item["from_atom_id"] != "r_h1"
+                ]
+            _, output, result = self.build_map(Path(temp), remove_geometry_correspondence)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("transferable geometry references a target atom without source correspondence", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_coordinate_provenance_and_geometry_range_unit_refusals(self) -> None:
         def mutate_hash(record):
             record["source_structure"]["coordinate_provenance"]["source_object"]["sha256"] = "0" * 64
@@ -364,6 +376,18 @@ class TsPrecedentMapTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn(expected, result.stderr)
                 self.assertFalse(output.exists())
+
+        with tempfile.TemporaryDirectory() as temp:
+            def add_unit_to_rebuild_required(review):
+                record = next(item for item in review["records"] if item["precedent_id"] == "precedent_remote")
+                item = record["geometry_transfer"][0]
+                item["kind"] = "distance"
+                item["unit"] = "angstrom"
+                item["atom_refs"].append({"state_id": "state_reactants", "atom_id": "r_h1"})
+            _, output, result = self.build_map(Path(temp), add_unit_to_rebuild_required)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unit must be not_applicable", result.stderr)
+            self.assertFalse(output.exists())
 
     def test_context_and_record_promotion_semantics_fail_closed(self) -> None:
         mutations = {
@@ -503,6 +527,26 @@ class TsPrecedentMapTests(unittest.TestCase):
             checked = self.run_tool(TOOL, "validate", str(forged))
             self.assertEqual(checked.returncode, 2)
             self.assertIn("immutable review recomputation", checked.stderr)
+
+    def test_top_level_input_symlinks_are_rejected(self) -> None:
+        for source_key, expected in (("mechanism", "mechanism-network input"), ("review", "TS-precedent review input")):
+            with self.subTest(source=source_key), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                prepared = self.prepare(root)
+                mechanism = prepared["w1"][3]
+                review = prepared["review_path"]
+                source = mechanism if source_key == "mechanism" else review
+                linked = root / f"linked-{source_key}.json"
+                linked.symlink_to(source)
+                result = self.run_tool(
+                    TOOL, "build", str(linked if source_key == "mechanism" else mechanism),
+                    str(prepared["snapshot_path"]), str(prepared["evidence_path"]),
+                    "--review", str(linked if source_key == "review" else review),
+                    "--output", str(root / f"{source_key}-output.json"),
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected, result.stderr)
+                self.assertIn("missing or a symlink", result.stderr)
 
     def test_unknown_duplicate_key_and_nonfinite_json_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
