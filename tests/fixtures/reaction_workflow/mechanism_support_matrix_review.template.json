@@ -1,0 +1,65 @@
+{
+  "schema": "gaussian-reaction-mechanism-support-matrix-review/1",
+  "matrix_id": "replace_matrix_id",
+  "study_id": "replace_study_id",
+  "mechanism_support_payload_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "mechanism_network_payload_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "rows": [
+    {
+      "row_id": "replace_row_id",
+      "label": "Replace with a reviewed bounded row label",
+      "edge_id": "replace_edge_id",
+      "stereochemical_channel": null,
+      "bounded_hypothesis": "Replace with a human-authored bounded hypothesis; this template makes no chemistry inference."
+    }
+  ],
+  "cells": [
+    {
+      "row_id": "replace_row_id",
+      "support_record_id": "replace_support_record_id",
+      "evidence_status": "no_evidence",
+      "bounded_claim": {
+        "relationship": "does_not_address",
+        "text": "Replace with a bounded reviewed relationship; this template proves no mechanism."
+      },
+      "applicability_dimensions": [
+        {"dimension": "catalyst_and_active_state", "value": "unknown", "rationale": "Replace after exact review."},
+        {"dimension": "computational_protocol_and_validation", "value": "unknown", "rationale": "Replace after exact review."},
+        {"dimension": "coordination_ion_pair_additives_and_solvent", "value": "unknown", "rationale": "Replace after exact review."},
+        {"dimension": "elementary_step_and_atom_correspondence", "value": "unknown", "rationale": "Replace after exact review."},
+        {"dimension": "experimental_conditions", "value": "unknown", "rationale": "Replace after exact review."},
+        {"dimension": "atom_inventory_charge_multiplicity_and_spin", "value": "unknown", "rationale": "Replace after exact review."},
+        {"dimension": "net_transformation", "value": "unknown", "rationale": "Replace after exact review."},
+        {"dimension": "stereochemical_channel", "value": "unknown", "rationale": "Replace after exact review."},
+        {"dimension": "substrate_electronics_sterics_and_groups", "value": "unknown", "rationale": "Replace after exact review."}
+      ],
+      "mismatches": [],
+      "alternative_explanations": ["Replace with at least one reviewed alternative."],
+      "confidence": "unknown",
+      "reviewer_decision": "retained",
+      "bounded_use": "matrix_comparison_only",
+      "blockers": [],
+      "notes": ["Sanitized template only; no publication, structure, or mechanism claim is represented."]
+    }
+  ],
+  "coverage": {
+    "excluded_edge_channels": [],
+    "matrix_complete": true,
+    "absent_evidence_explicit": true,
+    "rationale": "Replace after every owner edge/channel and row-by-support-record intersection is accounted for."
+  },
+  "row_promotion_reviews": [
+    {
+      "row_id": "replace_row_id",
+      "disposition": "unresolved",
+      "rationale": "Template remains unresolved until exact evidence-gate-compatible review.",
+      "reviewed_by": "replace_reviewer",
+      "reviewed_at": "1970-01-01T00:00:00+00:00"
+    }
+  ],
+  "supersedes": null,
+  "review_decision": "blocked",
+  "reviewer": "replace_reviewer",
+  "reviewed_at": "1970-01-01T00:00:00+00:00",
+  "review_notes": ["Sanitized blocked template; replace all placeholders before build."]
+}

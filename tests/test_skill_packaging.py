@@ -41,6 +41,22 @@ class SkillPackagingTests(unittest.TestCase):
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
         )
         self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/mechanism-support-matrix.schema.json")],
+            ROOT / "contracts/reaction-workflow/mechanism-support-matrix.schema.json",
+        )
+        self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/mechanism-support-matrix-review.schema.json")],
+            ROOT / "contracts/reaction-workflow/mechanism-support-matrix-review.schema.json",
+        )
+        self.assertEqual(
+            reaction[Path("scripts/mechanism_support_matrix.py")],
+            ROOT / "skills/auto-g16-reaction-workflow/scripts/mechanism_support_matrix.py",
+        )
+        self.assertEqual(
+            reaction[Path("references/mechanism-support-matrix-contract.md")],
+            ROOT / "skills/auto-g16-reaction-workflow/references/mechanism-support-matrix-contract.md",
+        )
+        self.assertEqual(
             asymmetric[Path("scripts/validate_asymmetric_contract.py")],
             ROOT / "scripts/validate_asymmetric_contract.py",
         )
@@ -167,6 +183,22 @@ class SkillPackagingTests(unittest.TestCase):
             )
             self.assertEqual(help_result.returncode, 0, help_result.stdout + help_result.stderr)
             self.assertIn("export-targets", help_result.stdout)
+            matrix = installed / "auto-g16-reaction-workflow/scripts/mechanism_support_matrix.py"
+            matrix_help = subprocess.run(
+                [sys.executable, str(matrix), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(matrix_help.returncode, 0, matrix_help.stdout + matrix_help.stderr)
+            self.assertIn("mechanism-support matrix", matrix_help.stdout)
+            self.assertTrue(
+                (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/mechanism-support-matrix.schema.json").is_file()
+            )
+            self.assertTrue(
+                (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/mechanism-support-matrix-review.schema.json").is_file()
+            )
             observation = ADAPTER._finalize(
                 {
                     "schema": ADAPTER.SANITIZED_JOB_SCHEMA,

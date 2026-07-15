@@ -52,6 +52,11 @@ All notable public release changes are recorded here. The project follows
   location hashes; complete edge/channel scientific review; preserved negative
   evidence; and separate hypothesis-exploration and mechanism-claim-support
   decisions.
+- A separate closed standard-library-only
+  `gaussian-reaction-mechanism-support-matrix/1` view with exact owner-support,
+  mechanism-network and immutable-review bindings; complete row-by-support-
+  record coverage; native-cell anti-forgery checks; explicit exclusions and
+  supersession; and evidence-gate-compatible downstream review targets.
 - Exact mechanism-support binding in `gaussian-ts-precedent-map/1` plus a
   source-free de novo endpoint/QST, scan or reviewed-rebuild planning path for
   exploration-eligible novel hypotheses.
@@ -82,6 +87,10 @@ All notable public release changes are recorded here. The project follows
   `novel_hypothesis_no_direct_precedent` evidence gap rather than automatic
   exclusion from reviewed computational exploration. Analogy and internal
   rationale still do not support or validate a mechanism claim.
+- Reserve `gaussian-reaction-mechanism-support/1` for the merged evidence gate.
+  Experimental PR #19 matrix semantics migrate only by an explicit rebuild
+  into `gaussian-reaction-mechanism-support-matrix/1`; historical immutable
+  artifacts are not renamed, aliased, or rewritten.
 
 ### Safety
 
@@ -93,7 +102,7 @@ All notable public release changes are recorded here. The project follows
   render an input, create a server project or job, or perform Gaussian, SSH,
   PBS, submission, retry, cancellation, deletion, deployment, or other live
   action.
-- Mechanism-support and TS-planning artifacts remain
+- Mechanism-support, mechanism-support-matrix and TS-planning artifacts remain
   `calculation_ready: false` and `no_submission_authorization: true`; de novo
   plans contain no source precedent or source coordinates and grant no method,
   Gaussian, PBS, deployment or live authority.

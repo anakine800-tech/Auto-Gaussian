@@ -105,7 +105,7 @@ The intended ownership is:
 | structure and scheme intake | `auto-g16-chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
 | 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
 | reusable knowledge databases | `auto-g16-knowledge-base` | implemented W2A contracts plus W2B-1 store/index/query and W2B-2 reviewed import, lawful-object ingestion and redacted JSON export; future authenticated service enforcement and chemical search |
-| reaction-study orchestration | `auto-g16-reaction-workflow` plus future specialist adapters | implemented species registry, condition model, mechanism network, support gate, TS planning, non-executable calculation plan and read-only study index; future evidence/execution adapters |
+| reaction-study orchestration | `auto-g16-reaction-workflow` plus future specialist adapters | implemented species registry, condition model, mechanism network, support gate, distinct support-matrix view, TS planning, non-executable calculation plan and read-only study index; future evidence/execution adapters |
 | literature evidence and TS precedent | `auto-g16-reaction-literature` plus `auto-g16-reaction-workflow` | implemented reproducible search/evidence, exact edge/channel mechanism support, TS-precedent translation and source-free de novo planning; geometry construction remains future |
 | asymmetric-catalysis domain | `auto-g16-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
 | protocol selection | `auto-g16-rtwin-pbs` protocol gate | reviewed `loose`/`standard`/`strict` candidates and explicit selection |
@@ -266,8 +266,9 @@ transformation, elementary step, catalyst state, atom inventory, charge/spin,
 coordination, stereochemical approach, conditions, and protocol; do not hide
 those judgments inside one similarity score.
 
-Translate accepted evidence into two reviewed proposals: a mechanism-support
-matrix and a TS-precedent/de novo map. Keep hypothesis exploration separate
+Translate accepted evidence into the owner mechanism-support evidence gate, an
+optional distinct mechanism-support comparison matrix, and a TS-precedent/de
+novo map. Keep hypothesis exploration separate
 from mechanism-claim support. A genuinely novel, reviewed edge may be
 exploration-eligible without a direct precedent when its bookkeeping, active-
 state assumptions, alternatives, uncertainties, contradictions and falsifiers
@@ -650,7 +651,8 @@ roadmap rather than implied current capabilities:
 | `auto-g16-knowledge-snapshot/1` | immutable exact record revisions, queries, decisions, access redactions and gaps used by one reaction study |
 | `gaussian-reaction-literature-query/1` | decomposed target, exact search strings/providers/dates/filters, search-ladder coverage, access limits and inclusion/exclusion decisions |
 | `gaussian-reaction-literature-evidence/1` | primary/SI source identity and anchors, extracted computational/mechanistic facts, geometry data, contradictory evidence and extraction confidence |
-| `gaussian-reaction-mechanism-support/1` | implemented exact edge/channel evidence-gate record with decomposed applicability and separate reviewed hypothesis-exploration versus mechanism-claim-support decisions; it never validates a mechanism claim |
+| `gaussian-reaction-mechanism-support/1` | owner evidence gate with exact edge/channel records, direct/analogous/contradictory status, decomposed applicability, independent exploration and claim-support decisions, and no mechanism validation |
+| `gaussian-reaction-mechanism-support-matrix/1` | implemented downstream row-by-support-record comparison view; binds the exact owner gate/network/review, preserves owner blockers and exposes no executable DAG node or calculation authority |
 | `gaussian-ts-precedent-map/1` | source-to-target atom correspondence, TS topology/geometry evidence, transferable versus rebuilt features, seed-strategy proposal and uncertainty |
 | `gaussian-reaction-mechanism-network/1` | implemented reviewed complete-state nodes, elementary-step edges, exact atom maps, competing networks, reference basins, catalyst-projection closure and mandatory evidence blockers |
 | `gaussian-reaction-study-index/1` | implemented immutable read-only resume view over exact artifact bindings, stage gates, coverage, supersession, blockers, and next safe offline action |
@@ -827,9 +829,9 @@ or Gaussian job.
   imaginary mode, IRC/endpoints, key geometry, coordinates and omissions;
 - decomposed target/precedent applicability across reaction, catalyst,
   atom inventory, charge/spin, coordination, conditions and protocol;
-- evidence-to-mechanism support matrices, independent exploration/claim gates,
-  source-to-target TS precedent maps and source-free de novo plans with stable
-  atom IDs and explicit uncertainty; and
+- an owner evidence-to-mechanism support gate, a separate complete comparison
+  matrix that cannot weaken that gate, source-to-target TS precedent maps and
+  source-free de novo plans with stable atom IDs and explicit uncertainty; and
 - correction/retraction handling, source drift, supersession, frozen fixtures,
   semantic validation and fail-closed behavior.
 

@@ -371,6 +371,31 @@ mechanism-validated. Direct evidence, analogy, internal rationale,
 contradictions and missing precedent remain distinct. Every output remains
 offline and non-authorizing.
 
+### Optional mechanism-support matrix view
+
+Use this only after the exact owner-validated
+`gaussian-reaction-mechanism-support/1` artifact exists and a separate human-
+authored matrix review is complete. Read
+[references/mechanism-support-matrix-contract.md](references/mechanism-support-matrix-contract.md),
+then run:
+
+```bash
+MATRIX_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/mechanism_support_matrix.py"
+
+python3 "$MATRIX_TOOL" build mechanism-support.json \
+  --review mechanism-support-matrix-review.json \
+  --output mechanism-support-matrix.json
+python3 "$MATRIX_TOOL" validate mechanism-support-matrix.json
+```
+
+`gaussian-reaction-mechanism-support-matrix/1` is a distinct comparison view,
+not a new version or alias of the evidence gate. Its rows and cross-evidence
+cells cannot change owner support records or either owner decision. A matrix
+row becomes downstream-reviewable only when its reviewed comparison disposition
+and the unchanged owner exploration gate both permit another offline review.
+It never proves a mechanism, creates a TS seed or executable DAG node, selects
+a protocol, authorizes calculation, or mutates an upstream artifact.
+
 ### Optional reviewed TS-precedent and de novo seed map
 
 Invoke this only after an immutable W1 chain, reviewed mechanism-network
@@ -433,6 +458,9 @@ make the mechanism claim literature-supported or validated.
 - `references/mechanism-support-contract.md`: implemented immutable-parent,
   edge/channel evidence classification, independent exploration and claim-
   support decisions, contradiction handling and fail-closed rules.
+- `references/mechanism-support-matrix-contract.md`: separate immutable matrix-
+  view ownership, exact support/network binding, complete row-by-record
+  coverage, evidence-gate compatibility and explicit PR #19 migration rules.
 - `references/ts-precedent-map-contract.md`: implemented immutable-parent,
   atom-correspondence, geometry-transfer, strategy and fail-closed promotion
   rules for `gaussian-ts-precedent-map/1`.
@@ -443,6 +471,9 @@ make the mechanism claim literature-supported or validated.
   mechanism-network builder and validator; no calculation or live path.
 - `scripts/mechanism_support.py`: standard-library-only deterministic evidence
   classification and two-gate builder/validator; no calculation or live path.
+- `scripts/mechanism_support_matrix.py`: standard-library-only deterministic
+  comparison-view builder/validator over the exact owner support artifact; no
+  chemistry inference, DAG mutation, calculation or live path.
 - `scripts/ts_precedent_map.py`: standard-library-only deterministic TS
   precedent-map builder and validator; no coordinate or input construction.
 - `references/calculation-dag-contract.md`: implemented offline calculation-
@@ -458,5 +489,5 @@ make the mechanism claim literature-supported or validated.
   authority, refusal, energy-lineage and DAG-owned importer boundary.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry, condition-model, mechanism-network,
-  mechanism-support, TS-precedent-map, calculation-plan, study-index and the
-  calculation-artifact adapter family.
+  mechanism-support, mechanism-support-matrix review/output, TS-precedent-map,
+  calculation-plan, study-index and the calculation-artifact adapter family.
