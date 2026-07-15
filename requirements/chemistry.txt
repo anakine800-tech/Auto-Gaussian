@@ -1,0 +1,6 @@
+# Optional dependencies for ChemDraw parsing, depiction, and conformer paths.
+# The core offline audit and validation suite uses only the Python standard
+# library. Install this file only when the chemistry/depiction paths are used.
+numpy>=1.26
+Pillow>=10.0
+rdkit>=2023.9

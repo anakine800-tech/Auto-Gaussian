@@ -19,6 +19,17 @@ All notable public release changes are recorded here. The project follows
   exact lawful-object ingestion, exclusive non-overwriting apply, reviewed
   full/metadata-redacted JSON export, `no_export` exclusion, dependency-aware
   redaction downgrade, and transfer manifests.
+- A documented optional chemistry dependency set for the RDKit, Pillow and
+  NumPy paths.
+- CI coverage that extracts a GitHub-style source archive and runs the full
+  offline suite without relying on `.git` metadata.
+
+### Changed
+
+- Removed references to the retired long-lived integration branch; `main` is
+  protected and feature work is integrated through reviewed pull requests.
+- Made release-hygiene scanning work both in a Git checkout and in generated
+  source archives.
 
 ### Safety
 
