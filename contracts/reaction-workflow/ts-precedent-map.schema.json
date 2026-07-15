@@ -1,0 +1,385 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/ts-precedent-map.schema.json",
+  "title": "Auto-G16 Offline TS Precedent Map",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "reaction_intake", "species_registry", "condition_model",
+    "mechanism_network", "knowledge_snapshot", "literature_evidence", "review_source",
+    "mechanism_support", "records", "blockers", "review", "gate_status",
+    "candidate_construction_promotable", "calculation_ready",
+    "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-ts-precedent-map/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "reaction_intake": {"$ref": "#/$defs/artifactRef"},
+    "species_registry": {"$ref": "#/$defs/artifactRef"},
+    "condition_model": {"$ref": "#/$defs/artifactRef"},
+    "mechanism_network": {"$ref": "#/$defs/artifactRef"},
+    "knowledge_snapshot": {"$ref": "#/$defs/artifactRef"},
+    "literature_evidence": {"$ref": "#/$defs/artifactRef"},
+    "review_source": {"$ref": "#/$defs/fileRef"},
+    "mechanism_support": {"$ref": "#/$defs/mechanismSupport"},
+    "records": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/record"}},
+    "blockers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/blocker"}},
+    "review": {"$ref": "#/$defs/review"},
+    "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+    "candidate_construction_promotable": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "nullableString": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "stringArray": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "idArray": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+    "fileRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonempty"}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "artifactRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonempty"}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sourceLocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_type", "locator", "url_or_doi", "checked_at"],
+      "properties": {
+        "source_type": {"$ref": "#/$defs/nonempty"}, "locator": {"$ref": "#/$defs/nonempty"},
+        "url_or_doi": {"$ref": "#/$defs/nonempty"}, "checked_at": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "pair": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "transfer": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_id", "donor_atom_id", "acceptor_atom_id"],
+      "properties": {
+        "atom_id": {"$ref": "#/$defs/id"}, "donor_atom_id": {"$ref": "#/$defs/id"},
+        "acceptor_atom_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "edgeMap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from_atom_id", "to_atom_id"],
+      "properties": {"from_atom_id": {"$ref": "#/$defs/id"}, "to_atom_id": {"$ref": "#/$defs/id"}}
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "edge_id", "from_state_id", "to_state_id", "stereochemical_channel", "eligibility",
+        "eligibility_reviewed", "stereochemical_channel_reviewed", "forming_pairs",
+        "breaking_pairs", "transfers", "edge_atom_mapping"
+      ],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"}, "from_state_id": {"$ref": "#/$defs/id"},
+        "to_state_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/nullableString"},
+        "eligibility": {"enum": ["eligible", "ineligible", "blocked"]},
+        "eligibility_reviewed": {"const": true}, "stereochemical_channel_reviewed": {"const": true},
+        "forming_pairs": {"type": "array", "items": {"$ref": "#/$defs/pair"}},
+        "breaking_pairs": {"type": "array", "items": {"$ref": "#/$defs/pair"}},
+        "transfers": {"type": "array", "items": {"$ref": "#/$defs/transfer"}},
+        "edge_atom_mapping": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/edgeMap"}}
+      }
+    },
+    "dimension": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dimension", "value", "rationale", "source_anchor"],
+      "properties": {
+        "dimension": {"enum": [
+          "net_transformation", "elementary_step_and_atom_correspondence",
+          "substrate_electronics_sterics_and_groups", "catalyst_and_active_state",
+          "atom_inventory_charge_multiplicity_and_spin",
+          "coordination_ion_pair_additives_and_solvent", "stereochemical_channel",
+          "experimental_conditions", "computational_protocol_and_validation"
+        ]},
+        "value": {"enum": ["exact", "close", "remote", "contradictory", "unknown", "not_applicable"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}, "source_anchor": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "sourcePrecedent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "evidence_target", "source_location", "applicability_dimensions", "bounded_use", "relationship"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/nonempty"}, "evidence_target": {"$ref": "#/$defs/nonempty"},
+        "source_location": {"$ref": "#/$defs/sourceLocation"},
+        "applicability_dimensions": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"$ref": "#/$defs/dimension"}},
+        "bounded_use": {"enum": ["discovery_only", "mechanism_support", "ts_topology_support", "geometry_seed_support", "protocol_candidate_support", "not_applicable_to_target"]},
+        "relationship": {"enum": ["exact", "close", "remote", "unusable"]}
+      }
+    },
+    "sourceAtom": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_atom_id", "order_index", "element"],
+      "properties": {
+        "source_atom_id": {"$ref": "#/$defs/id"}, "order_index": {"type": "integer", "minimum": 1},
+        "element": {"anyOf": [{"type": "string", "pattern": "^[A-Z][a-z]?$"}, {"type": "null"}]}
+      }
+    },
+    "audits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity", "atom_order", "stereochemistry", "formal_charge", "multiplicity", "coordination"],
+      "properties": {
+        "identity": {"$ref": "#/$defs/auditStatus"}, "atom_order": {"$ref": "#/$defs/auditStatus"},
+        "stereochemistry": {"$ref": "#/$defs/auditStatus"}, "formal_charge": {"$ref": "#/$defs/auditStatus"},
+        "multiplicity": {"$ref": "#/$defs/auditStatus"}, "coordination": {"$ref": "#/$defs/auditStatus"}
+      }
+    },
+    "auditStatus": {"enum": ["reviewed", "not_available", "blocked"]},
+    "coordinateProvenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "evidence_candidate_id", "evidence_source_location", "source_object", "coordinate_block_anchor", "coordinates_copied"],
+      "properties": {
+        "status": {"enum": ["published_coordinates", "figure_or_topology", "not_available"]},
+        "evidence_candidate_id": {"$ref": "#/$defs/nullableString"},
+        "evidence_source_location": {"anyOf": [{"$ref": "#/$defs/sourceLocation"}, {"type": "null"}]},
+        "source_object": {"anyOf": [{"$ref": "#/$defs/fileRef"}, {"type": "null"}]},
+        "coordinate_block_anchor": {"$ref": "#/$defs/nullableString"},
+        "coordinates_copied": {"const": false}
+      },
+      "oneOf": [
+        {"properties": {
+          "status": {"const": "published_coordinates"},
+          "evidence_candidate_id": {"$ref": "#/$defs/nonempty"},
+          "evidence_source_location": {"$ref": "#/$defs/sourceLocation"},
+          "source_object": {"$ref": "#/$defs/fileRef"},
+          "coordinate_block_anchor": {"$ref": "#/$defs/nonempty"}
+        }},
+        {"properties": {
+          "status": {"const": "figure_or_topology"},
+          "evidence_candidate_id": {"$ref": "#/$defs/nonempty"},
+          "evidence_source_location": {"$ref": "#/$defs/sourceLocation"},
+          "source_object": {"type": "null"},
+          "coordinate_block_anchor": {"type": "null"}
+        }},
+        {"properties": {
+          "status": {"const": "not_available"},
+          "evidence_candidate_id": {"type": "null"},
+          "evidence_source_location": {"type": "null"},
+          "source_object": {"type": "null"},
+          "coordinate_block_anchor": {"type": "null"}
+        }}
+      ]
+    },
+    "sourceStructure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_order_review_status", "source_atoms", "audits", "coordinate_provenance"],
+      "properties": {
+        "atom_order_review_status": {"$ref": "#/$defs/auditStatus"},
+        "source_atoms": {"type": "array", "items": {"$ref": "#/$defs/sourceAtom"}},
+        "audits": {"$ref": "#/$defs/audits"}, "coordinate_provenance": {"$ref": "#/$defs/coordinateProvenance"}
+      }
+    },
+    "sourceMapping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_atom_id", "from_atom_id", "to_atom_id"],
+      "properties": {
+        "source_atom_id": {"$ref": "#/$defs/id"}, "from_atom_id": {"$ref": "#/$defs/id"},
+        "to_atom_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "targetContext": {
+      "type": "object", "additionalProperties": false,
+      "required": ["catalyst_state", "coordination", "ion_pair_additive_placement", "formal_charge", "multiplicity", "approach_topology", "facial_orientational_relationship", "conformer_family", "review_status", "rationale"],
+      "properties": {
+        "catalyst_state": {"$ref": "#/$defs/nonempty"}, "coordination": {"$ref": "#/$defs/nonempty"},
+        "ion_pair_additive_placement": {"$ref": "#/$defs/nonempty"}, "formal_charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1}, "approach_topology": {"$ref": "#/$defs/nonempty"},
+        "facial_orientational_relationship": {"$ref": "#/$defs/nonempty"}, "conformer_family": {"$ref": "#/$defs/nonempty"},
+        "review_status": {"enum": ["reviewed", "blocked"]}, "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "atomRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state_id", "atom_id"],
+      "properties": {"state_id": {"$ref": "#/$defs/id"}, "atom_id": {"$ref": "#/$defs/id"}}
+    },
+    "range": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum", "maximum"],
+      "properties": {"minimum": {"type": "number"}, "maximum": {"type": "number"}}
+    },
+    "geometryProvenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "source_location", "evidence_form"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/nonempty"}, "source_location": {"$ref": "#/$defs/sourceLocation"},
+        "evidence_form": {"enum": ["published_coordinates", "reported_value", "figure_or_topology", "reviewer_assessment"]}
+      }
+    },
+    "geometry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["geometry_item_id", "kind", "transfer_status", "descriptor", "value", "range", "unit", "atom_refs", "provenance", "applicability", "limitations"],
+      "properties": {
+        "geometry_item_id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["distance", "angle", "dihedral", "coordination_contact", "topology", "facial_relationship", "orientation", "conformer_family"]},
+        "transfer_status": {"enum": ["transferable", "rebuild_required"]},
+        "descriptor": {"$ref": "#/$defs/nullableString"},
+        "value": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+        "range": {"anyOf": [{"$ref": "#/$defs/range"}, {"type": "null"}]},
+        "unit": {"enum": ["angstrom", "degree", "not_applicable"]},
+        "atom_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atomRef"}},
+        "provenance": {"$ref": "#/$defs/geometryProvenance"},
+        "applicability": {"enum": ["exact", "close", "remote", "contradictory", "unknown", "not_applicable"]},
+        "limitations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}}
+      },
+      "oneOf": [
+        {"properties": {
+          "kind": {"enum": ["distance", "angle", "dihedral", "coordination_contact"]},
+          "transfer_status": {"const": "transferable"},
+          "descriptor": {"type": "null"},
+          "value": {"type": "number"},
+          "range": {"type": "null"}
+        }},
+        {"properties": {
+          "kind": {"enum": ["distance", "angle", "dihedral", "coordination_contact"]},
+          "transfer_status": {"const": "transferable"},
+          "descriptor": {"type": "null"},
+          "value": {"type": "null"},
+          "range": {"$ref": "#/$defs/range"}
+        }},
+        {"properties": {
+          "kind": {"enum": ["topology", "facial_relationship", "orientation", "conformer_family"]},
+          "transfer_status": {"const": "transferable"},
+          "descriptor": {"$ref": "#/$defs/nonempty"},
+          "value": {"type": "null"},
+          "range": {"type": "null"},
+          "unit": {"const": "not_applicable"}
+        }},
+        {"properties": {
+          "transfer_status": {"const": "rebuild_required"},
+          "descriptor": {"type": "null"},
+          "value": {"type": "null"},
+          "range": {"type": "null"}
+        }}
+      ]
+    },
+    "prerequisites": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "endpoint_state_ids", "geometry_item_ids", "source_object", "source_anchor", "reviewed_assertions", "notes"],
+      "properties": {
+        "status": {"enum": ["complete", "incomplete", "not_applicable"]},
+        "endpoint_state_ids": {"$ref": "#/$defs/idArray"}, "geometry_item_ids": {"$ref": "#/$defs/idArray"},
+        "source_object": {"anyOf": [{"$ref": "#/$defs/fileRef"}, {"type": "null"}]},
+        "source_anchor": {"$ref": "#/$defs/nullableString"},
+        "reviewed_assertions": {"$ref": "#/$defs/stringArray"}, "notes": {"$ref": "#/$defs/stringArray"}
+      },
+      "oneOf": [
+        {"properties": {"source_object": {"$ref": "#/$defs/fileRef"}, "source_anchor": {"$ref": "#/$defs/nonempty"}}},
+        {"properties": {"source_object": {"type": "null"}, "source_anchor": {"type": "null"}}}
+      ]
+    },
+    "applicabilityReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "rationale", "limitations"],
+      "properties": {
+        "status": {"enum": ["reviewed", "pending", "blocked"]}, "rationale": {"$ref": "#/$defs/nonempty"},
+        "limitations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}}
+      }
+    },
+    "promotionReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "rationale"],
+      "properties": {
+        "status": {"enum": ["pending", "approved", "rejected", "blocked"]},
+        "reviewer": {"$ref": "#/$defs/nullableString"}, "reviewed_at": {"$ref": "#/$defs/nullableString"},
+        "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "disposition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "promotion_review"],
+      "properties": {
+        "status": {"enum": ["proposed", "accepted_for_candidate_construction", "rejected", "blocked"]},
+        "promotion_review": {"$ref": "#/$defs/promotionReview"}
+      }
+    },
+    "record": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "precedent_id", "target", "source_precedent", "source_structure",
+        "source_to_target_atom_mapping", "target_context", "geometry_transfer",
+        "seed_strategy", "strategy_prerequisites", "applicability_review",
+        "uncertainties", "alternatives", "negative_evidence", "disposition", "blockers",
+        "notes", "promotion_requirements_complete", "candidate_construction_gate"
+      ],
+      "properties": {
+        "precedent_id": {"$ref": "#/$defs/id"}, "target": {"$ref": "#/$defs/target"},
+        "source_precedent": {"$ref": "#/$defs/sourcePrecedent"}, "source_structure": {"$ref": "#/$defs/sourceStructure"},
+        "source_to_target_atom_mapping": {"type": "array", "items": {"$ref": "#/$defs/sourceMapping"}},
+        "target_context": {"$ref": "#/$defs/targetContext"},
+        "geometry_transfer": {"type": "array", "items": {"$ref": "#/$defs/geometry"}},
+        "seed_strategy": {"enum": ["published_coordinates", "reviewed_structure_rebuild", "endpoint_qst_family", "relaxed_scan", "hessian_guided_guess", "unsupported"]},
+        "strategy_prerequisites": {"$ref": "#/$defs/prerequisites"},
+        "applicability_review": {"$ref": "#/$defs/applicabilityReview"},
+        "uncertainties": {"$ref": "#/$defs/stringArray"}, "alternatives": {"$ref": "#/$defs/stringArray"},
+        "negative_evidence": {"$ref": "#/$defs/stringArray"}, "disposition": {"$ref": "#/$defs/disposition"},
+        "blockers": {"$ref": "#/$defs/stringArray"}, "notes": {"$ref": "#/$defs/stringArray"},
+        "promotion_requirements_complete": {"type": "boolean"},
+        "candidate_construction_gate": {"enum": ["blocked_pending_mechanism_support", "not_promoted_by_disposition"]}
+      },
+      "allOf": [
+        {"oneOf": [
+          {"properties": {
+            "source_precedent": {"properties": {"bounded_use": {"enum": ["geometry_seed_support", "ts_topology_support"]}}},
+            "disposition": {"properties": {"status": {"const": "accepted_for_candidate_construction"}}},
+            "blockers": {"maxItems": 0}
+          }},
+          {"properties": {"disposition": {"properties": {"status": {"enum": ["proposed", "rejected", "blocked"]}}}}}
+        ]},
+        {"oneOf": [
+          {"properties": {
+            "source_precedent": {"properties": {"relationship": {"const": "unusable"}}},
+            "negative_evidence": {"minItems": 1}
+          }},
+          {"properties": {
+            "source_precedent": {"properties": {"relationship": {"enum": ["exact", "close", "remote"]}}},
+            "disposition": {"properties": {"status": {"enum": ["rejected", "blocked"]}}},
+            "negative_evidence": {"minItems": 1}
+          }},
+          {"properties": {
+            "source_precedent": {"properties": {"relationship": {"enum": ["exact", "close", "remote"]}}},
+            "disposition": {"properties": {"status": {"enum": ["proposed", "accepted_for_candidate_construction"]}}}
+          }}
+        ]}
+      ]
+    },
+    "blocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "scope", "description", "required_for"],
+      "properties": {
+        "blocker_id": {"$ref": "#/$defs/id"}, "scope": {"$ref": "#/$defs/nonempty"},
+        "description": {"$ref": "#/$defs/nonempty"}, "required_for": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}}
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {"decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]}, "notes": {"$ref": "#/$defs/stringArray"}}
+    },
+    "mechanismSupport": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "status", "candidate_construction_promotable"],
+      "properties": {
+        "schema": {"const": "gaussian-reaction-mechanism-support/1"},
+        "status": {"const": "unavailable_unimplemented"},
+        "candidate_construction_promotable": {"const": false}
+      }
+    }
+  }
+}

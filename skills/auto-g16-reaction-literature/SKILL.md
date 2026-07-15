@@ -181,6 +181,7 @@ verified source locations, unresolved evidence gaps, retraction/correction
 checks when applicable, and search limitations. State clearly when no direct
 precedent was found; absence from a finite search is not proof of absence.
 
-This version implements the planned query and evidence stages. It does not emit
-`gaussian-reaction-mechanism-support/1` or `gaussian-ts-precedent-map/1`; those
-remain separate reviewed extensions.
+This Skill implements the query and evidence stages. It does not emit
+`gaussian-reaction-mechanism-support/1` or `gaussian-ts-precedent-map/1`.
+The separate offline TS-precedent-map builder is now owned by
+`auto-g16-reaction-workflow`; mechanism support remains unimplemented.
