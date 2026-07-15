@@ -62,6 +62,15 @@ perform a live action.
 
 `gaussian-ts-freq-result/1` holds termination/error evidence, stationary-point status, energy, frequencies, raw imaginary count, parsed displacement vectors, final geometry, candidate status, mode-review status, hashes, and diagnostics. Exactly one negative frequency makes `first_order_saddle_candidate` true only when normal/stationary/frequency evidence is also present.
 
+`classify_ts_freq_result_facts` and `classify_ts_freq_terminal_facts` are the
+pure specialist replay boundary for parser status, first-order/mode-review
+eligibility, terminal outcome/acceptance and next-required-artifact facts.
+Downstream adapters must compare with those values rather than reclassify
+them. `validate_mode_review_geometry` owns arithmetic consistency between the
+sole parsed imaginary mode, final coordinates, displacement coverage,
+elements/atomic numbers, amplitude and any distance projections. That check
+does not decide whether the motion is the intended reaction coordinate.
+
 `gaussian-ts-mode-review/1` is an immutable evidence artifact bound to the TS-result SHA-256. Its plus/minus XYZ files are immutable visualization sources. On RTwin, derive a hash-bound, non-runnable MOL preview with `auto-g16-view-rt-win`; never disguise an XYZ displacement as a runnable Gaussian input, and never accept process-start evidence without document-level load confirmation. `gaussian-ts-mode-decision/1` is a separate, explicitly confirmed record bound to both the review and TS-result hashes. Never mutate the TS result or mode-review artifact to record acceptance. A changed source hash invalidates the decision.
 
 For a same-input `Opt ... Freq` calculation, parse only a post-terminal fetch. The Opt stage can write one normal termination before the Freq stage begins; a live Gaussian process takes precedence over that intermediate marker.

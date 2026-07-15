@@ -21,6 +21,16 @@ transition-metal M1/M2 observation and review contracts while preserving the
 unconditional metal runtime refusal. These layers retain their individual
 scientific and live-action approval gates.
 
+The current unreleased source also contains the first offline calculation-
+artifact adapter slice: immutable candidate-target imports, exact reviewed
+closed-shell main-group TS/Freq input handoffs, blocked/electronic-only energy
+lineage, and observation-only attempt links that bind the exact handoff, job
+observation, terminal intake, parsed result, mode review, and scientific
+decision. Standalone validation reconstructs derived facts rather than trusting
+a newly rehashed document. It does not implement or mutate a calculation DAG
+and grants no staging, submission, retry, cleanup, deployment, or live-smoke
+authority.
+
 `main` is the stable release branch. Feature work uses short-lived `codex/`
 branches and reaches `main` only through reviewed pull requests with the
 required offline checks passing.
@@ -52,8 +62,8 @@ retain their existing names for compatibility and provenance.
   species registry, balance review, condition-to-model decisions, reviewed
   mechanism-network hypotheses, edge/channel mechanism-support classification,
   independent exploration and claim-support gates, and TS-precedent/de novo
-  seed planning. Its artifacts explicitly grant no calculation or live
-  authorization.
+  seed planning, plus a narrow exact-reviewed calculation-artifact adapter.
+  Its artifacts explicitly grant no calculation or live authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
   screening, evidence templates and fail-closed source-review validation. It
@@ -168,9 +178,11 @@ python3 -m unittest discover -s tests -v
    with the calculation-DAG and evidence-index layer.
    Existing Skills remain specialist components rather than a monolithic
    automatic mechanism generator.
-5. Connect candidate/protocol/input and result/energy adapters, then validate a
+5. Extend the implemented first candidate/protocol/input and electronic-only
+   result/energy adapter slice only through reviewed contracts; then validate a
    small closed-shell main-group reaction from ChemDraw through minima, TS,
-   path, and common-reference energy evidence.
+   path, and common-reference energy evidence. DAG node binding remains owned
+   by a future narrow DAG importer.
 6. Continue the refusal-preserving transition-metal M1–M3 design; the existing
    `auto-g16-ts-irc` transition-metal refusal must not be bypassed.
 7. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision. Its first IRC
@@ -189,7 +201,13 @@ Repository-wide operational rules are in `AGENTS.md`.
 ## Repository helpers
 
 - `config/*.example` contains placeholders only; real SSH/server configuration stays ignored.
-- `scripts/check_skill_sync.py` compares repository Skill hashes with installed copies.
+- `scripts/check_skill_sync.py` compares the exact named-Skill deployment
+  package, including manifest-mapped authoritative contracts, with installed
+  copies.
+- `scripts/sync_named_skill.py` prints a no-write named-Skill deployment plan
+  by default and applies it only with `--apply --confirmed --plan-sha256
+  <REVIEWED_HASH>`; it refuses symlinks, path escape and implicit deletion of
+  unexpected installed files.
 - `templates/g16_job.pbs.template` preserves the SDL-only work/scratch guard for review and testing.
 
 ## License

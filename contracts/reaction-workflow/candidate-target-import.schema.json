@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/candidate-target-import.schema.json",
+  "title": "Gaussian candidate target import envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "import_id", "study_id", "comparison_group_id", "study_source", "ledger_source", "targets", "excluded_combinations", "counts", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-candidate-target-import/1"},
+    "import_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "comparison_group_id": {"$ref": "#/$defs/id"},
+    "study_source": {"$ref": "#/$defs/artifact"},
+    "ledger_source": {"$ref": "#/$defs/artifact"},
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["external_target_key", "source_entry_sha256", "source_disposition", "candidate_id", "candidate_support_status", "candidate_review_status", "duplicate_of_external_key", "artifact_roles", "dependency_external_keys", "readiness_facts", "source_diagnostics"],
+        "properties": {
+          "external_target_key": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{2,255}$"},
+          "source_entry_sha256": {"$ref": "#/$defs/sha256"},
+          "source_disposition": {"enum": ["unmaterialized", "duplicate_logical", "materialized_unique", "duplicate_geometry"]},
+          "candidate_id": {"$ref": "#/$defs/id"},
+          "candidate_support_status": {"type": ["string", "null"]},
+          "candidate_review_status": {"type": ["string", "null"]},
+          "duplicate_of_external_key": {"anyOf": [{"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{2,255}$"}, {"type": "null"}]},
+          "artifact_roles": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["role", "artifact"],
+              "properties": {
+                "role": {"enum": ["candidate_ledger", "study", "candidate", "geometry", "review_decision"]},
+                "artifact": {"$ref": "#/$defs/artifact"}
+              }
+            }
+          },
+          "dependency_external_keys": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{2,255}$"}},
+          "readiness_facts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["materialized", "supported_main_group_closed_shell", "promoted_offline", "exact_geometry_bound", "closed_shell_singlet", "wavefunction_scope_supported", "geometry_reviews_complete", "v1_elements_supported", "eligible_for_later_input_review", "blockers"],
+            "properties": {
+              "materialized": {"type": "boolean"},
+              "supported_main_group_closed_shell": {"type": "boolean"},
+              "promoted_offline": {"type": "boolean"},
+              "exact_geometry_bound": {"type": "boolean"},
+              "closed_shell_singlet": {"type": "boolean"},
+              "wavefunction_scope_supported": {"type": "boolean"},
+              "geometry_reviews_complete": {"type": "boolean"},
+              "v1_elements_supported": {"type": "boolean"},
+              "eligible_for_later_input_review": {"type": "boolean"},
+              "blockers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+            }
+          },
+          "source_diagnostics": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "excluded_combinations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_index", "source_record_sha256", "source_record_canonical_json"],
+        "properties": {
+          "source_index": {"type": "integer", "minimum": 0},
+          "source_record_sha256": {"$ref": "#/$defs/sha256"},
+          "source_record_canonical_json": {"type": "string", "minLength": 3}
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targets", "eligible_for_later_input_review", "excluded_combinations", "by_source_disposition"],
+      "properties": {
+        "targets": {"type": "integer", "minimum": 0},
+        "eligible_for_later_input_review": {"type": "integer", "minimum": 0},
+        "excluded_combinations": {"type": "integer", "minimum": 0},
+        "by_source_disposition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["unmaterialized", "duplicate_logical", "materialized_unique", "duplicate_geometry"],
+          "properties": {
+            "unmaterialized": {"type": "integer", "minimum": 0},
+            "duplicate_logical": {"type": "integer", "minimum": 0},
+            "materialized_unique": {"type": "integer", "minimum": 0},
+            "duplicate_geometry": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"type": ["string", "null"]},
+        "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+      }
+    }
+  }
+}

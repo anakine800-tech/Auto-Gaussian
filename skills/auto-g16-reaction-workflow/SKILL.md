@@ -1,6 +1,6 @@
 ---
 name: auto-g16-reaction-workflow
-description: Build the offline, hash-bound foundation of a whole Gaussian reaction study from a reviewed ChemDraw reaction package. Use when Codex must scope a reaction-computation study, convert strict reaction transcription into a reaction intake, bind every drawn reactant/product to a reviewed species registry, map every condition to an explicit computational treatment or blocker, or report why a reaction is not ready for mechanism or calculation planning. This Skill does not infer mechanisms, choose methods, generate Gaussian inputs, or authorize live work.
+description: Build the offline, hash-bound foundation of a whole Gaussian reaction study from a reviewed ChemDraw reaction package, and create narrow immutable calculation-artifact handoffs only from exact reviewed candidate, protocol, input-draft, and specialist-result artifacts. Use when Codex must scope a reaction-computation study, bind reaction/species/condition records, export candidate-target envelopes, reproduce an explicitly reviewed closed-shell main-group input, or project blocked/electronic-only energy lineage. This Skill never infers mechanisms or methods and never authorizes live work.
 ---
 
 # Auto-G16 Reaction Workflow
@@ -142,6 +142,75 @@ an ordering blocker, not a claim that the child builder is unimplemented.
 Network output remains `calculation_ready: false` and grants no mechanism
 promotion, calculation DAG, protocol, Gaussian input, or live authority.
 
+### Optional reviewed calculation-artifact adapter
+
+Use this only after the exact upstream candidate, protocol, input review, or
+specialist result artifacts already exist. Read
+[references/calculation-artifact-adapter-contract.md](references/calculation-artifact-adapter-contract.md)
+before use.
+
+This adapter is currently unreleased repository source and has not been
+deployed. Run these commands from the repository root during development.
+Named deployment must use the repository's reviewed
+`scripts/sync_named_skill.py` plan/apply flow: this Skill's closed
+`deployment-package.json` maps the authoritative reaction-workflow contracts,
+while the asymmetric-catalysis owner's manifest maps its exact validator and
+schemas. Direct directory copying is not a complete deployment package.
+
+```bash
+ADAPTER="skills/auto-g16-reaction-workflow/scripts/calculation_artifacts.py"
+
+python3 "$ADAPTER" export-targets candidate-ledger.json \
+  --study asymmetric-study.json --import-id reviewed_target_import \
+  --output candidate-target-import.json
+
+python3 "$ADAPTER" build-input-handoff promoted-candidate.json \
+  --study asymmetric-study.json --options protocol-options.json \
+  --selection protocol-selection.json --review exact-input-review.json \
+  --output-input reviewed-ts.gjf \
+  --output-manifest reviewed-ts.handoff.json
+
+python3 "$ADAPTER" project-energy promoted-candidate.json parsed-ts-result.json \
+  --review energy-review.json --output-record reviewed-energy.json \
+  --output-lineage energy-lineage.json
+
+python3 "$ADAPTER" link-attempt \
+  --external-target-key asymmetric_candidate:study_id:candidate_id \
+  --input-handoff reviewed-ts.handoff.json \
+  --sanitized-job sanitized-job-observation.json \
+  --terminal-intake terminal-intake.json --parsed-result parsed-ts-result.json \
+  --mode-review ts-mode-review.json --scientific-decision ts-mode-decision.json \
+  --attempt-link-id reviewed_attempt_link --output calculation-attempt-link.json
+
+python3 "$ADAPTER" validate candidate-target-import.json
+python3 "$ADAPTER" validate reviewed-ts.handoff.json
+python3 "$ADAPTER" validate energy-lineage.json
+python3 "$ADAPTER" validate calculation-attempt-link.json
+```
+
+Validate an energy projection through its lineage sidecar. The bare reviewed
+energy record intentionally has no standalone source pointers and is refused
+by `validate`.
+
+Version 1 accepts only one explicit-Cartesian, restricted closed-shell,
+main-group, single-guess TS/Freq family. It delegates final input syntax to
+`auto-g16-rtwin-pbs`, delegates single-guess family checks to
+`auto-g16-ts-irc`, and also delegates parsed-result/terminal classification
+and mode-review geometry consistency to that specialist's
+`classify_ts_freq_result_facts`, `classify_ts_freq_terminal_facts`, and
+`validate_mode_review_geometry` helpers. Attempt linkage also requires parsed
+contiguous indices and ordered elements to match the handoff's reviewed atom
+order; parsed results do not carry source atom IDs. It consumes rather than
+reparses specialist TS result and scientific-review JSON. Metal, open-shell,
+QST, IRC, AllCheck/Check,
+`Guess=Read`, Link1, general-basis/ECP and non-empty trailing-section variants
+remain refused.
+
+The output `.gjf` is only a reproducible offline handoff. Every companion,
+target, energy, and observation artifact keeps `calculation_ready: false` and
+`no_submission_authorization: true`. The adapter has no stage, submit, retry,
+cancel, cleanup, DAG mutation, or resume command.
+
 ### 5. Preserve the W2 knowledge and literature gates
 
 The second scientific-modeling round must first query a reviewed reusable
@@ -264,6 +333,12 @@ make the mechanism claim literature-supported or validated.
   classification and two-gate builder/validator; no calculation or live path.
 - `scripts/ts_precedent_map.py`: standard-library-only deterministic TS
   precedent-map builder and validator; no coordinate or input construction.
+- `scripts/calculation_artifacts.py`: standard-library-only target-import,
+  exact input-handoff, blocked/electronic-only energy-lineage and immutable
+  attempt-link adapters; no live path.
+- `references/calculation-artifact-adapter-contract.md`: exact source,
+  authority, refusal, energy-lineage and future DAG-owned importer contract.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry, condition-model, mechanism-network,
-  mechanism-support and TS-precedent-map artifacts.
+  mechanism-support, TS-precedent-map and the calculation-artifact adapter
+  family.

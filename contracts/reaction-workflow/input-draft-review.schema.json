@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/input-draft-review.schema.json",
+  "title": "Exact Gaussian input draft review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "review_id", "workflow_kind", "candidate_id", "protocol_id", "sources", "identity", "link0", "route", "resources", "title", "trailing_sections", "expected_input_sha256", "decision", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-input-draft-review/1"},
+    "review_id": {"$ref": "#/$defs/id"},
+    "workflow_kind": {"const": "closed_shell_main_group_single_guess_ts_freq"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "protocol_id": {"$ref": "#/$defs/id"},
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["study", "candidate", "geometry", "protocol_options", "protocol_selection"],
+      "properties": {
+        "study": {"$ref": "#/$defs/artifact"},
+        "candidate": {"$ref": "#/$defs/artifact"},
+        "geometry": {"$ref": "#/$defs/artifact"},
+        "protocol_options": {"$ref": "#/$defs/artifact"},
+        "protocol_selection": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "identity": {"$ref": "#/$defs/identity"},
+    "link0": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chk", "mem", "nprocshared"],
+      "properties": {
+        "chk": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.chk$"},
+        "mem": {"type": "string", "minLength": 2},
+        "nprocshared": {"type": "integer", "minimum": 1, "maximum": 44}
+      }
+    },
+    "route": {"type": "string", "pattern": "^#", "minLength": 3},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_tier", "memory_gb", "cores", "expected_stage_count"],
+      "properties": {
+        "resource_tier": {"enum": ["simple", "general", "complex", "custom_reviewed"]},
+        "memory_gb": {"type": "number", "exclusiveMinimum": 0},
+        "cores": {"type": "integer", "minimum": 1, "maximum": 44},
+        "expected_stage_count": {"const": 1}
+      }
+    },
+    "title": {"type": "string", "minLength": 1},
+    "trailing_sections": {"type": "array", "maxItems": 0},
+    "expected_input_sha256": {"$ref": "#/$defs/sha256"},
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_on", "explicit_confirmation", "notes"],
+      "properties": {
+        "status": {"const": "accepted_exact_draft"},
+        "reviewer": {"type": "string", "minLength": 1},
+        "reviewed_on": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "explicit_confirmation": {"const": true},
+        "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": ["string", "null"]}, "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}}
+    },
+    "identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["formula", "element_counts", "atom_count", "atom_order", "charge", "multiplicity"],
+      "properties": {
+        "formula": {"type": "string", "minLength": 1},
+        "element_counts": {"type": "object", "minProperties": 1, "propertyNames": {"pattern": "^[A-Z][a-z]?$"}, "additionalProperties": {"type": "integer", "minimum": 1}},
+        "atom_count": {"type": "integer", "minimum": 1},
+        "atom_order": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["index", "element", "source_atom_id"], "properties": {"index": {"type": "integer", "minimum": 1}, "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"}, "source_atom_id": {"type": "string", "minLength": 1}}}},
+        "charge": {"type": "integer"},
+        "multiplicity": {"const": 1}
+      }
+    }
+  }
+}

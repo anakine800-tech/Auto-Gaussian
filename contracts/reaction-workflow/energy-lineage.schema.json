@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/energy-lineage.schema.json",
+  "title": "Exact energy projection lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "lineage_id", "candidate_id", "sources", "projected_fields", "omitted_fields", "specialist_classification_preserved", "comparison_eligible", "blockers", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-energy-lineage/1"},
+    "lineage_id": {"$ref": "#/$defs/id"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "sources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate", "parsed_result", "energy_review", "mode_review", "scientific_decision", "energy_record"],
+      "properties": {"candidate": {"$ref": "#/$defs/artifact"}, "parsed_result": {"$ref": "#/$defs/artifact"}, "energy_review": {"$ref": "#/$defs/artifact"}, "mode_review": {"anyOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]}, "scientific_decision": {"anyOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]}, "energy_record": {"$ref": "#/$defs/artifact"}}
+    },
+    "projected_fields": {"type": "array", "maxItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["source", "target", "unit"], "properties": {"source": {"const": "parsed_result.final_energy_hartree"}, "target": {"const": "energy.electronic_energy.value"}, "unit": {"const": "hartree"}}}},
+    "omitted_fields": {"type": "array", "minItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["field", "reason"], "properties": {"field": {"enum": ["thermal_gibbs_correction", "comparison_free_energy"]}, "reason": {"type": "string", "minLength": 1}}}},
+    "specialist_classification_preserved": {"const": true},
+    "comparison_eligible": {"const": false},
+    "blockers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "sources": {
+          "properties": {
+            "mode_review": {"type": "null"},
+            "scientific_decision": {"type": "null"}
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "sources": {
+          "properties": {
+            "mode_review": {"$ref": "#/$defs/artifact"},
+            "scientific_decision": {"$ref": "#/$defs/artifact"}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": ["string", "null"]}, "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}}}
+  }
+}

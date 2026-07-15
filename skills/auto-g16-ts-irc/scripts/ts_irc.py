@@ -999,6 +999,73 @@ def parse_modes(text: str) -> tuple[list[dict[str, Any]], list[str]]:
     return modes, diagnostics
 
 
+def classify_ts_freq_result_facts(result: dict[str, Any]) -> dict[str, Any]:
+    """Reproduce parser-owned status and first-order-candidate classifications."""
+    normal_count = result["normal_termination_count"]
+    error_count = result["error_termination_count"]
+    frequency_count = result["frequency_count"]
+    imaginary_count = result["raw_imaginary_frequency_count"]
+    status = (
+        "completed"
+        if normal_count > 0 and error_count == 0
+        else "failed"
+        if error_count > 0
+        else "incomplete"
+    )
+    candidate = bool(
+        normal_count > 0
+        and error_count == 0
+        and result["stationary_point_found"]
+        and result["optimization_completed"]
+        and frequency_count > 0
+        and imaginary_count == 1
+    )
+    return {
+        "status": status,
+        "first_order_saddle_candidate": candidate,
+        "mode_review_status": "pending" if candidate else "not_eligible",
+    }
+
+
+def classify_ts_freq_terminal_facts(
+    *,
+    job_state: str,
+    error_termination_count: int,
+    optimization_completed: bool,
+    stationary_point_found: bool,
+    atom_count: int,
+    expected_atom_count: int,
+    frequency_count: int,
+    expected_frequency_count: int,
+    raw_imaginary_frequency_count: int,
+) -> dict[str, Any]:
+    """Reproduce terminal-intake outcome and downstream-artifact classifications."""
+    if error_termination_count or job_state != "completed":
+        outcome = "error_or_interrupted_termination"
+    elif not optimization_completed or not stationary_point_found or atom_count != expected_atom_count:
+        outcome = "nonstationary_or_incomplete"
+    elif frequency_count != expected_frequency_count:
+        outcome = "incomplete_frequency_analysis"
+    elif raw_imaginary_frequency_count == 0:
+        outcome = "zero_imaginary_modes"
+    elif raw_imaginary_frequency_count > 1:
+        outcome = "multiple_imaginary_modes"
+    else:
+        outcome = "ready_for_manual_mode_review"
+    ready = outcome == "ready_for_manual_mode_review"
+    return {
+        "outcome": outcome,
+        "acceptance_status": "manual_review_required" if ready else "not_accepted",
+        "first_order_saddle_candidate": ready,
+        "mode_review_status": "pending" if ready else "not_eligible",
+        "next_required_artifacts": [
+            "gaussian-ts-freq-result/1",
+            "gaussian-ts-mode-review/1",
+            "gaussian-ts-mode-decision/1",
+        ] if ready else [],
+    }
+
+
 def analyze_ts_log_text(text: str) -> dict[str, Any]:
     energy = re.findall(r"SCF Done:\s+E\([^)]*\)\s*=\s*([-+0-9.DEded]+)", text)
     revision = re.search(r"Gaussian 16,\s+Revision\s+([^,\r\n]+)", text)
@@ -1009,11 +1076,11 @@ def analyze_ts_log_text(text: str) -> dict[str, Any]:
     error_count = text.count("Error termination")
     stationary = "Stationary point found" in text
     optimization = "Optimization completed" in text
-    frequency_complete = bool(frequencies)
-    candidate = normal_count > 0 and error_count == 0 and stationary and optimization and frequency_complete and len(negative) == 1
     if len(negative) == 1 and not negative[0]["displacements"]:
         diagnostics.append("imaginary mode has no displacement table")
-    return {"schema": "gaussian-ts-freq-result/1", "status": "completed" if normal_count and not error_count else "failed" if error_count else "incomplete", "g16_revision": revision.group(1).strip() if revision else None, "normal_termination_count": normal_count, "error_termination_count": error_count, "optimization_completed": optimization, "stationary_point_found": stationary, "final_energy_hartree": _float(energy[-1]) if energy else None, "frequency_count": len(frequencies), "frequencies_cm-1": frequencies, "raw_imaginary_frequency_count": len(negative), "imaginary_modes": negative, "final_coordinates": _last_orientation(text), "first_order_saddle_candidate": candidate, "mode_review_status": "pending" if candidate else "not_eligible", "diagnostics": diagnostics}
+    result = {"schema": "gaussian-ts-freq-result/1", "g16_revision": revision.group(1).strip() if revision else None, "normal_termination_count": normal_count, "error_termination_count": error_count, "optimization_completed": optimization, "stationary_point_found": stationary, "final_energy_hartree": _float(energy[-1]) if energy else None, "frequency_count": len(frequencies), "frequencies_cm-1": frequencies, "raw_imaginary_frequency_count": len(negative), "imaginary_modes": negative, "final_coordinates": _last_orientation(text), "diagnostics": diagnostics}
+    result.update(classify_ts_freq_result_facts(result))
+    return result
 
 
 def terminal_template_payload_sha256(template: dict[str, Any]) -> str:
@@ -1163,23 +1230,21 @@ def ingest_terminal_artifacts(
     if template["task_kind"] == "ts_freq":
         parsed = analyze_ts_log_text(text)
         acceptance = template["acceptance_gate"]
-        geometry_complete = len(parsed["final_coordinates"]) == expected["atom_count"]
-        frequency_complete = parsed["frequency_count"] == acceptance["expected_frequency_count"]
-        if parsed["error_termination_count"] or job["status"] != "completed":
-            outcome = "error_or_interrupted_termination"
-        elif not parsed["optimization_completed"] or not parsed["stationary_point_found"] or not geometry_complete:
-            outcome = "nonstationary_or_incomplete"
-        elif not frequency_complete:
-            outcome = "incomplete_frequency_analysis"
-        elif parsed["raw_imaginary_frequency_count"] == 0:
-            outcome = "zero_imaginary_modes"
-        elif parsed["raw_imaginary_frequency_count"] > 1:
-            outcome = "multiple_imaginary_modes"
-        else:
-            outcome = "ready_for_manual_mode_review"
+        classification = classify_ts_freq_terminal_facts(
+            job_state=job["status"],
+            error_termination_count=parsed["error_termination_count"],
+            optimization_completed=parsed["optimization_completed"],
+            stationary_point_found=parsed["stationary_point_found"],
+            atom_count=len(parsed["final_coordinates"]),
+            expected_atom_count=expected["atom_count"],
+            frequency_count=parsed["frequency_count"],
+            expected_frequency_count=acceptance["expected_frequency_count"],
+            raw_imaginary_frequency_count=parsed["raw_imaginary_frequency_count"],
+        )
+        outcome = classification["outcome"]
         common.update(
             {
-                "acceptance_status": "manual_review_required" if outcome == "ready_for_manual_mode_review" else "not_accepted",
+                "acceptance_status": classification["acceptance_status"],
                 "outcome": outcome,
                 "scientific_evidence": {
                     "optimization_completed": parsed["optimization_completed"],
@@ -1192,15 +1257,11 @@ def ingest_terminal_artifacts(
                     "imaginary_frequencies_cm-1": [
                         mode["frequency_cm-1"] for mode in parsed["imaginary_modes"]
                     ],
-                    "first_order_saddle_candidate": outcome == "ready_for_manual_mode_review",
-                    "mode_review_status": "pending" if outcome == "ready_for_manual_mode_review" else "not_eligible",
+                    "first_order_saddle_candidate": classification["first_order_saddle_candidate"],
+                    "mode_review_status": classification["mode_review_status"],
                 },
                 "path_validated": False,
-                "next_required_artifacts": [
-                    "gaussian-ts-freq-result/1",
-                    "gaussian-ts-mode-review/1",
-                    "gaussian-ts-mode-decision/1",
-                ] if outcome == "ready_for_manual_mode_review" else [],
+                "next_required_artifacts": classification["next_required_artifacts"],
             }
         )
         return common
@@ -1268,6 +1329,107 @@ def _displace(geometry: dict[int, dict[str, Any]], vectors: dict[int, dict[str, 
     return displaced
 
 
+def validate_mode_review_geometry(result: dict[str, Any], review: dict[str, Any]) -> None:
+    """Validate review geometry as an exact arithmetic projection of one parsed mode."""
+    if not result.get("first_order_saddle_candidate") or len(result.get("imaginary_modes", [])) != 1:
+        raise ValueError("mode review requires an eligible first-order-saddle result")
+    mode = result["imaginary_modes"][0]
+    if review.get("imaginary_frequency_cm-1") != mode.get("frequency_cm-1"):
+        raise ValueError("mode-review imaginary frequency differs from the parsed mode")
+    amplitude = review.get("amplitude")
+    if isinstance(amplitude, bool) or not isinstance(amplitude, (int, float)) or not math.isfinite(amplitude) or amplitude <= 0:
+        raise ValueError("mode-review amplitude must be a positive finite number")
+    coordinates = result.get("final_coordinates", [])
+    displacements = review.get("displacements", [])
+    if not isinstance(coordinates, list) or not isinstance(displacements, list) or not coordinates or not displacements:
+        raise ValueError("mode-review final coordinates and displacements must not be empty")
+    if displacements != mode.get("displacements"):
+        raise ValueError("mode-review displacements differ from the parsed mode")
+    if len(coordinates) != len(displacements):
+        raise ValueError("mode-review coordinate and displacement coverage differs")
+    for expected_index, (coordinate, displacement) in enumerate(zip(coordinates, displacements), start=1):
+        if not isinstance(coordinate, dict) or not isinstance(displacement, dict):
+            raise ValueError("mode-review coordinate and displacement rows must be objects")
+        coordinate_index = coordinate.get("index")
+        displacement_index = displacement.get("index")
+        atomic_number = coordinate.get("atomic_number")
+        if (
+            isinstance(coordinate_index, bool)
+            or not isinstance(coordinate_index, int)
+            or isinstance(displacement_index, bool)
+            or not isinstance(displacement_index, int)
+            or coordinate_index != expected_index
+            or displacement_index != expected_index
+        ):
+            raise ValueError("mode-review coordinate/displacement indices must be positive, contiguous and one-based")
+        if (
+            isinstance(atomic_number, bool)
+            or not isinstance(atomic_number, int)
+            or atomic_number <= 0
+            or atomic_number >= len(ELEMENTS)
+            or coordinate.get("element") != ELEMENTS[atomic_number]
+        ):
+            raise ValueError("mode-review coordinate element and atomic number differ or are unsupported")
+        if (
+            isinstance(displacement.get("atomic_number"), bool)
+            or displacement.get("atomic_number") != atomic_number
+        ):
+            raise ValueError("mode-review coordinate/displacement indices or atomic numbers differ")
+        for row, label in ((coordinate, "coordinate"), (displacement, "displacement")):
+            for axis in ("x", "y", "z"):
+                value = row.get(axis)
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                    raise ValueError(f"mode-review {label} {axis} must be a finite number")
+    geometry = {row["index"]: row for row in coordinates}
+    vectors = {row["index"]: row for row in displacements}
+    if len(geometry) != len(coordinates) or len(vectors) != len(displacements) or set(geometry) != set(vectors):
+        raise ValueError("mode-review coordinate and displacement index coverage differs")
+    plus_geometry = _displace(geometry, vectors, float(amplitude))
+    minus_geometry = _displace(geometry, vectors, -float(amplitude))
+    projections = review.get("distance_projections", [])
+    if not isinstance(projections, list):
+        raise ValueError("mode-review distance projections must be an array")
+    for projection in projections:
+        if not isinstance(projection, dict):
+            raise ValueError("mode-review distance projection must be an object")
+        pair = projection.get("pair")
+        if (
+            not isinstance(pair, list)
+            or len(pair) != 2
+            or any(isinstance(atom, bool) or not isinstance(atom, int) or atom <= 0 for atom in pair)
+            or pair[0] == pair[1]
+        ):
+            raise ValueError("mode-review atom pair is invalid or not distinct")
+        first, second = pair
+        if first not in geometry or second not in geometry:
+            raise ValueError("mode-review atom pair is outside the final geometry")
+        names = (
+            "equilibrium_angstrom",
+            "plus_angstrom",
+            "minus_angstrom",
+            "plus_minus_change_angstrom",
+        )
+        observed: dict[str, float] = {}
+        for name in names:
+            value = projection.get(name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"mode-review {name} must be a finite number")
+            observed[name] = float(value)
+        if any(observed[name] < 0 for name in names[:3]):
+            raise ValueError("mode-review distances must be nonnegative")
+        expected = {
+            "equilibrium_angstrom": _distance(geometry[first], geometry[second]),
+            "plus_angstrom": _distance(plus_geometry[first], plus_geometry[second]),
+            "minus_angstrom": _distance(minus_geometry[first], minus_geometry[second]),
+        }
+        expected["plus_minus_change_angstrom"] = expected["plus_angstrom"] - expected["minus_angstrom"]
+        if not all(
+            math.isclose(observed[name], expected[name], rel_tol=1e-10, abs_tol=1e-10)
+            for name in expected
+        ):
+            raise ValueError("mode-review distance projection differs from specialist displacement arithmetic")
+
+
 def _write_xyz(path: Path, geometry: dict[int, dict[str, Any]], comment: str) -> None:
     lines = [str(len(geometry)), comment]
     lines.extend(f"{atom['element']:<3} {atom['x']: .8f} {atom['y']: .8f} {atom['z']: .8f}" for _, atom in sorted(geometry.items()))
@@ -1282,7 +1444,8 @@ def create_mode_review(result: dict[str, Any], pairs: list[tuple[int, int]], out
     vectors = {atom["index"]: atom for atom in mode["displacements"]}
     if not geometry or set(geometry) != set(vectors):
         raise ValueError("final geometry and imaginary-mode displacement table are incomplete or disagree")
-    output_dir.mkdir(parents=True, exist_ok=False)
+    review = {"schema": "gaussian-ts-mode-review/1", "ts_result_sha256": result_sha256, "imaginary_frequency_cm-1": mode["frequency_cm-1"], "amplitude": amplitude, "distance_projections": [], "displacements": mode["displacements"], "visualization_artifacts": ["mode_plus.xyz", "mode_minus.xyz"], "scientific_decision": "required"}
+    validate_mode_review_geometry(result, review)
     plus_map = _displace(geometry, vectors, amplitude)
     minus_map = _displace(geometry, vectors, -amplitude)
     projections = []
@@ -1290,7 +1453,9 @@ def create_mode_review(result: dict[str, Any], pairs: list[tuple[int, int]], out
         if first not in geometry or second not in geometry:
             raise ValueError(f"declared pair {first},{second} is outside the geometry")
         projections.append({"pair": [first, second], "equilibrium_angstrom": _distance(geometry[first], geometry[second]), "plus_angstrom": _distance(plus_map[first], plus_map[second]), "minus_angstrom": _distance(minus_map[first], minus_map[second]), "plus_minus_change_angstrom": _distance(plus_map[first], plus_map[second]) - _distance(minus_map[first], minus_map[second])})
-    review = {"schema": "gaussian-ts-mode-review/1", "ts_result_sha256": result_sha256, "imaginary_frequency_cm-1": mode["frequency_cm-1"], "amplitude": amplitude, "distance_projections": projections, "displacements": mode["displacements"], "visualization_artifacts": ["mode_plus.xyz", "mode_minus.xyz"], "scientific_decision": "required"}
+    review["distance_projections"] = projections
+    validate_mode_review_geometry(result, review)
+    output_dir.mkdir(parents=True, exist_ok=False)
     (output_dir / "mode_review.json").write_text(json.dumps(review, indent=2) + "\n", encoding="utf-8")
     _write_xyz(output_dir / "mode_plus.xyz", plus_map, f"Imaginary mode +{amplitude:g}; visualization aid only")
     _write_xyz(output_dir / "mode_minus.xyz", minus_map, f"Imaginary mode -{amplitude:g}; visualization aid only")
