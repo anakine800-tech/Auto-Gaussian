@@ -1,6 +1,6 @@
 # Auto-G16 Repository Status
 
-Status date: 2026-07-15
+Status date: 2026-07-16
 
 Stable release branch: `main`. New work uses short-lived `codex/` feature
 branches and is integrated through reviewed pull requests with required checks.
@@ -12,8 +12,8 @@ mechanism-network slice, release/dependency/security hardening, and the
 transition-metal offline preview contracts described below. Publication of
 the verified `v2.2.0` tag and GitHub Release was authorized on 2026-07-15.
 
-All nine repository-owned Skill folders and machine names now use the
-`auto-g16-` prefix, and all nine human-facing display names begin with
+All ten repository-owned Skill folders and machine names now use the
+`auto-g16-` prefix, and all ten human-facing display names begin with
 `Auto-G16`. Repository source remains authoritative. Release deployment must
 run `scripts/check_skill_sync.py`, review the exact named-Skill diffs, and
 synchronize only the validated release copies; a GitHub checkout never implies
@@ -22,7 +22,7 @@ for future project Skills; versioned scientific schemas and immutable
 historical records retain their identifiers.
 
 The v2.1.0 release deployment covered the eight Skills in that tag. The current
-repository contains nine Skills. Machine-local deployments are deliberately
+repository contains ten Skills. Machine-local deployments are deliberately
 not treated as repository state: each named Skill must be validated, diffed
 and synchronized independently from `skills/`. Deployment never authorizes a
 live test or calculation.
@@ -52,6 +52,9 @@ report layers needed to progress from W1 to an auditable whole-reaction study.
 
 The version-controlled source under `skills/` currently provides:
 
+- a self-contained Gaussian and computational-chemistry learning library with
+  72 searchable knowledge cards, beginner-oriented explanations, and explicit
+  separation between teaching examples and calculation authorization;
 - ChemDraw structure reconstruction and explicit stereochemical review;
 - strict whole-scheme transcription, source-exact/normalized conditions and
   editable reaction-package artifacts recovered into repository source;

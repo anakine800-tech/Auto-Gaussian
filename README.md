@@ -37,6 +37,10 @@ retain their existing names for compatibility and provenance.
 
 ## Baseline Skills
 
+- `skills/auto-g16-gaussian-learning-library`: self-contained beginner-facing
+  Gaussian and computational-chemistry teaching library with 72 searchable
+  knowledge cards. It explains concepts and evidence boundaries but does not
+  select production protocols or authorize calculations.
 - `skills/auto-g16-chemdraw-structures`: quick or strict ChemDraw-compatible structure and complete reaction-scheme reconstruction, including native round-trip validation.
 - `skills/auto-g16-chemdraw-pipeline`: audited ChemDraw-to-Cartesian conversion.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
