@@ -18,6 +18,10 @@ __pycache__/
 /outputs/
 **/scratch/
 /studies/**/live/
+/private-studies/
+/unpublished/
+/confidential/
+/studies-private/
 *.chk
 *.fchk
 *.rwf
