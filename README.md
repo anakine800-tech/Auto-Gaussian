@@ -10,11 +10,11 @@ independently.
 
 ## Current repository status
 
-As of 2026-07-15, the post-2.1.0 feature line includes the guarded RTwin/PBS
+As of 2026-07-15, the Auto-G16 feature line includes the guarded RTwin/PBS
 workflow, audited main-group
 TS–Freq–IRC workflow, offline asymmetric-catalysis planning/audit module, and
-the W1 reaction-intake, reaction-literature, and offline W2 reusable-knowledge
-foundations.
+the W1 reaction-intake/reaction-literature foundations plus the W2A immutable
+knowledge-record contracts and W2B-2 reviewed store/import/export foundation.
 These layers retain their individual scientific and live-action approval gates.
 
 `main` is the stable release branch. `codex/Auto-Gaussian` remains the target
@@ -48,24 +48,31 @@ retain their existing names for compatibility and provenance.
   screening, evidence templates and fail-closed source-review validation. It
   does not infer a mechanism, choose a computational protocol, or authorize a
   calculation.
-- `skills/auto-g16-knowledge-base`: immutable offline structure/state,
-  computational-method, literature/book, typed-link and per-study snapshot
-  registries with content-addressed objects, deterministic SQLite rebuilds,
-  dry-run imports, conflict ledgers and fail-closed permission filtering. It
-  retrieves reviewed evidence but cannot select a method or authorize work.
+- `skills/auto-g16-knowledge-base`: offline validation and deterministic
+  finalization for immutable structure identity/state/geometry, computational
+  method, literature/book source, typed-link and per-study snapshot records.
+  W2B-2 adds immutable record/object-store verification, deterministic SQLite
+  rebuild, exact permission-filtered queries, reviewed import with lawful
+  object ingestion, redacted JSON export and snapshot verification; it has no
+  method selection, input generation or live action.
 
-## W2 status
+## W2 knowledge modules
 
-- `auto-g16-knowledge-base`: offline MVP implemented with five closed record
-  contracts, semantic and hash validation, immutable canonical storage,
-  content-addressed lawful objects, deterministic SQLite indexing, permission-
-  filtered queries, duplicate/conflict review and stable snapshots.
+- `auto-g16-knowledge-base` W2A is implemented with five closed contracts,
+  canonical SHA-256 validation, review/access/provenance rules, frozen
+  identity/state/geometry, method, article/book, link and snapshot fixtures,
+  and fail-closed duplicate/conflict auditing without automatic merge.
+- W2B-1 implements the immutable record/object layout, content-addressed object
+  checks, deterministic SQLite migration/rebuild, stale-index refusal, exact
+  offline principal-filtered queries and snapshot dependency verification.
+- W2B-2 implements hash-bound plan-review-apply import, exact lawful-object
+  ingestion, full/metadata-redacted JSON export, `no_export` exclusion and
+  dependency-aware downgrade. Binary objects are never exported.
+- W2 still requires authentication, signatures, durable audit logging,
+  chemical search and multi-user enforcement.
 - mechanism-support matrices, source-to-target atom correspondence, and
   reviewed target TS-seed proposals remain future extensions to the implemented
   reaction-literature layer.
-- a multi-user PostgreSQL/chemical-search service, authenticated group audit
-  service and raw legacy-database migration adapters remain separate future
-  milestones; no live group database is committed here.
 
 ## Offline planning/audit module
 
@@ -128,11 +135,10 @@ python3 -m unittest discover -s tests -v
 2. Develop each workflow slice on a separate `codex/` feature branch, run
    offline validation first, and merge only after the applicable explicitly
    approved smoke gate.
-3. Bind the implemented W1 reaction-intake/species/condition foundation to an
-   immutable snapshot from the offline W2 knowledge base, then complete the
-   literature mechanism-support and TS-precedent contracts. Preserve group
-   access restrictions and translate only reviewed analogies into mechanism or
-   TS-seed proposals.
+3. Continue W2 from the implemented W2B-2 store/import/export foundation with
+   authenticated enforcement, durable audit logging and chemical search. Then
+   extend the separate literature-evidence
+   layer toward mechanism support and TS precedents.
 4. Implement the W3 mechanism-network, calculation-DAG and evidence-index layer.
    Existing Skills remain specialist components rather than a monolithic
    automatic mechanism generator.

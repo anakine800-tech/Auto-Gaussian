@@ -1,0 +1,78 @@
+{
+  "schema": "auto-g16-method-record/1",
+  "record_id": "fixture_reported_method",
+  "revision_id": "fixture_reported_method_r001",
+  "created_at": "2026-07-15T00:00:00+00:00",
+  "created_by": "fixture_author",
+  "review": {
+    "status": "reviewed",
+    "reviewer": "fixture_reviewer",
+    "reviewed_at": "2026-07-15T01:00:00+00:00",
+    "notes": ["Reported protocol fixture; not a group recommendation."]
+  },
+  "access": {
+    "class": "public",
+    "owner_project": null,
+    "permitted_principals": [],
+    "export_policy": "full"
+  },
+  "provenance": {
+    "source_kind": "manual_review",
+    "importer": null,
+    "source_artifacts": []
+  },
+  "aliases": [
+    {"type": "preferred_name", "value": "Fixture literature-reported protocol"}
+  ],
+  "external_identifiers": [],
+  "uncertainties": [],
+  "contradictions": [],
+  "blockers": [],
+  "source_class": "literature_reported",
+  "protocol": {
+    "program": {"status": "reported", "value": "Gaussian", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "program_revision": {"status": "reported", "value": "Gaussian 16 Revision C.01", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "calculation_family": {"status": "reported", "value": "minimum optimization and harmonic frequency", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "functional": {"status": "reported", "value": "B3LYP", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "basis_by_element": {"status": "reported", "value": {"B,C,H": "6-31G(d)"}, "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "ecp_by_element": {"status": "not_applicable", "value": null, "source_anchor_refs": [], "notes": []},
+    "dispersion": {"status": "reported", "value": "GD3BJ", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "relativistic_treatment": {"status": "not_applicable", "value": null, "source_anchor_refs": [], "notes": []},
+    "solvent_model": {"status": "reported", "value": "SMD(toluene)", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "explicit_components": {"status": "not_applicable", "value": null, "source_anchor_refs": [], "notes": []},
+    "integration_grid": {"status": "reported", "value": "ultrafine", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "scf_policy": {"status": "reported", "value": "tight convergence", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "optimization_policy": {"status": "reported", "value": "tight optimization", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "frequency_policy": {"status": "reported", "value": "harmonic frequency at optimization level", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "ts_policy": {"status": "not_applicable", "value": null, "source_anchor_refs": [], "notes": []},
+    "irc_policy": {"status": "not_applicable", "value": null, "source_anchor_refs": [], "notes": []},
+    "single_point_relationship": {"status": "not_applicable", "value": null, "source_anchor_refs": [], "notes": []},
+    "charge_spin_requirements": {"status": "reported", "value": "neutral closed-shell singlet", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "wavefunction_policy": {"status": "reported", "value": "restricted Kohn-Sham", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "stability_checks": {"status": "reported", "value": "no separate stability check reported", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "temperature_pressure": {"status": "reported", "value": {"temperature_k": 298.15, "pressure_atm": 1.0}, "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "standard_state_concentration": {"status": "reported", "value": "1 atm; no solution concentration correction reported", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []},
+    "low_frequency_entropy": {"status": "reported", "value": "no low-frequency correction reported", "source_anchor_refs": [{"source_record": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "anchor_id": "fixture_method_anchor"}], "notes": []}
+  },
+  "applicability": {
+    "included_elements": ["B", "C", "H"],
+    "catalyst_classes": ["synthetic boron fixture"],
+    "reaction_classes": ["offline validation fixture"],
+    "state_types": ["neutral closed-shell singlet"],
+    "job_stages": ["optimization", "frequency"],
+    "exclusions": ["transition metals", "open-shell states"],
+    "limitations": ["Reported use is not evidence of accuracy or transferability."]
+  },
+  "evidence": {
+    "supporting_source_refs": [
+      {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}
+    ],
+    "benchmark_record_refs": [],
+    "failure_record_refs": [],
+    "resource_observations": [],
+    "notes": ["This record is literature-reported, not group recommended or benchmark validated."]
+  },
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "payload_sha256": null
+}

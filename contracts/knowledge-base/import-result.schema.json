@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/import-result.schema.json",
+  "title": "Auto-G16 applied immutable knowledge import result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plan_sha256", "approval_sha256", "store_id", "previous_store_content_digest", "new_store_content_digest", "record_count_added", "object_count_added", "applied_destinations", "calculation_ready", "no_submission_authorization", "result_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-knowledge-import-result/1"},
+    "plan_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "approval_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "store_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "previous_store_content_digest": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "new_store_content_digest": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "record_count_added": {"type": "integer", "minimum": 0},
+    "object_count_added": {"type": "integer", "minimum": 0},
+    "applied_destinations": {"$ref": "_common.schema.json#/$defs/stringArray"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "result_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  }
+}

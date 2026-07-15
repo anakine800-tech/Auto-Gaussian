@@ -1,0 +1,63 @@
+{
+  "schema": "auto-g16-structure-record/1",
+  "record_id": "fixture_boron_catalyst_neutral_state",
+  "revision_id": "fixture_boron_catalyst_neutral_state_r001",
+  "created_at": "2026-07-15T00:00:00+00:00",
+  "created_by": "fixture_author",
+  "review": {
+    "status": "reviewed",
+    "reviewer": "fixture_reviewer",
+    "reviewed_at": "2026-07-15T01:00:00+00:00",
+    "notes": ["Synthetic represented-state fixture."]
+  },
+  "access": {
+    "class": "project_restricted",
+    "owner_project": "fixture_project",
+    "permitted_principals": ["fixture_reviewer"],
+    "export_policy": "metadata_redacted"
+  },
+  "provenance": {
+    "source_kind": "manual_review",
+    "importer": null,
+    "source_artifacts": []
+  },
+  "aliases": [
+    {"type": "preferred_name", "value": "Fixture boron catalyst neutral singlet state"}
+  ],
+  "external_identifiers": [],
+  "uncertainties": [
+    {
+      "code": "coordination_not_assigned",
+      "message": "No coordination partner is represented in this synthetic state.",
+      "source_refs": []
+    }
+  ],
+  "contradictions": [],
+  "blockers": [],
+  "record_scope": "state",
+  "identity": null,
+  "parent_identity": {
+    "record_type": "structure",
+    "record_id": "fixture_boron_catalyst",
+    "revision_id": "fixture_boron_catalyst_r001",
+    "payload_sha256": "65e800a2decdbb5fdaa3bec462fb83794e5bad1d01d04cf4bac8a39b049b5279"
+  },
+  "state": {
+    "formal_charge": 0,
+    "multiplicity": 1,
+    "protonation": "neutral",
+    "salt_solvate_form": "none",
+    "oxidation_state_hypothesis": null,
+    "ligand_count": 0,
+    "coordination_number": 3,
+    "hapticity": null,
+    "aggregation": "monomer",
+    "ion_pairing": "not_applicable",
+    "bound_components": []
+  },
+  "parent_state": null,
+  "representations": [],
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "payload_sha256": null
+}

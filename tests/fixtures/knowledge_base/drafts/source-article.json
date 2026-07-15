@@ -1,0 +1,85 @@
+{
+  "schema": "auto-g16-source-record/1",
+  "record_id": "fixture_article",
+  "revision_id": "fixture_article_r001",
+  "created_at": "2026-07-15T00:00:00+00:00",
+  "created_by": "fixture_author",
+  "review": {
+    "status": "reviewed",
+    "reviewer": "fixture_reviewer",
+    "reviewed_at": "2026-07-15T01:00:00+00:00",
+    "notes": ["Synthetic bibliographic fixture."]
+  },
+  "access": {
+    "class": "public",
+    "owner_project": null,
+    "permitted_principals": [],
+    "export_policy": "full"
+  },
+  "provenance": {
+    "source_kind": "manual_review",
+    "importer": null,
+    "source_artifacts": []
+  },
+  "aliases": [
+    {"type": "preferred_name", "value": "Synthetic W2 catalyst-method article"}
+  ],
+  "external_identifiers": [
+    {"scheme": "DOI", "value": "10.5555/auto.g16.fixture"}
+  ],
+  "uncertainties": [],
+  "contradictions": [],
+  "blockers": [],
+  "source_type": "journal_article",
+  "bibliography": {
+    "doi": "10.5555/auto.g16.fixture",
+    "isbn": null,
+    "issn": "0000-0000",
+    "publisher": "Synthetic Fixture Press",
+    "authors": ["A. Fixture", "B. Reviewer"],
+    "editors": [],
+    "title": "A synthetic catalyst and computational protocol fixture",
+    "year": 2026,
+    "journal": "Journal of Offline Fixtures",
+    "volume": "1",
+    "issue": "1",
+    "page_range": "1-10",
+    "article_number": null,
+    "stable_url": "https://example.invalid/fixture-article"
+  },
+  "version": {
+    "edition": null,
+    "chapter": null,
+    "version_label": "version_of_record",
+    "language": "en"
+  },
+  "access_details": {
+    "accessed_at": "2026-07-15T00:30:00+00:00",
+    "license": "Synthetic fixture; no copyrighted full text.",
+    "storage_status": "metadata_only",
+    "access_limitations": []
+  },
+  "objects": [],
+  "anchors": [
+    {
+      "anchor_id": "fixture_method_anchor",
+      "locator_type": "page",
+      "locator": "page 5, Computational Details",
+      "object_sha256": null,
+      "notes": ["Synthetic locator for offline validation."]
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "fixture_method_claim",
+      "category": "computational_method",
+      "statement_type": "paraphrase",
+      "text": "The synthetic source reports a complete closed-shell optimization and frequency protocol.",
+      "anchor_ids": ["fixture_method_anchor"],
+      "review_status": "reviewed"
+    }
+  ],
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "payload_sha256": null
+}

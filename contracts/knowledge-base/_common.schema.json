@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/_common.schema.json",
+  "title": "Auto-G16 knowledge common definitions",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "stringArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "status": {
+          "enum": ["draft", "reviewed", "reviewed_with_limits", "deprecated", "retracted", "blocked"]
+        },
+        "reviewer": {"type": ["string", "null"]},
+        "reviewed_at": {"anyOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}]},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "owner_project", "permitted_principals", "export_policy"],
+      "properties": {
+        "class": {
+          "enum": ["public", "group_internal", "project_restricted", "confidential_unpublished"]
+        },
+        "owner_project": {"type": ["string", "null"]},
+        "permitted_principals": {"$ref": "#/$defs/stringArray"},
+        "export_policy": {"enum": ["full", "metadata_redacted", "no_export"]}
+      }
+    },
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"type": "string", "minLength": 1},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "importer", "source_artifacts"],
+      "properties": {
+        "source_kind": {"enum": ["manual_review", "imported", "reviewed_artifact", "study_result"]},
+        "importer": {"type": ["string", "null"]},
+        "source_artifacts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/artifactBinding"}
+        }
+      }
+    },
+    "alias": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": {"enum": ["preferred_name", "synonym", "internal_code", "literature_code", "registry_identifier", "other"]},
+        "value": {"type": "string", "minLength": 1}
+      }
+    },
+    "externalIdentifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "value"],
+      "properties": {
+        "scheme": {"type": "string", "minLength": 1},
+        "value": {"type": "string", "minLength": 1}
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "source_refs"],
+      "properties": {
+        "code": {"$ref": "#/$defs/id"},
+        "message": {"type": "string", "minLength": 1},
+        "source_refs": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "recordRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_type", "record_id", "revision_id", "payload_sha256"],
+      "properties": {
+        "record_type": {
+          "enum": ["structure", "method", "source", "link", "reaction", "result", "calculation", "mechanism_hypothesis"]
+        },
+        "record_id": {"$ref": "#/$defs/id"},
+        "revision_id": {"$ref": "#/$defs/id"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "anchorRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_record", "anchor_id"],
+      "properties": {
+        "source_record": {"$ref": "#/$defs/recordRef"},
+        "anchor_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "objectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "size_bytes", "media_type", "storage_status", "original_name"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "media_type": {"type": "string", "minLength": 1},
+        "storage_status": {"enum": ["lawful_local_object", "metadata_only", "external_reference_only"]},
+        "original_name": {"type": ["string", "null"]}
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "value", "source_anchor_refs", "notes"],
+      "properties": {
+        "status": {"enum": ["reported", "internal_decision", "derived", "ambiguous", "not_reported", "not_applicable"]},
+        "value": {
+          "oneOf": [
+            {"type": ["string", "number", "boolean", "null"]},
+            {
+              "type": "array",
+              "items": {"type": ["string", "number", "boolean", "null"]}
+            },
+            {
+              "type": "object",
+              "additionalProperties": {"type": ["string", "number", "boolean", "null"]}
+            }
+          ]
+        },
+        "source_anchor_refs": {"type": "array", "items": {"$ref": "#/$defs/anchorRef"}},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  }
+}

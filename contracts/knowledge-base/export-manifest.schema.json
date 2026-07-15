@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/export-manifest.schema.json",
+  "title": "Auto-G16 applied knowledge export manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plan_sha256", "approval_sha256", "store_id", "store_content_digest", "principal_mode", "files", "excluded_access_count", "excluded_no_export_count", "objects_included", "calculation_ready", "no_submission_authorization", "manifest_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-knowledge-export-manifest/1"},
+    "plan_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "approval_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "store_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "store_content_digest": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "principal_mode": {"enum": ["public_only", "declared_offline_principal"]},
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "sha256", "size_bytes", "action"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+          "size_bytes": {"type": "integer", "minimum": 0},
+          "action": {"enum": ["full_record", "metadata_redacted"]}
+        }
+      }
+    },
+    "excluded_access_count": {"type": "integer", "minimum": 0},
+    "excluded_no_export_count": {"type": "integer", "minimum": 0},
+    "objects_included": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "manifest_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  }
+}
