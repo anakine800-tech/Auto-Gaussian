@@ -77,6 +77,14 @@ closed reviewed mapping and append-only candidate-inventory node-update bridge
 for an exact `ts_candidate`; the adapter still owns only
 `external_target_key`.
 
+The installed DAG is not a standalone one-directory copy: its owner-validation
+imports require exact deployed `auto-g16-knowledge-base` and
+`auto-g16-reaction-literature` packages, while the adapter path retains its
+`auto-g16-asymmetric-catalysis`, `auto-g16-rtwin-pbs`, and
+`auto-g16-ts-irc` dependencies. Deployment preflight must compare all five
+named dependencies before synchronizing and smoking the exact
+`auto-g16-reaction-workflow` package.
+
 ## Current capability
 
 The version-controlled source under `skills/` currently provides:

@@ -257,6 +257,14 @@ This orchestration slice preserves existing ownership boundaries:
 - TS–IRC owns TS/Freq observations, manual mode evidence, separately reviewed
   IRC directions and endpoint/path acceptance.
 
+The installed calculation-DAG entry point loads the exact deployed owner
+validators from `auto-g16-knowledge-base` and
+`auto-g16-reaction-literature`; its adapter path additionally delegates to
+`auto-g16-asymmetric-catalysis`, `auto-g16-rtwin-pbs`, and
+`auto-g16-ts-irc`. A deployed-copy smoke must first prove those five named
+Skill packages synchronized (or synchronize an explicitly reviewed exact
+plan). Deploying only `auto-g16-reaction-workflow` is not a valid smoke setup.
+
 Accordingly, calculation-plan fields cannot contain a Gaussian route,
 functional, basis/ECP, solvent-model choice, resources, input text, server
 path, job ID, retry instruction, cancellation, or deletion request. Those are

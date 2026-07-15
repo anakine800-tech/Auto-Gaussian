@@ -60,11 +60,15 @@ unexpected installed file rather than deleting it.
 At repository runtime the adapter uses the authoritative root contracts and
 root validator. At installed runtime it requires the manifest-packaged
 reaction-workflow contracts and the manifest-packaged validator plus schemas
-inside the owning `auto-g16-asymmetric-catalysis` Skill. A partial direct copy
-therefore fails closed rather than silently skipping schema or specialist
-validation. The unchanged `auto-g16-rtwin-pbs` dependency and the exact
-`auto-g16-ts-irc` revision must also be synchronized before a deployed-copy
-smoke.
+inside the owning `auto-g16-asymmetric-catalysis` Skill. The calculation-DAG
+entry point also imports owner validators from exact deployed copies of
+`auto-g16-knowledge-base` and `auto-g16-reaction-literature`. A partial direct
+copy therefore fails closed rather than silently skipping schema or specialist
+validation. The exact `auto-g16-knowledge-base`,
+`auto-g16-reaction-literature`, `auto-g16-asymmetric-catalysis`,
+`auto-g16-rtwin-pbs`, and `auto-g16-ts-irc` named-Skill revisions must be
+synchronized or proven unchanged by an exact package comparison before a
+deployed-copy DAG smoke.
 
 The public `validate` command does more than accept a well-formed, newly
 rehashed document. It rechecks strict schema and owned-payload validity, every
