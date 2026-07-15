@@ -16,10 +16,15 @@ All ten repository-owned Skill folders and machine names now use the
 `auto-g16-` prefix, and all ten human-facing display names begin with
 `Auto-G16`. Repository source remains authoritative. Release deployment must
 run `scripts/check_skill_sync.py`, review the exact named-Skill diffs, and
-synchronize only the validated release copies; a GitHub checkout never implies
-that a machine-local deployment is current. The namespace remains mandatory
-for future project Skills; versioned scientific schemas and immutable
-historical records retain their identifiers.
+synchronize only the validated release copies with
+`scripts/sync_named_skill.py --apply --confirmed --plan-sha256
+<REVIEWED_HASH>`. A closed per-Skill manifest may map authoritative
+repository-root contracts or an owner validator into the installed package;
+those sources remain single-copy in version control and are included in the
+exact sync comparison. A GitHub checkout never implies that a machine-local
+deployment is current. The namespace remains mandatory for future project
+Skills; versioned scientific schemas and immutable historical records retain
+their identifiers.
 
 The v2.1.0 release deployment covered the eight Skills in that tag. The current
 repository contains ten Skills. Machine-local deployments are deliberately
@@ -450,8 +455,10 @@ project Python 3.13 environment and produced these results:
 - `python3 -m unittest tests.test_protocol_selection tests.test_gaussian_auto_gate tests.test_gaussian_ts_irc tests.test_skill_baseline tests.test_reaction_workflow tests.test_mechanism_network`:
   69/69 passed;
 - `python3 -m unittest tests.test_auto_g16_skill_names tests.test_skill_baseline tests.test_release_hygiene`:
-  27/27 passed; and
-- `python3 -m unittest discover -s tests`: 246/246 passed in 71.474 seconds,
+  27/27 passed;
+- `python3 -m unittest tests.test_skill_packaging -v`: 5/5 passed, including
+  temporary installed-root import and packaged-validator/schema replay; and
+- `python3 -m unittest discover -s tests`: 251/251 passed in 68.657 seconds,
   including both portable-path tests that write only inside the feature
   worktree under the normal worktree permissions.
 
@@ -460,8 +467,11 @@ hash, payload, symlink, path, overwrite and rehashed-forgery refusal; candidate,
 XYZ, atom-order, protocol, input-review, job and result drift; unsupported and
 duplicate ledger entries; closed-shell V1 input limits; specialist validator
 delegation; terminal/mode-geometry invariants; exact attempt binding; and
-blocked/electronic-only energy lineage. No live smoke, SSH, PBS, Gaussian,
-submission, cancellation, cleanup, deployment or network action was run.
+blocked/electronic-only energy lineage. Packaging tests additionally cover
+exact manifest file maps, hash/size plans, dry-run no-write behavior, deployed
+adapter validation, symlink/path/duplicate-key refusal and no implicit deletion
+of installed extras. No live smoke, SSH, PBS, Gaussian, submission,
+cancellation, cleanup or deployment action was run.
 
 The macOS system Python 3.9 audit remains limited by pre-existing `v2.2.0`
 `zip(..., strict=True)` use in asymmetric-catalysis code/tests and one existing

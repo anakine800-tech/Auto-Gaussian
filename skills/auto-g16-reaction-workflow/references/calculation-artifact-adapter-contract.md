@@ -46,6 +46,26 @@ canonical repository-relative-or-explicit-absolute locator; an owner-relative
 alias that happens to resolve to the same bytes is not an equivalent lineage
 claim.
 
+## Named-Skill package boundary
+
+Repository-root contracts and the asymmetric-catalysis validator remain their
+single version-controlled sources. Closed `deployment-package.json` manifests
+map those exact files into the owning installed Skills. The standard-library
+`scripts/check_skill_sync.py` includes mapped files in its digest inventory;
+`scripts/sync_named_skill.py` is dry-run by default and requires its exact
+reviewed `plan_sha256` with explicit `--apply --confirmed`. It rejects duplicate or unknown manifest fields,
+non-finite JSON constants, path traversal, symlinks, target conflicts and any
+unexpected installed file rather than deleting it.
+
+At repository runtime the adapter uses the authoritative root contracts and
+root validator. At installed runtime it requires the manifest-packaged
+reaction-workflow contracts and the manifest-packaged validator plus schemas
+inside the owning `auto-g16-asymmetric-catalysis` Skill. A partial direct copy
+therefore fails closed rather than silently skipping schema or specialist
+validation. The unchanged `auto-g16-rtwin-pbs` dependency and the exact
+`auto-g16-ts-irc` revision must also be synchronized before a deployed-copy
+smoke.
+
 The public `validate` command does more than accept a well-formed, newly
 rehashed document. It rechecks strict schema and owned-payload validity, every
 referenced file's exact bytes, size, schema and payload, and deterministically

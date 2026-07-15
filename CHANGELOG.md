@@ -70,6 +70,11 @@ All notable public release changes are recorded here. The project follows
   classification recomputation plus exact mode-review geometry arithmetic;
   the adapter also refuses parsed element/atomic-number/order drift from the
   reviewed input handoff.
+- Closed named-Skill deployment manifests and a fail-closed standard-library
+  synchronizer now package repository-root contracts and the asymmetric owner
+  validator without duplicating their version-controlled sources. Temporary
+  installed-root tests import the deployed adapter and validate a sanitized
+  artifact through the packaged schemas and specialist validator.
 
 ### Changed
 
@@ -96,6 +101,9 @@ All notable public release changes are recorded here. The project follows
   `no_submission_authorization: true`. The adapter implements no DAG plan or
   node mutation, staging, SSH, PBS, Gaussian, retry, cancellation, cleanup,
   deployment, or live-smoke action.
+- Named-Skill synchronization requires the exact hash of a reviewed dry-run
+  plan plus explicit `--apply --confirmed`, rejects symlinks and path escape,
+  and refuses rather than deletes unexpected installed files.
 
 ## [2.2.0] - 2026-07-15
 

@@ -24,12 +24,19 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_DIR = Path(__file__).resolve().parent
-RTWIN_SCRIPTS = ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts"
-TS_SCRIPTS = ROOT / "skills" / "auto-g16-ts-irc" / "scripts"
-ASYM_SCRIPT = ROOT / "skills" / "auto-g16-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
-ASYM_VALIDATOR = ROOT / "scripts" / "validate_asymmetric_contract.py"
+SKILL_ROOT = SCRIPT_DIR.parent
+SKILLS_ROOT = SKILL_ROOT.parent
+ROOT = SKILLS_ROOT.parent
+RTWIN_SCRIPTS = SKILLS_ROOT / "auto-g16-rtwin-pbs" / "scripts"
+TS_SCRIPTS = SKILLS_ROOT / "auto-g16-ts-irc" / "scripts"
+ASYM_SCRIPTS = SKILLS_ROOT / "auto-g16-asymmetric-catalysis" / "scripts"
+ASYM_SCRIPT = ASYM_SCRIPTS / "asymmetric_catalysis.py"
+ASYM_VALIDATOR = (
+    ASYM_SCRIPTS / "validate_asymmetric_contract.py"
+    if (ASYM_SCRIPTS / "validate_asymmetric_contract.py").is_file()
+    else ROOT / "scripts" / "validate_asymmetric_contract.py"
+)
 
 for directory in (SCRIPT_DIR, RTWIN_SCRIPTS, TS_SCRIPTS):
     if str(directory) not in sys.path:
@@ -72,15 +79,25 @@ ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 EXTERNAL_KEY_RE = re.compile(r"^[a-z][a-z0-9_.:-]{2,255}$")
 CHECKPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.chk$")
+_SCHEMA_FILENAMES = {
+    TARGET_IMPORT_SCHEMA: "candidate-target-import.schema.json",
+    INPUT_REVIEW_SCHEMA: "input-draft-review.schema.json",
+    INPUT_HANDOFF_SCHEMA: "candidate-input-handoff.schema.json",
+    ENERGY_REVIEW_SCHEMA: "energy-review.schema.json",
+    ENERGY_RECORD_SCHEMA: "reviewed-energy-record.schema.json",
+    ENERGY_LINEAGE_SCHEMA: "energy-lineage.schema.json",
+    SANITIZED_JOB_SCHEMA: "sanitized-job-observation.schema.json",
+    ATTEMPT_LINK_SCHEMA: "calculation-attempt-link.schema.json",
+}
+_PACKAGED_SCHEMA_DIR = SKILL_ROOT / "contracts" / "reaction-workflow"
+_REPOSITORY_SCHEMA_DIR = ROOT / "contracts" / "reaction-workflow"
+SCHEMA_DIR = (
+    _PACKAGED_SCHEMA_DIR
+    if all((_PACKAGED_SCHEMA_DIR / filename).is_file() for filename in _SCHEMA_FILENAMES.values())
+    else _REPOSITORY_SCHEMA_DIR
+)
 ADAPTER_SCHEMA_PATHS = {
-    TARGET_IMPORT_SCHEMA: ROOT / "contracts" / "reaction-workflow" / "candidate-target-import.schema.json",
-    INPUT_REVIEW_SCHEMA: ROOT / "contracts" / "reaction-workflow" / "input-draft-review.schema.json",
-    INPUT_HANDOFF_SCHEMA: ROOT / "contracts" / "reaction-workflow" / "candidate-input-handoff.schema.json",
-    ENERGY_REVIEW_SCHEMA: ROOT / "contracts" / "reaction-workflow" / "energy-review.schema.json",
-    ENERGY_RECORD_SCHEMA: ROOT / "contracts" / "reaction-workflow" / "reviewed-energy-record.schema.json",
-    ENERGY_LINEAGE_SCHEMA: ROOT / "contracts" / "reaction-workflow" / "energy-lineage.schema.json",
-    SANITIZED_JOB_SCHEMA: ROOT / "contracts" / "reaction-workflow" / "sanitized-job-observation.schema.json",
-    ATTEMPT_LINK_SCHEMA: ROOT / "contracts" / "reaction-workflow" / "calculation-attempt-link.schema.json",
+    schema: SCHEMA_DIR / filename for schema, filename in _SCHEMA_FILENAMES.items()
 }
 
 

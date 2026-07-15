@@ -260,8 +260,12 @@ specialist result artifacts already exist. Read
 before use.
 
 This adapter is currently unreleased repository source and has not been
-deployed. Run these commands from the repository root so its closed schemas
-and repository validator remain in the same reviewed tree.
+deployed. Run these commands from the repository root during development.
+Named deployment must use the repository's reviewed
+`scripts/sync_named_skill.py` plan/apply flow: this Skill's closed
+`deployment-package.json` maps the authoritative reaction-workflow contracts,
+while the asymmetric-catalysis owner's manifest maps its exact validator and
+schemas. Direct directory copying is not a complete deployment package.
 
 ```bash
 ADAPTER="skills/auto-g16-reaction-workflow/scripts/calculation_artifacts.py"
