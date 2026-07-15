@@ -102,6 +102,12 @@ That root is fixed and has no runtime override. The repository contains no
 password, private key, local SSH configuration, Gaussian checkpoint, or
 calculation output.
 
+This repository is public and accepts only publication-backed studies,
+synthetic fixtures, and release-cleared material. Keep all unpublished research
+in the external owner-only directory defined by
+`docs/data-confidentiality.md`; never add that directory as a worktree,
+submodule, symlink, or remote.
+
 ## Installation and local configuration
 
 The offline planning, parsing and audit layers use Python 3.11 or later and

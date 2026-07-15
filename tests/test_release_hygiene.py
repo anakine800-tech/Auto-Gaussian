@@ -98,6 +98,44 @@ class ReleaseHygieneTests(unittest.TestCase):
                 offenders.append(str(path.relative_to(ROOT)))
         self.assertEqual(offenders, [])
 
+    def test_studies_are_publication_backed_and_not_marked_confidential(self) -> None:
+        studies = ROOT / "studies"
+        doi = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
+        confidential = re.compile(
+            r"\bunpublished\b|\bconfidential\b|\bproprietary\b|"
+            r"\bembargo(?:ed)?\b|\binternal[-_ ]only\b",
+            re.IGNORECASE,
+        )
+        offenders: list[str] = []
+        release_files = tracked_files()
+        for directory in sorted(path for path in studies.iterdir() if path.is_dir()):
+            readme = directory / "README.md"
+            if not readme.is_file():
+                offenders.append(f"{directory.name}: missing README.md")
+                continue
+            text = readme.read_text(encoding="utf-8")
+            if not doi.search(text):
+                offenders.append(f"{directory.name}: missing publication DOI")
+            for path in release_files:
+                if directory not in path.parents:
+                    continue
+                try:
+                    candidate = path.read_text(encoding="utf-8")
+                except (UnicodeDecodeError, OSError):
+                    continue
+                if confidential.search(candidate):
+                    offenders.append(str(path.relative_to(ROOT)))
+        self.assertEqual(offenders, [])
+
+    def test_private_study_directory_names_are_never_tracked(self) -> None:
+        forbidden_parts = {"private-studies", "unpublished", "confidential", "studies-private"}
+        offenders = [
+            str(path.relative_to(ROOT))
+            for path in tracked_files()
+            if forbidden_parts.intersection(path.relative_to(ROOT).parts)
+        ]
+        self.assertEqual(offenders, [])
+
 
 if __name__ == "__main__":
     unittest.main()
