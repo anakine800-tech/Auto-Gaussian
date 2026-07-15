@@ -1,0 +1,10 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-reaction-workflow",
+  "include": [
+    {
+      "source": "contracts/reaction-workflow",
+      "target": "contracts/reaction-workflow"
+    }
+  ]
+}

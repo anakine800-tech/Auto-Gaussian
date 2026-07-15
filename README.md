@@ -201,7 +201,13 @@ Repository-wide operational rules are in `AGENTS.md`.
 ## Repository helpers
 
 - `config/*.example` contains placeholders only; real SSH/server configuration stays ignored.
-- `scripts/check_skill_sync.py` compares repository Skill hashes with installed copies.
+- `scripts/check_skill_sync.py` compares the exact named-Skill deployment
+  package, including manifest-mapped authoritative contracts, with installed
+  copies.
+- `scripts/sync_named_skill.py` prints a no-write named-Skill deployment plan
+  by default and applies it only with `--apply --confirmed --plan-sha256
+  <REVIEWED_HASH>`; it refuses symlinks, path escape and implicit deletion of
+  unexpected installed files.
 - `templates/g16_job.pbs.template` preserves the SDL-only work/scratch guard for review and testing.
 
 ## License
