@@ -1,0 +1,24 @@
+{
+  "scheme_id": "mechanism_network_fixture",
+  "steps": [
+    {
+      "step_id": "synthetic_fixture_step",
+      "arrow": {"type": "forward", "direction": "right"},
+      "reactants": [{"label": "H2"}, {"label": "I2"}],
+      "products": [{"label": "HI"}, {"label": "HI"}],
+      "text_above": ["Pd fixture"],
+      "text_below": [],
+      "components": [
+        {
+          "raw_text": "Pd fixture",
+          "normalized_name": "palladium",
+          "role": "catalyst",
+          "confidence": "certain",
+          "alternatives": []
+        }
+      ],
+      "confidence": "certain",
+      "notes": ["Contract fixture only; no real mechanism is asserted."]
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/knowledge-snapshot.schema.json",
+  "title": "Auto-G16 immutable per-study knowledge snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "record_id", "revision_id", "created_at", "created_by", "review", "access", "provenance", "aliases", "external_identifiers", "uncertainties", "contradictions", "blockers", "study_id", "parent_reaction_intake", "queries", "selection_decisions", "included_records", "redactions", "unresolved_gaps", "dependency_digest", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-knowledge-snapshot/1"},
+    "record_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "revision_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "created_at": {"$ref": "_common.schema.json#/$defs/timestamp"},
+    "created_by": {"type": "string", "minLength": 1},
+    "review": {"$ref": "_common.schema.json#/$defs/review"},
+    "access": {"$ref": "_common.schema.json#/$defs/access"},
+    "provenance": {"$ref": "_common.schema.json#/$defs/provenance"},
+    "aliases": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/alias"}},
+    "external_identifiers": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/externalIdentifier"}},
+    "uncertainties": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "contradictions": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "blockers": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "study_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "parent_reaction_intake": {"$ref": "_common.schema.json#/$defs/artifactBinding"},
+    "queries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["query_id", "registry", "query", "filters", "executed_at"],
+        "properties": {
+          "query_id": {"$ref": "_common.schema.json#/$defs/id"},
+          "registry": {"enum": ["structure", "method", "source", "link", "all"]},
+          "query": {"type": "string", "minLength": 1},
+          "filters": {"$ref": "_common.schema.json#/$defs/stringArray"},
+          "executed_at": {"$ref": "_common.schema.json#/$defs/timestamp"}
+        }
+      }
+    },
+    "selection_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision_id", "record_ref", "decision", "rationale"],
+        "properties": {
+          "decision_id": {"$ref": "_common.schema.json#/$defs/id"},
+          "record_ref": {"$ref": "_common.schema.json#/$defs/recordRef"},
+          "decision": {"enum": ["included", "excluded"]},
+          "rationale": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "included_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_type", "record_id", "revision_id", "payload_sha256", "review_status", "access_class"],
+        "properties": {
+          "record_type": {"enum": ["structure", "method", "source", "link"]},
+          "record_id": {"$ref": "_common.schema.json#/$defs/id"},
+          "revision_id": {"$ref": "_common.schema.json#/$defs/id"},
+          "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+          "review_status": {"enum": ["reviewed", "reviewed_with_limits"]},
+          "access_class": {"enum": ["public", "group_internal", "project_restricted", "confidential_unpublished"]}
+        }
+      }
+    },
+    "redactions": {"$ref": "_common.schema.json#/$defs/stringArray"},
+    "unresolved_gaps": {"$ref": "_common.schema.json#/$defs/stringArray"},
+    "dependency_digest": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  }
+}

@@ -3,7 +3,7 @@
 Status: target architecture and implementation roadmap. This document grants no
 Gaussian, SSH, PBS, deployment, retry, cancellation, or server-data authority.
 
-Status date: 2026-07-14
+Status date: 2026-07-15
 
 ## 1. Project objective
 
@@ -104,7 +104,7 @@ The intended ownership is:
 | --- | --- | --- |
 | structure and scheme intake | `auto-g16-chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
 | 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
-| reusable knowledge databases | future `auto-g16-knowledge-base` | reviewed structure/catalyst, computational-method, and literature/book registries; typed links, permissions, provenance, immutable study snapshots |
+| reusable knowledge databases | `auto-g16-knowledge-base` | implemented W2A contracts plus W2B-1 store/index/query and W2B-2 reviewed import, lawful-object ingestion and redacted JSON export; future authenticated service enforcement and chemical search |
 | reaction-study orchestration | future top-level module | species registry, condition model, mechanism network, calculation DAG, study state |
 | literature evidence and TS precedent | `auto-g16-reaction-literature` plus future extensions | implemented reproducible metadata search and reviewed evidence records; future mechanism-support matrices and reviewed TS-seed proposals |
 | asymmetric-catalysis domain | `auto-g16-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
@@ -653,8 +653,8 @@ top-level reaction workflow.
 | connected-molecule conformer generation and promotion | implemented | ETKDG/MMFF/UFF is prescreening; disconnected complexes, metal coordination, and axial chirality need manual/specialized support |
 | reaction intake/species registry/stoichiometric balance foundation | integrated offline after W1 validation | stable atom identities and exact occurrence binding are implemented; cross-state atom-map proposal belongs to W3 and remains missing |
 | condition-to-model mapping | integrated offline after W1 validation | every transcribed condition requires one reviewed treatment; no solvent, additive, counterion or standard-state model is inferred |
-| reusable group structure, method, and literature/book databases | design recorded; implementation missing | no `auto-g16-knowledge-base`, canonical record contracts, deterministic index, permissions, importer, cross-registry links, or immutable per-study snapshot builder exists |
-| general literature search, evidence extraction and TS-precedent mapping | design recorded; implementation missing | existing BF3/asymmetric records are fixed study-specific evidence, not a reproducible search engine; no general primary/SI search, applicability audit, or source-to-target TS seed translator exists |
+| reusable group structure, method, and literature/book databases | W2A through W2B-2 offline foundation implemented | canonical contracts, store/object verification, deterministic SQLite, exact access filtering, reviewed import, lawful-object ingestion, redacted JSON export, typed links and snapshot verification exist; chemical search and authenticated service enforcement remain missing |
+| general literature search, evidence extraction and TS-precedent mapping | query and reviewed evidence stages implemented; TS mapping missing | `auto-g16-reaction-literature` provides reproducible metadata discovery and source-evidence review; mechanism-support matrices, source-to-target applicability/atom mapping and reviewed TS-seed translation remain missing |
 | mechanism network and catalyst-cycle DAG | partially represented in asymmetric study artifacts | no general network builder, cycle closure audit, step dependency engine, or project-level state machine |
 | deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
@@ -718,22 +718,25 @@ It also needs explicit artifact adapters for:
 Without P1, existing tools calculate reviewed individual structures but cannot
 prove that the declared whole-reaction scope is covered.
 
-### P2 — Missing reusable knowledge databases
+### P2 — Incomplete reusable knowledge databases
 
-- a future `auto-g16-knowledge-base` with closed structure, method, source,
-  link, and study-snapshot contracts;
+- the implemented W2A `auto-g16-knowledge-base` closed structure, method,
+  source, link, and study-snapshot contracts and strict validator;
 - a reviewed group structure registry for catalyst/ligand identities, chemical
   states, stereochemistry, coordination, 2D/3D representations and provenance;
 - a complete computational-method registry separating literature-reported,
   internally used, benchmarked, failed, deprecated and superseded protocols;
 - a literature/book registry with DOI/ISBN, edition/chapter/page/SI anchors,
   correction/retraction/version relationships and lawful file-object handling;
-- typed cross-registry links, immutable revisions, deterministic migrations,
-  rebuildable indexes, duplicate/conflict handling and stable exports;
-- per-study hash-bound snapshots so database updates cannot change accepted
-  science implicitly; and
-- public/group/project/confidential permissions, audit logs, redacted exports
-  and external-provider disclosure gates.
+- implemented typed cross-registry link and immutable snapshot contracts,
+  deterministic migration/rebuild, stale-index refusal and reviewed stable
+  JSON exports;
+- implemented duplicate/conflict reporting without automatic merge, with
+  future importer-integrated resolution review; and
+- public/group/project/confidential metadata, declared offline-principal
+  filtering and redacted/full JSON export are implemented, while
+  authentication, durable audit logs, signatures and binary export remain
+  future W2 work and external-provider disclosure gates.
 
 The database must retrieve reviewed candidates and evidence, not silently make
 scientific decisions. Stored popularity, group custom, a matching structure, or
@@ -850,6 +853,20 @@ versus-benchmarked method separation, edition/page/SI anchors, duplicate and
 conflict fixtures, access-negative tests, stable snapshots after database
 updates, and unconditional refusal to grant calculation authority. A later
 multi-user PostgreSQL/chemical-search service remains a separate milestone.
+
+Feature status on 2026-07-15: W2A through W2B-2 are implemented. The repository contains the
+five closed artifact contracts, a standard-library strict validator and
+deterministic finalizer, independent-link supersession semantics, frozen
+identity/state/geometry, reported-method, article/book, link and snapshot
+fixtures, plus negative tests for hash drift, missing anchors, unsafe access,
+unreviewed snapshot members, duplicates and conflicting revisions. It also has
+an immutable canonical layout, content-addressed-object validation,
+deterministic SQLite migration/rebuild, stale-index refusal, exact declared-
+principal query filtering and snapshot/parent binding verification. Reviewed
+plan-review-apply import, exact lawful-object ingestion, and permission-aware
+full/metadata-redacted JSON export are also implemented. Authentication,
+signatures, durable audit logging, binary export, chemical search and service
+enforcement remain W2.
 
 Extend the separate, offline-first `auto-g16-reaction-literature` evidence
 layer. Its query and evidence contracts are implemented; mechanism-support and

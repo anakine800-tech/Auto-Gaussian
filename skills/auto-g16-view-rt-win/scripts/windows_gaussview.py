@@ -118,7 +118,9 @@ def open_master() -> int:
         f"ssh -F {shlex.quote(SSH_CONFIG)} -M -S {shlex.quote(SOCKET)} "
         f"-o ControlPersist=15m -N -f {shlex.quote(TARGET)}"
     )
-    apple = f'tell application "Terminal" to do script {json.dumps(command)}'
+    # AppleScript accepts the workspace's native Unicode path, but interprets
+    # JSON's default ``\\uXXXX`` escapes as invalid AppleScript string syntax.
+    apple = f'tell application "Terminal" to do script {json.dumps(command, ensure_ascii=False)}'
     subprocess.run(["osascript", "-e", 'tell application "Terminal" to activate', "-e", apple], check=True)
     print(json.dumps({
         "master": "password_required",

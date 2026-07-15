@@ -1,0 +1,76 @@
+{
+  "schema": "auto-g16-structure-record/1",
+  "record_id": "fixture_boron_catalyst",
+  "revision_id": "fixture_boron_catalyst_r001",
+  "created_at": "2026-07-15T00:00:00+00:00",
+  "created_by": "fixture_author",
+  "review": {
+    "status": "reviewed",
+    "reviewer": "fixture_reviewer",
+    "reviewed_at": "2026-07-15T01:00:00+00:00",
+    "notes": ["Synthetic offline fixture; not a method or calculation approval."]
+  },
+  "access": {
+    "class": "group_internal",
+    "owner_project": null,
+    "permitted_principals": [],
+    "export_policy": "full"
+  },
+  "provenance": {
+    "source_kind": "manual_review",
+    "importer": null,
+    "source_artifacts": []
+  },
+  "aliases": [
+    {"type": "preferred_name", "value": "Fixture boron catalyst"},
+    {"type": "internal_code", "value": "FIX-B-01"}
+  ],
+  "external_identifiers": [
+    {"scheme": "InChIKey", "value": "FIXTUREBORONKEY000000000"}
+  ],
+  "uncertainties": [],
+  "contradictions": [],
+  "blockers": [],
+  "record_scope": "identity",
+  "identity": {
+    "preferred_name": "Fixture boron catalyst",
+    "formula": "C3H9B",
+    "exact_mass": 56.0808,
+    "canonical_smiles": "B(C)(C)C",
+    "inchi": null,
+    "inchikey": "FIXTUREBORONKEY000000000",
+    "isotopes": [],
+    "component_count": 1,
+    "stereochemistry": {
+      "status": "not_applicable",
+      "description": null
+    },
+    "roles": ["catalyst", "reference_compound"],
+    "composition_notes": ["Synthetic identity used only for offline validation."]
+  },
+  "parent_identity": null,
+  "state": null,
+  "parent_state": null,
+  "representations": [
+    {
+      "representation_id": "fixture_smiles_rep",
+      "format": "smiles",
+      "object": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size_bytes": 9,
+        "media_type": "chemical/x-daylight-smiles",
+        "storage_status": "metadata_only",
+        "original_name": "fixture.smi"
+      },
+      "source_exact": false,
+      "atom_order": "reviewed",
+      "review_scope": "constitution only",
+      "geometry_provenance": "normalized_2d",
+      "supporting_record_refs": [],
+      "limitations": ["No three-dimensional state is represented."]
+    }
+  ],
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "payload_sha256": null
+}

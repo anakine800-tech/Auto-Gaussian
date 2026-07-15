@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 Knowledge Base"
+  short_description: "Curate, import, and redact Gaussian knowledge"
+  default_prompt: "Use $auto-g16-knowledge-base to plan, review, and apply an immutable knowledge import or permission-aware redacted export."

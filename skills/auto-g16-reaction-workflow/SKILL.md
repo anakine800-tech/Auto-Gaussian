@@ -117,20 +117,47 @@ mechanism networks, atom correspondence between states, reference basins,
 candidate structures, protocols, Gaussian inputs, server projects, jobs,
 retries, cancellations or reports of mechanism/selectivity.
 
-### 5. Preserve the future W2 knowledge and literature gates
+### Optional W3 mechanism-network slice
+
+Invoke this only as a separate offline stage after an immutable W1 chain and
+an explicit human-authored network review exist. Read
+[references/mechanism-network-contract.md](references/mechanism-network-contract.md),
+then run:
+
+```bash
+NETWORK_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/mechanism_network.py"
+
+python3 "$NETWORK_TOOL" build reaction-intake.json species-registry.json \
+  condition-model.json --review mechanism-network-review.json \
+  --output mechanism-network.json
+python3 "$NETWORK_TOOL" validate mechanism-network.json
+```
+
+This first W3 slice validates complete reviewed states, exact atom maps,
+connectivity changes, element/charge conservation, competing networks,
+reference basins and catalyst-projection closure. It does not infer any of
+them. Because `gaussian-reaction-mechanism-support/1` remains unimplemented,
+every output retains `mechanism_support_unavailable`, remains
+`calculation_ready: false`, and grants no mechanism promotion, calculation DAG,
+protocol, Gaussian input, or live authority.
+
+### 5. Preserve the W2 knowledge and literature gates
 
 The second scientific-modeling round must first query a reviewed reusable
 knowledge layer and bind an immutable per-study snapshot. Read
 [references/knowledge-database-design.md](references/knowledge-database-design.md)
-when planning the future structure, method, and literature/book registries.
+when binding the implemented offline structure, method, and literature/book
+registries.
 
 Then obtain reproducible literature evidence before promoting mechanism
 networks or TS seed strategies. Read
 [references/literature-evidence-design.md](references/literature-evidence-design.md)
 when planning that future layer.
 
-The proposed `auto-g16-knowledge-base` is not implemented. The separate
-`auto-g16-reaction-literature` Skill now implements the query, metadata
+The separate `auto-g16-knowledge-base` Skill implements the offline immutable
+registry, permission-filtered index, typed-link and snapshot MVP. This W1
+builder does not invoke it automatically or fabricate a snapshot. The separate
+`auto-g16-reaction-literature` Skill implements the query, metadata
 retrieval, screening and source-evidence stages, but not the planned mechanism-
 support or TS-precedent-map stages. This W1 builder still performs none of those
 actions. Do not claim that a database was queried or updated, claim that a
@@ -160,12 +187,19 @@ calculation authorization.
   builders and validator.
 - `references/intake-contract.md`: required review-input fields, semantics and
   blocker rules.
-- `references/knowledge-database-design.md`: future W2 structure, method, and
-  literature/book registries, immutable study snapshots, permissions and
-  storage/index architecture; design only, with no current database capability.
+- `references/knowledge-database-design.md`: W2 structure, method, and
+  literature/book registry, immutable snapshot, permission and storage/index
+  contract implemented offline by `auto-g16-knowledge-base`; multi-user service
+  and raw legacy migrations remain future work.
 - `references/literature-evidence-design.md`: W2 reproducible search, evidence
   extraction, applicability review and TS-precedent contract. The query and
   evidence stages are implemented by `auto-g16-reaction-literature`; later
   mechanism-support and TS-precedent stages remain design-only.
+- `references/mechanism-network-contract.md`: implemented first W3 offline
+  review/output semantics, fail-closed diagnostics and mandatory evidence
+  blocker.
+- `scripts/mechanism_network.py`: standard-library-only deterministic W3
+  mechanism-network builder and validator; no calculation or live path.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
-  schemas for intake, registry and condition-model artifacts.
+  schemas for intake, registry, condition-model and mechanism-network
+  artifacts.

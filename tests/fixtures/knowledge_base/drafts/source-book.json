@@ -1,0 +1,68 @@
+{
+  "schema": "auto-g16-source-record/1",
+  "record_id": "fixture_book",
+  "revision_id": "fixture_book_r001",
+  "created_at": "2026-07-15T00:00:00+00:00",
+  "created_by": "fixture_author",
+  "review": {
+    "status": "reviewed",
+    "reviewer": "fixture_reviewer",
+    "reviewed_at": "2026-07-15T01:00:00+00:00",
+    "notes": ["Synthetic book fixture with edition and page anchor."]
+  },
+  "access": {
+    "class": "group_internal",
+    "owner_project": null,
+    "permitted_principals": [],
+    "export_policy": "metadata_redacted"
+  },
+  "provenance": {
+    "source_kind": "manual_review",
+    "importer": null,
+    "source_artifacts": []
+  },
+  "aliases": [{"type": "preferred_name", "value": "Synthetic Computational Chemistry Handbook"}],
+  "external_identifiers": [{"scheme": "ISBN", "value": "9780000000002"}],
+  "uncertainties": [],
+  "contradictions": [],
+  "blockers": [],
+  "source_type": "book_chapter",
+  "bibliography": {
+    "doi": null,
+    "isbn": "9780000000002",
+    "issn": null,
+    "publisher": "Synthetic Fixture Press",
+    "authors": ["C. Fixture"],
+    "editors": ["D. Editor"],
+    "title": "Synthetic Computational Chemistry Handbook",
+    "year": 2026,
+    "journal": null,
+    "volume": null,
+    "issue": null,
+    "page_range": "100-120",
+    "article_number": null,
+    "stable_url": "https://example.invalid/fixture-book"
+  },
+  "version": {
+    "edition": "2nd edition",
+    "chapter": "Chapter 5: Reproducible Protocols",
+    "version_label": null,
+    "language": "en"
+  },
+  "access_details": {
+    "accessed_at": "2026-07-15T00:30:00+00:00",
+    "license": "Metadata-only synthetic fixture.",
+    "storage_status": "metadata_only",
+    "access_limitations": ["No book content is stored or redistributed."]
+  },
+  "objects": [],
+  "anchors": [
+    {"anchor_id": "fixture_book_anchor", "locator_type": "page", "locator": "2nd edition, Chapter 5, page 108", "object_sha256": null, "notes": []}
+  ],
+  "claims": [
+    {"claim_id": "fixture_book_claim", "category": "protocol_reporting", "statement_type": "paraphrase", "text": "The synthetic chapter describes why full protocol metadata must be retained.", "anchor_ids": ["fixture_book_anchor"], "review_status": "reviewed"}
+  ],
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "payload_sha256": null
+}

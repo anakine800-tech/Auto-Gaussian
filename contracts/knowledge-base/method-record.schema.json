@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/method-record.schema.json",
+  "title": "Auto-G16 computational method record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "record_id", "revision_id", "created_at", "created_by", "review", "access", "provenance", "aliases", "external_identifiers", "uncertainties", "contradictions", "blockers", "source_class", "protocol", "applicability", "evidence", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-method-record/1"},
+    "record_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "revision_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "created_at": {"$ref": "_common.schema.json#/$defs/timestamp"},
+    "created_by": {"type": "string", "minLength": 1},
+    "review": {"$ref": "_common.schema.json#/$defs/review"},
+    "access": {"$ref": "_common.schema.json#/$defs/access"},
+    "provenance": {"$ref": "_common.schema.json#/$defs/provenance"},
+    "aliases": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/alias"}},
+    "external_identifiers": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/externalIdentifier"}},
+    "uncertainties": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "contradictions": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "blockers": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "source_class": {"enum": ["literature_reported", "group_custom", "group_recommended", "benchmark_candidate", "group_validated_within_scope", "blocked", "deprecated", "superseded"]},
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["program", "program_revision", "calculation_family", "functional", "basis_by_element", "ecp_by_element", "dispersion", "relativistic_treatment", "solvent_model", "explicit_components", "integration_grid", "scf_policy", "optimization_policy", "frequency_policy", "ts_policy", "irc_policy", "single_point_relationship", "charge_spin_requirements", "wavefunction_policy", "stability_checks", "temperature_pressure", "standard_state_concentration", "low_frequency_entropy"],
+      "properties": {
+        "program": {"$ref": "_common.schema.json#/$defs/fact"},
+        "program_revision": {"$ref": "_common.schema.json#/$defs/fact"},
+        "calculation_family": {"$ref": "_common.schema.json#/$defs/fact"},
+        "functional": {"$ref": "_common.schema.json#/$defs/fact"},
+        "basis_by_element": {"$ref": "_common.schema.json#/$defs/fact"},
+        "ecp_by_element": {"$ref": "_common.schema.json#/$defs/fact"},
+        "dispersion": {"$ref": "_common.schema.json#/$defs/fact"},
+        "relativistic_treatment": {"$ref": "_common.schema.json#/$defs/fact"},
+        "solvent_model": {"$ref": "_common.schema.json#/$defs/fact"},
+        "explicit_components": {"$ref": "_common.schema.json#/$defs/fact"},
+        "integration_grid": {"$ref": "_common.schema.json#/$defs/fact"},
+        "scf_policy": {"$ref": "_common.schema.json#/$defs/fact"},
+        "optimization_policy": {"$ref": "_common.schema.json#/$defs/fact"},
+        "frequency_policy": {"$ref": "_common.schema.json#/$defs/fact"},
+        "ts_policy": {"$ref": "_common.schema.json#/$defs/fact"},
+        "irc_policy": {"$ref": "_common.schema.json#/$defs/fact"},
+        "single_point_relationship": {"$ref": "_common.schema.json#/$defs/fact"},
+        "charge_spin_requirements": {"$ref": "_common.schema.json#/$defs/fact"},
+        "wavefunction_policy": {"$ref": "_common.schema.json#/$defs/fact"},
+        "stability_checks": {"$ref": "_common.schema.json#/$defs/fact"},
+        "temperature_pressure": {"$ref": "_common.schema.json#/$defs/fact"},
+        "standard_state_concentration": {"$ref": "_common.schema.json#/$defs/fact"},
+        "low_frequency_entropy": {"$ref": "_common.schema.json#/$defs/fact"}
+      }
+    },
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["included_elements", "catalyst_classes", "reaction_classes", "state_types", "job_stages", "exclusions", "limitations"],
+      "properties": {
+        "included_elements": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "catalyst_classes": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "reaction_classes": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "state_types": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "job_stages": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "exclusions": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "limitations": {"$ref": "_common.schema.json#/$defs/stringArray"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supporting_source_refs", "benchmark_record_refs", "failure_record_refs", "resource_observations", "notes"],
+      "properties": {
+        "supporting_source_refs": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/recordRef"}},
+        "benchmark_record_refs": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/recordRef"}},
+        "failure_record_refs": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/recordRef"}},
+        "resource_observations": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "notes": {"$ref": "_common.schema.json#/$defs/stringArray"}
+      }
+    },
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  }
+}

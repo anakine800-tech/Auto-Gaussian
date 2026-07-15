@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/mechanism-network.schema.json",
+  "title": "Gaussian reaction mechanism network",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "intake", "species_registry", "condition_model",
+    "mechanism_support", "review_source", "states", "edges", "networks",
+    "reference_basins", "diagnostics", "blockers", "review", "gate_status",
+    "calculation_ready", "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-mechanism-network/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "intake": {"$ref": "#/$defs/boundArtifact"},
+    "species_registry": {"$ref": "#/$defs/boundArtifact"},
+    "condition_model": {"$ref": "#/$defs/boundArtifact"},
+    "mechanism_support": {"type": "null"},
+    "review_source": {"$ref": "#/$defs/artifact"},
+    "states": {
+      "type": "array", "minItems": 2,
+      "items": {"$ref": "#/$defs/state"}
+    },
+    "edges": {
+      "type": "array", "minItems": 1,
+      "items": {"$ref": "#/$defs/edge"}
+    },
+    "networks": {
+      "type": "array", "minItems": 2,
+      "items": {"$ref": "#/$defs/network"}
+    },
+    "reference_basins": {
+      "type": "array", "minItems": 1,
+      "items": {"$ref": "#/$defs/referenceBasin"}
+    },
+    "diagnostics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_conservation_and_connectivity", "network_catalyst_projection_closure", "reference_basin_consistency"],
+      "properties": {
+        "edge_conservation_and_connectivity": {"type": "array", "items": {"$ref": "#/$defs/edgeDiagnostic"}},
+        "network_catalyst_projection_closure": {"type": "array", "items": {"$ref": "#/$defs/networkDiagnostic"}},
+        "reference_basin_consistency": {"type": "array", "items": {"$ref": "#/$defs/basinDiagnostic"}}
+      }
+    },
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
+    "review": {"$ref": "#/$defs/review"},
+    "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "stringArray": {"type": "array", "items": {"type": "string"}},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "boundArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "payload_sha256"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}, "payload_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "atomRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["species_id", "atom_id"],
+      "properties": {"species_id": {"$ref": "#/$defs/id"}, "atom_id": {"$ref": "#/$defs/id"}}
+    },
+    "atom": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_id", "element", "registry_atom_refs"],
+      "properties": {
+        "atom_id": {"$ref": "#/$defs/id"},
+        "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"},
+        "registry_atom_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atomRef"}}
+      }
+    },
+    "component": {
+      "type": "object", "additionalProperties": false,
+      "required": ["component_id", "label", "atom_ids", "formal_charge", "multiplicity", "registry_species_id", "represented_form"],
+      "properties": {
+        "component_id": {"$ref": "#/$defs/id"}, "label": {"type": "string"},
+        "atom_ids": {"$ref": "#/$defs/stringArray"}, "formal_charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "registry_species_id": {"type": ["string", "null"]}, "represented_form": {"type": "string"}
+      }
+    },
+    "connection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_ids", "kind", "order"],
+      "properties": {
+        "atom_ids": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/id"}},
+        "kind": {"enum": ["covalent", "coordination"]},
+        "order": {"enum": ["single", "double", "triple", "aromatic", "unspecified"]}
+      }
+    },
+    "stereoAssignment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assignment_id", "atom_ids", "descriptor", "review_status", "rationale"],
+      "properties": {
+        "assignment_id": {"$ref": "#/$defs/id"},
+        "atom_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+        "descriptor": {"type": "string", "minLength": 1},
+        "review_status": {"enum": ["reviewed", "blocked"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "stereochemistry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "assignments", "notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "not_applicable", "blocked"]},
+        "assignments": {"type": "array", "items": {"$ref": "#/$defs/stereoAssignment"}},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "environmentModel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["condition_decision_ids", "additional_terms", "review_status", "rationale"],
+      "properties": {
+        "condition_decision_ids": {"$ref": "#/$defs/stringArray"},
+        "additional_terms": {"$ref": "#/$defs/stringArray"},
+        "review_status": {"enum": ["reviewed", "blocked"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "catalystProjection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "catalyst_atom_ids", "formal_charge", "multiplicity", "oxidation_state", "ligand_environment", "protonation_state", "notes"],
+      "properties": {
+        "status": {"const": "reviewed"},
+        "catalyst_atom_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+        "formal_charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "oxidation_state": {"type": "string", "minLength": 1},
+        "ligand_environment": {"$ref": "#/$defs/stringArray"},
+        "protonation_state": {"type": "string", "minLength": 1},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state_id", "label", "state_class", "atoms", "components", "formal_charge", "multiplicity", "connections", "connectivity_complete", "stereochemistry", "environment_model", "catalyst_projection", "review_status", "blockers", "notes"],
+      "properties": {
+        "state_id": {"$ref": "#/$defs/id"}, "label": {"type": "string"}, "state_class": {"type": "string"},
+        "atoms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atom"}},
+        "components": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/component"}},
+        "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1},
+        "connections": {"type": "array", "items": {"$ref": "#/$defs/connection"}},
+        "connectivity_complete": {"const": true},
+        "stereochemistry": {"$ref": "#/$defs/stereochemistry"},
+        "environment_model": {"$ref": "#/$defs/environmentModel"},
+        "catalyst_projection": {"anyOf": [{"$ref": "#/$defs/catalystProjection"}, {"type": "null"}]},
+        "review_status": {"enum": ["reviewed_hypothesis", "blocked"]},
+        "blockers": {"$ref": "#/$defs/stringArray"}, "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "atomMapping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from_atom_id", "to_atom_id"],
+      "properties": {"from_atom_id": {"$ref": "#/$defs/id"}, "to_atom_id": {"$ref": "#/$defs/id"}}
+    },
+    "connectionChange": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_ids", "kind", "before_order", "after_order"],
+      "properties": {
+        "atom_ids": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/id"}},
+        "kind": {"enum": ["covalent", "coordination"]},
+        "before_order": {"enum": ["single", "double", "triple", "aromatic", "unspecified", null]},
+        "after_order": {"enum": ["single", "double", "triple", "aromatic", "unspecified", null]}
+      }
+    },
+    "transfer": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_id", "donor_atom_id", "acceptor_atom_id"],
+      "properties": {
+        "atom_id": {"$ref": "#/$defs/id"},
+        "donor_atom_id": {"$ref": "#/$defs/id"},
+        "acceptor_atom_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "stateChanges": {
+      "type": "object", "additionalProperties": false,
+      "required": ["coordination", "ligand", "oxidation_state", "protonation", "spin"],
+      "properties": {
+        "coordination": {"type": "string", "minLength": 1},
+        "ligand": {"type": "string", "minLength": 1},
+        "oxidation_state": {"type": "string", "minLength": 1},
+        "protonation": {"type": "string", "minLength": 1},
+        "spin": {"type": "string", "minLength": 1}
+      }
+    },
+    "edge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "label", "from_state_id", "to_state_id", "atom_mapping", "connection_changes", "transfers", "molecularity", "reversibility", "state_changes", "stereochemical_channel", "support_claim_ids", "review_status", "blockers", "notes"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"}, "label": {"type": "string"},
+        "from_state_id": {"$ref": "#/$defs/id"}, "to_state_id": {"$ref": "#/$defs/id"},
+        "atom_mapping": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atomMapping"}},
+        "connection_changes": {"type": "array", "items": {"$ref": "#/$defs/connectionChange"}},
+        "transfers": {"type": "array", "items": {"$ref": "#/$defs/transfer"}}, "molecularity": {"type": "integer", "minimum": 1},
+        "reversibility": {"enum": ["reversible", "irreversible", "unresolved"]},
+        "state_changes": {"$ref": "#/$defs/stateChanges"}, "stereochemical_channel": {"type": ["string", "null"]},
+        "support_claim_ids": {"type": "array", "maxItems": 0},
+        "review_status": {"enum": ["reviewed_hypothesis", "blocked"]},
+        "blockers": {"$ref": "#/$defs/stringArray"}, "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "catalystCycle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["required", "start_state_id", "regenerated_state_id", "closure_edge_ids", "review_status", "rationale"],
+      "properties": {
+        "required": {"const": true},
+        "start_state_id": {"$ref": "#/$defs/id"},
+        "regenerated_state_id": {"$ref": "#/$defs/id"},
+        "closure_edge_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+        "review_status": {"const": "reviewed"},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "network": {
+      "type": "object", "additionalProperties": false,
+      "required": ["network_id", "label", "role", "state_ids", "edge_ids", "entry_state_id", "exit_state_id", "catalyst_cycle", "disposition", "review_status", "blockers", "notes"],
+      "properties": {
+        "network_id": {"$ref": "#/$defs/id"}, "label": {"type": "string"},
+        "role": {"enum": ["primary", "competing"]}, "state_ids": {"$ref": "#/$defs/stringArray"},
+        "edge_ids": {"$ref": "#/$defs/stringArray"}, "entry_state_id": {"$ref": "#/$defs/id"},
+        "exit_state_id": {"$ref": "#/$defs/id"}, "catalyst_cycle": {"$ref": "#/$defs/catalystCycle"},
+        "disposition": {"enum": ["included_hypothesis", "competing_hypothesis", "excluded", "unresolved"]},
+        "review_status": {"enum": ["reviewed_hypothesis", "blocked"]},
+        "blockers": {"$ref": "#/$defs/stringArray"}, "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "referenceBasin": {
+      "type": "object", "additionalProperties": false,
+      "required": ["basin_id", "label", "network_ids", "edge_ids", "reference_state_id", "reference_type", "condition_decision_ids", "aggregation_model", "equilibration_assumptions", "symmetry_degeneracy_policy", "review_status", "blockers", "notes"],
+      "properties": {
+        "basin_id": {"$ref": "#/$defs/id"}, "label": {"type": "string"},
+        "network_ids": {"$ref": "#/$defs/stringArray"}, "edge_ids": {"$ref": "#/$defs/stringArray"},
+        "reference_state_id": {"$ref": "#/$defs/id"},
+        "reference_type": {"enum": ["separated_species", "pre_reactive_complex", "balanced_thermodynamic_cycle"]},
+        "condition_decision_ids": {"$ref": "#/$defs/stringArray"}, "aggregation_model": {"type": "string"},
+        "equilibration_assumptions": {"$ref": "#/$defs/stringArray"}, "symmetry_degeneracy_policy": {"type": "string"},
+        "review_status": {"enum": ["reviewed", "blocked"]},
+        "blockers": {"$ref": "#/$defs/stringArray"}, "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "edgeDiagnostic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "atom_mapping_complete", "element_delta_product_minus_reactant", "charge_delta_product_minus_reactant", "elements_conserved", "charge_conserved", "connection_changes_consistent"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"},
+        "atom_mapping_complete": {"const": true},
+        "element_delta_product_minus_reactant": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "charge_delta_product_minus_reactant": {"type": "integer"},
+        "elements_conserved": {"type": "boolean"},
+        "charge_conserved": {"type": "boolean"},
+        "connection_changes_consistent": {"const": true}
+      }
+    },
+    "networkDiagnostic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["network_id", "closure_path_valid", "catalyst_atom_projection_closed", "catalyst_descriptor_equivalent", "catalyst_connectivity_equivalent", "catalyst_cycle_closed"],
+      "properties": {
+        "network_id": {"$ref": "#/$defs/id"},
+        "closure_path_valid": {"const": true},
+        "catalyst_atom_projection_closed": {"type": "boolean"},
+        "catalyst_descriptor_equivalent": {"type": "boolean"},
+        "catalyst_connectivity_equivalent": {"type": "boolean"},
+        "catalyst_cycle_closed": {"type": "boolean"}
+      }
+    },
+    "edgeComparison": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "element_inventory_matches_reference", "charge_matches_reference"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"},
+        "element_inventory_matches_reference": {"type": "boolean"},
+        "charge_matches_reference": {"type": "boolean"}
+      }
+    },
+    "basinDiagnostic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["basin_id", "common_element_inventory", "common_charge", "edge_comparisons"],
+      "properties": {
+        "basin_id": {"$ref": "#/$defs/id"},
+        "common_element_inventory": {"type": "boolean"},
+        "common_charge": {"type": "boolean"},
+        "edge_comparisons": {"type": "array", "items": {"$ref": "#/$defs/edgeComparison"}}
+      }
+    },
+    "blocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "scope", "description", "required_for"],
+      "properties": {"blocker_id": {"$ref": "#/$defs/id"}, "scope": {"type": "string"}, "description": {"type": "string"}, "required_for": {"$ref": "#/$defs/stringArray"}}
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {"decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]}, "notes": {"$ref": "#/$defs/stringArray"}}
+    }
+  }
+}

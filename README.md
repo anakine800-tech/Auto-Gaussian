@@ -10,15 +10,16 @@ independently.
 
 ## Current repository status
 
-As of 2026-07-14, Auto-G16 2.1.0 includes the guarded RTwin/PBS workflow,
-audited main-group
+As of 2026-07-15, the Auto-G16 feature line includes the guarded RTwin/PBS
+workflow, audited main-group
 TS–Freq–IRC workflow, offline asymmetric-catalysis planning/audit module, and
-the W1 reaction-intake and reaction-literature foundations.
+the W1 reaction-intake/reaction-literature foundations plus the W2A immutable
+knowledge-record contracts and W2B-2 reviewed store/import/export foundation.
 These layers retain their individual scientific and live-action approval gates.
 
-`main` is the stable release branch. `codex/Auto-Gaussian` remains the target
-integration branch for the future whole-reaction workflow; feature work uses
-separate `codex/` branches and reaches `main` only through reviewed integration.
+`main` is the stable release branch. Feature work uses short-lived `codex/`
+branches and reaches `main` only through reviewed pull requests with the
+required offline checks passing.
 
 See `docs/repository-status.md` for the evidence, limitations, and next gates.
 See `docs/end-to-end-reaction-computation-workflow.md` for the project target:
@@ -47,12 +48,28 @@ retain their existing names for compatibility and provenance.
   screening, evidence templates and fail-closed source-review validation. It
   does not infer a mechanism, choose a computational protocol, or authorize a
   calculation.
+- `skills/auto-g16-knowledge-base`: offline validation and deterministic
+  finalization for immutable structure identity/state/geometry, computational
+  method, literature/book source, typed-link and per-study snapshot records.
+  W2B-2 adds immutable record/object-store verification, deterministic SQLite
+  rebuild, exact permission-filtered queries, reviewed import with lawful
+  object ingestion, redacted JSON export and snapshot verification; it has no
+  method selection, input generation or live action.
 
-## Planned W2 knowledge modules
+## W2 knowledge modules
 
-- `auto-g16-knowledge-base`: future reviewed structure/catalyst,
-  computational-method, and literature/book registries with permissions,
-  provenance, typed links and immutable per-study snapshots.
+- `auto-g16-knowledge-base` W2A is implemented with five closed contracts,
+  canonical SHA-256 validation, review/access/provenance rules, frozen
+  identity/state/geometry, method, article/book, link and snapshot fixtures,
+  and fail-closed duplicate/conflict auditing without automatic merge.
+- W2B-1 implements the immutable record/object layout, content-addressed object
+  checks, deterministic SQLite migration/rebuild, stale-index refusal, exact
+  offline principal-filtered queries and snapshot dependency verification.
+- W2B-2 implements hash-bound plan-review-apply import, exact lawful-object
+  ingestion, full/metadata-redacted JSON export, `no_export` exclusion and
+  dependency-aware downgrade. Binary objects are never exported.
+- W2 still requires authentication, signatures, durable audit logging,
+  chemical search and multi-user enforcement.
 - mechanism-support matrices, source-to-target atom correspondence, and
   reviewed target TS-seed proposals remain future extensions to the implemented
   reaction-literature layer.
@@ -85,10 +102,18 @@ calculation output.
 
 ## Installation and local configuration
 
-The offline planning, parsing and audit layers use Python 3.11 or later. The
-ChemDraw and conformer layers additionally require an RDKit environment; some
-rendering paths require Pillow and NumPy. ChemDraw, GaussView, Gaussian and PBS
-remain separately licensed external software and are not distributed here.
+The offline planning, parsing and audit layers use Python 3.11 or later and
+have no third-party runtime dependency. The ChemDraw and conformer layers
+additionally require the packages recorded in
+`requirements/chemistry.txt` (RDKit, Pillow and NumPy). Install them in an
+isolated environment when those optional paths are needed:
+
+```bash
+python3 -m pip install -r requirements/chemistry.txt
+```
+
+ChemDraw, GaussView, Gaussian and PBS remain separately licensed external
+software and are not distributed here.
 
 Copy `config/*.example` to the corresponding ignored local files and configure
 SSH aliases locally. For desktop use, copy `config/runtime.example.json` to
@@ -113,17 +138,14 @@ python3 -m unittest discover -s tests -v
 
 ## Development sequence
 
-1. Keep `main` stable and use `codex/Auto-Gaussian` as the final workflow
-   integration branch.
-2. Develop each workflow slice on a separate `codex/` feature branch, run
-   offline validation first, and merge only after the applicable explicitly
-   approved smoke gate.
-3. Reconcile repository/deployed Skill drift, then extend the implemented W1
-   reaction-intake/species/condition foundation with the W2 reusable knowledge
-   databases, literature-evidence and TS-precedent layer. It must preserve group
-   catalyst/ligand structures, complete method provenance, papers/SI/books and
-   exact source anchors, then translate only reviewed analogies into mechanism/
-   TS-seed proposals.
+1. Keep `main` stable and integrate changes through reviewed pull requests.
+2. Develop each workflow slice on a separate short-lived `codex/` feature
+   branch, run offline validation first, and merge only after the applicable
+   explicitly approved smoke gate.
+3. Continue W2 from the implemented W2B-2 store/import/export foundation with
+   authenticated enforcement, durable audit logging and chemical search. Then
+   extend the separate literature-evidence
+   layer toward mechanism support and TS precedents.
 4. Implement the W3 mechanism-network, calculation-DAG and evidence-index layer.
    Existing Skills remain specialist components rather than a monolithic
    automatic mechanism generator.

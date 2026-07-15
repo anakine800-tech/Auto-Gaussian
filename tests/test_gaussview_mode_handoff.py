@@ -20,6 +20,16 @@ SPEC.loader.exec_module(GVIEW)
 
 
 class GaussViewModeHandoffTests(unittest.TestCase):
+    def test_master_terminal_command_preserves_unicode_ssh_config_path(self) -> None:
+        completed = mock.Mock(returncode=0)
+        with mock.patch.object(GVIEW, "master_ready", return_value=False), mock.patch.object(
+            GVIEW, "SSH_CONFIG", "/tmp/用RTwin进行计算/ssh_config"
+        ), mock.patch.object(GVIEW.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(GVIEW.open_master(), 0)
+        apple = run.call_args.args[0][-1]
+        self.assertIn("用RTwin进行计算", apple)
+        self.assertNotIn(r"\u7528", apple)
+
     def test_scp_destination_uses_configured_target_and_root(self) -> None:
         with mock.patch.object(GVIEW, "TARGET", "rtwin-test"), mock.patch.object(
             GVIEW, "REMOTE_ROOT", r"D:\ReviewedProjects"

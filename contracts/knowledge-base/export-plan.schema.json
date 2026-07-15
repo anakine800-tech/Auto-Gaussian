@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/export-plan.schema.json",
+  "title": "Auto-G16 permission-aware knowledge export plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plan_id", "created_at", "store_id", "store_manifest_sha256", "store_content_digest", "index_manifest_sha256", "principal", "selection", "destination", "items", "excluded_access_count", "excluded_no_export_count", "objects_included", "review_state", "calculation_ready", "no_submission_authorization", "plan_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-knowledge-export-plan/1"},
+    "plan_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "created_at": {"$ref": "_common.schema.json#/$defs/timestamp"},
+    "store_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "store_manifest_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "store_content_digest": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "index_manifest_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "principal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "source"],
+      "properties": {
+        "mode": {"enum": ["public_only", "declared_offline_principal"]},
+        "source": {"oneOf": [{"type": "null"}, {"$ref": "_transfer-common.schema.json#/$defs/fileBinding"}]}
+      }
+    },
+    "selection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["registry", "record_ids"],
+      "properties": {
+        "registry": {"enum": ["all", "structure", "method", "source", "link", "snapshot"]},
+        "record_ids": {"$ref": "_common.schema.json#/$defs/stringArray"}
+      }
+    },
+    "destination": {"type": "string", "minLength": 1},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["record_type", "record_id", "revision_id", "payload_sha256", "action", "reason", "destination", "export_payload_sha256"],
+        "properties": {
+          "record_type": {"enum": ["structure", "method", "source", "link", "snapshot"]},
+          "record_id": {"$ref": "_common.schema.json#/$defs/id"},
+          "revision_id": {"$ref": "_common.schema.json#/$defs/id"},
+          "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+          "action": {"enum": ["full_record", "metadata_redacted"]},
+          "reason": {"type": "string", "minLength": 1},
+          "destination": {"type": "string", "minLength": 1},
+          "export_payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+        }
+      }
+    },
+    "excluded_access_count": {"type": "integer", "minimum": 0},
+    "excluded_no_export_count": {"type": "integer", "minimum": 0},
+    "objects_included": {"const": false},
+    "review_state": {"const": "awaiting_review"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "plan_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  }
+}

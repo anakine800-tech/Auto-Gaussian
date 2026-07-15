@@ -3,6 +3,41 @@
 All notable public release changes are recorded here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `auto-g16-knowledge-base` W2A with closed immutable structure, method,
+  source, typed-link and study-snapshot contracts; canonical SHA-256
+  finalization; strict offline validation; and frozen positive and adversarial
+  tests.
+- `auto-g16-knowledge-base` W2B-1 with a canonical immutable record/object
+  layout, content-addressed-object verification, versioned deterministic
+  SQLite rebuild, stale-index refusal, exact offline permission-filtered
+  queries, and snapshot/reaction-intake binding verification.
+- `auto-g16-knowledge-base` W2B-2 with hash-bound plan-review-apply import,
+  exact lawful-object ingestion, exclusive non-overwriting apply, reviewed
+  full/metadata-redacted JSON export, `no_export` exclusion, dependency-aware
+  redaction downgrade, and transfer manifests.
+- A documented optional chemistry dependency set for the RDKit, Pillow and
+  NumPy paths.
+- CI coverage that extracts a GitHub-style source archive and runs the full
+  offline suite without relying on `.git` metadata.
+
+### Changed
+
+- Removed references to the retired long-lived integration branch; `main` is
+  protected and feature work is integrated through reviewed pull requests.
+- Made release-hygiene scanning work both in a Git checkout and in generated
+  source archives.
+
+### Safety
+
+- Knowledge records, stores, indexes, queries and snapshots unconditionally
+  retain `calculation_ready: false` and `no_submission_authorization: true`;
+  W2 has no network, Gaussian input, PBS or deployment capability. Offline
+  principal declarations are not authentication or a multi-user boundary.
+
 ## [2.1.0] - 2026-07-14
 
 ### Added

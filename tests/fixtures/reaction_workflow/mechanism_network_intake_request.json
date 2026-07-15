@@ -1,0 +1,23 @@
+{
+  "schema": "gaussian-reaction-intake-request/1",
+  "study_id": "mechanism_network_fixture",
+  "source_files": [
+    {
+      "source_id": "fixture_source",
+      "path": "source_scheme.cdxml",
+      "role": "chemdraw_source",
+      "description": "Closed-shell synthetic contract fixture; not a mechanistic claim."
+    }
+  ],
+  "claim_scope": {
+    "questions": ["mechanism_comparison", "catalytic_turnover"],
+    "claim_ceiling": "offline mechanism-network contract verification only",
+    "non_goals": [
+      "Do not infer that either fixture network operates in a real reaction.",
+      "Do not select a method, create a Gaussian input, or authorize live work."
+    ]
+  },
+  "unresolved_transcription": [],
+  "review_decision": "accepted",
+  "review_notes": ["Synthetic closed-shell fixture only."]
+}

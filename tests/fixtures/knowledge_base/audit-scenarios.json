@@ -1,0 +1,13 @@
+{
+  "schema": "auto-g16-knowledge-audit-fixtures/1",
+  "base_record": "records/structure-identity.json",
+  "duplicate_candidate": {
+    "record_id": "fixture_boron_catalyst_duplicate",
+    "revision_id": "fixture_boron_catalyst_duplicate_r001"
+  },
+  "conflicting_revision": {
+    "identity_formula": "C4H12B"
+  },
+  "expected_duplicate_kind": "duplicate_structure_identity_candidate",
+  "expected_conflict_kind": "conflicting_revision_payload"
+}
