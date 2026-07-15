@@ -3,6 +3,27 @@
 All notable public release changes are recorded here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `auto-g16-knowledge-base`, an offline W2 registry for immutable reviewed
+  structure/state, computational-method, source, typed-link and per-study
+  snapshot records.
+- Five closed Draft 2020-12 contract entry points, semantic and payload-hash
+  validation, content-addressed object import, dry-run conflict ledgers,
+  deterministic SQLite rebuild/query, permission-negative behavior and stable
+  snapshot verification, including a fresh W1-builder-to-W2-snapshot synthetic
+  integration smoke.
+
+### Safety
+
+- Every knowledge record, query result and snapshot remains
+  `calculation_ready: false` and `no_submission_authorization: true`.
+- No live group database, restricted structure, licensed full text, Gaussian
+  output, network request, RTwin/PBS action or deployed-Skill mutation is part
+  of this feature.
+
 ## [2.1.0] - 2026-07-14
 
 ### Added

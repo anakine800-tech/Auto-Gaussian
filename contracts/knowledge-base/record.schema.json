@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/knowledge-base/record.schema.json",
+  "title": "Auto-G16 Knowledge Record Contracts",
+  "oneOf": [
+    {"$ref": "#/$defs/structureRecord"},
+    {"$ref": "#/$defs/methodRecord"},
+    {"$ref": "#/$defs/sourceRecord"},
+    {"$ref": "#/$defs/linkRecord"},
+    {"$ref": "#/$defs/snapshotRecord"}
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "revisionId": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}_r[0-9]{3,}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonemptyString": {"type": "string", "minLength": 1},
+    "stringArray": {"type": "array", "items": {"$ref": "#/$defs/nonemptyString"}, "uniqueItems": true},
+    "nullableString": {"type": ["string", "null"], "minLength": 1},
+    "externalIdentifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "value"],
+      "properties": {
+        "scheme": {"$ref": "#/$defs/nonemptyString"},
+        "value": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "project_ids", "license", "storage_status"],
+      "properties": {
+        "class": {"enum": ["public", "group_internal", "project_restricted", "confidential_unpublished"]},
+        "project_ids": {"$ref": "#/$defs/stringArray"},
+        "license": {"$ref": "#/$defs/nonemptyString"},
+        "storage_status": {"enum": ["metadata_only", "lawful_local_object", "public_redistributable"]}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source", "locator", "sha256"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/nonemptyString"},
+        "source": {"$ref": "#/$defs/nonemptyString"},
+        "locator": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+      }
+    },
+    "objectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "size_bytes", "media_type", "original_name"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "media_type": {"$ref": "#/$defs/nonemptyString"},
+        "original_name": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "recordRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_type", "logical_id", "revision_id", "payload_sha256"],
+      "properties": {
+        "record_type": {"enum": ["structure", "method", "source", "link", "snapshot"]},
+        "logical_id": {"$ref": "#/$defs/id"},
+        "revision_id": {"$ref": "#/$defs/revisionId"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "commonRecord": {
+      "type": "object",
+      "required": [
+        "schema", "record_type", "logical_id", "revision_id", "revision",
+        "created_at", "created_by", "review_status", "reviewed_by",
+        "reviewed_at", "review_notes", "access", "provenance", "aliases",
+        "external_identifiers", "uncertainties", "blockers", "supersedes",
+        "link_ids", "data", "payload_sha256", "calculation_ready",
+        "no_submission_authorization"
+      ],
+      "properties": {
+        "schema": {"type": "string"},
+        "record_type": {"type": "string"},
+        "logical_id": {"$ref": "#/$defs/id"},
+        "revision_id": {"$ref": "#/$defs/revisionId"},
+        "revision": {"type": "integer", "minimum": 1},
+        "created_at": {"type": "string", "format": "date-time"},
+        "created_by": {"$ref": "#/$defs/nonemptyString"},
+        "review_status": {"enum": ["draft", "reviewed", "reviewed_with_limits", "deprecated", "retracted", "blocked"]},
+        "reviewed_by": {"$ref": "#/$defs/nullableString"},
+        "reviewed_at": {"oneOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]},
+        "review_notes": {"$ref": "#/$defs/stringArray"},
+        "access": {"$ref": "#/$defs/access"},
+        "provenance": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/provenance"}},
+        "aliases": {"$ref": "#/$defs/stringArray"},
+        "external_identifiers": {"type": "array", "items": {"$ref": "#/$defs/externalIdentifier"}},
+        "uncertainties": {"$ref": "#/$defs/stringArray"},
+        "blockers": {"$ref": "#/$defs/stringArray"},
+        "supersedes": {"oneOf": [{"$ref": "#/$defs/revisionId"}, {"type": "null"}]},
+        "link_ids": {"$ref": "#/$defs/stringArray"},
+        "data": {"type": "object"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"},
+        "calculation_ready": {"const": false},
+        "no_submission_authorization": {"const": true}
+      }
+    },
+    "representation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "object", "atom_order_sha256", "review_scope", "geometry_provenance", "limitations"],
+      "properties": {
+        "format": {"enum": ["cdx", "cdxml", "mol", "sdf", "smiles", "inchi", "xyz", "gjf_geometry", "png", "svg"]},
+        "object": {"$ref": "#/$defs/objectRef"},
+        "atom_order_sha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "review_scope": {"$ref": "#/$defs/nonemptyString"},
+        "geometry_provenance": {"$ref": "#/$defs/nonemptyString"},
+        "limitations": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "structureData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preferred_name", "identity_id", "state_id", "roles", "formula", "formal_charge", "multiplicity", "component_count", "protonation", "salt_or_solvate", "stereochemistry", "coordination_state", "representations", "ownership"],
+      "properties": {
+        "preferred_name": {"$ref": "#/$defs/nonemptyString"},
+        "identity_id": {"$ref": "#/$defs/id"},
+        "state_id": {"$ref": "#/$defs/id"},
+        "roles": {"$ref": "#/$defs/stringArray"},
+        "formula": {"$ref": "#/$defs/nonemptyString"},
+        "formal_charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "component_count": {"type": "integer", "minimum": 1},
+        "protonation": {"$ref": "#/$defs/nonemptyString"},
+        "salt_or_solvate": {"$ref": "#/$defs/nonemptyString"},
+        "stereochemistry": {"$ref": "#/$defs/nonemptyString"},
+        "coordination_state": {"$ref": "#/$defs/nullableString"},
+        "representations": {"type": "array", "items": {"$ref": "#/$defs/representation"}},
+        "ownership": {
+          "type": "object", "additionalProperties": false,
+          "required": ["owner", "project", "sample_reference"],
+          "properties": {"owner": {"$ref": "#/$defs/nonemptyString"}, "project": {"$ref": "#/$defs/nullableString"}, "sample_reference": {"$ref": "#/$defs/nullableString"}}
+        }
+      }
+    },
+    "methodData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "classification", "program", "program_version", "calculation_family", "protocol", "basis_by_element", "scope", "benchmarks", "failure_modes"],
+      "properties": {
+        "name": {"$ref": "#/$defs/nonemptyString"},
+        "classification": {"enum": ["literature_reported", "group_internal", "group_recommended", "benchmark_candidate", "validated_within_scope", "blocked", "deprecated", "superseded"]},
+        "program": {"$ref": "#/$defs/nonemptyString"},
+        "program_version": {"$ref": "#/$defs/nonemptyString"},
+        "calculation_family": {"$ref": "#/$defs/nonemptyString"},
+        "protocol": {
+          "type": "object", "additionalProperties": false,
+          "required": ["functional", "dispersion", "solvent_model", "relativistic_treatment", "grid", "scf", "optimization", "frequency", "ts", "irc", "single_point_relationship", "thermochemistry"],
+          "properties": {
+            "functional": {"$ref": "#/$defs/nullableString"}, "dispersion": {"$ref": "#/$defs/nullableString"}, "solvent_model": {"$ref": "#/$defs/nullableString"}, "relativistic_treatment": {"$ref": "#/$defs/nullableString"}, "grid": {"$ref": "#/$defs/nullableString"}, "scf": {"$ref": "#/$defs/nullableString"}, "optimization": {"$ref": "#/$defs/nullableString"}, "frequency": {"$ref": "#/$defs/nullableString"}, "ts": {"$ref": "#/$defs/nullableString"}, "irc": {"$ref": "#/$defs/nullableString"}, "single_point_relationship": {"$ref": "#/$defs/nullableString"}, "thermochemistry": {"$ref": "#/$defs/nullableString"}
+          }
+        },
+        "basis_by_element": {"type": "object", "patternProperties": {"^[A-Z][a-z]?$": {"$ref": "#/$defs/nonemptyString"}}, "additionalProperties": false},
+        "scope": {
+          "type": "object", "additionalProperties": false,
+          "required": ["elements", "catalyst_classes", "reaction_classes", "state_types", "job_stages", "exclusions"],
+          "properties": {"elements": {"$ref": "#/$defs/stringArray"}, "catalyst_classes": {"$ref": "#/$defs/stringArray"}, "reaction_classes": {"$ref": "#/$defs/stringArray"}, "state_types": {"$ref": "#/$defs/stringArray"}, "job_stages": {"$ref": "#/$defs/stringArray"}, "exclusions": {"$ref": "#/$defs/stringArray"}}
+        },
+        "benchmarks": {
+          "type": "array",
+          "items": {"type": "object", "additionalProperties": false, "required": ["case", "result", "evidence_revision_id"], "properties": {"case": {"$ref": "#/$defs/nonemptyString"}, "result": {"$ref": "#/$defs/nonemptyString"}, "evidence_revision_id": {"$ref": "#/$defs/revisionId"}}}
+        },
+        "failure_modes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "sourceData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type", "title", "authors_or_editors", "year", "publisher", "journal_or_book", "volume", "issue", "edition", "chapter", "pages_or_article", "identifiers", "stable_url", "accessed_at", "anchors", "relationships", "local_objects", "extracted_claims"],
+      "properties": {
+        "source_type": {"enum": ["journal_article", "supporting_information", "book", "book_chapter", "thesis", "preprint", "patent", "correction", "retraction", "dataset", "repository"]},
+        "title": {"$ref": "#/$defs/nonemptyString"},
+        "authors_or_editors": {"$ref": "#/$defs/stringArray"},
+        "year": {"type": "integer", "minimum": 1400, "maximum": 2200},
+        "publisher": {"$ref": "#/$defs/nullableString"}, "journal_or_book": {"$ref": "#/$defs/nullableString"}, "volume": {"$ref": "#/$defs/nullableString"}, "issue": {"$ref": "#/$defs/nullableString"}, "edition": {"$ref": "#/$defs/nullableString"}, "chapter": {"$ref": "#/$defs/nullableString"}, "pages_or_article": {"$ref": "#/$defs/nullableString"},
+        "identifiers": {"type": "array", "items": {"$ref": "#/$defs/externalIdentifier"}},
+        "stable_url": {"$ref": "#/$defs/nullableString"},
+        "accessed_at": {"type": "string", "format": "date-time"},
+        "anchors": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["kind", "locator"], "properties": {"kind": {"$ref": "#/$defs/nonemptyString"}, "locator": {"$ref": "#/$defs/nonemptyString"}}}},
+        "relationships": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["relation", "target_revision_id"], "properties": {"relation": {"$ref": "#/$defs/nonemptyString"}, "target_revision_id": {"$ref": "#/$defs/revisionId"}}}},
+        "local_objects": {"type": "array", "items": {"$ref": "#/$defs/objectRef"}},
+        "extracted_claims": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["claim_type", "paraphrase", "anchor", "reviewer_interpretation", "status"], "properties": {"claim_type": {"$ref": "#/$defs/nonemptyString"}, "paraphrase": {"$ref": "#/$defs/nonemptyString"}, "anchor": {"$ref": "#/$defs/nonemptyString"}, "reviewer_interpretation": {"$ref": "#/$defs/nonemptyString"}, "status": {"enum": ["source_reports", "not_found", "source_ambiguous"]}}}}
+      }
+    },
+    "linkData": {
+      "type": "object", "additionalProperties": false,
+      "required": ["link_type", "source", "target", "evidence_mode", "anchors", "scope", "uncertainty", "mismatches"],
+      "properties": {
+        "link_type": {"enum": ["structure_reported_in_source", "structure_coordinates_from_source", "structure_used_in_reaction", "method_reported_in_source", "method_used_by_calculation", "method_benchmarked_by_result", "method_failed_for_case", "source_supports_mechanism_hypothesis", "source_contradicts_mechanism_hypothesis", "ts_precedent_uses_structure_and_method", "record_supersedes_record"]},
+        "source": {"$ref": "#/$defs/recordRef"}, "target": {"$ref": "#/$defs/recordRef"},
+        "evidence_mode": {"enum": ["direct", "analogous"]},
+        "anchors": {"$ref": "#/$defs/stringArray"}, "scope": {"$ref": "#/$defs/nonemptyString"}, "uncertainty": {"$ref": "#/$defs/nonemptyString"}, "mismatches": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "snapshotQuery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["registry", "query", "selected_revision_ids", "excluded_decisions"],
+      "properties": {
+        "registry": {"enum": ["structure", "method", "source", "link"]},
+        "query": {"$ref": "#/$defs/nonemptyString"},
+        "selected_revision_ids": {"$ref": "#/$defs/stringArray"},
+        "excluded_decisions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["revision_id", "reason"], "properties": {"revision_id": {"$ref": "#/$defs/revisionId"}, "reason": {"$ref": "#/$defs/nonemptyString"}}}}
+      }
+    },
+    "snapshotData": {
+      "type": "object", "additionalProperties": false,
+      "required": ["study_id", "parent_reaction_intake", "database_fingerprint", "queries", "records", "redactions", "unresolved_gaps", "contradictions"],
+      "properties": {
+        "study_id": {"$ref": "#/$defs/id"},
+        "parent_reaction_intake": {"$ref": "#/$defs/artifactRef"},
+        "database_fingerprint": {"$ref": "#/$defs/sha256"},
+        "queries": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/snapshotQuery"}},
+        "records": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/recordRef"}},
+        "redactions": {"$ref": "#/$defs/stringArray"}, "unresolved_gaps": {"$ref": "#/$defs/stringArray"}, "contradictions": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "structureRecord": {"allOf": [{"$ref": "#/$defs/commonRecord"}, {"type": "object", "properties": {"schema": {"const": "auto-g16-structure-record/1"}, "record_type": {"const": "structure"}, "data": {"$ref": "#/$defs/structureData"}}}], "unevaluatedProperties": false},
+    "methodRecord": {"allOf": [{"$ref": "#/$defs/commonRecord"}, {"type": "object", "properties": {"schema": {"const": "auto-g16-method-record/1"}, "record_type": {"const": "method"}, "data": {"$ref": "#/$defs/methodData"}}}], "unevaluatedProperties": false},
+    "sourceRecord": {"allOf": [{"$ref": "#/$defs/commonRecord"}, {"type": "object", "properties": {"schema": {"const": "auto-g16-source-record/1"}, "record_type": {"const": "source"}, "data": {"$ref": "#/$defs/sourceData"}}}], "unevaluatedProperties": false},
+    "linkRecord": {"allOf": [{"$ref": "#/$defs/commonRecord"}, {"type": "object", "properties": {"schema": {"const": "auto-g16-knowledge-link/1"}, "record_type": {"const": "link"}, "data": {"$ref": "#/$defs/linkData"}}}], "unevaluatedProperties": false},
+    "snapshotRecord": {"allOf": [{"$ref": "#/$defs/commonRecord"}, {"type": "object", "properties": {"schema": {"const": "auto-g16-knowledge-snapshot/1"}, "record_type": {"const": "snapshot"}, "data": {"$ref": "#/$defs/snapshotData"}}}], "unevaluatedProperties": false}
+  }
+}

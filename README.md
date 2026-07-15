@@ -10,10 +10,11 @@ independently.
 
 ## Current repository status
 
-As of 2026-07-14, Auto-G16 2.1.0 includes the guarded RTwin/PBS workflow,
-audited main-group
+As of 2026-07-15, the post-2.1.0 feature line includes the guarded RTwin/PBS
+workflow, audited main-group
 TS–Freq–IRC workflow, offline asymmetric-catalysis planning/audit module, and
-the W1 reaction-intake and reaction-literature foundations.
+the W1 reaction-intake, reaction-literature, and offline W2 reusable-knowledge
+foundations.
 These layers retain their individual scientific and live-action approval gates.
 
 `main` is the stable release branch. `codex/Auto-Gaussian` remains the target
@@ -47,15 +48,24 @@ retain their existing names for compatibility and provenance.
   screening, evidence templates and fail-closed source-review validation. It
   does not infer a mechanism, choose a computational protocol, or authorize a
   calculation.
+- `skills/auto-g16-knowledge-base`: immutable offline structure/state,
+  computational-method, literature/book, typed-link and per-study snapshot
+  registries with content-addressed objects, deterministic SQLite rebuilds,
+  dry-run imports, conflict ledgers and fail-closed permission filtering. It
+  retrieves reviewed evidence but cannot select a method or authorize work.
 
-## Planned W2 knowledge modules
+## W2 status
 
-- `auto-g16-knowledge-base`: future reviewed structure/catalyst,
-  computational-method, and literature/book registries with permissions,
-  provenance, typed links and immutable per-study snapshots.
+- `auto-g16-knowledge-base`: offline MVP implemented with five closed record
+  contracts, semantic and hash validation, immutable canonical storage,
+  content-addressed lawful objects, deterministic SQLite indexing, permission-
+  filtered queries, duplicate/conflict review and stable snapshots.
 - mechanism-support matrices, source-to-target atom correspondence, and
   reviewed target TS-seed proposals remain future extensions to the implemented
   reaction-literature layer.
+- a multi-user PostgreSQL/chemical-search service, authenticated group audit
+  service and raw legacy-database migration adapters remain separate future
+  milestones; no live group database is committed here.
 
 ## Offline planning/audit module
 
@@ -118,11 +128,10 @@ python3 -m unittest discover -s tests -v
 2. Develop each workflow slice on a separate `codex/` feature branch, run
    offline validation first, and merge only after the applicable explicitly
    approved smoke gate.
-3. Reconcile repository/deployed Skill drift, then extend the implemented W1
-   reaction-intake/species/condition foundation with the W2 reusable knowledge
-   databases, literature-evidence and TS-precedent layer. It must preserve group
-   catalyst/ligand structures, complete method provenance, papers/SI/books and
-   exact source anchors, then translate only reviewed analogies into mechanism/
+3. Bind the implemented W1 reaction-intake/species/condition foundation to an
+   immutable snapshot from the offline W2 knowledge base, then complete the
+   literature mechanism-support and TS-precedent contracts. Preserve group
+   access restrictions and translate only reviewed analogies into mechanism or
    TS-seed proposals.
 4. Implement the W3 mechanism-network, calculation-DAG and evidence-index layer.
    Existing Skills remain specialist components rather than a monolithic

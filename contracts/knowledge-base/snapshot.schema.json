@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/knowledge-base/snapshot.schema.json",
+  "title": "Auto-G16 Knowledge Snapshot",
+  "$ref": "record.schema.json#/$defs/snapshotRecord"
+}

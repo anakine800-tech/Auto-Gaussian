@@ -104,7 +104,7 @@ The intended ownership is:
 | --- | --- | --- |
 | structure and scheme intake | `auto-g16-chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
 | 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
-| reusable knowledge databases | future `auto-g16-knowledge-base` | reviewed structure/catalyst, computational-method, and literature/book registries; typed links, permissions, provenance, immutable study snapshots |
+| reusable knowledge databases | `auto-g16-knowledge-base` | reviewed structure/catalyst, computational-method, and literature/book registries; typed links, permissions, provenance, immutable study snapshots |
 | reaction-study orchestration | future top-level module | species registry, condition model, mechanism network, calculation DAG, study state |
 | literature evidence and TS precedent | `auto-g16-reaction-literature` plus future extensions | implemented reproducible metadata search and reviewed evidence records; future mechanism-support matrices and reviewed TS-seed proposals |
 | asymmetric-catalysis domain | `auto-g16-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
@@ -653,8 +653,8 @@ top-level reaction workflow.
 | connected-molecule conformer generation and promotion | implemented | ETKDG/MMFF/UFF is prescreening; disconnected complexes, metal coordination, and axial chirality need manual/specialized support |
 | reaction intake/species registry/stoichiometric balance foundation | integrated offline after W1 validation | stable atom identities and exact occurrence binding are implemented; cross-state atom-map proposal belongs to W3 and remains missing |
 | condition-to-model mapping | integrated offline after W1 validation | every transcribed condition requires one reviewed treatment; no solvent, additive, counterion or standard-state model is inferred |
-| reusable group structure, method, and literature/book databases | design recorded; implementation missing | no `auto-g16-knowledge-base`, canonical record contracts, deterministic index, permissions, importer, cross-registry links, or immutable per-study snapshot builder exists |
-| general literature search, evidence extraction and TS-precedent mapping | design recorded; implementation missing | existing BF3/asymmetric records are fixed study-specific evidence, not a reproducible search engine; no general primary/SI search, applicability audit, or source-to-target TS seed translator exists |
+| reusable group structure, method, and literature/book databases | offline W2 MVP implemented | `auto-g16-knowledge-base` provides closed canonical records, content-addressed objects, deterministic SQLite rebuild/query, dry-run conflict handling, typed links, permission filtering and immutable snapshots; live multi-user service and raw legacy migrations remain separate |
+| general literature search, evidence extraction and TS-precedent mapping | query and reviewed evidence stages implemented; TS mapping missing | `auto-g16-reaction-literature` provides reproducible metadata discovery and source-evidence review; mechanism-support matrices, source-to-target applicability/atom mapping and reviewed TS-seed translation remain missing |
 | mechanism network and catalyst-cycle DAG | partially represented in asymmetric study artifacts | no general network builder, cycle closure audit, step dependency engine, or project-level state machine |
 | deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
@@ -718,22 +718,22 @@ It also needs explicit artifact adapters for:
 Without P1, existing tools calculate reviewed individual structures but cannot
 prove that the declared whole-reaction scope is covered.
 
-### P2 — Missing reusable knowledge databases
+### P2 — Reusable knowledge database follow-through
 
-- a future `auto-g16-knowledge-base` with closed structure, method, source,
-  link, and study-snapshot contracts;
-- a reviewed group structure registry for catalyst/ligand identities, chemical
+- bind reviewed W1 studies to the implemented `auto-g16-knowledge-base`
+  structure, method, source, link, and study-snapshot contracts;
+- populate a reviewed group structure registry for catalyst/ligand identities, chemical
   states, stereochemistry, coordination, 2D/3D representations and provenance;
-- a complete computational-method registry separating literature-reported,
+- populate a complete computational-method registry separating literature-reported,
   internally used, benchmarked, failed, deprecated and superseded protocols;
-- a literature/book registry with DOI/ISBN, edition/chapter/page/SI anchors,
+- populate a literature/book registry with DOI/ISBN, edition/chapter/page/SI anchors,
   correction/retraction/version relationships and lawful file-object handling;
-- typed cross-registry links, immutable revisions, deterministic migrations,
-  rebuildable indexes, duplicate/conflict handling and stable exports;
-- per-study hash-bound snapshots so database updates cannot change accepted
-  science implicitly; and
-- public/group/project/confidential permissions, audit logs, redacted exports
-  and external-provider disclosure gates.
+- populate reviewed private stores only through reviewed dry-run/commit
+  manifests; never commit the mutable group store;
+- extend the offline access classes into an authenticated multi-user audit
+  service only as a separate milestone; and
+- add raw legacy spreadsheet/ChemDraw/citation migrations only with frozen,
+  permission-safe fixtures and explicit duplicate/conflict review.
 
 The database must retrieve reviewed candidates and evidence, not silently make
 scientific decisions. Stored popularity, group custom, a matching structure, or
@@ -850,6 +850,19 @@ versus-benchmarked method separation, edition/page/SI anchors, duplicate and
 conflict fixtures, access-negative tests, stable snapshots after database
 updates, and unconditional refusal to grant calculation authority. A later
 multi-user PostgreSQL/chemical-search service remains a separate milestone.
+
+Feature status on 2026-07-15: the offline knowledge-base MVP is implemented.
+The five closed record entry points, standard-library semantic/hash validator,
+immutable store, content-addressed object import, dry-run/commit conflict
+ledger, deterministic SQLite rebuild/query, access-negative tests, typed-link
+access dominance and stable snapshot verification pass offline. All outputs
+remain non-authorizing. Binding a reviewed real W1 study, raw legacy migrations
+and a multi-user service remain separate approval milestones.
+
+The repository also runs a public synthetic cross-Skill smoke: the W1 reaction
+builder creates a fresh reviewed Diels–Alder intake, and W2 binds its exact file
+and payload hashes into a permission-reviewed immutable snapshot. This replaces
+no CAT2 evidence and makes no mechanism, method, geometry or calculation claim.
 
 Extend the separate, offline-first `auto-g16-reaction-literature` evidence
 layer. Its query and evidence contracts are implemented; mechanism-support and
