@@ -47,7 +47,7 @@ class ReleaseHygieneTests(unittest.TestCase):
         changelog = (ROOT / "CHANGELOG.md").read_text()
         self.assertIn("## [2.2.0]", changelog)
         self.assertIn("[2.2.0]:", changelog)
-        self.assertIn("2.2.0 Release Candidate", (ROOT / "README.md").read_text())
+        self.assertIn("Auto-Gaussian 2.2.0", (ROOT / "README.md").read_text())
         self.assertTrue((ROOT / "docs" / "release-2.2.0-checklist.md").is_file())
         workflow = ROOT / ".github" / "workflows" / "offline-tests.yml"
         self.assertTrue(workflow.is_file())

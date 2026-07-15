@@ -1,8 +1,9 @@
 # Auto-G16 2.2.0 Release Checklist
 
-Status: release candidate preparation on 2026-07-15. This document does not
-create or authorize a tag, GitHub Release, live calculation, cancellation,
-deployment beyond the named Skill already approved, or server-file action.
+Status: merge and publication were explicitly authorized on 2026-07-15. This
+authorization covers PR #14, annotated tag `v2.2.0`, and its GitHub Release;
+it does not authorize a live calculation, cancellation, additional deployment,
+or server-file action.
 
 ## Candidate scope
 
@@ -32,8 +33,9 @@ deployment beyond the named Skill already approved, or server-file action.
 - [x] CodeQL, Secret Scanning and Dependabot have no open alerts.
 - [x] `main` protection still requires Python 3.11 and 3.12 checks and refuses
       force-push and deletion.
-- [ ] GitHub Support ticket #4564946 for stale PR #1–#11 references is closed,
-      or the remaining external cleanup is explicitly accepted before release.
+- [x] GitHub Support ticket #4564946 remains `Pending`; the repository owner
+      explicitly accepted this external cleanup as a post-release follow-up on
+      2026-07-15. The ticket is not represented as closed.
 
 ## Already satisfied transition-metal gate
 
@@ -47,11 +49,11 @@ deployment beyond the named Skill already approved, or server-file action.
       `live_actions: false`.
 - [x] No SSH, PBS, Gaussian, cancellation or server operation was performed.
 
-## Final publication steps (not yet authorized)
+## Final publication steps (authorized 2026-07-15)
 
 1. Merge the release-preparation pull request into protected `main` after all
    checks pass.
 2. Re-run the release evidence above from the resulting `main` commit.
-3. Create annotated tag `v2.2.0` only after explicit release authorization.
+3. Create annotated tag `v2.2.0` from the verified merge commit.
 4. Create the GitHub Release from the verified tag and attach no private or
    machine-local artifacts.

@@ -6,11 +6,11 @@ Stable release branch: `main`. New work uses short-lived `codex/` feature
 branches and is integrated through reviewed pull requests with required checks.
 
 Auto-G16 2.1.0 was released on 2026-07-14. It contains the W1 reaction-intake
-and reaction-literature capability added after `v2.0.1`. Auto-G16 2.2.0 is now
-a release candidate containing the post-2.1 W2 knowledge base, W3 offline
+and reaction-literature capability added after `v2.0.1`. Auto-G16 2.2.0
+contains the post-2.1 W2 knowledge base, W3 offline
 mechanism-network slice, release/dependency/security hardening, and the
-transition-metal offline preview contracts described below. No `v2.2.0` tag or
-GitHub Release has been created.
+transition-metal offline preview contracts described below. Publication of
+the verified `v2.2.0` tag and GitHub Release was authorized on 2026-07-15.
 
 All nine repository-owned Skill folders and machine names now use the
 `auto-g16-` prefix, and all nine human-facing display names begin with
@@ -27,7 +27,7 @@ not treated as repository state: each named Skill must be validated, diffed
 and synchronized independently from `skills/`. Deployment never authorizes a
 live test or calculation.
 
-The 2.2.0 candidate's W2B-2 line is covered by the current offline suite,
+The 2.2.0 release's W2B-2 line is covered by the current offline suite,
 including immutable-record validation, deterministic store/index rebuilds,
 permission-negative queries, reviewed import/export, redaction, snapshot
 binding and the GaussView Unicode-path regression. It grants no network,

@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.2.0 Release Candidate
+# Auto-G16 — Auto-Gaussian 2.2.0
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -14,7 +14,7 @@ As of 2026-07-15, the Auto-G16 feature line includes the guarded RTwin/PBS
 workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
-the W3 offline mechanism-network slice. The 2.2.0 candidate also includes
+the W3 offline mechanism-network slice. The 2.2.0 release also includes
 transition-metal M1/M2 observation and review contracts while preserving the
 unconditional metal runtime refusal. These layers retain their individual
 scientific and live-action approval gates.
