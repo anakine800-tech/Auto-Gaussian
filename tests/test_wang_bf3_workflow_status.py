@@ -266,6 +266,15 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         recalc = b1["irc_recalculation_v2"]
         self.assertEqual(recalc["plan_sha256"], digest(plan_path))
         self.assertFalse(recalc["live_submission_authorized"])
+        self.assertTrue(recalc["historical_live_submission_exercised"])
+        self.assertEqual(
+            recalc["current_operational_status"],
+            "abandoned_by_user_for_time_constraints_remote_copies_removed",
+        )
+        self.assertFalse(recalc["terminal_results_available"])
+        self.assertFalse(recalc["new_live_action_authorized"])
+        self.assertFalse(recalc["contains_job_id"])
+        self.assertFalse(recalc["contains_server_path"])
         self.assertFalse(recalc["path_validated"])
 
     def test_three_terminal_intake_templates_are_hash_bound_and_non_authorizing(self) -> None:
@@ -405,9 +414,68 @@ class WangBf3WorkflowStatusTests(unittest.TestCase):
         )
         self.assertTrue(b2["live_submission_approval"]["authorization_exercised"])
         self.assertFalse(b2["live_submission_approval"]["new_live_action_authorized"])
-        self.assertEqual(b2["last_verified_live_snapshot"]["state"], "queued")
-        self.assertFalse(b2["last_verified_live_snapshot"]["contains_job_id"])
-        self.assertFalse(b2["last_verified_live_snapshot"]["contains_server_path"])
+        snapshot = b2["last_verified_live_snapshot"]
+        self.assertEqual(snapshot["state"], "failed")
+        self.assertIsNone(snapshot["pbs_state"])
+        self.assertTrue(snapshot["results_fetched"])
+        self.assertEqual(snapshot["normal_termination_count"], 0)
+        self.assertEqual(snapshot["error_termination_count"], 2)
+        self.assertEqual(snapshot["optimization_steps"], 100)
+        self.assertEqual(snapshot["scf_calculations_parsed"], 100)
+        self.assertFalse(snapshot["stationary_point_found"])
+        self.assertEqual(snapshot["frequency_count"], 0)
+        self.assertEqual(snapshot["raw_imaginary_frequency_count"], 0)
+        self.assertEqual(
+            snapshot["scientific_acceptance"],
+            "not_accepted_optimization_cycle_limit",
+        )
+        self.assertFalse(snapshot["contains_job_id"])
+        self.assertFalse(snapshot["contains_server_path"])
+        self.assertEqual(b2["terminal_outcome"]["status"], "failed")
+        self.assertFalse(b2["terminal_outcome"]["frequency_stage_reached"])
+        self.assertFalse(b2["terminal_outcome"]["eligible_for_mode_review"])
+        self.assertFalse(b2["terminal_outcome"]["new_live_action_authorized"])
+
+    def test_sanitized_dipea_follow_up_records_execution_without_ts_acceptance(self) -> None:
+        status = load(STUDY / "workflow-status.json")
+        follow_up = status["sanitized_follow_up_calculations"]
+        self.assertEqual(len(follow_up), 1)
+        record = follow_up[0]
+        self.assertEqual(record["calculation_id"], "bf3_ts1_dipea_candidate_06")
+        self.assertEqual(
+            record["status"],
+            "execution_completed_terminal_intake_blocked_mode_review_pending",
+        )
+        summary = record["execution_summary"]
+        self.assertEqual(summary["normal_termination_count"], 2)
+        self.assertEqual(summary["error_termination_count"], 0)
+        self.assertTrue(summary["optimization_completed"])
+        self.assertTrue(summary["stationary_point_found"])
+        self.assertEqual(summary["frequency_count"], 150)
+        self.assertEqual(summary["raw_imaginary_frequency_count"], 1)
+        self.assertEqual(summary["featured_imaginary_frequency_cm1"], -1277.8375)
+        self.assertEqual(
+            record["terminal_intake"]["status"],
+            "blocked_template_payload_hash_mismatch",
+        )
+        self.assertFalse(record["terminal_intake"]["retrospective_repair_applied"])
+        self.assertFalse(record["scientific_acceptance"]["first_order_saddle_accepted"])
+        self.assertEqual(record["scientific_acceptance"]["mode_decision"], "pending")
+        self.assertFalse(record["scientific_acceptance"]["path_validated"])
+        for field in (
+            "contains_job_id",
+            "contains_server_path",
+            "contains_gaussian_log",
+            "contains_checkpoint",
+            "new_live_action_authorized",
+        ):
+            self.assertFalse(record[field])
+
+        legacy = status["legacy_operational_scope"]
+        self.assertFalse(legacy["recovery_planned"])
+        self.assertFalse(legacy["scientific_claim"])
+        self.assertFalse(legacy["contains_job_id"])
+        self.assertFalse(legacy["contains_server_path"])
 
 
 if __name__ == "__main__":

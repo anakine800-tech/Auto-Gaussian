@@ -1,6 +1,6 @@
 # BF3-TS2-B1 accepted TS and bidirectional IRC follow-up
 
-Status: `mode_accepted_irc_recalculation_v2_ready_pending_exact_live_approval`
+Status: `mode_accepted_irc_recalculation_v2_abandoned_no_terminal_results`
 
 The user selected the `standard` protocol with the `complex` resource tier
 (120 GB, 44 cores). The version-controlled files preserve the offline,
@@ -65,9 +65,12 @@ reverse path beyond its first 30-point ceiling.
 
 The exact offline inputs and terminal-intake templates are under
 `irc/recalc_v2/`. They use fresh projects `w24_bf3b1_if2` and
-`w24_bf3b1_ir2`. The protocol selection authorizes only these offline drafts;
-upload and submission remain pending a separate review of both exact input
-hashes, routes, resources and remote directories.
+`w24_bf3b1_ir2`. A separate live approval was later exercised for the two
+directions, but the user stopped this recalculation pair for time constraints
+and removed its remote copies. No terminal results were retained, neither
+direction contributes endpoint evidence, and the bidirectional path remains
+unvalidated. Resuming this work would require a fresh calculation review and
+new exact live approval; the historical approval grants no further authority.
 
 `terminal-acceptance-plan.json` freezes these checks before the result is
 known. It requires 228 harmonic modes for this 78-atom nonlinear system,
