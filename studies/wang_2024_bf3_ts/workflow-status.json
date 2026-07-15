@@ -1,7 +1,7 @@
 {
   "schema": "wang-bf3-transition-state-workflow-status/1",
   "ledger_id": "wang2024_bf3_ts_workflow_status",
-  "recorded_date": "2026-07-14",
+  "recorded_date": "2026-07-16",
   "calculation_ready": false,
   "no_submission_authorization": true,
   "literature_ledger": {
@@ -32,7 +32,7 @@
     {
       "candidate_id": "wang2024_bf3_ts2_b1",
       "literature_label": "BF3-TS2-B1",
-      "workflow_status": "mode_consistent_first_order_saddle_candidate_irc_recalculation_v2_inputs_ready_pending_exact_live_approval",
+      "workflow_status": "mode_consistent_first_order_saddle_candidate_irc_recalculation_v2_abandoned_no_terminal_results",
       "sequence_gate": "bf3_ts1_prerequisite_satisfied",
       "scientific_scope": {
         "formula": "C25H42BF3N4O3",
@@ -122,6 +122,12 @@
         "reverse_project": "w24_bf3b1_ir2",
         "reverse_input_sha256": "feef276a1d4972de34c008938e610a21830646a26cd6406bb6cf24f04c01d12c",
         "live_submission_authorized": false,
+        "historical_live_submission_exercised": true,
+        "current_operational_status": "abandoned_by_user_for_time_constraints_remote_copies_removed",
+        "terminal_results_available": false,
+        "new_live_action_authorized": false,
+        "contains_job_id": false,
+        "contains_server_path": false,
         "path_validated": false
       },
       "irc_submission_history": {
@@ -183,12 +189,12 @@
         "contains_server_path": false,
         "new_live_action_authorized": false
       },
-      "next_gate": "Review and approve the exact recalculation-v2 input hashes, routes, resources and fresh SDL directories before one upload and one qsub per direction."
+      "next_gate": "No recalculation-v2 continuation is planned. The user closed both directions for time constraints and removed the remote copies; any future resumption is a new calculation need with fresh review and exact live approval."
     },
     {
       "candidate_id": "wang2024_bf3_ts2_b2",
       "literature_label": "BF3-TS2-B2",
-      "workflow_status": "standard_ts_freq_submitted_queued",
+      "workflow_status": "standard_ts_freq_failed_optimization_cycle_limit",
       "sequence_gate": "bf3_ts2_b1_mode_decision_satisfied",
       "scientific_scope": {
         "formula": "C25H42BF3N4O3",
@@ -241,22 +247,88 @@
         "new_live_action_authorized": false
       },
       "last_verified_live_snapshot": {
-        "state": "queued",
-        "pbs_state": "Q",
+        "state": "failed",
+        "pbs_state": null,
         "process_alive": null,
         "input_sha256": "bc8dc95cd4877e93ea0f10b46f239595fb3d7d7e6201e852998770fa695264a1",
         "transport_hashes_verified": true,
         "memory": "120GB",
         "nprocshared": 44,
-        "log_size_bytes": null,
+        "results_fetched": true,
+        "log_size_bytes": 6644951,
         "normal_termination_count": 0,
-        "error_termination_count": 0,
+        "error_termination_count": 2,
+        "optimization_steps": 100,
+        "scf_calculations_parsed": 100,
+        "stationary_point_found": false,
+        "frequency_count": 0,
+        "raw_imaginary_frequency_count": 0,
+        "scientific_acceptance": "not_accepted_optimization_cycle_limit",
         "contains_job_id": false,
         "contains_server_path": false
       },
-      "next_gate": "Wait for terminal process and PBS evidence, fetch the complete Opt/Freq result, run the hash-bound offline terminal intake, then require an independent C13-C21 animation decision."
+      "terminal_outcome": {
+        "status": "failed",
+        "diagnostic": "optimization_steps_exceeded",
+        "frequency_stage_reached": false,
+        "eligible_for_mode_review": false,
+        "path_validated": false,
+        "new_live_action_authorized": false
+      },
+      "next_gate": "Preserve the failed result. Any restart, changed optimization plan, replacement or IRC is a new calculation need requiring fresh scientific review and exact live approval."
     }
   ],
+  "sanitized_follow_up_calculations": [
+    {
+      "calculation_id": "bf3_ts1_dipea_candidate_06",
+      "identity": "BF3-TS1 proton-transfer diagnostic with DIPEA replacing the reported base",
+      "status": "execution_completed_terminal_intake_blocked_mode_review_pending",
+      "scientific_scope": {
+        "formula": "C17H28BF3N2O",
+        "atom_count": 52,
+        "charge": 0,
+        "multiplicity": 1,
+        "reaction_coordinate": "C13-H14-N22 proton transfer",
+        "coverage_limit": "one DIPEA conformer and placement only"
+      },
+      "execution_summary": {
+        "normal_termination_count": 2,
+        "error_termination_count": 0,
+        "optimization_completed": true,
+        "stationary_point_found": true,
+        "optimization_steps": 51,
+        "scf_calculations_parsed": 52,
+        "frequency_count": 150,
+        "raw_imaginary_frequency_count": 1,
+        "featured_imaginary_frequency_cm1": -1277.8375
+      },
+      "terminal_intake": {
+        "status": "blocked_template_payload_hash_mismatch",
+        "stored_template_payload_sha256": "59f879d77a5532531ed4191662a084c7368f89874a6a8e4760e32cf71a9b13ca",
+        "canonical_template_payload_sha256": "44408a45c9ead333e9b2a317e387a9dd20c7b5a8ca5aa1b9459cf9feddf58f29",
+        "retrospective_repair_applied": false
+      },
+      "scientific_acceptance": {
+        "first_order_saddle_accepted": false,
+        "mode_decision": "pending",
+        "path_validated": false,
+        "claim_limit": "Execution-complete TS/Freq observation only; no accepted TS, barrier, IRC or conformer-coverage claim."
+      },
+      "contains_job_id": false,
+      "contains_server_path": false,
+      "contains_gaussian_log": false,
+      "contains_checkpoint": false,
+      "new_live_action_authorized": false
+    }
+  ],
+  "legacy_operational_scope": {
+    "status": "one_pre_current_contract_interrupted_submission_excluded_from_active_follow_up",
+    "recovery_planned": false,
+    "scientific_claim": false,
+    "contains_job_id": false,
+    "contains_server_path": false,
+    "new_live_action_authorized": false
+  },
   "deferred_benchmarks": [
     {
       "benchmark_id": "wang2024_bcf_ts1",
@@ -267,5 +339,5 @@
       "status": "deferred_not_materialized"
     }
   ],
-  "status_payload_sha256": "aa4a2730eb9d6c531368f68a53bfd090c79937e7e22ab659a4692eb921192405"
+  "status_payload_sha256": "1ab4a4ae2b96d6b43507f55f9f7770e9d38923888cde038f5b9cb3cfa90e7b56"
 }

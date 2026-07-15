@@ -87,9 +87,13 @@ B2 live authority.
 2. Apply the implemented candidate-bound M2a audit template, then design the
    remaining M2/M3 structured-result parsers and adversarial fixtures while
    retaining runtime refusal.
-3. Ingest and independently review both submitted B1 IRC directions; keep
-   Forward/Reverse as numerical labels until both endpoints are structurally
-   identified.
-4. Ingest the submitted B2 Opt/Freq result only after stable terminal evidence,
-   then apply the precommitted 228-mode/one-imaginary-mode/C13–C21 review gate.
-5. Return to broader chiral-boron construction and enumeration afterward.
+3. Preserve the first B1 IRC pair as incomplete evidence. The later matched
+   recalculation pair was stopped by the user for time constraints and has no
+   retained terminal results; treat any future resumption as a fresh,
+   separately approved calculation need.
+4. Preserve B2 as a failed optimization-limit result with no frequency or mode
+   evidence. Any restart remains separately gated.
+5. Resolve the BF3-TS1/DIPEA terminal-template hash defect without backdating
+   provenance, then perform the required C13–H14–N22 mode review before any TS
+   acceptance.
+6. Return to broader chiral-boron construction and enumeration afterward.
