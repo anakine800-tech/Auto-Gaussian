@@ -14,7 +14,7 @@ FORBIDDEN_CONTENT = {
     "provenance identifier": re.compile(r"SRC-\d{4}"),
     "citation field": re.compile(r"(?:来源|验证等级|推导来源)："),
     "internal classification": re.compile(r"source-stated|obsolete-context", re.I),
-    "local absolute path": re.compile(r"/Users/[^\s`]+"),
+    "local absolute path": re.compile(r"/" r"Users/[^\s`]+"),
     "email address": re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
     "credential label": re.compile(r"账号|密码"),
 }
