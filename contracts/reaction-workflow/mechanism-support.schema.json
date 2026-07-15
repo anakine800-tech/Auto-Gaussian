@@ -1,0 +1,496 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/mechanism-support.schema.json",
+  "title": "Gaussian reaction mechanism-support matrix",
+  "description": "Closed offline contract for one immutable mechanism-support sidecar bound to an exact mechanism network and finalized evidence chain.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "support_id", "study_id", "mechanism_network",
+    "reaction_intake", "species_registry", "condition_model",
+    "knowledge_snapshot", "literature_evidence", "candidate_ledger",
+    "review_source", "supersedes", "matrix", "coverage",
+    "row_dispositions", "downstream_reviewable_edge_ids", "blockers",
+    "review", "gate_status", "claim_ceiling", "mechanism_proven",
+    "calculation_ready", "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-mechanism-support/1"},
+    "support_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "mechanism_network": {"$ref": "#/$defs/mechanismNetworkBinding"},
+    "reaction_intake": {"$ref": "#/$defs/reactionIntakeBinding"},
+    "species_registry": {"$ref": "#/$defs/speciesRegistryBinding"},
+    "condition_model": {"$ref": "#/$defs/conditionModelBinding"},
+    "knowledge_snapshot": {"$ref": "#/$defs/knowledgeSnapshotBinding"},
+    "literature_evidence": {"$ref": "#/$defs/literatureEvidenceBinding"},
+    "candidate_ledger": {"$ref": "#/$defs/candidateLedgerBinding"},
+    "review_source": {"$ref": "#/$defs/reviewSourceBinding"},
+    "supersedes": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/mechanismSupportBinding"}
+      ]
+    },
+    "matrix": {"$ref": "#/$defs/matrix"},
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "row_dispositions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/rowDisposition"}
+    },
+    "downstream_reviewable_edge_ids": {"$ref": "#/$defs/idArray"},
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/blocker"}
+    },
+    "review": {"$ref": "#/$defs/review"},
+    "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+    "claim_ceiling": {"const": "bounded_hypothesis_space_not_mechanism_proof"},
+    "mechanism_proven": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "literatureId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "nonemptyString": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "stringArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/nonemptyString"}
+    },
+    "idArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "mechanismNetworkBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "gaussian-reaction-mechanism-network/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "reactionIntakeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "gaussian-reaction-intake/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "speciesRegistryBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "gaussian-reaction-species-registry/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "conditionModelBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "gaussian-reaction-condition-model/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "knowledgeSnapshotBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "auto-g16-knowledge-snapshot/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "literatureEvidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "gaussian-reaction-literature-evidence/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "candidateLedgerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "gaussian-reaction-literature-candidate-ledger/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "reviewSourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "gaussian-reaction-mechanism-support-review/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "mechanismSupportBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"const": "gaussian-reaction-mechanism-support/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row_id", "label", "state_ids", "edge_ids", "bounded_hypothesis"],
+      "properties": {
+        "row_id": {"$ref": "#/$defs/id"},
+        "label": {"$ref": "#/$defs/nonemptyString"},
+        "state_ids": {"$ref": "#/$defs/idArray"},
+        "edge_ids": {"$ref": "#/$defs/idArray"},
+        "bounded_hypothesis": {"$ref": "#/$defs/nonemptyString"}
+      },
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["row_id", "label", "state_ids", "edge_ids", "bounded_hypothesis"],
+          "properties": {
+            "row_id": true,
+            "label": true,
+            "state_ids": {"type": "array", "minItems": 1},
+            "edge_ids": true,
+            "bounded_hypothesis": true
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["row_id", "label", "state_ids", "edge_ids", "bounded_hypothesis"],
+          "properties": {
+            "row_id": true,
+            "label": true,
+            "state_ids": true,
+            "edge_ids": {"type": "array", "minItems": 1},
+            "bounded_hypothesis": true
+          }
+        }
+      ]
+    },
+    "sourceAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "source_location_index", "source_type", "locator", "url_or_doi", "checked_at"],
+      "properties": {
+        "anchor_id": {"$ref": "#/$defs/id"},
+        "source_location_index": {"type": "integer", "minimum": 0},
+        "source_type": {"$ref": "#/$defs/nonemptyString"},
+        "locator": {"$ref": "#/$defs/nonemptyString"},
+        "url_or_doi": {"$ref": "#/$defs/nonemptyString"},
+        "checked_at": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "evidenceColumn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "column_id", "candidate_id", "evidence_category", "claim_id",
+        "source_claim_status", "source_claim_paraphrase", "source_anchors",
+        "promotion_decision", "bounded_use", "rationale"
+      ],
+      "properties": {
+        "column_id": {"$ref": "#/$defs/id"},
+        "candidate_id": {"$ref": "#/$defs/literatureId"},
+        "evidence_category": {"$ref": "#/$defs/nonemptyString"},
+        "claim_id": {"$ref": "#/$defs/id"},
+        "source_claim_status": {"enum": ["not_reviewed", "not_found", "source_ambiguous", "source_reports"]},
+        "source_claim_paraphrase": {
+          "anyOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/nonemptyString"}
+          ]
+        },
+        "source_anchors": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sourceAnchor"}
+        },
+        "promotion_decision": {
+          "enum": ["accepted_for_mechanism_support", "retained_without_promotion", "rejected", "blocked"]
+        },
+        "bounded_use": {
+          "enum": [
+            "discovery_only", "mechanism_support",
+            "not_applicable_to_target", null
+          ]
+        },
+        "rationale": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "applicabilityDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "rationale", "source_anchor_ids"],
+      "properties": {
+        "value": {"enum": ["exact", "close", "remote", "contradictory", "unknown", "not_applicable"]},
+        "rationale": {"$ref": "#/$defs/nonemptyString"},
+        "source_anchor_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "net_transformation", "elementary_step_and_atom_correspondence",
+        "substrate_electronics_sterics_and_groups", "catalyst_and_active_state",
+        "atom_inventory_charge_multiplicity_and_spin",
+        "coordination_ion_pair_additives_and_solvent", "stereochemical_channel",
+        "experimental_conditions", "computational_protocol_and_validation"
+      ],
+      "properties": {
+        "net_transformation": {"$ref": "#/$defs/applicabilityDecision"},
+        "elementary_step_and_atom_correspondence": {"$ref": "#/$defs/applicabilityDecision"},
+        "substrate_electronics_sterics_and_groups": {"$ref": "#/$defs/applicabilityDecision"},
+        "catalyst_and_active_state": {"$ref": "#/$defs/applicabilityDecision"},
+        "atom_inventory_charge_multiplicity_and_spin": {"$ref": "#/$defs/applicabilityDecision"},
+        "coordination_ion_pair_additives_and_solvent": {"$ref": "#/$defs/applicabilityDecision"},
+        "stereochemical_channel": {"$ref": "#/$defs/applicabilityDecision"},
+        "experimental_conditions": {"$ref": "#/$defs/applicabilityDecision"},
+        "computational_protocol_and_validation": {"$ref": "#/$defs/applicabilityDecision"}
+      }
+    },
+    "boundedClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relationship", "text"],
+      "properties": {
+        "relationship": {"enum": ["supports", "contradicts", "does_not_address", "unknown"]},
+        "text": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "cellBlocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocker_id", "code", "rationale"],
+      "properties": {
+        "blocker_id": {"$ref": "#/$defs/id"},
+        "code": {"$ref": "#/$defs/blockerCode"},
+        "rationale": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cell_id", "row_id", "column_id", "evidence_status",
+        "bounded_claim", "directness", "evidence_basis", "applicability",
+        "mismatches", "alternative_explanations", "confidence",
+        "reviewer_decision", "bounded_use", "blockers", "notes"
+      ],
+      "properties": {
+        "cell_id": {"$ref": "#/$defs/id"},
+        "row_id": {"$ref": "#/$defs/id"},
+        "column_id": {"$ref": "#/$defs/id"},
+        "evidence_status": {
+          "enum": ["positive", "negative", "contradictory", "inaccessible", "incomplete", "rejected", "no_evidence"]
+        },
+        "bounded_claim": {"$ref": "#/$defs/boundedClaim"},
+        "directness": {"enum": ["direct", "analogous", "unknown", "not_applicable"]},
+        "evidence_basis": {"enum": ["experimental", "computational", "mixed", "unknown", "not_applicable"]},
+        "applicability": {"$ref": "#/$defs/applicability"},
+        "mismatches": {"$ref": "#/$defs/stringArray"},
+        "alternative_explanations": {"$ref": "#/$defs/stringArray"},
+        "confidence": {"enum": ["high", "moderate", "low", "unknown", "not_applicable"]},
+        "reviewer_decision": {
+          "enum": [
+            "include_support", "include_contradiction", "retain_negative",
+            "retain_inaccessible", "retain_incomplete", "reject",
+            "record_no_evidence"
+          ]
+        },
+        "bounded_use": {
+          "enum": [
+            "discovery_only", "mechanism_support",
+            "not_applicable_to_target"
+          ]
+        },
+        "blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/cellBlocker"}
+        },
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rows", "evidence_columns", "cells"],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/row"}
+        },
+        "evidence_columns": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceColumn"}
+        },
+        "cells": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/cell"}
+        }
+      }
+    },
+    "excludedStateTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state_id", "rationale"],
+      "properties": {
+        "state_id": {"$ref": "#/$defs/id"},
+        "rationale": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "excludedEdgeTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_id", "rationale"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"},
+        "rationale": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "matrix_complete", "absent_evidence_explicit",
+        "eligible_evidence_complete", "row_count", "column_count",
+        "expected_cell_count", "actual_cell_count", "covered_state_ids",
+        "covered_edge_ids", "excluded_state_targets", "excluded_edge_targets",
+        "rationale"
+      ],
+      "properties": {
+        "matrix_complete": {"const": true},
+        "absent_evidence_explicit": {"const": true},
+        "eligible_evidence_complete": {"const": true},
+        "row_count": {"type": "integer", "minimum": 1},
+        "column_count": {"type": "integer", "minimum": 1},
+        "expected_cell_count": {"type": "integer", "minimum": 1},
+        "actual_cell_count": {"type": "integer", "minimum": 1},
+        "covered_state_ids": {"$ref": "#/$defs/idArray"},
+        "covered_edge_ids": {"$ref": "#/$defs/idArray"},
+        "excluded_state_targets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/excludedStateTarget"}
+        },
+        "excluded_edge_targets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/excludedEdgeTarget"}
+        },
+        "rationale": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "rowDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row_id", "disposition", "rationale", "reviewed_by", "reviewed_at"],
+      "properties": {
+        "row_id": {"$ref": "#/$defs/id"},
+        "disposition": {"enum": ["mandatory", "optional", "contradicted", "unresolved"]},
+        "rationale": {"$ref": "#/$defs/nonemptyString"},
+        "reviewed_by": {"$ref": "#/$defs/nonemptyString"},
+        "reviewed_at": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "blockerCode": {
+      "enum": [
+        "no_exact_precedent_found", "search_access_incomplete",
+        "primary_source_unavailable", "supporting_information_missing",
+        "computational_details_incomplete", "coordinates_unavailable",
+        "atom_mapping_ambiguous", "analogy_too_remote",
+        "contradictory_evidence", "reported_ts_not_path_validated",
+        "reported_method_not_transferable", "candidate_construction_blocked"
+      ]
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocker_id", "code", "scope", "rationale"],
+      "properties": {
+        "blocker_id": {"$ref": "#/$defs/id"},
+        "code": {"$ref": "#/$defs/blockerCode"},
+        "scope": {"$ref": "#/$defs/id"},
+        "rationale": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "reviewed_by", "reviewed_at", "notes"],
+      "properties": {
+        "decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]},
+        "reviewed_by": {"$ref": "#/$defs/nonemptyString"},
+        "reviewed_at": {"$ref": "#/$defs/nonemptyString"},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  }
+}

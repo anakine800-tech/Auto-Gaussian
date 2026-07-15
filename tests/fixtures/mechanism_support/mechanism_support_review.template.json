@@ -1,0 +1,158 @@
+{
+  "schema": "gaussian-reaction-mechanism-support-review/1",
+  "support_id": "support_synthetic_network",
+  "study_id": "mechanism_network_fixture",
+  "mechanism_network_payload_sha256": "__NETWORK_PAYLOAD_SHA256__",
+  "intake_payload_sha256": "__INTAKE_PAYLOAD_SHA256__",
+  "species_registry_payload_sha256": "__REGISTRY_PAYLOAD_SHA256__",
+  "condition_model_payload_sha256": "__CONDITION_PAYLOAD_SHA256__",
+  "knowledge_snapshot_payload_sha256": "__SNAPSHOT_PAYLOAD_SHA256__",
+  "literature_evidence_payload_sha256": "__EVIDENCE_PAYLOAD_SHA256__",
+  "evidence_gate_acknowledgement": "separate_review_required_because_upstream_promotion_is_false",
+  "supersedes": null,
+  "evidence_columns": [
+    {
+      "column_id": "column_primary_claim",
+      "candidate_id": "lit-synth-001",
+      "evidence_category": "proposed_mechanism",
+      "claim_id": "claim_primary_report",
+      "source_anchors": [{"anchor_id": "anchor_primary_page", "source_location_index": 0}],
+      "promotion_decision": "accepted_for_mechanism_support",
+      "bounded_use": "mechanism_support",
+      "rationale": "The synthetic primary-source claim is explicitly promoted only for this bounded matrix review."
+    },
+    {
+      "column_id": "column_missing_claim",
+      "candidate_id": "lit-synth-001",
+      "evidence_category": "active_catalyst_state",
+      "claim_id": "claim_missing_state",
+      "source_anchors": [],
+      "promotion_decision": "retained_without_promotion",
+      "bounded_use": "discovery_only",
+      "rationale": "The finalized review found no source-located active-state claim."
+    },
+    {
+      "column_id": "column_ambiguous_claim",
+      "candidate_id": "lit-synth-001",
+      "evidence_category": "computational_protocol",
+      "claim_id": "claim_ambiguous_protocol",
+      "source_anchors": [],
+      "promotion_decision": "rejected",
+      "bounded_use": "not_applicable_to_target",
+      "rationale": "Ambiguous computational details are retained but not promoted."
+    }
+  ],
+  "rows": [
+    {
+      "row_id": "row_complete_fixture",
+      "label": "complete synthetic mechanism-network hypothesis row",
+      "state_ids": ["state_products", "state_activated", "state_reactants"],
+      "edge_ids": ["edge_release", "edge_direct", "edge_activation"],
+      "bounded_hypothesis": "The three reviewed synthetic edges and states remain one bookkeeping hypothesis, not a proven target mechanism."
+    }
+  ],
+  "cells": [
+    {
+      "cell_id": "cell_primary_support",
+      "row_id": "row_complete_fixture",
+      "column_id": "column_primary_claim",
+      "evidence_status": "positive",
+      "bounded_claim": {"relationship": "supports", "text": "The source reports a bounded pathway analogous to the reviewed synthetic network."},
+      "directness": "analogous",
+      "evidence_basis": "mixed",
+      "applicability": {
+        "net_transformation": {"value": "exact", "rationale": "The synthetic source and target use the same declared net transformation.", "source_anchor_ids": ["anchor_primary_page"]},
+        "elementary_step_and_atom_correspondence": {"value": "close", "rationale": "The step class is close, while no source-to-target atom mapping is transferred.", "source_anchor_ids": ["anchor_primary_page"]},
+        "substrate_electronics_sterics_and_groups": {"value": "remote", "rationale": "The synthetic substrate environment is deliberately remote.", "source_anchor_ids": ["anchor_primary_page"]},
+        "catalyst_and_active_state": {"value": "contradictory", "rationale": "The source does not establish the target active-state assignment.", "source_anchor_ids": ["anchor_primary_page"]},
+        "atom_inventory_charge_multiplicity_and_spin": {"value": "exact", "rationale": "The reported synthetic inventory matches the bounded comparison.", "source_anchor_ids": ["anchor_primary_page"]},
+        "coordination_ion_pair_additives_and_solvent": {"value": "unknown", "rationale": "No transferable coordination or solvent conclusion is reviewed.", "source_anchor_ids": []},
+        "stereochemical_channel": {"value": "not_applicable", "rationale": "The closed-shell fixture has no stereochemical channel claim.", "source_anchor_ids": []},
+        "experimental_conditions": {"value": "close", "rationale": "The synthetic conditions are similar only for this evidence exercise.", "source_anchor_ids": ["anchor_primary_page"]},
+        "computational_protocol_and_validation": {"value": "unknown", "rationale": "No computational protocol is transferred or selected.", "source_anchor_ids": []}
+      },
+      "mismatches": ["The active-state applicability is contradictory."],
+      "alternative_explanations": ["The reported observation may arise from another retained pathway."],
+      "confidence": "moderate",
+      "reviewer_decision": "include_support",
+      "bounded_use": "mechanism_support",
+      "blockers": [{"blocker_id": "primary_path_validation", "code": "reported_ts_not_path_validated", "rationale": "The source does not provide candidate-specific bidirectional path validation."}],
+      "notes": ["Positive support is bounded and does not prove the target mechanism."]
+    },
+    {
+      "cell_id": "cell_missing_state",
+      "row_id": "row_complete_fixture",
+      "column_id": "column_missing_claim",
+      "evidence_status": "negative",
+      "bounded_claim": {"relationship": "does_not_address", "text": "The finalized source review found no located active-catalyst-state claim."},
+      "directness": "unknown",
+      "evidence_basis": "unknown",
+      "applicability": {
+        "net_transformation": {"value": "unknown", "rationale": "No source-located active-state claim is available for this dimension.", "source_anchor_ids": []},
+        "elementary_step_and_atom_correspondence": {"value": "unknown", "rationale": "No source-located active-state claim is available for this dimension.", "source_anchor_ids": []},
+        "substrate_electronics_sterics_and_groups": {"value": "unknown", "rationale": "No source-located active-state claim is available for this dimension.", "source_anchor_ids": []},
+        "catalyst_and_active_state": {"value": "unknown", "rationale": "The active state was explicitly not found in the reviewed source.", "source_anchor_ids": []},
+        "atom_inventory_charge_multiplicity_and_spin": {"value": "unknown", "rationale": "No source-located active-state claim is available for this dimension.", "source_anchor_ids": []},
+        "coordination_ion_pair_additives_and_solvent": {"value": "unknown", "rationale": "No source-located active-state claim is available for this dimension.", "source_anchor_ids": []},
+        "stereochemical_channel": {"value": "not_applicable", "rationale": "No stereochemical claim is made by the fixture.", "source_anchor_ids": []},
+        "experimental_conditions": {"value": "unknown", "rationale": "No source-located active-state claim is available for this dimension.", "source_anchor_ids": []},
+        "computational_protocol_and_validation": {"value": "not_applicable", "rationale": "This cell does not assess a computational protocol.", "source_anchor_ids": []}
+      },
+      "mismatches": [],
+      "alternative_explanations": ["The active state may be unreported rather than absent."],
+      "confidence": "low",
+      "reviewer_decision": "retain_negative",
+      "bounded_use": "discovery_only",
+      "blockers": [{"blocker_id": "missing_exact_precedent", "code": "no_exact_precedent_found", "rationale": "The finite reviewed evidence set contains no exact active-state precedent."}],
+      "notes": ["Finite negative search evidence is not proof of absence."]
+    },
+    {
+      "cell_id": "cell_ambiguous_protocol",
+      "row_id": "row_complete_fixture",
+      "column_id": "column_ambiguous_claim",
+      "evidence_status": "incomplete",
+      "bounded_claim": {"relationship": "unknown", "text": "Ambiguous protocol reporting cannot support or contradict this mechanism row."},
+      "directness": "unknown",
+      "evidence_basis": "computational",
+      "applicability": {
+        "net_transformation": {"value": "unknown", "rationale": "The ambiguous protocol claim does not establish transformation applicability.", "source_anchor_ids": []},
+        "elementary_step_and_atom_correspondence": {"value": "unknown", "rationale": "The ambiguous protocol claim does not establish atom correspondence.", "source_anchor_ids": []},
+        "substrate_electronics_sterics_and_groups": {"value": "unknown", "rationale": "The ambiguous protocol claim does not establish substrate applicability.", "source_anchor_ids": []},
+        "catalyst_and_active_state": {"value": "unknown", "rationale": "The ambiguous protocol claim does not establish catalyst-state applicability.", "source_anchor_ids": []},
+        "atom_inventory_charge_multiplicity_and_spin": {"value": "unknown", "rationale": "Charge, multiplicity, and spin details remain incomplete.", "source_anchor_ids": []},
+        "coordination_ion_pair_additives_and_solvent": {"value": "unknown", "rationale": "Coordination and solvation details remain incomplete.", "source_anchor_ids": []},
+        "stereochemical_channel": {"value": "not_applicable", "rationale": "The fixture makes no stereochemical protocol claim.", "source_anchor_ids": []},
+        "experimental_conditions": {"value": "unknown", "rationale": "The protocol-to-condition relation remains incomplete.", "source_anchor_ids": []},
+        "computational_protocol_and_validation": {"value": "unknown", "rationale": "The finalized evidence explicitly marks this protocol claim ambiguous.", "source_anchor_ids": []}
+      },
+      "mismatches": ["Required computational details are incomplete."],
+      "alternative_explanations": ["The missing details may exist in unavailable supporting information."],
+      "confidence": "unknown",
+      "reviewer_decision": "retain_incomplete",
+      "bounded_use": "discovery_only",
+      "blockers": [{"blocker_id": "protocol_details_incomplete", "code": "computational_details_incomplete", "rationale": "The finalized evidence does not contain complete computational details."}],
+      "notes": ["No method or protocol is selected by this cell."]
+    }
+  ],
+  "coverage": {
+    "excluded_state_targets": [],
+    "excluded_edge_targets": [],
+    "matrix_complete": true,
+    "absent_evidence_explicit": true,
+    "eligible_evidence_complete": true,
+    "rationale": "Every network state and edge is assigned once, every finalized evidence claim is a column, and every row-column intersection is explicit."
+  },
+  "row_promotion_reviews": [
+    {
+      "row_id": "row_complete_fixture",
+      "disposition": "mandatory",
+      "rationale": "The synthetic row is retained as mandatory only within the bounded hypothesis space because it has reviewed positive support and no contradictory cell.",
+      "reviewed_by": "synthetic_reviewer",
+      "reviewed_at": "2026-07-16T00:00:00Z"
+    }
+  ],
+  "review_decision": "accepted_with_blockers",
+  "reviewed_by": "synthetic_reviewer",
+  "reviewed_at": "2026-07-16T00:00:00Z",
+  "review_notes": ["Sanitized synthetic fixture for offline contract tests only."]
+}

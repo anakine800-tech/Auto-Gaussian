@@ -1,4 +1,4 @@
-# W3 mechanism-network contract
+# Auto-G16 W3 Mechanism-Network Contract
 
 Status: first offline implementation slice. This contract grants no Gaussian,
 SSH, PBS, deployment, method-selection, calculation-DAG, or live authority.
@@ -44,11 +44,26 @@ The output always has `calculation_ready: false` and
   each compared source state has the reference state's element and charge
   inventory; it computes no energy and assumes no equilibration model.
 
-`gaussian-reaction-mechanism-support/1` is not implemented. Consequently this
-slice keeps `mechanism_support: null`, forbids support claim IDs, and always
-emits `mechanism_support_unavailable`. A syntactically valid network therefore
-remains a reviewed hypothesis with blockers, never a promoted or proven
-mechanism.
+The separately implemented `gaussian-reaction-mechanism-support/1` is a
+downstream sidecar. This version-1 network still keeps
+`mechanism_support: null`, forbids support claim IDs, and always emits
+`mechanism_support_unavailable`; those fields truthfully describe the immutable
+network at finalization time. A syntactically valid network therefore remains a
+reviewed hypothesis with blockers, never a promoted or proven mechanism.
+
+Later orchestrators must validate and consume the exact `(network, support)`
+pair. Writing a support hash back into the network would invalidate the network
+payload already bound by the sidecar and create a circular dependency. A new
+evidence review creates a new support artifact with an explicit forward-only
+supersession binding; a changed network requires a new support artifact. Old
+networks and sidecars are never rewritten, and multiple sidecars without an
+explicit supersession relation remain ambiguous.
+
+The sidecar may expose only local `downstream_reviewable_edge_ids` derived from
+reviewed cells and explicit row promotion. Those IDs do not alter this
+network's blocker or gate status and do not prove a mechanism, create a TS map,
+select a protocol, create a DAG/input, or authorize calculation. See
+`mechanism-support-contract.md`.
 
 Both builder and validator reject unknown fields, including nested contract
 objects. The validator semantically validates every bound upstream artifact,

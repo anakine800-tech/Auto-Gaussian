@@ -10,11 +10,12 @@ independently.
 
 ## Current repository status
 
-As of 2026-07-15, the Auto-G16 feature line includes the guarded RTwin/PBS
+As of 2026-07-16, the Auto-G16 feature line includes the guarded RTwin/PBS
 workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
-the W3 offline mechanism-network slice. The 2.2.0 release also includes
+the W3 offline mechanism-network slice. The Unreleased line adds the offline
+`gaussian-reaction-mechanism-support/1` sidecar. The 2.2.0 release also includes
 transition-metal M1/M2 observation and review contracts while preserving the
 unconditional metal runtime refusal. These layers retain their individual
 scientific and live-action approval gates.
@@ -43,9 +44,10 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
-  species registry, balance review, condition-to-model decisions, reviewed
-  mechanism-network hypotheses and the non-promotable TS-precedent map. Its
-  artifacts explicitly grant no calculation or live authorization.
+  species registry, balance review, condition-to-model decisions, mechanism
+  networks, downstream mechanism-support sidecars, and non-promotable
+  TS-precedent maps. Its artifacts explicitly grant no calculation or live
+  authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
   screening, evidence templates and fail-closed source-review validation. It
@@ -73,9 +75,12 @@ retain their existing names for compatibility and provenance.
   dependency-aware downgrade. Binary objects are never exported.
 - W2 still requires authentication, signatures, durable audit logging,
   chemical search and multi-user enforcement.
-- the strict source-to-target atom-correspondence and TS-precedent review map is
-  implemented in `auto-g16-reaction-workflow`; mechanism-support matrices and
-  seed-geometry construction remain future extensions.
+- `gaussian-reaction-mechanism-support/1` is implemented as an immutable
+  `auto-g16-reaction-workflow` sidecar bound to one exact finalized mechanism
+  network and literature/W1/knowledge chain. The separate strict
+  `gaussian-ts-precedent-map/1` source-to-target review map is also implemented
+  but remains non-promotable because support-to-TS integration and actual
+  seed-geometry construction are future work.
 
 ## Offline planning/audit module
 
@@ -152,12 +157,12 @@ python3 -m unittest discover -s tests -v
    branch, run offline validation first, and merge only after the applicable
    explicitly approved smoke gate.
 3. Continue W2 from the implemented W2B-2 store/import/export foundation with
-   authenticated enforcement, durable audit logging and chemical search. Then
-   extend the separate literature-evidence layer toward mechanism support; the
-   TS-precedent review map is already implemented but remains non-promotable.
-4. Implement the W3 mechanism-network, calculation-DAG and evidence-index layer.
-   Existing Skills remain specialist components rather than a monolithic
-   automatic mechanism generator.
+   authenticated enforcement, durable audit logging and chemical search.
+4. Continue W3 from the implemented mechanism network and mechanism-support
+   sidecar by integrating the already implemented non-promotable TS-precedent
+   map, then add the calculation-DAG and evidence-index layers. Existing Skills
+   remain specialist components rather than a monolithic automatic mechanism
+   generator.
 5. Connect candidate/protocol/input and result/energy adapters, then validate a
    small closed-shell main-group reaction from ChemDraw through minima, TS,
    path, and common-reference energy evidence.

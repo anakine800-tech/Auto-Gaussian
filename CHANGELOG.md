@@ -5,6 +5,29 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- A closed `gaussian-reaction-mechanism-support/1` contract and deterministic
+  standard-library builder/validator in `auto-g16-reaction-workflow`, with
+  exact finalized network, W1, knowledge-snapshot and literature-evidence
+  bindings plus explicit matrix and evidence-coverage review.
+
+### Changed
+
+- Mechanism support is a forward-only immutable sidecar: later orchestrators
+  consume the exact network/support pair without rewriting the finalized
+  network or removing its historical support-unavailable markers.
+- Repository status and contract documentation now distinguish the implemented
+  standalone support and TS-precedent sidecars from their still-unimplemented
+  cross-sidecar promotion and seed-construction integration.
+
+### Safety
+
+- Support artifacts retain `calculation_ready: false`,
+  `no_submission_authorization: true`, and a mechanism-proof refusal. Their
+  `downstream_reviewable_edge_ids` are local review candidates only; no TS map,
+  protocol, DAG, input, calculation, execution, or live authority is granted.
+
 ## [2.2.0] - 2026-07-15
 
 ### Added

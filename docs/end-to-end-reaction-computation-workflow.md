@@ -3,7 +3,7 @@
 Status: target architecture and implementation roadmap. This document grants no
 Gaussian, SSH, PBS, deployment, retry, cancellation, or server-data authority.
 
-Status date: 2026-07-15
+Status date: 2026-07-16
 
 ## 1. Project objective
 
@@ -105,8 +105,8 @@ The intended ownership is:
 | structure and scheme intake | `auto-g16-chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
 | 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
 | reusable knowledge databases | `auto-g16-knowledge-base` | implemented W2A contracts plus W2B-1 store/index/query and W2B-2 reviewed import, lawful-object ingestion and redacted JSON export; future authenticated service enforcement and chemical search |
-| reaction-study orchestration | future top-level module | species registry, condition model, mechanism network, calculation DAG, study state |
-| literature evidence and TS precedent | `auto-g16-reaction-literature` plus future extensions | implemented reproducible metadata search and reviewed evidence records; future mechanism-support matrices and reviewed TS-seed proposals |
+| reaction-study orchestration | `auto-g16-reaction-workflow` plus a future top-level module | implemented species registry, condition model, mechanism network and downstream mechanism-support sidecar; future calculation DAG and study state |
+| literature evidence, mechanism support and TS precedent | `auto-g16-reaction-literature`, `auto-g16-reaction-workflow` | implemented reproducible metadata search, reviewed evidence, immutable mechanism-support matrices and non-promotable source-to-target TS-precedent maps; future support-to-TS integration and seed construction |
 | asymmetric-catalysis domain | `auto-g16-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
 | protocol selection | `auto-g16-rtwin-pbs` protocol gate | reviewed `loose`/`standard`/`strict` candidates and explicit selection |
 | live execution | `auto-g16-rtwin-pbs` | fresh SDL projects, transfer hashes, PBS lifecycle, fetch, generic result parsing |
@@ -266,20 +266,32 @@ transformation, elementary step, catalyst state, atom inventory, charge/spin,
 coordination, stereochemical approach, conditions, and protocol; do not hide
 those judgments inside one similarity score.
 
-Translate accepted evidence into two reviewed proposals: a mechanism-support
-matrix and a TS-precedent map. The TS map may propose atom correspondence,
-forming/breaking pairs, approach topology, coordination/ion-pair state, key
-geometric relationships, and a seed strategy such as audited published
-coordinates, QST endpoints, a relaxed scan, or a Hessian-guided guess.
+Once an exact mechanism network is finalized, translate the accepted evidence
+into a separate reviewed mechanism-support matrix. The separately implemented
+TS-precedent map records reviewed atom correspondence, forming/breaking pairs,
+approach topology, coordination/ion-pair state, key geometric relationships,
+and a bounded strategy such as audited published coordinates, QST endpoints, a
+relaxed scan, or a Hessian-guided guess. It constructs no geometry and does not
+yet consume the support sidecar.
 Coordinates copied from a source require identity, atom-order, stereochemistry,
 charge/multiplicity, coordination, and provenance review. Precise coordinates
 must not be fabricated from a schematic figure.
+
+The implemented support matrix is an immutable downstream sidecar. The
+finalized network retains `mechanism_support: null`, empty edge
+`support_claim_ids`, and its historical `mechanism_support_unavailable`
+blocker; later orchestrators validate and consume the exact network/support
+pair. Corrections create a new sidecar that supersedes the prior sidecar
+forward-only. Only local `downstream_reviewable_edge_ids` may enter a later
+offline review; they are not a TS-precedent map, mechanism proof, or
+calculation promotion.
 
 Gate R04 passes only when search coverage, evidence extraction, applicability,
 contradictions, and uncertainties have been reviewed for the bounded claim.
 Literature similarity is hypothesis support, not proof of the target mechanism
 or TS; it does not select a protocol, create calculation readiness, or authorize
-Gaussian work. The future contract is specified in
+Gaussian work. The implemented support and TS-precedent contracts are
+specified in
 `skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
 
 ### R05 — Active states and mechanism-network hypotheses
@@ -578,12 +590,12 @@ The project must be resumable from any gate. A blocked branch of the mechanism
 network must not erase progress in another branch, and a successful child job
 must not automatically promote its parent scientific hypothesis.
 
-## 6. Planned top-level data contracts
+## 6. Top-level data contracts
 
 Existing specialist schemas should remain authoritative for their own
-artifacts. The missing top-level layer should add only the following contracts:
+artifacts. The top-level chain uses the implemented and planned contracts below:
 
-| Planned artifact | Purpose |
+| Artifact | Purpose |
 | --- | --- |
 | `gaussian-reaction-intake/1` | source ChemDraw hashes, normalized components, source-exact conditions, claim scope, unresolved transcription |
 | `gaussian-reaction-species-registry/1` | stable identities, represented forms, stereochemistry, charge/multiplicity, atom IDs, structure hashes |
@@ -595,9 +607,9 @@ artifacts. The missing top-level layer should add only the following contracts:
 | `auto-g16-knowledge-snapshot/1` | immutable exact record revisions, queries, decisions, access redactions and gaps used by one reaction study |
 | `gaussian-reaction-literature-query/1` | decomposed target, exact search strings/providers/dates/filters, search-ladder coverage, access limits and inclusion/exclusion decisions |
 | `gaussian-reaction-literature-evidence/1` | primary/SI source identity and anchors, extracted computational/mechanistic facts, geometry data, contradictory evidence and extraction confidence |
-| `gaussian-reaction-mechanism-support/1` | evidence-to-hypothesis matrix, direct/analogous/contradictory status, decomposed applicability, alternatives and bounded reviewer decisions |
-| `gaussian-ts-precedent-map/1` | source-to-target atom correspondence, TS topology/geometry evidence, transferable versus rebuilt features, seed-strategy proposal and uncertainty |
-| `gaussian-reaction-network/1` | complete-state nodes, elementary-step edges, atom maps, channels, reversibility, active-state and evidence hypotheses |
+| `gaussian-reaction-mechanism-support/1` | implemented offline sidecar binding one exact finalized network plus W1/knowledge/literature evidence to an explicit evidence-to-hypothesis matrix; it grants no mechanism proof or calculation authority |
+| `gaussian-ts-precedent-map/1` | implemented non-promotable source-to-target atom correspondence, TS topology/geometry evidence, transferable versus rebuilt features, bounded strategy review and uncertainty |
+| `gaussian-reaction-mechanism-network/1` | complete-state nodes, elementary-step edges, atom maps, channels, reversibility, active-state and evidence hypotheses |
 | `gaussian-reaction-study-index/1` | read-only index of the current immutable evidence DAG, derived project state, blockers, and next safe offline action |
 | `gaussian-reaction-calculation-plan/1` | calculation DAG, candidate and protocol bindings, dependencies, budgets, approval and support status |
 | `gaussian-calculation-attempt/1` | one exact input/run/restart/recalc lineage without mutating or replacing its parent attempt |
@@ -651,11 +663,12 @@ top-level reaction workflow.
 | ChemDraw molecule reconstruction and stereochemical review | integrated after a real strict native-ChemDraw smoke test | the 2026-07-14 CAT2 test passed native round-trip, strict document validation, molecular re-extraction and S-product CIP review; it remains structure/intake evidence rather than calculation authorization |
 | ChemDraw/CDX/MOL/SDF to audited Cartesian input | implemented for reviewed, mainly ordinary main-group structures | no automatic metal, ion-pair, active-catalyst, or TS model |
 | connected-molecule conformer generation and promotion | implemented | ETKDG/MMFF/UFF is prescreening; disconnected complexes, metal coordination, and axial chirality need manual/specialized support |
-| reaction intake/species registry/stoichiometric balance foundation | integrated offline after W1 validation | stable atom identities and exact occurrence binding are implemented; cross-state atom-map proposal belongs to W3 and remains missing |
+| reaction intake/species registry/stoichiometric balance foundation | integrated offline after W1 validation | stable atom identities and exact occurrence binding are implemented; W1 does not infer cross-state maps, while reviewed W3 mechanism-edge maps are implemented separately |
 | condition-to-model mapping | integrated offline after W1 validation | every transcribed condition requires one reviewed treatment; no solvent, additive, counterion or standard-state model is inferred |
 | reusable group structure, method, and literature/book databases | W2A through W2B-2 offline foundation implemented | canonical contracts, store/object verification, deterministic SQLite, exact access filtering, reviewed import, lawful-object ingestion, redacted JSON export, typed links and snapshot verification exist; chemical search and authenticated service enforcement remain missing |
-| general literature search, evidence extraction and TS-precedent mapping | query and reviewed evidence stages implemented; TS mapping missing | `auto-g16-reaction-literature` provides reproducible metadata discovery and source-evidence review; mechanism-support matrices, source-to-target applicability/atom mapping and reviewed TS-seed translation remain missing |
-| mechanism network and catalyst-cycle DAG | partially represented in asymmetric study artifacts | no general network builder, cycle closure audit, step dependency engine, or project-level state machine |
+| general literature search, evidence extraction and TS-precedent mapping | query/evidence and strict non-promotable TS mapping implemented | `auto-g16-reaction-literature` provides reproducible discovery/evidence review; `auto-g16-reaction-workflow` validates source-to-target correspondence and six bounded strategies but constructs no seed geometry |
+| mechanism network and catalyst-cycle review | deterministic offline network builder implemented in `auto-g16-reaction-workflow` | complete state/edge maps, conservation and cycle-closure diagnostics are review artifacts; no step dependency engine, calculation DAG, project-level state machine or mechanism proof |
+| mechanism-support matrix | deterministic offline sidecar builder/validator implemented in `auto-g16-reaction-workflow` | binds the exact finalized network and evidence chain with explicit target/claim coverage; only local downstream-review candidates are exposed, with no support-to-TS promotion, protocol, input, calculation or live authority |
 | deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
 | transition-metal state/search design | M0, candidate-bound M1 review sidecar, M2a, M2b result observer, M2c existing-input observer and M2d four-section manual-decision sidecar implemented offline | the real M1/M2 scientific example, runtime/promotion boundary, path model and all live submission remain intentionally refused; bounded M2d section decisions grant no top-level authority |
@@ -743,7 +756,7 @@ scientific decisions. Stored popularity, group custom, a matching structure, or
 a previous successful calculation cannot authorize a method, geometry, input,
 or Gaussian job.
 
-### P3 — Partially implemented literature evidence and TS-precedent tool
+### P3 — Implemented evidence sidecars with missing cross-sidecar integration
 
 - reproducible multi-provider search from exact reaction/catalyst precedent to
   elementary-step analogies, including contradictory and negative evidence;
@@ -753,16 +766,21 @@ or Gaussian job.
   imaginary mode, IRC/endpoints, key geometry, coordinates and omissions;
 - decomposed target/precedent applicability across reaction, catalyst,
   atom inventory, charge/spin, coordination, conditions and protocol;
-- evidence-to-mechanism support matrices and source-to-target TS precedent
-  maps with stable atom IDs and explicit uncertainty; and
+- evidence-to-mechanism support matrices with explicit target and claim
+  coverage; separate source-to-target TS precedent maps with stable atom IDs,
+  geometry-transfer scope and explicit uncertainty; and
 - correction/retraction handling, source drift, supersession, frozen fixtures,
   semantic validation and fail-closed behavior.
 
 The current `auto-g16-reaction-literature` query/evidence stages produce
 reviewable metadata and source-evidence records rather than a bare citation
-list. Mechanism-support matrices, source-to-target atom maps, and TS-precedent
-promotion remain missing. Every stage must never treat similarity as mechanism
-proof, fabricate unavailable coordinates, select a method, or grant
+list. `auto-g16-reaction-workflow` now consumes that finalized evidence in an
+exact network-bound mechanism-support sidecar without mutating either parent.
+The separate TS-precedent sidecar now validates source-to-target atom maps and
+bounded strategy reviews, but it does not consume mechanism support and remains
+non-promotable. Support-to-TS linkage and TS-seed construction remain missing.
+Every stage must never treat similarity as mechanism proof, fabricate
+unavailable coordinates, select a method, or grant
 calculation/submission authority.
 
 ### P4 — Missing structure and TS construction
@@ -868,17 +886,20 @@ full/metadata-redacted JSON export are also implemented. Authentication,
 signatures, durable audit logging, binary export, chemical search and service
 enforcement remain W2.
 
-Extend the separate, offline-first `auto-g16-reaction-literature` evidence
-layer. Its query and evidence contracts are implemented; mechanism-support and
-TS-precedent contracts remain future work before connection to mechanism or
-geometry construction.
+The separate, offline-first `auto-g16-reaction-literature` query and evidence
+contracts are implemented. The downstream
+`gaussian-reaction-mechanism-support/1` sidecar is also implemented in
+`auto-g16-reaction-workflow`, alongside a separate non-promotable
+`gaussian-ts-precedent-map/1` source-to-target translation. Their integration
+and geometry construction remain future work.
 
 The first version uses frozen metadata fixtures to test exact query provenance,
 DOI deduplication, primary-source locator requirements, decomposed
 applicability, copyright-bounded excerpts, immutable hashes, and unavailable-
-data refusal. Full-text/SI extraction fixtures, DOI-version relationship
-linking, source-to-target atom mapping, and coordinate provenance remain later
-acceptance work. It must not generate a Gaussian input.
+data refusal. Full-text/SI extraction fixtures and DOI-version relationship
+linking remain later acceptance work. The TS-precedent fixtures cover strict
+atom mapping and coordinate-provenance refusal without generating coordinates
+or a Gaussian input.
 
 The separately reviewed real-reaction literature smoke passed with a complete,
 reviewable evidence package and explicit gap inventory; it did not require a
@@ -886,10 +907,11 @@ usable TS coordinate or agreement with a preferred mechanism.
 
 ### W3 — Mechanism network and calculation DAG
 
-Implement immutable state nodes, elementary edges, atom maps, catalyst-cycle
-closure checks, competing network hypotheses, reference basins, job
-dependencies, and project gate transitions. The first version should plan only
-and must not submit.
+Continue from the implemented immutable state nodes, elementary edges, atom
+maps, catalyst-cycle closure checks, competing network hypotheses, reference
+basins, mechanism-support sidecar and separate TS-precedent map toward their
+explicit integration, job dependencies and project gate transitions. W3
+planning must remain offline and must not submit.
 
 Add the read-only study index here. It should derive current state and the next
 safe action from hashes and accepted decisions rather than store a manually
@@ -897,6 +919,17 @@ editable status flag.
 
 Acceptance requires deterministic rebuilds, hash-drift refusal, cycle and mass/
 charge diagnostics, blocked unsupported states, and resume from every gate.
+
+Feature status on 2026-07-16: the deterministic offline mechanism-network
+slice and its downstream mechanism-support sidecar are implemented. The
+sidecar binds exact file and payload identities for the finalized network,
+literature evidence, W1 artifacts and knowledge snapshot, while the immutable
+network retains its original null support field, empty support-claim IDs and
+historical blocker. Supersession is forward-only. The separate TS-precedent map
+is also implemented but does not yet consume that sidecar and remains
+non-promotable. Calculation-DAG, study-index, seed construction, protocol/input
+adapters, mechanism proof, calculation and execution remain unimplemented and
+unauthorized.
 
 ### W4 — Closed-shell main-group minima workflow
 

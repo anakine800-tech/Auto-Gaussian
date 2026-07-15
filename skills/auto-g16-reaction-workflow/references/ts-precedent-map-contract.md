@@ -83,13 +83,18 @@ object references are hash bound; endpoint/QST records require both exact
 endpoint state IDs and a reviewed exact endpoint-geometry package.
 `unsupported` can never be locally accepted.
 
-## Missing mechanism-support stage
+## Unintegrated mechanism-support stage
 
-`gaussian-reaction-mechanism-support/1` remains unimplemented. The map does not
-reinterpret a reviewed mechanism-network hypothesis as accepted mechanism
-support. Every artifact therefore contains `mechanism_support_unavailable`,
-sets `candidate_construction_promotable: false`, and marks even a locally
-complete accepted precedent as `blocked_pending_mechanism_support`.
+A standalone `gaussian-reaction-mechanism-support/1` sidecar is implemented,
+but this version-1 TS-precedent contract does not bind or consume it. The map
+does not reinterpret a reviewed mechanism-network hypothesis or independently
+located support sidecar as accepted mechanism support. Every artifact therefore
+retains its historical `mechanism_support_unavailable` blocker, sets
+`candidate_construction_promotable: false`, and marks even a locally complete
+accepted precedent as `blocked_pending_mechanism_support`. The serialized
+`unavailable_unimplemented` status means that support integration is unavailable
+in this contract version; it no longer means that no standalone support
+artifact exists in the repository.
 
 All outputs unconditionally retain `calculation_ready: false` and
 `no_submission_authorization: true`. No field is a Gaussian route, method,
