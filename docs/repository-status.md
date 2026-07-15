@@ -30,6 +30,13 @@ permission-negative queries, reviewed import/export, redaction, snapshot
 binding and the GaussView Unicode-path regression. It grants no network,
 Gaussian, PBS or calculation authority.
 
+The current `codex/transition-metal-offline-contract` feature branch adds the
+candidate-bound M1 review sidecar contract and M2b observation-only metal
+parser, an M2c read-only observer for existing Gaussian inputs and an M2d
+four-section manual acceptance-decision sidecar, and has not been deployed. Its
+repository copy therefore must be treated as newer than any installed copy
+until a future approved named-Skill synchronization.
+
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
 offline reusable-knowledge foundation and the remaining literature TS-
@@ -121,8 +128,12 @@ settings, or low-frequency treatment.
 
 The current development priority is the transition-metal TS capability design.
 Version 1 now materializes deterministic state audits and mechanism-bound
-search families while retaining an unconditional execution refusal. Further
-chiral-boron capability work is deliberately sequenced after this milestone.
+search families, candidate-bound M1 review records, candidate-bound audit
+templates, an observation-only metal log parser and a read-only existing-input
+observer plus separate wavefunction/coordination/mode/input decision records
+while retaining unconditional top-level scientific/input/mode acceptance,
+promotion and execution refusal. Further chiral-boron capability work is
+deliberately sequenced after this milestone.
 
 ## Deliberate limitations
 
@@ -130,6 +141,16 @@ chiral-boron capability work is deliberately sequenced after this milestone.
   planning, deterministic-building, ingestion, and audit workflow. It has no
   Gaussian execution builder or live submission path,
   transition-metal calculation support, or automatic method selection.
+  Its metal parser records only hash-bound log observations and cannot accept a
+  TS, electronic state, coordination state, method or selectivity claim.
+  Its M2c parser reads only an existing single-step Cartesian input; route,
+  identity and task-keyword observations cannot select a protocol, accept an
+  input or validate a server path.
+  Its M2d sidecar records four explicit human decisions, but even four bounded
+  accepted sections cannot promote a candidate or authorize a calculation.
+  Its M1 sidecar records reviewer-supplied values but never grants scientific
+  acceptance; the complete synthetic fixture does not satisfy the real M1
+  milestone.
 - The current `auto-g16-ts-irc` Skill explicitly refuses transition-metal,
   broken-symmetry, excited-state, multireference, periodic, and ONIOM jobs.
   The new design preserves that refusal. Metal support needs a separately
@@ -186,17 +207,20 @@ chiral-boron capability work is deliberately sequenced after this milestone.
 - `contracts/asymmetric-catalysis/*.schema.json`: Draft 2020-12 schemas for the
   study, candidate space, ledger, materializations, candidate, energy record,
   result, analysis, metal-support design, candidate-bound metal TS audit
-  template, literature benchmark, and smoke
-  proposal, plus a sanitized live-smoke evidence record that binds the exact
+  template, M1 scientific-review source and sidecar, observation-only metal
+  result record, literature benchmark, and smoke proposal, plus a sanitized
+  live-smoke evidence record that binds the exact
   approval/input/job/TS/mode chain without retaining a job ID, server path,
   Gaussian log, or checkpoint.
 - `tests/fixtures/asymmetric_catalysis/`: non-runnable metal and chiral-boron
-  examples.
+  examples, including complete/incomplete M1 review-source records and
+  synthetic success/incomplete metal logs used only by offline contracts.
 - `scripts/validate_asymmetric_contract.py`: standard-library-only offline
   structural and cross-artifact semantic validator.
 - `skills/auto-g16-asymmetric-catalysis/`: offline workflow plus a verified
   Wang-group computational-precedent audit and a candidate/selectivity
-  protocol, deterministic builder, and transition-metal support design.
+  protocol, transition-metal strategy-evidence matrix, deterministic builder,
+  support design, M1 review sidecar and observation-only metal result audit.
   Publisher PDFs are not stored in the repository.
 
 All design-phase artifacts set or imply `calculation_ready: false` and
@@ -205,9 +229,9 @@ deployment, cancellation, or server cleanup operation.
 
 ## Offline validation snapshot
 
-On 2026-07-14:
+On 2026-07-15, this feature branch passed 142 offline tests. In particular:
 
-- all twelve artifact types passed the repository's fail-closed Draft 2020-12
+- all sixteen artifact types passed the repository's fail-closed Draft 2020-12
   schema subset validator; unknown schema keywords are refused until the
   validator and tests are extended;
 - strict JSON loading rejected duplicate keys and non-standard `NaN` or
@@ -226,6 +250,9 @@ On 2026-07-14:
   models or non-finite thermochemical inputs;
 - the synthetic metal candidate passed only in the mandatory
   `unsupported_transition_metal` state;
+- M1 scope labels were bound to their allowed evidence-source types, and M2d
+  real scope was refused without a real non-synthetic M1, named reviewer,
+  valid calendar date and exclusively non-synthetic decision evidence;
 - the metal-support design reproduced the study's explicit oxidation-state
   hypotheses without inferring d-electron counts, bound each mechanism to
   three unselected TS-search strategies, exposed spin/wavefunction/
@@ -233,7 +260,25 @@ On 2026-07-14:
   unconditional submission refusal. The candidate-bound template additionally
   freezes the atom order, metal-center identities, intended coordinate,
   coordination contacts and all three unselected seed strategies while keeping
-  six scientific audit sections blocked; and
+  six scientific audit sections blocked. The M2b parser additionally bound a
+  synthetic local log to the exact candidate/template hashes, parsed only
+  identity, terminal, frequency, `S**2`/stability-text and coordination-
+  distance observations, rejected hash/charge/atom-order drift, and kept TS
+  acceptance, promotion and submission refused;
+- the M2c input observer bound the exact candidate, still-blocked template, M1
+  sidecar and existing synthetic input hashes; parsed only Link 0, route,
+  charge/multiplicity, atom order, Cartesian and trailing-section facts;
+  rejected `--Link1--`, `Geom=Check`, authority, charge and atom-order drift;
+  and kept input acceptance, protocol selection, promotion and submission
+  refused;
+- the M2d sidecar independently recorded wavefunction, coordination, mode and
+  input decisions; complete, blocked and reviewer-rejected fixtures preserved
+  top-level acceptance, promotion, submission and execution refusal;
+- the M1 sidecar builder bound the exact design, still-blocked template,
+  unsupported candidate and review source. Complete and incomplete synthetic
+  fixtures preserved the no-default, no-scientific-acceptance, no-promotion and
+  no-execution boundary, and the complete synthetic case explicitly did not
+  satisfy the real M1 milestone; and
 - the BF3 literature builder reproduced the checked ledger byte-for-byte and
   rejected a tampered coordinate fixture by canonical coordinate-block hash;
 - BF3-TS1/B1/B2 atom counts, formulas, exact XYZ hashes, geometry fingerprints,
@@ -325,16 +370,18 @@ candidate still requires its own new gate.
 
 1. Continue the W2 `auto-g16-knowledge-base` from the completed W2B-2 offline
    store/import/export foundation with authentication, durable audit logging,
-   chemical search and a separately reviewed service boundary. Then implement the
-   literature query/evidence/mechanism-support/TS-precedent contracts. Only
+   chemical search and a separately reviewed service boundary. Then implement
+   the literature query/evidence/mechanism-support/TS-precedent contracts. Only
    after offline acceptance, separately approve one real-reaction literature-
    search smoke; it must not generate an input or authorize calculation.
-2. Select a concrete metal–chiral-ligand reaction for milestone M1 and review
-   its oxidation/electron accounting, spin surfaces, wavefunctions,
-   coordination states, elementary-step classes and three candidate TS-search
-   strategies. Runtime support remains refused.
-3. Define the offline M2 input/audit/parser contracts and M3 adversarial
-   fixtures without rendering a metal Gaussian input or enabling submission.
+2. Use the implemented candidate-bound M1 sidecar for one concrete metal–
+   chiral-ligand reaction and review its oxidation/electron accounting, spin
+   surfaces, wavefunction, coordination state, method evidence, elementary-
+   step class and TS design. Unreported literature fields remain blockers;
+   scientific acceptance and runtime support remain refused.
+3. Apply the implemented M2d sidecar to one real, field-complete bounded review
+   while building M3 adversarial runtime/promotion boundary fixtures without
+   rendering a metal Gaussian input or enabling submission.
 4. After each BF3-TS2-B1 IRC direction terminates, fetch it, run the exact
    offline terminal-intake template, and independently review its endpoint;
    do not label endpoints or claim path validation before both terminate and

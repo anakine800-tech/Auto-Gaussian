@@ -28,6 +28,12 @@ This Skill covers two classes in the following development priority:
   reviewing a study, candidate inventory, TS search plan, or selectivity claim.
 - Read `references/transition-metal-support-design.md` for every transition-
   metal or metal/chiral-boron cooperative case.
+- Read `references/transition-metal-computational-strategy-evidence.md` before
+  proposing transition-metal model families, parser fields or extension
+  milestones. Its literature records are evidence and analogies, not defaults.
+- Read `references/wang-2025-borane-nickel-m1-gap-audit.md` before using DOI
+  `10.1021/jacs.5c13835` as an M1 example. It records the exact evidence ceiling
+  and why no real candidate-bound M1 artifact can yet be created.
 
 The literature reference records verified precedents and evidence gaps. It is
 not a menu of default methods.
@@ -127,6 +133,109 @@ template as an input-preparation artifact.
 python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   build-metal-ts-audit-template METAL-SUPPORT.json CANDIDATE.json \
   --output METAL-TS-AUDIT-TEMPLATE.json
+```
+
+Use `build-metal-scientific-review` to freeze reviewer-supplied M1 values in a
+separate sidecar. It binds the exact support design, still-blocked M2a template,
+unsupported candidate and review source. It never edits or unlocks those input
+artifacts. Every non-null oxidation/electron-count, spin, wavefunction,
+coordination, method and TS-design value must already exist in the review
+source and cite a source locator.
+
+```bash
+python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+  build-metal-scientific-review METAL-SUPPORT.json \
+  METAL-TS-AUDIT-TEMPLATE.json CANDIDATE.json REVIEW-SOURCE.json \
+  --output METAL-SCIENTIFIC-REVIEW.json
+```
+
+A complete synthetic fixture proves only that the offline contract works and
+records `metal_m1_scientific_review_status: not_satisfied_synthetic_fixture`;
+it does not satisfy `metal_m1_scientific_review`. A complete real review record
+still has `scientific_acceptance_decision: not_granted_by_artifact`, keeps the
+candidate unsupported and cannot select a protocol or execution strategy.
+M1 scope is evidence-bound: synthetic scope accepts only synthetic-fixture
+sources, primary-literature scope accepts only primary article/SI sources, and
+mixed scope requires both primary and reviewer-record sources while forbidding
+synthetic fixtures.
+`--dry-run` validates the full lineage and reports `live_actions: false`
+without writing a file.
+
+When an existing local Gaussian input is available for offline audit, use
+`audit-metal-input` to bind its exact SHA-256 to the candidate, still-blocked
+M2a template and M1 sidecar. The command parses only a single-step explicit
+Cartesian input and observes Link 0 directives, route text, charge,
+multiplicity, atom order, coordinate-block hash, task-keyword text and a hash
+of any uninterpreted trailing section.
+
+```bash
+python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+  audit-metal-input METAL-TS-AUDIT-TEMPLATE.json CANDIDATE.json \
+  METAL-SCIENTIFIC-REVIEW.json EXISTING.gjf \
+  --output METAL-INPUT-OBSERVATION.json
+```
+
+It never renders or modifies the input, never treats route text as a selected
+protocol, and never accepts a basis/ECP, solvent, electronic state, TS task or
+server path. Multi-step `--Link1--`, charge/multiplicity drift, atom-order
+drift and `Geom=Check/AllCheck` ambiguity are rejected. All six scientific
+sections, input acceptance, promotion, submission and execution remain
+blocked. `--dry-run` performs the same checks without writing a file.
+
+```text
+metal_m2c_input_observation: implemented_offline
+input_acceptance_decision: not_granted_by_artifact
+protocol_selection_decision: absent_not_authorized
+```
+
+When an existing local Gaussian log is supplied strictly for offline software
+development or retrospective evidence intake, `audit-metal-result` binds it to
+the exact template and candidate. It parses identity, termination, raw
+frequency, `S**2`/stability-message and declared coordination-distance
+observations. Every scientific audit remains blocked even when the log has
+normal termination and exactly one imaginary frequency.
+
+```bash
+python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+  audit-metal-result METAL-TS-AUDIT-TEMPLATE.json CANDIDATE.json EXISTING.log \
+  --output METAL-RESULT-OBSERVATION.json
+```
+
+This command is read-only apart from creating the new local JSON artifact. It
+does not accept a TS, parse a mode displacement, render an input, call another
+Skill, or authorize any live action.
+
+Use `--dry-run` without `--output` to exercise the complete parse and refusal
+checks while writing no artifact. The JSON summary always reports
+`live_actions: false`.
+
+Use `build-metal-acceptance-review` to record four independent reviewer
+decisions after M1, M2a, M2b and M2c exist: wavefunction, coordination, mode,
+and input acceptance. The source must bind every upstream artifact hash and
+each section must be explicitly accepted for bounded offline review, rejected,
+or blocked for missing evidence.
+
+```bash
+python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+  build-metal-acceptance-review METAL-TS-AUDIT-TEMPLATE.json CANDIDATE.json \
+  METAL-SCIENTIFIC-REVIEW.json METAL-INPUT-OBSERVATION.json \
+  METAL-RESULT-OBSERVATION.json DECISION-SOURCE.json \
+  --output METAL-ACCEPTANCE-REVIEW.json
+```
+
+`accepted_for_bounded_offline_review` is a reviewer record inside one section,
+not top-level scientific or execution acceptance. Every output keeps
+`scientific_acceptance_decision`, `input_acceptance_decision` and
+`mode_acceptance_decision` at `not_granted_by_artifact`, keeps promotion and
+submission refused, and cannot authorize IRC or a live action. A complete
+synthetic fixture records `not_satisfied_synthetic_fixture`. `--dry-run`
+performs the same lineage and evidence checks without writing an artifact.
+A real M2d scope additionally requires a completed non-synthetic real M1,
+a non-empty reviewer, a valid ISO calendar date, and no `synthetic_fixture`
+evidence in any decision section.
+
+```text
+metal_m2d_acceptance_review_contract: implemented_offline
 ```
 
 ### 3. Build the candidate matrix
@@ -235,6 +344,41 @@ atom order, metal-center identities, candidate coordination contacts, six
 blocked audit sections and unselected strategy inventory. It establishes no
 TS claim and cannot be promoted or submitted.
 
+Use `build-metal-scientific-review` only as the candidate-bound M1 sidecar.
+Validate both its reviewer-source schema and its output payload. Reviewed
+sections must have closed evidence references; blocked sections must retain
+their reasons. The M2a template must remain blocked and its strategy gate must
+remain unselected. The sidecar claim ceiling is
+`bounded_review_record_only_no_scientific_acceptance_ts_or_selectivity_claim`.
+Literature methods remain evidence for the exact reported example and are
+never converted into defaults.
+
+Use `audit-metal-input` only for an already existing local input. Validate its
+payload and refusal flags as
+`gaussian-asymmetric-metal-input-observation/1`. Matching charge,
+multiplicity and element order proves only identity consistency; route,
+Link 0 and trailing-section observations do not constitute protocol selection,
+input acceptance or remote path approval. The artifact claim ceiling is
+`existing_input_observation_only_no_acceptance_execution_ts_or_selectivity_claim`.
+
+Use `audit-metal-result` only to preserve candidate-bound facts from an
+existing local log. Validate its payload and refusal flags as
+`gaussian-asymmetric-metal-result-observation/1`. Exactly one observed raw
+imaginary frequency, an `S**2` line, a stability message or an unchanged
+distance does not pass electron, spin, wavefunction, coordination, method, mode
+or path review. The artifact claim ceiling remains
+`parsed_observation_only_no_ts_or_selectivity_claim`.
+
+Use `build-metal-acceptance-review` only for explicit human decisions. An
+accepted wavefunction section requires hash-bound stability, spin,
+occupation/alternative-solution and multireference assessments; coordination
+requires complete contact, hapticity and ligand-inventory review; mode requires
+exactly one observed imaginary frequency plus hash-bound displacement review;
+and input acceptance requires exact input, protocol options/selection, input
+approval, input/result lineage and server-path/resource review hashes. Missing
+evidence remains blocked and is never inferred. The sidecar claim ceiling is
+`manual_decision_record_only_no_runtime_promotion_ts_path_or_selectivity_claim`.
+
 After all offline tests pass, `propose-smoke` may bind the reviewed priority-1
 closed-shell main-group literature candidate into a plan with
 `status: planned_not_submitted`. If route, solvent, charge/multiplicity,
@@ -293,13 +437,21 @@ contract:
 - coverage, aggregation, uncertainty and claim-level analysis.
 
 The candidate-space, ledger, materialization, explicit-energy, metal-support,
-metal-TS-audit-template, smoke-proposal, and sanitized live-smoke-evidence artifacts are defined in
+metal-TS-audit-template, metal-scientific-review-source,
+metal-scientific-review, metal-input-observation, metal-result-observation,
+metal-acceptance-review-source, metal-acceptance-review, smoke-proposal, and
+sanitized live-smoke-evidence artifacts are defined in
 `contracts/asymmetric-catalysis/`. Neither the proposal nor the evidence record
 grants live authority.
 
 End with a prioritized gap list. For the current roadmap, prioritize transition-
 metal active/electronic-state review, coordination inventory, TS seed-strategy
-selection criteria, metal-specific offline parsers and refusal tests. Keep B1
+selection criteria and a real candidate-bound M1 record. The M1 sidecar
+contract is implemented, but the real scientific milestone remains pending.
+The read-only M2c observer and M2d four-section manual-decision sidecar are
+implemented. Next prioritize one real field-complete M1/M2 review and M3
+adversarial execution-boundary design; section decisions must not turn into
+promotion or live authority. Keep B1
 terminal/mode acceptance as an independent evidence gate, and defer the real
 chiral-boron candidate-space study until the metal design milestone is
 complete.

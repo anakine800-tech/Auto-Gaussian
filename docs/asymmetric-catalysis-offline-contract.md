@@ -18,6 +18,12 @@ server-data authority.
 | analysis | `gaussian-asymmetric-selectivity-analysis/1` | comparable ensemble, coverage, aggregation, uncertainty, claim |
 | metal support | `gaussian-asymmetric-metal-support-design/1` | separate scientific checklist with mandatory submission refusal |
 | metal TS audit template | `gaussian-asymmetric-metal-ts-audit-template/1` | candidate-bound atom/state/coordination/result-review boundary with mandatory submission refusal |
+| metal scientific-review source | `gaussian-asymmetric-metal-scientific-review-source/1` | reviewer-authored, exact-lineage M1 values and evidence locators; no defaults or live authority |
+| metal scientific review | `gaussian-asymmetric-metal-scientific-review/1` | candidate-bound M1 sidecar; record completeness never grants scientific acceptance, promotion or execution |
+| metal input observation | `gaussian-asymmetric-metal-input-observation/1` | read-only facts from an existing candidate/template/M1-bound Cartesian input; no rendering, protocol selection, input acceptance or execution |
+| metal result observation | `gaussian-asymmetric-metal-result-observation/1` | candidate-bound read-only log facts; all scientific acceptance, promotion and submission remain refused |
+| metal acceptance-review source | `gaussian-asymmetric-metal-acceptance-review-source/1` | reviewer-authored wavefunction, coordination, mode and input decisions with exact upstream hashes |
+| metal acceptance review | `gaussian-asymmetric-metal-acceptance-review/1` | four-section M2 decision sidecar; section records never grant top-level acceptance, promotion or execution |
 | literature benchmark | `gaussian-asymmetric-literature-benchmark-ledger/1` | hash-bound literature coordinates, identities, expected observables, and unresolved gates |
 | smoke proposal | `gaussian-asymmetric-smoke-proposal/1` | priority-1 closed-shell main-group plan with no live authority |
 | live-smoke evidence | `gaussian-asymmetric-live-smoke-evidence/1` | sanitized, hash-bound terminal/run/TS/mode evidence with no job ID, server path, log, or checkpoint |
@@ -232,15 +238,109 @@ must name its catalyst state, stereochemical channels and intended coordinates;
 unassigned elementary-step class or unresolved reaction-surface model blocks
 selection.
 
-Milestone `M0` records the implemented offline design/refusal audit, and
-`metal_m2a_candidate_audit_template` records the implemented candidate-bound
-audit-template layer. `M1`, the remaining `M2`, `M3` and `M4` work cover a
-bounded scientific state review, structured result/parser checks, execution
-boundary and a separately approved smoke test. They remain blocked or pending.
+Milestone `M0` records the implemented offline design/refusal audit,
+`metal_m1_review_contract` records the implemented candidate-bound M1 sidecar
+builder/validator while the real `metal_m1_scientific_review` remains pending,
+`metal_m2a_candidate_audit_template` records the candidate-bound audit-template
+layer, and `metal_m2b_result_observation` records a read-only parser for exact
+log facts. `metal_m2c_input_observation` records a read-only parser for an
+already existing single-step Cartesian input, and
+`metal_m2d_acceptance_review_contract` records four independent human decision
+sections. `M1`, the remaining runtime/promotion part of `M2`, `M3` and `M4`
+cover a real bounded scientific review, execution boundary and separately
+approved smoke test. They remain blocked or pending.
 The artifact always carries
 `submission_decision: refused`, `calculation_ready: false` and
 `no_submission_authorization: true`; filling review fields cannot change those
 values.
+
+### 4.2 Transition-metal scientific-review sidecar
+
+`gaussian-asymmetric-metal-scientific-review/1` binds an exact M0 design, M2a
+template, unsupported candidate and reviewer source by SHA-256. It records six
+separate sections for electron accounting, spin/surface space, wavefunction,
+coordination, method protocol and TS/path design. Non-null scientific values
+are copied from the reviewer source and every reviewed section must close its
+evidence references. Missing source facts remain null with explicit blockers.
+
+This sidecar does not modify its inputs. In particular, the M2a template keeps
+all six sections `blocked_pending_review`, its execution strategy stays
+unselected, and the candidate stays unsupported and non-promoted. A complete
+synthetic fixture has M1 status `not_satisfied_synthetic_fixture`. Any output,
+including a future complete real record, has
+`scientific_acceptance_decision: not_granted_by_artifact`,
+`calculation_ready: false`, promotion/submission refusal, and claim ceiling
+`bounded_review_record_only_no_scientific_acceptance_ts_or_selectivity_claim`.
+The separate three-tier protocol options/selection, metal runtime and live
+approval gates remain mandatory.
+
+### 4.3 Transition-metal existing-input-observation artifact
+
+`gaussian-asymmetric-metal-input-observation/1` binds the exact candidate,
+still-blocked M2a template, M1 sidecar and an already existing local input by
+SHA-256. It accepts only a single-step input with explicit element-symbol
+Cartesian coordinates and requires exact charge, multiplicity and atom-order
+agreement. Multi-step `--Link1--`, `Geom=Check/AllCheck`, non-Cartesian input,
+identity drift and lineage drift are refused.
+
+The parser records Link 0 directives, normalized route text and hash, title
+hash, charge/multiplicity, element order, coordinate-block hash, task-keyword
+text and the hash/line count of uninterpreted trailing sections. It does not
+interpret these observations as a suitable method, basis/ECP, solvent,
+wavefunction, TS algorithm, resource or server path. It neither creates nor
+modifies the input.
+
+Every artifact fixes `input_acceptance_decision` to
+`not_granted_by_artifact`, `protocol_selection_decision` to
+`absent_not_authorized`, all six scientific sections to
+`blocked_pending_review`, and promotion/submission to `refused`. Its claim
+ceiling is
+`existing_input_observation_only_no_acceptance_execution_ts_or_selectivity_claim`.
+
+### 4.4 Transition-metal result-observation artifact
+
+`gaussian-asymmetric-metal-result-observation/1` binds the exact candidate,
+M2a template and existing local log by SHA-256. It requires matching charge,
+multiplicity and contiguous one-based atom order. It records only:
+
+- normal/error termination, optimization and stationary-point text markers;
+- every raw frequency and the observed negative-frequency count, without
+  inferring frequency completeness;
+- printed `S**2` before/after-annihilation values and whether Gaussian printed
+  its stability statement, without applying an unapproved threshold; and
+- initial/final distances for candidate-declared coordination contacts, with
+  no inferred distance window or hapticity decision.
+
+The artifact always has `status: parsed_observation_blocked`,
+`promotion_decision: refused`, all six audit sections
+`blocked_pending_review`, and claim ceiling
+`parsed_observation_only_no_ts_or_selectivity_claim`. Normal termination and
+one raw imaginary frequency do not turn it into
+`gaussian-asymmetric-ts-result/1`. It contains no route, input, checkpoint,
+server project, job ID or execution handoff.
+
+### 4.5 Transition-metal M2 acceptance-decision sidecar
+
+`gaussian-asymmetric-metal-acceptance-review/1` binds the candidate, M2a
+template, M1 review, M2b result observation, M2c input observation and reviewer
+source. Wavefunction, coordination, mode and input acceptance are separate
+sections; each records bounded accept, reviewer reject or missing-evidence
+block. Reviewed decisions require hash-bound evidence, while blocked decisions
+must retain explicit blockers.
+
+Wavefunction acceptance records stability/spin, occupation, alternative-
+solution and multireference review. Coordination acceptance covers every
+observed contact, hapticity, ligand inventory and state drift. Mode acceptance
+requires exactly one raw imaginary frequency plus hash-bound displacement
+review. Input acceptance records the exact input, protocol options/selection,
+input approval and input/result lineage hashes together with route,
+basis/ECP, solvent/thermochemistry, resource and server-path review.
+
+Section-level `accepted_for_bounded_offline_review` is not top-level authority.
+Every sidecar keeps scientific/input/mode acceptance at
+`not_granted_by_artifact`, promotion/submission refused, runtime unsupported
+and claim ceiling
+`manual_decision_record_only_no_runtime_promotion_ts_path_or_selectivity_claim`.
 
 `duplicate_of` may reference another candidate only when the chemical state,
 channel, atom map, stereochemistry, and geometry equivalence have been reviewed.

@@ -1,0 +1,38 @@
+ SYNTHETIC OFFLINE PARSER FIXTURE; NOT A GAUSSIAN OUTPUT OR RESEARCH RESULT.
+ Entering Gaussian System, Link 0=g16
+ Gaussian 16, Revision C.01
+ Charge = 0 Multiplicity = 1
+ Input orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1         46           0        0.000000    0.000000    0.000000
+      2         15           0       -2.000000    0.000000    0.000000
+      3          6           0        2.000000    0.700000    0.000000
+      4          6           0        2.000000   -0.700000    0.000000
+      5          1           0        2.700000    1.200000    0.000000
+      6          1           0        2.700000   -1.200000    0.000000
+      7          1           0       -2.700000    0.000000    0.000000
+ ---------------------------------------------------------------------
+ SCF Done:  E(UPBE0) =  -123.456789012     A.U. after   10 cycles
+ S**2 before annihilation 0.0100, after 0.0001
+ The wavefunction is stable under the perturbations considered.
+ Optimization completed.
+ Stationary point found.
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1         46           0        0.000000    0.000000    0.000000
+      2         15           0       -2.050000    0.000000    0.000000
+      3          6           0        1.950000    0.650000    0.000000
+      4          6           0        1.920000   -0.680000    0.000000
+      5          1           0        2.650000    1.150000    0.000000
+      6          1           0        2.620000   -1.180000    0.000000
+      7          1           0       -2.750000    0.000000    0.000000
+ ---------------------------------------------------------------------
+ Frequencies --  -245.5000    35.2000    71.4000
+ Frequencies --   102.3000   188.7000   305.1000
+ Normal termination of Gaussian 16 at Wed Jul 15 12:00:00 2026.

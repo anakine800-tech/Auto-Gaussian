@@ -1,0 +1,39 @@
+{
+  "schema": "gaussian-asymmetric-metal-acceptance-review-source/1",
+  "review_id": "fixture_metal_m2_incomplete",
+  "source_bindings": {
+    "template_sha256": "6420909a7983021e836c54da8779a8bb9e2c97745e94c5445f28af8d844cf0b8",
+    "candidate_sha256": "00a724bf7fb2386cb4167603390cedfcf87c1cd3337dfe120730e77384f04f45",
+    "scientific_review_sha256": "e2db7efe1986f71b20606d6295a948798e435bf5875db314ce72531610aae759",
+    "input_observation_sha256": "8fee0509f83dfe6bcf54e21c35797e3074fb752193ae471f8166477e5b5134aa",
+    "result_observation_sha256": "f1161695d9e508f3380baab74ac51bca3ccf236a98cd32a9ddfa479ec3886663"
+  },
+  "study_id": "fixture_metal_selectivity",
+  "candidate_id": "metal_ts_r_unresolved",
+  "mechanism_id": "metal_insertion_step",
+  "channel_id": "metal_channel_r",
+  "catalyst_state_id": "pd_ligand_state",
+  "scope": {"scope_kind": "synthetic_nonresearch_fixture", "reviewer": null, "review_date": null, "notes": ["Missing-evidence fixture; no values may be inferred."]},
+  "sections": {
+    "wavefunction": {
+      "decision": "blocked_missing_evidence",
+      "facts": {"observed_s2_count": 1, "stability_statement_observed": true, "spin_contamination_assessment": null, "occupation_assessment": null, "alternative_solution_assessment": null, "multireference_assessment": null},
+      "evidence": [], "review_notes": "Printed S2/stability observations are insufficient.", "blockers": ["Occupation, alternative-solution and multireference reviews are absent."]
+    },
+    "coordination": {
+      "decision": "blocked_missing_evidence",
+      "facts": {"contact_assessments": [], "hapticity_assessment": null, "ligand_inventory_assessment": null, "unintended_state_change": null},
+      "evidence": [], "review_notes": "Distances alone cannot accept coordination.", "blockers": ["Reviewed windows, hapticity and ligand-inventory decisions are absent."]
+    },
+    "mode": {
+      "decision": "blocked_missing_evidence",
+      "facts": {"raw_imaginary_frequency_count": 1, "mode_evidence_sha256": null, "intended_coordinate_assessment": null, "unintended_coordination_loss_assessment": null},
+      "evidence": [], "review_notes": "Frequency count alone cannot accept a mode.", "blockers": ["Hash-bound displacement evidence and manual coordinate review are absent."]
+    },
+    "input_acceptance": {
+      "decision": "blocked_missing_evidence",
+      "facts": {"input_sha256": "fbf527275bc6a5d143002d754befbdbdff7b35897b2815844ea5a789f519de91", "protocol_options_sha256": null, "protocol_selection_sha256": null, "input_approval_sha256": null, "input_result_lineage_sha256": null, "exact_input_hash_confirmed": true, "route_reviewed": null, "element_basis_ecp_coverage_reviewed": null, "solvent_thermochemistry_reviewed": null, "resource_and_server_path_reviewed": null},
+      "evidence": [], "review_notes": "Input identity does not provide protocol or live approval.", "blockers": ["Protocol options/selection, exact approval and server-path review are absent."]
+    }
+  }
+}

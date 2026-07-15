@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/metal-acceptance-review.schema.json",
+  "title": "Auto-G16 Transition-Metal M2 Acceptance Decision Record",
+  "description": "Candidate-bound manual decision sidecar. Section records never grant top-level scientific, input, mode, promotion, submission or execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "review_id", "review_payload_sha256", "template_source",
+    "candidate_source", "scientific_review_source", "input_observation_source",
+    "result_observation_source", "decision_source", "study_id", "candidate_id",
+    "mechanism_id", "channel_id", "catalyst_state_id", "status",
+    "calculation_ready", "no_submission_authorization", "runtime_support_status",
+    "scientific_acceptance_decision", "input_acceptance_decision",
+    "mode_acceptance_decision", "promotion_decision", "submission_decision",
+    "scope", "identity_binding", "sections", "decision_summary", "completion",
+    "hard_rejections", "claim_ceiling"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-metal-acceptance-review/1"},
+    "review_id": {"$ref": "#/$defs/id"}, "review_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "template_source": {"$ref": "#/$defs/hash_binding"}, "candidate_source": {"$ref": "#/$defs/hash_binding"},
+    "scientific_review_source": {"$ref": "#/$defs/hash_binding"}, "input_observation_source": {"$ref": "#/$defs/hash_binding"},
+    "result_observation_source": {"$ref": "#/$defs/hash_binding"}, "decision_source": {"$ref": "#/$defs/hash_binding"},
+    "study_id": {"$ref": "#/$defs/id"}, "candidate_id": {"$ref": "#/$defs/id"},
+    "mechanism_id": {"$ref": "#/$defs/id"}, "channel_id": {"$ref": "#/$defs/id"}, "catalyst_state_id": {"$ref": "#/$defs/id"},
+    "status": {"enum": ["acceptance_record_complete_runtime_unsupported", "acceptance_record_contains_rejection_runtime_unsupported", "blocked_incomplete_acceptance_review"]},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true},
+    "runtime_support_status": {"const": "unsupported_requires_extension"},
+    "scientific_acceptance_decision": {"const": "not_granted_by_artifact"},
+    "input_acceptance_decision": {"const": "not_granted_by_artifact"},
+    "mode_acceptance_decision": {"const": "not_granted_by_artifact"},
+    "promotion_decision": {"const": "refused"}, "submission_decision": {"const": "refused"},
+    "scope": {
+      "type": "object", "additionalProperties": false, "required": ["scope_kind", "reviewer", "review_date", "notes"],
+      "properties": {
+        "scope_kind": {"enum": ["synthetic_nonresearch_fixture", "reviewer_bound_real_case"]},
+        "reviewer": {"type": ["string", "null"], "minLength": 1},
+        "review_date": {"type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "identity_binding": {
+      "type": "object", "additionalProperties": false, "required": ["charge", "multiplicity", "atom_count", "atom_order"],
+      "properties": {
+        "charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1}, "atom_count": {"type": "integer", "minimum": 1},
+        "atom_order": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atom"}}
+      }
+    },
+    "sections": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wavefunction", "coordination", "mode", "input_acceptance"],
+      "properties": {
+        "wavefunction": {"$ref": "#/$defs/section"}, "coordination": {"$ref": "#/$defs/section"},
+        "mode": {"$ref": "#/$defs/section"}, "input_acceptance": {"$ref": "#/$defs/section"}
+      }
+    },
+    "decision_summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["accepted_sections", "rejected_sections", "blocked_sections", "metal_m2_acceptance_review_status"],
+      "properties": {
+        "accepted_sections": {"$ref": "#/$defs/section_names"}, "rejected_sections": {"$ref": "#/$defs/section_names"},
+        "blocked_sections": {"$ref": "#/$defs/section_names"},
+        "metal_m2_acceptance_review_status": {"enum": ["pending_acceptance_review", "not_satisfied_synthetic_fixture", "reviewed_bounded_example_runtime_unsupported", "reviewer_rejected"]}
+      }
+    },
+    "completion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["metal_m2d_acceptance_review_contract", "metal_m2_offline_runtime_contract", "metal_m3_execution_boundary", "metal_m4_live_smoke"],
+      "properties": {
+        "metal_m2d_acceptance_review_contract": {"const": "implemented_offline"},
+        "metal_m2_offline_runtime_contract": {"const": "blocked"}, "metal_m3_execution_boundary": {"const": "blocked"},
+        "metal_m4_live_smoke": {"const": "blocked"}
+      }
+    },
+    "hard_rejections": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "claim_ceiling": {"const": "manual_decision_record_only_no_runtime_promotion_ts_path_or_selectivity_claim"}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "scope": {"properties": {"scope_kind": {"const": "synthetic_nonresearch_fixture"}}}
+      }
+    },
+    {
+      "properties": {
+        "scope": {
+          "properties": {
+            "scope_kind": {"const": "reviewer_bound_real_case"},
+            "reviewer": {"type": "string", "minLength": 1},
+            "review_date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+          }
+        },
+        "sections": {
+          "properties": {
+            "wavefunction": {"properties": {"evidence": {"items": {"$ref": "#/$defs/non_synthetic_evidence"}}}},
+            "coordination": {"properties": {"evidence": {"items": {"$ref": "#/$defs/non_synthetic_evidence"}}}},
+            "mode": {"properties": {"evidence": {"items": {"$ref": "#/$defs/non_synthetic_evidence"}}}},
+            "input_acceptance": {"properties": {"evidence": {"items": {"$ref": "#/$defs/non_synthetic_evidence"}}}}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hash_binding": {"type": "object", "additionalProperties": false, "required": ["sha256"], "properties": {"sha256": {"$ref": "#/$defs/sha256"}}},
+    "atom": {"type": "object", "additionalProperties": false, "required": ["index", "atomic_number", "element"], "properties": {"index": {"type": "integer", "minimum": 1}, "atomic_number": {"type": "integer", "minimum": 1}, "element": {"type": "string", "minLength": 1}}},
+    "section": {
+      "type": "object", "additionalProperties": false, "required": ["decision", "facts", "evidence", "review_notes", "blockers"],
+      "properties": {
+        "decision": {"enum": ["accepted_for_bounded_offline_review", "rejected_by_reviewer", "blocked_missing_evidence"]},
+        "facts": {"type": "object"}, "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+        "review_notes": {"type": "string", "minLength": 1}, "blockers": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evidence_id", "evidence_kind", "sha256", "locator"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/id"},
+        "evidence_kind": {"enum": ["synthetic_fixture", "reviewer_record", "mode_displacement", "protocol_artifact", "input_approval", "coordination_review", "wavefunction_review"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "locator": {"type": "string", "minLength": 1}
+      }
+    },
+    "non_synthetic_evidence": {
+      "allOf": [
+        {"$ref": "#/$defs/evidence"},
+        {"not": {"required": ["evidence_kind"], "properties": {"evidence_kind": {"const": "synthetic_fixture"}}}}
+      ]
+    },
+    "section_names": {"type": "array", "uniqueItems": true, "items": {"enum": ["wavefunction", "coordination", "mode", "input_acceptance"]}}
+  }
+}

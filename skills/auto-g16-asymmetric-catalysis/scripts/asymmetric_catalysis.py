@@ -15,6 +15,7 @@ import json
 import math
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -33,6 +34,30 @@ VALIDATION_RANK = {
     "first_order_saddle_candidate": 1,
     "mode_reviewed": 2,
     "path_validated": 3,
+}
+METAL_REVIEW_SECTION_NAMES = (
+    "electron_accounting",
+    "spin_surface",
+    "wavefunction",
+    "coordination",
+    "method_protocol",
+    "ts_and_path",
+)
+METAL_ACCEPTANCE_SECTION_NAMES = (
+    "wavefunction",
+    "coordination",
+    "mode",
+    "input_acceptance",
+)
+METAL_ACCEPTANCE_DECISIONS = {
+    "accepted_for_bounded_offline_review",
+    "rejected_by_reviewer",
+    "blocked_missing_evidence",
+}
+METAL_SEED_STRATEGIES = {
+    "single_guess_hessian_guided",
+    "endpoint_qst2_qst3",
+    "reviewed_relaxed_coordinate_scan",
 }
 KCAL_PER_HARTREE = 627.5094740631
 KCAL_PER_KJ = 1.0 / 4.184
@@ -77,6 +102,43 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _is_finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _is_valid_iso_date(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
+
+
+def _validate_m1_scope_evidence_binding(provenance: dict[str, Any], label: str) -> None:
+    """Prevent a synthetic or reviewer record from being relabelled as primary evidence."""
+    scope_kind = provenance.get("scope_kind")
+    sources = provenance.get("sources", [])
+    source_types = {
+        item.get("source_type") for item in sources if isinstance(item, dict)
+    }
+    primary_types = {"primary_article", "primary_supporting_information"}
+    if scope_kind == "synthetic_nonresearch_fixture":
+        require(
+            source_types == {"synthetic_fixture"},
+            f"{label}: synthetic scope requires only synthetic_fixture evidence",
+        )
+    elif scope_kind == "primary_literature_bound_review":
+        require(
+            bool(source_types) and source_types <= primary_types,
+            f"{label}: primary-literature scope requires only primary article or supporting-information evidence",
+        )
+    elif scope_kind == "mixed_primary_and_reviewer_evidence":
+        require(
+            bool(source_types)
+            and source_types <= primary_types | {"reviewer_record"}
+            and bool(source_types & primary_types)
+            and "reviewer_record" in source_types,
+            f"{label}: mixed scope requires both primary-literature and reviewer-record evidence and forbids synthetic fixtures",
+        )
 
 
 def _require_sha256(value: Any, message: str) -> None:
@@ -1219,7 +1281,7 @@ def design_metal_support(study_path: Path, output: Path) -> dict[str, Any]:
                 "strategy": "single_guess_hessian_guided",
                 "status": "design_candidate_not_selected",
                 "prerequisites": ["reviewed TS-like geometry", "explicit reaction-coordinate atom map", "reviewed electronic and coordination state", "approved Hessian provenance"],
-                "limitations": ["a plausible guess can converge to the wrong saddle or coordination state", "current transition-metal structured-result parser and execution support are absent"],
+                "limitations": ["a plausible guess can converge to the wrong saddle or coordination state", "the observation-only parser cannot accept a metal TS and execution support is absent"],
             },
             {
                 "strategy_id": f"mts_{sha256_data([mechanism_id, 'qst'])[:12]}",
@@ -1250,7 +1312,7 @@ def design_metal_support(study_path: Path, output: Path) -> dict[str, Any]:
             },
             "seed_strategy_candidates": strategies,
             "required_pre_ts_evidence": ["reviewed atom map and intended forming/breaking/transferring coordinates", "reviewed oxidation, charge, multiplicity and wavefunction state", "reviewed coordination/hapticity and ligand/counterion inventory", "selected three-tier protocol candidate", "strategy-specific endpoint, Hessian, or scan evidence"],
-            "blockers": ["no seed strategy is selected", "no transition-metal TS parser/input audit exists", "no execution handoff is authorized"],
+            "blockers": ["no seed strategy is selected", "no transition-metal TS acceptance parser or reviewed input-acceptance contract exists", "no execution handoff is authorized"],
         })
     require(ts_search_families, "no metal mechanism is bound to a reviewed metal state")
     design = {
@@ -1268,9 +1330,13 @@ def design_metal_support(study_path: Path, output: Path) -> dict[str, Any]:
         "cross_state_rules": ["Never compare or deduplicate candidates across oxidation, charge, multiplicity, nuclearity, coordination, hapticity, ligand-count, or wavefunction hypotheses.", "Never reuse a Hessian, checkpoint, endpoint, or TS guess across electronic states without a separately reviewed provenance map.", "Never mix spin surfaces in one Boltzmann ensemble; use a separately approved crossing/kinetic model when surfaces communicate.", "A normal mode must be reviewed for the intended chemical coordinate and for unintended ligand, counterion, or coordination loss."],
         "extension_milestones": [
             {"milestone_id": "metal_m0_offline_design", "status": "implemented_offline", "deliverable": "Deterministic state, audit, TS-seed-strategy, blocker, and refusal artifact."},
+            {"milestone_id": "metal_m1_review_contract", "status": "implemented_offline", "deliverable": "Candidate-bound sidecar builder and validator for explicit bounded scientific-review records; it never grants scientific acceptance, promotion, input rendering or execution."},
             {"milestone_id": "metal_m1_scientific_review", "status": "pending_scientific_review", "deliverable": "Reviewed oxidation/electron count, spin, wavefunction, coordination, method and TS strategy for a bounded example."},
             {"milestone_id": "metal_m2a_candidate_audit_template", "status": "implemented_offline", "deliverable": "Candidate-bound atom-order, metal-center, coordination-contact, electronic-state, method, TS/path and seed-strategy audit template with unconditional execution refusal."},
-            {"milestone_id": "metal_m2_offline_runtime_contract", "status": "blocked", "deliverable": "Metal-specific input audit, parser, wavefunction/coordination checks, negative fixtures and promotion gates."},
+            {"milestone_id": "metal_m2b_result_observation", "status": "implemented_offline", "deliverable": "Candidate-bound, read-only log observation parser for identity, termination, frequency, S**2/stability text and coordination distances; all scientific audits and promotion remain blocked."},
+            {"milestone_id": "metal_m2c_input_observation", "status": "implemented_offline", "deliverable": "Candidate- and M1-bound read-only observation of an existing single-step Cartesian Gaussian input; no input acceptance, protocol selection, rendering or execution authority."},
+            {"milestone_id": "metal_m2d_acceptance_review_contract", "status": "implemented_offline", "deliverable": "Candidate-bound reviewer sidecar for wavefunction, coordination, mode and input decisions; section-level records never grant promotion, submission or execution authority."},
+            {"milestone_id": "metal_m2_offline_runtime_contract", "status": "blocked", "deliverable": "Metal-specific input acceptance, result acceptance, reviewed wavefunction/coordination checks and promotion gates beyond the observation-only M2b/M2c artifacts."},
             {"milestone_id": "metal_m3_execution_boundary", "status": "blocked", "deliverable": "Separately reviewed execution-layer design that cannot bypass exact scientific and live approval."},
             {"milestone_id": "metal_m4_live_smoke", "status": "blocked", "deliverable": "Explicitly approved small closed-shell single-reference metal TS smoke only after M1-M3 pass."},
         ],
@@ -1280,6 +1346,491 @@ def design_metal_support(study_path: Path, output: Path) -> dict[str, Any]:
     design["design_payload_sha256"] = sha256_data({key: value for key, value in design.items() if key != "design_payload_sha256"})
     write_json(output, design)
     return design
+
+
+def _validate_metal_scientific_review_source(
+    source: dict[str, Any],
+    design: dict[str, Any],
+    template: dict[str, Any],
+    candidate: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """Validate explicit M1 evidence without deriving a scientific assignment."""
+    required_top = {
+        "schema", "review_id", "design_payload_sha256",
+        "template_payload_sha256", "candidate_sha256", "study_id",
+        "candidate_id", "channel_id", "catalyst_state_id", "mechanism_id",
+        "provenance", "identity", "sections",
+    }
+    require(set(source) == required_top, "metal scientific-review source fields are incomplete or unknown")
+    require(
+        source.get("schema") == "gaussian-asymmetric-metal-scientific-review-source/1",
+        "metal scientific-review source schema is not recognized",
+    )
+    require(ID_RE.fullmatch(str(source.get("review_id", ""))) is not None, "invalid metal scientific-review review_id")
+    require(
+        source.get("design_payload_sha256") == design.get("design_payload_sha256"),
+        "metal scientific-review source is not bound to the exact design payload",
+    )
+    require(
+        source.get("template_payload_sha256") == template.get("template_payload_sha256"),
+        "metal scientific-review source is not bound to the exact audit-template payload",
+    )
+    require(source.get("study_id") == design.get("study_id"), "metal scientific-review study binding differs")
+    require(source.get("candidate_id") == candidate.get("candidate_id"), "metal scientific-review candidate binding differs")
+    require(source.get("channel_id") == candidate.get("channel_id"), "metal scientific-review channel binding differs")
+
+    states = {item["state_id"]: item for item in design.get("states", [])}
+    state_id = source.get("catalyst_state_id")
+    require(state_id in states, "metal scientific-review source references an unknown catalyst state")
+    state = states[state_id]
+    families = {item["mechanism_id"]: item for item in design.get("ts_search_families", [])}
+    mechanism_id = source.get("mechanism_id")
+    require(mechanism_id in families, "metal scientific-review source references an unknown mechanism")
+    family = families[mechanism_id]
+    require(family.get("active_state_id") == state_id, "metal scientific-review mechanism/state binding differs")
+    for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+        require(source.get(key) == template.get(key), f"metal scientific-review template {key} binding differs")
+        require(source.get(key) == candidate.get(key), f"metal scientific-review candidate {key} binding differs")
+    require(
+        template.get("design_source", {}).get("sha256") is not None
+        and template.get("candidate_source", {}).get("sha256") is not None,
+        "metal scientific-review template lacks immutable source bindings",
+    )
+
+    provenance = source.get("provenance")
+    require(isinstance(provenance, dict), "metal scientific-review provenance must be an object")
+    require(
+        set(provenance) == {"scope_kind", "reviewer", "review_date", "sources", "notes"},
+        "metal scientific-review provenance fields are incomplete or unknown",
+    )
+    require(
+        provenance.get("scope_kind") in {
+            "synthetic_nonresearch_fixture",
+            "primary_literature_bound_review",
+            "mixed_primary_and_reviewer_evidence",
+        },
+        "metal scientific-review scope_kind is invalid",
+    )
+    require(isinstance(provenance.get("notes"), list), "metal scientific-review provenance notes must be an array")
+    evidence_by_id: dict[str, dict[str, Any]] = {}
+    for evidence in provenance.get("sources", []):
+        require(isinstance(evidence, dict), "metal scientific-review evidence record must be an object")
+        require(
+            set(evidence) == {"source_id", "source_type", "citation", "doi", "url", "locator", "supports"},
+            "metal scientific-review evidence fields are incomplete or unknown",
+        )
+        source_id = evidence.get("source_id")
+        require(ID_RE.fullmatch(str(source_id or "")) is not None, "metal scientific-review evidence source_id is invalid")
+        require(source_id not in evidence_by_id, f"duplicate metal scientific-review evidence source_id: {source_id}")
+        require(
+            evidence.get("source_type") in {
+                "primary_article", "primary_supporting_information",
+                "reviewer_record", "synthetic_fixture",
+            },
+            f"metal scientific-review evidence {source_id} has an invalid source_type",
+        )
+        require(isinstance(evidence.get("citation"), str) and evidence["citation"].strip(), f"metal scientific-review evidence {source_id} lacks a citation")
+        require(isinstance(evidence.get("locator"), str) and evidence["locator"].strip(), f"metal scientific-review evidence {source_id} lacks a locator")
+        url = evidence.get("url")
+        require(url is None or (isinstance(url, str) and re.fullmatch(r"https?://\S+", url)), f"metal scientific-review evidence {source_id} has an invalid URL")
+        doi = evidence.get("doi")
+        require(doi is None or (isinstance(doi, str) and doi.strip()), f"metal scientific-review evidence {source_id} has an invalid DOI")
+        supports = evidence.get("supports")
+        require(
+            isinstance(supports, list) and supports
+            and set(supports) <= set(METAL_REVIEW_SECTION_NAMES),
+            f"metal scientific-review evidence {source_id} has invalid section support",
+        )
+        evidence_by_id[source_id] = evidence
+    require(evidence_by_id, "metal scientific-review source has no evidence records")
+    _validate_m1_scope_evidence_binding(provenance, "metal scientific-review source")
+
+    identity = source.get("identity")
+    require(isinstance(identity, dict), "metal scientific-review identity must be an object")
+    require(
+        set(identity) == {"total_charge", "multiplicity", "metal_centers"},
+        "metal scientific-review identity fields are incomplete or unknown",
+    )
+    declared_identity = state.get("electron_accounting", {}).get("declared", {})
+    require(identity.get("total_charge") == declared_identity.get("total_charge"), "metal scientific-review total charge differs from the design state")
+    require(identity.get("multiplicity") == declared_identity.get("multiplicity"), "metal scientific-review multiplicity differs from the design state")
+    require(identity.get("total_charge") == template.get("identity_binding", {}).get("charge") == candidate.get("chemical_state", {}).get("charge"), "metal scientific-review total charge differs from the candidate/template")
+    require(identity.get("multiplicity") == template.get("identity_binding", {}).get("multiplicity") == candidate.get("chemical_state", {}).get("multiplicity"), "metal scientific-review multiplicity differs from the candidate/template")
+    expected_centers = [
+        {"atom_index": item.get("atom_index"), "element": item.get("element")}
+        for item in template.get("identity_binding", {}).get("metal_centers", [])
+    ]
+    require(identity.get("metal_centers") == expected_centers, "metal scientific-review metal-center identity differs from the design state")
+
+    sections = source.get("sections")
+    require(isinstance(sections, dict) and set(sections) == set(METAL_REVIEW_SECTION_NAMES), "metal scientific-review section inventory is incomplete")
+    fact_fields = {
+        "electron_accounting": {
+            "metal_assignments", "total_valence_electron_count", "electron_parity",
+            "parity_multiplicity_assessment", "ligand_charge_conventions",
+            "metal_metal_bonding_convention", "non_innocent_ligand_alternatives",
+        },
+        "spin_surface": {
+            "credible_multiplicities", "selected_multiplicity", "relative_energy_reference",
+            "spin_crossover_relevance", "minimum_energy_crossing_relevance",
+            "single_surface_assumption",
+        },
+        "wavefunction": {
+            "reference_hypothesis", "scf_stability_policy", "expected_s2",
+            "spin_contamination_policy", "occupation_inspection_policy",
+            "alternative_solution_policy", "multireference_diagnostic_policy",
+            "checkpoint_reuse_policy",
+        },
+        "coordination": {
+            "nuclearity", "metal_center_models", "ligand_inventory",
+            "denticity_hapticity_assignments", "coordination_contacts",
+            "counterion_models", "solvent_additive_occupancy",
+            "alternative_associated_dissociated_states",
+        },
+        "method_protocol": {
+            "applicability", "method_or_functional", "dispersion", "basis_and_ecp",
+            "relativistic_treatment", "solvation", "grid", "scf_controls",
+            "geometry_frequency_relationship", "spin_wavefunction_sensitivity",
+            "thermochemistry_policy", "three_tier_protocol_binding",
+            "protocol_selection_authorization",
+        },
+        "ts_and_path": {
+            "elementary_step_class", "reactant_state_id", "product_state_id",
+            "coordinate_changes", "single_surface_assumption",
+            "literature_search_strategy", "reviewed_strategy_candidate_id",
+            "reviewed_strategy_candidate", "strategy_specific_evidence",
+            "execution_selection_status", "path_model",
+            "frequency_and_mode_acceptance_policy", "mode_path_evidence_status",
+        },
+    }
+    for section_name in METAL_REVIEW_SECTION_NAMES:
+        section = sections[section_name]
+        require(isinstance(section, dict), f"metal scientific-review {section_name} section must be an object")
+        require(
+            set(section) == {"status", "facts", "evidence_ids", "review_notes", "blockers"},
+            f"metal scientific-review {section_name} fields are incomplete or unknown",
+        )
+        status = section.get("status")
+        require(status in {"reviewed_for_bounded_example", "blocked_missing_evidence"}, f"metal scientific-review {section_name} has an invalid status")
+        facts = section.get("facts")
+        require(isinstance(facts, dict) and set(facts) == fact_fields[section_name], f"metal scientific-review {section_name} fact fields are incomplete or unknown")
+        evidence_ids = section.get("evidence_ids")
+        require(isinstance(evidence_ids, list) and len(evidence_ids) == len(set(evidence_ids)), f"metal scientific-review {section_name} evidence IDs are invalid")
+        for evidence_id in evidence_ids:
+            require(evidence_id in evidence_by_id, f"metal scientific-review {section_name} references unknown evidence {evidence_id}")
+            require(section_name in evidence_by_id[evidence_id]["supports"], f"metal scientific-review evidence {evidence_id} does not support {section_name}")
+        blockers = section.get("blockers")
+        require(isinstance(blockers, list), f"metal scientific-review {section_name} blockers must be an array")
+        require(isinstance(section.get("review_notes"), str) and section["review_notes"].strip(), f"metal scientific-review {section_name} lacks review notes")
+        if status == "reviewed_for_bounded_example":
+            require(evidence_ids, f"metal scientific-review {section_name} cannot be reviewed without evidence")
+            require(not blockers, f"metal scientific-review {section_name} cannot be reviewed while blockers remain")
+        else:
+            require(blockers, f"metal scientific-review {section_name} blocked status lacks blockers")
+
+    electron = sections["electron_accounting"]
+    electron_facts = electron["facts"]
+    assignments = electron_facts["metal_assignments"]
+    require(isinstance(assignments, list), "metal scientific-review electron assignments must be an array")
+    assignment_identity = [
+        {"atom_index": item.get("atom_index"), "element": item.get("element")}
+        for item in assignments if isinstance(item, dict)
+    ]
+    require(assignment_identity == expected_centers, "metal scientific-review electron assignments differ from the design centers")
+    for assignment, center in zip(assignments, state.get("metal_centers", []), strict=True):
+        require(
+            set(assignment) == {"atom_index", "element", "formal_oxidation_state", "d_electron_count", "assignment_basis"},
+            "metal scientific-review metal assignment fields are incomplete or unknown",
+        )
+        oxidation_state = assignment.get("formal_oxidation_state")
+        require(
+            oxidation_state is None or oxidation_state == center.get("formal_oxidation_state"),
+            "metal scientific-review oxidation-state assignment differs from the bound design state",
+        )
+    if electron["status"] == "reviewed_for_bounded_example":
+        require(all(isinstance(item.get("formal_oxidation_state"), int) and isinstance(item.get("d_electron_count"), int) and item["d_electron_count"] >= 0 and isinstance(item.get("assignment_basis"), str) and item["assignment_basis"].strip() for item in assignments), "reviewed electron accounting requires explicit oxidation states, d counts and assignment bases")
+        total_electrons = electron_facts.get("total_valence_electron_count")
+        require(isinstance(total_electrons, int) and not isinstance(total_electrons, bool) and total_electrons >= 0, "reviewed electron accounting requires a total valence-electron count")
+        expected_parity = "even" if total_electrons % 2 == 0 else "odd"
+        require(electron_facts.get("electron_parity") == expected_parity, "metal scientific-review electron parity differs from the explicit count")
+        multiplicity = identity.get("multiplicity")
+        require(isinstance(multiplicity, int) and multiplicity >= 1, "reviewed electron accounting requires an explicit multiplicity")
+        require((total_electrons % 2 == 0) == (multiplicity % 2 == 1), "metal scientific-review electron parity and multiplicity parity are inconsistent")
+        require(electron_facts.get("parity_multiplicity_assessment") == "consistent", "reviewed electron accounting must record a consistent parity assessment")
+        require(electron_facts.get("ligand_charge_conventions"), "reviewed electron accounting lacks ligand-charge conventions")
+        require(electron_facts.get("non_innocent_ligand_alternatives"), "reviewed electron accounting must explicitly address non-innocent alternatives")
+
+    spin = sections["spin_surface"]
+    spin_facts = spin["facts"]
+    if spin["status"] == "reviewed_for_bounded_example":
+        credible = spin_facts.get("credible_multiplicities")
+        selected = spin_facts.get("selected_multiplicity")
+        require(isinstance(credible, list) and credible and all(isinstance(value, int) and value >= 1 for value in credible), "reviewed spin space requires explicit credible multiplicities")
+        require(selected == identity.get("multiplicity") and selected in credible, "reviewed spin-space selection differs from the bound identity")
+        require(isinstance(spin_facts.get("relative_energy_reference"), str) and spin_facts["relative_energy_reference"].strip(), "reviewed spin space lacks a common reference")
+        for field in ("spin_crossover_relevance", "minimum_energy_crossing_relevance"):
+            require(spin_facts.get(field) in {"not_indicated", "relevant_requires_extension"}, f"reviewed spin space leaves {field} unresolved")
+        require(isinstance(spin_facts.get("single_surface_assumption"), bool), "reviewed spin space lacks an explicit single-surface decision")
+
+    wavefunction = sections["wavefunction"]
+    wavefunction_facts = wavefunction["facts"]
+    if wavefunction["status"] == "reviewed_for_bounded_example":
+        require(wavefunction_facts.get("reference_hypothesis") in {"restricted", "unrestricted", "restricted_open_shell", "broken_symmetry"}, "reviewed wavefunction lacks an explicit reference hypothesis")
+        multiplicity = identity["multiplicity"]
+        expected_s2 = ((multiplicity - 1) / 2.0) * ((multiplicity - 1) / 2.0 + 1.0)
+        require(_is_finite_number(wavefunction_facts.get("expected_s2")) and math.isclose(float(wavefunction_facts["expected_s2"]), expected_s2, rel_tol=0.0, abs_tol=1e-8), "reviewed wavefunction expected S**2 differs from the bound multiplicity")
+        for field in (
+            "scf_stability_policy", "spin_contamination_policy", "occupation_inspection_policy",
+            "alternative_solution_policy", "multireference_diagnostic_policy", "checkpoint_reuse_policy",
+        ):
+            require(isinstance(wavefunction_facts.get(field), str) and wavefunction_facts[field].strip(), f"reviewed wavefunction lacks {field}")
+
+    coordination = sections["coordination"]
+    coordination_facts = coordination["facts"]
+    require(coordination_facts.get("nuclearity") == state.get("coordination", {}).get("declared", {}).get("nuclearity"), "metal scientific-review nuclearity differs from the design state")
+    center_models = coordination_facts.get("metal_center_models")
+    require(isinstance(center_models, list), "metal scientific-review coordination center models must be an array")
+    require(
+        [{"atom_index": item.get("atom_index"), "element": item.get("element")} for item in center_models if isinstance(item, dict)] == expected_centers,
+        "metal scientific-review coordination center models differ from the design centers",
+    )
+    for model in center_models:
+        require(set(model) == {"atom_index", "element", "coordination_number", "geometry"}, "metal scientific-review coordination center-model fields are incomplete or unknown")
+    contacts = coordination_facts.get("coordination_contacts")
+    require(isinstance(contacts, list), "metal scientific-review coordination contacts must be an array")
+    for contact in contacts:
+        require(isinstance(contact, dict) and set(contact) == {"donor_atom", "acceptor_atom", "kind", "distance_window_angstrom"}, "metal scientific-review coordination-contact fields are incomplete or unknown")
+        require(contact.get("acceptor_atom") in {item["atom_index"] for item in expected_centers}, "metal scientific-review coordination contact is not bound to a reviewed metal center")
+        window = contact.get("distance_window_angstrom")
+        require(window is None or (isinstance(window, list) and len(window) == 2 and all(_is_finite_number(value) and float(value) >= 0 for value in window) and float(window[0]) <= float(window[1])), "metal scientific-review coordination distance window is invalid")
+    expected_contact_inventory = {
+        (item.get("donor_atom"), item.get("acceptor_atom"), item.get("kind"))
+        for item in template.get("identity_binding", {}).get("coordination_contacts", [])
+    }
+    actual_contact_inventory = {
+        (item.get("donor_atom"), item.get("acceptor_atom"), item.get("kind"))
+        for item in contacts
+    }
+    require(actual_contact_inventory == expected_contact_inventory, "metal scientific-review coordination contacts differ from the candidate/template")
+    if coordination["status"] == "reviewed_for_bounded_example":
+        require(all(isinstance(item.get("coordination_number"), int) and item["coordination_number"] >= 0 and isinstance(item.get("geometry"), str) and item["geometry"].strip() for item in center_models), "reviewed coordination requires coordination numbers and geometries")
+        require(contacts and all(item.get("distance_window_angstrom") is not None for item in contacts), "reviewed coordination requires explicit contact windows")
+        for field in (
+            "ligand_inventory", "denticity_hapticity_assignments", "counterion_models",
+            "solvent_additive_occupancy", "alternative_associated_dissociated_states",
+        ):
+            require(isinstance(coordination_facts.get(field), list) and coordination_facts[field], f"reviewed coordination must explicitly address {field}")
+
+    method = sections["method_protocol"]
+    method_facts = method["facts"]
+    require(method_facts.get("protocol_selection_authorization") is False, "metal scientific-review method record must not authorize protocol selection")
+    if method["status"] == "reviewed_for_bounded_example":
+        require(method_facts.get("applicability") in {"exact_literature_example_only", "reviewer_proposal_not_execution_approved", "synthetic_fixture_only"}, "reviewed method record lacks a bounded applicability")
+        for field in (
+            "method_or_functional", "dispersion", "relativistic_treatment", "solvation", "grid",
+            "scf_controls", "geometry_frequency_relationship", "spin_wavefunction_sensitivity",
+            "thermochemistry_policy",
+        ):
+            require(isinstance(method_facts.get(field), str) and method_facts[field].strip(), f"reviewed method record lacks {field}")
+        basis = method_facts.get("basis_and_ecp")
+        require(isinstance(basis, list) and basis, "reviewed method record lacks basis/ECP coverage")
+        for assignment in basis:
+            require(isinstance(assignment, dict) and set(assignment) == {"element_scope", "orbital_basis", "ecp", "ecp_core_electrons", "coverage_status"}, "metal scientific-review basis/ECP fields are incomplete or unknown")
+            require(assignment.get("coverage_status") == "explicit" and isinstance(assignment.get("element_scope"), str) and assignment["element_scope"].strip() and isinstance(assignment.get("orbital_basis"), str) and assignment["orbital_basis"].strip(), "reviewed method record contains unresolved basis/ECP coverage")
+
+    ts_and_path = sections["ts_and_path"]
+    ts_facts = ts_and_path["facts"]
+    require(ts_facts.get("coordinate_changes") == template.get("identity_binding", {}).get("coordinate_changes") == candidate.get("coordinate_changes"), "metal scientific-review intended coordinate differs from the candidate/template")
+    normalized_review_coordinates = [
+        (item.get("kind"), tuple(item.get("atoms", [])))
+        for item in ts_facts.get("coordinate_changes", [])
+    ]
+    normalized_design_coordinates = [
+        (item.get("kind"), tuple(item.get("atoms", [])))
+        for item in family.get("coordinate_changes", [])
+    ]
+    require(normalized_review_coordinates == normalized_design_coordinates, "metal scientific-review intended coordinate atom map differs from the design family")
+    inventory = {
+        item.get("strategy_id"): item.get("strategy")
+        for item in family.get("seed_strategy_candidates", [])
+    }
+    require(set(inventory.values()) == METAL_SEED_STRATEGIES, "metal scientific-review design lacks the complete strategy inventory")
+    selected_strategy_id = ts_facts.get("reviewed_strategy_candidate_id")
+    selected_strategy = ts_facts.get("reviewed_strategy_candidate")
+    require(
+        selected_strategy_id is None or inventory.get(selected_strategy_id) == selected_strategy,
+        "metal scientific-review reviewed seed-strategy candidate differs from the design inventory",
+    )
+    require(ts_facts.get("execution_selection_status") == "not_selected", "metal scientific-review must not select an execution strategy")
+    require(ts_facts.get("mode_path_evidence_status") == "not_applicable_no_result", "metal scientific-review must not claim result-level mode/path evidence")
+    if ts_and_path["status"] == "reviewed_for_bounded_example":
+        for field in ("elementary_step_class", "reactant_state_id", "product_state_id", "frequency_and_mode_acceptance_policy"):
+            require(isinstance(ts_facts.get(field), str) and ts_facts[field].strip(), f"reviewed TS strategy lacks {field}")
+        require(selected_strategy_id in inventory and selected_strategy in METAL_SEED_STRATEGIES, "reviewed TS design lacks an explicit strategy candidate")
+        require(isinstance(ts_facts.get("strategy_specific_evidence"), list) and ts_facts["strategy_specific_evidence"], "reviewed TS strategy lacks strategy-specific evidence")
+        require(ts_facts.get("single_surface_assumption") is True, "current reviewed TS strategy requires an explicit single-surface assumption")
+        require(spin_facts.get("single_surface_assumption") is True and spin_facts.get("spin_crossover_relevance") == "not_indicated" and spin_facts.get("minimum_energy_crossing_relevance") == "not_indicated", "current reviewed TS strategies cannot represent a crossing surface")
+        require(ts_facts.get("path_model") == "single_surface_candidate_no_connectivity_claim", "reviewed current TS strategy must retain the no-connectivity-claim path model")
+
+    all_reviewed = all(
+        sections[name]["status"] == "reviewed_for_bounded_example"
+        for name in METAL_REVIEW_SECTION_NAMES
+    )
+    if all_reviewed:
+        require(isinstance(provenance.get("reviewer"), str) and provenance["reviewer"].strip(), "complete metal scientific review requires an explicit reviewer")
+        require(_is_valid_iso_date(provenance.get("review_date")), "complete metal scientific review requires a valid ISO review date")
+    return state, family, all_reviewed
+
+
+def build_metal_scientific_review(
+    design_path: Path,
+    template_path: Path,
+    candidate_path: Path,
+    review_source_path: Path,
+    output: Path | None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Freeze an explicit bounded M1 review while preserving every runtime refusal."""
+    require(dry_run or output is not None, "build-metal-scientific-review requires --output unless --dry-run is used")
+    design = load_json(design_path)
+    template = load_json(template_path)
+    candidate = load_json(candidate_path)
+    source = load_json(review_source_path)
+    require(design.get("schema") == "gaussian-asymmetric-metal-support-design/1", "metal scientific review requires a metal-support design")
+    require(
+        design.get("design_payload_sha256")
+        == sha256_data({key: value for key, value in design.items() if key != "design_payload_sha256"}),
+        "metal-support design payload hash mismatch",
+    )
+    require(
+        design.get("calculation_ready") is False
+        and design.get("no_submission_authorization") is True
+        and design.get("runtime_support_status") == "unsupported_requires_extension"
+        and design.get("submission_decision") == "refused",
+        "metal-support design widened the execution boundary",
+    )
+    require(template.get("schema") == "gaussian-asymmetric-metal-ts-audit-template/1", "metal scientific review requires a metal TS audit template")
+    require(
+        template.get("template_payload_sha256")
+        == sha256_data({key: value for key, value in template.items() if key != "template_payload_sha256"}),
+        "metal TS audit template payload hash mismatch",
+    )
+    require(
+        template.get("calculation_ready") is False
+        and template.get("no_submission_authorization") is True
+        and template.get("runtime_support_status") == "unsupported_requires_extension"
+        and template.get("submission_decision") == "refused"
+        and template.get("status") == "blocked_pending_scientific_review"
+        and template.get("claim_ceiling") == "design_only_no_ts_or_selectivity_claim",
+        "metal TS audit template widened the scientific or execution boundary",
+    )
+    require(
+        set(template.get("audit_sections", {}))
+        == {"electron_accounting", "spin_surface", "wavefunction", "coordination", "method_protocol", "ts_and_path"}
+        and all(section.get("status") == "blocked_pending_review" for section in template.get("audit_sections", {}).values()),
+        "metal scientific review refuses an audit template whose review gate was bypassed",
+    )
+    require(
+        template.get("seed_strategy_gate", {}).get("selected_strategy_id") is None
+        and template.get("seed_strategy_gate", {}).get("selection_status") == "not_selected",
+        "metal scientific review refuses an audit template with an execution strategy selection",
+    )
+    require(
+        candidate.get("schema") == "gaussian-asymmetric-ts-candidate/1"
+        and candidate.get("support_status") == "unsupported_transition_metal"
+        and candidate.get("calculation_ready") is False
+        and candidate.get("no_submission_authorization") is True
+        and candidate.get("review_status") != "promoted_offline",
+        "metal scientific review requires an unsupported, non-promoted metal candidate",
+    )
+    require(template.get("design_source", {}).get("sha256") == sha256_file(design_path), "metal scientific-review template design hash mismatch")
+    require(template.get("candidate_source", {}).get("sha256") == sha256_file(candidate_path), "metal scientific-review template candidate hash mismatch")
+    require(source.get("candidate_sha256") == sha256_file(candidate_path), "metal scientific-review source candidate hash mismatch")
+    expected_order = _candidate_atom_order(candidate)
+    _require_matching_atom_order(template.get("identity_binding", {}).get("atom_order"), expected_order, "metal scientific-review template")
+    _state, _family, all_reviewed = _validate_metal_scientific_review_source(
+        source, design, template, candidate
+    )
+    sections = copy.deepcopy(source["sections"])
+    blocked_sections = sorted(
+        name for name in METAL_REVIEW_SECTION_NAMES
+        if sections[name]["status"] != "reviewed_for_bounded_example"
+    )
+    reviewed_sections = sorted(set(METAL_REVIEW_SECTION_NAMES) - set(blocked_sections))
+    unresolved_blockers = [
+        f"{name}: {blocker}"
+        for name in METAL_REVIEW_SECTION_NAMES
+        for blocker in sections[name]["blockers"]
+    ]
+    synthetic = source["provenance"]["scope_kind"] == "synthetic_nonresearch_fixture"
+    if all_reviewed and synthetic:
+        m1_status = "not_satisfied_synthetic_fixture"
+    elif all_reviewed:
+        m1_status = "reviewed_bounded_example_runtime_unsupported"
+    else:
+        m1_status = "pending_scientific_review"
+    review = {
+        "schema": "gaussian-asymmetric-metal-scientific-review/1",
+        "review_id": source["review_id"],
+        "design_source": {
+            "sha256": sha256_file(design_path),
+            "design_payload_sha256": design["design_payload_sha256"],
+        },
+        "template_source": {
+            "sha256": sha256_file(template_path),
+            "template_payload_sha256": template["template_payload_sha256"],
+        },
+        "candidate_source": {"sha256": sha256_file(candidate_path)},
+        "review_source": {"sha256": sha256_file(review_source_path)},
+        "study_id": source["study_id"],
+        "candidate_id": source["candidate_id"],
+        "channel_id": source["channel_id"],
+        "catalyst_state_id": source["catalyst_state_id"],
+        "mechanism_id": source["mechanism_id"],
+        "status": "review_contract_complete_runtime_unsupported" if all_reviewed else "blocked_incomplete_scientific_review",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "submission_decision": "refused",
+        "promotion_decision": "refused",
+        "scientific_acceptance_decision": "not_granted_by_artifact",
+        "literature_values_are_defaults": False,
+        "review_scope": copy.deepcopy(source["provenance"]),
+        "identity_binding": {
+            "total_charge": source["identity"]["total_charge"],
+            "multiplicity": source["identity"]["multiplicity"],
+            "atom_count": template["identity_binding"]["atom_count"],
+            "atom_order": copy.deepcopy(template["identity_binding"]["atom_order"]),
+            "metal_centers": copy.deepcopy(source["identity"]["metal_centers"]),
+            "coordinate_changes": copy.deepcopy(template["identity_binding"]["coordinate_changes"]),
+            "coordination_contacts": copy.deepcopy(template["identity_binding"]["coordination_contacts"]),
+        },
+        "sections": sections,
+        "completion": {
+            "reviewed_sections": reviewed_sections,
+            "blocked_sections": blocked_sections,
+            "unresolved_blockers": unresolved_blockers,
+            "metal_m1_scientific_review_status": m1_status,
+            "metal_m2_offline_runtime_contract": "blocked",
+            "metal_m3_execution_boundary": "blocked",
+            "metal_m4_live_smoke": "blocked",
+        },
+        "hard_rejections": [
+            "Do not interpret source-reported literature settings as defaults for another reaction, state, or candidate.",
+            "Do not render a Gaussian route or input from this scientific-review artifact.",
+            "Do not promote, stage, upload, submit, retry, cancel, clean up, or aggregate a transition-metal candidate from this artifact.",
+            "Do not use the synthetic fixture success path as evidence that the real M1 scientific milestone is complete.",
+            "Do not bypass the separate three-tier protocol selection, metal runtime, execution-boundary, or exact live-approval gates.",
+        ],
+        "claim_ceiling": "bounded_review_record_only_no_scientific_acceptance_ts_or_selectivity_claim",
+    }
+    review["review_payload_sha256"] = sha256_data(
+        {key: value for key, value in review.items() if key != "review_payload_sha256"}
+    )
+    if not dry_run:
+        assert output is not None
+        write_json(output, review)
+    return review
 
 
 def build_metal_ts_audit_template(
@@ -1515,6 +2066,928 @@ def build_metal_ts_audit_template(
     return template
 
 
+def _parse_gaussian_cartesian_input_observation(text: str) -> dict[str, Any]:
+    """Parse one existing single-step Cartesian input without approving its chemistry."""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    require("--Link1--" not in normalized, "metal input observation refuses multi-step --Link1-- input")
+    lines = normalized.split("\n")
+    position = 0
+    while position < len(lines) and not lines[position].strip():
+        position += 1
+
+    link0: list[dict[str, str]] = []
+    seen_link0: set[str] = set()
+    while position < len(lines) and lines[position].lstrip().startswith("%"):
+        match = re.fullmatch(r"\s*%([A-Za-z][A-Za-z0-9]*)\s*=\s*(\S(?:.*\S)?)\s*", lines[position])
+        require(match is not None, "metal input observation found an unsupported Link 0 directive")
+        key = match.group(1).lower()
+        require(key not in seen_link0, f"metal input observation found duplicate Link 0 directive: %{key}")
+        seen_link0.add(key)
+        link0.append({"key": key, "value": match.group(2)})
+        position += 1
+
+    require(position < len(lines) and lines[position].lstrip().startswith("#"), "metal input observation found no Gaussian route section")
+    route_lines: list[str] = []
+    while position < len(lines) and lines[position].strip():
+        route_lines.append(lines[position].strip())
+        position += 1
+    route_text = " ".join(route_lines)
+    require(route_text.startswith("#"), "metal input observation route section is malformed")
+
+    while position < len(lines) and not lines[position].strip():
+        position += 1
+    title_lines: list[str] = []
+    while position < len(lines) and lines[position].strip():
+        title_lines.append(lines[position].strip())
+        position += 1
+    require(title_lines, "metal input observation found no title section")
+
+    while position < len(lines) and not lines[position].strip():
+        position += 1
+    require(position < len(lines), "metal input observation found no charge/multiplicity line")
+    charge_multiplicity = re.fullmatch(r"\s*(-?\d+)\s+(\d+)\s*", lines[position])
+    require(charge_multiplicity is not None, "metal input observation charge/multiplicity line is malformed")
+    charge = int(charge_multiplicity.group(1))
+    multiplicity = int(charge_multiplicity.group(2))
+    require(multiplicity >= 1, "metal input observation multiplicity must be positive")
+    position += 1
+
+    number = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DEde][-+]?\d+)?"
+    coordinate_row = re.compile(
+        rf"\s*([A-Z][a-z]?)\s+({number})\s+({number})\s+({number})\s*"
+    )
+    coordinates: list[dict[str, Any]] = []
+    while position < len(lines) and lines[position].strip():
+        match = coordinate_row.fullmatch(lines[position])
+        require(match is not None, "metal input observation supports only explicit element-symbol Cartesian coordinates")
+        element = match.group(1)
+        require(element in ATOMIC_NUMBERS, f"metal input observation contains unsupported element: {element}")
+        xyz = [float(match.group(index).replace("D", "E").replace("d", "e")) for index in (2, 3, 4)]
+        require(all(math.isfinite(value) for value in xyz), "metal input observation contains a non-finite coordinate")
+        coordinates.append(
+            {
+                "index": len(coordinates) + 1,
+                "atomic_number": ATOMIC_NUMBERS[element],
+                "element": element,
+                "x": xyz[0],
+                "y": xyz[1],
+                "z": xyz[2],
+            }
+        )
+        position += 1
+    require(coordinates, "metal input observation found no explicit Cartesian coordinates")
+
+    trailing_lines = [line.rstrip() for line in lines[position:] if line.strip()]
+    trailing_text = "\n".join(trailing_lines)
+    absolute_path = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
+    route_lower = route_text.lower()
+    return {
+        "link0_directives": link0,
+        "route_text": route_text,
+        "route_sha256": hashlib.sha256(route_text.encode("utf-8")).hexdigest(),
+        "title_line_count": len(title_lines),
+        "title_sha256": hashlib.sha256("\n".join(title_lines).encode("utf-8")).hexdigest(),
+        "charge": charge,
+        "multiplicity": multiplicity,
+        "atom_count": len(coordinates),
+        "atom_order": [
+            {"index": item["index"], "atomic_number": item["atomic_number"], "element": item["element"]}
+            for item in coordinates
+        ],
+        "coordinate_block_sha256": sha256_data(coordinates),
+        "explicit_cartesian_geometry_status": "parsed",
+        "trailing_section_line_count": len(trailing_lines),
+        "trailing_section_sha256": hashlib.sha256(trailing_text.encode("utf-8")).hexdigest() if trailing_lines else None,
+        "contains_absolute_link0_path_observed": any(
+            absolute_path.match(item["value"]) is not None for item in link0
+        ),
+        "task_text_observations": {
+            "opt_text_observed": re.search(r"(?i)(?:^|[\s,(])opt(?:[\s,=(]|$)", route_text) is not None,
+            "freq_text_observed": re.search(r"(?i)(?:^|[\s,(])freq(?:[\s,=(]|$)", route_text) is not None,
+            "ts_text_observed": re.search(r"(?i)(?:^|[\s,(])ts(?:[\s,)=]|$)", route_text) is not None,
+            "geom_check_text_observed": "geom=check" in route_lower or "geom=allcheck" in route_lower,
+            "gen_or_genecp_text_observed": re.search(r"(?i)(?:^|[\s/])gen(?:ecp)?(?:[\s,]|$)", route_text) is not None,
+        },
+        "protocol_selection_binding_status": "absent_not_accepted",
+        "remote_path_validation_status": "not_performed_offline_no_execution_authority",
+    }
+
+
+def audit_metal_input_observation(
+    template_path: Path,
+    candidate_path: Path,
+    scientific_review_path: Path,
+    input_path: Path,
+    output: Path | None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Observe one existing metal Gaussian input; never render, accept, or execute it."""
+    template = load_json(template_path)
+    candidate = load_json(candidate_path)
+    review = load_json(scientific_review_path)
+    require(
+        template.get("schema") == "gaussian-asymmetric-metal-ts-audit-template/1"
+        and template.get("template_payload_sha256")
+        == sha256_data({key: value for key, value in template.items() if key != "template_payload_sha256"}),
+        "metal input observation requires an intact metal TS audit template",
+    )
+    require(
+        template.get("calculation_ready") is False
+        and template.get("no_submission_authorization") is True
+        and template.get("submission_decision") == "refused"
+        and template.get("runtime_support_status") == "unsupported_requires_extension"
+        and template.get("status") == "blocked_pending_scientific_review"
+        and template.get("claim_ceiling") == "design_only_no_ts_or_selectivity_claim"
+        and all(section.get("status") == "blocked_pending_review" for section in template.get("audit_sections", {}).values())
+        and template.get("seed_strategy_gate", {}).get("selected_strategy_id") is None
+        and template.get("seed_strategy_gate", {}).get("selection_status") == "not_selected",
+        "metal input observation refuses a template that bypassed a scientific gate",
+    )
+    require(
+        candidate.get("schema") == "gaussian-asymmetric-ts-candidate/1"
+        and candidate.get("support_status") == "unsupported_transition_metal"
+        and candidate.get("calculation_ready") is False
+        and candidate.get("no_submission_authorization") is True
+        and candidate.get("review_status") != "promoted_offline",
+        "metal input observation requires an unsupported, non-promoted metal candidate",
+    )
+    require(
+        template.get("candidate_source", {}).get("sha256") == sha256_file(candidate_path),
+        "metal input observation candidate hash differs from the audit template",
+    )
+    require(
+        review.get("schema") == "gaussian-asymmetric-metal-scientific-review/1"
+        and review.get("review_payload_sha256")
+        == sha256_data({key: value for key, value in review.items() if key != "review_payload_sha256"}),
+        "metal input observation requires an intact metal scientific-review record",
+    )
+    require(
+        review.get("calculation_ready") is False
+        and review.get("no_submission_authorization") is True
+        and review.get("runtime_support_status") == "unsupported_requires_extension"
+        and review.get("submission_decision") == "refused"
+        and review.get("promotion_decision") == "refused"
+        and review.get("scientific_acceptance_decision") == "not_granted_by_artifact"
+        and review.get("literature_values_are_defaults") is False,
+        "metal input observation refuses a scientific-review record that widened authority",
+    )
+    require(
+        review.get("template_source", {}).get("sha256") == sha256_file(template_path)
+        and review.get("candidate_source", {}).get("sha256") == sha256_file(candidate_path),
+        "metal input observation scientific-review lineage differs from template/candidate",
+    )
+    for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+        require(template.get(key) == candidate.get(key) == review.get(key), f"metal input observation {key} binding mismatch")
+
+    expected_order = _candidate_atom_order(candidate)
+    _require_matching_atom_order(template.get("identity_binding", {}).get("atom_order"), expected_order, "metal TS audit template")
+    _require_matching_atom_order(review.get("identity_binding", {}).get("atom_order"), expected_order, "metal scientific review")
+    expected_charge = candidate.get("chemical_state", {}).get("charge")
+    expected_multiplicity = candidate.get("chemical_state", {}).get("multiplicity")
+    require(
+        template.get("identity_binding", {}).get("charge") == expected_charge
+        and template.get("identity_binding", {}).get("multiplicity") == expected_multiplicity
+        and review.get("identity_binding", {}).get("total_charge") == expected_charge
+        and review.get("identity_binding", {}).get("multiplicity") == expected_multiplicity,
+        "metal input observation candidate/template/review charge or multiplicity differs",
+    )
+
+    require(input_path.is_file() and not input_path.is_symlink(), "metal input observation input must be a regular non-symlink file")
+    parsed = _parse_gaussian_cartesian_input_observation(input_path.read_text(encoding="utf-8"))
+    require(
+        parsed["charge"] == expected_charge and parsed["multiplicity"] == expected_multiplicity,
+        "metal input observation charge/multiplicity differs from candidate",
+    )
+    _require_matching_atom_order(parsed["atom_order"], expected_order, "metal Gaussian input")
+    require(
+        not parsed["task_text_observations"]["geom_check_text_observed"],
+        "metal input observation requires explicit coordinates and refuses Geom=Check/AllCheck ambiguity",
+    )
+
+    m1_status = review.get("completion", {}).get("metal_m1_scientific_review_status")
+    blocked_sections = {
+        name: {"status": "blocked_pending_review", "reason": reason}
+        for name, reason in {
+            "electron_accounting": "The M1 record is bound, but observing an input cannot accept electron accounting or ligand-charge conventions.",
+            "spin_surface": "Matching charge/multiplicity text does not accept the spin inventory, surface model or crossing relevance.",
+            "wavefunction": "The input text does not provide accepted stability, occupation, alternative-solution or multireference evidence.",
+            "coordination": "Element order is matched, but coordinates are not accepted against reviewed hapticity, ligand-inventory or post-optimization rules.",
+            "method_protocol": "Route and trailing sections are observed only; no hash-bound three-tier protocol selection is present or accepted.",
+            "ts_and_path": "Task text is not a selected TS strategy, normal-mode decision, endpoint identity or metal-specific path model.",
+        }.items()
+    }
+    diagnostics = [
+        "The existing input was read but never rendered, modified, staged, uploaded, submitted or executed.",
+        "Route, Link 0, Cartesian and trailing-section facts are observations only and are not protocol or scientific acceptance.",
+        f"Bound M1 milestone status is {m1_status}; this input observation cannot change it.",
+    ]
+    if parsed["contains_absolute_link0_path_observed"]:
+        diagnostics.append("An absolute Link 0 path was observed; no remote realpath or /home/user100/SDL safety validation was performed offline.")
+    if parsed["trailing_section_line_count"]:
+        diagnostics.append("Trailing input sections were hash-bound but not interpreted as basis, ECP, connectivity or constraints.")
+
+    observation = {
+        "schema": "gaussian-asymmetric-metal-input-observation/1",
+        "audit_id": f"metal_input_obs_{sha256_data([template['template_id'], sha256_file(input_path)])[:12]}",
+        "template_source": {"sha256": sha256_file(template_path)},
+        "candidate_source": {"sha256": sha256_file(candidate_path)},
+        "scientific_review_source": {"sha256": sha256_file(scientific_review_path)},
+        "input_source": {"sha256": sha256_file(input_path)},
+        "study_id": template["study_id"],
+        "candidate_id": template["candidate_id"],
+        "mechanism_id": template["mechanism_id"],
+        "channel_id": template["channel_id"],
+        "catalyst_state_id": template["catalyst_state_id"],
+        "status": "parsed_input_observation_blocked",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "input_acceptance_decision": "not_granted_by_artifact",
+        "protocol_selection_decision": "absent_not_authorized",
+        "submission_decision": "refused",
+        "promotion_decision": "refused",
+        "parser": {
+            "parser_id": "auto_g16_asymmetric_metal_input_observer_v1",
+            "scope": "offline_read_only_existing_input_observation",
+            "renders_input": False,
+        },
+        "review_binding": {
+            "review_id": review["review_id"],
+            "review_status": review["status"],
+            "metal_m1_scientific_review_status": m1_status,
+            "scientific_acceptance_decision": review["scientific_acceptance_decision"],
+        },
+        "identity_binding": {
+            "charge": expected_charge,
+            "multiplicity": expected_multiplicity,
+            "atom_count": len(expected_order),
+            "atom_order": expected_order,
+            "identity_observation_status": "matched_candidate_template_review",
+        },
+        "input_observations": parsed,
+        "audit_sections": blocked_sections,
+        "completion": {
+            "metal_m2c_input_observation": "implemented_offline",
+            "metal_m2_offline_runtime_contract": "blocked",
+            "metal_m3_execution_boundary": "blocked",
+            "metal_m4_live_smoke": "blocked",
+        },
+        "diagnostics": diagnostics,
+        "hard_rejections": [
+            "Do not treat route text as a selected protocol or approved Gaussian input.",
+            "Do not infer basis/ECP, solvent, spin, wavefunction, TS algorithm, IRC or thermochemistry acceptance.",
+            "Do not stage, upload, submit, retry, cancel, clean up or deploy from this artifact.",
+            "Do not promote a metal candidate from input identity matching or task-keyword observations.",
+        ],
+        "claim_ceiling": "existing_input_observation_only_no_acceptance_execution_ts_or_selectivity_claim",
+    }
+    observation["audit_payload_sha256"] = sha256_data(
+        {key: value for key, value in observation.items() if key != "audit_payload_sha256"}
+    )
+    require(dry_run or output is not None, "audit-metal-input requires --output unless --dry-run is used")
+    if not dry_run:
+        assert output is not None
+        write_json(output, observation)
+    return observation
+
+
+def _gaussian_orientation_blocks(text: str) -> list[list[dict[str, Any]]]:
+    """Parse Gaussian orientation tables without assigning chemical meaning."""
+    row = re.compile(
+        r"^\s*(\d+)\s+(\d+)\s+(-?\d+)\s+"
+        r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DEde][-+]?\d+)?)\s+"
+        r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DEde][-+]?\d+)?)\s+"
+        r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DEde][-+]?\d+)?)\s*$"
+    )
+    lines = text.splitlines()
+    blocks: list[list[dict[str, Any]]] = []
+    for marker, line in enumerate(lines):
+        if not re.fullmatch(r"\s*(?:Standard|Input) orientation:\s*", line):
+            continue
+        atoms: list[dict[str, Any]] = []
+        for candidate_line in lines[marker + 1 :]:
+            match = row.fullmatch(candidate_line)
+            if match:
+                atomic_number = int(match.group(2))
+                element = next(
+                    (symbol for symbol, number in ATOMIC_NUMBERS.items() if number == atomic_number),
+                    None,
+                )
+                require(element is not None, f"Gaussian orientation contains unsupported atomic number: {atomic_number}")
+                coordinates = [
+                    float(match.group(index).replace("D", "E").replace("d", "e"))
+                    for index in (4, 5, 6)
+                ]
+                require(all(math.isfinite(value) for value in coordinates), "Gaussian orientation contains a non-finite coordinate")
+                atoms.append(
+                    {
+                        "index": int(match.group(1)),
+                        "atomic_number": atomic_number,
+                        "element": element,
+                        "x": coordinates[0],
+                        "y": coordinates[1],
+                        "z": coordinates[2],
+                    }
+                )
+            elif atoms and re.fullmatch(r"\s*-{5,}\s*", candidate_line):
+                break
+        if atoms:
+            blocks.append(atoms)
+    return blocks
+
+
+def _distance(atoms: list[dict[str, Any]], left: int, right: int) -> float:
+    by_index = {item["index"]: item for item in atoms}
+    require(left in by_index and right in by_index, "coordination contact is outside parsed geometry")
+    a = by_index[left]
+    b = by_index[right]
+    distance = math.sqrt(sum((float(a[axis]) - float(b[axis])) ** 2 for axis in ("x", "y", "z")))
+    require(math.isfinite(distance), "parsed coordination distance is non-finite")
+    return distance
+
+
+def audit_metal_result_observation(
+    template_path: Path,
+    candidate_path: Path,
+    log_path: Path,
+    output: Path | None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Parse one metal log as blocked evidence; never promote it to a TS result."""
+    template = load_json(template_path)
+    candidate = load_json(candidate_path)
+    require(
+        template.get("schema") == "gaussian-asymmetric-metal-ts-audit-template/1",
+        "metal result observation requires a metal TS audit template",
+    )
+    require(
+        template.get("template_payload_sha256")
+        == sha256_data({key: value for key, value in template.items() if key != "template_payload_sha256"}),
+        "metal TS audit template payload hash mismatch",
+    )
+    require(
+        template.get("calculation_ready") is False
+        and template.get("no_submission_authorization") is True
+        and template.get("submission_decision") == "refused"
+        and template.get("runtime_support_status") == "unsupported_requires_extension",
+        "metal TS audit template widened the execution boundary",
+    )
+    require(
+        template.get("status") == "blocked_pending_scientific_review"
+        and template.get("claim_ceiling") == "design_only_no_ts_or_selectivity_claim"
+        and set(template.get("audit_sections", {}))
+        == {
+            "electron_accounting", "spin_surface", "wavefunction",
+            "coordination", "method_protocol", "ts_and_path",
+        }
+        and all(
+            section.get("status") == "blocked_pending_review"
+            for section in template.get("audit_sections", {}).values()
+        )
+        and template.get("seed_strategy_gate", {}).get("selected_strategy_id") is None
+        and template.get("seed_strategy_gate", {}).get("selection_status") == "not_selected",
+        "metal TS audit template bypassed a scientific review gate",
+    )
+    require(
+        candidate.get("schema") == "gaussian-asymmetric-ts-candidate/1"
+        and candidate.get("support_status") == "unsupported_transition_metal"
+        and candidate.get("calculation_ready") is False
+        and candidate.get("no_submission_authorization") is True
+        and candidate.get("review_status") != "promoted_offline",
+        "metal result observation requires an unsupported, non-promoted metal candidate",
+    )
+    require(
+        template.get("candidate_source", {}).get("sha256") == sha256_file(candidate_path),
+        "metal result observation candidate hash differs from the audit template",
+    )
+    for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+        require(template.get(key) == candidate.get(key), f"metal result observation {key} binding mismatch")
+
+    expected_order = _candidate_atom_order(candidate)
+    template_order = template.get("identity_binding", {}).get("atom_order")
+    require(isinstance(template_order, list), "metal TS audit template atom order is missing")
+    _require_matching_atom_order(template_order, expected_order, "metal TS audit template")
+    expected_charge = candidate.get("chemical_state", {}).get("charge")
+    expected_multiplicity = candidate.get("chemical_state", {}).get("multiplicity")
+    require(
+        template.get("identity_binding", {}).get("charge") == expected_charge
+        and template.get("identity_binding", {}).get("multiplicity") == expected_multiplicity,
+        "metal TS audit template charge/multiplicity differs from candidate",
+    )
+
+    require(log_path.is_file() and not log_path.is_symlink(), "metal observation log must be a regular non-symlink file")
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    charge_multiplicity = [
+        (int(charge), int(multiplicity))
+        for charge, multiplicity in re.findall(
+            r"Charge\s*=\s*(-?\d+)\s+Multiplicity\s*=\s*(\d+)", text
+        )
+    ]
+    require(charge_multiplicity, "metal observation log has no charge/multiplicity record")
+    require(
+        set(charge_multiplicity) == {(expected_charge, expected_multiplicity)},
+        "metal observation log charge/multiplicity differs from candidate",
+    )
+    orientations = _gaussian_orientation_blocks(text)
+    require(orientations, "metal observation log has no parseable orientation")
+    _require_matching_atom_order(orientations[0], expected_order, "initial metal log geometry")
+    _require_matching_atom_order(orientations[-1], expected_order, "final metal log geometry")
+
+    frequencies = [
+        float(value.replace("D", "E").replace("d", "e"))
+        for values in re.findall(r"(?m)^\s*Frequencies\s+--\s+(.+)$", text)
+        for value in values.split()
+    ]
+    require(all(math.isfinite(value) for value in frequencies), "metal observation log contains a non-finite frequency")
+    imaginary = [value for value in frequencies if value < 0.0]
+    s2_observations = [
+        {
+            "before_annihilation": float(before.replace("D", "E").replace("d", "e")),
+            "after_annihilation": float(after.replace("D", "E").replace("d", "e")),
+        }
+        for before, after in re.findall(
+            r"S\*\*2\s+before\s+annihilation\s+([-+0-9.DEde]+),\s*after\s+([-+0-9.DEde]+)",
+            text,
+        )
+    ]
+    require(
+        all(
+            math.isfinite(item["before_annihilation"]) and math.isfinite(item["after_annihilation"])
+            for item in s2_observations
+        ),
+        "metal observation log contains a non-finite S**2 value",
+    )
+
+    contacts = []
+    for contact in template.get("identity_binding", {}).get("coordination_contacts", []):
+        require(
+            contact.get("distance_window_angstrom") is None and contact.get("review_status") == "pending",
+            "metal result observation refuses a template with inferred coordination acceptance",
+        )
+        initial_distance = _distance(orientations[0], contact["donor_atom"], contact["acceptor_atom"])
+        final_distance = _distance(orientations[-1], contact["donor_atom"], contact["acceptor_atom"])
+        contacts.append(
+            {
+                "donor_atom": contact["donor_atom"],
+                "acceptor_atom": contact["acceptor_atom"],
+                "kind": contact["kind"],
+                "initial_distance_angstrom": round(initial_distance, 8),
+                "final_distance_angstrom": round(final_distance, 8),
+                "distance_change_angstrom": round(final_distance - initial_distance, 8),
+                "distance_window_angstrom": None,
+                "review_status": "observed_unreviewed_no_window",
+            }
+        )
+
+    revision = re.search(r"Gaussian\s+16(?:[:,]\s*|\s+)([^\n]+)", text)
+    diagnostics = [
+        "Parsed values are observations only; no electronic-state, coordination, mode, path, or method acceptance is inferred.",
+        "The generic main-group TS/IRC result contract is not used for this transition-metal log.",
+    ]
+    if not frequencies:
+        diagnostics.append("No frequency lines were observed; frequency completeness remains unassessed.")
+    if len(imaginary) == 1:
+        diagnostics.append("Exactly one raw imaginary frequency was observed, but no TS claim is allowed without metal-specific mode and state review.")
+    if not s2_observations:
+        diagnostics.append("No S**2 before/after-annihilation record was observed; no spin-state conclusion is allowed.")
+
+    blocked_sections = {
+        name: {
+            "status": "blocked_pending_review",
+            "reason": reason,
+        }
+        for name, reason in {
+            "electron_accounting": "Ligand-charge convention, d-electron count and parity review are not supplied by a log.",
+            "spin_surface": "Multiplicity alternatives, common references and crossing relevance remain unreviewed.",
+            "wavefunction": "Observed stability/S**2 text lacks approved state-specific thresholds and occupation diagnostics.",
+            "coordination": "Distances were measured, but no reviewed distance windows, hapticity or ligand-inventory acceptance rules exist.",
+            "method_protocol": "No hash-bound approved three-tier metal protocol is bound to this observation.",
+            "ts_and_path": "Frequency observations lack an accepted displacement review and a metal-specific surface/path model.",
+        }.items()
+    }
+    observation = {
+        "schema": "gaussian-asymmetric-metal-result-observation/1",
+        "audit_id": f"metal_obs_{sha256_data([template['template_id'], sha256_file(log_path)])[:12]}",
+        "template_source": {"sha256": sha256_file(template_path)},
+        "candidate_source": {"sha256": sha256_file(candidate_path)},
+        "log_source": {"sha256": sha256_file(log_path)},
+        "study_id": template["study_id"],
+        "candidate_id": template["candidate_id"],
+        "mechanism_id": template["mechanism_id"],
+        "channel_id": template["channel_id"],
+        "catalyst_state_id": template["catalyst_state_id"],
+        "status": "parsed_observation_blocked",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "submission_decision": "refused",
+        "promotion_decision": "refused",
+        "parser": {
+            "parser_id": "auto_g16_asymmetric_metal_log_observer_v1",
+            "scope": "offline_read_only_observation",
+            "g16_revision_observed": revision.group(1).strip() if revision else None,
+        },
+        "identity_binding": {
+            "charge": expected_charge,
+            "multiplicity": expected_multiplicity,
+            "atom_count": len(expected_order),
+            "atom_order": [
+                {"index": item["index"], "atomic_number": item["atomic_number"], "element": item["element"]}
+                for item in expected_order
+            ],
+            "charge_multiplicity_record_count": len(charge_multiplicity),
+            "orientation_count": len(orientations),
+            "identity_observation_status": "matched_candidate",
+        },
+        "termination_observations": {
+            "normal_termination_count": text.count("Normal termination of Gaussian"),
+            "error_termination_count": text.count("Error termination"),
+            "optimization_completed_observed": "Optimization completed" in text,
+            "stationary_point_observed": "Stationary point found" in text,
+        },
+        "frequency_observations": {
+            "frequency_count": len(frequencies),
+            "frequencies_cm_1": frequencies,
+            "raw_imaginary_frequency_count": len(imaginary),
+            "imaginary_frequencies_cm_1": imaginary,
+            "exactly_one_raw_imaginary_observed": len(imaginary) == 1,
+            "completeness_status": "unassessed_requires_expected_mode_count",
+            "mode_review_status": "not_performed",
+        },
+        "wavefunction_observations": {
+            "scf_done_count": len(re.findall(r"(?m)^\s*SCF Done:", text)),
+            "s2_observations": s2_observations,
+            "stability_statement_observed": "The wavefunction is stable under the perturbations considered." in text,
+            "threshold_assessment": "not_performed_no_approved_policy",
+        },
+        "coordination_observations": {
+            "contacts": contacts,
+            "inventory_assessment": "not_performed_no_reviewed_windows_or_hapticity_rules",
+        },
+        "audit_sections": blocked_sections,
+        "diagnostics": diagnostics,
+        "claim_ceiling": "parsed_observation_only_no_ts_or_selectivity_claim",
+    }
+    observation["audit_payload_sha256"] = sha256_data(
+        {key: value for key, value in observation.items() if key != "audit_payload_sha256"}
+    )
+    require(dry_run or output is not None, "metal result observation requires --output unless --dry-run is used")
+    if not dry_run:
+        require(output is not None, "metal result observation output path is missing")
+        write_json(output, observation)
+    return observation
+
+
+def build_metal_acceptance_review(
+    template_path: Path,
+    candidate_path: Path,
+    scientific_review_path: Path,
+    input_observation_path: Path,
+    result_observation_path: Path,
+    decision_source_path: Path,
+    output: Path | None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Record four manual M2 decisions without granting runtime or promotion authority."""
+    template = load_json(template_path)
+    candidate = load_json(candidate_path)
+    scientific_review = load_json(scientific_review_path)
+    input_observation = load_json(input_observation_path)
+    result_observation = load_json(result_observation_path)
+    source = load_json(decision_source_path)
+
+    require(
+        template.get("schema") == "gaussian-asymmetric-metal-ts-audit-template/1"
+        and template.get("template_payload_sha256")
+        == sha256_data({key: value for key, value in template.items() if key != "template_payload_sha256"}),
+        "metal acceptance review requires an intact M2a template",
+    )
+    require(
+        candidate.get("schema") == "gaussian-asymmetric-ts-candidate/1"
+        and candidate.get("support_status") == "unsupported_transition_metal"
+        and candidate.get("calculation_ready") is False
+        and candidate.get("no_submission_authorization") is True
+        and candidate.get("review_status") != "promoted_offline",
+        "metal acceptance review requires an unsupported, non-promoted metal candidate",
+    )
+    require(
+        scientific_review.get("schema") == "gaussian-asymmetric-metal-scientific-review/1"
+        and scientific_review.get("review_payload_sha256")
+        == sha256_data({key: value for key, value in scientific_review.items() if key != "review_payload_sha256"})
+        and scientific_review.get("scientific_acceptance_decision") == "not_granted_by_artifact"
+        and scientific_review.get("promotion_decision") == "refused",
+        "metal acceptance review requires an intact, refusal-preserving M1 record",
+    )
+    require(
+        input_observation.get("schema") == "gaussian-asymmetric-metal-input-observation/1"
+        and input_observation.get("audit_payload_sha256")
+        == sha256_data({key: value for key, value in input_observation.items() if key != "audit_payload_sha256"})
+        and input_observation.get("input_acceptance_decision") == "not_granted_by_artifact"
+        and input_observation.get("promotion_decision") == "refused",
+        "metal acceptance review requires an intact, blocked M2c input observation",
+    )
+    require(
+        result_observation.get("schema") == "gaussian-asymmetric-metal-result-observation/1"
+        and result_observation.get("audit_payload_sha256")
+        == sha256_data({key: value for key, value in result_observation.items() if key != "audit_payload_sha256"})
+        and result_observation.get("promotion_decision") == "refused",
+        "metal acceptance review requires an intact, blocked M2b result observation",
+    )
+    require(
+        template.get("candidate_source", {}).get("sha256") == sha256_file(candidate_path)
+        and scientific_review.get("template_source", {}).get("sha256") == sha256_file(template_path)
+        and scientific_review.get("candidate_source", {}).get("sha256") == sha256_file(candidate_path)
+        and input_observation.get("template_source", {}).get("sha256") == sha256_file(template_path)
+        and input_observation.get("candidate_source", {}).get("sha256") == sha256_file(candidate_path)
+        and input_observation.get("scientific_review_source", {}).get("sha256") == sha256_file(scientific_review_path)
+        and result_observation.get("template_source", {}).get("sha256") == sha256_file(template_path)
+        and result_observation.get("candidate_source", {}).get("sha256") == sha256_file(candidate_path),
+        "metal acceptance review input lineage is inconsistent",
+    )
+    for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+        require(
+            template.get(key) == candidate.get(key) == scientific_review.get(key)
+            == input_observation.get(key) == result_observation.get(key),
+            f"metal acceptance review {key} binding mismatch",
+        )
+    expected_order = _candidate_atom_order(candidate)
+    for label, artifact, field in (
+        ("template", template, "identity_binding"),
+        ("scientific review", scientific_review, "identity_binding"),
+        ("input observation", input_observation, "identity_binding"),
+        ("result observation", result_observation, "identity_binding"),
+    ):
+        _require_matching_atom_order(artifact.get(field, {}).get("atom_order"), expected_order, f"metal acceptance {label}")
+    charge = candidate.get("chemical_state", {}).get("charge")
+    multiplicity = candidate.get("chemical_state", {}).get("multiplicity")
+    require(
+        template.get("identity_binding", {}).get("charge") == charge
+        and scientific_review.get("identity_binding", {}).get("total_charge") == charge
+        and input_observation.get("identity_binding", {}).get("charge") == charge
+        and result_observation.get("identity_binding", {}).get("charge") == charge,
+        "metal acceptance review charge binding mismatch",
+    )
+    require(
+        template.get("identity_binding", {}).get("multiplicity") == multiplicity
+        and scientific_review.get("identity_binding", {}).get("multiplicity") == multiplicity
+        and input_observation.get("identity_binding", {}).get("multiplicity") == multiplicity
+        and result_observation.get("identity_binding", {}).get("multiplicity") == multiplicity,
+        "metal acceptance review multiplicity binding mismatch",
+    )
+
+    require(
+        set(source) == {
+            "schema", "review_id", "source_bindings", "study_id", "candidate_id",
+            "mechanism_id", "channel_id", "catalyst_state_id", "scope", "sections",
+        },
+        "metal acceptance decision source fields are incomplete or unknown",
+    )
+    require(
+        source.get("schema") == "gaussian-asymmetric-metal-acceptance-review-source/1",
+        "metal acceptance decision source schema is not recognized",
+    )
+    require(ID_RE.fullmatch(str(source.get("review_id", ""))) is not None, "metal acceptance decision source review_id is invalid")
+    expected_bindings = {
+        "template_sha256": sha256_file(template_path),
+        "candidate_sha256": sha256_file(candidate_path),
+        "scientific_review_sha256": sha256_file(scientific_review_path),
+        "input_observation_sha256": sha256_file(input_observation_path),
+        "result_observation_sha256": sha256_file(result_observation_path),
+    }
+    require(source.get("source_bindings") == expected_bindings, "metal acceptance decision source hash binding mismatch")
+    for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+        require(source.get(key) == candidate.get(key), f"metal acceptance decision source {key} mismatch")
+    scope = source.get("scope")
+    require(
+        isinstance(scope, dict)
+        and set(scope) == {"scope_kind", "reviewer", "review_date", "notes"}
+        and scope.get("scope_kind") in {"synthetic_nonresearch_fixture", "reviewer_bound_real_case"}
+        and isinstance(scope.get("notes"), list),
+        "metal acceptance decision source scope is invalid",
+    )
+    _validate_m1_scope_evidence_binding(
+        scientific_review.get("review_scope", {}),
+        "metal acceptance upstream M1 review",
+    )
+    real_scope = scope["scope_kind"] == "reviewer_bound_real_case"
+    if real_scope:
+        require(
+            isinstance(scope.get("reviewer"), str) and scope["reviewer"].strip(),
+            "real metal acceptance review requires a non-empty reviewer",
+        )
+        require(
+            _is_valid_iso_date(scope.get("review_date")),
+            "real metal acceptance review requires a valid ISO review date",
+        )
+        require(
+            scientific_review.get("completion", {}).get("metal_m1_scientific_review_status")
+            == "reviewed_bounded_example_runtime_unsupported"
+            and scientific_review.get("review_scope", {}).get("scope_kind")
+            in {"primary_literature_bound_review", "mixed_primary_and_reviewer_evidence"},
+            "real metal acceptance review requires an upstream real non-synthetic M1 review",
+        )
+    sections = source.get("sections")
+    require(isinstance(sections, dict) and set(sections) == set(METAL_ACCEPTANCE_SECTION_NAMES), "metal acceptance section inventory is incomplete")
+    fact_fields = {
+        "wavefunction": {
+            "observed_s2_count", "stability_statement_observed",
+            "spin_contamination_assessment", "occupation_assessment",
+            "alternative_solution_assessment", "multireference_assessment",
+        },
+        "coordination": {
+            "contact_assessments", "hapticity_assessment",
+            "ligand_inventory_assessment", "unintended_state_change",
+        },
+        "mode": {
+            "raw_imaginary_frequency_count", "mode_evidence_sha256",
+            "intended_coordinate_assessment", "unintended_coordination_loss_assessment",
+        },
+        "input_acceptance": {
+            "input_sha256", "protocol_options_sha256", "protocol_selection_sha256",
+            "input_approval_sha256", "input_result_lineage_sha256",
+            "exact_input_hash_confirmed", "route_reviewed",
+            "element_basis_ecp_coverage_reviewed", "solvent_thermochemistry_reviewed",
+            "resource_and_server_path_reviewed",
+        },
+    }
+    decisions: dict[str, str] = {}
+    for name in METAL_ACCEPTANCE_SECTION_NAMES:
+        section = sections[name]
+        require(
+            isinstance(section, dict)
+            and set(section) == {"decision", "facts", "evidence", "review_notes", "blockers"},
+            f"metal acceptance {name} section fields are incomplete or unknown",
+        )
+        decision = section.get("decision")
+        require(decision in METAL_ACCEPTANCE_DECISIONS, f"metal acceptance {name} decision is invalid")
+        decisions[name] = decision
+        facts = section.get("facts")
+        require(isinstance(facts, dict) and set(facts) == fact_fields[name], f"metal acceptance {name} facts are incomplete or unknown")
+        evidence = section.get("evidence")
+        require(isinstance(evidence, list), f"metal acceptance {name} evidence must be an array")
+        evidence_ids: set[str] = set()
+        for item in evidence:
+            require(
+                isinstance(item, dict)
+                and set(item) == {"evidence_id", "evidence_kind", "sha256", "locator"},
+                f"metal acceptance {name} evidence record is invalid",
+            )
+            evidence_id = item.get("evidence_id")
+            require(ID_RE.fullmatch(str(evidence_id or "")) is not None and evidence_id not in evidence_ids, f"metal acceptance {name} evidence ID is invalid or duplicate")
+            evidence_ids.add(evidence_id)
+            require(item.get("evidence_kind") in {"synthetic_fixture", "reviewer_record", "mode_displacement", "protocol_artifact", "input_approval", "coordination_review", "wavefunction_review"}, f"metal acceptance {name} evidence kind is invalid")
+            require(
+                not real_scope or item.get("evidence_kind") != "synthetic_fixture",
+                f"real metal acceptance {name} section forbids synthetic_fixture evidence",
+            )
+            value = item.get("sha256")
+            require(value is None or (isinstance(value, str) and SHA256_RE.fullmatch(value) is not None), f"metal acceptance {name} evidence SHA-256 is invalid")
+            require(isinstance(item.get("locator"), str) and item["locator"].strip(), f"metal acceptance {name} evidence locator is missing")
+        require(isinstance(section.get("review_notes"), str) and section["review_notes"].strip(), f"metal acceptance {name} review notes are missing")
+        blockers = section.get("blockers")
+        require(isinstance(blockers, list) and all(isinstance(item, str) and item.strip() for item in blockers), f"metal acceptance {name} blockers are invalid")
+        if decision == "blocked_missing_evidence":
+            require(blockers, f"metal acceptance {name} blocked decision lacks blockers")
+        else:
+            require(evidence, f"metal acceptance {name} reviewed decision lacks evidence")
+            require(all(item.get("sha256") is not None for item in evidence), f"metal acceptance {name} reviewed evidence is not hash-bound")
+        if decision == "accepted_for_bounded_offline_review":
+            require(not blockers, f"metal acceptance {name} accepted decision retains blockers")
+            m1_section = {
+                "wavefunction": "wavefunction", "coordination": "coordination",
+                "mode": "ts_and_path", "input_acceptance": "method_protocol",
+            }[name]
+            require(
+                scientific_review.get("sections", {}).get(m1_section, {}).get("status") == "reviewed_for_bounded_example",
+                f"metal acceptance {name} cannot be accepted while the corresponding M1 section is blocked",
+            )
+
+    wave = sections["wavefunction"]["facts"]
+    observed_wave = result_observation.get("wavefunction_observations", {})
+    require(wave.get("observed_s2_count") in {None, len(observed_wave.get("s2_observations", []))}, "metal acceptance wavefunction S**2 count differs from M2b")
+    require(wave.get("stability_statement_observed") in {None, observed_wave.get("stability_statement_observed")}, "metal acceptance stability observation differs from M2b")
+    if decisions["wavefunction"] == "accepted_for_bounded_offline_review":
+        require(wave.get("stability_statement_observed") is True, "metal acceptance wavefunction requires reviewed stability evidence")
+        require(all(isinstance(wave.get(key), str) and wave[key].strip() for key in ("spin_contamination_assessment", "occupation_assessment", "alternative_solution_assessment", "multireference_assessment")), "metal acceptance wavefunction accepted decision lacks assessments")
+
+    coordination = sections["coordination"]["facts"]
+    expected_contacts = result_observation.get("coordination_observations", {}).get("contacts", [])
+    assessments = coordination.get("contact_assessments")
+    require(isinstance(assessments, list), "metal acceptance coordination contact assessments must be an array")
+    if assessments:
+        normalized = [
+            {key: item.get(key) for key in ("donor_atom", "acceptor_atom", "kind", "initial_distance_angstrom", "final_distance_angstrom")}
+            for item in assessments
+        ]
+        expected = [
+            {key: item.get(key) for key in ("donor_atom", "acceptor_atom", "kind", "initial_distance_angstrom", "final_distance_angstrom")}
+            for item in expected_contacts
+        ]
+        require(normalized == expected, "metal acceptance coordination observations differ from M2b")
+    if decisions["coordination"] == "accepted_for_bounded_offline_review":
+        require(len(assessments) == len(expected_contacts) and all(item.get("within_reviewed_window") is True for item in assessments), "metal acceptance coordination accepted decision lacks passed contact reviews")
+        require(coordination.get("unintended_state_change") is False, "metal acceptance coordination accepted an unintended state change")
+        require(all(isinstance(coordination.get(key), str) and coordination[key].strip() for key in ("hapticity_assessment", "ligand_inventory_assessment")), "metal acceptance coordination accepted decision lacks inventory assessments")
+
+    mode = sections["mode"]["facts"]
+    observed_imaginary = result_observation.get("frequency_observations", {}).get("raw_imaginary_frequency_count")
+    require(mode.get("raw_imaginary_frequency_count") in {None, observed_imaginary}, "metal acceptance mode frequency count differs from M2b")
+    if decisions["mode"] == "accepted_for_bounded_offline_review":
+        require(observed_imaginary == 1 and mode.get("raw_imaginary_frequency_count") == 1, "metal acceptance mode requires exactly one raw imaginary frequency")
+        _require_sha256(mode.get("mode_evidence_sha256"), "metal acceptance mode evidence hash is missing")
+        require(all(isinstance(mode.get(key), str) and mode[key].strip() for key in ("intended_coordinate_assessment", "unintended_coordination_loss_assessment")), "metal acceptance mode accepted decision lacks displacement assessments")
+
+    input_facts = sections["input_acceptance"]["facts"]
+    observed_input_sha = input_observation.get("input_source", {}).get("sha256")
+    require(input_facts.get("input_sha256") in {None, observed_input_sha}, "metal acceptance input hash differs from M2c")
+    if decisions["input_acceptance"] == "accepted_for_bounded_offline_review":
+        for key in ("input_sha256", "protocol_options_sha256", "protocol_selection_sha256", "input_approval_sha256", "input_result_lineage_sha256"):
+            _require_sha256(input_facts.get(key), f"metal acceptance input {key} is missing")
+        for key in ("exact_input_hash_confirmed", "route_reviewed", "element_basis_ecp_coverage_reviewed", "solvent_thermochemistry_reviewed", "resource_and_server_path_reviewed"):
+            require(input_facts.get(key) is True, f"metal acceptance input {key} was not reviewed")
+
+    accepted = sorted(name for name, value in decisions.items() if value == "accepted_for_bounded_offline_review")
+    rejected = sorted(name for name, value in decisions.items() if value == "rejected_by_reviewer")
+    blocked = sorted(name for name, value in decisions.items() if value == "blocked_missing_evidence")
+    all_accepted = len(accepted) == len(METAL_ACCEPTANCE_SECTION_NAMES)
+    scope_kind = scope["scope_kind"]
+    m2_status = (
+        "not_satisfied_synthetic_fixture"
+        if all_accepted and scope_kind == "synthetic_nonresearch_fixture"
+        else "reviewed_bounded_example_runtime_unsupported"
+        if all_accepted
+        else "reviewer_rejected"
+        if rejected
+        else "pending_acceptance_review"
+    )
+    status = (
+        "acceptance_record_complete_runtime_unsupported"
+        if all_accepted
+        else "acceptance_record_contains_rejection_runtime_unsupported"
+        if rejected
+        else "blocked_incomplete_acceptance_review"
+    )
+    review = {
+        "schema": "gaussian-asymmetric-metal-acceptance-review/1",
+        "review_id": source["review_id"],
+        "template_source": {"sha256": sha256_file(template_path)},
+        "candidate_source": {"sha256": sha256_file(candidate_path)},
+        "scientific_review_source": {"sha256": sha256_file(scientific_review_path)},
+        "input_observation_source": {"sha256": sha256_file(input_observation_path)},
+        "result_observation_source": {"sha256": sha256_file(result_observation_path)},
+        "decision_source": {"sha256": sha256_file(decision_source_path)},
+        "study_id": candidate["study_id"],
+        "candidate_id": candidate["candidate_id"],
+        "mechanism_id": candidate["mechanism_id"],
+        "channel_id": candidate["channel_id"],
+        "catalyst_state_id": candidate["catalyst_state_id"],
+        "status": status,
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "scientific_acceptance_decision": "not_granted_by_artifact",
+        "input_acceptance_decision": "not_granted_by_artifact",
+        "mode_acceptance_decision": "not_granted_by_artifact",
+        "promotion_decision": "refused",
+        "submission_decision": "refused",
+        "scope": copy.deepcopy(scope),
+        "identity_binding": {
+            "charge": charge,
+            "multiplicity": multiplicity,
+            "atom_count": len(expected_order),
+            "atom_order": expected_order,
+        },
+        "sections": copy.deepcopy(sections),
+        "decision_summary": {
+            "accepted_sections": accepted,
+            "rejected_sections": rejected,
+            "blocked_sections": blocked,
+            "metal_m2_acceptance_review_status": m2_status,
+        },
+        "completion": {
+            "metal_m2d_acceptance_review_contract": "implemented_offline",
+            "metal_m2_offline_runtime_contract": "blocked",
+            "metal_m3_execution_boundary": "blocked",
+            "metal_m4_live_smoke": "blocked",
+        },
+        "hard_rejections": [
+            "Section-level accepted_for_bounded_offline_review records do not grant top-level scientific, input or mode acceptance.",
+            "Do not promote, submit, retry, run IRC, deploy, cancel or clean up from this sidecar.",
+            "Do not infer missing wavefunction, coordination, mode, method, protocol, resource or server-path evidence.",
+            "A synthetic complete fixture cannot satisfy a real M2 scientific milestone.",
+        ],
+        "claim_ceiling": "manual_decision_record_only_no_runtime_promotion_ts_path_or_selectivity_claim",
+    }
+    review["review_payload_sha256"] = sha256_data(
+        {key: value for key, value in review.items() if key != "review_payload_sha256"}
+    )
+    require(dry_run or output is not None, "build-metal-acceptance-review requires --output unless --dry-run is used")
+    if not dry_run:
+        assert output is not None
+        write_json(output, review)
+    return review
+
+
 def propose_smoke(ledger_path: Path, candidate_id: str, output: Path) -> dict[str, Any]:
     ledger = load_json(ledger_path)
     require(ledger.get("schema") == "gaussian-asymmetric-literature-benchmark-ledger/1", "smoke proposal requires a literature benchmark ledger")
@@ -1573,6 +3046,10 @@ def parser() -> argparse.ArgumentParser:
     agg = sub.add_parser("aggregate"); agg.add_argument("study"); agg.add_argument("ledger"); agg.add_argument("results", nargs="+"); agg.add_argument("--energy-shift-kcal", type=float, default=1.0); agg.add_argument("--output", required=True)
     metal = sub.add_parser("design-metal-support"); metal.add_argument("study"); metal.add_argument("--output", required=True)
     metal_audit = sub.add_parser("build-metal-ts-audit-template"); metal_audit.add_argument("metal_support"); metal_audit.add_argument("candidate"); metal_audit.add_argument("--output", required=True)
+    metal_review = sub.add_parser("build-metal-scientific-review"); metal_review.add_argument("metal_support"); metal_review.add_argument("metal_ts_audit_template"); metal_review.add_argument("candidate"); metal_review.add_argument("review_source"); metal_review.add_argument("--output"); metal_review.add_argument("--dry-run", action="store_true")
+    metal_input_observation = sub.add_parser("audit-metal-input"); metal_input_observation.add_argument("metal_ts_audit_template"); metal_input_observation.add_argument("candidate"); metal_input_observation.add_argument("metal_scientific_review"); metal_input_observation.add_argument("input"); metal_input_observation.add_argument("--output"); metal_input_observation.add_argument("--dry-run", action="store_true")
+    metal_observation = sub.add_parser("audit-metal-result"); metal_observation.add_argument("metal_ts_audit_template"); metal_observation.add_argument("candidate"); metal_observation.add_argument("log"); metal_observation.add_argument("--output"); metal_observation.add_argument("--dry-run", action="store_true")
+    metal_acceptance = sub.add_parser("build-metal-acceptance-review"); metal_acceptance.add_argument("metal_ts_audit_template"); metal_acceptance.add_argument("candidate"); metal_acceptance.add_argument("metal_scientific_review"); metal_acceptance.add_argument("metal_input_observation"); metal_acceptance.add_argument("metal_result_observation"); metal_acceptance.add_argument("decision_source"); metal_acceptance.add_argument("--output"); metal_acceptance.add_argument("--dry-run", action="store_true")
     smoke = sub.add_parser("propose-smoke"); smoke.add_argument("ledger"); smoke.add_argument("--candidate-id", required=True); smoke.add_argument("--output", required=True)
     return root
 
@@ -1588,6 +3065,94 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "aggregate": aggregate(Path(args.study), Path(args.ledger), [Path(item) for item in args.results], Path(args.output), args.energy_shift_kcal)
         elif args.command == "design-metal-support": design_metal_support(Path(args.study), Path(args.output))
         elif args.command == "build-metal-ts-audit-template": build_metal_ts_audit_template(Path(args.metal_support), Path(args.candidate), Path(args.output))
+        elif args.command == "build-metal-scientific-review":
+            review = build_metal_scientific_review(
+                Path(args.metal_support),
+                Path(args.metal_ts_audit_template),
+                Path(args.candidate),
+                Path(args.review_source),
+                Path(args.output) if args.output else None,
+                args.dry_run,
+            )
+            if args.dry_run:
+                print(json.dumps({
+                    "valid": True,
+                    "dry_run": True,
+                    "schema": review["schema"],
+                    "status": review["status"],
+                    "metal_m1_scientific_review_status": review["completion"]["metal_m1_scientific_review_status"],
+                    "scientific_acceptance_decision": review["scientific_acceptance_decision"],
+                    "promotion_decision": review["promotion_decision"],
+                    "submission_decision": review["submission_decision"],
+                    "would_write": str(args.output) if args.output else None,
+                    "live_actions": False,
+                }, indent=2))
+        elif args.command == "audit-metal-input":
+            observation = audit_metal_input_observation(
+                Path(args.metal_ts_audit_template),
+                Path(args.candidate),
+                Path(args.metal_scientific_review),
+                Path(args.input),
+                Path(args.output) if args.output else None,
+                args.dry_run,
+            )
+            if args.dry_run:
+                print(json.dumps({
+                    "valid": True,
+                    "dry_run": True,
+                    "schema": observation["schema"],
+                    "status": observation["status"],
+                    "input_acceptance_decision": observation["input_acceptance_decision"],
+                    "promotion_decision": observation["promotion_decision"],
+                    "submission_decision": observation["submission_decision"],
+                    "would_write": str(args.output) if args.output else None,
+                    "live_actions": False,
+                }, indent=2))
+        elif args.command == "audit-metal-result":
+            observation = audit_metal_result_observation(
+                Path(args.metal_ts_audit_template),
+                Path(args.candidate),
+                Path(args.log),
+                Path(args.output) if args.output else None,
+                args.dry_run,
+            )
+            if args.dry_run:
+                print(json.dumps({
+                    "valid": True,
+                    "dry_run": True,
+                    "schema": observation["schema"],
+                    "status": observation["status"],
+                    "promotion_decision": observation["promotion_decision"],
+                    "submission_decision": observation["submission_decision"],
+                    "would_write": str(args.output) if args.output else None,
+                    "live_actions": False,
+                }, indent=2))
+        elif args.command == "build-metal-acceptance-review":
+            review = build_metal_acceptance_review(
+                Path(args.metal_ts_audit_template),
+                Path(args.candidate),
+                Path(args.metal_scientific_review),
+                Path(args.metal_input_observation),
+                Path(args.metal_result_observation),
+                Path(args.decision_source),
+                Path(args.output) if args.output else None,
+                args.dry_run,
+            )
+            if args.dry_run:
+                print(json.dumps({
+                    "valid": True,
+                    "dry_run": True,
+                    "schema": review["schema"],
+                    "status": review["status"],
+                    "metal_m2_acceptance_review_status": review["decision_summary"]["metal_m2_acceptance_review_status"],
+                    "scientific_acceptance_decision": review["scientific_acceptance_decision"],
+                    "input_acceptance_decision": review["input_acceptance_decision"],
+                    "mode_acceptance_decision": review["mode_acceptance_decision"],
+                    "promotion_decision": review["promotion_decision"],
+                    "submission_decision": review["submission_decision"],
+                    "would_write": str(args.output) if args.output else None,
+                    "live_actions": False,
+                }, indent=2))
         elif args.command == "propose-smoke": propose_smoke(Path(args.ledger), args.candidate_id, Path(args.output))
         else: raise AssertionError(args.command)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
