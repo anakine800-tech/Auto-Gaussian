@@ -19,12 +19,12 @@ deployment beyond the named Skill already approved, or server-file action.
 
 ## Required release evidence
 
-- [ ] Full offline suite passes under Python 3.11 and 3.12 in GitHub Actions.
+- [x] Full offline suite passes under Python 3.11 and 3.12 in GitHub Actions.
 - [x] Full local offline suite passes under Python 3.13 (185 tests).
 - [x] Python compilation and shell syntax checks pass.
 - [x] GitHub-style source archive runs the complete 185-test offline suite without
       `.git` metadata.
-- [ ] Optional NumPy, Pillow and RDKit dependencies install and import in a
+- [x] Optional NumPy, Pillow and RDKit dependencies install and import in a
       clean environment.
 - [x] All nine named repository/deployed Skill pairs are synchronized after
       exact diff review.
