@@ -1,0 +1,604 @@
+{
+  "schema": "gaussian-reaction-calculation-plan-review/1",
+  "study_id": "mechanism_network_fixture",
+  "plan_id": "fixture_calculation_plan",
+  "intake_payload_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "species_registry_payload_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "condition_model_payload_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "mechanism_network_payload_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "mechanism_support_payload_sha256": null,
+  "ts_precedent_map_payload_sha256": null,
+  "superseded_plan_payload_sha256s": [],
+  "nodes": [
+    {
+      "node_id": "minimum_legacy",
+      "label": "retained failed reactant minimum",
+      "node_kind": "minimum",
+      "target": {
+        "state_ids": ["state_reactants"],
+        "edge_ids": [],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        {"slot_id": "legacy_geometry", "artifact_role": "optimized_geometry", "description": "Retained failed geometry attempt."}
+      ],
+      "depends_on": [],
+      "alternative_group_id": null,
+      "disposition": "superseded",
+      "execution_state": "failed",
+      "evidence_acceptance": "rejected",
+      "review_blockers": [
+        {
+          "blocker_id": "legacy_minimum_failed",
+          "scope": "minimum_legacy",
+          "description": "The historical minimum attempt failed and remains retained for provenance.",
+          "required_for": ["historical_review"]
+        }
+      ],
+      "notes": ["This node is retained and is never silently deleted."]
+    },
+    {
+      "node_id": "minimum_reactants",
+      "label": "reviewed reactant minimum need",
+      "node_kind": "minimum",
+      "target": {
+        "state_ids": ["state_reactants"],
+        "edge_ids": [],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        {"slot_id": "minimum_geometry", "artifact_role": "optimized_geometry", "description": "Reviewed logical minimum geometry need."}
+      ],
+      "depends_on": [],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": ["No geometry or protocol is created by this plan."]
+    },
+    {
+      "node_id": "conformer_reactants",
+      "label": "reactant conformer coverage need",
+      "node_kind": "conformer",
+      "target": {
+        "state_ids": ["state_reactants"],
+        "edge_ids": [],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "minimum_input", "artifact_role": "optimized_geometry", "source_node_id": "minimum_reactants", "required": true, "description": "Reviewed minimum lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "conformer_output", "artifact_role": "conformer_ensemble", "description": "Logical conformer-ensemble evidence need."}
+      ],
+      "depends_on": ["minimum_reactants"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "complex_reactants",
+      "label": "reactant complex need",
+      "node_kind": "complex",
+      "target": {
+        "state_ids": ["state_reactants"],
+        "edge_ids": [],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "conformer_input", "artifact_role": "conformer_ensemble", "source_node_id": "conformer_reactants", "required": true, "description": "Reviewed conformer lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "complex_output", "artifact_role": "complex_geometry", "description": "Logical complex-geometry evidence need."}
+      ],
+      "depends_on": ["conformer_reactants"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "ts_candidate_primary",
+      "label": "primary activation TS candidate need",
+      "node_kind": "ts_candidate",
+      "target": {
+        "state_ids": [],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "complex_input", "artifact_role": "complex_geometry", "source_node_id": "complex_reactants", "required": true, "description": "Reviewed complex lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "ts_candidate_output", "artifact_role": "ts_candidate_geometry", "description": "Logical TS-candidate evidence need."}
+      ],
+      "depends_on": ["complex_reactants"],
+      "alternative_group_id": "activation_ts_alternatives",
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "ts_candidate_alternative",
+      "label": "retained alternative activation TS candidate",
+      "node_kind": "ts_candidate",
+      "target": {
+        "state_ids": [],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "alternative_complex_input", "artifact_role": "complex_geometry", "source_node_id": "complex_reactants", "required": true, "description": "Same reviewed complex lineage for the retained alternative."}
+      ],
+      "outputs": [
+        {"slot_id": "alternative_ts_output", "artifact_role": "ts_candidate_geometry", "description": "Retained alternative TS-candidate evidence need."}
+      ],
+      "depends_on": ["complex_reactants"],
+      "alternative_group_id": "activation_ts_alternatives",
+      "disposition": "skipped",
+      "execution_state": "not_applicable",
+      "evidence_acceptance": "not_applicable",
+      "review_blockers": [],
+      "notes": ["Skipped history remains explicit rather than being deleted."]
+    },
+    {
+      "node_id": "ts_freq_activation",
+      "label": "activation TS frequency evidence need",
+      "node_kind": "ts_freq",
+      "target": {
+        "state_ids": [],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "ts_candidate_input", "artifact_role": "ts_candidate_geometry", "source_node_id": "ts_candidate_primary", "required": true, "description": "Selected candidate lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "ts_freq_output", "artifact_role": "ts_frequency_evidence", "description": "TS/Freq and intended-mode evidence need."}
+      ],
+      "depends_on": ["ts_candidate_primary"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "pending_review",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "irc_forward_activation",
+      "label": "forward IRC evidence need",
+      "node_kind": "irc_forward",
+      "target": {
+        "state_ids": [],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "forward_ts_input", "artifact_role": "ts_frequency_evidence", "source_node_id": "ts_freq_activation", "required": true, "description": "Separately reviewed TS/Freq lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "forward_path_output", "artifact_role": "irc_path_evidence", "description": "Forward path evidence need."}
+      ],
+      "depends_on": ["ts_freq_activation"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "irc_reverse_activation",
+      "label": "reverse IRC evidence need",
+      "node_kind": "irc_reverse",
+      "target": {
+        "state_ids": [],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "reverse_ts_input", "artifact_role": "ts_frequency_evidence", "source_node_id": "ts_freq_activation", "required": true, "description": "Separately reviewed TS/Freq lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "reverse_path_output", "artifact_role": "irc_path_evidence", "description": "Reverse path evidence need."}
+      ],
+      "depends_on": ["ts_freq_activation"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "endpoint_activated",
+      "label": "forward endpoint identification need",
+      "node_kind": "endpoint",
+      "target": {
+        "state_ids": ["state_activated"],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_activated", "atom_id": "m_h1"},
+          {"state_id": "state_activated", "atom_id": "m_h2"},
+          {"state_id": "state_activated", "atom_id": "m_i1"},
+          {"state_id": "state_activated", "atom_id": "m_i2"},
+          {"state_id": "state_activated", "atom_id": "m_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_activated", "atom_id": "m_h1"},
+          {"state_id": "state_activated", "atom_id": "m_h2"},
+          {"state_id": "state_activated", "atom_id": "m_i1"},
+          {"state_id": "state_activated", "atom_id": "m_i2"},
+          {"state_id": "state_activated", "atom_id": "m_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "forward_path_input", "artifact_role": "irc_path_evidence", "source_node_id": "irc_forward_activation", "required": true, "description": "Forward path lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "activated_endpoint_output", "artifact_role": "endpoint_geometry", "description": "Structurally identified forward endpoint evidence need."}
+      ],
+      "depends_on": ["irc_forward_activation"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "endpoint_reactants",
+      "label": "reverse endpoint identification need",
+      "node_kind": "endpoint",
+      "target": {
+        "state_ids": ["state_reactants"],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_reactants", "atom_id": "r_h1"},
+          {"state_id": "state_reactants", "atom_id": "r_h2"},
+          {"state_id": "state_reactants", "atom_id": "r_i1"},
+          {"state_id": "state_reactants", "atom_id": "r_i2"},
+          {"state_id": "state_reactants", "atom_id": "r_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "reverse_path_input", "artifact_role": "irc_path_evidence", "source_node_id": "irc_reverse_activation", "required": true, "description": "Reverse path lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "reactant_endpoint_output", "artifact_role": "endpoint_geometry", "description": "Structurally identified reverse endpoint evidence need."}
+      ],
+      "depends_on": ["irc_reverse_activation"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "single_point_activated",
+      "label": "activated-state single-point need",
+      "node_kind": "single_point",
+      "target": {
+        "state_ids": ["state_activated"],
+        "edge_ids": [],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_activated", "atom_id": "m_h1"},
+          {"state_id": "state_activated", "atom_id": "m_h2"},
+          {"state_id": "state_activated", "atom_id": "m_i1"},
+          {"state_id": "state_activated", "atom_id": "m_i2"},
+          {"state_id": "state_activated", "atom_id": "m_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": 0,
+        "multiplicity": 1,
+        "atom_order": [
+          {"state_id": "state_activated", "atom_id": "m_h1"},
+          {"state_id": "state_activated", "atom_id": "m_h2"},
+          {"state_id": "state_activated", "atom_id": "m_i1"},
+          {"state_id": "state_activated", "atom_id": "m_i2"},
+          {"state_id": "state_activated", "atom_id": "m_pd"}
+        ]
+      },
+      "inputs": [
+        {"slot_id": "endpoint_input", "artifact_role": "endpoint_geometry", "source_node_id": "endpoint_activated", "required": true, "description": "Identified endpoint lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "single_point_output", "artifact_role": "electronic_energy", "description": "Single-point energy evidence need."}
+      ],
+      "depends_on": ["endpoint_activated"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "thermochemistry_activation",
+      "label": "common-reference thermochemistry need",
+      "node_kind": "thermochemistry",
+      "target": {
+        "state_ids": ["state_activated"],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_activated", "atom_id": "m_h1"},
+          {"state_id": "state_activated", "atom_id": "m_h2"},
+          {"state_id": "state_activated", "atom_id": "m_i1"},
+          {"state_id": "state_activated", "atom_id": "m_i2"},
+          {"state_id": "state_activated", "atom_id": "m_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": null,
+        "multiplicity": null,
+        "atom_order": null
+      },
+      "inputs": [
+        {"slot_id": "thermo_frequency_input", "artifact_role": "ts_frequency_evidence", "source_node_id": "ts_freq_activation", "required": true, "description": "Frequency evidence lineage."},
+        {"slot_id": "thermo_energy_input", "artifact_role": "electronic_energy", "source_node_id": "single_point_activated", "required": true, "description": "Electronic-energy lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "thermochemistry_output", "artifact_role": "thermochemistry_evidence", "description": "Common-reference thermochemistry evidence need."}
+      ],
+      "depends_on": ["ts_freq_activation", "single_point_activated"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    },
+    {
+      "node_id": "sensitivity_activation",
+      "label": "activation sensitivity need",
+      "node_kind": "sensitivity",
+      "target": {
+        "state_ids": ["state_activated"],
+        "edge_ids": ["edge_activation"],
+        "network_ids": ["network_stepwise"],
+        "reference_basin_ids": ["basin_common_reactants"],
+        "atom_refs": [
+          {"state_id": "state_activated", "atom_id": "m_h1"},
+          {"state_id": "state_activated", "atom_id": "m_h2"},
+          {"state_id": "state_activated", "atom_id": "m_pd"}
+        ]
+      },
+      "chemical_state": {
+        "formal_charge": null,
+        "multiplicity": null,
+        "atom_order": null
+      },
+      "inputs": [
+        {"slot_id": "thermochemistry_input", "artifact_role": "thermochemistry_evidence", "source_node_id": "thermochemistry_activation", "required": true, "description": "Thermochemistry lineage."}
+      ],
+      "outputs": [
+        {"slot_id": "sensitivity_output", "artifact_role": "sensitivity_evidence", "description": "Sensitivity evidence need."}
+      ],
+      "depends_on": ["thermochemistry_activation"],
+      "alternative_group_id": null,
+      "disposition": "planned",
+      "execution_state": "not_started",
+      "evidence_acceptance": "not_available",
+      "review_blockers": [],
+      "notes": []
+    }
+  ],
+  "alternative_groups": [
+    {
+      "group_id": "activation_ts_alternatives",
+      "label": "reviewed activation TS alternatives",
+      "node_ids": ["ts_candidate_primary", "ts_candidate_alternative"],
+      "selection_policy": "select_one",
+      "selected_node_ids": ["ts_candidate_primary"],
+      "review_status": "reviewed",
+      "rationale": "The primary candidate is selected while the alternative remains retained as skipped history."
+    }
+  ],
+  "supersessions": [
+    {
+      "supersession_id": "reactant_minimum_supersession",
+      "superseding_node_id": "minimum_reactants",
+      "superseded_node_ids": ["minimum_legacy"],
+      "rationale": "The reviewed logical minimum need supersedes the retained failed attempt without deleting it."
+    }
+  ],
+  "review_decision": "accepted",
+  "review_notes": ["Synthetic offline fixture only; no chemistry, method, geometry, input, or live action is inferred."],
+  "payload_sha256": null
+}

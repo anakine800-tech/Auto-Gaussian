@@ -10,13 +10,15 @@ independently.
 
 ## Current repository status
 
-As of 2026-07-15, the Auto-G16 feature line includes the guarded RTwin/PBS
+As of 2026-07-16, the Auto-G16 feature line includes the guarded RTwin/PBS
 workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
-the W3 offline mechanism-network slice. The 2.2.0 release also includes
+the W3 offline mechanism-network slice. The current Unreleased work adds the
+smallest deterministic calculation-plan DAG and read-only reaction-study index
+over exact immutable upstream artifacts. The 2.2.0 release also includes
 transition-metal M1/M2 observation and review contracts while preserving the
-unconditional metal runtime refusal. These layers retain their individual
+unconditional metal runtime refusal. Every layer retains its individual
 scientific and live-action approval gates.
 
 `main` is the stable release branch. Feature work uses short-lived `codex/`
@@ -44,8 +46,13 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
   species registry, balance review, condition-to-model decisions, reviewed
-  mechanism-network hypotheses and the non-promotable TS-precedent map. Its
-  artifacts explicitly grant no calculation or live authorization.
+  mechanism-network hypotheses, the non-promotable TS-precedent map, and the
+  Unreleased calculation-plan/study-index slice. The planning layer binds the
+  exact W1 chain and finalized mechanism network, retains missing mechanism
+  support as a blocker, and accepts TS-precedent edge coverage only after the
+  owner validator proves the exact W1/network chain and a locally accepted
+  promotion-complete record. Every calculation node remains non-executable;
+  these artifacts grant no calculation or live authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
   screening, evidence templates and fail-closed source-review validation. It
@@ -155,9 +162,10 @@ python3 -m unittest discover -s tests -v
    authenticated enforcement, durable audit logging and chemical search. Then
    extend the separate literature-evidence layer toward mechanism support; the
    TS-precedent review map is already implemented but remains non-promotable.
-4. Implement the W3 mechanism-network, calculation-DAG and evidence-index layer.
-   Existing Skills remain specialist components rather than a monolithic
-   automatic mechanism generator.
+4. Continue W3 from the implemented mechanism network and Unreleased offline
+   calculation-plan/study-index slice toward specialist evidence adapters and
+   a reaction-level evidence index. Existing Skills remain specialist
+   components rather than a monolithic automatic mechanism generator.
 5. Connect candidate/protocol/input and result/energy adapters, then validate a
    small closed-shell main-group reaction from ChemDraw through minima, TS,
    path, and common-reference energy evidence.
