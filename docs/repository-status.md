@@ -85,6 +85,23 @@ imports require exact deployed `auto-g16-knowledge-base` and
 named dependencies before synchronizing and smoking the exact
 `auto-g16-reaction-workflow` package.
 
+On 2026-07-16 the explicitly approved deployed-copy DAG smoke ran against
+source commit `90560e9c48ee2d82e5d00c0fee8d61a44b61d566`. The reviewed
+named-Skill sync plans were
+`ecd5ee66a4547ca278c39f3b86d833bc490d7e7a8287f00f1e148f0e9c19de53`
+for `auto-g16-reaction-literature` and
+`05eaf4ff5d9a156e0f8b645f558b219d3ae16109e5e4d9c23a9a6b9e14daef32`
+for `auto-g16-reaction-workflow`. Post-sync comparison reported all six
+required named packages synchronized. Three tests passed from the deployed
+DAG entry point in 15.646 seconds: deterministic plan/index build-validation,
+reviewed feature-3 target mapping to an append-only node update, and
+adversarial alias/local-reference/forgery/overwrite refusal. The smoke used
+only sanitized temporary artifacts, retained `calculation_ready: false`,
+`no_submission_authorization: true`, and `live_actions: false`, and performed
+no SSH, PBS, Gaussian, submission, cancellation, deletion, push, or merge.
+It validates only this deployed-copy offline DAG/bridge scope and grants no
+scientific or execution authority.
+
 ## Current capability
 
 The version-controlled source under `skills/` currently provides:
