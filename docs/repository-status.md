@@ -50,7 +50,8 @@ scientific acceptance.
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
 offline reusable-knowledge, mechanism-network, mechanism-support and
-TS-precedent/de novo-planning foundations and the remaining calculation-DAG, free-energy/kinetic and
+distinct mechanism-support-matrix, TS-precedent/de novo-planning foundations
+and the remaining calculation-DAG, free-energy/kinetic and
 final-report layers needed to progress from W1 to an auditable whole-reaction
 study.
 
@@ -60,6 +61,16 @@ targets, one exact reviewed closed-shell main-group TS/Freq input handoff,
 blocked/electronic-only energy lineage, and immutable observation links. It is
 offline only, leaves every artifact non-authorizing, and deliberately does not
 implement the separately owned calculation DAG or node-update contracts.
+
+The current feature branch adds the distinct
+`gaussian-reaction-mechanism-support-matrix/1` comparison view without changing
+the merged `gaussian-reaction-mechanism-support/1` evidence gate or validator.
+It binds the exact owner support/network/review hashes, covers every reviewed
+row-by-support-record cell, and intersects any downstream-reviewable row with
+the owner exploration gate. It does not implement a DAG node, calculation
+target, method, input, or live action. Experimental PR #19 matrix documents
+are not treated as the merged support contract; migration requires a new
+matrix artifact and preserves historical bytes.
 
 ## Current capability
 
@@ -105,6 +116,11 @@ The version-controlled source under `skills/` currently provides:
   with exact W1/network/snapshot/evidence/review bindings, per-edge/channel
   evidence classification, preserved contradictions and separate
   `hypothesis_exploration_eligible` and `mechanism_claim_supported` decisions;
+- a separate offline `gaussian-reaction-mechanism-support-matrix/1`
+  builder/validator with exact owner-gate compatibility, complete edge/channel
+  row-by-support-record coverage, explicit exclusions and immutable
+  supersession; it cannot promote a blocked owner target or validate a
+  mechanism claim;
 - a smallest coherent offline `gaussian-ts-precedent-map/1` builder/validator
   that binds the exact W1, mechanism-network, knowledge-snapshot, finalized
   literature-evidence and review-source artifacts; verifies stable target atom
@@ -377,6 +393,32 @@ PBS authority.
 
 This snapshot contains offline development evidence plus the approved metadata-
 search smoke. It is not Gaussian or chemical validation.
+
+### 2026-07-16 unreleased mechanism-support matrix contract
+
+The isolated replacement for the colliding PR #19 matrix proposal starts from
+exact `origin/main` `8fcdfcf` and introduces only the distinct
+`gaussian-reaction-mechanism-support-matrix/1` capability. The merged PR #20
+`gaussian-reaction-mechanism-support/1` schema and owner validator remain
+byte-for-byte unchanged. The new matrix is a downstream, hash-bound view over
+that exact owner artifact and network; it cannot alter either evidence-gate
+decision or create a calculation-DAG node.
+
+Offline validation under the requested Miniforge Python 3.13 interpreter produced:
+
+- 7/7 focused matrix tests, including closed output/review schemas,
+  deterministic reconstruction, native owner-cell consistency, evidence-gate
+  non-bypass, exact supersession, rehashed forgery, strict JSON, unknown-field,
+  symlink and overwrite refusals;
+- 5/5 named-Skill packaging tests, including explicit matrix script,
+  reference, and two-schema inventory assertions plus deployed-copy CLI import
+  with the separately owned knowledge/literature dependencies; and
+- 258/258 full offline repository tests.
+
+The calculation-artifact, TS-precedent, mechanism-network, reaction-workflow,
+naming and release-hygiene regressions remain green. No live smoke, SSH, PBS,
+Gaussian, submission, cancellation, cleanup, deployment, PR mutation, or
+historical-artifact rewrite was performed.
 
 ### 2026-07-16 unreleased calculation-artifact adapter
 

@@ -15,7 +15,8 @@ workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-cataly
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
 the W3 offline mechanism-network slice. The current feature line adds the
-offline mechanism-support two-gate and TS-precedent/de novo-planning stages.
+offline mechanism-support two-gate, separate mechanism-support matrix view,
+and TS-precedent/de novo-planning stages.
 The 2.2.0 release also includes
 transition-metal M1/M2 observation and review contracts while preserving the
 unconditional metal runtime refusal. These layers retain their individual
@@ -61,8 +62,9 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
   species registry, balance review, condition-to-model decisions, reviewed
   mechanism-network hypotheses, edge/channel mechanism-support classification,
-  independent exploration and claim-support gates, and TS-precedent/de novo
-  seed planning, plus a narrow exact-reviewed calculation-artifact adapter.
+  independent exploration and claim-support gates, a separate immutable
+  row-by-evidence comparison matrix, and TS-precedent/de novo seed planning,
+  plus a narrow exact-reviewed calculation-artifact adapter.
   Its artifacts explicitly grant no calculation or live authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
@@ -96,6 +98,12 @@ retain their existing names for compatibility and provenance.
   hypothesis may be exploration-eligible without a direct precedent while its
   mechanism claim remains unsupported and unvalidated. Seed-geometry
   construction remains a future extension.
+- `gaussian-reaction-mechanism-support-matrix/1` is a downstream view over the
+  unchanged `gaussian-reaction-mechanism-support/1` owner gate. It provides
+  complete cross-evidence cells and explicit row dispositions but cannot
+  weaken an owner blocker, validate a mechanism, or create an executable DAG
+  node. Experimental PR #19 artifacts are not aliases for the merged gate and
+  require an explicit new matrix build if migrated.
 
 ## Offline planning/audit module
 
