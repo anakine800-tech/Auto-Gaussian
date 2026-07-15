@@ -62,6 +62,16 @@ the remaining specialist calculation/evidence adapter, free-energy/kinetic and
 final-report layers needed to progress from W1 to an auditable whole-reaction
 study.
 
+The unreleased repository source now adds the smallest calculation-artifact
+adapter slice under `auto-g16-reaction-workflow`: stable external candidate
+targets, one exact reviewed closed-shell main-group TS/Freq input handoff,
+blocked/electronic-only energy lineage, and immutable observation links. It is
+offline only, leaves every artifact non-authorizing, and deliberately does not
+own calculation-DAG identities or state. The DAG slice now supplies a separate
+closed reviewed mapping and append-only candidate-inventory node-update bridge
+for an exact `ts_candidate`; the adapter still owns only
+`external_target_key`.
+
 ## Current capability
 
 The version-controlled source under `skills/` currently provides:
@@ -92,6 +102,9 @@ The version-controlled source under `skills/` currently provides:
 - the Unreleased deterministic `gaussian-reaction-calculation-plan/1` DAG and
   immutable `gaussian-reaction-study-index/1` resume view over exact artifact
   bindings, stage gates, blockers, supersession and coverage;
+- a narrow offline calculation-artifact adapter with immutable
+  candidate-target import, exact reviewed input handoff,
+  blocked/electronic-only energy lineage and observation-only attempt links;
 - an offline-first reaction-literature Skill with reviewed query planning,
   Crossref/OpenAlex metadata retrieval, raw-response hashes, DOI deduplication,
   transparent lexical screening, source-located evidence templates and fail-
@@ -326,7 +339,8 @@ deployment, cancellation, or server cleanup operation.
 
 ## Historical offline validation snapshot
 
-On 2026-07-15, this feature branch passed 142 offline tests. In particular:
+The released `v2.2.0` validation snapshot from 2026-07-15 passed 142 offline
+tests. In particular:
 
 - all sixteen artifact types passed the repository's fail-closed Draft 2020-12
   schema subset validator; unknown schema keywords are refused until the
@@ -422,6 +436,38 @@ PBS authority.
 
 This snapshot contains offline development evidence plus the approved metadata-
 search smoke. It is not Gaussian or chemical validation.
+
+### 2026-07-16 unreleased calculation-artifact adapter
+
+The independently mergeable calculation-artifact adapter is committed on its
+feature branch and remains undeployed. Its final offline validation used the
+project Python 3.13 environment and produced these results:
+
+- `python3 -m py_compile skills/auto-g16-ts-irc/scripts/ts_irc.py skills/auto-g16-reaction-workflow/scripts/calculation_artifacts.py && python3 -m unittest tests.test_calculation_artifacts tests.test_gaussian_ts_irc -v`:
+  56/56 passed (38 adapter and 18 TS/IRC tests);
+- `python3 -m unittest tests.test_asymmetric_contract tests.test_asymmetric_builders tests.test_asymmetric_cli tests.test_asymmetric_provenance tests.test_asymmetric_real_case tests.test_asymmetric_schema_validation tests.test_asymmetric_skill`:
+  51/51 passed;
+- `python3 -m unittest tests.test_protocol_selection tests.test_gaussian_auto_gate tests.test_gaussian_ts_irc tests.test_skill_baseline tests.test_reaction_workflow tests.test_mechanism_network`:
+  69/69 passed;
+- `python3 -m unittest tests.test_auto_g16_skill_names tests.test_skill_baseline tests.test_release_hygiene`:
+  27/27 passed; and
+- `python3 -m unittest discover -s tests`: 246/246 passed in 71.474 seconds,
+  including both portable-path tests that write only inside the feature
+  worktree under the normal worktree permissions.
+
+The focused tests cover deterministic bytes; strict JSON and closed schemas;
+hash, payload, symlink, path, overwrite and rehashed-forgery refusal; candidate,
+XYZ, atom-order, protocol, input-review, job and result drift; unsupported and
+duplicate ledger entries; closed-shell V1 input limits; specialist validator
+delegation; terminal/mode-geometry invariants; exact attempt binding; and
+blocked/electronic-only energy lineage. No live smoke, SSH, PBS, Gaussian,
+submission, cancellation, cleanup, deployment or network action was run.
+
+The macOS system Python 3.9 audit remains limited by pre-existing `v2.2.0`
+`zip(..., strict=True)` use in asymmetric-catalysis code/tests and one existing
+protocol test's repository-root write under that audit sandbox. Those unchanged
+baseline issues are outside this feature; the new adapter plus TS helper set
+passed its Python 3.9 focused audit.
 
 ## Protocol-rigor gate implemented offline
 

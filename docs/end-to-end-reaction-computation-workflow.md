@@ -492,9 +492,11 @@ offline planning node.
 exact artifact bindings and stage gates. It derives the last accepted stage,
 next blockers, active and historical coverage, and superseded artifacts
 without editing a specialist artifact or granting authority. A future adapter
-may define an external node-update envelope for binding specialist results
-back to a logical node; that envelope is not implemented by this slice and
-would not itself authorize submission or evidence acceptance.
+may produce additional specialist facts. The implemented DAG-owned bridge
+already finalizes an exact human mapping from one feature-3 external target to
+one `ts_candidate` locator and emits an append-only candidate-inventory node
+update. It does not mutate the plan or authorize submission/evidence
+acceptance.
 
 Resume ordering is W1 intake/registry/condition, finalized mechanism network,
 mechanism support bound to that network, dependent TS precedent, calculation
@@ -632,9 +634,9 @@ must not automatically promote its parent scientific hypothesis.
 
 Existing specialist schemas remain authoritative for their own artifacts. W1,
 the W3 mechanism-network/support/TS-planning slices, and the Unreleased
-calculation-plan and study-index contracts now implement part of the top-level
-layer; the other entries remain planned specialist adapters or later reaction-
-level artifacts:
+calculation-plan, study-index and first calculation-artifact adapter contracts
+now implement part of the top-level layer; the remaining rows are the bounded
+roadmap rather than implied current capabilities:
 
 | Planned artifact | Purpose |
 | --- | --- |
@@ -648,11 +650,16 @@ level artifacts:
 | `auto-g16-knowledge-snapshot/1` | immutable exact record revisions, queries, decisions, access redactions and gaps used by one reaction study |
 | `gaussian-reaction-literature-query/1` | decomposed target, exact search strings/providers/dates/filters, search-ladder coverage, access limits and inclusion/exclusion decisions |
 | `gaussian-reaction-literature-evidence/1` | primary/SI source identity and anchors, extracted computational/mechanistic facts, geometry data, contradictory evidence and extraction confidence |
-| `gaussian-reaction-mechanism-support/1` | evidence-to-hypothesis matrix, direct/analogous/contradictory status, decomposed applicability, alternatives and bounded reviewer decisions |
+| `gaussian-reaction-mechanism-support/1` | implemented exact edge/channel evidence-gate record with decomposed applicability and separate reviewed hypothesis-exploration versus mechanism-claim-support decisions; it never validates a mechanism claim |
 | `gaussian-ts-precedent-map/1` | source-to-target atom correspondence, TS topology/geometry evidence, transferable versus rebuilt features, seed-strategy proposal and uncertainty |
 | `gaussian-reaction-mechanism-network/1` | implemented reviewed complete-state nodes, elementary-step edges, exact atom maps, competing networks, reference basins, catalyst-projection closure and mandatory evidence blockers |
 | `gaussian-reaction-study-index/1` | implemented immutable read-only resume view over exact artifact bindings, stage gates, coverage, supersession, blockers, and next safe offline action |
 | `gaussian-reaction-calculation-plan/1` | implemented non-executable calculation DAG of explicit reviewed needs, dependencies, alternatives, supersession, readiness dimensions and retained history; no candidate geometry, protocol or input is created |
+| `gaussian-candidate-target-import/1` | implemented immutable ledger-to-external-target exchange without DAG node IDs or state |
+| `gaussian-input-draft-review/1` and `gaussian-candidate-input-handoff/1` | implemented exact V1 review and reproducible non-authorizing `.gjf` companion lineage |
+| `gaussian-energy-review/1`, `gaussian-reviewed-energy-record/1`, and `gaussian-energy-lineage/1` | implemented blocked/electronic-only projection boundary; never a common-reference comparison |
+| `gaussian-sanitized-job-observation/1` and `gaussian-calculation-attempt-link/1` | implemented redacted, observation-only six-artifact bindings through exact mode review/decision that preserve specialist states |
+| `gaussian-reaction-calculation-target-mapping-review/1` and `gaussian-reaction-calculation-node-update/1` | implemented DAG-owned exact human mapping and append-only candidate-inventory attachment for one feature-3 external target to one `ts_candidate`; not implemented or owned by the adapter |
 | `gaussian-calculation-attempt/1` | one exact input/run/restart/recalc lineage without mutating or replacing its parent attempt |
 | `gaussian-reaction-evidence-index/1` | immutable index of minimum, TS, mode, IRC, endpoint, energy and failure artifacts |
 | `gaussian-reaction-free-energy-network/1` | common-reference energies, barrier formulas, standard-state and low-frequency policy, blocked edges |
@@ -712,12 +719,13 @@ reaction workflow.
 | mechanism network and catalyst-cycle DAG | general offline network/cycle-closure audit plus non-executable calculation dependency DAG implemented | no executable scheduler or project-level mutable execution state machine |
 | reaction calculation plan and study index | Unreleased first offline slice implemented | deterministic non-executable DAG and immutable resume view bind exact W1/network/support/precedent artifacts, preserve alternatives/supersession/history and separate readiness dimensions; no geometry, protocol, input, server job, evidence adapter or live authority |
 | deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
+| calculation-artifact adapters | first narrow offline slice implemented in repository source | stable candidate-target imports, one exact reviewed closed-shell main-group single-guess TS/Freq handoff, blocked/electronic-only energy lineage and observation-only attempt links; no DAG mutation, live approval, staging or submission |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
 | transition-metal state/search design | M0, candidate-bound M1 review sidecar, M2a, M2b result observer, M2c existing-input observer and M2d four-section manual-decision sidecar implemented offline | the real M1/M2 scientific example, runtime/promotion boundary, path model and all live submission remain intentionally refused; bounded M2d section decisions grant no top-level authority |
 | protocol `loose`/`standard`/`strict` proposal and selection | implemented as a standalone gate | does not choose a protocol or authorize input submission; the current generic automatic execution entry does not yet require and consume the selection artifact end to end |
 | guarded PBS submit/watch/fetch/analyze | implemented per approved job | the offline plan/index does not schedule or update jobs; no whole-study executable dependency scheduler, finite-batch approval manifest or specialist result adapter exists |
 | minimum Opt/Freq/single-point parsing and conformer aggregation | implemented per reviewed structure/family | no reaction-wide species registry, post-optimization identity clustering, or balanced free-energy network |
-| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | implemented for reviewed supported main-group families in synchronized source/deployment | no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
+| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | released baseline is synchronized; unreleased specialist classification/mode-geometry replay helpers are currently repository source only | no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
 | TS candidate-space result ingestion and two-channel Boltzmann/ee sensitivity | implemented offline | only `boltzmann_ts_ensemble`; no general kinetic network, energetic-span engine, or protocol-matrix uncertainty propagation |
 | final project report and claim-state engine | missing | current documents and analyses are study-specific rather than generated from one top-level evidence index |
 
@@ -767,14 +775,19 @@ whole workflow without hand-editing JSON.
 - specialist candidate/input/result adapters plus the reaction-level evidence
   index remain missing.
 
-It also needs explicit artifact adapters for:
+The first narrow explicit artifact-adapter slice now covers:
 
 - promoted candidate plus protocol selection to the exact rendered input and
-  manifest;
-- candidate ledger to dependency-aware calculation targets and terminal-intake
-  plans; and
-- fetched PBS/TS evidence to minimum/TS energy records and the reaction-level
-  evidence index.
+  non-authorizing companion manifest for one restricted closed-shell
+  main-group single-guess TS/Freq family;
+- candidate ledger to stable external target envelopes without importing or
+  inventing DAG node state; and
+- specialist TS/Freq JSON plus scientific review to blocked or electronic-only
+  records with exact lineage, together with observation-only attempt linkage.
+
+Still missing are minimum/thermochemistry adapters, common-reference energy,
+the reaction-level evidence index, and versioned DAG importers for specialist
+facts beyond the implemented candidate-inventory-to-`ts_candidate` bridge.
 
 Without P1, existing tools calculate reviewed individual structures but cannot
 prove that the declared whole-reaction scope is covered.
@@ -958,6 +971,20 @@ and must not submit.
 Add the read-only study index here. It should derive current state and the next
 safe action from hashes and accepted decisions rather than store a manually
 editable status flag.
+
+The DAG exchange boundary is fixed at
+`gaussian-reaction-calculation-plan/1` with node locator
+`{study_id, plan_id, node_id}` and exact artifact references shaped as
+`{path, sha256, size_bytes, schema, payload_sha256}`. The implemented DAG-owned
+`gaussian-reaction-calculation-target-mapping-review/1` maps one exact adapter
+`external_target_key` to that locator. Its append-only
+`gaussian-reaction-calculation-node-update/1` output binds the exact plan,
+mapping review and candidate-target import. Version `/1` is closed to
+`expected_node_kind: ts_candidate`, `update_kind: candidate_inventory`, and
+`artifact_role: candidate_target_import`; broader roles require a versioned
+extension. Both artifacts retain `calculation_ready: false` and
+`no_submission_authorization: true`. The adapter does not implement either DAG
+schema, mutate a plan, or guess readiness/dependency closure/resume state.
 
 Acceptance requires deterministic rebuilds, hash-drift refusal, cycle and mass/
 charge diagnostics, blocked unsupported states, and resume from every gate.

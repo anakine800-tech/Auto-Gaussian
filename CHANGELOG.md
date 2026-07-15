@@ -34,6 +34,13 @@ All notable public release changes are recorded here. The project follows
 - Supersession validation is iterative for long node chains and rejects plan-
   ancestry paths beyond the documented 128-artifact limit with a controlled
   contract error.
+- Closed `gaussian-reaction-calculation-target-mapping-review/1` and
+  `gaussian-reaction-calculation-node-update/1` contracts plus deterministic
+  builder/validators for one exact feature-3 candidate-target import mapped by
+  human review to the DAG-owned `{study_id, plan_id, node_id}` locator. Version
+  `/1` is append-only and restricted to `candidate_inventory` on a
+  `ts_candidate`; it never treats `external_target_key` as `node_id`, accepts
+  absolute/null DAG references, mutates a plan, or promotes readiness.
 - A closed standard-library-only `gaussian-reaction-mechanism-support/1`
   builder/validator with exact W1, mechanism-network, knowledge-snapshot,
   finalized-literature and immutable-review bindings; deterministic claim and
@@ -43,6 +50,21 @@ All notable public release changes are recorded here. The project follows
 - Exact mechanism-support binding in `gaussian-ts-precedent-map/1` plus a
   source-free de novo endpoint/QST, scan or reviewed-rebuild planning path for
   exploration-eligible novel hypotheses.
+- A standard-library-only offline calculation-artifact adapter in
+  `auto-g16-reaction-workflow`, with closed schemas for stable candidate-target
+  imports, exact reviewed candidate/protocol-to-input handoffs,
+  blocked/electronic-only energy records and lineage, sanitized job
+  observations, and immutable six-artifact attempt links with an exact bound
+  TS mode-review file.
+- Deterministic sanitized fixtures and adversarial tests for exact source
+  hashes/sizes/payloads, candidate/XYZ/protocol/input drift, unsupported
+  variants, strict JSON, symlinks, overwrite refusal, specialist-validator
+  delegation, and fully rehashed derived-fact or preserved-classification
+  forgery.
+- Narrow TS-specialist helpers now own parsed-result and terminal
+  classification recomputation plus exact mode-review geometry arithmetic;
+  the adapter also refuses parsed element/atomic-number/order drift from the
+  reviewed input handoff.
 
 ### Changed
 
@@ -65,6 +87,10 @@ All notable public release changes are recorded here. The project follows
   `calculation_ready: false` and `no_submission_authorization: true`; de novo
   plans contain no source precedent or source coordinates and grant no method,
   Gaussian, PBS, deployment or live authority.
+- Adapter artifacts retain `calculation_ready: false` and
+  `no_submission_authorization: true`. The adapter implements no DAG plan or
+  node mutation, staging, SSH, PBS, Gaussian, retry, cancellation, cleanup,
+  deployment, or live-smoke action.
 
 ## [2.2.0] - 2026-07-15
 

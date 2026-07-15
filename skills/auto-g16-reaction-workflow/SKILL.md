@@ -1,6 +1,6 @@
 ---
 name: auto-g16-reaction-workflow
-description: Build and validate the offline, hash-bound foundation of a whole Gaussian reaction study from reviewed human inputs. Use when Codex must create W1 reaction-intake artifacts, validate an explicit W3 mechanism network, build a non-executable calculation DAG, derive a read-only study resume index, or report why later work remains blocked. This Skill does not infer chemistry or mechanisms, choose methods, construct geometry, generate Gaussian inputs, or authorize live work.
+description: Build and validate the offline, hash-bound foundation of a whole Gaussian reaction study from reviewed human inputs, including W1 intake, explicit W3 mechanism records, a non-executable calculation DAG and read-only study index, plus narrow immutable calculation-artifact handoffs from exact reviewed candidate, protocol, input-draft and specialist-result artifacts. Use when Codex must build or validate those offline records, export external candidate targets, reproduce an explicitly reviewed closed-shell main-group input, or project blocked/electronic-only energy lineage. This Skill never infers chemistry, mechanisms or methods and never authorizes live work.
 ---
 
 # Auto-G16 Reaction Workflow
@@ -219,14 +219,102 @@ python3 "$DAG_TOOL" validate-index reaction-study-index.json
 
 The index derives stage gates, the last accepted stage, next blockers,
 superseded artifacts and active/historical coverage. It does not mutate the
-plan or any specialist artifact. This slice implements no external node-update
-envelope; such an envelope is a future adapter boundary and could not itself
-grant submission or evidence-acceptance authority.
+plan or any specialist artifact. The same tool can finalize and validate a
+human-reviewed external-target mapping, then build/validate one append-only
+`candidate_inventory` node update for an exact `ts_candidate`. The update
+binds the exact local plan, feature-3 target import and mapping review; it does
+not promote readiness or grant submission/evidence-acceptance authority.
+
+Start from the sanitized draft shape in
+`tests/fixtures/reaction_workflow/calculation_target_mapping_review.template.json`,
+replace every placeholder with an exact local binding and explicit human
+decision, then run:
+
+```bash
+python3 "$DAG_TOOL" finalize-target-mapping-review mapping-review.draft.json \
+  --output mapping-review.json
+python3 "$DAG_TOOL" validate-target-mapping-review mapping-review.json
+python3 "$DAG_TOOL" build-node-update mapping-review.json \
+  --output candidate-node-update.json
+python3 "$DAG_TOOL" validate-node-update candidate-node-update.json
+```
+
+The `/1` bridge is closed to `expected_node_kind: ts_candidate`,
+`update_kind: candidate_inventory`, and
+`artifact_role: candidate_target_import`. `external_target_key` remains an
+adapter key and is never interpreted as the DAG `node_id`. DAG references are
+relative, exact and non-null even when an encapsulated adapter artifact uses a
+broader reference convention.
 Its gate order is W1, finalized mechanism network, exact network support,
 dependent TS precedent, calculation plan, input review, then live approval;
 each emitted stage blocker resolves to the plan's normalized blocker record.
 
-### 6. Preserve the W2 knowledge and literature gates
+### 6. Use the optional reviewed calculation-artifact adapter
+
+Use this only after the exact upstream candidate, protocol, input review, or
+specialist result artifacts already exist. Read
+[references/calculation-artifact-adapter-contract.md](references/calculation-artifact-adapter-contract.md)
+before use.
+
+This adapter is currently unreleased repository source and has not been
+deployed. Run these commands from the repository root so its closed schemas
+and repository validator remain in the same reviewed tree.
+
+```bash
+ADAPTER="skills/auto-g16-reaction-workflow/scripts/calculation_artifacts.py"
+
+python3 "$ADAPTER" export-targets candidate-ledger.json \
+  --study asymmetric-study.json --import-id reviewed_target_import \
+  --output candidate-target-import.json
+
+python3 "$ADAPTER" build-input-handoff promoted-candidate.json \
+  --study asymmetric-study.json --options protocol-options.json \
+  --selection protocol-selection.json --review exact-input-review.json \
+  --output-input reviewed-ts.gjf \
+  --output-manifest reviewed-ts.handoff.json
+
+python3 "$ADAPTER" project-energy promoted-candidate.json parsed-ts-result.json \
+  --review energy-review.json --output-record reviewed-energy.json \
+  --output-lineage energy-lineage.json
+
+python3 "$ADAPTER" link-attempt \
+  --external-target-key asymmetric_candidate:study_id:candidate_id \
+  --input-handoff reviewed-ts.handoff.json \
+  --sanitized-job sanitized-job-observation.json \
+  --terminal-intake terminal-intake.json --parsed-result parsed-ts-result.json \
+  --mode-review ts-mode-review.json --scientific-decision ts-mode-decision.json \
+  --attempt-link-id reviewed_attempt_link --output calculation-attempt-link.json
+
+python3 "$ADAPTER" validate candidate-target-import.json
+python3 "$ADAPTER" validate reviewed-ts.handoff.json
+python3 "$ADAPTER" validate energy-lineage.json
+python3 "$ADAPTER" validate calculation-attempt-link.json
+```
+
+Validate an energy projection through its lineage sidecar. The bare reviewed
+energy record intentionally has no standalone source pointers and is refused
+by `validate`.
+
+Version 1 accepts only one explicit-Cartesian, restricted closed-shell,
+main-group, single-guess TS/Freq family. It delegates final input syntax to
+`auto-g16-rtwin-pbs`, delegates single-guess family checks to
+`auto-g16-ts-irc`, and also delegates parsed-result/terminal classification
+and mode-review geometry consistency to that specialist's
+`classify_ts_freq_result_facts`, `classify_ts_freq_terminal_facts`, and
+`validate_mode_review_geometry` helpers. Attempt linkage also requires parsed
+contiguous indices and ordered elements to match the handoff's reviewed atom
+order; parsed results do not carry source atom IDs. It consumes rather than
+reparses specialist TS result and scientific-review JSON. Metal, open-shell,
+QST, IRC, AllCheck/Check,
+`Guess=Read`, Link1, general-basis/ECP and non-empty trailing-section variants
+remain refused.
+
+The output `.gjf` is only a reproducible offline handoff. Every companion,
+target, energy, and observation artifact keeps `calculation_ready: false` and
+`no_submission_authorization: true`. The adapter has no stage, submit, retry,
+cancel, cleanup, DAG mutation, or resume command.
+
+### 7. Preserve the W2 knowledge and literature gates
 
 The second scientific-modeling round must first query a reviewed reusable
 knowledge layer and bind an immutable per-study snapshot. Read
@@ -356,7 +444,12 @@ make the mechanism claim literature-supported or validated.
 - `scripts/calculation_dag.py`: standard-library-only deterministic review
   finalizer, calculation-plan builder/validator and study-index
   builder/validator; no input rendering, execution or live path.
+- `scripts/calculation_artifacts.py`: standard-library-only target-import,
+  exact input-handoff, blocked/electronic-only energy-lineage and immutable
+  attempt-link adapters; no live path.
+- `references/calculation-artifact-adapter-contract.md`: exact source,
+  authority, refusal, energy-lineage and DAG-owned importer boundary.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
-  schemas for intake, registry, condition-model, mechanism-network, TS-
-  precedent-map, mechanism-support, calculation-plan and study-index
-  artifacts.
+  schemas for intake, registry, condition-model, mechanism-network,
+  mechanism-support, TS-precedent-map, calculation-plan, study-index and the
+  calculation-artifact adapter family.

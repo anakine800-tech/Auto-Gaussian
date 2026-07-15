@@ -98,6 +98,48 @@ class TsIrcTests(unittest.TestCase):
         self.assertFalse(result["first_order_saddle_candidate"])
         self.assertEqual(result["raw_imaginary_frequency_count"], 2)
 
+    def test_specialist_classification_and_mode_geometry_helpers_fail_closed(self) -> None:
+        result = TS.analyze_ts_log_text(LOG)
+        classification = TS.classify_ts_freq_result_facts(result)
+        self.assertEqual(classification["status"], "completed")
+        self.assertTrue(classification["first_order_saddle_candidate"])
+        terminal = TS.classify_ts_freq_terminal_facts(
+            job_state="completed",
+            error_termination_count=0,
+            optimization_completed=True,
+            stationary_point_found=True,
+            atom_count=2,
+            expected_atom_count=2,
+            frequency_count=3,
+            expected_frequency_count=3,
+            raw_imaginary_frequency_count=1,
+        )
+        self.assertEqual(terminal["outcome"], "ready_for_manual_mode_review")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            result_path = root / "ts.json"
+            result_path.write_text(json.dumps(result))
+            review = TS.create_mode_review(
+                result, [(1, 2)], root / "review", 0.1, TS.sha256(result_path)
+            )
+            TS.validate_mode_review_geometry(result, review)
+            review["distance_projections"][0]["plus_angstrom"] += 0.1
+            with self.assertRaisesRegex(ValueError, "displacement arithmetic"):
+                TS.validate_mode_review_geometry(result, review)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            nonfinite = json.loads(json.dumps(result))
+            nonfinite["final_coordinates"][0]["x"] = float("nan")
+            with self.assertRaisesRegex(ValueError, "finite number"):
+                TS.create_mode_review(nonfinite, [], root / "nonfinite", 0.1, "a" * 64)
+            self.assertFalse((root / "nonfinite").exists())
+            wrong_atom = json.loads(json.dumps(result))
+            wrong_atom["final_coordinates"][0]["atomic_number"] = 999
+            wrong_atom["imaginary_modes"][0]["displacements"][0]["atomic_number"] = 999
+            with self.assertRaisesRegex(ValueError, "element and atomic number"):
+                TS.create_mode_review(wrong_atom, [(1, 2)], root / "wrong-atom", 0.1, "a" * 64)
+            self.assertFalse((root / "wrong-atom").exists())
+
     def test_offline_ts_terminal_intake_stops_at_manual_mode_review(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

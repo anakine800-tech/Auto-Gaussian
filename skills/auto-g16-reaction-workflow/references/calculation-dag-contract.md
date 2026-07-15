@@ -209,7 +209,7 @@ no_submission_authorization: true
 exact calculation plan and its exact artifact inventory. It contains no
 manually editable current-state flag. The index recomputes:
 
-- current, superseded, missing and bound-but-unvalidated artifact roles;
+- current, superseded and missing artifact roles;
 - ordered stage gates and the last accepted stage;
 - the next blockers and one bounded next safe offline action;
 - stable node locators and the five independent node-status axes; and
@@ -239,9 +239,10 @@ always has `read_only: true`, `calculation_ready: false`, and
 
 This orchestration slice preserves existing ownership boundaries:
 
-- reaction-literature owns literature evidence; mechanism support still
-  requires its future reviewed contract, while the implemented TS-precedent
-  owner contract remains authoritative for local per-edge eligibility;
+- reaction-literature owns literature evidence; the origin evidence-gate
+  mechanism-support contract remains authoritative for exact edge/channel
+  exploration eligibility, while the implemented TS-precedent owner contract
+  remains authoritative for its local promotion gate;
 - reaction-workflow owns immutable study bookkeeping, dependency validation,
   blockers and the read-only resume view;
 - asymmetric-catalysis owns ensemble and stereochemical-channel coverage;
@@ -255,22 +256,37 @@ functional, basis/ECP, solvent-model choice, resources, input text, server
 path, job ID, retry instruction, cancellation, or deletion request. Those are
 unknown fields here and must fail closed.
 
-## Future external node-update envelope
+## Reviewed external-target mapping and append-only update
 
-A future specialist adapter boundary was reserved as
-`gaussian-reaction-calculation-node-update/1` with exactly:
+The narrow implemented bridge consumes the feature-3
+`gaussian-candidate-target-import/1` envelope without importing adapter-owned
+identity semantics. `external_target_key` remains only the adapter join key;
+it is never parsed, guessed, or reused as a DAG `node_id`.
 
-- `schema`, `study_id`, `plan_id`, `node_id`, and `node_kind`;
-- `target_plan`, an exact bound calculation-plan reference;
-- `update_kind`, one of `candidate_inventory`, `protocol_selection`,
-  `input_review`, `execution_observation`, or `evidence_observation`;
-- `artifact_role` and one exact bound `artifact`;
-- `supersedes`, either null or one exact bound prior update;
-- `notes`, `calculation_ready: false`,
-  `no_submission_authorization: true`, and `payload_sha256`.
+The human decision is first finalized as the closed, hash-bound
+`gaussian-reaction-calculation-target-mapping-review/1` artifact. It contains:
 
-That envelope is not implemented, validated, ingested, or accepted by this
-slice. It will not mutate a calculation plan in place. A future reviewed
-adapter may use it only to build a new immutable plan/index revision while
-preserving the specialist artifact and prior update. Its presence will never
-constitute live approval.
+- exact local, non-null references to the target calculation plan and target
+  import;
+- the exact `external_target_key` and DAG-owned locator
+  `{study_id, plan_id, node_id}`;
+- `expected_node_kind: ts_candidate`, `update_kind: candidate_inventory`, and
+  `artifact_role: candidate_target_import`;
+- zero or more exact local prior node-update bindings under `supersedes`; and
+- reviewer, reviewed time, decision, notes and the offline safety constants.
+
+Only an accepted mapping can build
+`gaussian-reaction-calculation-node-update/1`. The update binds the exact plan,
+mapping review, target import and prior updates, and copies only deterministic
+target facts selected by the reviewed external key. Version `/1` is
+deliberately closed to candidate-inventory attachment on a `ts_candidate`;
+generic artifact roles, other node kinds and later update kinds require a
+versioned contract extension.
+
+Standalone validation reruns the calculation-plan validator, the adapter owner
+validator, exact local reference checks, node-kind/locator checks, target-key
+selection and deterministic reconstruction. Adapter references that permit an
+absolute path or null payload are not copied into the DAG reference layer.
+Neither artifact mutates the plan or changes any readiness, execution or
+evidence-acceptance axis. Supersession is append-only and every review/update
+retains `calculation_ready: false` and `no_submission_authorization: true`.

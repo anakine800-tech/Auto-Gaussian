@@ -23,6 +23,7 @@ import mechanism_network as mechanism
 import mechanism_support
 import reaction_workflow as rw
 import ts_precedent_map as ts_precedent
+import calculation_artifacts
 
 
 REVIEW_SCHEMA = "gaussian-reaction-calculation-plan-review/1"
@@ -30,6 +31,9 @@ PLAN_SCHEMA = "gaussian-reaction-calculation-plan/1"
 INDEX_SCHEMA = "gaussian-reaction-study-index/1"
 SUPPORT_SCHEMA = "gaussian-reaction-mechanism-support/1"
 PRECEDENT_SCHEMA = "gaussian-ts-precedent-map/1"
+TARGET_IMPORT_SCHEMA = "gaussian-candidate-target-import/1"
+MAPPING_REVIEW_SCHEMA = "gaussian-reaction-calculation-target-mapping-review/1"
+NODE_UPDATE_SCHEMA = "gaussian-reaction-calculation-node-update/1"
 
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 NODE_KINDS = (
@@ -124,6 +128,20 @@ INDEX_KEYS = {
     "no_submission_authorization",
     "payload_sha256",
 }
+MAPPING_REVIEW_KEYS = {
+    "schema", "update_id", "target_plan", "target_import", "external_target_key",
+    "locator", "expected_node_kind", "update_kind", "artifact_role",
+    "supersedes", "review_decision", "reviewer", "reviewed_at",
+    "review_notes", "calculation_ready", "no_submission_authorization",
+    "payload_sha256",
+}
+NODE_UPDATE_KEYS = {
+    "schema", "update_id", "locator", "expected_node_kind", "target_plan",
+    "review_source", "update_kind", "artifact_role", "artifact",
+    "external_target", "supersedes", "review", "calculation_ready",
+    "no_submission_authorization", "payload_sha256",
+}
+EXTERNAL_TARGET_KEY_RE = re.compile(r"^[a-z][a-z0-9_.:-]{2,255}$")
 
 
 class ContractError(ValueError):
@@ -1683,6 +1701,235 @@ def validate_index(path: Path) -> dict[str, Any]:
     }
 
 
+def _normalize_literal_binding(value: Any, expected_schema: str, label: str) -> dict[str, Any]:
+    data = _exact(value, {"path", "sha256", "size_bytes", "schema", "payload_sha256"}, label)
+    relative = Path(_string(data["path"], f"{label}.path"))
+    require(not relative.is_absolute(), f"{label}.path must be DAG-local and relative")
+    require(".." not in relative.parts, f"{label}.path must not contain parent traversal")
+    require(_string(data["schema"], f"{label}.schema") == expected_schema, f"{label}.schema mismatch")
+    return {
+        "path": relative.as_posix(),
+        "sha256": _sha256(data["sha256"], f"{label}.sha256"),
+        "size_bytes": _integer(data["size_bytes"], f"{label}.size_bytes"),
+        "schema": expected_schema,
+        "payload_sha256": _sha256(data["payload_sha256"], f"{label}.payload_sha256"),
+    }
+
+
+def _normalize_locator(value: Any, label: str) -> dict[str, str]:
+    data = _exact(value, {"study_id", "plan_id", "node_id"}, label)
+    return {
+        "study_id": _identifier(data["study_id"], f"{label}.study_id"),
+        "plan_id": _identifier(data["plan_id"], f"{label}.plan_id"),
+        "node_id": _identifier(data["node_id"], f"{label}.node_id"),
+    }
+
+
+def normalize_mapping_review(value: dict[str, Any], *, require_hash: bool) -> dict[str, Any]:
+    data = _exact(value, MAPPING_REVIEW_KEYS, "calculation target-mapping review")
+    require(data["schema"] == MAPPING_REVIEW_SCHEMA, "unrecognized calculation target-mapping review schema")
+    review_hash = data["payload_sha256"]
+    if require_hash:
+        validate_payload(data, "calculation target-mapping review")
+    else:
+        require(review_hash is None, "target-mapping review draft payload_sha256 must be null before finalization")
+    external_key = _string(data["external_target_key"], "target-mapping external_target_key")
+    require(EXTERNAL_TARGET_KEY_RE.fullmatch(external_key) is not None, "target-mapping external_target_key is invalid")
+    expected_kind = _string(data["expected_node_kind"], "target-mapping expected_node_kind")
+    require(expected_kind == "ts_candidate", "target-mapping review /1 supports only expected_node_kind ts_candidate")
+    require(data["update_kind"] == "candidate_inventory", "target-mapping review /1 supports only candidate_inventory")
+    require(data["artifact_role"] == "candidate_target_import", "target-mapping review /1 requires candidate_target_import")
+    require(data["review_decision"] in {"accepted", "blocked"}, "target-mapping review_decision is invalid")
+    require(data["calculation_ready"] is False and data["no_submission_authorization"] is True, "target-mapping review violates offline safety constants")
+    supersedes_raw = data["supersedes"]
+    require(isinstance(supersedes_raw, list), "target-mapping supersedes must be an array")
+    supersedes = [
+        _normalize_literal_binding(item, NODE_UPDATE_SCHEMA, f"target-mapping supersedes[{index}]")
+        for index, item in enumerate(supersedes_raw)
+    ]
+    require(len({item["payload_sha256"] for item in supersedes}) == len(supersedes), "target-mapping supersedes contains duplicate updates")
+    normalized = {
+        "schema": MAPPING_REVIEW_SCHEMA,
+        "update_id": _identifier(data["update_id"], "target-mapping update_id"),
+        "target_plan": _normalize_literal_binding(data["target_plan"], PLAN_SCHEMA, "target-mapping target_plan"),
+        "target_import": _normalize_literal_binding(data["target_import"], TARGET_IMPORT_SCHEMA, "target-mapping target_import"),
+        "external_target_key": external_key,
+        "locator": _normalize_locator(data["locator"], "target-mapping locator"),
+        "expected_node_kind": expected_kind,
+        "update_kind": "candidate_inventory",
+        "artifact_role": "candidate_target_import",
+        "supersedes": sorted(supersedes, key=lambda item: item["payload_sha256"]),
+        "review_decision": data["review_decision"],
+        "reviewer": _string(data["reviewer"], "target-mapping reviewer"),
+        "reviewed_at": _string(data["reviewed_at"], "target-mapping reviewed_at"),
+        "review_notes": _string_list(data["review_notes"], "target-mapping review_notes"),
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "payload_sha256": review_hash,
+    }
+    if require_hash:
+        require(normalized == data, "calculation target-mapping review is not in deterministic normalized form")
+    return normalized
+
+
+def finalize_mapping_review(draft_path: Path, output: Path) -> dict[str, Any]:
+    require(output.parent.absolute().resolve() == draft_path.parent.absolute().resolve(), "target-mapping draft and finalized review must share one artifact root")
+    draft = normalize_mapping_review(load_json(draft_path), require_hash=False)
+    finalized = finalize({key: value for key, value in draft.items() if key != "payload_sha256"})
+    # Prove every reference is exact before freezing the human decision.
+    _validate_mapping_review_semantics(finalized, output)
+    write_json(output, finalized)
+    return finalized
+
+
+def _selected_external_target(target_import: dict[str, Any], external_key: str) -> dict[str, Any]:
+    targets = target_import.get("targets")
+    require(isinstance(targets, list), "candidate target import targets must be an array")
+    matches = [item for item in targets if isinstance(item, dict) and item.get("external_target_key") == external_key]
+    require(len(matches) == 1, "reviewed external_target_key must resolve to exactly one imported target")
+    return matches[0]
+
+
+def _validate_mapping_review_semantics(
+    review: dict[str, Any], owner_path: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    plan, plan_path = _resolve_binding(review["target_plan"], owner_path, PLAN_SCHEMA, "target-mapping target plan")
+    validated_plan, _chain = _validate_plan_internal(plan_path, set())
+    require(plan == validated_plan, "target-mapping target plan changed during validation")
+    target_import, target_import_path = _resolve_binding(review["target_import"], owner_path, TARGET_IMPORT_SCHEMA, "target-mapping target import")
+    _validated_upstream(target_import_path, calculation_artifacts.validate_artifact, "candidate target import")
+    _selected_external_target(target_import, review["external_target_key"])
+    locator = review["locator"]
+    require(locator["study_id"] == plan["study_id"] and locator["plan_id"] == plan["plan_id"], "target-mapping locator does not identify the exact target plan")
+    matching_nodes = [node for node in plan["nodes"] if node["node_id"] == locator["node_id"]]
+    require(len(matching_nodes) == 1, "target-mapping node_id must resolve to exactly one plan node")
+    require(matching_nodes[0]["node_kind"] == review["expected_node_kind"], "target-mapping expected_node_kind differs from the plan node")
+    for index, binding in enumerate(review["supersedes"]):
+        previous, previous_path = _resolve_binding(binding, owner_path, NODE_UPDATE_SCHEMA, f"target-mapping supersedes[{index}]")
+        validated_previous = _validate_node_update_internal(previous_path, set())
+        require(previous == validated_previous, f"target-mapping supersedes[{index}] changed during validation")
+        require(previous["locator"] == locator, "superseded node update locator mismatch")
+        require(previous["update_kind"] == review["update_kind"], "superseded node update kind mismatch")
+    return plan, target_import
+
+
+def validate_mapping_review(path: Path) -> dict[str, Any]:
+    review = normalize_mapping_review(load_json(path), require_hash=True)
+    _validate_mapping_review_semantics(review, path)
+    return {
+        "schema": "gaussian-reaction-calculation-target-mapping-review-validation/1",
+        "artifact_schema": MAPPING_REVIEW_SCHEMA,
+        "update_id": review["update_id"],
+        "locator": review["locator"],
+        "review_decision": review["review_decision"],
+        "payload_sha256": review["payload_sha256"],
+        "live_actions": False,
+    }
+
+
+def _assemble_node_update(
+    review: dict[str, Any],
+    review_binding: dict[str, Any],
+    plan: dict[str, Any],
+    target_import: dict[str, Any],
+) -> dict[str, Any]:
+    require(review["review_decision"] == "accepted", "blocked target-mapping review cannot create a node update")
+    locator = review["locator"]
+    require(locator["study_id"] == plan["study_id"] and locator["plan_id"] == plan["plan_id"], "target-mapping locator does not identify the exact target plan")
+    matching_nodes = [node for node in plan["nodes"] if node["node_id"] == locator["node_id"]]
+    require(len(matching_nodes) == 1, "target-mapping node_id must resolve to exactly one plan node")
+    node = matching_nodes[0]
+    require(node["node_kind"] == review["expected_node_kind"], "target-mapping expected_node_kind differs from the plan node")
+    require(node["node_kind"] == "ts_candidate", "candidate target import /1 may bind only a ts_candidate node")
+    selected = _selected_external_target(target_import, review["external_target_key"])
+    readiness = selected.get("readiness_facts")
+    require(isinstance(readiness, dict) and isinstance(readiness.get("eligible_for_later_input_review"), bool), "selected external target lacks closed readiness facts")
+    return finalize({
+        "schema": NODE_UPDATE_SCHEMA,
+        "update_id": review["update_id"],
+        "locator": locator,
+        "expected_node_kind": review["expected_node_kind"],
+        "target_plan": review["target_plan"],
+        "review_source": review_binding,
+        "update_kind": review["update_kind"],
+        "artifact_role": review["artifact_role"],
+        "artifact": review["target_import"],
+        "external_target": {
+            "external_target_key": selected["external_target_key"],
+            "source_entry_sha256": _sha256(selected.get("source_entry_sha256"), "selected external target source_entry_sha256"),
+            "candidate_id": _identifier(selected.get("candidate_id"), "selected external target candidate_id"),
+            "source_disposition": _string(selected.get("source_disposition"), "selected external target source_disposition"),
+            "eligible_for_later_input_review": readiness["eligible_for_later_input_review"],
+        },
+        "supersedes": review["supersedes"],
+        "review": {
+            "decision": review["review_decision"],
+            "reviewer": review["reviewer"],
+            "reviewed_at": review["reviewed_at"],
+            "notes": review["review_notes"],
+        },
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+    })
+
+
+def build_node_update(mapping_review_path: Path, output: Path) -> dict[str, Any]:
+    require(output.parent.absolute().resolve() == mapping_review_path.parent.absolute().resolve(), "node update and mapping review must share one artifact root")
+    review, review_binding = _binding_from_path(mapping_review_path, output.parent.absolute(), MAPPING_REVIEW_SCHEMA, "target-mapping review")
+    review = normalize_mapping_review(review, require_hash=True)
+    plan, target_import = _validate_mapping_review_semantics(review, mapping_review_path)
+    artifact = _assemble_node_update(review, review_binding, plan, target_import)
+    write_json(output, artifact)
+    return artifact
+
+
+def _validate_node_update_internal(path: Path, stack: set[Path]) -> dict[str, Any]:
+    absolute = path.absolute()
+    require(len(stack) < MAX_SUPERSEDED_PLAN_DEPTH, f"node-update supersession ancestry exceeds supported depth {MAX_SUPERSEDED_PLAN_DEPTH}")
+    require(absolute not in stack, "node-update supersession chain contains a cycle")
+    stack.add(absolute)
+    try:
+        artifact = load_json(path)
+        _exact(artifact, NODE_UPDATE_KEYS, "calculation node update")
+        require(artifact["schema"] == NODE_UPDATE_SCHEMA, "unrecognized calculation node-update schema")
+        validate_payload(artifact, "calculation node update")
+        require(artifact["calculation_ready"] is False and artifact["no_submission_authorization"] is True, "calculation node update violates offline safety constants")
+        review, _review_path = _resolve_binding(artifact["review_source"], path, MAPPING_REVIEW_SCHEMA, "node-update mapping review")
+        review = normalize_mapping_review(review, require_hash=True)
+        require(artifact["target_plan"] == review["target_plan"], "node-update target_plan differs from its reviewed mapping")
+        require(artifact["artifact"] == review["target_import"], "node-update artifact differs from its reviewed target import")
+        require(artifact["supersedes"] == review["supersedes"], "node-update supersedes differs from its reviewed mapping")
+        plan, plan_path = _resolve_binding(artifact["target_plan"], path, PLAN_SCHEMA, "node-update target plan")
+        validated_plan, _chain = _validate_plan_internal(plan_path, set())
+        require(plan == validated_plan, "node-update target plan changed during validation")
+        target_import, target_import_path = _resolve_binding(artifact["artifact"], path, TARGET_IMPORT_SCHEMA, "node-update candidate target import")
+        _validated_upstream(target_import_path, calculation_artifacts.validate_artifact, "candidate target import")
+        for index, binding in enumerate(artifact["supersedes"]):
+            previous, previous_path = _resolve_binding(binding, path, NODE_UPDATE_SCHEMA, f"node-update supersedes[{index}]")
+            validated_previous = _validate_node_update_internal(previous_path, stack)
+            require(previous == validated_previous, f"node-update supersedes[{index}] changed during validation")
+            require(previous["locator"] == review["locator"], "superseded node update locator mismatch")
+            require(previous["update_kind"] == review["update_kind"], "superseded node update kind mismatch")
+        expected = _assemble_node_update(review, artifact["review_source"], plan, target_import)
+        require(artifact == expected, "calculation node update differs from deterministic reviewed-source reconstruction")
+        return artifact
+    finally:
+        stack.remove(absolute)
+
+
+def validate_node_update(path: Path) -> dict[str, Any]:
+    artifact = _validate_node_update_internal(path, set())
+    return {
+        "schema": "gaussian-reaction-calculation-node-update-validation/1",
+        "artifact_schema": NODE_UPDATE_SCHEMA,
+        "update_id": artifact["update_id"],
+        "locator": artifact["locator"],
+        "update_kind": artifact["update_kind"],
+        "payload_sha256": artifact["payload_sha256"],
+        "live_actions": False,
+    }
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest="command", required=True)
@@ -1711,6 +1958,32 @@ def parser() -> argparse.ArgumentParser:
 
     validate_index_parser = commands.add_parser("validate-index", help="validate and independently rebuild one study index")
     validate_index_parser.add_argument("artifact", type=Path)
+
+    finalize_mapping_parser = commands.add_parser(
+        "finalize-target-mapping-review",
+        help="normalize, validate exact local bindings, and hash one human-reviewed external-target mapping",
+    )
+    finalize_mapping_parser.add_argument("draft", type=Path)
+    finalize_mapping_parser.add_argument("--output", type=Path, required=True)
+
+    validate_mapping_parser = commands.add_parser(
+        "validate-target-mapping-review",
+        help="validate exact bindings and semantics of one finalized target-mapping review",
+    )
+    validate_mapping_parser.add_argument("artifact", type=Path)
+
+    build_update_parser = commands.add_parser(
+        "build-node-update",
+        help="build one append-only DAG-owned external-target mapping update",
+    )
+    build_update_parser.add_argument("mapping_review", type=Path)
+    build_update_parser.add_argument("--output", type=Path, required=True)
+
+    validate_update_parser = commands.add_parser(
+        "validate-node-update",
+        help="validate and independently rebuild one append-only DAG node update",
+    )
+    validate_update_parser.add_argument("artifact", type=Path)
     return root
 
 
@@ -1753,8 +2026,30 @@ def main(argv: list[str] | None = None) -> int:
                 "payload_sha256": artifact["payload_sha256"],
                 "live_actions": False,
             }
-        else:
+        elif args.command == "validate-index":
             result = validate_index(args.artifact)
+        elif args.command == "finalize-target-mapping-review":
+            review = finalize_mapping_review(args.draft, args.output)
+            result = {
+                "schema": "gaussian-reaction-calculation-target-mapping-review-finalization/1",
+                "update_id": review["update_id"],
+                "locator": review["locator"],
+                "payload_sha256": review["payload_sha256"],
+                "live_actions": False,
+            }
+        elif args.command == "validate-target-mapping-review":
+            result = validate_mapping_review(args.artifact)
+        elif args.command == "build-node-update":
+            artifact = build_node_update(args.mapping_review, args.output)
+            result = {
+                "schema": "gaussian-reaction-calculation-node-update-build/1",
+                "update_id": artifact["update_id"],
+                "locator": artifact["locator"],
+                "payload_sha256": artifact["payload_sha256"],
+                "live_actions": False,
+            }
+        else:
+            result = validate_node_update(args.artifact)
     except (ContractError, rw.OfflineError, OSError, ValueError, AssertionError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

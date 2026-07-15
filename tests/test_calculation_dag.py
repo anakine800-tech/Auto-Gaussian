@@ -24,6 +24,8 @@ FIXTURES = ROOT / "tests" / "fixtures" / "reaction_workflow"
 REVIEW_TEMPLATE = FIXTURES / "calculation_plan_review.template.json"
 PLAN_SCHEMA = ROOT / "contracts" / "reaction-workflow" / "calculation-plan.schema.json"
 INDEX_SCHEMA = ROOT / "contracts" / "reaction-workflow" / "study-index.schema.json"
+MAPPING_SCHEMA = ROOT / "contracts" / "reaction-workflow" / "calculation-target-mapping-review.schema.json"
+UPDATE_SCHEMA = ROOT / "contracts" / "reaction-workflow" / "calculation-node-update.schema.json"
 MAX_SUPERSEDED_PLAN_DEPTH = 128
 
 SCHEMA_VALIDATOR_PATH = ROOT / "scripts" / "validate_asymmetric_contract.py"
@@ -43,6 +45,12 @@ TS_PRECEDENT_SPEC = importlib.util.spec_from_file_location("calculation_dag_ts_p
 assert TS_PRECEDENT_SPEC and TS_PRECEDENT_SPEC.loader
 TS_PRECEDENT_FIXTURE = importlib.util.module_from_spec(TS_PRECEDENT_SPEC)
 TS_PRECEDENT_SPEC.loader.exec_module(TS_PRECEDENT_FIXTURE)
+
+ADAPTER_TEST_PATH = ROOT / "tests" / "test_calculation_artifacts.py"
+ADAPTER_TEST_SPEC = importlib.util.spec_from_file_location("calculation_dag_adapter_fixture", ADAPTER_TEST_PATH)
+assert ADAPTER_TEST_SPEC and ADAPTER_TEST_SPEC.loader
+ADAPTER_FIXTURE = importlib.util.module_from_spec(ADAPTER_TEST_SPEC)
+ADAPTER_TEST_SPEC.loader.exec_module(ADAPTER_FIXTURE)
 
 
 def canonical_bytes(value: object) -> bytes:
@@ -70,6 +78,17 @@ def rehash(value: dict[str, object]) -> None:
     payload = copy.deepcopy(value)
     payload.pop("payload_sha256", None)
     value["payload_sha256"] = hashlib.sha256(canonical_bytes(payload)).hexdigest()
+
+
+def exact_local_ref(path: Path, schema: str) -> dict[str, object]:
+    document = load_json(path)
+    return {
+        "path": path.name,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "size_bytes": path.stat().st_size,
+        "schema": schema,
+        "payload_sha256": document["payload_sha256"],
+    }
 
 
 def by_id(items: list[dict[str, object]], key: str, value: str) -> dict[str, object]:
@@ -202,6 +221,57 @@ class CalculationDagTests(unittest.TestCase):
         self.assertTrue(plan.is_file())
         return review, plan, load_json(plan)
 
+    def build_target_import(self, work: Path) -> tuple[Path, dict[str, object], str]:
+        work = work.resolve()
+        helper = ADAPTER_FIXTURE.CalculationArtifactTests(
+            "test_target_import_retains_all_dispositions_and_stable_external_keys"
+        )
+        chain = helper.make_input_chain(work)
+        ledger_path, _candidates = helper.make_ledger(work, chain)
+        target_path = work / "candidate-target-import.json"
+        target_import = ADAPTER_FIXTURE.ADAPTER.build_target_import(
+            chain["study_path"], ledger_path, target_path, "fixture_target_import"
+        )
+        candidate_id = chain["candidate"]["candidate_id"]
+        selected = by_id(target_import["targets"], "candidate_id", candidate_id)
+        return target_path, target_import, selected["external_target_key"]
+
+    def mapping_review_draft(
+        self,
+        plan_path: Path,
+        target_path: Path,
+        external_target_key: str,
+        *,
+        update_id: str = "map_primary_candidate",
+        node_id: str = "ts_candidate_primary",
+        expected_node_kind: str = "ts_candidate",
+        supersedes: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        plan = load_json(plan_path)
+        return {
+            "schema": "gaussian-reaction-calculation-target-mapping-review/1",
+            "update_id": update_id,
+            "target_plan": exact_local_ref(plan_path, "gaussian-reaction-calculation-plan/1"),
+            "target_import": exact_local_ref(target_path, "gaussian-candidate-target-import/1"),
+            "external_target_key": external_target_key,
+            "locator": {
+                "study_id": plan["study_id"],
+                "plan_id": plan["plan_id"],
+                "node_id": node_id,
+            },
+            "expected_node_kind": expected_node_kind,
+            "update_kind": "candidate_inventory",
+            "artifact_role": "candidate_target_import",
+            "supersedes": supersedes or [],
+            "review_decision": "accepted",
+            "reviewer": "fixture_reviewer",
+            "reviewed_at": "2026-07-16T12:00:00+08:00",
+            "review_notes": ["Explicit external target to DAG node mapping; no readiness promotion."],
+            "calculation_ready": False,
+            "no_submission_authorization": True,
+            "payload_sha256": None,
+        }
+
     def assert_review_or_build_rejected(self, label: str, mutator: ReviewMutator, pattern: str) -> None:
         work = self.workdir(label)
         _, plan, result = self.build_plan(work, mutator)
@@ -210,7 +280,11 @@ class CalculationDagTests(unittest.TestCase):
         self.assertFalse(plan.exists())
 
     def test_help_is_offline_and_all_commands_are_exposed(self) -> None:
-        for command in ("finalize-review", "build-plan", "validate-plan", "build-index", "validate-index"):
+        for command in (
+            "finalize-review", "build-plan", "validate-plan", "build-index", "validate-index",
+            "finalize-target-mapping-review", "validate-target-mapping-review",
+            "build-node-update", "validate-node-update",
+        ):
             with self.subTest(command=command):
                 result = self.run_cli(command, "--help")
                 self.assert_success(result)
@@ -886,6 +960,172 @@ class CalculationDagTests(unittest.TestCase):
         self.assertNotEqual(mismatched.returncode, 0)
         self.assertIn("exact selected artifact path", mismatched.stderr.lower())
         self.assertFalse(mismatched_plan.exists())
+
+    def test_reviewed_external_target_mapping_builds_append_only_node_update(self) -> None:
+        work = self.workdir("dag_owned_target_mapping")
+        _review, plan_path, built = self.build_plan(work)
+        self.assert_success(built)
+        plan_before = plan_path.read_bytes()
+        target_path, _target_import, external_key = self.build_target_import(work)
+
+        draft_path = work / "target-mapping-review-draft.json"
+        review_path = work / "target-mapping-review.json"
+        write_json(draft_path, self.mapping_review_draft(plan_path, target_path, external_key))
+        self.assert_success(self.run_cli(
+            "finalize-target-mapping-review", str(draft_path), "--output", str(review_path)
+        ))
+        finalized_review = load_json(review_path)
+        self.assertEqual(finalized_review["external_target_key"], external_key)
+        self.assertEqual(
+            finalized_review["locator"],
+            {
+                "study_id": "mechanism_network_fixture",
+                "plan_id": "fixture_calculation_plan",
+                "node_id": "ts_candidate_primary",
+            },
+        )
+        self.assert_success(self.run_cli("validate-target-mapping-review", str(review_path)))
+
+        first_update = work / "candidate-node-update.json"
+        self.assert_success(self.run_cli("build-node-update", str(review_path), "--output", str(first_update)))
+        update = load_json(first_update)
+        self.assertEqual(update["schema"], "gaussian-reaction-calculation-node-update/1")
+        self.assertEqual(update["locator"], finalized_review["locator"])
+        self.assertEqual(update["external_target"]["external_target_key"], external_key)
+        self.assertEqual(update["expected_node_kind"], "ts_candidate")
+        self.assertEqual(update["update_kind"], "candidate_inventory")
+        self.assertEqual(update["artifact_role"], "candidate_target_import")
+        self.assertFalse(update["calculation_ready"])
+        self.assertTrue(update["no_submission_authorization"])
+        self.assertNotEqual(external_key, update["locator"]["node_id"])
+        self.assertEqual(plan_path.read_bytes(), plan_before)
+        self.assert_success(self.run_cli("validate-node-update", str(first_update)))
+
+        second_copy = work / "candidate-node-update-copy.json"
+        self.assert_success(self.run_cli("build-node-update", str(review_path), "--output", str(second_copy)))
+        self.assertEqual(first_update.read_bytes(), second_copy.read_bytes())
+
+        for schema_path, document in (
+            (MAPPING_SCHEMA, finalized_review),
+            (UPDATE_SCHEMA, update),
+        ):
+            schema = load_json(schema_path)
+            SCHEMA_VALIDATOR.validate_schema_document(schema)
+            SCHEMA_VALIDATOR._validate_schema_instance(document, schema, schema)
+        update_schema = load_json(UPDATE_SCHEMA)
+        mapping_schema = load_json(MAPPING_SCHEMA)
+        for field, unsupported in (
+            ("expected_node_kind", "minimum"),
+            ("update_kind", "input_review"),
+            ("artifact_role", "input_handoff"),
+        ):
+            advertised_review = copy.deepcopy(finalized_review)
+            advertised_review[field] = unsupported
+            rehash(advertised_review)
+            with self.assertRaises(SCHEMA_VALIDATOR.ContractError, msg=f"review:{field}"):
+                SCHEMA_VALIDATOR._validate_schema_instance(advertised_review, mapping_schema, mapping_schema)
+        for field, unsupported in (
+            ("expected_node_kind", "minimum"),
+            ("update_kind", "input_review"),
+            ("artifact_role", "input_handoff"),
+        ):
+            advertised = copy.deepcopy(update)
+            advertised[field] = unsupported
+            rehash(advertised)
+            with self.assertRaises(SCHEMA_VALIDATOR.ContractError, msg=field):
+                SCHEMA_VALIDATOR._validate_schema_instance(advertised, update_schema, update_schema)
+        wrong_artifact_schema = copy.deepcopy(update)
+        wrong_artifact_schema["artifact"]["schema"] = "gaussian-candidate-input-handoff/1"
+        rehash(wrong_artifact_schema)
+        with self.assertRaises(SCHEMA_VALIDATOR.ContractError):
+            SCHEMA_VALIDATOR._validate_schema_instance(wrong_artifact_schema, update_schema, update_schema)
+
+        superseding_draft = work / "target-mapping-review-v2-draft.json"
+        superseding_review = work / "target-mapping-review-v2.json"
+        superseding_update = work / "candidate-node-update-v2.json"
+        write_json(
+            superseding_draft,
+            self.mapping_review_draft(
+                plan_path,
+                target_path,
+                external_key,
+                update_id="map_primary_candidate_v2",
+                supersedes=[exact_local_ref(first_update, "gaussian-reaction-calculation-node-update/1")],
+            ),
+        )
+        self.assert_success(self.run_cli(
+            "finalize-target-mapping-review", str(superseding_draft), "--output", str(superseding_review)
+        ))
+        self.assert_success(self.run_cli(
+            "build-node-update", str(superseding_review), "--output", str(superseding_update)
+        ))
+        self.assert_success(self.run_cli("validate-node-update", str(superseding_update)))
+        self.assertEqual(
+            load_json(superseding_update)["supersedes"],
+            [exact_local_ref(first_update, "gaussian-reaction-calculation-node-update/1")],
+        )
+        self.assertEqual(plan_path.read_bytes(), plan_before)
+
+    def test_target_mapping_refuses_key_alias_bad_local_refs_forgery_and_overwrite(self) -> None:
+        work = self.workdir("dag_target_mapping_adversarial")
+        _review, plan_path, built = self.build_plan(work)
+        self.assert_success(built)
+        target_path, _target_import, external_key = self.build_target_import(work)
+
+        def finalize_case(name: str, draft: dict[str, object]) -> tuple[Path, subprocess.CompletedProcess[str]]:
+            draft_path = work / f"{name}-draft.json"
+            review_path = work / f"{name}.json"
+            write_json(draft_path, draft)
+            return review_path, self.run_cli(
+                "finalize-target-mapping-review", str(draft_path), "--output", str(review_path)
+            )
+
+        key_alias = self.mapping_review_draft(plan_path, target_path, "ts_candidate_primary")
+        alias_review, finalized_alias = finalize_case("alias-key-review", key_alias)
+        self.assertNotEqual(finalized_alias.returncode, 0)
+        self.assertIn("external_target_key", finalized_alias.stderr)
+        self.assertFalse(alias_review.exists())
+
+        absolute_ref = self.mapping_review_draft(plan_path, target_path, external_key)
+        absolute_ref["target_import"]["path"] = str(target_path.resolve())
+        absolute_output, absolute_result = finalize_case("absolute-ref-review", absolute_ref)
+        self.assertNotEqual(absolute_result.returncode, 0)
+        self.assertRegex(absolute_result.stderr.lower(), r"local|relative|absolute")
+        self.assertFalse(absolute_output.exists())
+
+        null_payload = self.mapping_review_draft(plan_path, target_path, external_key)
+        null_payload["target_import"]["payload_sha256"] = None
+        null_output, null_result = finalize_case("null-payload-review", null_payload)
+        self.assertNotEqual(null_result.returncode, 0)
+        self.assertIn("payload_sha256", null_result.stderr)
+        self.assertFalse(null_output.exists())
+
+        wrong_kind = self.mapping_review_draft(
+            plan_path, target_path, external_key, expected_node_kind="minimum"
+        )
+        wrong_review, finalized_wrong = finalize_case("wrong-kind-review", wrong_kind)
+        self.assertNotEqual(finalized_wrong.returncode, 0)
+        self.assertIn("expected_node_kind", finalized_wrong.stderr)
+        self.assertFalse(wrong_review.exists())
+
+        good_review, finalized_good = finalize_case(
+            "good-mapping-review", self.mapping_review_draft(plan_path, target_path, external_key)
+        )
+        self.assert_success(finalized_good)
+        good_update = work / "good-node-update.json"
+        self.assert_success(self.run_cli("build-node-update", str(good_review), "--output", str(good_update)))
+        overwrite = self.run_cli("build-node-update", str(good_review), "--output", str(good_update))
+        self.assertNotEqual(overwrite.returncode, 0)
+        self.assertIn("overwrite", overwrite.stderr.lower())
+
+        forged = load_json(good_update)
+        forged["external_target"]["candidate_id"] = "forged_candidate"
+        rehash(forged)
+        forged_path = work / "forged-node-update.json"
+        write_json(forged_path, forged)
+        checked = self.run_cli("validate-node-update", str(forged_path))
+        self.assertNotEqual(checked.returncode, 0)
+        self.assertRegex(checked.stderr.lower(), r"deterministic|reconstruction|differs")
 
     def test_invalid_mechanism_and_atom_references_fail_closed(self) -> None:
         def unknown_state(review: dict[str, object]) -> None:

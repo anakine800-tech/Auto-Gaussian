@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/calculation-attempt-link.schema.json",
+  "title": "Immutable observation-only calculation attempt link",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "attempt_link_id", "external_target_key", "artifacts", "preserved_classifications", "classification_policy", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-calculation-attempt-link/1"},
+    "attempt_link_id": {"$ref": "#/$defs/id"},
+    "external_target_key": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{2,255}$"},
+    "artifacts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["input_handoff", "sanitized_job_observation", "terminal_intake", "parsed_result", "mode_review", "scientific_decision"],
+      "properties": {"input_handoff": {"$ref": "#/$defs/artifact"}, "sanitized_job_observation": {"$ref": "#/$defs/artifact"}, "terminal_intake": {"$ref": "#/$defs/artifact"}, "parsed_result": {"$ref": "#/$defs/artifact"}, "mode_review": {"$ref": "#/$defs/artifact"}, "scientific_decision": {"$ref": "#/$defs/artifact"}}
+    },
+    "preserved_classifications": {
+      "type": "object", "additionalProperties": false,
+      "required": ["job_status", "job_last_inspection_state", "terminal_job_state", "terminal_acceptance_status", "terminal_outcome", "parsed_result_status", "scientific_decision"],
+      "properties": {"job_status": {"type": ["string", "null"]}, "job_last_inspection_state": {"type": ["string", "null"]}, "terminal_job_state": {"type": ["string", "null"]}, "terminal_acceptance_status": {"type": ["string", "null"]}, "terminal_outcome": {"type": ["string", "null"]}, "parsed_result_status": {"type": ["string", "null"]}, "scientific_decision": {"type": ["string", "null"]}}
+    },
+    "classification_policy": {"const": "specialist_values_preserved_without_reclassification"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": ["string", "null"]}, "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}}}
+  }
+}

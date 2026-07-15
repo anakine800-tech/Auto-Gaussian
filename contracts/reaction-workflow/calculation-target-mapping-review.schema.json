@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/calculation-target-mapping-review.schema.json",
+  "title": "Auto-G16 reviewed external-target to calculation-node mapping",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "update_id", "target_plan", "target_import",
+    "external_target_key", "locator", "expected_node_kind", "update_kind",
+    "artifact_role", "supersedes", "review_decision", "reviewer",
+    "reviewed_at", "review_notes", "calculation_ready",
+    "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-calculation-target-mapping-review/1"},
+    "update_id": {"$ref": "#/$defs/id"},
+    "target_plan": {"$ref": "#/$defs/planRef"},
+    "target_import": {"$ref": "#/$defs/importRef"},
+    "external_target_key": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{2,255}$"},
+    "locator": {"$ref": "#/$defs/locator"},
+    "expected_node_kind": {"const": "ts_candidate"},
+    "update_kind": {"const": "candidate_inventory"},
+    "artifact_role": {"const": "candidate_target_import"},
+    "supersedes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/updateRef"}
+    },
+    "review_decision": {"enum": ["accepted", "blocked"]},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "minLength": 1},
+    "review_notes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["study_id", "plan_id", "node_id"],
+      "properties": {
+        "study_id": {"$ref": "#/$defs/id"},
+        "plan_id": {"$ref": "#/$defs/id"},
+        "node_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"type": "string", "minLength": 1},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "planRef": {
+      "allOf": [
+        {"$ref": "#/$defs/artifactRef"},
+        {"properties": {"schema": {"const": "gaussian-reaction-calculation-plan/1"}}}
+      ]
+    },
+    "importRef": {
+      "allOf": [
+        {"$ref": "#/$defs/artifactRef"},
+        {"properties": {"schema": {"const": "gaussian-candidate-target-import/1"}}}
+      ]
+    },
+    "updateRef": {
+      "allOf": [
+        {"$ref": "#/$defs/artifactRef"},
+        {"properties": {"schema": {"const": "gaussian-reaction-calculation-node-update/1"}}}
+      ]
+    }
+  }
+}
