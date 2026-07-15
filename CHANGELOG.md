@@ -7,6 +7,45 @@ All notable public release changes are recorded here. The project follows
 
 ### Added
 
+- A standard-library-only `gaussian-reaction-calculation-plan/1` builder and
+  validator with stable DAG/node identities, exact W1 and finalized mechanism-
+  network bindings by file SHA-256, byte size and payload SHA-256, explicit
+  dependencies, alternatives, supersession, blockers, and preserved failed,
+  cancelled, rejected, skipped, inconclusive and superseded history.
+- A compact immutable `gaussian-reaction-study-index/1` read-only resume view
+  that derives accepted-stage, blocker, supersession, and coverage summaries
+  from exact artifact bindings rather than a mutable status flag.
+- Closed Draft 2020-12 calculation-plan and study-index schemas,
+  `skills/auto-g16-reaction-workflow/scripts/calculation_dag.py`, and the
+  offline contract in
+  `skills/auto-g16-reaction-workflow/references/calculation-dag-contract.md`.
+  Missing mechanism-support and TS-precedent bindings remain explicit
+  blockers. Supplied mechanism support must pass the origin evidence-gate
+  owner validator and match the exact W1/network parents, but remains blocked
+  because calculation-plan review `/1` has no reviewed edge-plus-channel
+  mapping. TS-precedent coverage clears only per matching edge after its owner
+  validator proves the exact W1/network/support parents and a locally accepted
+  complete record.
+- Target-shaped dependency checks require an edge single-point to consume a
+  reviewed TS-Freq result, and every edge-target node inherits the TS-
+  precedent gate. Study-index stages follow W1, mechanism network, mechanism
+  support, TS precedent, then calculation plan, while retaining the plan's
+  normalized blocker identities, descriptions, scopes and provenance.
+- Supersession validation is iterative for long node chains and rejects plan-
+  ancestry paths beyond the documented 128-artifact limit with a controlled
+  contract error.
+- Closed `gaussian-reaction-calculation-target-mapping-review/1` and
+  `gaussian-reaction-calculation-node-update/1` contracts plus deterministic
+  builder/validators for one exact feature-3 candidate-target import mapped by
+  human review to the DAG-owned `{study_id, plan_id, node_id}` locator. Version
+  `/1` is append-only and restricted to `candidate_inventory` on a
+  `ts_candidate`; it never treats `external_target_key` as `node_id`, accepts
+  absolute/null DAG references, mutates a plan, or promotes readiness.
+- Owner-valid but blocked or reviewed-with-blockers mechanism support now
+  retains the network availability blocker, normalized owner descriptions and
+  `mechanism_support_not_promotable`; the study index resumes at owner review
+  instead of prematurely suggesting channel mapping. Node-update validation
+  also rejects mapping-review/update root reinterpretation.
 - A closed standard-library-only `gaussian-reaction-mechanism-support/1`
   builder/validator with exact W1, mechanism-network, knowledge-snapshot,
   finalized-literature and immutable-review bindings; deterministic claim and
@@ -55,6 +94,14 @@ All notable public release changes are recorded here. The project follows
 
 ### Safety
 
+- The calculation-planning slice separates scientific readiness, input-review
+  readiness, live-approval readiness, execution state, and evidence
+  acceptance. Every node remains non-executable; every artifact retains
+  `calculation_ready: false` and `no_submission_authorization: true`.
+- This slice does not infer chemistry, choose a protocol, construct geometry,
+  render an input, create a server project or job, or perform Gaussian, SSH,
+  PBS, submission, retry, cancellation, deletion, deployment, or other live
+  action.
 - Mechanism-support, mechanism-support-matrix and TS-planning artifacts remain
   `calculation_ready: false` and `no_submission_authorization: true`; de novo
   plans contain no source precedent or source coordinates and grant no method,

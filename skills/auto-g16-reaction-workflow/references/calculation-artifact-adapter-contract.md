@@ -60,11 +60,15 @@ unexpected installed file rather than deleting it.
 At repository runtime the adapter uses the authoritative root contracts and
 root validator. At installed runtime it requires the manifest-packaged
 reaction-workflow contracts and the manifest-packaged validator plus schemas
-inside the owning `auto-g16-asymmetric-catalysis` Skill. A partial direct copy
-therefore fails closed rather than silently skipping schema or specialist
-validation. The unchanged `auto-g16-rtwin-pbs` dependency and the exact
-`auto-g16-ts-irc` revision must also be synchronized before a deployed-copy
-smoke.
+inside the owning `auto-g16-asymmetric-catalysis` Skill. The calculation-DAG
+entry point also imports owner validators from exact deployed copies of
+`auto-g16-knowledge-base` and `auto-g16-reaction-literature`. A partial direct
+copy therefore fails closed rather than silently skipping schema or specialist
+validation. The exact `auto-g16-knowledge-base`,
+`auto-g16-reaction-literature`, `auto-g16-asymmetric-catalysis`,
+`auto-g16-rtwin-pbs`, and `auto-g16-ts-irc` named-Skill revisions must be
+synchronized or proven unchanged by an exact package comparison before a
+deployed-copy DAG smoke.
 
 The public `validate` command does more than accept a well-formed, newly
 rehashed document. It rechecks strict schema and owned-payload validity, every
@@ -252,11 +256,11 @@ displacement atomic number must agree with the corresponding final coordinate.
 A fully rehashed but cross-inconsistent result/intake/review chain remains
 invalid.
 
-## Future DAG-owned binding
+## DAG-owned binding implemented outside the adapter
 
-This feature deliberately defines no DAG node schema, plan mutation, node
-state, dependency closure, approval state, or resume logic. A future narrow
-DAG-owned importer and binding review may consume
+The adapter deliberately defines no DAG node schema, plan mutation, node
+state, dependency closure, approval state, or resume logic. The separate
+narrow DAG-owned importer and binding review consume
 `gaussian-candidate-target-import/1` and map each reviewed
 `external_target_key` to the fixed node locator:
 
@@ -268,19 +272,19 @@ DAG-owned importer and binding review may consume
 }
 ```
 
-That importer must validate the target envelope and an exact
-`gaussian-reaction-calculation-plan/1` reference, choose the mapping under DAG
-rules, and create a new superseding immutable plan instead of mutating an
-existing plan. No `node_id` may be guessed or stored in this adapter's import
-envelope.
+The calculation-DAG slice now implements the narrow `/1` importer described
+here. It validates the target envelope and an exact
+`gaussian-reaction-calculation-plan/1` reference, chooses the mapping under DAG
+rules, and emits an append-only node update without mutating an existing plan.
+No `node_id` is guessed or stored in this adapter's import envelope.
 
-Future facts attached to a bound node belong in the DAG-owned append-only
+Facts attached to a bound node belong in the DAG-owned append-only
 `gaussian-reaction-calculation-node-update/1` sidecar. Its contract owns
 the same exact `{study_id, plan_id, node_id}` locator, node-kind consistency
-metadata, the exact `target_plan` artifact reference, `artifact_role` plus the
-exact artifact, optional `supersedes`, notes, and one of these update kinds:
-`candidate_inventory`, `protocol_selection`, `input_review`,
-`execution_observation`, or `evidence_observation`. Those sidecars must retain
-`calculation_ready: false` and `no_submission_authorization: true`. This
-adapter neither implements that schema nor emits or mutates a calculation
-plan; its only stable DAG join key is `external_target_key`.
+metadata, the exact `target_plan` and mapping-review references, the exact
+target import, and optional `supersedes`. Version `/1` is intentionally closed
+to `candidate_inventory` / `candidate_target_import` for `ts_candidate`; later
+roles or update kinds require a versioned extension. Those sidecars retain
+`calculation_ready: false` and `no_submission_authorization: true`. The
+adapter itself neither emits nor mutates a calculation plan; its only stable
+DAG join key is `external_target_key`.

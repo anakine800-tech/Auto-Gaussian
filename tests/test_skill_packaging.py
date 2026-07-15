@@ -136,8 +136,8 @@ class SkillPackagingTests(unittest.TestCase):
             installed.mkdir()
             names = (
                 "auto-g16-reaction-workflow",
-                "auto-g16-reaction-literature",
                 "auto-g16-knowledge-base",
+                "auto-g16-reaction-literature",
                 "auto-g16-asymmetric-catalysis",
                 "auto-g16-ts-irc",
                 "auto-g16-rtwin-pbs",
@@ -162,6 +162,17 @@ class SkillPackagingTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            dag = installed / "auto-g16-reaction-workflow/scripts/calculation_dag.py"
+            dag_help = subprocess.run(
+                [sys.executable, str(dag), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(dag_help.returncode, 0, dag_help.stdout + dag_help.stderr)
+            self.assertIn("build-plan", dag_help.stdout)
+            self.assertIn("build-node-update", dag_help.stdout)
             adapter = installed / "auto-g16-reaction-workflow/scripts/calculation_artifacts.py"
             help_result = subprocess.run(
                 [sys.executable, str(adapter), "--help"],

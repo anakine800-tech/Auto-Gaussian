@@ -81,9 +81,13 @@ support is copied as a fact and never inferred from a row disposition.
 The upstream mechanism network remains unchanged with its null child binding
 and historical ordering blocker. The current calculation-artifact adapter
 continues to use its own `external_target_key` boundary and does not consume
-this matrix. A future DAG owner may consume a reviewed target only through a
-separate exact importer; this matrix contains no `plan_id`, `node_id`, node
-state, dependency closure, execution status, or mutation command.
+this matrix. The implemented DAG owner and feature-3 target-mapping/node-update
+bridge consume the exact owner `gaussian-reaction-mechanism-support/1` artifact
+and their own reviewed mappings; they do not consume this matrix. This matrix
+contains no `plan_id`, `node_id`, node state, dependency closure, execution
+status, or mutation command. Any later matrix-to-DAG relationship requires a
+separate exact reviewed contract and an immutable DAG-owned update; a matrix
+row disposition is never DAG readiness.
 
 ## Supersession and PR #19 migration
 

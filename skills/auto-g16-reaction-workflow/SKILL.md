@@ -1,22 +1,30 @@
 ---
 name: auto-g16-reaction-workflow
-description: Build the offline, hash-bound foundation of a whole Gaussian reaction study from a reviewed ChemDraw reaction package, and create narrow immutable calculation-artifact handoffs only from exact reviewed candidate, protocol, input-draft, and specialist-result artifacts. Use when Codex must scope a reaction-computation study, bind reaction/species/condition records, export candidate-target envelopes, reproduce an explicitly reviewed closed-shell main-group input, or project blocked/electronic-only energy lineage. This Skill never infers mechanisms or methods and never authorizes live work.
+description: Build and validate the offline, hash-bound foundation of a whole Gaussian reaction study from reviewed human inputs, including W1 intake, explicit W3 mechanism records, a non-executable calculation DAG and read-only study index, plus narrow immutable calculation-artifact handoffs from exact reviewed candidate, protocol, input-draft and specialist-result artifacts. Use when Codex must build or validate those offline records, export external candidate targets, reproduce an explicitly reviewed closed-shell main-group input, or project blocked/electronic-only energy lineage. This Skill never infers chemistry, mechanisms or methods and never authorizes live work.
 ---
 
 # Auto-G16 Reaction Workflow
 
 ## Purpose
 
-Create the first three immutable artifacts of a whole-reaction study:
+Create the first three immutable W1 artifacts of a whole-reaction study:
 
 1. `gaussian-reaction-intake/1`;
 2. `gaussian-reaction-species-registry/1`; and
 3. `gaussian-reaction-condition-model/1`.
 
-Treat these as offline scientific review records. Keep every artifact
-`calculation_ready: false` and `no_submission_authorization: true`. A reviewed
-intake is not a mechanism, protocol, Gaussian input, batch approval, or live
-calculation request.
+After separate human review, the optional W3 stages may also create:
+
+4. `gaussian-reaction-mechanism-network/1`;
+5. `gaussian-reaction-calculation-plan/1`; and
+6. `gaussian-reaction-study-index/1`.
+
+Treat every artifact as an offline scientific review or bookkeeping record.
+Keep `calculation_ready: false` and `no_submission_authorization: true`
+throughout this Skill, and keep every calculation-plan node
+`executable: false`. A reviewed intake, network or plan is not a selected
+protocol, Gaussian input, batch approval, job, accepted calculation result or
+live calculation request.
 
 ## Required upstream package
 
@@ -142,7 +150,109 @@ an ordering blocker, not a claim that the child builder is unimplemented.
 Network output remains `calculation_ready: false` and grants no mechanism
 promotion, calculation DAG, protocol, Gaussian input, or live authority.
 
-### Optional reviewed calculation-artifact adapter
+### 5. Build the offline calculation plan and study index
+
+Invoke this only after the exact W1 chain, finalized mechanism network and an
+explicit human-authored calculation-plan review exist. Read
+[references/calculation-dag-contract.md](references/calculation-dag-contract.md)
+before using the builder. Finalization hashes the reviewed draft without
+changing its scientific decisions:
+
+```bash
+DAG_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/calculation_dag.py"
+
+python3 "$DAG_TOOL" finalize-review calculation-plan-review.draft.json \
+  --output calculation-plan-review.json
+```
+
+Build and validate the non-executable plan:
+
+```bash
+python3 "$DAG_TOOL" build-plan reaction-intake.json species-registry.json \
+  condition-model.json mechanism-network.json \
+  --review calculation-plan-review.json \
+  --output calculation-plan.json
+python3 "$DAG_TOOL" validate-plan calculation-plan.json
+```
+
+Every required artifact binding records its relative path, file SHA-256, byte
+size, schema and canonical payload SHA-256. The builder and validators use
+strict JSON, refuse symlinks, hash drift, unknown fields, graph forgery and
+output overwrite, require a pre-existing real output parent, reject divergent
+W1/W3 revision chains, and independently recompute graph order, target-
+continuous dependencies, readiness, blockers, supersession and coverage.
+
+Bind an exact `gaussian-ts-precedent-map/1` with `--ts-precedent-map FILE`.
+The DAG builder calls its owner validator, requires the same exact
+W1/network/mechanism-support parents, and clears only the TS-precedent blocker
+for edges with a locally accepted, promotion-complete record. Uncovered edges
+remain blocked. A supplied `gaussian-reaction-mechanism-support/1` must pass
+the origin evidence-gate owner validator and match the selected exact W1 and
+network parents. Its eligibility is edge-plus-stereochemical-channel scoped,
+while calculation-plan review `/1` carries only edge IDs; therefore the DAG
+retains `mechanism_support_channel_mapping_missing` and never collapses channel
+decisions into edge-level readiness. If the owner review/gate is blocked or
+has blockers, those exact normalized blockers and
+`mechanism_support_not_promotable` remain in the plan/index; channel mapping is
+not suggested until the owner gate is accepted and clear. Use repeated
+`--supersedes-plan FILE` bindings only for exact immutable earlier plans
+explicitly superseded by the review; never rewrite an older plan.
+
+The plan supports explicit logical needs for minima, conformers, complexes,
+TS candidates, TS/Freq, forward and reverse IRC, endpoints, single points,
+thermochemistry and sensitivity. It validates stable node IDs, dependencies,
+alternatives, supersession and stage order while retaining failed, rejected,
+skipped and historical work. Every target state, edge, network, reference basin
+and atom reference must exist in the finalized mechanism network. Stages that
+need an exact charge, multiplicity or atom order remain scientifically blocked
+when the reviewed plan omits one. Scientific, input-review and live-approval
+readiness are independent from execution state and evidence acceptance.
+State-targeted single points require minimum/endpoint lineage; edge-targeted
+single points require TS/Freq lineage, and every edge-targeted node directly
+retains the TS-precedent blocker. Superseded-plan ancestry deeper than 128
+artifacts is refused with a controlled offline contract error.
+
+Build the immutable read-only resume view only from an exact validated plan:
+
+```bash
+python3 "$DAG_TOOL" build-index calculation-plan.json \
+  --output reaction-study-index.json
+python3 "$DAG_TOOL" validate-index reaction-study-index.json
+```
+
+The index derives stage gates, the last accepted stage, next blockers,
+superseded artifacts and active/historical coverage. It does not mutate the
+plan or any specialist artifact. The same tool can finalize and validate a
+human-reviewed external-target mapping, then build/validate one append-only
+`candidate_inventory` node update for an exact `ts_candidate`. The update
+binds the exact local plan, feature-3 target import and mapping review; it does
+not promote readiness or grant submission/evidence-acceptance authority.
+
+Start from the sanitized draft shape in
+`tests/fixtures/reaction_workflow/calculation_target_mapping_review.template.json`,
+replace every placeholder with an exact local binding and explicit human
+decision, then run:
+
+```bash
+python3 "$DAG_TOOL" finalize-target-mapping-review mapping-review.draft.json \
+  --output mapping-review.json
+python3 "$DAG_TOOL" validate-target-mapping-review mapping-review.json
+python3 "$DAG_TOOL" build-node-update mapping-review.json \
+  --output candidate-node-update.json
+python3 "$DAG_TOOL" validate-node-update candidate-node-update.json
+```
+
+The `/1` bridge is closed to `expected_node_kind: ts_candidate`,
+`update_kind: candidate_inventory`, and
+`artifact_role: candidate_target_import`. `external_target_key` remains an
+adapter key and is never interpreted as the DAG `node_id`. DAG references are
+relative, exact and non-null even when an encapsulated adapter artifact uses a
+broader reference convention.
+Its gate order is W1, finalized mechanism network, exact network support,
+dependent TS precedent, calculation plan, input review, then live approval;
+each emitted stage blocker resolves to the plan's normalized blocker record.
+
+### 6. Use the optional reviewed calculation-artifact adapter
 
 Use this only after the exact upstream candidate, protocol, input review, or
 specialist result artifacts already exist. Read
@@ -211,7 +321,7 @@ target, energy, and observation artifact keeps `calculation_ready: false` and
 `no_submission_authorization: true`. The adapter has no stage, submit, retry,
 cancel, cleanup, DAG mutation, or resume command.
 
-### 5. Preserve the W2 knowledge and literature gates
+### 7. Preserve the W2 knowledge and literature gates
 
 The second scientific-modeling round must first query a reviewed reusable
 knowledge layer and bind an immutable per-study snapshot. Read
@@ -325,6 +435,8 @@ make the mechanism claim literature-supported or validated.
   counterions, bases, gases or byproducts remain unrepresented.
 - Do not infer a functional, basis/ECP, solvent model, temperature correction,
   standard state, mechanism, TS algorithm or resource tier.
+- Do not treat scientific readiness, input review, live approval, execution or
+  evidence acceptance as interchangeable states.
 - Keep transition-metal, open-shell, broken-symmetry, multireference and
   ambiguous coordination cases blocked for later specialist review.
 
@@ -364,12 +476,18 @@ make the mechanism claim literature-supported or validated.
   chemistry inference, DAG mutation, calculation or live path.
 - `scripts/ts_precedent_map.py`: standard-library-only deterministic TS
   precedent-map builder and validator; no coordinate or input construction.
+- `references/calculation-dag-contract.md`: implemented offline calculation-
+  plan and study-index semantics, dependency/readiness rules, immutable
+  bindings, supersession and specialist ownership boundaries.
+- `scripts/calculation_dag.py`: standard-library-only deterministic review
+  finalizer, calculation-plan builder/validator and study-index
+  builder/validator; no input rendering, execution or live path.
 - `scripts/calculation_artifacts.py`: standard-library-only target-import,
   exact input-handoff, blocked/electronic-only energy-lineage and immutable
   attempt-link adapters; no live path.
 - `references/calculation-artifact-adapter-contract.md`: exact source,
-  authority, refusal, energy-lineage and future DAG-owned importer contract.
+  authority, refusal, energy-lineage and DAG-owned importer boundary.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry, condition-model, mechanism-network,
-  mechanism-support, mechanism-support-matrix review/output, TS-precedent-map
-  and the calculation-artifact adapter family.
+  mechanism-support, mechanism-support-matrix review/output, TS-precedent-map,
+  calculation-plan, study-index and the calculation-artifact adapter family.
