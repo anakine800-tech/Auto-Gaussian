@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/reaction-report.schema.json",
+  "title": "Bounded deterministic reaction-study report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "study_index", "analysis", "markdown", "sections",
+    "claim_ceiling", "scientific_claim_eligible", "mechanism_proven", "report_status",
+    "blockers", "nonclaims", "review_source", "review", "calculation_ready",
+    "execution_authorized", "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-bounded-report/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "study_index": {"$ref": "#/$defs/boundArtifact"},
+    "analysis": {"$ref": "#/$defs/boundArtifact"},
+    "markdown": {"$ref": "#/$defs/markdown"},
+    "sections": {"type": "array", "minItems": 8, "maxItems": 8, "uniqueItems": true, "items": {"enum": ["scope_and_status", "state_thermochemistry", "elementary_step_comparison", "selectivity", "uncertainty_envelope", "blockers_and_limitations", "explicit_nonclaims", "review_notes"]}},
+    "claim_ceiling": {"enum": ["contract_fixture_only", "incomplete_hypothesis_only", "bounded_computational_comparison"]},
+    "scientific_claim_eligible": {"type": "boolean"},
+    "mechanism_proven": {"const": false},
+    "report_status": {"enum": ["bounded_complete", "bounded_incomplete"]},
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
+    "nonclaims": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"enum": ["mechanism_not_proven", "frequency_count_alone_not_ts_validation", "synthetic_fixtures_not_scientific_results", "no_live_execution_authority"]}},
+    "review_source": {"$ref": "#/$defs/artifact"},
+    "review": {"$ref": "#/$defs/review"},
+    "calculation_ready": {"const": false},
+    "execution_authorized": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "stringArray": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "boundArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_field", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string", "minLength": 1},
+        "payload_field": {"enum": ["payload_sha256", "selection_payload_sha256", "evidence_review_payload_sha256"]},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "markdown": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "format"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 1}, "format": {"const": "markdown"}}
+    },
+    "blocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "scope", "description", "required_for"],
+      "properties": {"blocker_id": {"$ref": "#/$defs/id"}, "scope": {"type": "string", "minLength": 1}, "description": {"type": "string", "minLength": 1}, "required_for": {"$ref": "#/$defs/stringArray"}}
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {"decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]}, "notes": {"$ref": "#/$defs/stringArray"}}
+    }
+  }
+}

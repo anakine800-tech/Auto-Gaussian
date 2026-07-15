@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/study-index.schema.json",
+  "title": "Derived immutable reaction-study index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "artifacts", "derived_state", "next_safe_actions",
+    "status_is_derived_not_editable", "execution_authorized", "calculation_ready",
+    "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-study-index/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "artifacts": {"type": "array", "minItems": 4, "items": {"$ref": "#/$defs/indexedArtifact"}},
+    "derived_state": {"$ref": "#/$defs/derivedState"},
+    "next_safe_actions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/action"}},
+    "status_is_derived_not_editable": {"const": true},
+    "execution_authorized": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "boundArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_field", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string", "minLength": 1},
+        "payload_field": {"enum": ["payload_sha256", "selection_payload_sha256", "evidence_review_payload_sha256"]},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "indexedArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "artifact", "gate_status", "blocker_count"],
+      "properties": {
+        "role": {"enum": ["mechanism_support", "mechanism_network", "ts_precedent_map", "calculation_dag", "candidate"]},
+        "artifact": {"$ref": "#/$defs/boundArtifact"},
+        "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+        "blocker_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "derivedState": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mechanism_gate", "ts_precedent_gate", "dag_gate", "candidate_count", "dag_node_count", "completed_node_ids", "all_required_nodes_completed"],
+      "properties": {
+        "mechanism_gate": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+        "ts_precedent_gate": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+        "dag_gate": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "dag_node_count": {"type": "integer", "minimum": 1},
+        "completed_node_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+        "all_required_nodes_completed": {"type": "boolean"}
+      }
+    },
+    "action": {
+      "type": "object", "additionalProperties": false,
+      "required": ["action", "reason", "authority"],
+      "properties": {"action": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}, "authority": {"type": "string", "minLength": 1}}
+    }
+  }
+}

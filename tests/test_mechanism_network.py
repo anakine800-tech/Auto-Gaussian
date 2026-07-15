@@ -174,6 +174,7 @@ class MechanismNetworkTests(unittest.TestCase):
             self.assertEqual({item["role"] for item in artifact["networks"]}, {"primary", "competing"})
             self.assertTrue(all(item["elements_conserved"] and item["charge_conserved"] and item["connection_changes_consistent"] for item in artifact["diagnostics"]["edge_conservation_and_connectivity"]))
             self.assertTrue(all(item["catalyst_cycle_closed"] for item in artifact["diagnostics"]["network_catalyst_projection_closure"]))
+            self.assertTrue(all(item["catalyst_cycle_required"] and item["diagnostic_status"] == "reviewed_closed" for item in artifact["diagnostics"]["network_catalyst_projection_closure"]))
             self.assertTrue(artifact["diagnostics"]["reference_basin_consistency"][0]["common_element_inventory"])
             checked = self.run_tool(W3_TOOL, "validate", str(output))
             self.assert_success(checked)
@@ -276,6 +277,16 @@ class MechanismNetworkTests(unittest.TestCase):
             output, _, result = self.build_network(Path(tmp), registry_mutator=mutate_registry)
             self.assertEqual(result.returncode, 2)
             self.assertIn("requires registry atom_scope explicit_structure_atoms", result.stderr)
+            self.assertFalse(output.exists())
+
+    def test_explicit_condition_component_cannot_disappear_from_states(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            from tests.reaction_ultimate_fixture import _nonmetal_review
+
+            output, _, result = self.build_network(Path(tmp), _nonmetal_review)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("references explicit condition", result.stderr)
+            self.assertIn("omits species: palladium", result.stderr)
             self.assertFalse(output.exists())
 
     def test_unknown_execution_or_method_fields_are_rejected(self) -> None:

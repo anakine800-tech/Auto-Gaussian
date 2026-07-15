@@ -669,6 +669,11 @@ def build(
     mechanism_path: Path, snapshot_path: Path, evidence_path: Path,
     review_path: Path, output: Path,
 ) -> dict[str, Any]:
+    mechanism_path = mechanism_path.absolute()
+    snapshot_path = snapshot_path.absolute()
+    evidence_path = evidence_path.absolute()
+    review_path = review_path.absolute()
+    output = output.absolute()
     _require_regular_file(review_path, "mechanism-support review input")
     mechanism, snapshot, evidence, w1 = _load_upstream(mechanism_path, snapshot_path, evidence_path)
     review = rw.load_json(review_path)

@@ -1,13 +1,13 @@
 ---
 name: auto-g16-reaction-workflow
-description: Build the offline, hash-bound foundation of a whole Gaussian reaction study from a reviewed ChemDraw reaction package, and create narrow immutable calculation-artifact handoffs only from exact reviewed candidate, protocol, input-draft, and specialist-result artifacts. Use when Codex must scope a reaction-computation study, bind reaction/species/condition records, export candidate-target envelopes, reproduce an explicitly reviewed closed-shell main-group input, or project blocked/electronic-only energy lineage. This Skill never infers mechanisms or methods and never authorizes live work.
+description: Build and audit an offline, hash-bound whole-reaction study from reviewed ChemDraw intake through species/condition records, mechanism evidence, TS plans, explicit candidates, a finite DAG, normalized energies, bounded analysis, and reporting; also reproduce the narrow formal calculation-artifact handoffs from exact reviewed sources. Use when Codex must connect these immutable stages or explain a blocker. This Skill never infers chemistry or methods; exact input bytes require the adapter's accepted review and never authorize live work.
 ---
 
 # Auto-G16 Reaction Workflow
 
 ## Purpose
 
-Create the first three immutable artifacts of a whole-reaction study:
+Start a whole-reaction study with three immutable W1 artifacts:
 
 1. `gaussian-reaction-intake/1`;
 2. `gaussian-reaction-species-registry/1`; and
@@ -16,7 +16,8 @@ Create the first three immutable artifacts of a whole-reaction study:
 Treat these as offline scientific review records. Keep every artifact
 `calculation_ready: false` and `no_submission_authorization: true`. A reviewed
 intake is not a mechanism, protocol, Gaussian input, batch approval, or live
-calculation request.
+calculation request. Optional downstream stages remain separate, reviewed,
+hash-bound artifacts; no downstream artifact changes that authority boundary.
 
 ## Required upstream package
 
@@ -112,10 +113,11 @@ python3 "$TOOL" validate condition-model.json
 Report each gate as `reviewed`, `reviewed_with_blockers`, or `blocked`, together
 with the blocker list and the next safe offline action.
 
-Stop after the condition model. W1 does not create active-catalyst hypotheses,
-mechanism networks, atom correspondence between states, reference basins,
-candidate structures, protocols, Gaussian inputs, server projects, jobs,
-retries, cancellations or reports of mechanism/selectivity.
+Stop the W1 stage after the condition model. Any continuation below is a new
+offline stage with its own reviewed inputs. W1 itself does not create active-
+catalyst hypotheses, mechanism networks, atom correspondence between states,
+reference basins, candidate structures, protocols, Gaussian inputs, server
+projects, jobs, retries, cancellations, or reports of mechanism/selectivity.
 
 ### Optional W3 mechanism-network slice
 
@@ -135,8 +137,10 @@ python3 "$NETWORK_TOOL" validate mechanism-network.json
 
 This upstream W3 slice validates complete reviewed states, exact atom maps,
 connectivity changes, element/charge conservation, competing networks,
-reference basins and catalyst-projection closure. It does not infer any of
-them. The network necessarily precedes its child mechanism-support artifact,
+reference basins and catalyst-cycle semantics. A noncatalytic network requires
+an explicit `not_applicable` decision and null closure diagnostics; it is never
+reported as a successfully closed catalyst cycle. The network necessarily
+precedes its child mechanism-support artifact,
 so it retains a null child binding and `mechanism_support_unavailable`; this is
 an ordering blocker, not a claim that the child builder is unimplemented.
 Network output remains `calculation_ready: false` and grants no mechanism
@@ -219,10 +223,10 @@ knowledge layer and bind an immutable per-study snapshot. Read
 when binding the implemented offline structure, method, and literature/book
 registries.
 
-Then obtain reproducible literature evidence before promoting mechanism
-networks or TS seed strategies. Read
+Then obtain reproducible literature evidence before reviewing mechanism
+support or TS seed strategies. Read
 [references/literature-evidence-design.md](references/literature-evidence-design.md)
-when planning that future layer.
+when preparing that handoff.
 
 The separate `auto-g16-knowledge-base` Skill implements the offline immutable
 registry, permission-filtered index, typed-link and snapshot MVP. This W1
@@ -288,6 +292,91 @@ may use a separate de novo endpoint/QST, scan or reviewed-rebuild plan with
 `source_precedent: null` and `source_coordinates_used: false`; that does not
 make the mechanism claim literature-supported or validated.
 
+### Materialize reviewed candidates and derive the calculation plan
+
+Read
+[references/orchestration-and-analysis-contract.md](references/orchestration-and-analysis-contract.md).
+The first TS-candidate implementation materializes only an explicitly accepted
+`published_coordinates` main-group precedent whose gate is
+`candidate_construction_eligible`. It independently rechecks the exact
+mechanism-support gate, source atom order/mapping, charge, multiplicity, source
+object, and generated XYZ. State candidates require explicit reviewed single-
+structure or multi-component complex coordinates. The tool does not pack
+fragments, generate conformers, or materialize de novo plans, and it refuses
+transition-metal inventories.
+
+```bash
+ORCHESTRATOR="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/reaction_orchestrator.py"
+
+python3 "$ORCHESTRATOR" build-candidate ts-precedent-map.json \
+  --review candidate-review.json --xyz-output ts-seed.xyz \
+  --output ts-candidate.json
+python3 "$ORCHESTRATOR" validate-candidate ts-candidate.json
+
+python3 "$ORCHESTRATOR" build-state-candidate mechanism-network.json \
+  --review state-candidate-review.json --xyz-output state-seed.xyz \
+  --output state-candidate.json
+python3 "$ORCHESTRATOR" validate-candidate state-candidate.json
+
+python3 "$ORCHESTRATOR" build-dag mechanism-network.json ts-precedent-map.json \
+  --review calculation-dag-review.json --output calculation-dag.json
+python3 "$ORCHESTRATOR" validate-dag calculation-dag.json
+
+python3 "$ORCHESTRATOR" build-index mechanism-network.json \
+  mechanism-support.json ts-precedent-map.json calculation-dag.json \
+  --candidate ts-candidate.json --candidate state-candidate.json \
+  --output study-index.json
+python3 "$ORCHESTRATOR" validate-index study-index.json
+```
+
+The DAG is a finite dependency/evidence plan, not a scheduler. The study index
+is derived from exact artifacts and keeps eligible, unimplemented de novo seed
+construction visible as a next offline review action. Never edit its status or
+next actions by hand. Candidate and DAG readiness cannot bypass the separate
+protocol, rendered-input, and exact live-submission gates owned by other
+Skills.
+
+### Normalize energy evidence and render a bounded report
+
+Use reviewed JSON pointers and thermochemical definitions to normalize each
+state or TS result, then derive only comparisons sharing one temperature,
+standard state, and energy model:
+
+```bash
+ANALYSIS="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/reaction_analysis.py"
+
+python3 "$ANALYSIS" build-energy mechanism-network.json calculation-dag.json \
+  --review reaction-energy-record-review.json --output energy-record.json
+python3 "$ANALYSIS" validate-energy energy-record.json
+
+python3 "$ANALYSIS" build-analysis mechanism-network.json calculation-dag.json \
+  --energy energy-record.json --review analysis-review.json \
+  --output reaction-analysis.json
+python3 "$ANALYSIS" validate-analysis reaction-analysis.json
+
+python3 "$ANALYSIS" build-report study-index.json reaction-analysis.json \
+  --review report-review.json --markdown-output reaction-report.md \
+  --output reaction-report.json
+python3 "$ANALYSIS" validate-report reaction-report.json
+```
+
+Repeat `--energy` for every reviewed record. Real-result claim eligibility
+requires terminal DAG evidence and the applicable stationary-point and TS-mode
+gates. Synthetic fixtures always retain `contract_fixture_only`. Eyring
+comparisons require explicit activities; uncertainty scenarios are reviewed
+energy offsets, not an inferred method-error estimate. The report validator
+re-renders the Markdown and rejects content or hash drift.
+
+Do not pass the formal adapter's `gaussian-energy-lineage/1` or bare
+`gaussian-reviewed-energy-record/1` into this comparison layer: that V1
+projection is deliberately electronic-only and always
+`comparison_eligible: false`. It may be retained as independently validated
+DAG evidence, but common-reference analysis requires a separate complete
+thermochemical record with its exact candidate, protocol, terminal, and mode
+lineage. The similarly named review schemas are distinct; do not substitute
+`gaussian-energy-review/1` for
+`gaussian-reaction-energy-record-review/1`.
+
 ## Scientific boundaries
 
 - Preserve source-exact values beside normalized values. Never turn `rt`,
@@ -338,7 +427,14 @@ make the mechanism claim literature-supported or validated.
   attempt-link adapters; no live path.
 - `references/calculation-artifact-adapter-contract.md`: exact source,
   authority, refusal, energy-lineage and future DAG-owned importer contract.
+- `scripts/reaction_orchestrator.py`: reviewed candidate materialization,
+  finite calculation DAG, and derived study-index tooling. Formal adapter
+  evidence is owner-validated but cannot change DAG completion before a
+  separately reviewed external-target-to-node mapping exists.
+- `scripts/reaction_analysis.py`: energy normalization, bounded analysis, and
+  deterministic report tooling.
+- `references/orchestration-and-analysis-contract.md`: candidate, DAG, index,
+  thermochemistry, kinetics, uncertainty, and report semantics.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
-  schemas for intake, registry, condition-model, mechanism-network,
-  mechanism-support, TS-precedent-map and the calculation-artifact adapter
-  family.
+  schemas for the W1/network/support/TS-planning chain, formal calculation-
+  artifact adapter family, and bounded orchestration/analysis artifacts.

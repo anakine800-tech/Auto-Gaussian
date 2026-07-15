@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/reaction-analysis.schema.json",
+  "title": "Common-reference reaction thermochemistry and kinetics analysis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "mechanism_network", "calculation_dag", "energy_records",
+    "analysis_conditions", "activity_factors", "selectivity_group_definitions", "baseline",
+    "uncertainty", "blockers", "record_limitations", "claim_ceiling",
+    "scientific_claim_eligible", "mechanism_proven", "analysis_status", "review_source",
+    "review", "calculation_ready", "execution_authorized", "no_submission_authorization",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-analysis/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "mechanism_network": {"$ref": "#/$defs/boundArtifact"},
+    "calculation_dag": {"$ref": "#/$defs/boundArtifact"},
+    "energy_records": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/boundArtifact"}},
+    "analysis_conditions": {"$ref": "#/$defs/conditions"},
+    "activity_factors": {"type": "array", "items": {"$ref": "#/$defs/activity"}},
+    "selectivity_group_definitions": {"type": "array", "items": {"$ref": "#/$defs/groupDefinition"}},
+    "baseline": {"$ref": "#/$defs/model"},
+    "uncertainty": {"$ref": "#/$defs/uncertainty"},
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
+    "record_limitations": {"$ref": "#/$defs/stringArray"},
+    "claim_ceiling": {"enum": ["contract_fixture_only", "incomplete_hypothesis_only", "bounded_computational_comparison"]},
+    "scientific_claim_eligible": {"type": "boolean"},
+    "mechanism_proven": {"const": false},
+    "analysis_status": {"enum": ["incomplete", "complete_for_contract_fixture", "complete_for_bounded_comparison"]},
+    "review_source": {"$ref": "#/$defs/artifact"},
+    "review": {"$ref": "#/$defs/review"},
+    "calculation_ready": {"const": false},
+    "execution_authorized": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nullableNumber": {"type": ["number", "null"]},
+    "stringArray": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "boundArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_field", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string", "minLength": 1},
+        "payload_field": {"enum": ["payload_sha256", "selection_payload_sha256", "evidence_review_payload_sha256"]},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "conditions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["temperature_k", "standard_state", "energy_model_id", "reference_state_id"],
+      "properties": {
+        "temperature_k": {"type": "number", "exclusiveMinimum": 0},
+        "standard_state": {"enum": ["1M", "1atm", "explicit_custom"]},
+        "energy_model_id": {"$ref": "#/$defs/id"}, "reference_state_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "activity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "activity_product", "rationale"],
+      "properties": {"edge_id": {"$ref": "#/$defs/id"}, "activity_product": {"type": "number", "exclusiveMinimum": 0}, "rationale": {"type": "string", "minLength": 1}}
+    },
+    "groupDefinition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["group_id", "label", "edge_ids", "rationale"],
+      "properties": {
+        "group_id": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1},
+        "edge_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "population": {
+      "type": "object", "additionalProperties": false,
+      "required": ["record_id", "conformer_id", "relative_gibbs_kcal_mol", "degeneracy", "population"],
+      "properties": {
+        "record_id": {"$ref": "#/$defs/id"}, "conformer_id": {"$ref": "#/$defs/id"},
+        "relative_gibbs_kcal_mol": {"type": "number", "minimum": 0}, "degeneracy": {"type": "integer", "minimum": 1},
+        "population": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "ensemble": {
+      "type": "object", "additionalProperties": false,
+      "required": ["record_ids", "minimum_total_gibbs_kcal_mol", "ensemble_total_gibbs_kcal_mol", "conformer_populations", "all_records_scientifically_eligible"],
+      "properties": {
+        "record_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+        "minimum_total_gibbs_kcal_mol": {"type": "number"}, "ensemble_total_gibbs_kcal_mol": {"type": "number"},
+        "conformer_populations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/population"}},
+        "all_records_scientifically_eligible": {"type": "boolean"}
+      }
+    },
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state_id", "component_count", "ensemble", "relative_gibbs_kcal_mol"],
+      "properties": {
+        "state_id": {"$ref": "#/$defs/id"}, "component_count": {"type": "integer", "minimum": 1},
+        "ensemble": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/ensemble"}]},
+        "relative_gibbs_kcal_mol": {"$ref": "#/$defs/nullableNumber"}
+      }
+    },
+    "edge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "from_state_id", "to_state_id", "stereochemical_channel", "transition_state_ensemble", "barrier_kcal_mol", "reaction_delta_g_kcal_mol", "activity_product", "rate_constant_s_inv", "kinetics_status"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"}, "from_state_id": {"$ref": "#/$defs/id"}, "to_state_id": {"$ref": "#/$defs/id"},
+        "stereochemical_channel": {"type": ["string", "null"]},
+        "transition_state_ensemble": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/ensemble"}]},
+        "barrier_kcal_mol": {"$ref": "#/$defs/nullableNumber"}, "reaction_delta_g_kcal_mol": {"$ref": "#/$defs/nullableNumber"},
+        "activity_product": {"$ref": "#/$defs/nullableNumber"}, "rate_constant_s_inv": {"$ref": "#/$defs/nullableNumber"},
+        "kinetics_status": {"enum": ["missing_energy_or_activity", "negative_barrier_requires_model_review", "eyring_activity_adjusted"]}
+      }
+    },
+    "fraction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "stereochemical_channel", "fraction"],
+      "properties": {"edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"type": ["string", "null"]}, "fraction": {"$ref": "#/$defs/nullableNumber"}}
+    },
+    "selectivity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["group_id", "label", "from_state_id", "edge_ids", "fractions", "summed_rate_s_inv", "status"],
+      "properties": {
+        "group_id": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}, "from_state_id": {"$ref": "#/$defs/id"},
+        "edge_ids": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/id"}},
+        "fractions": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/fraction"}},
+        "summed_rate_s_inv": {"$ref": "#/$defs/nullableNumber"}, "status": {"enum": ["computed", "blocked"]}
+      }
+    },
+    "model": {
+      "type": "object", "additionalProperties": false,
+      "required": ["states", "edges", "selectivities"],
+      "properties": {
+        "states": {"type": "array", "items": {"$ref": "#/$defs/state"}},
+        "edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+        "selectivities": {"type": "array", "items": {"$ref": "#/$defs/selectivity"}}
+      }
+    },
+    "offset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["record_id", "offset_kcal_mol"],
+      "properties": {"record_id": {"$ref": "#/$defs/id"}, "offset_kcal_mol": {"type": "number"}}
+    },
+    "scenario": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scenario_id", "rationale", "energy_offsets_kcal_mol", "model"],
+      "properties": {
+        "scenario_id": {"$ref": "#/$defs/id"}, "rationale": {"type": "string", "minLength": 1},
+        "energy_offsets_kcal_mol": {"type": "array", "items": {"$ref": "#/$defs/offset"}}, "model": {"$ref": "#/$defs/model"}
+      }
+    },
+    "barrierRange": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "minimum_barrier_kcal_mol", "maximum_barrier_kcal_mol"],
+      "properties": {"edge_id": {"$ref": "#/$defs/id"}, "minimum_barrier_kcal_mol": {"$ref": "#/$defs/nullableNumber"}, "maximum_barrier_kcal_mol": {"$ref": "#/$defs/nullableNumber"}}
+    },
+    "selectivityRange": {
+      "type": "object", "additionalProperties": false,
+      "required": ["group_id", "edge_id", "minimum_fraction", "maximum_fraction"],
+      "properties": {"group_id": {"$ref": "#/$defs/id"}, "edge_id": {"$ref": "#/$defs/id"}, "minimum_fraction": {"$ref": "#/$defs/nullableNumber"}, "maximum_fraction": {"$ref": "#/$defs/nullableNumber"}}
+    },
+    "uncertainty": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scenarios", "edge_barrier_ranges", "selectivity_ranges"],
+      "properties": {
+        "scenarios": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scenario"}},
+        "edge_barrier_ranges": {"type": "array", "items": {"$ref": "#/$defs/barrierRange"}},
+        "selectivity_ranges": {"type": "array", "items": {"$ref": "#/$defs/selectivityRange"}}
+      }
+    },
+    "blocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "scope", "description", "required_for"],
+      "properties": {"blocker_id": {"$ref": "#/$defs/id"}, "scope": {"type": "string", "minLength": 1}, "description": {"type": "string", "minLength": 1}, "required_for": {"$ref": "#/$defs/stringArray"}}
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {"decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]}, "notes": {"$ref": "#/$defs/stringArray"}}
+    }
+  }
+}

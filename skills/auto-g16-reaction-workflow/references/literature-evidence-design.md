@@ -6,7 +6,8 @@ planning slices.
 and editable/finalized evidence-record stages. `auto-g16-reaction-workflow`
 implements strict offline `gaussian-reaction-mechanism-support/1` and
 `gaussian-ts-precedent-map/1` slices. Automated full-text extraction and
-seed-geometry construction remain unimplemented.
+general seed-geometry construction remain unimplemented; a separate exact,
+reviewed published-coordinate main-group materialization route is available.
 
 Every artifact described here must retain:
 
@@ -33,7 +34,7 @@ transition state, select a computational method, or authorize Gaussian work.
 ## 1. Purpose and boundary
 
 Transition-state initial guesses are scientific models, not generic 3D
-embeddings. The future literature layer should find and understand primary
+embeddings. The literature layer should find and understand primary
 sources that can support:
 
 - active-catalyst and resting-state hypotheses;
@@ -185,18 +186,17 @@ or `not_applicable_to_target`.
 
 ## 7. Mechanism support
 
-The implemented mechanism-support artifact makes a matrix whose rows are proposed
-active states or elementary edges and whose columns are evidence records. For
-each intersection record:
+The implemented mechanism-support artifact records every reviewed elementary
+edge/stereochemical channel against one exact source claim at a time. Each
+record retains:
 
 - the exact claim supported or contradicted;
 - direct versus analogous evidence;
 - experimental versus computational evidence;
 - applicability dimensions and important mismatches;
 - alternative explanations;
-- confidence and reviewer decision; and
-- whether the hypothesis remains mandatory, optional, contradicted, or
-  unresolved in the planned network.
+- hypothesis alternatives, uncertainties, contradictions and falsifiers; and
+- separate exploration-eligibility and mechanism-claim-support decisions.
 
 The artifact proposes a bounded hypothesis space. It does not establish which
 mechanism operates in the target reaction. In organic methodology, absence of
@@ -306,13 +306,19 @@ coordinate provenance and approximate-range refusal; all six strategy states;
 immutable binding drift/forgery; overwrite refusal; deterministic output; and
 unconditional safety constants.
 
+The downstream integration additionally tests exact reviewed main-group
+published-coordinate materialization while retaining transition-metal refusal,
+finite DAG/index derivation, and non-authorizing analysis/report gates.
+
 Remaining work includes:
 
 - correction/retraction and version links across the full evidence chain;
 - any future lawful automated full-text extraction with reported/derived/
   interpretation separation and preserved access limits;
-- regression evidence that later candidate construction still cannot create a
-  geometry, select a protocol, or authorize calculation without its own gates.
+- general reviewed rebuild, QST, scan, conformer and complex-construction
+  routes; and
+- broader real-study evidence that candidate construction cannot select a
+  protocol or authorize calculation without its own gates.
 
 Only after those offline gates pass should a separately approved real-reaction
 search smoke be proposed. A literature search smoke is not a Gaussian live

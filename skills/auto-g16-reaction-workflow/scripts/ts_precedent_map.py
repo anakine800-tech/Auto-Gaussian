@@ -845,6 +845,12 @@ def _normalize_review(review: dict[str, Any], mechanism: dict[str, Any], snapsho
 
 
 def build(mechanism_path: Path, snapshot_path: Path, evidence_path: Path, support_path: Path, review_path: Path, output: Path) -> dict[str, Any]:
+    mechanism_path = mechanism_path.absolute()
+    snapshot_path = snapshot_path.absolute()
+    evidence_path = evidence_path.absolute()
+    support_path = support_path.absolute()
+    review_path = review_path.absolute()
+    output = output.absolute()
     mechanism, snapshot, evidence, w1 = _load_upstream(mechanism_path, snapshot_path, evidence_path)
     support = _load_support(support_path, mechanism_path, snapshot_path, evidence_path)
     _require_regular_file(review_path, "TS-precedent review input")

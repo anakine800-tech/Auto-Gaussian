@@ -50,16 +50,22 @@ scientific acceptance.
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
 offline reusable-knowledge, mechanism-network, mechanism-support and
-TS-precedent/de novo-planning foundations and the remaining calculation-DAG, free-energy/kinetic and
-final-report layers needed to progress from W1 to an auditable whole-reaction
+TS-precedent/de novo-planning foundations. The isolated
+`codex/ultimate-workflow-origin-main` line adds an offline candidate/DAG/index
+bridge and bounded energy-analysis/reporting layer. General candidate
+construction, live execution integration, advanced kinetic models, and broader
+scientific validation remain before an auditable production whole-reaction
 study.
 
-The unreleased repository source now adds the smallest calculation-artifact
-adapter slice under `auto-g16-reaction-workflow`: stable external candidate
-targets, one exact reviewed closed-shell main-group TS/Freq input handoff,
-blocked/electronic-only energy lineage, and immutable observation links. It is
-offline only, leaves every artifact non-authorizing, and deliberately does not
-implement the separately owned calculation DAG or node-update contracts.
+The unreleased repository source now includes the smallest formal calculation-
+artifact adapter slice under `auto-g16-reaction-workflow`: stable external
+candidate targets, one exact reviewed closed-shell main-group TS/Freq input
+handoff, blocked/electronic-only energy lineage, and immutable observation
+links. It is offline only and leaves every artifact non-authorizing. The
+adapter itself deliberately does not map external targets into, or mutate, the
+separately owned calculation DAG; the isolated ultimate-workflow line therefore
+retains validated formal evidence as blocked until a reviewed target-to-node
+mapping exists.
 
 ## Current capability
 
@@ -113,7 +119,17 @@ The version-controlled source under `skills/` currently provides:
   topology/orientation descriptors; binds charge/multiplicity to the edge
   endpoints; audits six non-executing seed strategies; binds the exact
   mechanism-support artifact; and records source-free de novo endpoint/QST,
-  scan or reviewed-rebuild plans for exploration-eligible novel hypotheses.
+  scan or reviewed-rebuild plans for exploration-eligible novel hypotheses;
+- reviewed offline main-group minimum/complex and exact published-coordinate
+  TS-seed materializers with atom-order, identity, charge/multiplicity,
+  provenance, distance, review, and authority checks;
+- a finite topologically checked offline calculation DAG plus a hash-derived,
+  non-editable study index that exposes blockers and the next safe offline
+  action without scheduling work; and
+- normalized state/TS energy records, common-reference and degeneracy-aware
+  ensemble analysis, explicit-activity Eyring channel fractions, selectivity
+  and reviewed uncertainty scenarios, followed by a deterministic bounded
+  report whose claims cannot exceed its evidence.
 
 The W1 builder assigns stable step/occurrence/condition IDs, binds every drawn
 reactant/product exactly once, refuses missing condition decisions, preserves
@@ -138,9 +154,12 @@ review scaffolding, strict offline mechanism-support classification and the
 TS-precedent/de novo-planning slice. Missing direct literature precedent is
 recorded as an evidence gap, not automatic exclusion: an explicitly reviewed
 novel edge may be exploration-eligible while `mechanism_claim_supported` and
-`mechanism_claim_validated` remain false. It still does not provide automatic
-lawful full-text/SI extraction, seed-geometry construction, mechanism
-validation, TS validation or protocol selection. The existing BF3 and
+`mechanism_claim_validated` remain false. The isolated feature line can
+materialize an exact audited published-coordinate main-group TS seed and
+explicit reviewed minimum/complex coordinates. It still does not provide
+automatic lawful full-text/SI extraction, general or de novo geometry
+construction, mechanism validation, TS validation, protocol selection, or
+live execution integration. The existing BF3 and
 asymmetric-catalysis records remain fixed precedents rather than automatic
 target-mechanism proof. The full W2 contract and remaining stages are recorded in
 `skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
@@ -151,6 +170,24 @@ and for scheduler-zombie cleanup. Those records are historical evidence only;
 they do not authorize another live calculation.
 
 ## Work completed in this feature line
+
+The isolated ultimate-workflow line implements the bounded offline bridge from
+reviewed mechanism/support/TS-planning artifacts to reviewed main-group
+candidate materializations, a finite calculation DAG, a derived study index,
+normalized energy records, common-reference ensemble/barrier/selectivity
+analysis, reviewed uncertainty offsets, and a deterministic bounded report.
+Every new artifact is hash-bound, revalidated independently, overwrite-safe,
+and fixed at `calculation_ready: false`, `execution_authorized: false` where
+applicable, and `no_submission_authorization: true`. De novo candidate
+construction, general complex/conformer generation, broader protocol/input
+rendering, live job orchestration, complete IRC/path integration,
+microkinetics, and transition-metal runtime remain outside this line. The
+separately merged formal adapter supplies one narrow reviewed TS/Freq input and
+attempt-evidence handoff, but it cannot populate or complete an ultimate-
+workflow DAG node without the still-missing reviewed mapping contract.
+
+The remainder of this section records the earlier asymmetric-catalysis feature
+history.
 
 This feature line established the design, offline data boundary, literature
 record, and planning/audit Skill for `auto-g16-asymmetric-catalysis`. The intended
@@ -278,7 +315,37 @@ All design-phase artifacts set or imply `calculation_ready: false` and
 `no_submission_authorization: true`. They perform no SSH, PBS, Gaussian,
 deployment, cancellation, or server cleanup operation.
 
-## Offline validation snapshot
+## Current isolated-workflow validation snapshot
+
+On 2026-07-16, `codex/ultimate-workflow-origin-main`, based on the then-current
+`origin/main`, passed the complete 268-test offline repository suite. The 21
+`contracts/reaction-workflow/*.schema.json` documents passed the fail-closed
+schema-document validator; both changed Skills passed `quick_validate.py`; and
+the six release-hygiene tests passed independently. Python compilation,
+`git diff --check`, conflict-marker inspection, and targeted private-key,
+credential-token, password-assignment, and machine-local-path scans found no
+problem in the scoped files.
+
+Implementation-level review also found and fixed three cross-layer defects before
+that final run: a noncatalytic fixture could previously omit Pd from mechanism
+states while retaining a W1 `explicit_component` decision, and a negative
+barrier produced only by an uncertainty scenario did not propagate to the
+analysis blocker list. In addition, a formally valid calculation-adapter
+artifact could have been attached to an unrelated DAG node and used to claim
+terminal completion before any external-target-to-node mapping existed. The
+validator now enforces bidirectional explicit-condition/state binding, the
+fixture uses a reviewed `experimental_context_only` treatment, invalid
+uncertainty scenarios remain visible as blockers, and owner-validated formal
+evidence may only be retained on a blocked `not_started` node until the
+separate mapping contract is reviewed. Formal electronic-only energy lineage
+also remains explicitly ineligible for reaction-level comparison.
+
+No SSH, network search, PBS, Gaussian, deployment, cancellation, retry, or
+server-data action was part of this feature validation. Synthetic fixtures are
+contract evidence only and do not validate a chemical mechanism or authorize a
+live smoke test.
+
+## Historical 2.2.0 validation snapshot
 
 The released `v2.2.0` validation snapshot from 2026-07-15 passed 142 offline
 tests. In particular:
@@ -380,9 +447,10 @@ search smoke. It is not Gaussian or chemical validation.
 
 ### 2026-07-16 unreleased calculation-artifact adapter
 
-The independently mergeable calculation-artifact adapter is committed on its
-feature branch and remains undeployed. Its final offline validation used the
-project Python 3.13 environment and produced these results:
+The independently mergeable calculation-artifact adapter was merged into the
+unreleased repository source and remains undeployed. Its pre-integration
+offline validation used the project Python 3.13 environment and produced these
+results:
 
 - `python3 -m py_compile skills/auto-g16-ts-irc/scripts/ts_irc.py skills/auto-g16-reaction-workflow/scripts/calculation_artifacts.py && python3 -m unittest tests.test_calculation_artifacts tests.test_gaussian_ts_irc -v`:
   56/56 passed (38 adapter and 18 TS/IRC tests);
@@ -457,41 +525,43 @@ candidate still requires its own new gate.
 
 ## Next approval gates
 
-1. Continue the W2 `auto-g16-knowledge-base` from the completed W2B-2 offline
+1. Review the isolated ultimate-workflow diff and final offline evidence. Then
+   implement general/de novo geometry construction, conformer and duplicate
+   handling, the reviewed formal-external-target-to-DAG mapping, comparable
+   thermochemical projection beyond the adapter's electronic-only record, and
+   complete minimum/TS/IRC/path node updates. Any end-to-end live smoke remains
+   a separate, exact-artifact approval and must begin with a small closed-shell
+   main-group reaction.
+2. Continue the W2 `auto-g16-knowledge-base` from the completed W2B-2 offline
    store/import/export foundation with authentication, durable audit logging,
    chemical search and a separately reviewed service boundary. Extend the
    implemented mechanism-support gate only through new immutable independent
    evidence revisions without equating analogy with validation. Only
    after offline acceptance, separately approve one real-reaction literature-
    search smoke; it must not generate an input or authorize calculation.
-2. Use the implemented candidate-bound M1 sidecar for one concrete metal–
+3. Use the implemented candidate-bound M1 sidecar for one concrete metal–
    chiral-ligand reaction and review its oxidation/electron accounting, spin
    surfaces, wavefunction, coordination state, method evidence, elementary-
    step class and TS design. Unreported literature fields remain blockers;
    scientific acceptance and runtime support remain refused.
-3. Apply the implemented M2d sidecar to one real, field-complete bounded review
+4. Apply the implemented M2d sidecar to one real, field-complete bounded review
    while building M3 adversarial runtime/promotion boundary fixtures without
    rendering a metal Gaussian input or enabling submission.
-4. Preserve the first BF3-TS2-B1 IRC pair as incomplete evidence. The matched
+5. Preserve the first BF3-TS2-B1 IRC pair as incomplete evidence. The matched
    recalculation-v2 pair is closed without retained results at the user's
    direction; do not label endpoints or claim path validation from it. Any
    future resumption is a new calculation need with fresh review and approval.
-5. Preserve BF3-TS2-B2 as a failed 100-cycle optimization-limit result. It has
+6. Preserve BF3-TS2-B2 as a failed 100-cycle optimization-limit result. It has
    no frequency or mode evidence and no TS acceptance; any restart or changed
    optimization plan remains separately gated.
-6. Resolve the BF3-TS1/DIPEA terminal-template integrity defect without
+7. Resolve the BF3-TS1/DIPEA terminal-template integrity defect without
    backdating provenance, then perform the required C13–H14–N22 displacement
    review before any TS claim. The present result is execution-complete but
    scientifically pending.
-7. Keep any B1/B2 retry, B2 IRC and full BCF benchmarks separately gated.
-8. Resume broader chiral-boron complex construction and enumeration after the
+8. Keep any B1/B2 retry, B2 IRC and full BCF benchmarks separately gated.
+9. Resume broader chiral-boron complex construction and enumeration after the
    transition-metal design milestone.
 
 The exact merge/deployment preparation and B1 acceptance checklist are in
 `docs/asymmetric-catalysis-v1-readiness.md`. That document does not authorize
 either action.
-
-## Working-tree note
-
-At the start of this update, `windows-current-screen.png` was an unrelated
-untracked local screenshot. It is intentionally not part of this change.

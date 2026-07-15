@@ -28,6 +28,11 @@ The output always has `calculation_ready: false` and
   species must use `atom_scope: explicit_structure_atoms`; its formula must
   equal that explicit inventory, and each registry-bound component instance
   must cover the complete species atom set exactly once.
+- A state that cites an `explicit_component` condition decision must contain
+  the complete referenced registry-species inventory. Conversely, a state
+  containing that explicit condition species must cite the exact decision.
+  Excluding a condition component requires a reviewed non-explicit treatment;
+  deleting it only from the mechanism state is refused.
 - An edge supplies a complete one-to-one, element-preserving atom map. The
   declared connection changes must exactly equal the mapped connectivity
   difference. Declared atom transfers must match one broken donor connection
@@ -35,11 +40,15 @@ The output always has `calculation_ready: false` and
 - Every edge receives independently recomputed element and charge conservation
   diagnostics. Nonconservation remains an explicit blocker.
 - The review must retain at least one `primary` and one `competing` network.
-- Each network supplies an ordered closure path. The builder composes its atom
-  maps and requires the entry and regenerated catalyst projections, every
-  connection incident to a projected catalyst atom, and reviewed descriptors
-  to close exactly. A retained catalyst–ligand, catalyst–substrate or poisoning
-  contact therefore prevents a false regeneration claim.
+- A catalytic network supplies an ordered closure path. The builder composes
+  its atom maps and requires the entry and regenerated catalyst projections,
+  every connection incident to a projected catalyst atom, and reviewed
+  descriptors to close exactly. A retained catalyst–ligand, catalyst–substrate
+  or poisoning contact therefore prevents a false regeneration claim. A
+  noncatalytic network instead requires `catalyst_cycle.required: false`, null
+  endpoints, no closure edges, no catalyst projections, and a reviewed
+  `not_applicable` rationale. Its closure diagnostics are null and never
+  masquerade as a successfully closed catalyst cycle.
 - Every edge belongs to exactly one reference basin. The validator checks that
   each compared source state has the reference state's element and charge
   inventory; it computes no energy and assumes no equilibration model.

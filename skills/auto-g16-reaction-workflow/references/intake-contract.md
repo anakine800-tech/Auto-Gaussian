@@ -135,5 +135,5 @@ inserted into the catalytic reaction state without a reviewed reason.
 - `blocked`: the reviewer rejected progression at this layer.
 
 All three states remain offline and non-authorizing. A `reviewed` W1 chain may
-advance only to future mechanism-network and calculation-planning review; it
+advance only to separate mechanism-network and calculation-planning review; it
 does not authorize protocol selection or Gaussian execution.

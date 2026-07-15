@@ -3,7 +3,14 @@
 Status: target architecture and implementation roadmap. This document grants no
 Gaussian, SSH, PBS, deployment, retry, cancellation, or server-data authority.
 
-Status date: 2026-07-15
+Status date: 2026-07-16
+
+The isolated ultimate-workflow feature branch implements the offline bridge
+from the merged mechanism-support/TS-planning foundation through exact reviewed
+main-group candidate materialization, finite DAG/index orchestration,
+normalized energy analysis, and bounded reporting. It does not implement live
+execution integration or claim that the benchmark definition below is
+complete.
 
 ## 1. Project objective
 
@@ -105,13 +112,13 @@ The intended ownership is:
 | structure and scheme intake | `auto-g16-chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
 | 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
 | reusable knowledge databases | `auto-g16-knowledge-base` | implemented W2A contracts plus W2B-1 store/index/query and W2B-2 reviewed import, lawful-object ingestion and redacted JSON export; future authenticated service enforcement and chemical search |
-| reaction-study orchestration | `auto-g16-reaction-workflow` plus future extensions | implemented species registry, condition model, mechanism network, support gate and TS planning; calculation DAG and study state remain future |
-| literature evidence and TS precedent | `auto-g16-reaction-literature` plus `auto-g16-reaction-workflow` | implemented reproducible search/evidence, exact edge/channel mechanism support, TS-precedent translation and source-free de novo planning; geometry construction remains future |
+| reaction-study orchestration | `auto-g16-reaction-workflow` | species registry, condition model, reviewed catalytic/noncatalytic mechanism network, exact support/TS gates, finite calculation DAG, and derived study index |
+| literature evidence and TS precedent | `auto-g16-reaction-literature` plus `auto-g16-reaction-workflow` | reproducible search/evidence, exact edge/channel mechanism support, TS-precedent translation, source-free de novo planning, and exact reviewed published-coordinate main-group materialization |
 | asymmetric-catalysis domain | `auto-g16-asymmetric-catalysis` | catalyst/channel/candidate coverage, result ingestion, ensemble selectivity |
 | protocol selection | `auto-g16-rtwin-pbs` protocol gate | reviewed `loose`/`standard`/`strict` candidates and explicit selection |
 | live execution | `auto-g16-rtwin-pbs` | fresh SDL projects, transfer hashes, PBS lifecycle, fetch, generic result parsing |
 | TS scientific evidence | `auto-g16-ts-irc` | TS/Freq, mode review, checkpoint lineage, IRC, endpoint evidence |
-| future energy/kinetic layer | future top-level module | balanced free energies, profiles, energetic span or microkinetics, uncertainty |
+| energy/kinetic/report layer | `auto-g16-reaction-workflow` | normalized energies, conformer ensembles, profiles, activity-explicit Eyring comparisons, selectivity, reviewed uncertainty scenarios, and bounded reports; energetic-span and general microkinetics remain future work |
 
 The top-level orchestrator must not duplicate the specialist parsers. It should
 index their immutable artifacts, enforce dependencies, expose blockers, and
@@ -266,8 +273,8 @@ transformation, elementary step, catalyst state, atom inventory, charge/spin,
 coordination, stereochemical approach, conditions, and protocol; do not hide
 those judgments inside one similarity score.
 
-Translate accepted evidence into two reviewed proposals: a mechanism-support
-matrix and a TS-precedent/de novo map. Keep hypothesis exploration separate
+Translate accepted evidence into two reviewed proposals: per-edge/channel
+mechanism-support records and a TS-precedent/de novo map. Keep hypothesis exploration separate
 from mechanism-claim support. A genuinely novel, reviewed edge may be
 exploration-eligible without a direct precedent when its bookkeeping, active-
 state assumptions, alternatives, uncertainties, contradictions and falsifiers
@@ -290,7 +297,7 @@ Gate R04 passes only when search coverage, evidence extraction, applicability,
 contradictions, and uncertainties have been reviewed for the bounded claim.
 Literature similarity is hypothesis support, not proof of the target mechanism
 or TS; it does not select a protocol, create calculation readiness, or authorize
-Gaussian work. The future contract is specified in
+Gaussian work. The implemented contracts are specified in
 `skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
 
 ### R05 — Active states and mechanism-network hypotheses
@@ -569,7 +576,9 @@ outside version-controlled scientific summaries.
 
 ## 5. Top-level gates and state machine
 
-The future orchestrator should expose the following project gates:
+The complete production orchestrator uses the following project gates. The
+current offline DAG/index derives only the gates supported by its bound
+artifacts and never grants the live G6 state:
 
 | Gate | Required decision | State after passing |
 | --- | --- | --- |
@@ -592,10 +601,12 @@ must not automatically promote its parent scientific hypothesis.
 ## 6. Top-level data contracts and roadmap
 
 Existing specialist schemas should remain authoritative for their own
-artifacts. This layer now includes the implemented intake, registry, condition,
-network, mechanism-support, TS-planning and first calculation-artifact adapter
-contracts; the remaining rows are the bounded roadmap rather than implied
-current capabilities:
+artifacts. This layer now includes implemented intake, registry, condition,
+network, mechanism-support, TS-planning, the first formal calculation-artifact
+adapter, and bounded candidate/DAG/index/analysis/report contracts. The
+isolated DAG does not yet implement the adapter contract's external-target
+import or append-only node-update design; those rows, live evidence indexing,
+and recalculation remain roadmap items rather than implied capabilities:
 
 | Planned artifact | Purpose |
 | --- | --- |
@@ -609,21 +620,24 @@ current capabilities:
 | `auto-g16-knowledge-snapshot/1` | immutable exact record revisions, queries, decisions, access redactions and gaps used by one reaction study |
 | `gaussian-reaction-literature-query/1` | decomposed target, exact search strings/providers/dates/filters, search-ladder coverage, access limits and inclusion/exclusion decisions |
 | `gaussian-reaction-literature-evidence/1` | primary/SI source identity and anchors, extracted computational/mechanistic facts, geometry data, contradictory evidence and extraction confidence |
-| `gaussian-reaction-mechanism-support/1` | evidence-to-hypothesis matrix, direct/analogous/contradictory status, decomposed applicability, alternatives and bounded reviewer decisions |
+| `gaussian-reaction-mechanism-support/1` | per-edge/channel evidence classification, direct/analogous/contradictory status, decomposed applicability, alternatives and separate exploration/claim decisions |
 | `gaussian-ts-precedent-map/1` | source-to-target atom correspondence, TS topology/geometry evidence, transferable versus rebuilt features, seed-strategy proposal and uncertainty |
 | `gaussian-reaction-network/1` | complete-state nodes, elementary-step edges, atom maps, channels, reversibility, active-state and evidence hypotheses |
+| `gaussian-reaction-candidate-materialization/1` | reviewed exact published-coordinate main-group TS seed, immutable provenance and authority refusal |
+| `gaussian-reaction-state-candidate-materialization/1` | reviewed explicit-coordinate main-group minimum or complex seed, immutable provenance and authority refusal |
 | `gaussian-reaction-study-index/1` | read-only index of the current immutable evidence DAG, derived project state, blockers, and next safe offline action |
+| `gaussian-reaction-calculation-dag/1` | implemented finite offline mechanism-state/edge dependency DAG, blockers, topological order and exact-input-review readiness without execution authority; not the future adapter-target importer |
 | `gaussian-reaction-calculation-plan/1` | immutable calculation DAG whose nodes are addressed by `node_id` and bind exact artifact references; internal plan state remains DAG-owned |
 | `gaussian-candidate-target-import/1` | implemented immutable ledger-to-external-target exchange without DAG node IDs or state |
 | `gaussian-input-draft-review/1` and `gaussian-candidate-input-handoff/1` | implemented exact V1 review and reproducible non-authorizing `.gjf` companion lineage |
 | `gaussian-energy-review/1`, `gaussian-reviewed-energy-record/1`, and `gaussian-energy-lineage/1` | implemented blocked/electronic-only projection boundary; never a common-reference comparison |
 | `gaussian-sanitized-job-observation/1` and `gaussian-calculation-attempt-link/1` | implemented redacted, observation-only six-artifact bindings through exact mode review/decision that preserve specialist states |
 | `gaussian-reaction-calculation-node-update/1` | planned DAG-owned append-only fact attachment using an exact plan/node locator, target-plan ref, node-kind check, update kind and artifact role; not implemented by the adapter |
+| `gaussian-reaction-energy-record/1` | normalized hash-bound state/TS energy, common comparison definition, stationary-point audit and terminal lineage |
+| `gaussian-reaction-analysis/1` | common-reference ensembles/barriers, explicit-activity Eyring channel fractions, selectivity and reviewed uncertainty scenarios |
+| `gaussian-reaction-bounded-report/1` | deterministic claim-limited report bound to the analysis and derived study index |
 | `gaussian-calculation-attempt/1` | one exact input/run/restart/recalc lineage without mutating or replacing its parent attempt |
 | `gaussian-reaction-evidence-index/1` | immutable index of minimum, TS, mode, IRC, endpoint, energy and failure artifacts |
-| `gaussian-reaction-free-energy-network/1` | common-reference energies, barrier formulas, standard-state and low-frequency policy, blocked edges |
-| `gaussian-reaction-kinetic-analysis/1` | ensemble or external kinetic model, concentrations, rates/selectivity, sensitivity and limitations |
-| `gaussian-reaction-study-report/1` | final claim, coverage, evidence hashes, supersession and reproducibility summary |
 | `gaussian-recalculation-decision/1` | explicit cause, unchanged/changed scope, parent evidence, new protocol/input/project requirements |
 
 All contracts should use strict JSON loading, finite numbers, one-based atom
@@ -662,8 +676,9 @@ state before any recalculation is proposed.
 
 ## 8. Current implementation status
 
-The repository currently implements important specialist slices, but not the
-top-level reaction workflow.
+The repository now implements a bounded offline top-level bridge across its
+specialist slices. It does not yet implement a production/live whole-reaction
+workflow.
 
 | Capability | Current status | Boundary |
 | --- | --- | --- |
@@ -673,18 +688,20 @@ top-level reaction workflow.
 | reaction intake/species registry/stoichiometric balance foundation | integrated offline after W1 validation | stable atom identities and exact occurrence binding are implemented; reviewed cross-state atom maps are implemented in the W3 network slice |
 | condition-to-model mapping | integrated offline after W1 validation | every transcribed condition requires one reviewed treatment; no solvent, additive, counterion or standard-state model is inferred |
 | reusable group structure, method, and literature/book databases | W2A through W2B-2 offline foundation implemented | canonical contracts, store/object verification, deterministic SQLite, exact access filtering, reviewed import, lawful-object ingestion, redacted JSON export, typed links and snapshot verification exist; chemical search and authenticated service enforcement remain missing |
-| general literature search, evidence extraction and TS-precedent mapping | offline query, evidence, support and planning slices implemented | exact claim/location binding, decomposed applicability, independent exploration/claim gates, source-to-target mapping and de novo planning exist; full-text automation and geometry construction remain missing |
-| mechanism network and catalyst-cycle DAG | general offline network and cycle-closure audit implemented | no calculation dependency engine or project-level execution state machine |
+| general literature search, evidence extraction and TS-precedent mapping | offline query, evidence, support and planning slices implemented | exact claim/location binding, decomposed applicability, independent exploration/claim gates, source-to-target mapping and de novo planning exist; full-text automation and general/de novo geometry construction remain missing |
+| mechanism network and catalyst-cycle DAG | general offline network and cycle-closure audit implemented | catalytic and explicitly noncatalytic networks are distinguished; no live project execution state machine |
+| reviewed candidate materialization | bounded main-group route implemented offline | accepts explicit reviewed minimum/complex coordinates or an exact audited published-coordinate TS precedent; de novo, rebuilt, metal, and general chemistry-aware construction remain blocked |
+| calculation DAG and study index | finite offline DAG and hash-derived read-only index implemented | records dependencies, blockers, topological order and exact-input-review readiness but neither schedules jobs nor grants calculation/submission authority |
 | deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
 | calculation-artifact adapters | first narrow offline slice implemented in repository source | stable candidate-target imports, one exact reviewed closed-shell main-group single-guess TS/Freq handoff, blocked/electronic-only energy lineage and observation-only attempt links; no DAG mutation, live approval, staging or submission |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
 | transition-metal state/search design | M0, candidate-bound M1 review sidecar, M2a, M2b result observer, M2c existing-input observer and M2d four-section manual-decision sidecar implemented offline | the real M1/M2 scientific example, runtime/promotion boundary, path model and all live submission remain intentionally refused; bounded M2d section decisions grant no top-level authority |
-| protocol `loose`/`standard`/`strict` proposal and selection | implemented as a standalone gate | does not choose a protocol or authorize input submission; the current generic automatic execution entry does not yet require and consume the selection artifact end to end |
-| guarded PBS submit/watch/fetch/analyze | implemented per approved job | no whole-study job DAG, dependency scheduler, finite-batch approval manifest, or project-level resume engine |
-| minimum Opt/Freq/single-point parsing and conformer aggregation | implemented per reviewed structure/family | no reaction-wide species registry, post-optimization identity clustering, or balanced free-energy network |
-| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | released baseline is synchronized; unreleased specialist classification/mode-geometry replay helpers are currently repository source only | no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
-| TS candidate-space result ingestion and two-channel Boltzmann/ee sensitivity | implemented offline | only `boltzmann_ts_ensemble`; no general kinetic network, energetic-span engine, or protocol-matrix uncertainty propagation |
-| final project report and claim-state engine | missing | current documents and analyses are study-specific rather than generated from one top-level evidence index |
+| protocol `loose`/`standard`/`strict` proposal and selection | implemented as a standalone gate | does not choose a protocol or authorize input submission; only the formal narrow input-handoff adapter consumes it end to end |
+| guarded PBS submit/watch/fetch/analyze | implemented per approved job | the offline whole-study DAG is not connected to a dependency scheduler, finite-batch approval manifest, or project-level live resume engine |
+| minimum Opt/Freq/single-point parsing and conformer aggregation | per-structure parsing plus bounded reaction energy normalization/ensemble aggregation implemented | post-optimization identity clustering, generated conformer coverage, and advanced balanced-cycle construction remain missing |
+| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | released baseline is synchronized; formal adapter classification/mode-geometry replay helpers are currently unreleased repository source | no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
+| TS candidate-space result ingestion and two-channel Boltzmann/ee sensitivity | bounded reaction-level analysis implemented offline | common-reference barriers, explicit-activity Eyring fractions, selectivity and reviewed energy-offset scenarios exist; no general microkinetic or energetic-span engine |
+| final project report and claim-state engine | bounded deterministic report implemented offline | revalidation constrains wording to its hash-bound index/analysis and explicit nonclaims; it is not a scientific acceptance or production-reporting engine |
 
 The BF3 benchmark demonstrates reviewed literature-coordinate intake,
 hash-bound TS/Freq execution, mode review, and prepared IRC/terminal intake. It
@@ -718,7 +735,7 @@ to hand-edit JSON between them.
 - keep all further work on a feature branch with offline validation before a
   live smoke test.
 
-### P1 — Missing top-level scientific model
+### P1 — Partially implemented top-level scientific model
 
 - reaction intake, species registry, balance, and atom-map contracts;
 - condition-to-model decisions;
@@ -736,12 +753,20 @@ The first narrow explicit artifact-adapter slice now covers:
 - specialist TS/Freq JSON plus scientific review to blocked or electronic-only
   records with exact lineage, together with observation-only attempt linkage.
 
-Still missing are minimum/thermochemistry adapters, common-reference energy,
-the reaction-level evidence index, and the DAG-owned importer that binds an
-`external_target_key` to a reviewed node locator.
+Still missing are formal minimum/thermochemistry handoffs, a reviewed DAG-owned
+importer that binds an `external_target_key` to a mechanism-state/edge node,
+and a comparison-eligible thermochemical projection beyond the formal
+adapter's electronic-only record. The isolated feature line has its own
+reaction-level study index and normalized common-reference energy contract,
+but it refuses to treat those formal outputs as mapped or comparable before
+these two bridges exist.
 
-Without P1, existing tools calculate reviewed individual structures but cannot
-prove that the declared whole-reaction scope is covered.
+The isolated feature line now implements reviewed mechanism-state/network,
+candidate, finite-DAG, derived-index, normalized-energy, and bounded-analysis
+contracts. One narrow exact-reviewed protocol/input handoff and immutable
+terminal-observation linkage now exist in the formal adapter; reviewed DAG
+target binding, complete minimum/TS/IRC node updates, live project state,
+comprehensive path evidence, and production coverage proof remain.
 
 ### P2 — Incomplete reusable knowledge databases
 
@@ -778,7 +803,7 @@ or Gaussian job.
   imaginary mode, IRC/endpoints, key geometry, coordinates and omissions;
 - decomposed target/precedent applicability across reaction, catalyst,
   atom inventory, charge/spin, coordination, conditions and protocol;
-- evidence-to-mechanism support matrices, independent exploration/claim gates,
+- per-edge/channel mechanism-support records, independent exploration/claim gates,
   source-to-target TS precedent maps and source-free de novo plans with stable
   atom IDs and explicit uncertainty; and
 - correction/retraction handling, source drift, supersession, frozen fixtures,
@@ -787,12 +812,18 @@ or Gaussian job.
 The current `auto-g16-reaction-literature` query/evidence stages produce
 reviewable metadata and source-evidence records rather than a bare citation
 list. The downstream mechanism-support and TS-planning stages are implemented;
-actual candidate geometry construction and mechanism validation remain
-missing. Every stage must never treat similarity as mechanism
+an exact audited published-coordinate main-group route can now materialize a
+review candidate. General candidate construction and mechanism validation
+remain missing. Every stage must never treat similarity as mechanism
 proof, fabricate unavailable coordinates, select a method, or grant
 calculation/submission authority.
 
-### P4 — Missing structure and TS construction
+### P4 — Partially implemented structure and TS construction
+
+Exact audited published-coordinate TS seeds and explicit reviewed minimum or
+multi-component complex coordinates can now be materialized for supported
+main-group inventories. Eligible de novo plans remain visible but do not enter
+the published-coordinate builder. Remaining gaps are:
 
 - chemistry-aware assembly of catalyst/substrate complexes, ion pairs,
   explicit additives, and binding modes;
@@ -802,14 +833,20 @@ calculation/submission authority.
 - verified QST2/QST3 input construction for the installed G16 revision; and
 - a general strategy for generating, ranking, and reopening TS guesses.
 
-### P5 — Missing reaction-level analysis
+### P5 — Bounded reaction-level analysis implemented; advanced models remain
 
-- balanced thermodynamic cycles and automatic stoichiometric reference checks;
-- reaction-wide free-energy profiles;
-- explicit low-frequency and standard-state sensitivity matrices;
-- energetic-span or microkinetic analysis;
-- multi-mechanism/model comparison and uncertainty propagation; and
-- generated final reports with machine-checked claim ceilings.
+The repository now normalizes hash-bound state/TS energies, enforces common
+temperature/standard-state/model definitions, aggregates degeneracy-aware
+ensembles, derives profiles/barriers, computes activity-explicit Eyring channel
+fractions, propagates reviewed energy-offset scenarios, and renders a machine-
+checked claim-bounded report. Remaining gaps are:
+
+- automated balanced-cycle construction beyond reviewed state/reference
+  definitions;
+- automated low-frequency and standard-state policy matrices beyond explicit
+  corrections and reviewed energy-offset scenarios;
+- energetic-span or general microkinetic analysis; and
+- multi-mechanism/model aggregation and calibrated method uncertainty.
 
 ### P6 — Unsupported transition-metal runtime
 
@@ -941,11 +978,24 @@ readiness/dependency closure/resume state.
 Acceptance requires deterministic rebuilds, hash-drift refusal, cycle and mass/
 charge diagnostics, blocked unsupported states, and resume from every gate.
 
+Feature status on 2026-07-16: the general evidence-aware network implements
+stable states/edges/atom maps, reference basins, catalytic-cycle diagnostics,
+and explicit noncatalytic semantics. The isolated feature line adds reviewed
+main-group candidate bindings, a finite topologically checked calculation DAG,
+legacy-result whole-file evidence binding, and a derived read-only study index.
+It does not render an input, submit work, or implement live project resume.
+
 ### W4 — Closed-shell main-group minima workflow
 
 Connect reviewed species/conformer ensembles to the existing Opt/Freq/single-
 point workflow. Add post-optimization identity and duplicate clustering plus a
 reaction-wide free-energy network.
+
+Feature status on 2026-07-16: explicit reviewed minimum and multi-component
+complex coordinates can be materialized and bound to finite DAG nodes;
+normalized minimum energy records and degeneracy-aware ensembles are
+implemented. Conformer generation, chemistry-aware assembly, post-optimization
+identity/duplicate clustering, and live handoff remain missing.
 
 Use a small, closed-shell, one-step literature reaction as the first complete
 offline/live smoke candidate only after exact approval. It should be much
@@ -962,6 +1012,14 @@ revision and execution contracts are complete.
 Acceptance requires an entire elementary reaction from normalized ChemDraw
 input through identified minima, mode-consistent TS, both endpoints, and a
 common-reference barrier.
+
+Feature status on 2026-07-16: exact audited published-coordinate main-group TS
+seeds can be materialized, placed in the finite DAG, normalized as TS energy
+records, and accepted for bounded analysis only with explicit mode evidence.
+Eligible de novo plans remain visible but are not constructed. TS discovery,
+general execution/DAG-node adapters, full bidirectional path binding, and an
+approved complete reaction smoke remain gated; the narrow formal single-guess
+TS/Freq handoff does not close those broader gaps.
 
 ### W6 — Asymmetric ensemble workflow
 
@@ -981,11 +1039,23 @@ job manifests, exact batch review, queue-safe resume, terminal intake, evidence
 indexing, and `gaussian-recalculation-decision/1`. Do not create an automatic
 chemistry-changing retry policy.
 
+Feature status on 2026-07-16: finite offline DAG construction,
+dependency-readiness, terminal artifact references, blockers, and the derived
+study index are implemented. Live scheduling, immutable batch approval,
+queue-safe resume, and the recalculation-decision contract remain future work.
+
 ### W8 — Reaction kinetics and reporting
 
 Implement balanced profiles, an external hash-bound or native kinetic-network
 model, concentration/temperature scenarios, uncertainty matrices, and the
 final claim/report generator.
+
+Feature status on 2026-07-16: common-reference thermochemistry,
+degeneracy-aware ensembles, activity-explicit Eyring channel fractions,
+selectivity, reviewed energy-offset uncertainty scenarios, and deterministic
+bounded report generation are implemented. Energetic-span/microkinetic
+models, multi-mechanism aggregation, calibrated method uncertainty, and
+production scientific validation remain future work.
 
 ### W9 — Transition-metal extension
 

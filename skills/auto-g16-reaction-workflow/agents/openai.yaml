@@ -1,4 +1,4 @@
 interface:
   display_name: "Auto-G16 Reaction Workflow"
-  short_description: "Build auditable reaction-intake study artifacts"
-  default_prompt: "Use $auto-g16-reaction-workflow to build a reviewed offline reaction intake and blocker inventory."
+  short_description: "Build auditable whole-reaction study artifacts"
+  default_prompt: "Use $auto-g16-reaction-workflow to build and audit my offline whole-reaction computation workflow."

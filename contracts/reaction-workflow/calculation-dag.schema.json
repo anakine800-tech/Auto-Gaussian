@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/calculation-dag.schema.json",
+  "title": "Finite offline reaction calculation DAG",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "mechanism_network", "ts_precedent_map", "review_source",
+    "nodes", "topological_order", "blockers", "review", "gate_status",
+    "ready_for_exact_input_review_node_ids", "execution_authorized", "calculation_ready",
+    "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-calculation-dag/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "mechanism_network": {"$ref": "#/$defs/boundArtifact"},
+    "ts_precedent_map": {"$ref": "#/$defs/boundArtifact"},
+    "review_source": {"$ref": "#/$defs/artifact"},
+    "nodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/node"}},
+    "topological_order": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
+    "review": {"$ref": "#/$defs/review"},
+    "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+    "ready_for_exact_input_review_node_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+    "execution_authorized": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "stringArray": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "boundArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_field", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string", "minLength": 1},
+        "payload_field": {"enum": ["payload_sha256", "selection_payload_sha256", "evidence_review_payload_sha256"]},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "completion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "rationale"],
+      "properties": {"status": {"enum": ["not_started", "terminal_evidence_reviewed", "failed_retained", "superseded"]}, "rationale": {"type": "string", "minLength": 1}}
+    },
+    "node": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "node_id", "node_type", "target_kind", "target_id", "candidate",
+        "protocol_selection", "dependencies", "required", "completion", "evidence",
+        "review_status", "blockers", "notes", "readiness"
+      ],
+      "properties": {
+        "node_id": {"$ref": "#/$defs/id"},
+        "node_type": {"enum": ["minimum_opt_freq", "transition_state_opt_freq", "single_point", "irc_forward", "irc_reverse", "endpoint_opt_freq", "thermochemistry", "kinetics", "report"]},
+        "target_kind": {"enum": ["state", "edge", "study"]},
+        "target_id": {"$ref": "#/$defs/id"},
+        "candidate": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/boundArtifact"}]},
+        "protocol_selection": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/boundArtifact"}]},
+        "dependencies": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "required": {"type": "boolean"},
+        "completion": {"$ref": "#/$defs/completion"},
+        "evidence": {"type": "array", "items": {"oneOf": [{"$ref": "#/$defs/boundArtifact"}, {"$ref": "#/$defs/fileEvidence"}]}},
+        "review_status": {"enum": ["reviewed_plan", "blocked"]},
+        "blockers": {"$ref": "#/$defs/stringArray"},
+        "notes": {"$ref": "#/$defs/stringArray"},
+        "readiness": {"enum": ["completed_with_reviewed_evidence", "failed_retained", "superseded", "blocked_by_review", "waiting_for_dependencies", "blocked_missing_candidate", "blocked_missing_protocol", "ready_for_exact_input_review", "ready_for_offline_analysis"]}
+      }
+    },
+    "blocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "scope", "description", "required_for"],
+      "properties": {"blocker_id": {"$ref": "#/$defs/id"}, "scope": {"type": "string", "minLength": 1}, "description": {"type": "string", "minLength": 1}, "required_for": {"$ref": "#/$defs/stringArray"}}
+    },
+    "fileEvidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"type": "string", "minLength": 1}
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {"decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]}, "notes": {"$ref": "#/$defs/stringArray"}}
+    }
+  }
+}

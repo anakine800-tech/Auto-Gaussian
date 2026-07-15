@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/energy-record.schema.json",
+  "title": "Normalized hash-bound reaction energy record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "record_id", "target", "dag_node_id", "conformer_id",
+    "energy_model_id", "mechanism_network", "calculation_dag", "candidate",
+    "protocol_selection", "source", "energy_components", "temperature_k", "standard_state",
+    "low_frequency_policy", "comparison_energy_definition", "degeneracy",
+    "stationary_point_audit", "scientific_claim_eligible", "claim_limitations",
+    "record_status", "review_source", "review", "calculation_ready",
+    "execution_authorized", "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-energy-record/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "record_id": {"$ref": "#/$defs/id"},
+    "target": {"$ref": "#/$defs/target"},
+    "dag_node_id": {"$ref": "#/$defs/id"},
+    "conformer_id": {"$ref": "#/$defs/id"},
+    "energy_model_id": {"$ref": "#/$defs/id"},
+    "mechanism_network": {"$ref": "#/$defs/boundArtifact"},
+    "calculation_dag": {"$ref": "#/$defs/boundArtifact"},
+    "candidate": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/boundArtifact"}]},
+    "protocol_selection": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/boundArtifact"}]},
+    "source": {"$ref": "#/$defs/source"},
+    "energy_components": {"$ref": "#/$defs/energyComponents"},
+    "temperature_k": {"type": "number", "exclusiveMinimum": 0},
+    "standard_state": {"enum": ["1M", "1atm", "explicit_custom"]},
+    "low_frequency_policy": {"type": "string", "minLength": 1},
+    "comparison_energy_definition": {"type": "string", "minLength": 1},
+    "degeneracy": {"type": "integer", "minimum": 1},
+    "stationary_point_audit": {"$ref": "#/$defs/stationaryAudit"},
+    "scientific_claim_eligible": {"type": "boolean"},
+    "claim_limitations": {"$ref": "#/$defs/stringArray"},
+    "record_status": {"enum": ["scientifically_eligible", "retained_not_claim_eligible"]},
+    "review_source": {"$ref": "#/$defs/artifact"},
+    "review": {"$ref": "#/$defs/review"},
+    "calculation_ready": {"const": false},
+    "execution_authorized": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "stringArray": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "fileArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string", "minLength": 1}
+      }
+    },
+    "boundArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_field", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string", "minLength": 1},
+        "payload_field": {"enum": ["payload_sha256", "selection_payload_sha256", "evidence_review_payload_sha256"]},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {"kind": {"enum": ["state", "edge"]}, "id": {"$ref": "#/$defs/id"}}
+    },
+    "fieldBindings": {
+      "type": "object", "additionalProperties": false,
+      "required": ["electronic_energy_hartree", "thermal_gibbs_correction_hartree", "temperature_k", "standard_state", "optimization_success", "normal_termination", "imaginary_frequency_count"],
+      "properties": {
+        "electronic_energy_hartree": {"type": "string", "pattern": "^/"},
+        "thermal_gibbs_correction_hartree": {"type": "string", "pattern": "^/"},
+        "temperature_k": {"type": "string", "pattern": "^/"},
+        "standard_state": {"type": "string", "pattern": "^/"},
+        "optimization_success": {"type": "string", "pattern": "^/"},
+        "normal_termination": {"type": "string", "pattern": "^/"},
+        "imaginary_frequency_count": {"type": "string", "pattern": "^/"}
+      }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "result", "field_bindings"],
+      "properties": {
+        "kind": {"enum": ["synthetic_fixture", "reviewed_calculation_result"]},
+        "result": {"$ref": "#/$defs/fileArtifact"},
+        "field_bindings": {"$ref": "#/$defs/fieldBindings"}
+      }
+    },
+    "energyComponents": {
+      "type": "object", "additionalProperties": false,
+      "required": ["electronic_energy_hartree", "thermal_gibbs_correction_hartree", "standard_state_correction_kcal_mol", "low_frequency_correction_kcal_mol", "total_gibbs_hartree", "total_gibbs_kcal_mol"],
+      "properties": {
+        "electronic_energy_hartree": {"type": "number"},
+        "thermal_gibbs_correction_hartree": {"type": "number"},
+        "standard_state_correction_kcal_mol": {"type": "number"},
+        "low_frequency_correction_kcal_mol": {"type": "number"},
+        "total_gibbs_hartree": {"type": "number"},
+        "total_gibbs_kcal_mol": {"type": "number"}
+      }
+    },
+    "stationaryAudit": {
+      "type": "object", "additionalProperties": false,
+      "required": ["normal_termination", "optimization_success", "imaginary_frequency_count", "expected_imaginary_frequency_count", "mode_review", "mode_decision", "intended_mode_accepted"],
+      "properties": {
+        "normal_termination": {"type": "boolean"}, "optimization_success": {"type": "boolean"},
+        "imaginary_frequency_count": {"type": "integer", "minimum": 0},
+        "expected_imaginary_frequency_count": {"enum": [0, 1]},
+        "mode_review": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/fileArtifact"}]},
+        "mode_decision": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/fileArtifact"}]},
+        "intended_mode_accepted": {"type": ["boolean", "null"]}
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {"decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]}, "notes": {"$ref": "#/$defs/stringArray"}}
+    }
+  }
+}

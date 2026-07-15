@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/candidate-materialization.schema.json",
+  "title": "Reviewed offline reaction candidate materialization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "candidate_id", "candidate_kind", "target",
+    "ts_precedent_map", "precedent_id", "coordinate_source", "review_source",
+    "charge", "multiplicity", "atoms", "geometry", "minimum_interatomic_distance_angstrom",
+    "geometry_provenance", "candidate_status", "requires_visible_review", "review",
+    "calculation_ready", "no_input_render_authorization", "no_submission_authorization",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-candidate-materialization/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "candidate_kind": {"const": "transition_state_seed"},
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "source_state_id", "stereochemical_channel"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"},
+        "source_state_id": {"$ref": "#/$defs/id"},
+        "stereochemical_channel": {"type": ["string", "null"]}
+      }
+    },
+    "ts_precedent_map": {"$ref": "#/$defs/boundArtifact"},
+    "precedent_id": {"$ref": "#/$defs/id"},
+    "coordinate_source": {"$ref": "#/$defs/fileArtifact"},
+    "review_source": {"$ref": "#/$defs/artifact"},
+    "charge": {"type": "integer"},
+    "multiplicity": {"type": "integer", "minimum": 1},
+    "atoms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atom"}},
+    "geometry": {"$ref": "#/$defs/fileArtifact"},
+    "minimum_interatomic_distance_angstrom": {"type": "number", "minimum": 0.3},
+    "geometry_provenance": {"const": "audited_published_coordinate_seed"},
+    "candidate_status": {"const": "materialized_for_offline_review"},
+    "requires_visible_review": {"const": true},
+    "review": {"$ref": "#/$defs/review"},
+    "calculation_ready": {"const": false},
+    "no_input_render_authorization": {"const": true},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "boundArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_field", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-ts-precedent-map/1"},
+        "payload_field": {"const": "payload_sha256"}, "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "fileArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "format"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 1}, "format": {"const": "xyz"}}
+    },
+    "atom": {
+      "type": "object", "additionalProperties": false,
+      "required": ["position", "atom_id", "element", "x", "y", "z"],
+      "properties": {
+        "position": {"type": "integer", "minimum": 1}, "atom_id": {"$ref": "#/$defs/id"},
+        "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"},
+        "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {"decision": {"const": "accepted"}, "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}}
+    }
+  }
+}
