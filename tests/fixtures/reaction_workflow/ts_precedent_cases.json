@@ -1,0 +1,9 @@
+{
+  "schema": "gaussian-ts-precedent-map-synthetic-fixtures/1",
+  "cases": [
+    {"precedent_id": "precedent_exact", "candidate_id": "lit_exact", "relationship": "exact", "dimension_value": "exact", "bounded_use": "geometry_seed_support", "evidence_decision": "source_reports_direct_precedent", "disposition": "accepted_for_candidate_construction"},
+    {"precedent_id": "precedent_close", "candidate_id": "lit_close", "relationship": "close", "dimension_value": "close", "bounded_use": "ts_topology_support", "evidence_decision": "source_reports_analogy", "disposition": "proposed"},
+    {"precedent_id": "precedent_remote", "candidate_id": "lit_remote", "relationship": "remote", "dimension_value": "remote", "bounded_use": "discovery_only", "evidence_decision": "source_reports_analogy", "disposition": "rejected"},
+    {"precedent_id": "precedent_unusable", "candidate_id": "lit_unusable", "relationship": "unusable", "dimension_value": "contradictory", "bounded_use": "not_applicable_to_target", "evidence_decision": "exclude", "disposition": "blocked"}
+  ]
+}

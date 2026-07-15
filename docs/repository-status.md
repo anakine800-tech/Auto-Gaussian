@@ -44,9 +44,10 @@ scientific acceptance.
 
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
-offline reusable-knowledge foundation and the remaining literature TS-
-precedent, mechanism-network, calculation-DAG, free-energy/kinetic and final-
-report layers needed to progress from W1 to an auditable whole-reaction study.
+offline reusable-knowledge, mechanism-network and TS-precedent foundations and
+the remaining mechanism-support, calculation-DAG, free-energy/kinetic and
+final-report layers needed to progress from W1 to an auditable whole-reaction
+study.
 
 ## Current capability
 
@@ -82,6 +83,13 @@ The version-controlled source under `skills/` currently provides:
   permission-filtered query and snapshot dependency verification; and
 - its W2B-2 hash-bound plan-review-apply import, lawful-object ingestion,
   dependency-aware redacted/full JSON export and transfer manifests.
+- a smallest coherent offline `gaussian-ts-precedent-map/1` builder/validator
+  that binds the exact W1, mechanism-network, knowledge-snapshot, finalized
+  literature-evidence and review-source artifacts; verifies stable target atom
+  IDs and source-to-target correspondence; distinguishes transferable from
+  rebuild-required geometry; separates numeric geometry ranges from qualitative
+  topology/orientation descriptors; binds charge/multiplicity to the edge
+  endpoints; and audits six non-executing seed strategies.
 
 The W1 builder assigns stable step/occurrence/condition IDs, binds every drawn
 reactant/product exactly once, refuses missing condition decisions, preserves
@@ -101,12 +109,14 @@ durable audit logging, binary export and chemical search. Offline access checks
 are not a filesystem or multi-user security boundary. The W2 design and remaining stages
 are recorded in `skills/auto-g16-reaction-workflow/references/knowledge-database-design.md`.
 
-The repository now provides reproducible metadata discovery and source-evidence
-review scaffolding, but not automatic lawful full-text/SI extraction,
-mechanism-support matrices, source-to-target atom correspondence, or reviewed
-target TS-seed proposals. The existing BF3 and asymmetric-catalysis records
-remain fixed precedents rather than automatic target-mechanism proof. The full
-W2 contract and remaining stages are recorded in
+The repository now provides reproducible metadata discovery, source-evidence
+review scaffolding and the strict offline TS-precedent translation slice. It
+still does not provide automatic lawful full-text/SI extraction,
+mechanism-support matrices, seed-geometry construction, mechanism validation,
+TS validation or protocol selection. The TS-precedent map remains
+non-promotable while mechanism support is absent. The existing BF3 and
+asymmetric-catalysis records remain fixed precedents rather than automatic
+target-mechanism proof. The full W2 contract and remaining stages are recorded in
 `skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
 
 The TS–Freq–IRC feature and its endpoint workflow have been merged to `main`.
@@ -386,7 +396,8 @@ candidate still requires its own new gate.
 1. Continue the W2 `auto-g16-knowledge-base` from the completed W2B-2 offline
    store/import/export foundation with authentication, durable audit logging,
    chemical search and a separately reviewed service boundary. Then implement
-   the literature query/evidence/mechanism-support/TS-precedent contracts. Only
+   the missing mechanism-support contract and integrate it without weakening
+   the now-implemented non-promotable TS-precedent gate. Only
    after offline acceptance, separately approve one real-reaction literature-
    search smoke; it must not generate an input or authorize calculation.
 2. Use the implemented candidate-bound M1 sidecar for one concrete metal–

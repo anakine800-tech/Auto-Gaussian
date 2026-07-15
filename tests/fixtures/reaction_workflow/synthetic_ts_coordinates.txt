@@ -1,0 +1,3 @@
+Synthetic offline coordinate-object fixture.
+No real publication, molecule, method, or reusable coordinates are represented.
+coordinate block: SRC_H1 SRC_H2 SRC_I1 SRC_I2 SRC_PD
