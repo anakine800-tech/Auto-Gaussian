@@ -30,7 +30,7 @@
         "alternative_solution_assessment": "Synthetic alternative-solution review token.",
         "multireference_assessment": "Synthetic single-reference diagnostic review token."
       },
-      "evidence": [{"evidence_id": "fixture_wavefunction", "evidence_kind": "wavefunction_review", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "locator": "Synthetic wavefunction decision fixture."}],
+      "evidence": [{"evidence_id": "fixture_wavefunction", "evidence_kind": "synthetic_fixture", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "locator": "Synthetic wavefunction decision fixture."}],
       "review_notes": "Exercises a section-level bounded acceptance record without top-level acceptance.",
       "blockers": []
     },
@@ -45,7 +45,7 @@
         "ligand_inventory_assessment": "Synthetic ligand-retention review token.",
         "unintended_state_change": false
       },
-      "evidence": [{"evidence_id": "fixture_coordination", "evidence_kind": "coordination_review", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "locator": "Synthetic coordination decision fixture."}],
+      "evidence": [{"evidence_id": "fixture_coordination", "evidence_kind": "synthetic_fixture", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "locator": "Synthetic coordination decision fixture."}],
       "review_notes": "Exercises exact M2b contact binding and manual disposition.",
       "blockers": []
     },
@@ -57,7 +57,7 @@
         "intended_coordinate_assessment": "Synthetic displacement follows the declared fixture coordinate.",
         "unintended_coordination_loss_assessment": "Synthetic review found no unintended coordination-loss mode."
       },
-      "evidence": [{"evidence_id": "fixture_mode", "evidence_kind": "mode_displacement", "sha256": "3333333333333333333333333333333333333333333333333333333333333333", "locator": "Synthetic mode-displacement decision fixture."}],
+      "evidence": [{"evidence_id": "fixture_mode", "evidence_kind": "synthetic_fixture", "sha256": "3333333333333333333333333333333333333333333333333333333333333333", "locator": "Synthetic mode-displacement decision fixture."}],
       "review_notes": "One imaginary frequency is paired with a synthetic hash-bound displacement review token.",
       "blockers": []
     },
@@ -76,8 +76,8 @@
         "resource_and_server_path_reviewed": true
       },
       "evidence": [
-        {"evidence_id": "fixture_protocol", "evidence_kind": "protocol_artifact", "sha256": "5555555555555555555555555555555555555555555555555555555555555555", "locator": "Synthetic protocol-selection decision fixture."},
-        {"evidence_id": "fixture_input_approval", "evidence_kind": "input_approval", "sha256": "6666666666666666666666666666666666666666666666666666666666666666", "locator": "Synthetic input-approval decision fixture."}
+        {"evidence_id": "fixture_protocol", "evidence_kind": "synthetic_fixture", "sha256": "5555555555555555555555555555555555555555555555555555555555555555", "locator": "Synthetic protocol-selection decision fixture."},
+        {"evidence_id": "fixture_input_approval", "evidence_kind": "synthetic_fixture", "sha256": "6666666666666666666666666666666666666666666666666666666666666666", "locator": "Synthetic input-approval decision fixture."}
       ],
       "review_notes": "Exercises a bounded input decision record; no execution is authorized.",
       "blockers": []

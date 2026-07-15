@@ -76,15 +76,60 @@
       "required": ["scope_kind", "reviewer", "review_date", "sources", "notes"],
       "properties": {
         "scope_kind": {"enum": ["synthetic_nonresearch_fixture", "primary_literature_bound_review", "mixed_primary_and_reviewer_evidence"]},
-        "reviewer": {"type": ["string", "null"]},
-        "review_date": {"type": ["string", "null"]},
+        "reviewer": {"type": ["string", "null"], "minLength": 1},
+        "review_date": {"type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
         "sources": {
           "type": "array",
           "minItems": 1,
           "items": {"$ref": "#/$defs/evidence_source"}
         },
         "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "scope_kind": {"const": "synthetic_nonresearch_fixture"},
+            "sources": {
+              "items": {
+                "allOf": [
+                  {"$ref": "#/$defs/evidence_source"},
+                  {"properties": {"source_type": {"const": "synthetic_fixture"}}}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "scope_kind": {"const": "primary_literature_bound_review"},
+            "sources": {
+              "items": {
+                "allOf": [
+                  {"$ref": "#/$defs/evidence_source"},
+                  {"properties": {"source_type": {"enum": ["primary_article", "primary_supporting_information"]}}}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "scope_kind": {"const": "mixed_primary_and_reviewer_evidence"},
+            "sources": {
+              "items": {
+                "allOf": [
+                  {"$ref": "#/$defs/evidence_source"},
+                  {"properties": {"source_type": {"enum": ["primary_article", "primary_supporting_information", "reviewer_record"]}}}
+                ]
+              },
+              "allOf": [
+                {"contains": {"properties": {"source_type": {"enum": ["primary_article", "primary_supporting_information"]}}}, "minContains": 1},
+                {"contains": {"properties": {"source_type": {"const": "reviewer_record"}}}, "minContains": 1}
+              ]
+            }
+          }
+        }
+      ]
     },
     "review_section": {
       "type": "object",

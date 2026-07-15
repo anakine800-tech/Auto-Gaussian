@@ -15,6 +15,7 @@ import json
 import math
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -101,6 +102,43 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _is_finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _is_valid_iso_date(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
+
+
+def _validate_m1_scope_evidence_binding(provenance: dict[str, Any], label: str) -> None:
+    """Prevent a synthetic or reviewer record from being relabelled as primary evidence."""
+    scope_kind = provenance.get("scope_kind")
+    sources = provenance.get("sources", [])
+    source_types = {
+        item.get("source_type") for item in sources if isinstance(item, dict)
+    }
+    primary_types = {"primary_article", "primary_supporting_information"}
+    if scope_kind == "synthetic_nonresearch_fixture":
+        require(
+            source_types == {"synthetic_fixture"},
+            f"{label}: synthetic scope requires only synthetic_fixture evidence",
+        )
+    elif scope_kind == "primary_literature_bound_review":
+        require(
+            bool(source_types) and source_types <= primary_types,
+            f"{label}: primary-literature scope requires only primary article or supporting-information evidence",
+        )
+    elif scope_kind == "mixed_primary_and_reviewer_evidence":
+        require(
+            bool(source_types)
+            and source_types <= primary_types | {"reviewer_record"}
+            and bool(source_types & primary_types)
+            and "reviewer_record" in source_types,
+            f"{label}: mixed scope requires both primary-literature and reviewer-record evidence and forbids synthetic fixtures",
+        )
 
 
 def _require_sha256(value: Any, message: str) -> None:
@@ -1405,6 +1443,7 @@ def _validate_metal_scientific_review_source(
         )
         evidence_by_id[source_id] = evidence
     require(evidence_by_id, "metal scientific-review source has no evidence records")
+    _validate_m1_scope_evidence_binding(provenance, "metal scientific-review source")
 
     identity = source.get("identity")
     require(isinstance(identity, dict), "metal scientific-review identity must be an object")
@@ -1639,7 +1678,7 @@ def _validate_metal_scientific_review_source(
     )
     if all_reviewed:
         require(isinstance(provenance.get("reviewer"), str) and provenance["reviewer"].strip(), "complete metal scientific review requires an explicit reviewer")
-        require(isinstance(provenance.get("review_date"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", provenance["review_date"]), "complete metal scientific review requires an ISO review date")
+        require(_is_valid_iso_date(provenance.get("review_date")), "complete metal scientific review requires a valid ISO review date")
     return state, family, all_reviewed
 
 
@@ -2726,6 +2765,27 @@ def build_metal_acceptance_review(
         and isinstance(scope.get("notes"), list),
         "metal acceptance decision source scope is invalid",
     )
+    _validate_m1_scope_evidence_binding(
+        scientific_review.get("review_scope", {}),
+        "metal acceptance upstream M1 review",
+    )
+    real_scope = scope["scope_kind"] == "reviewer_bound_real_case"
+    if real_scope:
+        require(
+            isinstance(scope.get("reviewer"), str) and scope["reviewer"].strip(),
+            "real metal acceptance review requires a non-empty reviewer",
+        )
+        require(
+            _is_valid_iso_date(scope.get("review_date")),
+            "real metal acceptance review requires a valid ISO review date",
+        )
+        require(
+            scientific_review.get("completion", {}).get("metal_m1_scientific_review_status")
+            == "reviewed_bounded_example_runtime_unsupported"
+            and scientific_review.get("review_scope", {}).get("scope_kind")
+            in {"primary_literature_bound_review", "mixed_primary_and_reviewer_evidence"},
+            "real metal acceptance review requires an upstream real non-synthetic M1 review",
+        )
     sections = source.get("sections")
     require(isinstance(sections, dict) and set(sections) == set(METAL_ACCEPTANCE_SECTION_NAMES), "metal acceptance section inventory is incomplete")
     fact_fields = {
@@ -2776,6 +2836,10 @@ def build_metal_acceptance_review(
             require(ID_RE.fullmatch(str(evidence_id or "")) is not None and evidence_id not in evidence_ids, f"metal acceptance {name} evidence ID is invalid or duplicate")
             evidence_ids.add(evidence_id)
             require(item.get("evidence_kind") in {"synthetic_fixture", "reviewer_record", "mode_displacement", "protocol_artifact", "input_approval", "coordination_review", "wavefunction_review"}, f"metal acceptance {name} evidence kind is invalid")
+            require(
+                not real_scope or item.get("evidence_kind") != "synthetic_fixture",
+                f"real metal acceptance {name} section forbids synthetic_fixture evidence",
+            )
             value = item.get("sha256")
             require(value is None or (isinstance(value, str) and SHA256_RE.fullmatch(value) is not None), f"metal acceptance {name} evidence SHA-256 is invalid")
             require(isinstance(item.get("locator"), str) and item["locator"].strip(), f"metal acceptance {name} evidence locator is missing")

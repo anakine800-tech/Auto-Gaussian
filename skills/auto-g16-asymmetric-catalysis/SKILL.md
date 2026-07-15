@@ -154,6 +154,10 @@ records `metal_m1_scientific_review_status: not_satisfied_synthetic_fixture`;
 it does not satisfy `metal_m1_scientific_review`. A complete real review record
 still has `scientific_acceptance_decision: not_granted_by_artifact`, keeps the
 candidate unsupported and cannot select a protocol or execution strategy.
+M1 scope is evidence-bound: synthetic scope accepts only synthetic-fixture
+sources, primary-literature scope accepts only primary article/SI sources, and
+mixed scope requires both primary and reviewer-record sources while forbidding
+synthetic fixtures.
 `--dry-run` validates the full lineage and reports `live_actions: false`
 without writing a file.
 
@@ -226,6 +230,9 @@ not top-level scientific or execution acceptance. Every output keeps
 submission refused, and cannot authorize IRC or a live action. A complete
 synthetic fixture records `not_satisfied_synthetic_fixture`. `--dry-run`
 performs the same lineage and evidence checks without writing an artifact.
+A real M2d scope additionally requires a completed non-synthetic real M1,
+a non-empty reviewer, a valid ISO calendar date, and no `synthetic_fixture`
+evidence in any decision section.
 
 ```text
 metal_m2d_acceptance_review_contract: implemented_offline

@@ -48,6 +48,35 @@ class AsymmetricCatalysisContractTests(unittest.TestCase):
             found.add(path.name.removesuffix(".schema.json"))
         self.assertEqual(found, expected)
 
+    def test_metal_scope_evidence_contract_rejects_scope_only_laundering(self) -> None:
+        m1_source = self.load("metal_scientific_review_complete.json")
+        CONTRACT.validate_metal_scientific_review_source(m1_source)
+        m1_scope_flip = copy.deepcopy(m1_source)
+        m1_scope_flip["provenance"]["scope_kind"] = "primary_literature_bound_review"
+        with self.assertRaises(CONTRACT.ContractError):
+            CONTRACT.validate_metal_scientific_review_source(m1_scope_flip)
+
+        m2_source = self.load("metal_acceptance_review_complete.json")
+        CONTRACT.validate_metal_acceptance_review_source(m2_source)
+        m2_scope_flip = copy.deepcopy(m2_source)
+        m2_scope_flip["scope"]["scope_kind"] = "reviewer_bound_real_case"
+        with self.assertRaises(CONTRACT.ContractError):
+            CONTRACT.validate_metal_acceptance_review_source(m2_scope_flip)
+
+        invalid_real_date = copy.deepcopy(m2_scope_flip)
+        invalid_real_date["scope"]["review_date"] = "2026-02-30"
+        for section in invalid_real_date["sections"].values():
+            for evidence in section["evidence"]:
+                evidence["evidence_kind"] = "reviewer_record"
+        with self.assertRaisesRegex(CONTRACT.ContractError, "valid ISO review date"):
+            CONTRACT.validate_metal_acceptance_review_source(invalid_real_date)
+
+        missing_real_reviewer = copy.deepcopy(invalid_real_date)
+        missing_real_reviewer["scope"]["review_date"] = "2026-07-15"
+        missing_real_reviewer["scope"]["reviewer"] = ""
+        with self.assertRaises(CONTRACT.ContractError):
+            CONTRACT.validate_metal_acceptance_review_source(missing_real_reviewer)
+
     def test_boron_fixture_chain_passes_cross_artifact_validation(self) -> None:
         study_path = FIXTURES / "boron_study.json"
         study = self.load("boron_study.json")
@@ -324,6 +353,25 @@ class AsymmetricCatalysisContractTests(unittest.TestCase):
             self.assertEqual(acceptance["scientific_acceptance_decision"], "not_granted_by_artifact")
             self.assertEqual(acceptance["mode_acceptance_decision"], "not_granted_by_artifact")
             self.assertEqual(acceptance["promotion_decision"], "refused")
+
+            real_scope_with_synthetic_upstream = copy.deepcopy(acceptance)
+            real_scope_with_synthetic_upstream["scope"]["scope_kind"] = "reviewer_bound_real_case"
+            for section in real_scope_with_synthetic_upstream["sections"].values():
+                for evidence in section["evidence"]:
+                    evidence["evidence_kind"] = "reviewer_record"
+            real_scope_with_synthetic_upstream["decision_summary"]["metal_m2_acceptance_review_status"] = "reviewed_bounded_example_runtime_unsupported"
+            real_scope_with_synthetic_upstream["review_payload_sha256"] = CONTRACT.payload_sha256({
+                key: value for key, value in real_scope_with_synthetic_upstream.items()
+                if key != "review_payload_sha256"
+            })
+            with self.assertRaisesRegex(CONTRACT.ContractError, "bound upstream M1 artifact"):
+                CONTRACT.validate_metal_acceptance_review(real_scope_with_synthetic_upstream)
+            with self.assertRaisesRegex(CONTRACT.ContractError, "upstream real non-synthetic M1"):
+                CONTRACT.validate_metal_acceptance_review(
+                    real_scope_with_synthetic_upstream,
+                    scientific_review=review,
+                    scientific_review_path=review_path,
+                )
 
             promoted_acceptance = copy.deepcopy(acceptance)
             promoted_acceptance["promotion_decision"] = "accepted"

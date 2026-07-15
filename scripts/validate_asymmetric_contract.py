@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
@@ -81,7 +82,8 @@ METAL_ACCEPTANCE_DECISIONS = {
 SUPPORTED_SCHEMA_KEYWORDS = {
     "$schema", "$id", "$defs", "$ref", "$comment", "title", "description", "default", "examples",
     "type", "const", "enum", "allOf", "anyOf", "oneOf", "not", "required", "properties",
-    "additionalProperties", "propertyNames", "items", "minItems", "maxItems", "uniqueItems",
+    "additionalProperties", "propertyNames", "items", "contains", "minContains", "maxContains",
+    "minItems", "maxItems", "uniqueItems",
     "minProperties", "maxProperties", "minLength", "maxLength", "pattern", "format", "minimum",
     "maximum", "exclusiveMinimum", "exclusiveMaximum",
 }
@@ -102,6 +104,15 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise ContractError(f"duplicate JSON object key is forbidden: {key}")
         data[key] = value
     return data
+
+
+def _is_valid_iso_date(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -181,7 +192,7 @@ def validate_schema_document(schema: dict[str, Any]) -> None:
         for list_key in ("allOf", "anyOf", "oneOf"):
             for index, subschema in enumerate(node.get(list_key, [])):
                 audit(subschema, f"{location}/{list_key}/{index}")
-        for single_key in ("not", "items", "additionalProperties", "propertyNames"):
+        for single_key in ("not", "items", "contains", "additionalProperties", "propertyNames"):
             subschema = node.get(single_key)
             if isinstance(subschema, (dict, bool)):
                 audit(subschema, f"{location}/{single_key}")
@@ -271,6 +282,17 @@ def _validate_schema_instance(
         if "items" in schema:
             for index, value in enumerate(instance):
                 _validate_schema_instance(value, schema["items"], root_schema, path + (index,))
+        if "contains" in schema:
+            matches = 0
+            for index, value in enumerate(instance):
+                try:
+                    _validate_schema_instance(value, schema["contains"], root_schema, path + (index,))
+                except ContractError:
+                    continue
+                matches += 1
+            require(matches >= schema.get("minContains", 1), f"{location}: too few items match contains")
+            if "maxContains" in schema:
+                require(matches <= schema["maxContains"], f"{location}: too many items match contains")
 
     if isinstance(instance, str):
         require(len(instance) >= schema.get("minLength", 0), f"{location}: string is too short")
@@ -706,6 +728,28 @@ def validate_metal_ts_audit_template(
         require(actual_contacts == expected_contacts, "metal TS audit template: candidate coordination contacts mismatch")
 
 
+def _validate_m1_scope_evidence_binding(provenance: dict[str, Any], label: str) -> None:
+    scope_kind = provenance.get("scope_kind")
+    source_types = {
+        item.get("source_type")
+        for item in provenance.get("sources", [])
+        if isinstance(item, dict)
+    }
+    primary_types = {"primary_article", "primary_supporting_information"}
+    if scope_kind == "synthetic_nonresearch_fixture":
+        require(source_types == {"synthetic_fixture"}, f"{label}: synthetic scope requires only synthetic_fixture evidence")
+    elif scope_kind == "primary_literature_bound_review":
+        require(bool(source_types) and source_types <= primary_types, f"{label}: primary-literature scope requires only primary article or supporting-information evidence")
+    elif scope_kind == "mixed_primary_and_reviewer_evidence":
+        require(
+            bool(source_types)
+            and source_types <= primary_types | {"reviewer_record"}
+            and bool(source_types & primary_types)
+            and "reviewer_record" in source_types,
+            f"{label}: mixed scope requires both primary-literature and reviewer-record evidence and forbids synthetic fixtures",
+        )
+
+
 def _validate_metal_review_content(
     provenance: dict[str, Any],
     identity: dict[str, Any],
@@ -715,6 +759,7 @@ def _validate_metal_review_content(
     require(set(sections) == METAL_REVIEW_SECTIONS, f"{label}: review-section inventory is incomplete")
     evidence = unique_index(provenance.get("sources", []), "source_id", f"{label}.sources")
     require(evidence, f"{label}: evidence-source inventory is empty")
+    _validate_m1_scope_evidence_binding(provenance, label)
     fact_fields = {
         "electron_accounting": {
             "metal_assignments", "total_valence_electron_count", "electron_parity",
@@ -867,7 +912,7 @@ def _validate_metal_review_content(
     all_reviewed = not blocked
     if all_reviewed:
         require(isinstance(provenance.get("reviewer"), str) and provenance["reviewer"].strip(), f"{label}: complete review record lacks a reviewer")
-        require(isinstance(provenance.get("review_date"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", provenance["review_date"]), f"{label}: complete review record lacks an ISO review date")
+        require(_is_valid_iso_date(provenance.get("review_date")), f"{label}: complete review record lacks a valid ISO review date")
     return all_reviewed, sorted(reviewed), sorted(blocked), unresolved
 
 
@@ -1293,6 +1338,33 @@ def validate_metal_input_observation(
         require(observation.get("input_source", {}).get("sha256") == sha256(input_path), "metal input observation: input hash mismatch")
 
 
+def _validate_metal_acceptance_scope(
+    scope: Any,
+    sections: Any,
+    label: str,
+) -> None:
+    require(isinstance(scope, dict), f"{label}: scope is invalid")
+    if scope.get("scope_kind") != "reviewer_bound_real_case":
+        return
+    require(
+        isinstance(scope.get("reviewer"), str) and scope["reviewer"].strip(),
+        f"{label}: real scope requires a non-empty reviewer",
+    )
+    require(
+        _is_valid_iso_date(scope.get("review_date")),
+        f"{label}: real scope requires a valid ISO review date",
+    )
+    require(isinstance(sections, dict), f"{label}: sections are invalid")
+    for section_name, section in sections.items():
+        if not isinstance(section, dict):
+            continue
+        for item in section.get("evidence", []):
+            require(
+                not isinstance(item, dict) or item.get("evidence_kind") != "synthetic_fixture",
+                f"{label}: real {section_name} section forbids synthetic_fixture evidence",
+            )
+
+
 def _validate_metal_acceptance_sections(
     sections: Any,
     scientific_review: dict[str, Any] | None = None,
@@ -1385,6 +1457,9 @@ def _validate_metal_acceptance_sections(
 
 def validate_metal_acceptance_review_source(source: dict[str, Any]) -> None:
     validate_structure(source, "metal-acceptance-review-source")
+    _validate_metal_acceptance_scope(
+        source.get("scope"), source.get("sections"), "metal acceptance source"
+    )
     _validate_metal_acceptance_sections(source.get("sections"))
 
 
@@ -1406,6 +1481,25 @@ def validate_metal_acceptance_review(
         require(review.get(field) == "not_granted_by_artifact", f"metal acceptance review: {field} was granted")
     require(review.get("promotion_decision") == "refused" and review.get("submission_decision") == "refused", "metal acceptance review: promotion or submission was granted")
     require(review.get("claim_ceiling") == "manual_decision_record_only_no_runtime_promotion_ts_path_or_selectivity_claim", "metal acceptance review: claim ceiling was widened")
+    scope = review.get("scope", {})
+    _validate_metal_acceptance_scope(scope, review.get("sections"), "metal acceptance review")
+    if scope.get("scope_kind") == "reviewer_bound_real_case":
+        require(
+            scientific_review is not None and scientific_review_path is not None,
+            "metal acceptance review: real scope requires the bound upstream M1 artifact",
+        )
+        assert scientific_review is not None
+        _validate_m1_scope_evidence_binding(
+            scientific_review.get("review_scope", {}),
+            "metal acceptance upstream M1 review",
+        )
+        require(
+            scientific_review.get("completion", {}).get("metal_m1_scientific_review_status")
+            == "reviewed_bounded_example_runtime_unsupported"
+            and scientific_review.get("review_scope", {}).get("scope_kind")
+            in {"primary_literature_bound_review", "mixed_primary_and_reviewer_evidence"},
+            "metal acceptance review: real scope requires an upstream real non-synthetic M1 review",
+        )
     decisions = _validate_metal_acceptance_sections(review.get("sections"), scientific_review, input_observation, result_observation)
     accepted = sorted(name for name, value in decisions.items() if value == "accepted_for_bounded_offline_review")
     rejected = sorted(name for name, value in decisions.items() if value == "rejected_by_reviewer")

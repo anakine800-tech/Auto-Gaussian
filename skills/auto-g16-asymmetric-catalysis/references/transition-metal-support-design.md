@@ -219,6 +219,11 @@ blocked wherever the source does not report electron accounting, spin-surface,
 wavefunction, coordination-window or protocol facts. Never backfill those gaps
 from chemical intuition.
 
+Bind `scope_kind` to the evidence inventory rather than trusting the label:
+synthetic scope contains only synthetic-fixture sources; primary-literature
+scope contains only primary article/SI sources; and mixed scope contains at
+least one primary source plus a reviewer record and no synthetic fixture.
+
 ### 7.2 Read-only existing-input observation
 
 `audit-metal-input` is the implemented M2c slice. It accepts only an existing
@@ -302,6 +307,9 @@ submission_decision: refused
 
 A synthetic complete record cannot satisfy a real M2 milestone. Missing facts
 must remain blocked; rejected sections are preserved rather than retried.
+Real M2d status requires a completed real, non-synthetic M1 in the bound
+upstream chain, a named reviewer, a valid ISO calendar date and no
+`synthetic_fixture` evidence in any of the four decision sections.
 
 ## 8. Method and basis protocol
 

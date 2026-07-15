@@ -213,7 +213,7 @@ deployment, cancellation, or server cleanup operation.
 
 ## Offline validation snapshot
 
-On 2026-07-15, this feature branch passed 141 offline tests. In particular:
+On 2026-07-15, this feature branch passed 142 offline tests. In particular:
 
 - all sixteen artifact types passed the repository's fail-closed Draft 2020-12
   schema subset validator; unknown schema keywords are refused until the
@@ -234,6 +234,9 @@ On 2026-07-15, this feature branch passed 141 offline tests. In particular:
   models or non-finite thermochemical inputs;
 - the synthetic metal candidate passed only in the mandatory
   `unsupported_transition_metal` state;
+- M1 scope labels were bound to their allowed evidence-source types, and M2d
+  real scope was refused without a real non-synthetic M1, named reviewer,
+  valid calendar date and exclusively non-synthetic decision evidence;
 - the metal-support design reproduced the study's explicit oxidation-state
   hypotheses without inferring d-electron counts, bound each mechanism to
   three unselected TS-search strategies, exposed spin/wavefunction/

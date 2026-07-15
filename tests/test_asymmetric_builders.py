@@ -614,6 +614,39 @@ class AsymmetricBuilderTests(unittest.TestCase):
                 (FIXTURES / "metal_acceptance_review_complete.json").read_text(encoding="utf-8")
             )
 
+            scope_flip = copy.deepcopy(source)
+            scope_flip["scope"]["scope_kind"] = "reviewer_bound_real_case"
+            scope_flip_path = root / "scope-flip-source.json"
+            dump(scope_flip_path, scope_flip)
+            with self.assertRaisesRegex(ASYM.OfflineError, "upstream real non-synthetic M1"):
+                ASYM.build_metal_acceptance_review(
+                    template, FIXTURES / "metal_candidate.json", review,
+                    input_observation, result_observation, scope_flip_path,
+                    root / "scope-flip-review.json",
+                )
+
+            missing_reviewer = copy.deepcopy(scope_flip)
+            missing_reviewer["scope"]["reviewer"] = ""
+            missing_reviewer_path = root / "missing-reviewer-source.json"
+            dump(missing_reviewer_path, missing_reviewer)
+            with self.assertRaisesRegex(ASYM.OfflineError, "non-empty reviewer"):
+                ASYM.build_metal_acceptance_review(
+                    template, FIXTURES / "metal_candidate.json", review,
+                    input_observation, result_observation, missing_reviewer_path,
+                    root / "missing-reviewer-review.json",
+                )
+
+            invalid_date = copy.deepcopy(scope_flip)
+            invalid_date["scope"]["review_date"] = "2026-02-30"
+            invalid_date_path = root / "invalid-date-source.json"
+            dump(invalid_date_path, invalid_date)
+            with self.assertRaisesRegex(ASYM.OfflineError, "valid ISO review date"):
+                ASYM.build_metal_acceptance_review(
+                    template, FIXTURES / "metal_candidate.json", review,
+                    input_observation, result_observation, invalid_date_path,
+                    root / "invalid-date-review.json",
+                )
+
             rejected = copy.deepcopy(source)
             rejected["review_id"] = "fixture_metal_m2_rejected"
             rejected["sections"]["wavefunction"]["decision"] = "rejected_by_reviewer"
@@ -685,6 +718,18 @@ class AsymmetricBuilderTests(unittest.TestCase):
                 ASYM.build_metal_scientific_review(
                     design_path, template_path, FIXTURES / "metal_candidate.json",
                     wrong_hash_path, root / "wrong-hash-review.json",
+                )
+
+            scope_flip = json.loads(
+                (FIXTURES / "metal_scientific_review_complete.json").read_text(encoding="utf-8")
+            )
+            scope_flip["provenance"]["scope_kind"] = "primary_literature_bound_review"
+            scope_flip_path = root / "scope-flip.json"
+            dump(scope_flip_path, scope_flip)
+            with self.assertRaisesRegex(ASYM.OfflineError, "primary-literature scope"):
+                ASYM.build_metal_scientific_review(
+                    design_path, template_path, FIXTURES / "metal_candidate.json",
+                    scope_flip_path, root / "scope-flip-review.json",
                 )
 
             selected_execution = json.loads(
