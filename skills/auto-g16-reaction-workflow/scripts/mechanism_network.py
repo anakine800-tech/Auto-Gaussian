@@ -350,7 +350,7 @@ def _normalize_edge(raw: dict[str, Any], states: dict[str, dict[str, Any]]) -> t
         transfers.append({"atom_id": atom_id, "donor_atom_id": donor, "acceptor_atom_id": acceptor})
 
     support_claim_ids = rw._string_list(data["support_claim_ids"], f"edge {edge_id}.support_claim_ids")
-    rw.require(not support_claim_ids, f"edge {edge_id} cannot cite mechanism-support claims because {SUPPORT_SCHEMA} is unavailable")
+    rw.require(not support_claim_ids, f"edge {edge_id} cannot cite child mechanism-support claims inside its upstream network artifact; bind {SUPPORT_SCHEMA} separately")
     state_changes = _exact(data["state_changes"], {"oxidation_state", "spin", "ligand", "coordination", "protonation"}, f"edge {edge_id}.state_changes")
     normalized_state_changes = {key: rw._require_string(state_changes[key], f"edge {edge_id}.state_changes.{key}") for key in sorted(state_changes)}
     review_status = rw._require_string(data["review_status"], f"edge {edge_id}.review_status")
@@ -555,7 +555,7 @@ def _analyze(raw_states: Any, raw_edges: Any, raw_networks: Any, raw_basins: Any
     covered_edges = [edge_id for basin in basins.values() for edge_id in basin["edge_ids"]]
     rw.require(Counter(covered_edges) == Counter(edges.keys()), "every edge must belong to exactly one reference basin")
 
-    blockers = [rw._blocker("mechanism_support_unavailable", "study", f"Required {SUPPORT_SCHEMA} is absent because that evidence stage is unimplemented; all networks remain hypotheses.", ("mechanism_promotion", "calculation_dag", "ts_seed_construction"))]
+    blockers = [rw._blocker("mechanism_support_unavailable", "study", f"The upstream network has no child {SUPPORT_SCHEMA} binding; all networks remain hypotheses until a separately hash-bound support artifact is reviewed.", ("mechanism_promotion", "calculation_dag", "ts_seed_construction"))]
     for collection, kind in ((states, "state"), (edges, "edge"), (networks, "network"), (basins, "basin")):
         for item_id, item in collection.items():
             if item["review_status"] in {"blocked"} or item.get("blockers"):
@@ -657,7 +657,7 @@ def validate(path: Path) -> dict[str, Any]:
     rw.require(artifact["schema"] == OUTPUT_SCHEMA, "unrecognized mechanism-network artifact schema")
     rw.validate_payload_hash(artifact)
     rw.require(artifact["calculation_ready"] is False and artifact["no_submission_authorization"] is True, "mechanism-network artifact violates offline safety flags")
-    rw.require(artifact["mechanism_support"] is None, f"this W3 slice must retain a null {SUPPORT_SCHEMA} binding")
+    rw.require(artifact["mechanism_support"] is None, f"the upstream W3 network must retain a null child {SUPPORT_SCHEMA} binding to avoid circular hashes")
     intake = rw._verify_bound_artifact(artifact["intake"], path, rw.INTAKE_SCHEMA, "mechanism-network intake")
     registry = rw._verify_bound_artifact(artifact["species_registry"], path, rw.REGISTRY_SCHEMA, "mechanism-network registry")
     condition = rw._verify_bound_artifact(artifact["condition_model"], path, rw.CONDITION_SCHEMA, "mechanism-network condition model")

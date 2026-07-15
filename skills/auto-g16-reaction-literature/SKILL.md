@@ -181,7 +181,9 @@ verified source locations, unresolved evidence gaps, retraction/correction
 checks when applicable, and search limitations. State clearly when no direct
 precedent was found; absence from a finite search is not proof of absence.
 
-This Skill implements the query and evidence stages. It does not emit
+This Skill implements the query and evidence stages. It does not itself emit
 `gaussian-reaction-mechanism-support/1` or `gaussian-ts-precedent-map/1`.
-The separate offline TS-precedent-map builder is now owned by
-`auto-g16-reaction-workflow`; mechanism support remains unimplemented.
+The separate offline mechanism-support and TS-precedent/de novo-planning
+builders are owned by `auto-g16-reaction-workflow`. Missing direct precedent
+remains an evidence gap; it is not automatically an exclusion from explicitly
+reviewed novel-hypothesis exploration.

@@ -1,0 +1,80 @@
+{
+  "fixture_notice": "Synthetic offline records only; no real publication, structure, or mechanism claim is represented.",
+  "cases": [
+    {
+      "support_record_id": "support_direct",
+      "candidate_id": "literature_direct",
+      "edge_id": "edge_activation",
+      "classification": "direct",
+      "evidence_basis": "direct_literature_support",
+      "dimension_value": "exact",
+      "literature_decision": "source_reports_direct_precedent",
+      "bounded_use": "mechanism_support",
+      "claim_status": "source_reports",
+      "claim_effect": "supports",
+      "evidence_kind": "computational",
+      "exploration_status": "eligible",
+      "claim_support_status": "promoted"
+    },
+    {
+      "support_record_id": "support_analogy",
+      "candidate_id": "literature_analogy",
+      "edge_id": "edge_release",
+      "classification": "analogy",
+      "evidence_basis": "literature_analogy",
+      "dimension_value": "close",
+      "literature_decision": "source_reports_analogy",
+      "bounded_use": "mechanism_support",
+      "claim_status": "source_reports",
+      "claim_effect": "supports",
+      "evidence_kind": "mixed",
+      "exploration_status": "eligible",
+      "claim_support_status": "conditional"
+    },
+    {
+      "support_record_id": "support_excluded",
+      "candidate_id": "literature_excluded",
+      "edge_id": "edge_release",
+      "classification": "excluded",
+      "evidence_basis": "excluded_evidence",
+      "dimension_value": "remote",
+      "literature_decision": "exclude",
+      "bounded_use": "not_applicable_to_target",
+      "claim_status": "source_reports",
+      "claim_effect": "excluded",
+      "evidence_kind": "experimental",
+      "exploration_status": "ineligible",
+      "claim_support_status": "rejected"
+    },
+    {
+      "support_record_id": "support_contradicted",
+      "candidate_id": "literature_contradicted",
+      "edge_id": "edge_direct",
+      "classification": "contradictory",
+      "evidence_basis": "contradictory_evidence",
+      "dimension_value": "contradictory",
+      "literature_decision": "exclude",
+      "bounded_use": "mechanism_support",
+      "claim_status": "source_reports",
+      "claim_effect": "contradicts",
+      "evidence_kind": "experimental",
+      "exploration_status": "blocked",
+      "claim_support_status": "rejected"
+    },
+    {
+      "support_record_id": "support_novel_missing",
+      "candidate_id": "literature_missing",
+      "edge_id": "edge_direct",
+      "classification": "missing",
+      "evidence_basis": "absence_of_direct_precedent",
+      "dimension_value": "unknown",
+      "literature_decision": "source_checked_background",
+      "bounded_use": "discovery_only",
+      "claim_status": "not_found",
+      "claim_effect": "does_not_address",
+      "evidence_kind": "not_applicable",
+      "exploration_status": "eligible",
+      "claim_support_status": "not_promoted"
+    }
+  ]
+}

@@ -1,13 +1,14 @@
 # Auto-G16 TS Precedent Map Contract
 
-Status: smallest coherent offline implementation of `gaussian-ts-precedent-map/1`.
-It records reviewed precedent translations; it does not construct a seed
-geometry, validate a mechanism or TS, select a protocol, create Gaussian input,
-or authorize live work.
+Status: offline implementation of `gaussian-ts-precedent-map/1` with exact
+mechanism-support gating and separate de novo seed planning. It records
+reviewed translations and plans; it does not construct a seed geometry,
+validate a mechanism or TS, select a protocol, create Gaussian input, or
+authorize live work.
 
 ## Immutable parents
 
-The builder consumes four exact parent records:
+The builder consumes five exact parent records:
 
 1. an independently valid `gaussian-reaction-mechanism-network/1`;
 2. a reviewed `auto-g16-knowledge-snapshot/1` whose exact parent is the same
@@ -15,7 +16,9 @@ The builder consumes four exact parent records:
 3. finalized `gaussian-reaction-literature-evidence/1` with exact, non-null
    reaction-intake, species-registry, condition-model and knowledge-snapshot
    bindings; and
-4. a human-authored `gaussian-ts-precedent-map-review/1` bound to the three
+4. a valid `gaussian-reaction-mechanism-support/1` bound to those exact
+   parents; and
+5. a human-authored `gaussian-ts-precedent-map-review/1` bound to all four
    direct scientific-parent payload hashes.
 
 The output separately records the file SHA-256, byte size and payload SHA-256
@@ -72,7 +75,7 @@ The closed strategy enum is:
 - `hessian_guided_guess`; and
 - `unsupported`.
 
-Each locally accepted record must satisfy its strategy prerequisites, completed
+Each locally accepted precedent record must satisfy its strategy prerequisites, completed
 applicability review, explicit uncertainties and alternatives, and an approved
 promotion review. It must have no record blocker and its evidence bounded use
 must be `geometry_seed_support` or `ts_topology_support`. Rejected, blocked and
@@ -81,15 +84,31 @@ and endpoint IDs are checked against the target record, while source objects
 and anchors are required as a pair. Published-coordinate and Hessian/endpoint
 object references are hash bound; endpoint/QST records require both exact
 endpoint state IDs and a reviewed exact endpoint-geometry package.
-`unsupported` can never be locally accepted.
+`unsupported` can never be locally accepted. The exact mechanism-support
+edge/channel must also be `hypothesis_exploration_eligible`. Literature
+analogy alone does not set `mechanism_claim_supported` or validate the target
+mechanism.
 
-## Missing mechanism-support stage
+## Novel hypotheses and de novo seed plans
 
-`gaussian-reaction-mechanism-support/1` remains unimplemented. The map does not
-reinterpret a reviewed mechanism-network hypothesis as accepted mechanism
-support. Every artifact therefore contains `mechanism_support_unavailable`,
-sets `candidate_construction_promotable: false`, and marks even a locally
-complete accepted precedent as `blocked_pending_mechanism_support`.
+Absence of a direct literature precedent is not automatically an exclusion
+from computational exploration. When the exact edge/channel is explicitly
+`hypothesis_exploration_eligible`, the review may add a separate
+`de_novo_seed_plans` record using `endpoint_qst_family`, `relaxed_scan`, or
+`reviewed_structure_rebuild`. A de novo record must contain
+`source_precedent: null` and `source_coordinates_used: false`; it cannot reuse
+or fabricate a precedent, coordinates, precise figure geometry, or method.
+It requires exact target states/atoms/channel, reviewed context, alternatives,
+uncertainties, falsifiers, a complete strategy-specific prerequisite review,
+and explicit promotion review.
+
+The mechanism-support gate separately reports exploration eligibility, claim
+support and an always-false local validation flag. Thus a novel de novo plan
+can enter the next offline candidate-construction stage while the mechanism
+claim remains unsupported and unvalidated.
+
+A top-level blocked TS-precedent review cannot promote candidate construction,
+even if a nested disposition claims approval.
 
 All outputs unconditionally retain `calculation_ready: false` and
 `no_submission_authorization: true`. No field is a Gaussian route, method,
@@ -100,6 +119,7 @@ resource, server, job or submission approval.
 ```bash
 python3 skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py build \
   mechanism-network.json knowledge-snapshot.json literature-evidence.json \
+  mechanism-support.json \
   --review ts-precedent-review.json --output ts-precedent-map.json
 
 python3 skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py validate \

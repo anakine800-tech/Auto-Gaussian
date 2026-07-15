@@ -44,11 +44,14 @@ The output always has `calculation_ready: false` and
   each compared source state has the reference state's element and charge
   inventory; it computes no energy and assumes no equilibration model.
 
-`gaussian-reaction-mechanism-support/1` is not implemented. Consequently this
-slice keeps `mechanism_support: null`, forbids support claim IDs, and always
-emits `mechanism_support_unavailable`. A syntactically valid network therefore
-remains a reviewed hypothesis with blockers, never a promoted or proven
-mechanism.
+The network is the immutable parent of
+`gaussian-reaction-mechanism-support/1`, so this upstream artifact keeps
+`mechanism_support: null`, forbids circular child claim IDs, and emits
+`mechanism_support_unavailable` until a separate child artifact is built. The
+implemented child binds this exact network and keeps hypothesis-exploration
+eligibility separate from mechanism-claim support and validation. A
+syntactically valid network alone remains a reviewed hypothesis, never a
+promoted or proven mechanism.
 
 Both builder and validator reject unknown fields, including nested contract
 objects. The validator semantically validates every bound upstream artifact,

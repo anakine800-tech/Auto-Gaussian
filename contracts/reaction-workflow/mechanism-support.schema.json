@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/mechanism-support.schema.json",
+  "title": "Gaussian reaction mechanism support",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "reaction_intake", "species_registry",
+    "condition_model", "mechanism_network", "knowledge_snapshot",
+    "literature_evidence", "review_source", "records",
+    "edge_channel_summary", "evidence_gaps", "blockers", "review",
+    "gate_status", "exploration_eligible_edge_channels_present",
+    "mechanism_claim_support_present", "mechanism_claim_validation_present",
+    "calculation_ready", "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-mechanism-support/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "reaction_intake": {"$ref": "#/$defs/boundArtifact"},
+    "species_registry": {"$ref": "#/$defs/boundArtifact"},
+    "condition_model": {"$ref": "#/$defs/boundArtifact"},
+    "mechanism_network": {"$ref": "#/$defs/boundArtifact"},
+    "knowledge_snapshot": {"$ref": "#/$defs/boundArtifact"},
+    "literature_evidence": {"$ref": "#/$defs/boundArtifact"},
+    "review_source": {"$ref": "#/$defs/artifact"},
+    "records": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/record"}},
+    "edge_channel_summary": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/edgeChannelSummary"}},
+    "evidence_gaps": {"type": "array", "items": {"$ref": "#/$defs/evidenceGap"}},
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
+    "review": {"$ref": "#/$defs/review"},
+    "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+    "exploration_eligible_edge_channels_present": {"type": "boolean"},
+    "mechanism_claim_support_present": {"type": "boolean"},
+    "mechanism_claim_validation_present": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "channel": {"type": ["string", "null"]},
+    "stringArray": {"type": "array", "items": {"type": "string"}},
+    "nonemptyStringArray": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}},
+    "idArray": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "boundArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "atomMapping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from_atom_id", "to_atom_id"],
+      "properties": {"from_atom_id": {"$ref": "#/$defs/id"}, "to_atom_id": {"$ref": "#/$defs/id"}}
+    },
+    "atomPair": {
+      "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "transfer": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_id", "donor_atom_id", "acceptor_atom_id"],
+      "properties": {
+        "atom_id": {"$ref": "#/$defs/id"}, "donor_atom_id": {"$ref": "#/$defs/id"},
+        "acceptor_atom_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "edge_id", "from_state_id", "to_state_id", "stereochemical_channel",
+        "edge_atom_mapping", "forming_pairs", "breaking_pairs", "transfers"
+      ],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"}, "from_state_id": {"$ref": "#/$defs/id"},
+        "to_state_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"},
+        "edge_atom_mapping": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atomMapping"}},
+        "forming_pairs": {"type": "array", "items": {"$ref": "#/$defs/atomPair"}},
+        "breaking_pairs": {"type": "array", "items": {"$ref": "#/$defs/atomPair"}},
+        "transfers": {"type": "array", "items": {"$ref": "#/$defs/transfer"}}
+      }
+    },
+    "sourceLocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_type", "locator", "url_or_doi", "checked_at"],
+      "properties": {
+        "source_type": {"$ref": "#/$defs/nonempty"}, "locator": {"$ref": "#/$defs/nonempty"},
+        "url_or_doi": {"$ref": "#/$defs/nonempty"}, "checked_at": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "candidate_id", "candidate_review_payload_sha256", "evidence_target",
+        "claim_status", "claim_binding_id", "claim_payload_sha256",
+        "source_location", "location_binding_id", "location_payload_sha256",
+        "literature_decision", "bounded_use"
+      ],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "candidate_review_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_target": {"$ref": "#/$defs/nonempty"},
+        "claim_status": {"enum": ["source_reports", "not_found", "source_ambiguous", "not_reviewed"]},
+        "claim_binding_id": {"$ref": "#/$defs/id"},
+        "claim_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "source_location": {"anyOf": [{"$ref": "#/$defs/sourceLocation"}, {"type": "null"}]},
+        "location_binding_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "location_payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "literature_decision": {"type": ["string", "null"]},
+        "bounded_use": {"type": ["string", "null"]}
+      }
+    },
+    "applicability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dimension", "value", "rationale", "source_anchor"],
+      "properties": {
+        "dimension": {"enum": [
+          "net_transformation", "elementary_step_and_atom_correspondence",
+          "substrate_electronics_sterics_and_groups", "catalyst_and_active_state",
+          "atom_inventory_charge_multiplicity_and_spin",
+          "coordination_ion_pair_additives_and_solvent", "stereochemical_channel",
+          "experimental_conditions", "computational_protocol_and_validation"
+        ]},
+        "value": {"enum": ["exact", "close", "remote", "contradictory", "unknown", "not_applicable"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}, "source_anchor": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "classification": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "category", "evidence_basis", "claim_effect", "evidence_kind", "rationale",
+        "alternative_explanations", "important_mismatches"
+      ],
+      "properties": {
+        "category": {"enum": ["direct", "analogy", "contradictory", "missing", "excluded"]},
+        "evidence_basis": {"enum": [
+          "direct_literature_support", "literature_analogy", "internal_rationale",
+          "contradictory_evidence", "absence_of_direct_precedent",
+          "later_experimental_evidence", "later_computational_evidence", "excluded_evidence"
+        ]},
+        "claim_effect": {"enum": ["supports", "contradicts", "does_not_address", "excluded"]},
+        "evidence_kind": {"enum": ["experimental", "computational", "mixed", "not_applicable"]},
+        "rationale": {"$ref": "#/$defs/nonempty"},
+        "alternative_explanations": {"$ref": "#/$defs/stringArray"},
+        "important_mismatches": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "connection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_ids", "kind", "order"],
+      "properties": {
+        "atom_ids": {"$ref": "#/$defs/atomPair"}, "kind": {"const": "coordination"},
+        "order": {"const": "unspecified"}
+      }
+    },
+    "stereoAssignment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assignment_id", "atom_ids", "descriptor", "review_status", "rationale"],
+      "properties": {
+        "assignment_id": {"$ref": "#/$defs/id"}, "atom_ids": {"$ref": "#/$defs/idArray"},
+        "descriptor": {"$ref": "#/$defs/nonempty"}, "review_status": {"enum": ["reviewed", "blocked"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "stereochemistry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "assignments", "notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "not_applicable", "blocked"]},
+        "assignments": {"type": "array", "items": {"$ref": "#/$defs/stereoAssignment"}},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "catalystProjection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "catalyst_atom_ids", "formal_charge", "multiplicity", "oxidation_state", "ligand_environment", "protonation_state", "notes"],
+      "properties": {
+        "status": {"const": "reviewed"}, "catalyst_atom_ids": {"$ref": "#/$defs/idArray"},
+        "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1},
+        "oxidation_state": {"$ref": "#/$defs/nonempty"}, "ligand_environment": {"$ref": "#/$defs/stringArray"},
+        "protonation_state": {"$ref": "#/$defs/nonempty"}, "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "nullableCatalystProjection": {"anyOf": [{"$ref": "#/$defs/catalystProjection"}, {"type": "null"}]},
+    "stateChanges": {
+      "type": "object", "additionalProperties": false,
+      "required": ["coordination", "ligand", "oxidation_state", "protonation", "spin"],
+      "properties": {
+        "coordination": {"$ref": "#/$defs/nonempty"}, "ligand": {"$ref": "#/$defs/nonempty"},
+        "oxidation_state": {"$ref": "#/$defs/nonempty"}, "protonation": {"$ref": "#/$defs/nonempty"},
+        "spin": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "activeCatalystReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from_catalyst_projection", "to_catalyst_projection", "status", "rationale"],
+      "properties": {
+        "from_catalyst_projection": {"$ref": "#/$defs/nullableCatalystProjection"},
+        "to_catalyst_projection": {"$ref": "#/$defs/nullableCatalystProjection"},
+        "status": {"enum": ["reviewed", "blocked"]}, "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "elementaryReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state_changes", "status", "rationale"],
+      "properties": {"state_changes": {"$ref": "#/$defs/stateChanges"}, "status": {"enum": ["reviewed", "blocked"]}, "rationale": {"$ref": "#/$defs/nonempty"}}
+    },
+    "chargeSpinReview": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "from_formal_charge", "from_multiplicity", "from_spin_description",
+        "to_formal_charge", "to_multiplicity", "to_spin_description", "status", "rationale"
+      ],
+      "properties": {
+        "from_formal_charge": {"type": "integer"}, "from_multiplicity": {"type": "integer", "minimum": 1},
+        "from_spin_description": {"$ref": "#/$defs/nonempty"}, "to_formal_charge": {"type": "integer"},
+        "to_multiplicity": {"type": "integer", "minimum": 1}, "to_spin_description": {"$ref": "#/$defs/nonempty"},
+        "status": {"enum": ["reviewed", "blocked"]}, "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "coordinationReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from_coordination_connections", "to_coordination_connections", "ion_pair_assessment", "status", "rationale"],
+      "properties": {
+        "from_coordination_connections": {"type": "array", "items": {"$ref": "#/$defs/connection"}},
+        "to_coordination_connections": {"type": "array", "items": {"$ref": "#/$defs/connection"}},
+        "ion_pair_assessment": {"$ref": "#/$defs/nonempty"}, "status": {"enum": ["reviewed", "blocked"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "stereoReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["channel", "from_stereochemistry", "to_stereochemistry", "status", "rationale"],
+      "properties": {
+        "channel": {"$ref": "#/$defs/channel"}, "from_stereochemistry": {"$ref": "#/$defs/stereochemistry"},
+        "to_stereochemistry": {"$ref": "#/$defs/stereochemistry"}, "status": {"enum": ["reviewed", "blocked"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "mechanisticReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["active_catalyst_state", "elementary_step_atom_correspondence", "charge_multiplicity_spin", "coordination_ion_pair", "stereochemical_channel"],
+      "properties": {
+        "active_catalyst_state": {"$ref": "#/$defs/activeCatalystReview"},
+        "elementary_step_atom_correspondence": {"$ref": "#/$defs/elementaryReview"},
+        "charge_multiplicity_spin": {"$ref": "#/$defs/chargeSpinReview"},
+        "coordination_ion_pair": {"$ref": "#/$defs/coordinationReview"},
+        "stereochemical_channel": {"$ref": "#/$defs/stereoReview"}
+      }
+    },
+    "hypothesisReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["internal_rationale", "alternatives", "uncertainties", "contradictions", "falsifiers"],
+      "properties": {
+        "internal_rationale": {"$ref": "#/$defs/nonempty"}, "alternatives": {"$ref": "#/$defs/nonemptyStringArray"},
+        "uncertainties": {"$ref": "#/$defs/nonemptyStringArray"}, "contradictions": {"$ref": "#/$defs/stringArray"},
+        "falsifiers": {"$ref": "#/$defs/nonemptyStringArray"}
+      }
+    },
+    "explorationDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "rationale", "reviewer", "reviewed_at", "resolved_blockers", "unresolved_blockers", "resolved_conflict_record_ids"],
+      "properties": {
+        "status": {"enum": ["eligible", "ineligible", "blocked"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}, "reviewer": {"$ref": "#/$defs/nonempty"},
+        "reviewed_at": {"$ref": "#/$defs/nonempty"}, "resolved_blockers": {"$ref": "#/$defs/stringArray"},
+        "unresolved_blockers": {"$ref": "#/$defs/stringArray"}, "resolved_conflict_record_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "claimSupportDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "rationale", "reviewer", "reviewed_at", "resolved_blockers", "unresolved_blockers", "resolved_conflict_record_ids"],
+      "properties": {
+        "status": {"enum": ["promoted", "conditional", "not_promoted", "rejected"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}, "reviewer": {"$ref": "#/$defs/nonempty"},
+        "reviewed_at": {"$ref": "#/$defs/nonempty"}, "resolved_blockers": {"$ref": "#/$defs/stringArray"},
+        "unresolved_blockers": {"$ref": "#/$defs/stringArray"}, "resolved_conflict_record_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "record": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "support_record_id", "target", "evidence", "applicability_dimensions",
+        "classification", "mechanistic_review", "hypothesis_review",
+        "exploration_decision", "claim_support_decision", "negative_evidence",
+        "notes", "support_status", "hypothesis_exploration_eligible",
+        "mechanism_claim_supported", "mechanism_claim_validated"
+      ],
+      "properties": {
+        "support_record_id": {"$ref": "#/$defs/id"}, "target": {"$ref": "#/$defs/target"},
+        "evidence": {"$ref": "#/$defs/evidence"},
+        "applicability_dimensions": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"$ref": "#/$defs/applicability"}},
+        "classification": {"$ref": "#/$defs/classification"}, "mechanistic_review": {"$ref": "#/$defs/mechanisticReview"},
+        "hypothesis_review": {"$ref": "#/$defs/hypothesisReview"},
+        "exploration_decision": {"$ref": "#/$defs/explorationDecision"},
+        "claim_support_decision": {"$ref": "#/$defs/claimSupportDecision"},
+        "negative_evidence": {"$ref": "#/$defs/stringArray"}, "notes": {"$ref": "#/$defs/stringArray"},
+        "support_status": {"enum": ["supported", "conditional", "unsupported", "contradicted", "missing"]},
+        "hypothesis_exploration_eligible": {"type": "boolean"},
+        "mechanism_claim_supported": {"type": "boolean"}, "mechanism_claim_validated": {"const": false}
+      }
+    },
+    "edgeChannelSummary": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "edge_id", "stereochemical_channel", "support_record_ids",
+        "exploration_eligible_record_ids", "supported_record_ids",
+        "contradictory_support_record_ids", "claim_support_status",
+        "hypothesis_exploration_eligible", "mechanism_claim_supported",
+        "mechanism_claim_validated"
+      ],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"},
+        "support_record_ids": {"$ref": "#/$defs/idArray"}, "exploration_eligible_record_ids": {"$ref": "#/$defs/idArray"},
+        "supported_record_ids": {"$ref": "#/$defs/idArray"}, "contradictory_support_record_ids": {"$ref": "#/$defs/idArray"},
+        "claim_support_status": {"enum": ["promoted", "conditional", "unsupported", "contradicted", "missing"]},
+        "hypothesis_exploration_eligible": {"type": "boolean"}, "mechanism_claim_supported": {"type": "boolean"},
+        "mechanism_claim_validated": {"const": false}
+      }
+    },
+    "evidenceGap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "stereochemical_channel", "support_record_id", "gap", "blocks_exploration", "mechanism_claim_supported"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"},
+        "support_record_id": {"$ref": "#/$defs/id"},
+        "gap": {"const": "novel_hypothesis_no_direct_precedent"}, "blocks_exploration": {"type": "boolean"},
+        "mechanism_claim_supported": {"const": false}
+      }
+    },
+    "blocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "scope", "description", "required_for"],
+      "properties": {
+        "blocker_id": {"$ref": "#/$defs/id"}, "scope": {"$ref": "#/$defs/nonempty"},
+        "description": {"$ref": "#/$defs/nonempty"}, "required_for": {"$ref": "#/$defs/nonemptyStringArray"}
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]},
+        "reviewer": {"$ref": "#/$defs/nonempty"}, "reviewed_at": {"$ref": "#/$defs/nonempty"},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  }
+}

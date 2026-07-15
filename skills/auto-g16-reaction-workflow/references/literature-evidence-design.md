@@ -1,11 +1,12 @@
 # Literature Evidence and Transition-State Precedent Design
 
-Status: W2 design plus a smallest coherent TS-precedent-map implementation.
+Status: W2 design plus implemented mechanism-support and TS-precedent/de novo
+planning slices.
 `auto-g16-reaction-literature` implements query, metadata retrieval, screening,
 and editable/finalized evidence-record stages. `auto-g16-reaction-workflow`
-implements the strict offline `gaussian-ts-precedent-map/1` translation slice.
-Automated full-text extraction, mechanism-support matrices, and seed-geometry
-construction remain unimplemented.
+implements strict offline `gaussian-reaction-mechanism-support/1` and
+`gaussian-ts-precedent-map/1` slices. Automated full-text extraction and
+seed-geometry construction remain unimplemented.
 
 Every artifact described here must retain:
 
@@ -49,15 +50,15 @@ rendering, or live execution.
 ## 2. Planned artifact chain
 
 The four-artifact design is split across owning Skills. The literature Skill
-emits the first two, reaction workflow now emits the fourth as a separate
-offline translation, and the third mechanism-support stage remains future:
+emits the first two; reaction workflow emits the third and fourth as separate
+offline review stages:
 
 | Artifact | Required role |
 | --- | --- |
 | `gaussian-reaction-literature-query/1` | records the decomposed scientific question, search ladder, databases, exact queries, dates, filters, and coverage limits |
 | `gaussian-reaction-literature-evidence/1` | records primary sources, exact source locations, extracted claims, computational details, structures, contradictory evidence, and extraction confidence |
-| `gaussian-reaction-mechanism-support/1` | maps each reviewed source claim to included, competing, contradicted, or still-unsupported mechanism hypotheses |
-| `gaussian-ts-precedent-map/1` | implemented offline translation of reviewed edges/evidence into non-promotable TS-family and seed-strategy review records with atom-map, geometry scope, provenance, and uncertainty fields |
+| `gaussian-reaction-mechanism-support/1` | implemented edge/channel classification with exact claim/location bindings and separate hypothesis-exploration and mechanism-claim-support decisions |
+| `gaussian-ts-precedent-map/1` | implemented offline translation of reviewed edges/evidence plus clearly labeled de novo planning for exploration-eligible novel hypotheses |
 
 Each child artifact must bind the exact payload hashes of the reaction intake,
 species registry, condition model, applicable
@@ -184,7 +185,7 @@ or `not_applicable_to_target`.
 
 ## 7. Mechanism support
 
-The mechanism-support artifact should make a matrix whose rows are proposed
+The implemented mechanism-support artifact makes a matrix whose rows are proposed
 active states or elementary edges and whose columns are evidence records. For
 each intersection record:
 
@@ -198,16 +199,26 @@ each intersection record:
   unresolved in the planned network.
 
 The artifact proposes a bounded hypothesis space. It does not establish which
-mechanism operates in the target reaction.
+mechanism operates in the target reaction. In organic methodology, absence of
+a direct precedent is expected for some genuinely new hypotheses and is
+recorded as `novel_hypothesis_no_direct_precedent`, not treated automatically
+as exclusion.
+
+Two gates remain independent. `hypothesis_exploration_eligible` may be true
+when atom/charge/state bookkeeping, elementary-step definition, active-state
+assumptions, stereochemical channel, alternatives, uncertainty,
+contradictions, falsifiers and reviewer approval are complete. Known unresolved
+contradictions or scientific defects can still block exploration.
+`mechanism_claim_supported` requires reviewed direct evidence and never follows
+from analogy or internal rationale. `mechanism_claim_validated` remains false
+through this layer.
 
 ## 8. Transition-state precedent map
 
-The smallest offline implementation is normative in
-`ts-precedent-map-contract.md`. It requires exact W1, knowledge, literature and
-mechanism-network bindings and independently recomputes every record. Because
-the mechanism-support parent remains unavailable, a locally complete promotion
-review is retained only as a conditional record and cannot enter candidate
-construction.
+The offline implementation is normative in `ts-precedent-map-contract.md`. It
+requires exact W1, knowledge, literature, mechanism-network and mechanism-
+support bindings and independently recomputes every record. Candidate
+construction requires the exact edge/channel exploration gate.
 
 For every proposed mechanism edge and stereochemical channel, record:
 
@@ -239,6 +250,12 @@ geometry is represented by a finite value or bounded range, whereas topology,
 facial/orientational relationships, and conformer families use explicit
 qualitative descriptors rather than invented numbers. Target-context charge
 and multiplicity are checked against both mechanism-edge endpoints.
+
+An exploration-eligible novel edge may instead carry a separate de novo
+endpoint/QST, relaxed-scan or reviewed-rebuild plan. That record has no source
+precedent and uses no source coordinates. It opens only the next offline
+candidate-construction stage and does not make the mechanism literature-
+supported or validated.
 
 ## 9. Human review gates
 
@@ -277,22 +294,23 @@ must not rank it out of view merely because it does not yield a usable seed.
 
 ## 11. Implementation acceptance and remaining work
 
+The implemented mechanism-support slice has offline tests for direct,
+analogous, unsupported, contradictory and missing evidence; exact edge/channel
+and claim/location binding; novel-hypothesis exploration without direct
+precedent; bounded-use misuse; immutable drift/forgery; closed schemas; and
+unconditional safety constants.
+
 The implemented TS-precedent slice has offline tests for exact, close, remote
 and unusable analogies; stable atom/ref and source-to-target mapping failures;
 coordinate provenance and approximate-range refusal; all six strategy states;
 immutable binding drift/forgery; overwrite refusal; deterministic output; and
 unconditional safety constants.
 
-The complete four-stage literature/mechanism-support system is not finished
-until remaining work demonstrates:
+Remaining work includes:
 
 - correction/retraction and version links across the full evidence chain;
 - any future lawful automated full-text extraction with reported/derived/
   interpretation separation and preserved access limits;
-- a closed, reviewed `gaussian-reaction-mechanism-support/1` matrix with
-  contradictory and unsupported hypotheses retained;
-- end-to-end linkage of that matrix into the existing TS-precedent gate without
-  treating analogy as mechanism proof; and
 - regression evidence that later candidate construction still cannot create a
   geometry, select a protocol, or authorize calculation without its own gates.
 

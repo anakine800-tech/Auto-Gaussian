@@ -44,8 +44,8 @@ scientific acceptance.
 
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
-offline reusable-knowledge, mechanism-network and TS-precedent foundations and
-the remaining mechanism-support, calculation-DAG, free-energy/kinetic and
+offline reusable-knowledge, mechanism-network, mechanism-support and
+TS-precedent/de novo-planning foundations and the remaining calculation-DAG, free-energy/kinetic and
 final-report layers needed to progress from W1 to an auditable whole-reaction
 study.
 
@@ -86,13 +86,19 @@ The version-controlled source under `skills/` currently provides:
   permission-filtered query and snapshot dependency verification; and
 - its W2B-2 hash-bound plan-review-apply import, lawful-object ingestion,
   dependency-aware redacted/full JSON export and transfer manifests.
+- a strict offline `gaussian-reaction-mechanism-support/1` builder/validator
+  with exact W1/network/snapshot/evidence/review bindings, per-edge/channel
+  evidence classification, preserved contradictions and separate
+  `hypothesis_exploration_eligible` and `mechanism_claim_supported` decisions;
 - a smallest coherent offline `gaussian-ts-precedent-map/1` builder/validator
   that binds the exact W1, mechanism-network, knowledge-snapshot, finalized
   literature-evidence and review-source artifacts; verifies stable target atom
   IDs and source-to-target correspondence; distinguishes transferable from
   rebuild-required geometry; separates numeric geometry ranges from qualitative
   topology/orientation descriptors; binds charge/multiplicity to the edge
-  endpoints; and audits six non-executing seed strategies.
+  endpoints; audits six non-executing seed strategies; binds the exact
+  mechanism-support artifact; and records source-free de novo endpoint/QST,
+  scan or reviewed-rebuild plans for exploration-eligible novel hypotheses.
 
 The W1 builder assigns stable step/occurrence/condition IDs, binds every drawn
 reactant/product exactly once, refuses missing condition decisions, preserves
@@ -113,11 +119,13 @@ are not a filesystem or multi-user security boundary. The W2 design and remainin
 are recorded in `skills/auto-g16-reaction-workflow/references/knowledge-database-design.md`.
 
 The repository now provides reproducible metadata discovery, source-evidence
-review scaffolding and the strict offline TS-precedent translation slice. It
-still does not provide automatic lawful full-text/SI extraction,
-mechanism-support matrices, seed-geometry construction, mechanism validation,
-TS validation or protocol selection. The TS-precedent map remains
-non-promotable while mechanism support is absent. The existing BF3 and
+review scaffolding, strict offline mechanism-support classification and the
+TS-precedent/de novo-planning slice. Missing direct literature precedent is
+recorded as an evidence gap, not automatic exclusion: an explicitly reviewed
+novel edge may be exploration-eligible while `mechanism_claim_supported` and
+`mechanism_claim_validated` remain false. It still does not provide automatic
+lawful full-text/SI extraction, seed-geometry construction, mechanism
+validation, TS validation or protocol selection. The existing BF3 and
 asymmetric-catalysis records remain fixed precedents rather than automatic
 target-mechanism proof. The full W2 contract and remaining stages are recorded in
 `skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
@@ -398,9 +406,9 @@ candidate still requires its own new gate.
 
 1. Continue the W2 `auto-g16-knowledge-base` from the completed W2B-2 offline
    store/import/export foundation with authentication, durable audit logging,
-   chemical search and a separately reviewed service boundary. Then implement
-   the missing mechanism-support contract and integrate it without weakening
-   the now-implemented non-promotable TS-precedent gate. Only
+   chemical search and a separately reviewed service boundary. Extend the
+   implemented mechanism-support gate only through new immutable independent
+   evidence revisions without equating analogy with validation. Only
    after offline acceptance, separately approve one real-reaction literature-
    search smoke; it must not generate an input or authorize calculation.
 2. Use the implemented candidate-bound M1 sidecar for one concrete metal–

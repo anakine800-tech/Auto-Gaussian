@@ -10,11 +10,13 @@ independently.
 
 ## Current repository status
 
-As of 2026-07-15, the Auto-G16 feature line includes the guarded RTwin/PBS
+As of 2026-07-16, the Auto-G16 feature line includes the guarded RTwin/PBS
 workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
-the W3 offline mechanism-network slice. The 2.2.0 release also includes
+the W3 offline mechanism-network slice. The current feature line adds the
+offline mechanism-support two-gate and TS-precedent/de novo-planning stages.
+The 2.2.0 release also includes
 transition-metal M1/M2 observation and review contracts while preserving the
 unconditional metal runtime refusal. These layers retain their individual
 scientific and live-action approval gates.
@@ -48,8 +50,10 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
   species registry, balance review, condition-to-model decisions, reviewed
-  mechanism-network hypotheses and the non-promotable TS-precedent map. Its
-  artifacts explicitly grant no calculation or live authorization.
+  mechanism-network hypotheses, edge/channel mechanism-support classification,
+  independent exploration and claim-support gates, and TS-precedent/de novo
+  seed planning. Its artifacts explicitly grant no calculation or live
+  authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
   screening, evidence templates and fail-closed source-review validation. It
@@ -77,9 +81,11 @@ retain their existing names for compatibility and provenance.
   dependency-aware downgrade. Binary objects are never exported.
 - W2 still requires authentication, signatures, durable audit logging,
   chemical search and multi-user enforcement.
-- the strict source-to-target atom-correspondence and TS-precedent review map is
-  implemented in `auto-g16-reaction-workflow`; mechanism-support matrices and
-  seed-geometry construction remain future extensions.
+- strict edge/channel mechanism-support and source-to-target TS-precedent
+  review are implemented in `auto-g16-reaction-workflow`. A reviewed novel
+  hypothesis may be exploration-eligible without a direct precedent while its
+  mechanism claim remains unsupported and unvalidated. Seed-geometry
+  construction remains a future extension.
 
 ## Offline planning/audit module
 
@@ -156,10 +162,10 @@ python3 -m unittest discover -s tests -v
    branch, run offline validation first, and merge only after the applicable
    explicitly approved smoke gate.
 3. Continue W2 from the implemented W2B-2 store/import/export foundation with
-   authenticated enforcement, durable audit logging and chemical search. Then
-   extend the separate literature-evidence layer toward mechanism support; the
-   TS-precedent review map is already implemented but remains non-promotable.
-4. Implement the W3 mechanism-network, calculation-DAG and evidence-index layer.
+   authenticated enforcement, durable audit logging, chemical search and
+   later independent evidence revisions for mechanism claims.
+4. Extend the implemented W3 mechanism-network/support/TS-planning foundation
+   with the calculation-DAG and evidence-index layer.
    Existing Skills remain specialist components rather than a monolithic
    automatic mechanism generator.
 5. Connect candidate/protocol/input and result/energy adapters, then validate a
