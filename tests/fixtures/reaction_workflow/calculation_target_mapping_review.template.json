@@ -1,0 +1,37 @@
+{
+  "schema": "gaussian-reaction-calculation-target-mapping-review/1",
+  "update_id": "map_reviewed_ts_candidate",
+  "target_plan": {
+    "path": "calculation-plan.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "size_bytes": 0,
+    "schema": "gaussian-reaction-calculation-plan/1",
+    "payload_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "target_import": {
+    "path": "candidate-target-import.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "size_bytes": 0,
+    "schema": "gaussian-candidate-target-import/1",
+    "payload_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "external_target_key": "asymmetric_candidate:reviewed_study:reviewed_candidate",
+  "locator": {
+    "study_id": "reviewed_reaction_study",
+    "plan_id": "reviewed_calculation_plan",
+    "node_id": "reviewed_ts_candidate"
+  },
+  "expected_node_kind": "ts_candidate",
+  "update_kind": "candidate_inventory",
+  "artifact_role": "candidate_target_import",
+  "supersedes": [],
+  "review_decision": "accepted",
+  "reviewer": "human_reviewer",
+  "reviewed_at": "2026-07-16T00:00:00+00:00",
+  "review_notes": [
+    "Replace every placeholder binding with the exact reviewed local artifact before finalization."
+  ],
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "payload_sha256": null
+}
