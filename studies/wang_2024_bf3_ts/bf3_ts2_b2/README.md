@@ -1,11 +1,12 @@
-# BF3-TS2-B2 offline submission preparation
+# BF3-TS2-B2 failed TS/Freq attempt
 
-Status: `standard_ts_freq_submitted_queued`
+Status: `standard_ts_freq_failed_optimization_cycle_limit`
 
-This directory prepares the second published carbon–carbon bond-forming
-topology and contains a rendered, hash-bound Gaussian input. The exact input
-later received one-time live approval and was submitted; the first status
-observation is queued.
+This directory preserves the second published carbon–carbon bond-forming
+topology and its rendered, hash-bound Gaussian input. The exact input later
+received one-time live approval and was submitted. The fetched run exhausted
+its 100-cycle optimization limit before frequency analysis, so it is a failed,
+non-accepted TS/Freq attempt.
 
 ## Scientific identity
 
@@ -46,17 +47,15 @@ observation is queued.
 - `live-submission-approval.json`: exact one-time upload/qsub approval bound to
   the input hash, resources and fresh project; that authority has been used.
 
-## Remaining gates
+## Terminal outcome and remaining gates
 
-1. Wait for stable terminal process/PBS evidence and fetch the complete log and
-   checkpoint without interpreting an intermediate Opt termination as final.
-2. Run the offline `auto-g16-ts-irc ingest-terminal` command with this template,
-   the exact tracked input, machine-local `job.json`, and fetched complete log.
-   Continue only from `ready_for_manual_mode_review`.
-3. Generate the full TS result and perform a new hash-bound animation review of
-   C13–C21 motion before accepting
-   B2 as mode-consistent.
-4. Treat any retry, replacement or IRC as a new separately approved action.
+1. Preserve the fetched error-terminated result: 100 optimization steps, 100
+   parsed SCF calculations, no stationary point and no frequency block.
+2. Do not apply the 228-mode/one-imaginary-mode/C13–C21 gate because the run
+   never reached frequency analysis and is not eligible for mode review.
+3. Treat any restart, changed optimization plan, replacement or IRC as a new
+   separately reviewed and approved action. No such action is currently
+   authorized.
 
 The exact live approval authorized one upload and one qsub, and that authority
 has been exercised. It grants no retry, replacement, IRC, cancellation,

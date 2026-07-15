@@ -24,15 +24,22 @@ S67-S78 and Cartesian-coordinate tables S116-S121.
    after exceeding the maximum corrector steps and is recorded as failed. The
    reverse IRC reached all 30 points and is ready only for independent endpoint
    structure review; the bidirectional path is not validated. A matched
-   `standard` recalculation with `StepSize=3` and `MaxPoints=60` has now been
-   selected and rendered offline for both fresh directions, pending exact live
-   approval.
+   `standard` recalculation with `StepSize=3` and `MaxPoints=60` was later
+   submitted under separate approval, then stopped by the user for time
+   constraints. The user removed the remote copies and no terminal results
+   were retained; this recalculation contributes no endpoint or path evidence.
 3. BF3-TS2-B2 has selected the B1-matched `standard` protocol for offline
    review and now has an exact, hash-bound Cartesian input under `bf3_ts2_b2/`.
    The exact input, 120 GB/44-core resources and fresh SDL project subsequently
-   received one-time live approval and were submitted; the first sanitized
-   status observation is queued. No retry or replacement is authorized.
-4. Full B(C6F5)3 TS1 (87 atoms) and TS2-B1 (108 atoms) remain deferred size
+   received one-time live approval and were submitted. The run reached the
+   100-cycle optimization limit before frequency analysis and was fetched as a
+   failed, non-accepted result. No retry or replacement is authorized.
+4. A sanitized follow-up record covers a separate BF3-TS1/DIPEA candidate-06
+   diagnostic. The calculation completed Opt/Freq with 150 modes and one raw
+   imaginary frequency, but formal terminal intake is blocked by a
+   template-payload hash mismatch and C13–H14–N22 mode review remains pending.
+   Raw operational artifacts stay outside version control.
+5. Full B(C6F5)3 TS1 (87 atoms) and TS2-B1 (108 atoms) remain deferred size
    benchmarks. Their coordinates are intentionally not materialized here.
 
 ## Files

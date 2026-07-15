@@ -199,13 +199,23 @@ deliberately sequenced after this milestone.
   hash-bound C13–C21 animation decision is accepted. Separately approved B1
   bidirectional IRC work remains endpoint-incomplete; each direction now has a
   project/input-hash-bound offline terminal-intake template that stops before
-  chemical-side assignment. B2 now has a B1-matched
-  standard offline input candidate, exact coordinate/route/hash audits and a
-  precommitted terminal acceptance plan plus an offline intake template that
-  stops at manual C13–C21 mode review. That exact B2 input subsequently
-  received one-time live approval and is queued; no retry or replacement is
+  chemical-side assignment. The later matched B1 IRC recalculation pair was
+  submitted under separate approval, then stopped by the user for time
+  constraints; its remote copies were removed by the user and no terminal
+  results were retained, so it contributes no path evidence. B2 has a
+  B1-matched standard offline input candidate, exact coordinate/route/hash
+  audits and a precommitted terminal acceptance plan. Its approved live run
+  reached the 100-cycle optimization limit before frequency analysis and was
+  fetched as a failed, non-accepted result. No retry or replacement is
   authorized. Operational job files remain local and ignored. Full BCF
   TS1/TS2-B1 remain deferred 87/108-atom benchmarks.
+- A separately approved BF3-TS1/DIPEA candidate-06 diagnostic completed with
+  two normal terminations, 51 optimization steps, 52 parsed SCF calculations,
+  a stationary point, all 150 harmonic modes and one raw imaginary frequency
+  at -1277.8375 cm⁻¹. This is not yet an accepted TS: the machine-local
+  pre-result intake template has a payload-hash mismatch, so formal terminal
+  intake stopped before manual C13–H14–N22 mode review. Raw inputs, logs,
+  checkpoints, scheduler identifiers and server paths remain ignored.
 - `studies/wang_2024_cat2_alpha_alkylation/`: a real-reaction offline forward
   study that records the reported CAT2 reaction, conditions and selectivity,
   while leaving the unresolved active state, charge/multiplicity, structures,
@@ -390,16 +400,19 @@ candidate still requires its own new gate.
 3. Apply the implemented M2d sidecar to one real, field-complete bounded review
    while building M3 adversarial runtime/promotion boundary fixtures without
    rendering a metal Gaussian input or enabling submission.
-4. After each BF3-TS2-B1 IRC direction terminates, fetch it, run the exact
-   offline terminal-intake template, and independently review its endpoint;
-   do not label endpoints or claim path validation before both terminate and
-   their endpoint structures are identified.
-5. Monitor the approved BF3-TS2-B2 standard job to stable termination, fetch the
-   complete Opt/Freq output, run the exact offline intake template, and apply
-   the precommitted 228-mode/one-imaginary-mode/C13–C21 animation gates before
-   any TS claim.
-6. Keep any B1/B2 retry, B2 IRC and full BCF benchmarks separately gated.
-7. Resume broader chiral-boron complex construction and enumeration after the
+4. Preserve the first BF3-TS2-B1 IRC pair as incomplete evidence. The matched
+   recalculation-v2 pair is closed without retained results at the user's
+   direction; do not label endpoints or claim path validation from it. Any
+   future resumption is a new calculation need with fresh review and approval.
+5. Preserve BF3-TS2-B2 as a failed 100-cycle optimization-limit result. It has
+   no frequency or mode evidence and no TS acceptance; any restart or changed
+   optimization plan remains separately gated.
+6. Resolve the BF3-TS1/DIPEA terminal-template integrity defect without
+   backdating provenance, then perform the required C13–H14–N22 displacement
+   review before any TS claim. The present result is execution-complete but
+   scientifically pending.
+7. Keep any B1/B2 retry, B2 IRC and full BCF benchmarks separately gated.
+8. Resume broader chiral-boron complex construction and enumeration after the
    transition-metal design milestone.
 
 The exact merge/deployment preparation and B1 acceptance checklist are in

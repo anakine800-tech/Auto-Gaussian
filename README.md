@@ -166,11 +166,15 @@ python3 -m unittest discover -s tests -v
    path, and common-reference energy evidence.
 6. Continue the refusal-preserving transition-metal M1–M3 design; the existing
    `auto-g16-ts-irc` transition-metal refusal must not be bypassed.
-7. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision and separately
-   submitted bidirectional IRC work. BF3-TS2-B2 now has a B1-matched standard
-   offline input candidate with exact coordinate, route and hash audits. That
-   exact B2 input subsequently received one-time live approval and is queued;
-   no retry, replacement, IRC, cancellation or cleanup is authorized.
+7. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision. Its first IRC
+   pair remains incomplete, and the later matched recalculation pair was
+   stopped by the user for time constraints with no terminal results retained.
+   BF3-TS2-B2 exhausted its 100-cycle optimization limit before frequency
+   analysis and is not accepted. A separate BF3-TS1/DIPEA candidate completed
+   Opt/Freq with 150 modes and one raw imaginary frequency, but its formal
+   terminal intake is blocked by a template-hash mismatch and manual
+   C13–H14–N22 mode review is still pending. None of these histories authorizes
+   a retry, replacement, IRC, cancellation or cleanup.
 
 See `docs/ts-freq-irc-design.md` for the implemented TS–Freq–IRC design history.
 Repository-wide operational rules are in `AGENTS.md`.
