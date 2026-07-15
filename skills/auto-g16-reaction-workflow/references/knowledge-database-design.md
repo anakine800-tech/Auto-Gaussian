@@ -1,9 +1,12 @@
 # Auto-G16 Reusable Knowledge Database Design
 
-Status: future W2 design contract. No database builder, importer, search index,
-write API, or multi-user service is implemented by this reference.
+Status: W2 design contract. The offline builder, canonical importer,
+content-addressed object store, deterministic SQLite index/query, typed links,
+permission filtering and immutable snapshot workflow are implemented by
+`auto-g16-knowledge-base`. A multi-user service and raw legacy-source migration
+adapters remain separate future milestones.
 
-The future project Skill is named `auto-g16-knowledge-base`. It provides one
+The project Skill is named `auto-g16-knowledge-base`. It provides one
 audited knowledge infrastructure with three logically separate registries:
 
 1. a structure registry;
@@ -268,9 +271,13 @@ group standard.
 
 ## 10. Import and update rules
 
-Provide future importers for reviewed ChemDraw packages, SDF/MOL/XYZ files,
+The implemented canonical-record and content-object importers accept reviewed
+structure, method, source and link records with a dry-run report before commit.
+Provide future raw-source adapters for ChemDraw packages, SDF/MOL/XYZ files,
 existing catalyst spreadsheets, protocol ledgers, citation exports, DOI/ISBN
-metadata, lawful PDFs/SI, and completed study evidence indexes.
+metadata and completed study evidence indexes. Keep lawful PDFs/SI in the
+content-addressed object workflow rather than teaching an adapter to bypass
+access review.
 
 Every importer must:
 
@@ -303,9 +310,9 @@ Retain explicit states for:
 Do not replace these with a generic confidence score or omit them from search
 results because they are inconvenient.
 
-## 12. Future implementation sequence and acceptance
+## 12. Implementation sequence and acceptance
 
-Implement the future `auto-g16-knowledge-base` in phases:
+Implement `auto-g16-knowledge-base` in phases:
 
 1. closed JSON contracts, strict validators, and frozen fixtures;
 2. deterministic SQLite schema, migrations, rebuild, and query CLI;

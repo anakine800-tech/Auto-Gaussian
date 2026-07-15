@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/knowledge-base/method.schema.json",
+  "title": "Auto-G16 Method Record",
+  "$ref": "record.schema.json#/$defs/methodRecord"
+}
