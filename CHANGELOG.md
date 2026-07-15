@@ -5,6 +5,43 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- A standard-library-only `gaussian-reaction-calculation-plan/1` builder and
+  validator with stable DAG/node identities, exact W1 and finalized mechanism-
+  network bindings by file SHA-256, byte size and payload SHA-256, explicit
+  dependencies, alternatives, supersession, blockers, and preserved failed,
+  cancelled, rejected, skipped, inconclusive and superseded history.
+- A compact immutable `gaussian-reaction-study-index/1` read-only resume view
+  that derives accepted-stage, blocker, supersession, and coverage summaries
+  from exact artifact bindings rather than a mutable status flag.
+- Closed Draft 2020-12 calculation-plan and study-index schemas,
+  `skills/auto-g16-reaction-workflow/scripts/calculation_dag.py`, and the
+  offline contract in
+  `skills/auto-g16-reaction-workflow/references/calculation-dag-contract.md`.
+  Optional mechanism-support and TS-precedent bindings remain explicit
+  blockers when absent and remain bound-but-unvalidated provenance, never
+  readiness promotion, until their specialist validators are integrated.
+- Target-shaped dependency checks require an edge single-point to consume a
+  reviewed TS-Freq result, and every edge-target node inherits the TS-
+  precedent gate. Study-index stages follow W1, mechanism network, mechanism
+  support, TS precedent, then calculation plan, while retaining the plan's
+  normalized blocker identities, descriptions, scopes and provenance.
+- Supersession validation is iterative for long node chains and rejects plan-
+  ancestry paths beyond the documented 128-artifact limit with a controlled
+  contract error.
+
+### Safety
+
+- The calculation-planning slice separates scientific readiness, input-review
+  readiness, live-approval readiness, execution state, and evidence
+  acceptance. Every node remains non-executable; every artifact retains
+  `calculation_ready: false` and `no_submission_authorization: true`.
+- This slice does not infer chemistry, choose a protocol, construct geometry,
+  render an input, create a server project or job, or perform Gaussian, SSH,
+  PBS, submission, retry, cancellation, deletion, deployment, or other live
+  action.
+
 ## [2.2.0] - 2026-07-15
 
 ### Added

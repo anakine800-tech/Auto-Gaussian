@@ -1,6 +1,6 @@
 # Auto-G16 Repository Status
 
-Status date: 2026-07-15
+Status date: 2026-07-16
 
 Stable release branch: `main`. New work uses short-lived `codex/` feature
 branches and is integrated through reviewed pull requests with required checks.
@@ -42,11 +42,21 @@ and its explicitly approved deployed-copy offline smoke passed while retaining
 false`, and `live_actions: false`. This is not metal runtime support or
 scientific acceptance.
 
+The current Unreleased feature branch adds the smallest coherent offline
+calculation-planning layer. It binds the exact W1 intake, species registry and
+condition model plus the finalized mechanism network by file SHA-256, byte
+size and canonical payload SHA-256. Optional exact mechanism-support and TS-
+precedent artifacts may also be bound, but their absence on the 2.2.0 baseline
+is retained as explicit blockers. Until their specialist-owned semantic
+validators exist, a supplied file remains `bound_unvalidated` provenance and
+cannot promote a node or stage. No node becomes executable.
+
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
 offline reusable-knowledge foundation and the remaining literature TS-
-precedent, mechanism-network, calculation-DAG, free-energy/kinetic and final-
-report layers needed to progress from W1 to an auditable whole-reaction study.
+precedent and mechanism-support contracts, specialist calculation/evidence
+adapters, free-energy/kinetic analysis and final-report layers needed to
+progress from W1 to an auditable whole-reaction study.
 
 ## Current capability
 
@@ -69,6 +79,12 @@ The version-controlled source under `skills/` currently provides:
   and bounded selectivity claims; and
 - an integrated offline top-level intake adapter with hash-bound reaction
   intake, species registry, balance review and condition-to-model artifacts;
+- the W3 mechanism-network contract for reviewed hypotheses with complete
+  states, elementary edges, exact atom maps, competing networks, reference
+  basins and catalyst-projection closure diagnostics;
+- the Unreleased deterministic `gaussian-reaction-calculation-plan/1` DAG and
+  immutable `gaussian-reaction-study-index/1` resume view over exact artifact
+  bindings, stage gates, blockers, supersession and coverage;
 - an offline-first reaction-literature Skill with reviewed query planning,
   Crossref/OpenAlex metadata retrieval, raw-response hashes, DOI deduplication,
   transparent lexical screening, source-located evidence templates and fail-
@@ -86,8 +102,28 @@ The version-controlled source under `skills/` currently provides:
 The W1 builder assigns stable step/occurrence/condition IDs, binds every drawn
 reactant/product exactly once, refuses missing condition decisions, preserves
 source-exact values, records blockers and never produces a calculation-ready
-or submission-authorizing artifact. It does not yet create a mechanism,
+or submission-authorizing artifact. W1 alone does not create a mechanism,
 reference basin, candidate geometry, protocol or calculation DAG.
+
+The W3 mechanism builder consumes a separate human-authored review and
+validates complete states, atom correspondence, elementary edges, competing
+networks, reference basins and catalyst-cycle projection closure without
+inferring them. The Unreleased calculation-plan builder then consumes an
+explicit human-reviewed plan and those exact immutable artifacts. It records
+stable logical needs for minima, conformers, complexes, TS candidates,
+TS/Freq, both IRC directions, endpoints, single points, thermochemistry and
+sensitivity work, while retaining dependencies, alternatives, supersession,
+and failed, rejected or skipped history.
+
+Scientific readiness, input-review readiness, live-approval readiness,
+execution state and evidence acceptance remain independent. Every node has
+`executable: false`; every plan and study index has `calculation_ready: false`
+and `no_submission_authorization: true`. The read-only index derives the last
+accepted stage, next blockers, superseded artifacts and coverage; it does not
+mutate a specialist artifact or grant authority. This slice does not choose a
+protocol, construct geometry, render an input, create a server project or job,
+or perform Gaussian, SSH, PBS, submission, retry, cancellation, deletion,
+deployment or any other live action.
 
 The repository now provides the W2A portable record layer for reviewed
 catalyst/ligand identities, represented states, geometries, complete
@@ -113,6 +149,28 @@ The TS–Freq–IRC feature and its endpoint workflow have been merged to `main`
 The repository contains tracked live-smoke evidence for the endpoint workflow
 and for scheduler-zombie cleanup. Those records are historical evidence only;
 they do not authorize another live calculation.
+
+## Unreleased calculation-planning slice
+
+The versioned output contracts are
+`gaussian-reaction-calculation-plan/1` and
+`gaussian-reaction-study-index/1`. Their deterministic standard-library
+builder/validator is
+`skills/auto-g16-reaction-workflow/scripts/calculation_dag.py`; the normative
+offline semantics are in
+`skills/auto-g16-reaction-workflow/references/calculation-dag-contract.md`.
+Closed Draft 2020-12 schemas live beside the W1/W3 contracts under
+`contracts/reaction-workflow/`.
+
+This layer owns only reaction-study bookkeeping, dependency validation and the
+read-only resume view. Literature evidence remains owned by
+`auto-g16-reaction-literature`; reusable immutable records by
+`auto-g16-knowledge-base`; asymmetric candidate coverage by
+`auto-g16-asymmetric-catalysis`; protocol, input and transport by
+`auto-g16-rtwin-pbs`; and TS/mode/path evidence by `auto-g16-ts-irc`. No test
+or live authority crosses those ownership boundaries. On 2026-07-16 this
+branch passed 18 focused calculation-DAG tests, 39 adjacent W1/W3/DAG tests,
+and the complete 205-test offline repository suite; no live smoke was run.
 
 ## Work completed in this feature line
 
@@ -232,7 +290,7 @@ All design-phase artifacts set or imply `calculation_ready: false` and
 `no_submission_authorization: true`. They perform no SSH, PBS, Gaussian,
 deployment, cancellation, or server cleanup operation.
 
-## Offline validation snapshot
+## Historical offline validation snapshot
 
 On 2026-07-15, this feature branch passed 142 offline tests. In particular:
 
@@ -376,9 +434,11 @@ candidate still requires its own new gate.
 1. Continue the W2 `auto-g16-knowledge-base` from the completed W2B-2 offline
    store/import/export foundation with authentication, durable audit logging,
    chemical search and a separately reviewed service boundary. Then implement
-   the literature query/evidence/mechanism-support/TS-precedent contracts. Only
-   after offline acceptance, separately approve one real-reaction literature-
-   search smoke; it must not generate an input or authorize calculation.
+   the mechanism-support and TS-precedent contracts missing from the current
+   literature-evidence layer and bind only their exact finalized artifacts to
+   a new calculation plan and study index. Only after offline acceptance,
+   separately approve one real-reaction literature-search smoke; it must not
+   generate an input, make a node executable or authorize calculation.
 2. Use the implemented candidate-bound M1 sidecar for one concrete metal–
    chiral-ligand reaction and review its oxidation/electron accounting, spin
    surfaces, wavefunction, coordination state, method evidence, elementary-

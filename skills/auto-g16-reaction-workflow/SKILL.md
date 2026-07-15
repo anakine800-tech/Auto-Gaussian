@@ -1,22 +1,30 @@
 ---
 name: auto-g16-reaction-workflow
-description: Build the offline, hash-bound foundation of a whole Gaussian reaction study from a reviewed ChemDraw reaction package. Use when Codex must scope a reaction-computation study, convert strict reaction transcription into a reaction intake, bind every drawn reactant/product to a reviewed species registry, map every condition to an explicit computational treatment or blocker, or report why a reaction is not ready for mechanism or calculation planning. This Skill does not infer mechanisms, choose methods, generate Gaussian inputs, or authorize live work.
+description: Build and validate the offline, hash-bound foundation of a whole Gaussian reaction study from reviewed human inputs. Use when Codex must create W1 reaction-intake artifacts, validate an explicit W3 mechanism network, build a non-executable calculation DAG, derive a read-only study resume index, or report why later work remains blocked. This Skill does not infer chemistry or mechanisms, choose methods, construct geometry, generate Gaussian inputs, or authorize live work.
 ---
 
 # Auto-G16 Reaction Workflow
 
 ## Purpose
 
-Create the first three immutable artifacts of a whole-reaction study:
+Create the first three immutable W1 artifacts of a whole-reaction study:
 
 1. `gaussian-reaction-intake/1`;
 2. `gaussian-reaction-species-registry/1`; and
 3. `gaussian-reaction-condition-model/1`.
 
-Treat these as offline scientific review records. Keep every artifact
-`calculation_ready: false` and `no_submission_authorization: true`. A reviewed
-intake is not a mechanism, protocol, Gaussian input, batch approval, or live
-calculation request.
+After separate human review, the optional W3 stages may also create:
+
+4. `gaussian-reaction-mechanism-network/1`;
+5. `gaussian-reaction-calculation-plan/1`; and
+6. `gaussian-reaction-study-index/1`.
+
+Treat every artifact as an offline scientific review or bookkeeping record.
+Keep `calculation_ready: false` and `no_submission_authorization: true`
+throughout this Skill, and keep every calculation-plan node
+`executable: false`. A reviewed intake, network or plan is not a selected
+protocol, Gaussian input, batch approval, job, accepted calculation result or
+live calculation request.
 
 ## Required upstream package
 
@@ -138,10 +146,85 @@ connectivity changes, element/charge conservation, competing networks,
 reference basins and catalyst-projection closure. It does not infer any of
 them. Because `gaussian-reaction-mechanism-support/1` remains unimplemented,
 every output retains `mechanism_support_unavailable`, remains
-`calculation_ready: false`, and grants no mechanism promotion, calculation DAG,
-protocol, Gaussian input, or live authority.
+`calculation_ready: false`, and grants no mechanism promotion, node execution,
+protocol, Gaussian input, or live authority. The later calculation-plan stage
+may preserve this exact network and its blocker as planning input; doing so
+does not promote the network or make any node executable.
 
-### 5. Preserve the W2 knowledge and literature gates
+### 5. Build the offline calculation plan and study index
+
+Invoke this only after the exact W1 chain, finalized mechanism network and an
+explicit human-authored calculation-plan review exist. Read
+[references/calculation-dag-contract.md](references/calculation-dag-contract.md)
+before using the builder. Finalization hashes the reviewed draft without
+changing its scientific decisions:
+
+```bash
+DAG_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/calculation_dag.py"
+
+python3 "$DAG_TOOL" finalize-review calculation-plan-review.draft.json \
+  --output calculation-plan-review.json
+```
+
+Build and validate the non-executable plan:
+
+```bash
+python3 "$DAG_TOOL" build-plan reaction-intake.json species-registry.json \
+  condition-model.json mechanism-network.json \
+  --review calculation-plan-review.json \
+  --output calculation-plan.json
+python3 "$DAG_TOOL" validate-plan calculation-plan.json
+```
+
+Every required artifact binding records its relative path, file SHA-256, byte
+size, schema and canonical payload SHA-256. The builder and validators use
+strict JSON, refuse symlinks, hash drift, unknown fields, graph forgery and
+output overwrite, require a pre-existing real output parent, reject divergent
+W1/W3 revision chains, and independently recompute graph order, target-
+continuous dependencies, readiness, blockers, supersession and coverage.
+
+When implemented exact `gaussian-reaction-mechanism-support/1` or
+`gaussian-ts-precedent-map/1` artifacts exist, bind them with
+`--mechanism-support FILE` or `--ts-precedent-map FILE`. On the current
+baseline they are absent, so the builder records explicit blockers. If such a
+file is supplied before its specialist-owned schema and semantic validator are
+integrated, it is exact-bound only as `bound_unvalidated` provenance and still
+cannot clear any readiness gate. Use repeated `--supersedes-plan FILE`
+bindings only for exact immutable earlier plans explicitly superseded by the
+review; never rewrite an older plan.
+
+The plan supports explicit logical needs for minima, conformers, complexes,
+TS candidates, TS/Freq, forward and reverse IRC, endpoints, single points,
+thermochemistry and sensitivity. It validates stable node IDs, dependencies,
+alternatives, supersession and stage order while retaining failed, rejected,
+skipped and historical work. Every target state, edge, network, reference basin
+and atom reference must exist in the finalized mechanism network. Stages that
+need an exact charge, multiplicity or atom order remain scientifically blocked
+when the reviewed plan omits one. Scientific, input-review and live-approval
+readiness are independent from execution state and evidence acceptance.
+State-targeted single points require minimum/endpoint lineage; edge-targeted
+single points require TS/Freq lineage, and every edge-targeted node directly
+retains the TS-precedent blocker. Superseded-plan ancestry deeper than 128
+artifacts is refused with a controlled offline contract error.
+
+Build the immutable read-only resume view only from an exact validated plan:
+
+```bash
+python3 "$DAG_TOOL" build-index calculation-plan.json \
+  --output reaction-study-index.json
+python3 "$DAG_TOOL" validate-index reaction-study-index.json
+```
+
+The index derives stage gates, the last accepted stage, next blockers,
+superseded artifacts and active/historical coverage. It does not mutate the
+plan or any specialist artifact. This slice implements no external node-update
+envelope; such an envelope is a future adapter boundary and could not itself
+grant submission or evidence-acceptance authority.
+Its gate order is W1, finalized mechanism network, exact network support,
+dependent TS precedent, calculation plan, input review, then live approval;
+each emitted stage blocker resolves to the plan's normalized blocker record.
+
+### 6. Preserve the W2 knowledge and literature gates
 
 The second scientific-modeling round must first query a reviewed reusable
 knowledge layer and bind an immutable per-study snapshot. Read
@@ -178,6 +261,8 @@ calculation authorization.
   counterions, bases, gases or byproducts remain unrepresented.
 - Do not infer a functional, basis/ECP, solvent model, temperature correction,
   standard state, mechanism, TS algorithm or resource tier.
+- Do not treat scientific readiness, input review, live approval, execution or
+  evidence acceptance as interchangeable states.
 - Keep transition-metal, open-shell, broken-symmetry, multireference and
   ambiguous coordination cases blocked for later specialist review.
 
@@ -200,6 +285,12 @@ calculation authorization.
   blocker.
 - `scripts/mechanism_network.py`: standard-library-only deterministic W3
   mechanism-network builder and validator; no calculation or live path.
+- `references/calculation-dag-contract.md`: implemented offline calculation-
+  plan and study-index semantics, dependency/readiness rules, immutable
+  bindings, supersession and specialist ownership boundaries.
+- `scripts/calculation_dag.py`: standard-library-only deterministic review
+  finalizer, calculation-plan builder/validator and study-index
+  builder/validator; no input rendering, execution or live path.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
-  schemas for intake, registry, condition-model and mechanism-network
-  artifacts.
+  schemas for intake, registry, condition-model, mechanism-network,
+  calculation-plan and study-index artifacts.

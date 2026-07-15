@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/calculation-plan.schema.json",
+  "title": "Auto-G16 Gaussian reaction calculation plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "study_id", "plan_id", "intake", "species_registry",
+    "condition_model", "mechanism_network", "mechanism_support",
+    "ts_precedent_map", "review_source", "superseded_plans", "nodes",
+    "alternative_groups", "supersessions", "topological_order", "coverage",
+    "blockers", "review", "gate_status", "calculation_ready",
+    "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-calculation-plan/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "plan_id": {"$ref": "#/$defs/id"},
+    "intake": {"$ref": "#/$defs/boundArtifact"},
+    "species_registry": {"$ref": "#/$defs/boundArtifact"},
+    "condition_model": {"$ref": "#/$defs/boundArtifact"},
+    "mechanism_network": {"$ref": "#/$defs/boundArtifact"},
+    "mechanism_support": {"$ref": "#/$defs/nullableBoundArtifact"},
+    "ts_precedent_map": {"$ref": "#/$defs/nullableBoundArtifact"},
+    "review_source": {"$ref": "#/$defs/boundArtifact"},
+    "superseded_plans": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/boundArtifact"}
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "alternative_groups": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/alternativeGroup"}
+    },
+    "supersessions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/supersession"}
+    },
+    "topological_order": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
+    "review": {"$ref": "#/$defs/review"},
+    "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonemptyString": {"type": "string", "minLength": 1},
+    "stringArray": {"type": "array", "items": {"type": "string"}},
+    "idArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "boundArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"type": "string", "minLength": 1},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "nullableBoundArtifact": {
+      "anyOf": [
+        {"$ref": "#/$defs/boundArtifact"},
+        {"type": "null"}
+      ]
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocker_id", "scope", "description", "required_for"],
+      "properties": {
+        "blocker_id": {"$ref": "#/$defs/id"},
+        "scope": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "required_for": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "atomRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state_id", "atom_id"],
+      "properties": {
+        "state_id": {"$ref": "#/$defs/id"},
+        "atom_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state_ids", "edge_ids", "network_ids", "reference_basin_ids",
+        "atom_refs"
+      ],
+      "properties": {
+        "state_ids": {"$ref": "#/$defs/idArray"},
+        "edge_ids": {"$ref": "#/$defs/idArray"},
+        "network_ids": {"$ref": "#/$defs/idArray"},
+        "reference_basin_ids": {"$ref": "#/$defs/idArray"},
+        "atom_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/atomRef"}
+        }
+      }
+    },
+    "chemicalState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formal_charge", "multiplicity", "atom_order"],
+      "properties": {
+        "formal_charge": {"type": ["integer", "null"]},
+        "multiplicity": {"type": ["integer", "null"], "minimum": 1},
+        "atom_order": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/atomRef"}
+            },
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot_id", "artifact_role", "source_node_id", "required", "description"
+      ],
+      "properties": {
+        "slot_id": {"$ref": "#/$defs/id"},
+        "artifact_role": {"$ref": "#/$defs/id"},
+        "source_node_id": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+        "required": {"type": "boolean"},
+        "description": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot_id", "artifact_role", "description"],
+      "properties": {
+        "slot_id": {"$ref": "#/$defs/id"},
+        "artifact_role": {"$ref": "#/$defs/id"},
+        "description": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "scientificReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "blocker_ids"],
+      "properties": {
+        "status": {"enum": ["ready", "blocked", "not_applicable"]},
+        "blocker_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "inputReviewReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "blocker_ids"],
+      "properties": {
+        "status": {"enum": ["ready_for_review", "blocked", "not_applicable"]},
+        "blocker_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "liveApprovalReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "blocker_ids"],
+      "properties": {
+        "status": {"enum": ["not_ready", "not_applicable"]},
+        "blocker_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scientific", "input_review", "live_approval"],
+      "properties": {
+        "scientific": {"$ref": "#/$defs/scientificReadiness"},
+        "input_review": {"$ref": "#/$defs/inputReviewReadiness"},
+        "live_approval": {"$ref": "#/$defs/liveApprovalReadiness"}
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id", "label", "node_kind", "target", "chemical_state", "inputs",
+        "outputs", "depends_on", "alternative_group_id", "disposition",
+        "execution_state", "evidence_acceptance", "review_blockers", "notes",
+        "readiness", "executable"
+      ],
+      "properties": {
+        "node_id": {"$ref": "#/$defs/id"},
+        "label": {"$ref": "#/$defs/nonemptyString"},
+        "node_kind": {
+          "enum": [
+            "minimum", "conformer", "complex", "ts_candidate", "ts_freq",
+            "irc_forward", "irc_reverse", "endpoint", "single_point",
+            "thermochemistry", "sensitivity"
+          ]
+        },
+        "target": {"$ref": "#/$defs/target"},
+        "chemical_state": {"$ref": "#/$defs/chemicalState"},
+        "inputs": {"type": "array", "items": {"$ref": "#/$defs/input"}},
+        "outputs": {"type": "array", "items": {"$ref": "#/$defs/output"}},
+        "depends_on": {"$ref": "#/$defs/idArray"},
+        "alternative_group_id": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9_]{2,63}$"
+        },
+        "disposition": {"enum": ["planned", "retained", "skipped", "superseded"]},
+        "execution_state": {
+          "enum": ["not_started", "succeeded", "failed", "cancelled", "not_applicable"]
+        },
+        "evidence_acceptance": {
+          "enum": [
+            "not_available", "pending_review", "accepted", "rejected",
+            "inconclusive", "not_applicable"
+          ]
+        },
+        "review_blockers": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/blocker"}
+        },
+        "notes": {"$ref": "#/$defs/stringArray"},
+        "readiness": {"$ref": "#/$defs/readiness"},
+        "executable": {"const": false}
+      }
+    },
+    "alternativeGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id", "label", "node_ids", "selection_policy", "selected_node_ids",
+        "review_status", "rationale"
+      ],
+      "properties": {
+        "group_id": {"$ref": "#/$defs/id"},
+        "label": {"$ref": "#/$defs/nonemptyString"},
+        "node_ids": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "selection_policy": {"enum": ["retain_all", "select_one", "select_zero_or_one"]},
+        "selected_node_ids": {"$ref": "#/$defs/idArray"},
+        "review_status": {"enum": ["reviewed", "blocked"]},
+        "rationale": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "supersession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supersession_id", "superseding_node_id", "superseded_node_ids", "rationale"
+      ],
+      "properties": {
+        "supersession_id": {"$ref": "#/$defs/id"},
+        "superseding_node_id": {"$ref": "#/$defs/id"},
+        "superseded_node_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "rationale": {"$ref": "#/$defs/nonemptyString"}
+      }
+    },
+    "kindCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum", "conformer", "complex", "ts_candidate", "ts_freq",
+        "irc_forward", "irc_reverse", "endpoint", "single_point",
+        "thermochemistry", "sensitivity"
+      ],
+      "properties": {
+        "minimum": {"type": "integer", "minimum": 0},
+        "conformer": {"type": "integer", "minimum": 0},
+        "complex": {"type": "integer", "minimum": 0},
+        "ts_candidate": {"type": "integer", "minimum": 0},
+        "ts_freq": {"type": "integer", "minimum": 0},
+        "irc_forward": {"type": "integer", "minimum": 0},
+        "irc_reverse": {"type": "integer", "minimum": 0},
+        "endpoint": {"type": "integer", "minimum": 0},
+        "single_point": {"type": "integer", "minimum": 0},
+        "thermochemistry": {"type": "integer", "minimum": 0},
+        "sensitivity": {"type": "integer", "minimum": 0}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_count", "kind_counts", "state_ids", "edge_ids", "network_ids",
+        "reference_basin_ids", "active_node_ids", "historical_node_ids"
+      ],
+      "properties": {
+        "node_count": {"type": "integer", "minimum": 0},
+        "kind_counts": {"$ref": "#/$defs/kindCounts"},
+        "state_ids": {"$ref": "#/$defs/idArray"},
+        "edge_ids": {"$ref": "#/$defs/idArray"},
+        "network_ids": {"$ref": "#/$defs/idArray"},
+        "reference_basin_ids": {"$ref": "#/$defs/idArray"},
+        "active_node_ids": {"$ref": "#/$defs/idArray"},
+        "historical_node_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "notes"],
+      "properties": {
+        "decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  }
+}
