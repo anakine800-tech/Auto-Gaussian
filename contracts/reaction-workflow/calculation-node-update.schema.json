@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/calculation-node-update.schema.json",
+  "title": "Auto-G16 append-only calculation-node update",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "update_id", "locator", "expected_node_kind", "target_plan",
+    "review_source", "update_kind", "artifact_role", "artifact",
+    "external_target", "supersedes", "review", "calculation_ready",
+    "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-calculation-node-update/1"},
+    "update_id": {"$ref": "#/$defs/id"},
+    "locator": {"$ref": "#/$defs/locator"},
+    "expected_node_kind": {"const": "ts_candidate"},
+    "target_plan": {"$ref": "#/$defs/planRef"},
+    "review_source": {"$ref": "#/$defs/reviewRef"},
+    "update_kind": {"const": "candidate_inventory"},
+    "artifact_role": {"const": "candidate_target_import"},
+    "artifact": {"$ref": "#/$defs/importRef"},
+    "external_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_target_key", "source_entry_sha256", "candidate_id",
+        "source_disposition", "eligible_for_later_input_review"
+      ],
+      "properties": {
+        "external_target_key": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{2,255}$"},
+        "source_entry_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "source_disposition": {
+          "enum": ["unmaterialized", "duplicate_logical", "materialized_unique", "duplicate_geometry"]
+        },
+        "eligible_for_later_input_review": {"type": "boolean"}
+      }
+    },
+    "supersedes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/updateRef"}
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "decision": {"const": "accepted"},
+        "reviewer": {"type": "string", "minLength": 1},
+        "reviewed_at": {"type": "string", "minLength": 1},
+        "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["study_id", "plan_id", "node_id"],
+      "properties": {
+        "study_id": {"$ref": "#/$defs/id"},
+        "plan_id": {"$ref": "#/$defs/id"},
+        "node_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"type": "string", "minLength": 1},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "planRef": {
+      "allOf": [
+        {"$ref": "#/$defs/artifactRef"},
+        {"properties": {"schema": {"const": "gaussian-reaction-calculation-plan/1"}}}
+      ]
+    },
+    "reviewRef": {
+      "allOf": [
+        {"$ref": "#/$defs/artifactRef"},
+        {"properties": {"schema": {"const": "gaussian-reaction-calculation-target-mapping-review/1"}}}
+      ]
+    },
+    "importRef": {
+      "allOf": [
+        {"$ref": "#/$defs/artifactRef"},
+        {"properties": {"schema": {"const": "gaussian-candidate-target-import/1"}}}
+      ]
+    },
+    "updateRef": {
+      "allOf": [
+        {"$ref": "#/$defs/artifactRef"},
+        {"properties": {"schema": {"const": "gaussian-reaction-calculation-node-update/1"}}}
+      ]
+    }
+  }
+}

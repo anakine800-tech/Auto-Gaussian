@@ -1,22 +1,45 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://local.invalid/contracts/reaction-workflow/study-index.schema.json",
-  "title": "Derived immutable reaction-study index",
+  "title": "Auto-G16 Gaussian reaction study index",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema", "study_id", "artifacts", "derived_state", "next_safe_actions",
-    "status_is_derived_not_editable", "execution_authorized", "calculation_ready",
-    "no_submission_authorization", "payload_sha256"
+    "schema", "study_id", "plan_id", "calculation_plan", "artifacts",
+    "superseded_artifacts", "stage_gates", "last_accepted_stage",
+    "next_blockers", "next_safe_offline_action", "node_resume", "coverage",
+    "read_only", "calculation_ready", "no_submission_authorization",
+    "payload_sha256"
   ],
   "properties": {
     "schema": {"const": "gaussian-reaction-study-index/1"},
     "study_id": {"$ref": "#/$defs/id"},
-    "artifacts": {"type": "array", "minItems": 4, "items": {"$ref": "#/$defs/indexedArtifact"}},
-    "derived_state": {"$ref": "#/$defs/derivedState"},
-    "next_safe_actions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/action"}},
-    "status_is_derived_not_editable": {"const": true},
-    "execution_authorized": {"const": false},
+    "plan_id": {"$ref": "#/$defs/id"},
+    "calculation_plan": {"$ref": "#/$defs/boundArtifact"},
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/artifactEntry"}
+    },
+    "superseded_artifacts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/boundArtifact"}
+    },
+    "stage_gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/stageGate"}
+    },
+    "last_accepted_stage": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "next_blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
+    "next_safe_offline_action": {"type": "string", "minLength": 1},
+    "node_resume": {"type": "array", "items": {"$ref": "#/$defs/nodeResume"}},
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "read_only": {"const": true},
     "calculation_ready": {"const": false},
     "no_submission_authorization": {"const": true},
     "payload_sha256": {"$ref": "#/$defs/sha256"}
@@ -24,43 +47,158 @@
   "$defs": {
     "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
     "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "idArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
     "boundArtifact": {
-      "type": "object", "additionalProperties": false,
-      "required": ["path", "sha256", "size_bytes", "schema", "payload_field", "payload_sha256"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
       "properties": {
-        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"},
-        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string", "minLength": 1},
-        "payload_field": {"enum": ["payload_sha256", "selection_payload_sha256", "evidence_review_payload_sha256"]},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"type": "string", "minLength": 1},
         "payload_sha256": {"$ref": "#/$defs/sha256"}
       }
     },
-    "indexedArtifact": {
-      "type": "object", "additionalProperties": false,
-      "required": ["role", "artifact", "gate_status", "blocker_count"],
+    "nullableBoundArtifact": {
+      "anyOf": [
+        {"$ref": "#/$defs/boundArtifact"},
+        {"type": "null"}
+      ]
+    },
+    "artifactEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "status", "artifact"],
       "properties": {
-        "role": {"enum": ["mechanism_support", "mechanism_network", "ts_precedent_map", "calculation_dag", "candidate"]},
-        "artifact": {"$ref": "#/$defs/boundArtifact"},
-        "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
-        "blocker_count": {"type": "integer", "minimum": 0}
+        "role": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["current", "superseded", "missing"]},
+        "artifact": {"$ref": "#/$defs/nullableBoundArtifact"}
       }
     },
-    "derivedState": {
-      "type": "object", "additionalProperties": false,
-      "required": ["mechanism_gate", "ts_precedent_gate", "dag_gate", "candidate_count", "dag_node_count", "completed_node_ids", "all_required_nodes_completed"],
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocker_id", "scope", "description", "required_for"],
       "properties": {
-        "mechanism_gate": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
-        "ts_precedent_gate": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
-        "dag_gate": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
-        "candidate_count": {"type": "integer", "minimum": 0},
-        "dag_node_count": {"type": "integer", "minimum": 1},
-        "completed_node_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}},
-        "all_required_nodes_completed": {"type": "boolean"}
+        "blocker_id": {"$ref": "#/$defs/id"},
+        "scope": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "required_for": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
       }
     },
-    "action": {
-      "type": "object", "additionalProperties": false,
-      "required": ["action", "reason", "authority"],
-      "properties": {"action": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}, "authority": {"type": "string", "minLength": 1}}
+    "stageGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage_id", "status", "artifact_role", "blocker_ids"],
+      "properties": {
+        "stage_id": {"$ref": "#/$defs/id"},
+        "status": {
+          "enum": [
+            "accepted", "accepted_with_blockers", "blocked", "missing",
+            "not_reached"
+          ]
+        },
+        "artifact_role": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9_]{2,63}$"
+        },
+        "blocker_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["study_id", "plan_id", "node_id"],
+      "properties": {
+        "study_id": {"$ref": "#/$defs/id"},
+        "plan_id": {"$ref": "#/$defs/id"},
+        "node_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "nodeResume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "locator", "node_kind", "disposition", "scientific_readiness",
+        "input_review_readiness", "live_approval_readiness", "execution_state",
+        "evidence_acceptance", "next_blocker_ids"
+      ],
+      "properties": {
+        "locator": {"$ref": "#/$defs/locator"},
+        "node_kind": {
+          "enum": [
+            "minimum", "conformer", "complex", "ts_candidate", "ts_freq",
+            "irc_forward", "irc_reverse", "endpoint", "single_point",
+            "thermochemistry", "sensitivity"
+          ]
+        },
+        "disposition": {"enum": ["planned", "retained", "skipped", "superseded"]},
+        "scientific_readiness": {"enum": ["ready", "blocked", "not_applicable"]},
+        "input_review_readiness": {
+          "enum": ["ready_for_review", "blocked", "not_applicable"]
+        },
+        "live_approval_readiness": {"enum": ["not_ready", "not_applicable"]},
+        "execution_state": {
+          "enum": ["not_started", "succeeded", "failed", "cancelled", "not_applicable"]
+        },
+        "evidence_acceptance": {
+          "enum": [
+            "not_available", "pending_review", "accepted", "rejected",
+            "inconclusive", "not_applicable"
+          ]
+        },
+        "next_blocker_ids": {"$ref": "#/$defs/idArray"}
+      }
+    },
+    "kindCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum", "conformer", "complex", "ts_candidate", "ts_freq",
+        "irc_forward", "irc_reverse", "endpoint", "single_point",
+        "thermochemistry", "sensitivity"
+      ],
+      "properties": {
+        "minimum": {"type": "integer", "minimum": 0},
+        "conformer": {"type": "integer", "minimum": 0},
+        "complex": {"type": "integer", "minimum": 0},
+        "ts_candidate": {"type": "integer", "minimum": 0},
+        "ts_freq": {"type": "integer", "minimum": 0},
+        "irc_forward": {"type": "integer", "minimum": 0},
+        "irc_reverse": {"type": "integer", "minimum": 0},
+        "endpoint": {"type": "integer", "minimum": 0},
+        "single_point": {"type": "integer", "minimum": 0},
+        "thermochemistry": {"type": "integer", "minimum": 0},
+        "sensitivity": {"type": "integer", "minimum": 0}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_count", "kind_counts", "state_ids", "edge_ids", "network_ids",
+        "reference_basin_ids", "active_node_ids", "historical_node_ids"
+      ],
+      "properties": {
+        "node_count": {"type": "integer", "minimum": 0},
+        "kind_counts": {"$ref": "#/$defs/kindCounts"},
+        "state_ids": {"$ref": "#/$defs/idArray"},
+        "edge_ids": {"$ref": "#/$defs/idArray"},
+        "network_ids": {"$ref": "#/$defs/idArray"},
+        "reference_basin_ids": {"$ref": "#/$defs/idArray"},
+        "active_node_ids": {"$ref": "#/$defs/idArray"},
+        "historical_node_ids": {"$ref": "#/$defs/idArray"}
+      }
     }
   }
 }

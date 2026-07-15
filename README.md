@@ -15,16 +15,12 @@ workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-cataly
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
 the W3 offline mechanism-network slice. The current feature line adds the
-offline mechanism-support two-gate and TS-precedent/de novo-planning stages.
-The isolated `codex/ultimate-workflow-origin-main` line additionally connects
-an exact reviewed main-group candidate-materialization route, a finite offline
-calculation DAG and derived study index, normalized energy records, bounded
-thermochemistry/kinetics/selectivity analysis, uncertainty scenarios, and a
-deterministic claim-limited report. It remains unreleased and grants no input,
-execution, deployment, or live-test authority.
-The 2.2.0 release also includes
+offline mechanism-support two-gate, separate mechanism-support matrix view,
+TS-precedent/de novo-planning stages, and the smallest deterministic
+calculation-plan DAG and read-only reaction-study index over exact immutable
+upstream artifacts. The 2.2.0 release also includes
 transition-metal M1/M2 observation and review contracts while preserving the
-unconditional metal runtime refusal. These layers retain their individual
+unconditional metal runtime refusal. Every layer retains its individual
 scientific and live-action approval gates.
 
 The current unreleased source also contains the first offline calculation-
@@ -67,13 +63,19 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
   species registry, balance review, condition-to-model decisions, reviewed
   mechanism-network hypotheses, edge/channel mechanism-support classification,
-  independent exploration and claim-support gates, and TS-precedent/de novo
-  seed planning, plus a narrow exact-reviewed calculation-artifact adapter.
-  The isolated ultimate-workflow line adds reviewed main-group
-  minimum/complex/TS-seed materialization, a finite calculation DAG and derived
-  study index, normalized energy/ensemble analysis, and bounded reporting. Its
-  artifacts explicitly grant no input, calculation, or live authorization;
-  the adapter's reproducible reviewed input handoff is not such authorization.
+  independent exploration and claim-support gates, a separate immutable
+  row-by-evidence comparison matrix, TS-precedent/de novo seed planning, the
+  Unreleased calculation-plan/study-index slice, and a
+  narrow exact-reviewed calculation-artifact adapter. The
+  planning layer binds the exact W1/network chain and calls owner validators
+  before clearing only matching precedent-coverage blockers. Because the DAG
+  review currently carries edge IDs but no reviewed stereochemical-channel
+  mapping, even owner-validated mechanism support remains explicitly blocked.
+  The adapter exports only external targets and immutable specialist
+  handoffs; it does not own DAG node identities. A separate DAG-owned reviewed
+  mapping can attach one exact external target to one `ts_candidate` through
+  an append-only, non-promoting node update. Every calculation node remains
+  non-executable; these artifacts grant no calculation or live authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
   screening, evidence templates and fail-closed source-review validation. It
@@ -105,9 +107,13 @@ retain their existing names for compatibility and provenance.
   review are implemented in `auto-g16-reaction-workflow`. A reviewed novel
   hypothesis may be exploration-eligible without a direct precedent while its
   mechanism claim remains unsupported and unvalidated. Seed-geometry
-  construction is implemented only for exact audited published-coordinate
-  main-group precedents and explicit reviewed minimum/complex coordinates;
-  general and de novo construction remain future extensions.
+  construction remains a future extension.
+- `gaussian-reaction-mechanism-support-matrix/1` is a downstream view over the
+  unchanged `gaussian-reaction-mechanism-support/1` owner gate. It provides
+  complete cross-evidence cells and explicit row dispositions but cannot
+  weaken an owner blocker, validate a mechanism, or create an executable DAG
+  node. Experimental PR #19 artifacts are not aliases for the merged gate and
+  require an explicit new matrix build if migrated.
 
 ## Offline planning/audit module
 
@@ -186,19 +192,18 @@ python3 -m unittest discover -s tests -v
 3. Continue W2 from the implemented W2B-2 store/import/export foundation with
    authenticated enforcement, durable audit logging, chemical search and
    later independent evidence revisions for mechanism claims.
-4. Review and validate the isolated W3 bridge: exact reviewed main-group
-   candidate materialization, finite calculation DAG, derived study index,
-   normalized energy records, ensemble/barrier/selectivity analysis,
-   uncertainty scenarios, bounded report generation, and fail-closed binding
-   of the formal calculation-artifact adapter outputs. Existing Skills remain
+4. Continue the implemented W3 mechanism-network/support/TS-planning and
+   offline calculation-plan/study-index foundation with the implemented first
+   specialist adapter slice and a future reaction-level evidence index.
+   Existing Skills remain
    specialist components rather than a monolithic automatic mechanism
    generator.
-5. Add general/de novo geometry construction, conformer/duplicate handling,
-   a reviewed external-target-to-DAG mapping, comparable thermochemical
-   projection beyond the adapter's electronic-only boundary, and exact
-   terminal/path updates. Then separately approve and validate a small closed-
-   shell main-group reaction from ChemDraw through minima, TS, path, and
-   common-reference energy evidence.
+5. Extend the implemented first candidate/protocol/input and electronic-only
+   result/energy adapter slice only through reviewed contracts; then validate a
+   small closed-shell main-group reaction from ChemDraw through minima, TS,
+   path, and common-reference energy evidence. DAG node binding remains owned
+   by the implemented DAG's narrow reviewed mapping and append-only update
+   bridge; the calculation-artifact adapter does not acquire DAG ownership.
 6. Continue the refusal-preserving transition-metal M1–M3 design; the existing
    `auto-g16-ts-irc` transition-metal refusal must not be bypassed.
 7. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision. Its first IRC

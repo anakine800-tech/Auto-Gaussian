@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/mechanism-support-matrix.schema.json",
+  "title": "Gaussian reaction mechanism-support matrix view",
+  "description": "Closed offline comparison matrix bound to an exact owner-validated gaussian-reaction-mechanism-support/1 artifact.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "matrix_id", "study_id", "mechanism_support", "mechanism_network",
+    "review_source", "supersedes", "evidence_gate", "matrix", "coverage",
+    "row_dispositions", "downstream_reviewable_targets", "blockers", "review",
+    "gate_status", "claim_ceiling", "mechanism_proven",
+    "mechanism_claim_validation_present", "calculation_ready",
+    "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-mechanism-support-matrix/1"},
+    "matrix_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "mechanism_support": {"$ref": "#/$defs/supportRef"},
+    "mechanism_network": {"$ref": "#/$defs/networkRef"},
+    "review_source": {"$ref": "#/$defs/reviewRef"},
+    "supersedes": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/matrixRef"}]},
+    "evidence_gate": {"$ref": "#/$defs/evidenceGate"},
+    "matrix": {"$ref": "#/$defs/matrix"},
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "row_dispositions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/rowDisposition"}},
+    "downstream_reviewable_targets": {"type": "array", "items": {"$ref": "#/$defs/downstreamTarget"}},
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
+    "review": {"$ref": "#/$defs/review"},
+    "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+    "claim_ceiling": {"const": "bounded_hypothesis_space_not_mechanism_proof"},
+    "mechanism_proven": {"const": false},
+    "mechanism_claim_validation_present": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "pattern": "\\S"},
+    "channel": {"type": ["string", "null"]},
+    "strings": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "artifactRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonempty"}, "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "supportRef": {"allOf": [{"$ref": "#/$defs/artifactRef"}, {"properties": {"schema": {"const": "gaussian-reaction-mechanism-support/1"}}}]},
+    "networkRef": {"allOf": [{"$ref": "#/$defs/artifactRef"}, {"properties": {"schema": {"const": "gaussian-reaction-mechanism-network/1"}}}]},
+    "reviewRef": {"allOf": [{"$ref": "#/$defs/artifactRef"}, {"properties": {"schema": {"const": "gaussian-reaction-mechanism-support-matrix-review/1"}}}]},
+    "matrixRef": {"allOf": [{"$ref": "#/$defs/artifactRef"}, {"properties": {"schema": {"const": "gaussian-reaction-mechanism-support-matrix/1"}}}]},
+    "evidenceGate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["gate_status", "exploration_eligible_edge_channels_present", "mechanism_claim_support_present", "mechanism_claim_validation_present", "owner_blocker_ids"],
+      "properties": {
+        "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
+        "exploration_eligible_edge_channels_present": {"type": "boolean"},
+        "mechanism_claim_support_present": {"type": "boolean"},
+        "mechanism_claim_validation_present": {"const": false},
+        "owner_blocker_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    },
+    "ownerGate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["claim_support_status", "hypothesis_exploration_eligible", "mechanism_claim_supported", "mechanism_claim_validated"],
+      "properties": {
+        "claim_support_status": {"enum": ["promoted", "conditional", "unsupported", "contradicted", "missing"]},
+        "hypothesis_exploration_eligible": {"type": "boolean"},
+        "mechanism_claim_supported": {"type": "boolean"},
+        "mechanism_claim_validated": {"const": false}
+      }
+    },
+    "row": {
+      "type": "object", "additionalProperties": false,
+      "required": ["row_id", "label", "edge_id", "stereochemical_channel", "bounded_hypothesis", "owner_gate"],
+      "properties": {
+        "row_id": {"$ref": "#/$defs/id"}, "label": {"$ref": "#/$defs/nonempty"},
+        "edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"},
+        "bounded_hypothesis": {"$ref": "#/$defs/nonempty"}, "owner_gate": {"$ref": "#/$defs/ownerGate"}
+      }
+    },
+    "column": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "column_id", "support_record_id", "edge_id", "stereochemical_channel",
+        "candidate_id", "claim_binding_id", "location_binding_id",
+        "classification_category", "claim_effect", "support_status",
+        "hypothesis_exploration_eligible", "mechanism_claim_supported", "mechanism_claim_validated"
+      ],
+      "properties": {
+        "column_id": {"$ref": "#/$defs/id"}, "support_record_id": {"$ref": "#/$defs/id"},
+        "edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"},
+        "candidate_id": {"$ref": "#/$defs/id"}, "claim_binding_id": {"$ref": "#/$defs/id"},
+        "location_binding_id": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/id"}]},
+        "classification_category": {"enum": ["direct", "analogy", "contradictory", "missing", "excluded"]},
+        "claim_effect": {"enum": ["supports", "contradicts", "does_not_address", "excluded"]},
+        "support_status": {"enum": ["supported", "conditional", "unsupported", "contradicted", "missing"]},
+        "hypothesis_exploration_eligible": {"type": "boolean"},
+        "mechanism_claim_supported": {"type": "boolean"}, "mechanism_claim_validated": {"const": false}
+      }
+    },
+    "applicability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dimension", "value", "rationale"],
+      "properties": {
+        "dimension": {"enum": [
+          "net_transformation", "elementary_step_and_atom_correspondence",
+          "substrate_electronics_sterics_and_groups", "catalyst_and_active_state",
+          "atom_inventory_charge_multiplicity_and_spin",
+          "coordination_ion_pair_additives_and_solvent", "stereochemical_channel",
+          "experimental_conditions", "computational_protocol_and_validation"
+        ]},
+        "value": {"enum": ["exact", "close", "remote", "contradictory", "unknown", "not_applicable"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "cellBlocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "code", "rationale"],
+      "properties": {"blocker_id": {"$ref": "#/$defs/id"}, "code": {"$ref": "#/$defs/id"}, "rationale": {"$ref": "#/$defs/nonempty"}}
+    },
+    "cell": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "cell_id", "row_id", "column_id", "support_record_id", "native_owner_cell",
+        "evidence_status", "bounded_claim", "applicability_dimensions", "mismatches",
+        "alternative_explanations", "confidence", "reviewer_decision", "bounded_use",
+        "blockers", "notes"
+      ],
+      "properties": {
+        "cell_id": {"$ref": "#/$defs/id"}, "row_id": {"$ref": "#/$defs/id"},
+        "column_id": {"$ref": "#/$defs/id"}, "support_record_id": {"$ref": "#/$defs/id"},
+        "native_owner_cell": {"type": "boolean"},
+        "evidence_status": {"enum": ["positive", "negative", "contradictory", "inaccessible", "incomplete", "rejected", "no_evidence"]},
+        "bounded_claim": {
+          "type": "object", "additionalProperties": false, "required": ["relationship", "text"],
+          "properties": {"relationship": {"enum": ["supports", "contradicts", "does_not_address", "unknown"]}, "text": {"$ref": "#/$defs/nonempty"}}
+        },
+        "applicability_dimensions": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"$ref": "#/$defs/applicability"}},
+        "mismatches": {"$ref": "#/$defs/strings"}, "alternative_explanations": {"$ref": "#/$defs/strings"},
+        "confidence": {"enum": ["high", "medium", "low", "unknown"]},
+        "reviewer_decision": {"enum": ["retained", "rejected", "blocked"]},
+        "bounded_use": {"enum": ["matrix_comparison_only", "hypothesis_exploration_review"]},
+        "blockers": {"type": "array", "items": {"$ref": "#/$defs/cellBlocker"}},
+        "notes": {"$ref": "#/$defs/strings"}
+      }
+    },
+    "matrix": {
+      "type": "object", "additionalProperties": false,
+      "required": ["rows", "evidence_columns", "cells"],
+      "properties": {
+        "rows": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/row"}},
+        "evidence_columns": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/column"}},
+        "cells": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/cell"}}
+      }
+    },
+    "edgeChannel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "stereochemical_channel"],
+      "properties": {"edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"}}
+    },
+    "excludedEdgeChannel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "stereochemical_channel", "rationale"],
+      "properties": {"edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"}, "rationale": {"$ref": "#/$defs/nonempty"}}
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["matrix_complete", "absent_evidence_explicit", "row_count", "column_count", "expected_cell_count", "actual_cell_count", "covered_edge_channels", "excluded_edge_channels", "rationale"],
+      "properties": {
+        "matrix_complete": {"const": true}, "absent_evidence_explicit": {"const": true},
+        "row_count": {"type": "integer", "minimum": 1}, "column_count": {"type": "integer", "minimum": 1},
+        "expected_cell_count": {"type": "integer", "minimum": 1}, "actual_cell_count": {"type": "integer", "minimum": 1},
+        "covered_edge_channels": {"type": "array", "items": {"$ref": "#/$defs/edgeChannel"}},
+        "excluded_edge_channels": {"type": "array", "items": {"$ref": "#/$defs/excludedEdgeChannel"}},
+        "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "rowDisposition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["row_id", "disposition", "rationale", "reviewed_by", "reviewed_at"],
+      "properties": {
+        "row_id": {"$ref": "#/$defs/id"}, "disposition": {"enum": ["mandatory", "optional", "contradicted", "unresolved"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}, "reviewed_by": {"$ref": "#/$defs/nonempty"}, "reviewed_at": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "downstreamTarget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["row_id", "edge_id", "stereochemical_channel", "disposition", "owner_hypothesis_exploration_eligible", "mechanism_claim_supported", "mechanism_claim_validated"],
+      "properties": {
+        "row_id": {"$ref": "#/$defs/id"}, "edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"},
+        "disposition": {"enum": ["mandatory", "optional"]}, "owner_hypothesis_exploration_eligible": {"const": true},
+        "mechanism_claim_supported": {"type": "boolean"}, "mechanism_claim_validated": {"const": false}
+      }
+    },
+    "blocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "code", "scope", "rationale"],
+      "properties": {"blocker_id": {"$ref": "#/$defs/id"}, "code": {"$ref": "#/$defs/id"}, "scope": {"$ref": "#/$defs/nonempty"}, "rationale": {"$ref": "#/$defs/nonempty"}}
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]},
+        "reviewer": {"$ref": "#/$defs/nonempty"}, "reviewed_at": {"$ref": "#/$defs/nonempty"}, "notes": {"$ref": "#/$defs/strings"}
+      }
+    }
+  }
+}

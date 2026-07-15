@@ -41,6 +41,22 @@ class SkillPackagingTests(unittest.TestCase):
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
         )
         self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/mechanism-support-matrix.schema.json")],
+            ROOT / "contracts/reaction-workflow/mechanism-support-matrix.schema.json",
+        )
+        self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/mechanism-support-matrix-review.schema.json")],
+            ROOT / "contracts/reaction-workflow/mechanism-support-matrix-review.schema.json",
+        )
+        self.assertEqual(
+            reaction[Path("scripts/mechanism_support_matrix.py")],
+            ROOT / "skills/auto-g16-reaction-workflow/scripts/mechanism_support_matrix.py",
+        )
+        self.assertEqual(
+            reaction[Path("references/mechanism-support-matrix-contract.md")],
+            ROOT / "skills/auto-g16-reaction-workflow/references/mechanism-support-matrix-contract.md",
+        )
+        self.assertEqual(
             asymmetric[Path("scripts/validate_asymmetric_contract.py")],
             ROOT / "scripts/validate_asymmetric_contract.py",
         )
@@ -120,6 +136,8 @@ class SkillPackagingTests(unittest.TestCase):
             installed.mkdir()
             names = (
                 "auto-g16-reaction-workflow",
+                "auto-g16-knowledge-base",
+                "auto-g16-reaction-literature",
                 "auto-g16-asymmetric-catalysis",
                 "auto-g16-ts-irc",
                 "auto-g16-rtwin-pbs",
@@ -144,6 +162,17 @@ class SkillPackagingTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            dag = installed / "auto-g16-reaction-workflow/scripts/calculation_dag.py"
+            dag_help = subprocess.run(
+                [sys.executable, str(dag), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(dag_help.returncode, 0, dag_help.stdout + dag_help.stderr)
+            self.assertIn("build-plan", dag_help.stdout)
+            self.assertIn("build-node-update", dag_help.stdout)
             adapter = installed / "auto-g16-reaction-workflow/scripts/calculation_artifacts.py"
             help_result = subprocess.run(
                 [sys.executable, str(adapter), "--help"],
@@ -154,6 +183,22 @@ class SkillPackagingTests(unittest.TestCase):
             )
             self.assertEqual(help_result.returncode, 0, help_result.stdout + help_result.stderr)
             self.assertIn("export-targets", help_result.stdout)
+            matrix = installed / "auto-g16-reaction-workflow/scripts/mechanism_support_matrix.py"
+            matrix_help = subprocess.run(
+                [sys.executable, str(matrix), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(matrix_help.returncode, 0, matrix_help.stdout + matrix_help.stderr)
+            self.assertIn("mechanism-support matrix", matrix_help.stdout)
+            self.assertTrue(
+                (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/mechanism-support-matrix.schema.json").is_file()
+            )
+            self.assertTrue(
+                (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/mechanism-support-matrix-review.schema.json").is_file()
+            )
             observation = ADAPTER._finalize(
                 {
                     "schema": ADAPTER.SANITIZED_JOB_SCHEMA,

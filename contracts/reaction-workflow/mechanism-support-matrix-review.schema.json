@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/mechanism-support-matrix-review.schema.json",
+  "title": "Gaussian reaction mechanism-support matrix review source",
+  "description": "Closed human-authored review input for a matrix view over one exact mechanism-support evidence gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "matrix_id", "study_id", "mechanism_support_payload_sha256",
+    "mechanism_network_payload_sha256", "rows", "cells", "coverage",
+    "row_promotion_reviews", "supersedes", "review_decision", "reviewer",
+    "reviewed_at", "review_notes"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-mechanism-support-matrix-review/1"},
+    "matrix_id": {"$ref": "#/$defs/id"}, "study_id": {"$ref": "#/$defs/id"},
+    "mechanism_support_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "mechanism_network_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "rows": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/row"}},
+    "cells": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/cell"}},
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "row_promotion_reviews": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/rowDisposition"}},
+    "supersedes": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/supersedes"}]},
+    "review_decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]},
+    "reviewer": {"$ref": "#/$defs/nonempty"}, "reviewed_at": {"$ref": "#/$defs/nonempty"},
+    "review_notes": {"$ref": "#/$defs/strings"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "pattern": "\\S"},
+    "channel": {"type": ["string", "null"]},
+    "strings": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "row": {
+      "type": "object", "additionalProperties": false,
+      "required": ["row_id", "label", "edge_id", "stereochemical_channel", "bounded_hypothesis"],
+      "properties": {
+        "row_id": {"$ref": "#/$defs/id"}, "label": {"$ref": "#/$defs/nonempty"},
+        "edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"},
+        "bounded_hypothesis": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "applicability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dimension", "value", "rationale"],
+      "properties": {
+        "dimension": {"enum": [
+          "net_transformation", "elementary_step_and_atom_correspondence",
+          "substrate_electronics_sterics_and_groups", "catalyst_and_active_state",
+          "atom_inventory_charge_multiplicity_and_spin",
+          "coordination_ion_pair_additives_and_solvent", "stereochemical_channel",
+          "experimental_conditions", "computational_protocol_and_validation"
+        ]},
+        "value": {"enum": ["exact", "close", "remote", "contradictory", "unknown", "not_applicable"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "cellBlocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blocker_id", "code", "rationale"],
+      "properties": {"blocker_id": {"$ref": "#/$defs/id"}, "code": {"$ref": "#/$defs/id"}, "rationale": {"$ref": "#/$defs/nonempty"}}
+    },
+    "cell": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "row_id", "support_record_id", "evidence_status", "bounded_claim",
+        "applicability_dimensions", "mismatches", "alternative_explanations",
+        "confidence", "reviewer_decision", "bounded_use", "blockers", "notes"
+      ],
+      "properties": {
+        "row_id": {"$ref": "#/$defs/id"}, "support_record_id": {"$ref": "#/$defs/id"},
+        "evidence_status": {"enum": ["positive", "negative", "contradictory", "inaccessible", "incomplete", "rejected", "no_evidence"]},
+        "bounded_claim": {
+          "type": "object", "additionalProperties": false, "required": ["relationship", "text"],
+          "properties": {"relationship": {"enum": ["supports", "contradicts", "does_not_address", "unknown"]}, "text": {"$ref": "#/$defs/nonempty"}}
+        },
+        "applicability_dimensions": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"$ref": "#/$defs/applicability"}},
+        "mismatches": {"$ref": "#/$defs/strings"}, "alternative_explanations": {"$ref": "#/$defs/strings"},
+        "confidence": {"enum": ["high", "medium", "low", "unknown"]},
+        "reviewer_decision": {"enum": ["retained", "rejected", "blocked"]},
+        "bounded_use": {"enum": ["matrix_comparison_only", "hypothesis_exploration_review"]},
+        "blockers": {"type": "array", "items": {"$ref": "#/$defs/cellBlocker"}},
+        "notes": {"$ref": "#/$defs/strings"}
+      }
+    },
+    "excludedEdgeChannel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "stereochemical_channel", "rationale"],
+      "properties": {"edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"$ref": "#/$defs/channel"}, "rationale": {"$ref": "#/$defs/nonempty"}}
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["excluded_edge_channels", "matrix_complete", "absent_evidence_explicit", "rationale"],
+      "properties": {
+        "excluded_edge_channels": {"type": "array", "items": {"$ref": "#/$defs/excludedEdgeChannel"}},
+        "matrix_complete": {"const": true}, "absent_evidence_explicit": {"const": true},
+        "rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "rowDisposition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["row_id", "disposition", "rationale", "reviewed_by", "reviewed_at"],
+      "properties": {
+        "row_id": {"$ref": "#/$defs/id"}, "disposition": {"enum": ["mandatory", "optional", "contradicted", "unresolved"]},
+        "rationale": {"$ref": "#/$defs/nonempty"}, "reviewed_by": {"$ref": "#/$defs/nonempty"}, "reviewed_at": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "supersedes": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "payload_sha256"],
+      "properties": {"path": {"$ref": "#/$defs/nonempty"}, "payload_sha256": {"$ref": "#/$defs/sha256"}}
+    }
+  }
+}
