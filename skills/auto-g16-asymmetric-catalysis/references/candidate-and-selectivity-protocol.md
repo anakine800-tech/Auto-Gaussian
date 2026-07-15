@@ -1,4 +1,4 @@
-# Candidate and selectivity protocol
+# Auto-G16 Candidate and Selectivity Protocol
 
 Use this protocol to design or audit an asymmetric catalytic TS study. It is a
 scientific data and review protocol, not a Gaussian route template.
@@ -201,8 +201,13 @@ The repository implementation now provides deterministic study normalization,
 boron-center/coordination/binding/conformer/approach enumeration, logical and
 same-channel geometry deduplication, candidate materialization with real-file
 hashes, TS-result ingestion, Boltzmann aggregation, ee, and sensitivity
-scenarios. It also produces a transition-metal support design while preserving
-the runtime refusal.
+scenarios. It also produces a transition-metal support design, candidate-bound
+audit template, candidate-bound M1 scientific-review sidecar and read-only
+result/input observations while preserving scientific-acceptance, runtime and
+promotion refusal. The M1 contract is implemented; a real field-complete M1
+example is not. The M2c input observer reads only an existing local input and
+does not render, select or accept a protocol. The M2d sidecar records four
+independent human decisions but never grants top-level acceptance or promotion.
 
 Remaining scientific priorities are:
 
@@ -211,9 +216,14 @@ Remaining scientific priorities are:
    the current reviewed-XYZ materialization boundary;
 3. add reviewed pruning decisions rather than automatic energy-window pruning;
 4. benchmark alternative electronic-structure and thermochemistry protocols;
-5. review the separate transition-metal extension gates without enabling it;
-6. review the BF3-TS1 literature ledger and its unresolved neutral-singlet,
+5. complete one real candidate-bound M1 review without converting literature
+   settings into defaults; keep unreported oxidation/electron, spin,
+   wavefunction, coordination and strategy fields blocked;
+6. use the M2d sidecar to retain wavefunction, coordination, mode and input
+   decisions without enabling transition-metal execution; section-level
+   acceptance is not candidate promotion or live authority;
+7. review the BF3-TS1 literature ledger and its unresolved neutral-singlet,
    route, solvent, thermochemistry, resource, and project fields; and
-7. only after a new explicit approval, render and hash the final input in a
+8. only after a new explicit approval, render and hash the final input in a
    fresh `/home/user100/SDL` project and consider one live execution. Keep
    BF3-TS2-B1/B2 gated on accepted BF3-TS1 mode evidence.

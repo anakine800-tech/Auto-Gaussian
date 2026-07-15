@@ -1,0 +1,86 @@
+{
+  "schema": "gaussian-asymmetric-metal-acceptance-review-source/1",
+  "review_id": "fixture_metal_m2_complete",
+  "source_bindings": {
+    "template_sha256": "6420909a7983021e836c54da8779a8bb9e2c97745e94c5445f28af8d844cf0b8",
+    "candidate_sha256": "00a724bf7fb2386cb4167603390cedfcf87c1cd3337dfe120730e77384f04f45",
+    "scientific_review_sha256": "e2db7efe1986f71b20606d6295a948798e435bf5875db314ce72531610aae759",
+    "input_observation_sha256": "8fee0509f83dfe6bcf54e21c35797e3074fb752193ae471f8166477e5b5134aa",
+    "result_observation_sha256": "f1161695d9e508f3380baab74ac51bca3ccf236a98cd32a9ddfa479ec3886663"
+  },
+  "study_id": "fixture_metal_selectivity",
+  "candidate_id": "metal_ts_r_unresolved",
+  "mechanism_id": "metal_insertion_step",
+  "channel_id": "metal_channel_r",
+  "catalyst_state_id": "pd_ligand_state",
+  "scope": {
+    "scope_kind": "synthetic_nonresearch_fixture",
+    "reviewer": "synthetic_contract_reviewer",
+    "review_date": "2026-07-15",
+    "notes": ["Synthetic decision tokens test M2 sidecar completeness only and grant no chemical or live authority."]
+  },
+  "sections": {
+    "wavefunction": {
+      "decision": "accepted_for_bounded_offline_review",
+      "facts": {
+        "observed_s2_count": 1,
+        "stability_statement_observed": true,
+        "spin_contamination_assessment": "Synthetic state-specific threshold assessment passed for fixture logic only.",
+        "occupation_assessment": "Synthetic occupation review token.",
+        "alternative_solution_assessment": "Synthetic alternative-solution review token.",
+        "multireference_assessment": "Synthetic single-reference diagnostic review token."
+      },
+      "evidence": [{"evidence_id": "fixture_wavefunction", "evidence_kind": "wavefunction_review", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "locator": "Synthetic wavefunction decision fixture."}],
+      "review_notes": "Exercises a section-level bounded acceptance record without top-level acceptance.",
+      "blockers": []
+    },
+    "coordination": {
+      "decision": "accepted_for_bounded_offline_review",
+      "facts": {
+        "contact_assessments": [
+          {"donor_atom": 3, "acceptor_atom": 1, "kind": "metal_coordination", "initial_distance_angstrom": 2.11896201, "final_distance_angstrom": 2.05548048, "within_reviewed_window": true},
+          {"donor_atom": 4, "acceptor_atom": 1, "kind": "metal_coordination", "initial_distance_angstrom": 2.11896201, "final_distance_angstrom": 2.03686033, "within_reviewed_window": true}
+        ],
+        "hapticity_assessment": "Synthetic hapticity inventory review token.",
+        "ligand_inventory_assessment": "Synthetic ligand-retention review token.",
+        "unintended_state_change": false
+      },
+      "evidence": [{"evidence_id": "fixture_coordination", "evidence_kind": "coordination_review", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "locator": "Synthetic coordination decision fixture."}],
+      "review_notes": "Exercises exact M2b contact binding and manual disposition.",
+      "blockers": []
+    },
+    "mode": {
+      "decision": "accepted_for_bounded_offline_review",
+      "facts": {
+        "raw_imaginary_frequency_count": 1,
+        "mode_evidence_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "intended_coordinate_assessment": "Synthetic displacement follows the declared fixture coordinate.",
+        "unintended_coordination_loss_assessment": "Synthetic review found no unintended coordination-loss mode."
+      },
+      "evidence": [{"evidence_id": "fixture_mode", "evidence_kind": "mode_displacement", "sha256": "3333333333333333333333333333333333333333333333333333333333333333", "locator": "Synthetic mode-displacement decision fixture."}],
+      "review_notes": "One imaginary frequency is paired with a synthetic hash-bound displacement review token.",
+      "blockers": []
+    },
+    "input_acceptance": {
+      "decision": "accepted_for_bounded_offline_review",
+      "facts": {
+        "input_sha256": "fbf527275bc6a5d143002d754befbdbdff7b35897b2815844ea5a789f519de91",
+        "protocol_options_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "protocol_selection_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "input_approval_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "input_result_lineage_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+        "exact_input_hash_confirmed": true,
+        "route_reviewed": true,
+        "element_basis_ecp_coverage_reviewed": true,
+        "solvent_thermochemistry_reviewed": true,
+        "resource_and_server_path_reviewed": true
+      },
+      "evidence": [
+        {"evidence_id": "fixture_protocol", "evidence_kind": "protocol_artifact", "sha256": "5555555555555555555555555555555555555555555555555555555555555555", "locator": "Synthetic protocol-selection decision fixture."},
+        {"evidence_id": "fixture_input_approval", "evidence_kind": "input_approval", "sha256": "6666666666666666666666666666666666666666666666666666666666666666", "locator": "Synthetic input-approval decision fixture."}
+      ],
+      "review_notes": "Exercises a bounded input decision record; no execution is authorized.",
+      "blockers": []
+    }
+  }
+}

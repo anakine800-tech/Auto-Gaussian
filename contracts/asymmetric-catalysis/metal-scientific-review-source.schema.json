@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/metal-scientific-review-source.schema.json",
+  "title": "Auto-G16 Transition-Metal Scientific Review Source",
+  "description": "Reviewer-authored, hash-targeted M1 source values. Literature records are evidence only and never defaults or execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "review_id", "design_payload_sha256",
+    "template_payload_sha256", "candidate_sha256", "study_id",
+    "candidate_id", "channel_id", "catalyst_state_id", "mechanism_id",
+    "provenance", "identity", "sections"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-metal-scientific-review-source/1"},
+    "review_id": {"$ref": "#/$defs/id"},
+    "design_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "template_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "candidate_sha256": {"$ref": "#/$defs/sha256"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "channel_id": {"$ref": "#/$defs/id"},
+    "catalyst_state_id": {"$ref": "#/$defs/id"},
+    "mechanism_id": {"$ref": "#/$defs/id"},
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_charge", "multiplicity", "metal_centers"],
+      "properties": {
+        "total_charge": {"type": ["integer", "null"]},
+        "multiplicity": {"type": ["integer", "null"], "minimum": 1},
+        "metal_centers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/metal_center_identity"}
+        }
+      }
+    },
+    "sections": {"$ref": "#/$defs/sections"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "metal_center_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atom_index", "element"],
+      "properties": {
+        "atom_index": {"type": "integer", "minimum": 1},
+        "element": {"type": "string", "minLength": 1}
+      }
+    },
+    "evidence_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "source_type", "citation", "doi", "url", "locator", "supports"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "source_type": {"enum": ["primary_article", "primary_supporting_information", "reviewer_record", "synthetic_fixture"]},
+        "citation": {"type": "string", "minLength": 1},
+        "doi": {"type": ["string", "null"]},
+        "url": {"type": ["string", "null"]},
+        "locator": {"type": "string", "minLength": 1},
+        "supports": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["electron_accounting", "spin_surface", "wavefunction", "coordination", "method_protocol", "ts_and_path"]}
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_kind", "reviewer", "review_date", "sources", "notes"],
+      "properties": {
+        "scope_kind": {"enum": ["synthetic_nonresearch_fixture", "primary_literature_bound_review", "mixed_primary_and_reviewer_evidence"]},
+        "reviewer": {"type": ["string", "null"]},
+        "review_date": {"type": ["string", "null"]},
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/evidence_source"}
+        },
+        "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "review_section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "facts", "evidence_ids", "review_notes", "blockers"],
+      "properties": {
+        "status": {"enum": ["reviewed_for_bounded_example", "blocked_missing_evidence"]},
+        "facts": {"type": "object"},
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "review_notes": {"type": "string", "minLength": 1},
+        "blockers": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "sections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["electron_accounting", "spin_surface", "wavefunction", "coordination", "method_protocol", "ts_and_path"],
+      "properties": {
+        "electron_accounting": {"$ref": "#/$defs/review_section"},
+        "spin_surface": {"$ref": "#/$defs/review_section"},
+        "wavefunction": {"$ref": "#/$defs/review_section"},
+        "coordination": {"$ref": "#/$defs/review_section"},
+        "method_protocol": {"$ref": "#/$defs/review_section"},
+        "ts_and_path": {"$ref": "#/$defs/review_section"}
+      }
+    }
+  }
+}

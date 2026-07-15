@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import math
@@ -195,6 +196,7 @@ def metal_support_instance() -> dict:
         "cross_state_rules": ["no cross-state comparison"],
         "extension_milestones": [
             {"milestone_id": "metal_m0_offline_design", "status": "implemented_offline", "deliverable": "offline design"},
+            {"milestone_id": "metal_m1_review_contract", "status": "implemented_offline", "deliverable": "offline M1 review sidecar contract"},
             {"milestone_id": "metal_m1_scientific_review", "status": "pending_scientific_review", "deliverable": "scientific review"},
             {"milestone_id": "metal_m2a_candidate_audit_template", "status": "implemented_offline", "deliverable": "candidate audit template"},
         ],
@@ -276,6 +278,313 @@ def metal_ts_audit_instance() -> dict:
         "claim_ceiling": "design_only_no_ts_or_selectivity_claim",
     }
     instance["template_payload_sha256"] = CONTRACT.payload_sha256(instance)
+    return instance
+
+
+def metal_result_observation_instance() -> dict:
+    instance = {
+        "schema": "gaussian-asymmetric-metal-result-observation/1",
+        "audit_id": "metal_obs_fixture",
+        "template_source": {"sha256": "1" * 64},
+        "candidate_source": {"sha256": "2" * 64},
+        "log_source": {"sha256": "3" * 64},
+        "study_id": "study_fixture",
+        "candidate_id": "candidate_fixture",
+        "mechanism_id": "mechanism_fixture",
+        "channel_id": "channel_fixture",
+        "catalyst_state_id": "state_fixture",
+        "status": "parsed_observation_blocked",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "submission_decision": "refused",
+        "promotion_decision": "refused",
+        "parser": {
+            "parser_id": "auto_g16_asymmetric_metal_log_observer_v1",
+            "scope": "offline_read_only_observation",
+            "g16_revision_observed": "Revision C.01",
+        },
+        "identity_binding": {
+            "charge": 0,
+            "multiplicity": 1,
+            "atom_count": 2,
+            "atom_order": [
+                {"index": 1, "atomic_number": 46, "element": "Pd"},
+                {"index": 2, "atomic_number": 15, "element": "P"},
+            ],
+            "charge_multiplicity_record_count": 1,
+            "orientation_count": 2,
+            "identity_observation_status": "matched_candidate",
+        },
+        "termination_observations": {
+            "normal_termination_count": 1,
+            "error_termination_count": 0,
+            "optimization_completed_observed": True,
+            "stationary_point_observed": True,
+        },
+        "frequency_observations": {
+            "frequency_count": 2,
+            "frequencies_cm_1": [-100.0, 50.0],
+            "raw_imaginary_frequency_count": 1,
+            "imaginary_frequencies_cm_1": [-100.0],
+            "exactly_one_raw_imaginary_observed": True,
+            "completeness_status": "unassessed_requires_expected_mode_count",
+            "mode_review_status": "not_performed",
+        },
+        "wavefunction_observations": {
+            "scf_done_count": 1,
+            "s2_observations": [
+                {"before_annihilation": 0.01, "after_annihilation": 0.0}
+            ],
+            "stability_statement_observed": True,
+            "threshold_assessment": "not_performed_no_approved_policy",
+        },
+        "coordination_observations": {
+            "contacts": [
+                {
+                    "donor_atom": 2,
+                    "acceptor_atom": 1,
+                    "kind": "metal_coordination",
+                    "initial_distance_angstrom": 2.0,
+                    "final_distance_angstrom": 2.1,
+                    "distance_change_angstrom": 0.1,
+                    "distance_window_angstrom": None,
+                    "review_status": "observed_unreviewed_no_window",
+                }
+            ],
+            "inventory_assessment": "not_performed_no_reviewed_windows_or_hapticity_rules",
+        },
+        "audit_sections": {
+            name: {"status": "blocked_pending_review", "reason": "review required"}
+            for name in (
+                "electron_accounting", "spin_surface", "wavefunction",
+                "coordination", "method_protocol", "ts_and_path",
+            )
+        },
+        "diagnostics": ["observation only"],
+        "claim_ceiling": "parsed_observation_only_no_ts_or_selectivity_claim",
+    }
+    instance["audit_payload_sha256"] = CONTRACT.payload_sha256(instance)
+    return instance
+
+
+def metal_input_observation_instance() -> dict:
+    route = "#p synthetic opt=(ts) freq"
+    instance = {
+        "schema": "gaussian-asymmetric-metal-input-observation/1",
+        "audit_id": "metal_input_obs_fixture",
+        "template_source": {"sha256": "1" * 64},
+        "candidate_source": {"sha256": "2" * 64},
+        "scientific_review_source": {"sha256": "3" * 64},
+        "input_source": {"sha256": "4" * 64},
+        "study_id": "study_fixture",
+        "candidate_id": "candidate_fixture",
+        "mechanism_id": "mechanism_fixture",
+        "channel_id": "channel_fixture",
+        "catalyst_state_id": "state_fixture",
+        "status": "parsed_input_observation_blocked",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "input_acceptance_decision": "not_granted_by_artifact",
+        "protocol_selection_decision": "absent_not_authorized",
+        "submission_decision": "refused",
+        "promotion_decision": "refused",
+        "parser": {
+            "parser_id": "auto_g16_asymmetric_metal_input_observer_v1",
+            "scope": "offline_read_only_existing_input_observation",
+            "renders_input": False,
+        },
+        "review_binding": {
+            "review_id": "review_fixture",
+            "review_status": "review_contract_complete_runtime_unsupported",
+            "metal_m1_scientific_review_status": "not_satisfied_synthetic_fixture",
+            "scientific_acceptance_decision": "not_granted_by_artifact",
+        },
+        "identity_binding": {
+            "charge": 0,
+            "multiplicity": 1,
+            "atom_count": 2,
+            "atom_order": [
+                {"index": 1, "atomic_number": 46, "element": "Pd"},
+                {"index": 2, "atomic_number": 15, "element": "P"},
+            ],
+            "identity_observation_status": "matched_candidate_template_review",
+        },
+        "input_observations": {
+            "link0_directives": [{"key": "chk", "value": "fixture.chk"}],
+            "route_text": route,
+            "route_sha256": hashlib.sha256(route.encode("utf-8")).hexdigest(),
+            "title_line_count": 1,
+            "title_sha256": "5" * 64,
+            "charge": 0,
+            "multiplicity": 1,
+            "atom_count": 2,
+            "atom_order": [
+                {"index": 1, "atomic_number": 46, "element": "Pd"},
+                {"index": 2, "atomic_number": 15, "element": "P"},
+            ],
+            "coordinate_block_sha256": "6" * 64,
+            "explicit_cartesian_geometry_status": "parsed",
+            "trailing_section_line_count": 0,
+            "trailing_section_sha256": None,
+            "contains_absolute_link0_path_observed": False,
+            "task_text_observations": {
+                "opt_text_observed": True,
+                "freq_text_observed": True,
+                "ts_text_observed": True,
+                "geom_check_text_observed": False,
+                "gen_or_genecp_text_observed": False,
+            },
+            "protocol_selection_binding_status": "absent_not_accepted",
+            "remote_path_validation_status": "not_performed_offline_no_execution_authority",
+        },
+        "audit_sections": {
+            name: {"status": "blocked_pending_review", "reason": "review required"}
+            for name in (
+                "electron_accounting", "spin_surface", "wavefunction",
+                "coordination", "method_protocol", "ts_and_path",
+            )
+        },
+        "completion": {
+            "metal_m2c_input_observation": "implemented_offline",
+            "metal_m2_offline_runtime_contract": "blocked",
+            "metal_m3_execution_boundary": "blocked",
+            "metal_m4_live_smoke": "blocked",
+        },
+        "diagnostics": ["observation only"],
+        "hard_rejections": ["no execution"],
+        "claim_ceiling": "existing_input_observation_only_no_acceptance_execution_ts_or_selectivity_claim",
+    }
+    instance["audit_payload_sha256"] = CONTRACT.payload_sha256(instance)
+    return instance
+
+
+def metal_scientific_review_source_instance() -> dict:
+    return load(FIXTURES / "metal_scientific_review_complete.json")
+
+
+def metal_scientific_review_instance() -> dict:
+    source = metal_scientific_review_source_instance()
+    instance = {
+        "schema": "gaussian-asymmetric-metal-scientific-review/1",
+        "review_id": source["review_id"],
+        "design_source": {
+            "sha256": "1" * 64,
+            "design_payload_sha256": source["design_payload_sha256"],
+        },
+        "template_source": {
+            "sha256": "2" * 64,
+            "template_payload_sha256": source["template_payload_sha256"],
+        },
+        "candidate_source": {"sha256": source["candidate_sha256"]},
+        "review_source": {"sha256": "3" * 64},
+        "study_id": source["study_id"],
+        "candidate_id": source["candidate_id"],
+        "channel_id": source["channel_id"],
+        "catalyst_state_id": source["catalyst_state_id"],
+        "mechanism_id": source["mechanism_id"],
+        "status": "review_contract_complete_runtime_unsupported",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "submission_decision": "refused",
+        "promotion_decision": "refused",
+        "scientific_acceptance_decision": "not_granted_by_artifact",
+        "literature_values_are_defaults": False,
+        "review_scope": source["provenance"],
+        "identity_binding": {
+            "total_charge": 0,
+            "multiplicity": 1,
+            "atom_count": 7,
+            "atom_order": [
+                {"index": 1, "element": "Pd", "role": "metal_center"},
+                {"index": 2, "element": "P", "role": "chiral_ligand_donor"},
+                {"index": 3, "element": "C", "role": "alkene_carbon_a"},
+                {"index": 4, "element": "C", "role": "alkene_carbon_b"},
+                {"index": 5, "element": "H", "role": "substrate_hydrogen"},
+                {"index": 6, "element": "H", "role": "substrate_hydrogen"},
+                {"index": 7, "element": "H", "role": "ligand_hydrogen"},
+            ],
+            "metal_centers": [{"atom_index": 1, "element": "Pd"}],
+            "coordinate_changes": [
+                {"kind": "forming", "atoms": [1, 4], "description": "Synthetic Pd-C contact change."}
+            ],
+            "coordination_contacts": [
+                {"donor_atom": 3, "acceptor_atom": 1, "kind": "metal_coordination", "distance_window_angstrom": None, "review_status": "pending"},
+                {"donor_atom": 4, "acceptor_atom": 1, "kind": "metal_coordination", "distance_window_angstrom": None, "review_status": "pending"},
+            ],
+        },
+        "sections": source["sections"],
+        "completion": {
+            "reviewed_sections": sorted(source["sections"]),
+            "blocked_sections": [],
+            "unresolved_blockers": [],
+            "metal_m1_scientific_review_status": "not_satisfied_synthetic_fixture",
+            "metal_m2_offline_runtime_contract": "blocked",
+            "metal_m3_execution_boundary": "blocked",
+            "metal_m4_live_smoke": "blocked",
+        },
+        "hard_rejections": ["no execution"],
+        "claim_ceiling": "bounded_review_record_only_no_scientific_acceptance_ts_or_selectivity_claim",
+    }
+    instance["review_payload_sha256"] = CONTRACT.payload_sha256(instance)
+    return instance
+
+
+def metal_acceptance_review_source_instance() -> dict:
+    return load(FIXTURES / "metal_acceptance_review_complete.json")
+
+
+def metal_acceptance_review_instance() -> dict:
+    source = metal_acceptance_review_source_instance()
+    instance = {
+        "schema": "gaussian-asymmetric-metal-acceptance-review/1",
+        "review_id": source["review_id"],
+        "template_source": {"sha256": "1" * 64},
+        "candidate_source": {"sha256": "2" * 64},
+        "scientific_review_source": {"sha256": "3" * 64},
+        "input_observation_source": {"sha256": "4" * 64},
+        "result_observation_source": {"sha256": "5" * 64},
+        "decision_source": {"sha256": "6" * 64},
+        "study_id": source["study_id"], "candidate_id": source["candidate_id"],
+        "mechanism_id": source["mechanism_id"], "channel_id": source["channel_id"],
+        "catalyst_state_id": source["catalyst_state_id"],
+        "status": "acceptance_record_complete_runtime_unsupported",
+        "calculation_ready": False, "no_submission_authorization": True,
+        "runtime_support_status": "unsupported_requires_extension",
+        "scientific_acceptance_decision": "not_granted_by_artifact",
+        "input_acceptance_decision": "not_granted_by_artifact",
+        "mode_acceptance_decision": "not_granted_by_artifact",
+        "promotion_decision": "refused", "submission_decision": "refused",
+        "scope": source["scope"],
+        "identity_binding": {
+            "charge": 0, "multiplicity": 1, "atom_count": 7,
+            "atom_order": [
+                {"index": 1, "atomic_number": 46, "element": "Pd"},
+                {"index": 2, "atomic_number": 15, "element": "P"},
+                {"index": 3, "atomic_number": 6, "element": "C"},
+                {"index": 4, "atomic_number": 6, "element": "C"},
+                {"index": 5, "atomic_number": 1, "element": "H"},
+                {"index": 6, "atomic_number": 1, "element": "H"},
+                {"index": 7, "atomic_number": 1, "element": "H"},
+            ],
+        },
+        "sections": source["sections"],
+        "decision_summary": {
+            "accepted_sections": ["coordination", "input_acceptance", "mode", "wavefunction"],
+            "rejected_sections": [], "blocked_sections": [],
+            "metal_m2_acceptance_review_status": "not_satisfied_synthetic_fixture",
+        },
+        "completion": {
+            "metal_m2d_acceptance_review_contract": "implemented_offline",
+            "metal_m2_offline_runtime_contract": "blocked",
+            "metal_m3_execution_boundary": "blocked", "metal_m4_live_smoke": "blocked",
+        },
+        "hard_rejections": ["no runtime authority"],
+        "claim_ceiling": "manual_decision_record_only_no_runtime_promotion_ts_path_or_selectivity_claim",
+    }
+    instance["review_payload_sha256"] = CONTRACT.payload_sha256(instance)
     return instance
 
 
@@ -362,6 +671,12 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
             "materializations": materializations_instance(),
             "metal-support": metal_support_instance(),
             "metal-ts-audit-template": metal_ts_audit_instance(),
+            "metal-scientific-review-source": metal_scientific_review_source_instance(),
+            "metal-scientific-review": metal_scientific_review_instance(),
+            "metal-input-observation": metal_input_observation_instance(),
+            "metal-result-observation": metal_result_observation_instance(),
+            "metal-acceptance-review-source": metal_acceptance_review_source_instance(),
+            "metal-acceptance-review": metal_acceptance_review_instance(),
             "smoke-proposal": load(ROOT / "docs" / "asymmetric-catalysis-smoke-proposal.json"),
             "live-smoke-evidence": live_smoke_evidence_instance(),
             "literature-benchmark": load(ROOT / "studies" / "wang_2024_bf3_ts" / "candidate-ledger.json"),
@@ -456,6 +771,19 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
         tampered["purpose"] += " tampered"
         with self.assertRaisesRegex(CONTRACT.ContractError, "payload hash mismatch"):
             CONTRACT.validate_smoke_proposal(tampered)
+
+        metal_observation = metal_result_observation_instance()
+        wrong_atomic_number = copy.deepcopy(metal_observation)
+        wrong_atomic_number["identity_binding"]["atom_order"][0]["atomic_number"] = 45
+        wrong_atomic_number["audit_payload_sha256"] = CONTRACT.payload_sha256(
+            {
+                key: value
+                for key, value in wrong_atomic_number.items()
+                if key != "audit_payload_sha256"
+            }
+        )
+        with self.assertRaisesRegex(CONTRACT.ContractError, "atomic number and element differ"):
+            CONTRACT.validate_metal_result_observation(wrong_atomic_number)
 
     def test_literature_payload_and_atom_inventory_are_bound(self) -> None:
         ledger = self.artifact_instances()["literature-benchmark"]

@@ -1,0 +1,179 @@
+{
+  "schema": "gaussian-asymmetric-metal-scientific-review-source/1",
+  "review_id": "fixture_metal_m1_complete",
+  "design_payload_sha256": "53a79db7ed66f9ea4bcd933bc9b1d4f1c6994fe4443add83315c3ed29fcaef25",
+  "template_payload_sha256": "b7b212fc020ae44f7547d95e5acf0ce77683dfa1d4bd1437e840fc76b314602b",
+  "candidate_sha256": "00a724bf7fb2386cb4167603390cedfcf87c1cd3337dfe120730e77384f04f45",
+  "study_id": "fixture_metal_selectivity",
+  "candidate_id": "metal_ts_r_unresolved",
+  "channel_id": "metal_channel_r",
+  "catalyst_state_id": "pd_ligand_state",
+  "mechanism_id": "metal_insertion_step",
+  "provenance": {
+    "scope_kind": "synthetic_nonresearch_fixture",
+    "reviewer": "synthetic_contract_reviewer",
+    "review_date": "2026-07-15",
+    "sources": [
+      {
+        "source_id": "synthetic_m1_record",
+        "source_type": "synthetic_fixture",
+        "citation": "Synthetic nonresearch M1 contract fixture",
+        "doi": null,
+        "url": null,
+        "locator": "This JSON fixture only; no chemical authority.",
+        "supports": [
+          "electron_accounting",
+          "spin_surface",
+          "wavefunction",
+          "coordination",
+          "method_protocol",
+          "ts_and_path"
+        ]
+      }
+    ],
+    "notes": [
+      "All values are synthetic tokens for exercising completeness and refusal logic.",
+      "This record cannot satisfy the real metal_m1_scientific_review milestone."
+    ]
+  },
+  "identity": {
+    "total_charge": 0,
+    "multiplicity": 1,
+    "metal_centers": [
+      {"atom_index": 1, "element": "Pd"}
+    ]
+  },
+  "sections": {
+    "electron_accounting": {
+      "status": "reviewed_for_bounded_example",
+      "facts": {
+        "metal_assignments": [
+          {
+            "atom_index": 1,
+            "element": "Pd",
+            "formal_oxidation_state": 0,
+            "d_electron_count": 10,
+            "assignment_basis": "Synthetic bookkeeping assignment for contract testing only."
+          }
+        ],
+        "total_valence_electron_count": 26,
+        "electron_parity": "even",
+        "parity_multiplicity_assessment": "consistent",
+        "ligand_charge_conventions": ["Synthetic ligand treated as neutral for this fixture only."],
+        "metal_metal_bonding_convention": "Not applicable to the synthetic mononuclear fixture.",
+        "non_innocent_ligand_alternatives": ["Explicitly declared absent only within this synthetic fixture."]
+      },
+      "evidence_ids": ["synthetic_m1_record"],
+      "review_notes": "Exercises an explicit, internally consistent electron-accounting record.",
+      "blockers": []
+    },
+    "spin_surface": {
+      "status": "reviewed_for_bounded_example",
+      "facts": {
+        "credible_multiplicities": [1],
+        "selected_multiplicity": 1,
+        "relative_energy_reference": "The same synthetic neutral coordination state.",
+        "spin_crossover_relevance": "not_indicated",
+        "minimum_energy_crossing_relevance": "not_indicated",
+        "single_surface_assumption": true
+      },
+      "evidence_ids": ["synthetic_m1_record"],
+      "review_notes": "Exercises a closed synthetic single-surface inventory without creating a scientific default.",
+      "blockers": []
+    },
+    "wavefunction": {
+      "status": "reviewed_for_bounded_example",
+      "facts": {
+        "reference_hypothesis": "restricted",
+        "scf_stability_policy": "Synthetic stability-policy token; no calculation is authorized.",
+        "expected_s2": 0.0,
+        "spin_contamination_policy": "Synthetic state-specific threshold token.",
+        "occupation_inspection_policy": "Synthetic occupation-inspection token.",
+        "alternative_solution_policy": "Synthetic alternative-solution inventory token.",
+        "multireference_diagnostic_policy": "Synthetic system-specific diagnostic token.",
+        "checkpoint_reuse_policy": "No cross-state reuse."
+      },
+      "evidence_ids": ["synthetic_m1_record"],
+      "review_notes": "Exercises required wavefunction fields without evaluating a real wavefunction.",
+      "blockers": []
+    },
+    "coordination": {
+      "status": "reviewed_for_bounded_example",
+      "facts": {
+        "nuclearity": 1,
+        "metal_center_models": [
+          {
+            "atom_index": 1,
+            "element": "Pd",
+            "coordination_number": 2,
+            "geometry": "Synthetic linear fixture geometry."
+          }
+        ],
+        "ligand_inventory": ["One synthetic chiral-ligand token and one synthetic substrate token."],
+        "denticity_hapticity_assignments": ["Synthetic monodentate/hapticity-not-applicable declaration."],
+        "coordination_contacts": [
+          {"donor_atom": 3, "acceptor_atom": 1, "kind": "metal_coordination", "distance_window_angstrom": [1.5, 3.0]},
+          {"donor_atom": 4, "acceptor_atom": 1, "kind": "metal_coordination", "distance_window_angstrom": [1.5, 3.0]}
+        ],
+        "counterion_models": ["Explicitly no counterion in the neutral synthetic fixture."],
+        "solvent_additive_occupancy": ["Explicitly no occupied solvent/additive site in the synthetic fixture."],
+        "alternative_associated_dissociated_states": ["Synthetic associated and dissociated alternatives declared outside this candidate."]
+      },
+      "evidence_ids": ["synthetic_m1_record"],
+      "review_notes": "Exercises exact contact matching and reviewer-supplied distance windows only in a nonresearch fixture.",
+      "blockers": []
+    },
+    "method_protocol": {
+      "status": "reviewed_for_bounded_example",
+      "facts": {
+        "applicability": "synthetic_fixture_only",
+        "method_or_functional": "Synthetic method token; not a usable electronic-structure method.",
+        "dispersion": "Synthetic dispersion-policy token.",
+        "basis_and_ecp": [
+          {
+            "element_scope": "All elements in the synthetic fixture",
+            "orbital_basis": "Synthetic basis token; not runnable.",
+            "ecp": null,
+            "ecp_core_electrons": null,
+            "coverage_status": "explicit"
+          }
+        ],
+        "relativistic_treatment": "Synthetic explicit-none token.",
+        "solvation": "Synthetic solvent-model token.",
+        "grid": "Synthetic grid token.",
+        "scf_controls": "Synthetic SCF-control token.",
+        "geometry_frequency_relationship": "Synthetic same-level relationship token.",
+        "spin_wavefunction_sensitivity": "Synthetic sensitivity-plan token.",
+        "thermochemistry_policy": "Synthetic thermochemistry token.",
+        "three_tier_protocol_binding": null,
+        "protocol_selection_authorization": false
+      },
+      "evidence_ids": ["synthetic_m1_record"],
+      "review_notes": "Completeness tests preserve the independent three-tier protocol-selection gate.",
+      "blockers": []
+    },
+    "ts_and_path": {
+      "status": "reviewed_for_bounded_example",
+      "facts": {
+        "elementary_step_class": "Synthetic metal-mediated insertion fixture.",
+        "reactant_state_id": "fixture_reactant_state",
+        "product_state_id": "fixture_product_state",
+        "coordinate_changes": [
+          {"kind": "forming", "atoms": [1, 4], "description": "Synthetic Pd-C contact change."}
+        ],
+        "single_surface_assumption": true,
+        "literature_search_strategy": null,
+        "reviewed_strategy_candidate_id": "mts_177cb9ac4be6",
+        "reviewed_strategy_candidate": "single_guess_hessian_guided",
+        "strategy_specific_evidence": ["Synthetic reviewed-guess and Hessian-provenance tokens."],
+        "execution_selection_status": "not_selected",
+        "path_model": "single_surface_candidate_no_connectivity_claim",
+        "frequency_and_mode_acceptance_policy": "Exactly one raw imaginary frequency plus explicit intended-coordinate and unintended-coordination-loss review; no result exists.",
+        "mode_path_evidence_status": "not_applicable_no_result"
+      },
+      "evidence_ids": ["synthetic_m1_record"],
+      "review_notes": "The strategy is a reviewed design candidate only and is not selected for execution.",
+      "blockers": []
+    }
+  }
+}

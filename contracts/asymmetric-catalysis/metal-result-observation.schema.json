@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/asymmetric-catalysis/metal-result-observation.schema.json",
+  "title": "Auto-G16 Transition-Metal Offline Result Observation",
+  "description": "Read-only parsed observations with unconditional transition-metal promotion and submission refusal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "audit_id", "audit_payload_sha256", "template_source",
+    "candidate_source", "log_source", "study_id", "candidate_id",
+    "mechanism_id", "channel_id", "catalyst_state_id", "status",
+    "calculation_ready", "no_submission_authorization",
+    "runtime_support_status", "submission_decision", "promotion_decision",
+    "parser", "identity_binding", "termination_observations",
+    "frequency_observations", "wavefunction_observations",
+    "coordination_observations", "audit_sections", "diagnostics",
+    "claim_ceiling"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-asymmetric-metal-result-observation/1"},
+    "audit_id": {"$ref": "#/$defs/id"},
+    "audit_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "template_source": {"$ref": "#/$defs/hash_binding"},
+    "candidate_source": {"$ref": "#/$defs/hash_binding"},
+    "log_source": {"$ref": "#/$defs/hash_binding"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "candidate_id": {"$ref": "#/$defs/id"},
+    "mechanism_id": {"$ref": "#/$defs/id"},
+    "channel_id": {"$ref": "#/$defs/id"},
+    "catalyst_state_id": {"$ref": "#/$defs/id"},
+    "status": {"const": "parsed_observation_blocked"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "runtime_support_status": {"const": "unsupported_requires_extension"},
+    "submission_decision": {"const": "refused"},
+    "promotion_decision": {"const": "refused"},
+    "parser": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parser_id", "scope", "g16_revision_observed"],
+      "properties": {
+        "parser_id": {"const": "auto_g16_asymmetric_metal_log_observer_v1"},
+        "scope": {"const": "offline_read_only_observation"},
+        "g16_revision_observed": {"type": ["string", "null"]}
+      }
+    },
+    "identity_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "charge", "multiplicity", "atom_count", "atom_order",
+        "charge_multiplicity_record_count", "orientation_count",
+        "identity_observation_status"
+      ],
+      "properties": {
+        "charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "atom_count": {"type": "integer", "minimum": 1},
+        "atom_order": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["index", "atomic_number", "element"],
+            "properties": {
+              "index": {"type": "integer", "minimum": 1},
+              "atomic_number": {"type": "integer", "minimum": 1},
+              "element": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "charge_multiplicity_record_count": {"type": "integer", "minimum": 1},
+        "orientation_count": {"type": "integer", "minimum": 1},
+        "identity_observation_status": {"const": "matched_candidate"}
+      }
+    },
+    "termination_observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normal_termination_count", "error_termination_count",
+        "optimization_completed_observed", "stationary_point_observed"
+      ],
+      "properties": {
+        "normal_termination_count": {"type": "integer", "minimum": 0},
+        "error_termination_count": {"type": "integer", "minimum": 0},
+        "optimization_completed_observed": {"type": "boolean"},
+        "stationary_point_observed": {"type": "boolean"}
+      }
+    },
+    "frequency_observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frequency_count", "frequencies_cm_1", "raw_imaginary_frequency_count",
+        "imaginary_frequencies_cm_1", "exactly_one_raw_imaginary_observed",
+        "completeness_status", "mode_review_status"
+      ],
+      "properties": {
+        "frequency_count": {"type": "integer", "minimum": 0},
+        "frequencies_cm_1": {"type": "array", "items": {"type": "number"}},
+        "raw_imaginary_frequency_count": {"type": "integer", "minimum": 0},
+        "imaginary_frequencies_cm_1": {"type": "array", "items": {"type": "number", "exclusiveMaximum": 0}},
+        "exactly_one_raw_imaginary_observed": {"type": "boolean"},
+        "completeness_status": {"const": "unassessed_requires_expected_mode_count"},
+        "mode_review_status": {"const": "not_performed"}
+      }
+    },
+    "wavefunction_observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scf_done_count", "s2_observations", "stability_statement_observed",
+        "threshold_assessment"
+      ],
+      "properties": {
+        "scf_done_count": {"type": "integer", "minimum": 0},
+        "s2_observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["before_annihilation", "after_annihilation"],
+            "properties": {
+              "before_annihilation": {"type": "number"},
+              "after_annihilation": {"type": "number"}
+            }
+          }
+        },
+        "stability_statement_observed": {"type": "boolean"},
+        "threshold_assessment": {"const": "not_performed_no_approved_policy"}
+      }
+    },
+    "coordination_observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contacts", "inventory_assessment"],
+      "properties": {
+        "contacts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/contact_observation"}
+        },
+        "inventory_assessment": {"const": "not_performed_no_reviewed_windows_or_hapticity_rules"}
+      }
+    },
+    "audit_sections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "electron_accounting", "spin_surface", "wavefunction",
+        "coordination", "method_protocol", "ts_and_path"
+      ],
+      "properties": {
+        "electron_accounting": {"$ref": "#/$defs/blocked_section"},
+        "spin_surface": {"$ref": "#/$defs/blocked_section"},
+        "wavefunction": {"$ref": "#/$defs/blocked_section"},
+        "coordination": {"$ref": "#/$defs/blocked_section"},
+        "method_protocol": {"$ref": "#/$defs/blocked_section"},
+        "ts_and_path": {"$ref": "#/$defs/blocked_section"}
+      }
+    },
+    "diagnostics": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "claim_ceiling": {"const": "parsed_observation_only_no_ts_or_selectivity_claim"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hash_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {"sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "contact_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "donor_atom", "acceptor_atom", "kind", "initial_distance_angstrom",
+        "final_distance_angstrom", "distance_change_angstrom",
+        "distance_window_angstrom", "review_status"
+      ],
+      "properties": {
+        "donor_atom": {"type": "integer", "minimum": 1},
+        "acceptor_atom": {"type": "integer", "minimum": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "initial_distance_angstrom": {"type": "number", "minimum": 0},
+        "final_distance_angstrom": {"type": "number", "minimum": 0},
+        "distance_change_angstrom": {"type": "number"},
+        "distance_window_angstrom": {"type": "null"},
+        "review_status": {"const": "observed_unreviewed_no_window"}
+      }
+    },
+    "blocked_section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {"const": "blocked_pending_review"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

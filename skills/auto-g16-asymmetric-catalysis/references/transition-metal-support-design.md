@@ -1,4 +1,4 @@
-# Transition-metal transition-state capability design
+# Auto-G16 Transition-Metal Transition-State Capability Design
 
 Treat this as an offline scientific design and refusal contract. Do not extend
 the execution scope of `auto-g16-ts-irc`, generate a Gaussian route or input,
@@ -187,6 +187,122 @@ Reject a template when its source hash, atom order, metal identity, candidate
 contact inventory or strategy inventory drifts. Even a structurally valid
 template has claim ceiling `design_only_no_ts_or_selectivity_claim`.
 
+### 7.1 Candidate-bound M1 scientific-review sidecar
+
+`build-metal-scientific-review` records reviewer-supplied evidence without
+changing M0, M2a or the candidate. It binds the exact design, template,
+candidate and review-source hashes. The review source has six sections matching
+the M2a audit boundary: electron accounting, spin/surface, wavefunction,
+coordination, method protocol, and TS/path design.
+
+The builder copies scientific values from the review source; it does not derive
+an oxidation state, d-electron count, multiplicity, wavefunction, coordination
+window, method, ECP, solvent or TS strategy. A reviewed section needs explicit
+evidence IDs and no unresolved blocker. A blocked section needs at least one
+blocker. The coordination-contact inventory and intended coordinate must match
+the exact candidate/template. A reviewed strategy is only a design candidate;
+`execution_selection_status` remains `not_selected`.
+
+Even a field-complete record has:
+
+```text
+calculation_ready: false
+runtime_support_status: unsupported_requires_extension
+scientific_acceptance_decision: not_granted_by_artifact
+promotion_decision: refused
+submission_decision: refused
+```
+
+A complete synthetic fixture exercises the contract but explicitly cannot
+satisfy the real M1 milestone. A real literature-anchored record remains
+blocked wherever the source does not report electron accounting, spin-surface,
+wavefunction, coordination-window or protocol facts. Never backfill those gaps
+from chemical intuition.
+
+### 7.2 Read-only existing-input observation
+
+`audit-metal-input` is the implemented M2c slice. It accepts only an existing
+local, non-symlink, single-step Gaussian input with explicit element-symbol
+Cartesian coordinates. It binds the exact candidate, still-blocked M2a
+template, M1 sidecar and input hashes. It rejects `--Link1--`,
+charge/multiplicity drift, atom-order drift, non-Cartesian geometry and
+`Geom=Check/AllCheck` ambiguity.
+
+The artifact records Link 0 directives, route text and hash, title hash,
+charge/multiplicity, element order, coordinate-block hash, task-keyword text
+and the hash/line count of any uninterpreted trailing section. These are
+observations, not accepted protocol fields. A basis/ECP, solvent, method,
+wavefunction, TS algorithm, resource or remote path is never selected or
+approved. The command neither renders nor modifies an input, and its parser
+has `renders_input: false`.
+
+Every output keeps:
+
+```text
+input_acceptance_decision: not_granted_by_artifact
+protocol_selection_decision: absent_not_authorized
+calculation_ready: false
+promotion_decision: refused
+submission_decision: refused
+```
+
+All six scientific audit sections remain `blocked_pending_review`; a
+field-complete M1 sidecar does not change that boundary.
+
+### 7.3 Read-only result observation
+
+`audit-metal-result` is the implemented M2b slice. It accepts only an existing
+local, non-symlink log bound to the exact candidate and audit template. It
+requires matching charge, multiplicity and atom order, then records terminal
+markers, raw frequency values, `S**2` before/after-annihilation text, an
+explicit stability-message flag, and initial/final distances for coordination
+contacts already declared by the candidate.
+
+It never infers an expected mode count, distance window, hapticity, electronic
+state, method, TS identity or path. All six scientific audit sections remain
+`blocked_pending_review`; promotion and submission remain refused. Reject
+source-hash, charge/multiplicity and atom-order drift. An error-terminated or
+frequency-incomplete log may be preserved as a blocked observation.
+`--dry-run` performs the same parse and refusal checks without writing the
+artifact and reports that no live action occurred.
+
+### 7.4 Four-section M2 acceptance-decision sidecar
+
+`build-metal-acceptance-review` binds the exact candidate, M2a template, M1
+review, M2c input observation, M2b result observation and reviewer source. It
+records independent decisions for wavefunction, coordination, mode and input
+acceptance. Each decision is one of:
+
+```text
+accepted_for_bounded_offline_review
+rejected_by_reviewer
+blocked_missing_evidence
+```
+
+Bounded section acceptance requires hash-bound reviewer evidence. Wavefunction
+review covers stability, spin contamination, occupations, alternative
+solutions and multireference risk. Coordination review covers every observed
+contact plus hapticity, ligand inventory and state drift. Mode review requires
+exactly one raw imaginary frequency and a hash-bound displacement assessment
+for both the intended coordinate and unintended coordination loss. Input
+review requires exact hashes for the input, protocol options/selection, input
+approval and input/result lineage, plus route, basis/ECP, solvent/
+thermochemistry, resource and server-path review.
+
+These are manual decision records, not an authority bridge. Even four accepted
+sections retain:
+
+```text
+scientific_acceptance_decision: not_granted_by_artifact
+input_acceptance_decision: not_granted_by_artifact
+mode_acceptance_decision: not_granted_by_artifact
+promotion_decision: refused
+submission_decision: refused
+```
+
+A synthetic complete record cannot satisfy a real M2 milestone. Missing facts
+must remain blocked; rejected sections are preserved rather than retried.
+
 ## 8. Method and basis protocol
 
 Apply the three-tier protocol gate only after the chemical and electronic
@@ -222,20 +338,37 @@ candidate can be calculation-ready:
    spin-crossing cases.
 
 The current `auto-g16-ts-irc` path model remains unsupported for all metal
-cases. Do not claim metal IRC connectivity from its main-group implementation.
+cases. Neither the M2b result observer nor the M2c input observer alters this
+boundary or can claim metal IRC connectivity from the main-group
+implementation.
 
 ## 10. Extension milestones
 
 - `metal_m0_offline_design`: deterministic state/strategy/blocker/refusal
   artifact; implemented offline.
+- `metal_m1_review_contract`: candidate-bound sidecar source/output schemas,
+  builder, semantic validator, dry run and refusal fixtures; implemented
+  offline without scientific acceptance.
 - `metal_m1_scientific_review`: one bounded real example with reviewed
   oxidation/electron count, spin, wavefunction, coordination, method and TS
   strategy; pending.
 - `metal_m2a_candidate_audit_template`: candidate-bound atom-order,
   metal-center, coordination-contact, six-section and seed-strategy contract;
   implemented offline with execution refused.
-- `metal_m2_offline_runtime_contract`: metal input audit, parser,
-  wavefunction/coordination checks, fixtures and promotion rules; blocked.
+- `metal_m2b_result_observation`: candidate-bound, read-only log facts and
+  coordination-distance observations; implemented offline with all scientific
+  acceptance, promotion and execution refused.
+- `metal_m2c_input_observation`: candidate-, template- and M1-bound read-only
+  observation of an existing single-step Cartesian Gaussian input; implemented
+  offline without rendering, protocol selection, input acceptance, promotion
+  or execution authority.
+- `metal_m2d_acceptance_review_contract`: four-section reviewer-source and
+  sidecar contract for wavefunction, coordination, mode and input decisions;
+  implemented offline without top-level acceptance, promotion, submission or
+  execution authority.
+- `metal_m2_offline_runtime_contract`: metal input/result acceptance parsers,
+  reviewed wavefunction/coordination checks and promotion
+  rules beyond the M2b/M2c observers; blocked.
 - `metal_m3_execution_boundary`: separately reviewed execution design with
   exact scientific and live gates; blocked.
 - `metal_m4_live_smoke`: small closed-shell single-reference metal TS smoke

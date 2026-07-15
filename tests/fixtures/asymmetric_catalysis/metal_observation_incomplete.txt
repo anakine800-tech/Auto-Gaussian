@@ -1,0 +1,19 @@
+ SYNTHETIC OFFLINE PARSER FIXTURE; NOT A GAUSSIAN OUTPUT OR RESEARCH RESULT.
+ Entering Gaussian System, Link 0=g16
+ Gaussian 16, Revision C.01
+ Charge = 0 Multiplicity = 1
+ Input orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1         46           0        0.000000    0.000000    0.000000
+      2         15           0       -2.000000    0.000000    0.000000
+      3          6           0        2.000000    0.700000    0.000000
+      4          6           0        2.000000   -0.700000    0.000000
+      5          1           0        2.700000    1.200000    0.000000
+      6          1           0        2.700000   -1.200000    0.000000
+      7          1           0       -2.700000    0.000000    0.000000
+ ---------------------------------------------------------------------
+ SCF Done:  E(UPBE0) =  -123.400000000     A.U. after   10 cycles
+ Error termination request processed by link 9999.

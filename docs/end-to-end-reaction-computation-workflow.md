@@ -1,4 +1,4 @@
-# End-to-end reaction computation workflow
+# Auto-G16 End-to-End Reaction Computation Workflow
 
 Status: target architecture and implementation roadmap. This document grants no
 Gaussian, SSH, PBS, deployment, retry, cancellation, or server-data authority.
@@ -658,7 +658,7 @@ top-level reaction workflow.
 | mechanism network and catalyst-cycle DAG | partially represented in asymmetric study artifacts | no general network builder, cycle closure audit, step dependency engine, or project-level state machine |
 | deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
-| transition-metal state/search design | M0 and candidate-bound M2a implemented offline | calculation input, parser, wavefunction/coordination acceptance, path model, and all live submission remain intentionally refused |
+| transition-metal state/search design | M0, candidate-bound M1 review sidecar, M2a, M2b result observer, M2c existing-input observer and M2d four-section manual-decision sidecar implemented offline | the real M1/M2 scientific example, runtime/promotion boundary, path model and all live submission remain intentionally refused; bounded M2d section decisions grant no top-level authority |
 | protocol `loose`/`standard`/`strict` proposal and selection | implemented as a standalone gate | does not choose a protocol or authorize input submission; the current generic automatic execution entry does not yet require and consume the selection artifact end to end |
 | guarded PBS submit/watch/fetch/analyze | implemented per approved job | no whole-study job DAG, dependency scheduler, finite-batch approval manifest, or project-level resume engine |
 | minimum Opt/Freq/single-point parsing and conformer aggregation | implemented per reviewed structure/family | no reaction-wide species registry, post-optimization identity clustering, or balanced free-energy network |

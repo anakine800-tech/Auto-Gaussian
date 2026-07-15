@@ -1,0 +1,157 @@
+{
+  "schema": "gaussian-asymmetric-metal-scientific-review-source/1",
+  "review_id": "fixture_metal_m1_incomplete",
+  "design_payload_sha256": "53a79db7ed66f9ea4bcd933bc9b1d4f1c6994fe4443add83315c3ed29fcaef25",
+  "template_payload_sha256": "b7b212fc020ae44f7547d95e5acf0ce77683dfa1d4bd1437e840fc76b314602b",
+  "candidate_sha256": "00a724bf7fb2386cb4167603390cedfcf87c1cd3337dfe120730e77384f04f45",
+  "study_id": "fixture_metal_selectivity",
+  "candidate_id": "metal_ts_r_unresolved",
+  "channel_id": "metal_channel_r",
+  "catalyst_state_id": "pd_ligand_state",
+  "mechanism_id": "metal_insertion_step",
+  "provenance": {
+    "scope_kind": "synthetic_nonresearch_fixture",
+    "reviewer": null,
+    "review_date": null,
+    "sources": [
+      {
+        "source_id": "synthetic_incomplete_record",
+        "source_type": "synthetic_fixture",
+        "citation": "Synthetic incomplete M1 contract fixture",
+        "doi": null,
+        "url": null,
+        "locator": "This JSON fixture only; missing values are deliberate.",
+        "supports": [
+          "electron_accounting",
+          "spin_surface",
+          "wavefunction",
+          "coordination",
+          "method_protocol",
+          "ts_and_path"
+        ]
+      }
+    ],
+    "notes": ["No missing scientific field may be inferred by the builder."]
+  },
+  "identity": {
+    "total_charge": 0,
+    "multiplicity": 1,
+    "metal_centers": [
+      {"atom_index": 1, "element": "Pd"}
+    ]
+  },
+  "sections": {
+    "electron_accounting": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "metal_assignments": [
+          {"atom_index": 1, "element": "Pd", "formal_oxidation_state": 0, "d_electron_count": null, "assignment_basis": null}
+        ],
+        "total_valence_electron_count": null,
+        "electron_parity": null,
+        "parity_multiplicity_assessment": "unresolved",
+        "ligand_charge_conventions": [],
+        "metal_metal_bonding_convention": null,
+        "non_innocent_ligand_alternatives": []
+      },
+      "evidence_ids": ["synthetic_incomplete_record"],
+      "review_notes": "Known state hypothesis is retained without electron-count acceptance.",
+      "blockers": ["Ligand charges, d count, total count and parity review are absent."]
+    },
+    "spin_surface": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "credible_multiplicities": [],
+        "selected_multiplicity": null,
+        "relative_energy_reference": null,
+        "spin_crossover_relevance": "unresolved",
+        "minimum_energy_crossing_relevance": "unresolved",
+        "single_surface_assumption": null
+      },
+      "evidence_ids": ["synthetic_incomplete_record"],
+      "review_notes": "The study multiplicity remains a hypothesis.",
+      "blockers": ["Credible multiplicities, common reference and crossing relevance are absent."]
+    },
+    "wavefunction": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "reference_hypothesis": null,
+        "scf_stability_policy": null,
+        "expected_s2": null,
+        "spin_contamination_policy": null,
+        "occupation_inspection_policy": null,
+        "alternative_solution_policy": null,
+        "multireference_diagnostic_policy": null,
+        "checkpoint_reuse_policy": null
+      },
+      "evidence_ids": ["synthetic_incomplete_record"],
+      "review_notes": "No wavefunction conclusion is allowed.",
+      "blockers": ["Reference, stability, occupation and multireference policies are absent."]
+    },
+    "coordination": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "nuclearity": 1,
+        "metal_center_models": [
+          {"atom_index": 1, "element": "Pd", "coordination_number": 2, "geometry": "synthetic linear hypothesis"}
+        ],
+        "ligand_inventory": [],
+        "denticity_hapticity_assignments": [],
+        "coordination_contacts": [
+          {"donor_atom": 3, "acceptor_atom": 1, "kind": "metal_coordination", "distance_window_angstrom": null},
+          {"donor_atom": 4, "acceptor_atom": 1, "kind": "metal_coordination", "distance_window_angstrom": null}
+        ],
+        "counterion_models": [],
+        "solvent_additive_occupancy": [],
+        "alternative_associated_dissociated_states": []
+      },
+      "evidence_ids": ["synthetic_incomplete_record"],
+      "review_notes": "Candidate contacts are identity bindings, not accepted coordination windows.",
+      "blockers": ["Contact windows, ligand inventory and alternative coordination states are absent."]
+    },
+    "method_protocol": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "applicability": null,
+        "method_or_functional": null,
+        "dispersion": null,
+        "basis_and_ecp": [],
+        "relativistic_treatment": null,
+        "solvation": null,
+        "grid": null,
+        "scf_controls": null,
+        "geometry_frequency_relationship": null,
+        "spin_wavefunction_sensitivity": null,
+        "thermochemistry_policy": null,
+        "three_tier_protocol_binding": null,
+        "protocol_selection_authorization": false
+      },
+      "evidence_ids": ["synthetic_incomplete_record"],
+      "review_notes": "No method setting is supplied or inferred.",
+      "blockers": ["Method, basis/ECP, relativity, solvent and thermochemistry review are absent."]
+    },
+    "ts_and_path": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "elementary_step_class": null,
+        "reactant_state_id": null,
+        "product_state_id": null,
+        "coordinate_changes": [
+          {"kind": "forming", "atoms": [1, 4], "description": "Synthetic Pd-C contact change."}
+        ],
+        "single_surface_assumption": null,
+        "literature_search_strategy": null,
+        "reviewed_strategy_candidate_id": null,
+        "reviewed_strategy_candidate": null,
+        "strategy_specific_evidence": [],
+        "execution_selection_status": "not_selected",
+        "path_model": "unresolved",
+        "frequency_and_mode_acceptance_policy": null,
+        "mode_path_evidence_status": "not_applicable_no_result"
+      },
+      "evidence_ids": ["synthetic_incomplete_record"],
+      "review_notes": "The intended atom pair is bound, but no elementary-step or strategy decision exists.",
+      "blockers": ["Elementary-step class, surface model and seed-strategy evidence are absent."]
+    }
+  }
+}

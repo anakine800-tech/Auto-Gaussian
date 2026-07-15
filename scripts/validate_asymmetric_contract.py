@@ -28,6 +28,12 @@ SCHEMA_IDS = {
     "materializations": "gaussian-asymmetric-materializations/1",
     "metal-support": "gaussian-asymmetric-metal-support-design/1",
     "metal-ts-audit-template": "gaussian-asymmetric-metal-ts-audit-template/1",
+    "metal-scientific-review-source": "gaussian-asymmetric-metal-scientific-review-source/1",
+    "metal-scientific-review": "gaussian-asymmetric-metal-scientific-review/1",
+    "metal-input-observation": "gaussian-asymmetric-metal-input-observation/1",
+    "metal-result-observation": "gaussian-asymmetric-metal-result-observation/1",
+    "metal-acceptance-review-source": "gaussian-asymmetric-metal-acceptance-review-source/1",
+    "metal-acceptance-review": "gaussian-asymmetric-metal-acceptance-review/1",
     "smoke-proposal": "gaussian-asymmetric-smoke-proposal/1",
     "live-smoke-evidence": "gaussian-asymmetric-live-smoke-evidence/1",
     "literature-benchmark": "gaussian-asymmetric-literature-benchmark-ledger/1",
@@ -38,11 +44,39 @@ SCHEMA_DIR = Path(__file__).resolve().parents[1] / "contracts" / "asymmetric-cat
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 PLACEHOLDER_RE = re.compile(r"(?:<[^>]+>|\bTBD\b|\bTODO\b|approved route)", re.I)
+ATOMIC_NUMBERS = {
+    element: number
+    for number, element in enumerate(
+        (
+            "X", "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
+            "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc",
+            "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge",
+            "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc",
+            "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe",
+            "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb",
+            "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os",
+            "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn",
+        )
+    )
+    if element != "X"
+}
 VALIDATION_RANK = {
     "failed": 0,
     "first_order_saddle_candidate": 1,
     "mode_reviewed": 2,
     "path_validated": 3,
+}
+METAL_REVIEW_SECTIONS = {
+    "electron_accounting", "spin_surface", "wavefunction",
+    "coordination", "method_protocol", "ts_and_path",
+}
+METAL_SEED_STRATEGIES = {
+    "single_guess_hessian_guided", "endpoint_qst2_qst3",
+    "reviewed_relaxed_coordinate_scan",
+}
+METAL_ACCEPTANCE_SECTIONS = {"wavefunction", "coordination", "mode", "input_acceptance"}
+METAL_ACCEPTANCE_DECISIONS = {
+    "accepted_for_bounded_offline_review", "rejected_by_reviewer", "blocked_missing_evidence",
 }
 SUPPORTED_SCHEMA_KEYWORDS = {
     "$schema", "$id", "$defs", "$ref", "$comment", "title", "description", "default", "examples",
@@ -524,9 +558,23 @@ def validate_metal_support(design: dict[str, Any], study: dict[str, Any] | None 
 
     milestones = unique_index(design.get("extension_milestones", []), "milestone_id", "metal-support.extension_milestones")
     require(milestones.get("metal_m0_offline_design", {}).get("status") == "implemented_offline", "metal-support: offline design milestone is missing")
+    if "metal_m1_review_contract" in milestones:
+        require(milestones["metal_m1_review_contract"].get("status") == "implemented_offline", "metal-support: M1 sidecar contract milestone has an invalid status")
+    require(milestones.get("metal_m1_scientific_review", {}).get("status") == "pending_scientific_review", "metal-support: real M1 scientific review was incorrectly marked complete")
     require(milestones.get("metal_m2a_candidate_audit_template", {}).get("status") == "implemented_offline", "metal-support: candidate audit-template milestone is missing")
+    if "metal_m2c_input_observation" in milestones:
+        require(milestones["metal_m2c_input_observation"].get("status") == "implemented_offline", "metal-support: M2c input-observation milestone has an invalid status")
+    if "metal_m2d_acceptance_review_contract" in milestones:
+        require(milestones["metal_m2d_acceptance_review_contract"].get("status") == "implemented_offline", "metal-support: M2d acceptance-review milestone has an invalid status")
     for milestone_id, milestone in milestones.items():
-        if milestone_id not in {"metal_m0_offline_design", "metal_m2a_candidate_audit_template"}:
+        if milestone_id not in {
+            "metal_m0_offline_design",
+            "metal_m1_review_contract",
+            "metal_m2a_candidate_audit_template",
+            "metal_m2b_result_observation",
+            "metal_m2c_input_observation",
+            "metal_m2d_acceptance_review_contract",
+        }:
             require(milestone.get("status") != "implemented_offline", f"metal-support: unsupported milestone {milestone_id} was marked implemented")
     if study is None:
         return
@@ -656,6 +704,753 @@ def validate_metal_ts_audit_template(
             for item in identity.get("coordination_contacts", [])
         }
         require(actual_contacts == expected_contacts, "metal TS audit template: candidate coordination contacts mismatch")
+
+
+def _validate_metal_review_content(
+    provenance: dict[str, Any],
+    identity: dict[str, Any],
+    sections: dict[str, Any],
+    label: str,
+) -> tuple[bool, list[str], list[str], list[str]]:
+    require(set(sections) == METAL_REVIEW_SECTIONS, f"{label}: review-section inventory is incomplete")
+    evidence = unique_index(provenance.get("sources", []), "source_id", f"{label}.sources")
+    require(evidence, f"{label}: evidence-source inventory is empty")
+    fact_fields = {
+        "electron_accounting": {
+            "metal_assignments", "total_valence_electron_count", "electron_parity",
+            "parity_multiplicity_assessment", "ligand_charge_conventions",
+            "metal_metal_bonding_convention", "non_innocent_ligand_alternatives",
+        },
+        "spin_surface": {
+            "credible_multiplicities", "selected_multiplicity", "relative_energy_reference",
+            "spin_crossover_relevance", "minimum_energy_crossing_relevance",
+            "single_surface_assumption",
+        },
+        "wavefunction": {
+            "reference_hypothesis", "scf_stability_policy", "expected_s2",
+            "spin_contamination_policy", "occupation_inspection_policy",
+            "alternative_solution_policy", "multireference_diagnostic_policy",
+            "checkpoint_reuse_policy",
+        },
+        "coordination": {
+            "nuclearity", "metal_center_models", "ligand_inventory",
+            "denticity_hapticity_assignments", "coordination_contacts",
+            "counterion_models", "solvent_additive_occupancy",
+            "alternative_associated_dissociated_states",
+        },
+        "method_protocol": {
+            "applicability", "method_or_functional", "dispersion", "basis_and_ecp",
+            "relativistic_treatment", "solvation", "grid", "scf_controls",
+            "geometry_frequency_relationship", "spin_wavefunction_sensitivity",
+            "thermochemistry_policy", "three_tier_protocol_binding",
+            "protocol_selection_authorization",
+        },
+        "ts_and_path": {
+            "elementary_step_class", "reactant_state_id", "product_state_id",
+            "coordinate_changes", "single_surface_assumption",
+            "literature_search_strategy", "reviewed_strategy_candidate_id",
+            "reviewed_strategy_candidate", "strategy_specific_evidence",
+            "execution_selection_status", "path_model",
+            "frequency_and_mode_acceptance_policy", "mode_path_evidence_status",
+        },
+    }
+    reviewed: list[str] = []
+    blocked: list[str] = []
+    unresolved: list[str] = []
+    for section_name in sorted(METAL_REVIEW_SECTIONS):
+        section = sections[section_name]
+        require(set(section.get("facts", {})) == fact_fields[section_name], f"{label}: {section_name} fact fields are incomplete or unknown")
+        status = section.get("status")
+        require(status in {"reviewed_for_bounded_example", "blocked_missing_evidence"}, f"{label}: {section_name} status is invalid")
+        evidence_ids = section.get("evidence_ids", [])
+        require(len(evidence_ids) == len(set(evidence_ids)), f"{label}: {section_name} evidence IDs are duplicated")
+        for source_id in evidence_ids:
+            require(source_id in evidence, f"{label}: {section_name} references unknown evidence {source_id}")
+            require(section_name in evidence[source_id].get("supports", []), f"{label}: evidence {source_id} does not support {section_name}")
+        blockers = section.get("blockers", [])
+        if status == "reviewed_for_bounded_example":
+            reviewed.append(section_name)
+            require(evidence_ids, f"{label}: {section_name} was marked reviewed without evidence")
+            require(not blockers, f"{label}: {section_name} was marked reviewed with unresolved blockers")
+        else:
+            blocked.append(section_name)
+            require(blockers, f"{label}: {section_name} blocked status lacks blockers")
+            unresolved.extend(f"{section_name}: {item}" for item in blockers)
+
+    centers = identity.get("metal_centers", [])
+    center_identity = [
+        {"atom_index": item.get("atom_index"), "element": item.get("element")}
+        for item in centers
+    ]
+    electron = sections["electron_accounting"]
+    electron_facts = electron["facts"]
+    assignments = electron_facts.get("metal_assignments", [])
+    require(
+        [{"atom_index": item.get("atom_index"), "element": item.get("element")} for item in assignments]
+        == center_identity,
+        f"{label}: electron assignments differ from the identity-bound metal centers",
+    )
+    if electron["status"] == "reviewed_for_bounded_example":
+        require(all(isinstance(item.get("formal_oxidation_state"), int) and isinstance(item.get("d_electron_count"), int) and item["d_electron_count"] >= 0 and isinstance(item.get("assignment_basis"), str) and item["assignment_basis"].strip() for item in assignments), f"{label}: reviewed electron accounting is incomplete")
+        total = electron_facts.get("total_valence_electron_count")
+        multiplicity = identity.get("multiplicity")
+        require(isinstance(total, int) and not isinstance(total, bool) and total >= 0, f"{label}: reviewed total electron count is invalid")
+        require(electron_facts.get("electron_parity") == ("even" if total % 2 == 0 else "odd"), f"{label}: electron parity differs from the explicit count")
+        require(isinstance(multiplicity, int) and multiplicity >= 1 and (total % 2 == 0) == (multiplicity % 2 == 1), f"{label}: electron and multiplicity parity are inconsistent")
+        require(electron_facts.get("parity_multiplicity_assessment") == "consistent", f"{label}: reviewed parity assessment is not consistent")
+        require(electron_facts.get("ligand_charge_conventions") and electron_facts.get("non_innocent_ligand_alternatives"), f"{label}: reviewed electron accounting omits ligand-charge or non-innocent alternatives")
+
+    spin = sections["spin_surface"]
+    spin_facts = spin["facts"]
+    if spin["status"] == "reviewed_for_bounded_example":
+        credible = spin_facts.get("credible_multiplicities", [])
+        selected = spin_facts.get("selected_multiplicity")
+        require(credible and all(isinstance(value, int) and value >= 1 for value in credible), f"{label}: reviewed spin inventory is invalid")
+        require(selected == identity.get("multiplicity") and selected in credible, f"{label}: reviewed spin selection differs from the bound identity")
+        require(isinstance(spin_facts.get("relative_energy_reference"), str) and spin_facts["relative_energy_reference"].strip(), f"{label}: reviewed spin inventory lacks a common reference")
+        for field in ("spin_crossover_relevance", "minimum_energy_crossing_relevance"):
+            require(spin_facts.get(field) in {"not_indicated", "relevant_requires_extension"}, f"{label}: reviewed spin inventory leaves {field} unresolved")
+        require(isinstance(spin_facts.get("single_surface_assumption"), bool), f"{label}: reviewed spin inventory lacks a surface decision")
+
+    wavefunction = sections["wavefunction"]
+    wavefunction_facts = wavefunction["facts"]
+    if wavefunction["status"] == "reviewed_for_bounded_example":
+        require(wavefunction_facts.get("reference_hypothesis") in {"restricted", "unrestricted", "restricted_open_shell", "broken_symmetry"}, f"{label}: reviewed wavefunction reference is invalid")
+        multiplicity = identity["multiplicity"]
+        spin_value = (multiplicity - 1) / 2.0
+        require(isinstance(wavefunction_facts.get("expected_s2"), (int, float)) and not isinstance(wavefunction_facts.get("expected_s2"), bool) and math.isfinite(wavefunction_facts["expected_s2"]) and math.isclose(wavefunction_facts["expected_s2"], spin_value * (spin_value + 1.0), rel_tol=0.0, abs_tol=1e-8), f"{label}: expected S**2 differs from the bound multiplicity")
+        for field in ("scf_stability_policy", "spin_contamination_policy", "occupation_inspection_policy", "alternative_solution_policy", "multireference_diagnostic_policy", "checkpoint_reuse_policy"):
+            require(isinstance(wavefunction_facts.get(field), str) and wavefunction_facts[field].strip(), f"{label}: reviewed wavefunction lacks {field}")
+
+    coordination = sections["coordination"]
+    coordination_facts = coordination["facts"]
+    center_models = coordination_facts.get("metal_center_models", [])
+    require(
+        [{"atom_index": item.get("atom_index"), "element": item.get("element")} for item in center_models]
+        == center_identity,
+        f"{label}: coordination center models differ from the identity-bound metal centers",
+    )
+    contacts = coordination_facts.get("coordination_contacts", [])
+    for contact in contacts:
+        window = contact.get("distance_window_angstrom")
+        require(window is None or (isinstance(window, list) and len(window) == 2 and all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0 for value in window) and window[0] <= window[1]), f"{label}: coordination distance window is invalid")
+    if coordination["status"] == "reviewed_for_bounded_example":
+        require(all(isinstance(item.get("coordination_number"), int) and item["coordination_number"] >= 0 and isinstance(item.get("geometry"), str) and item["geometry"].strip() for item in center_models), f"{label}: reviewed coordination center model is incomplete")
+        require(contacts and all(item.get("distance_window_angstrom") is not None for item in contacts), f"{label}: reviewed coordination requires exact contact windows")
+        for field in ("ligand_inventory", "denticity_hapticity_assignments", "counterion_models", "solvent_additive_occupancy", "alternative_associated_dissociated_states"):
+            require(coordination_facts.get(field), f"{label}: reviewed coordination omits {field}")
+
+    method = sections["method_protocol"]
+    method_facts = method["facts"]
+    require(method_facts.get("protocol_selection_authorization") is False, f"{label}: method record granted protocol-selection authority")
+    if method["status"] == "reviewed_for_bounded_example":
+        require(method_facts.get("applicability") in {"exact_literature_example_only", "reviewer_proposal_not_execution_approved", "synthetic_fixture_only"}, f"{label}: method applicability is unbounded")
+        for field in ("method_or_functional", "dispersion", "relativistic_treatment", "solvation", "grid", "scf_controls", "geometry_frequency_relationship", "spin_wavefunction_sensitivity", "thermochemistry_policy"):
+            require(isinstance(method_facts.get(field), str) and method_facts[field].strip(), f"{label}: reviewed method record lacks {field}")
+        basis = method_facts.get("basis_and_ecp", [])
+        require(basis and all(item.get("coverage_status") == "explicit" and isinstance(item.get("element_scope"), str) and item["element_scope"].strip() and isinstance(item.get("orbital_basis"), str) and item["orbital_basis"].strip() for item in basis), f"{label}: reviewed basis/ECP coverage is incomplete")
+
+    ts_and_path = sections["ts_and_path"]
+    ts_facts = ts_and_path["facts"]
+    require(ts_facts.get("execution_selection_status") == "not_selected", f"{label}: TS review selected an execution strategy")
+    require(ts_facts.get("mode_path_evidence_status") == "not_applicable_no_result", f"{label}: M1 review claimed result-level mode/path evidence")
+    reviewed_strategy = ts_facts.get("reviewed_strategy_candidate")
+    require(reviewed_strategy is None or reviewed_strategy in METAL_SEED_STRATEGIES, f"{label}: reviewed TS strategy candidate is outside the supported design inventory")
+    if ts_and_path["status"] == "reviewed_for_bounded_example":
+        for field in ("elementary_step_class", "reactant_state_id", "product_state_id", "frequency_and_mode_acceptance_policy"):
+            require(isinstance(ts_facts.get(field), str) and ts_facts[field].strip(), f"{label}: reviewed TS design lacks {field}")
+        require(ts_facts.get("reviewed_strategy_candidate_id") and reviewed_strategy in METAL_SEED_STRATEGIES and ts_facts.get("strategy_specific_evidence"), f"{label}: reviewed TS design lacks a strategy candidate or evidence")
+        require(ts_facts.get("single_surface_assumption") is True and spin_facts.get("single_surface_assumption") is True, f"{label}: current reviewed TS strategy lacks a single-surface decision")
+        require(spin_facts.get("spin_crossover_relevance") == "not_indicated" and spin_facts.get("minimum_energy_crossing_relevance") == "not_indicated", f"{label}: current reviewed TS strategy cannot represent a crossing surface")
+        require(ts_facts.get("path_model") == "single_surface_candidate_no_connectivity_claim", f"{label}: reviewed TS path model widened its claim")
+
+    all_reviewed = not blocked
+    if all_reviewed:
+        require(isinstance(provenance.get("reviewer"), str) and provenance["reviewer"].strip(), f"{label}: complete review record lacks a reviewer")
+        require(isinstance(provenance.get("review_date"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", provenance["review_date"]), f"{label}: complete review record lacks an ISO review date")
+    return all_reviewed, sorted(reviewed), sorted(blocked), unresolved
+
+
+def validate_metal_scientific_review_source(source: dict[str, Any]) -> None:
+    validate_structure(source, "metal-scientific-review-source")
+    _validate_metal_review_content(
+        source.get("provenance", {}),
+        source.get("identity", {}),
+        source.get("sections", {}),
+        "metal scientific-review source",
+    )
+
+
+def validate_metal_scientific_review(
+    review: dict[str, Any],
+    design: dict[str, Any] | None = None,
+    design_path: Path | None = None,
+    template: dict[str, Any] | None = None,
+    template_path: Path | None = None,
+    candidate: dict[str, Any] | None = None,
+    candidate_path: Path | None = None,
+    review_source: dict[str, Any] | None = None,
+    review_source_path: Path | None = None,
+) -> None:
+    validate_structure(review, "metal-scientific-review")
+    expected_payload = payload_sha256(
+        {key: value for key, value in review.items() if key != "review_payload_sha256"}
+    )
+    require(review.get("review_payload_sha256") == expected_payload, "metal scientific review: payload hash mismatch")
+    require(review.get("calculation_ready") is False, "metal scientific review: calculation_ready must remain false")
+    require(review.get("no_submission_authorization") is True, "metal scientific review: submission authority is forbidden")
+    require(review.get("runtime_support_status") == "unsupported_requires_extension", "metal scientific review: runtime support must remain blocked")
+    require(review.get("submission_decision") == "refused", "metal scientific review: submission decision must remain refused")
+    require(review.get("promotion_decision") == "refused", "metal scientific review: promotion decision must remain refused")
+    require(review.get("scientific_acceptance_decision") == "not_granted_by_artifact", "metal scientific review: artifact granted scientific acceptance")
+    require(review.get("literature_values_are_defaults") is False, "metal scientific review: literature values were treated as defaults")
+    require(review.get("claim_ceiling") == "bounded_review_record_only_no_scientific_acceptance_ts_or_selectivity_claim", "metal scientific review: claim ceiling was widened")
+    require(review.get("hard_rejections"), "metal scientific review: hard rejections are missing")
+
+    identity = review.get("identity_binding", {})
+    atom_order = identity.get("atom_order", [])
+    require([item.get("index") for item in atom_order] == list(range(1, len(atom_order) + 1)), "metal scientific review: atom order must be contiguous and one-based")
+    require(identity.get("atom_count") == len(atom_order), "metal scientific review: atom count differs from atom order")
+    metal_indices = {item.get("atom_index") for item in identity.get("metal_centers", [])}
+    atom_elements = {item.get("index"): item.get("element") for item in atom_order}
+    for center in identity.get("metal_centers", []):
+        require(atom_elements.get(center.get("atom_index")) == center.get("element"), "metal scientific review: metal-center identity differs from atom order")
+
+    all_reviewed, reviewed_sections, blocked_sections, unresolved = _validate_metal_review_content(
+        review.get("review_scope", {}), identity, review.get("sections", {}), "metal scientific review"
+    )
+    coordination_contacts = review.get("sections", {}).get("coordination", {}).get("facts", {}).get("coordination_contacts", [])
+    expected_contacts = {
+        (item.get("donor_atom"), item.get("acceptor_atom"), item.get("kind"))
+        for item in identity.get("coordination_contacts", [])
+    }
+    actual_contacts = {
+        (item.get("donor_atom"), item.get("acceptor_atom"), item.get("kind"))
+        for item in coordination_contacts
+    }
+    require(expected_contacts == actual_contacts, "metal scientific review: coordination contacts differ from the identity binding")
+    require(all(item.get("acceptor_atom") in metal_indices for item in coordination_contacts), "metal scientific review: coordination contact is not bound to a metal center")
+
+    completion = review.get("completion", {})
+    require(completion.get("reviewed_sections") == reviewed_sections, "metal scientific review: reviewed-section summary mismatch")
+    require(completion.get("blocked_sections") == blocked_sections, "metal scientific review: blocked-section summary mismatch")
+    require(sorted(completion.get("unresolved_blockers", [])) == sorted(unresolved), "metal scientific review: blocker summary mismatch")
+    require(completion.get("metal_m2_offline_runtime_contract") == "blocked" and completion.get("metal_m3_execution_boundary") == "blocked" and completion.get("metal_m4_live_smoke") == "blocked", "metal scientific review: downstream boundary was widened")
+    scope_kind = review.get("review_scope", {}).get("scope_kind")
+    expected_m1 = (
+        "not_satisfied_synthetic_fixture"
+        if all_reviewed and scope_kind == "synthetic_nonresearch_fixture"
+        else "reviewed_bounded_example_runtime_unsupported"
+        if all_reviewed
+        else "pending_scientific_review"
+    )
+    require(completion.get("metal_m1_scientific_review_status") == expected_m1, "metal scientific review: M1 status does not match scope and completeness")
+    require(review.get("status") == ("review_contract_complete_runtime_unsupported" if all_reviewed else "blocked_incomplete_scientific_review"), "metal scientific review: top-level status does not match section completeness")
+
+    if design is not None:
+        require(design_path is not None, "metal scientific review: design_path is required with a design")
+        validate_metal_support(design)
+        require(review.get("design_source", {}).get("sha256") == sha256(design_path), "metal scientific review: design hash mismatch")
+        require(review.get("design_source", {}).get("design_payload_sha256") == design.get("design_payload_sha256"), "metal scientific review: design payload binding mismatch")
+        require(review.get("study_id") == design.get("study_id"), "metal scientific review: design study ID mismatch")
+    if template is not None:
+        require(template_path is not None, "metal scientific review: template_path is required with a template")
+        validate_metal_ts_audit_template(template, design, design_path) if design is not None else validate_metal_ts_audit_template(template)
+        require(review.get("template_source", {}).get("sha256") == sha256(template_path), "metal scientific review: template hash mismatch")
+        require(review.get("template_source", {}).get("template_payload_sha256") == template.get("template_payload_sha256"), "metal scientific review: template payload binding mismatch")
+        for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+            require(review.get(key) == template.get(key), f"metal scientific review: template {key} mismatch")
+        template_identity = template.get("identity_binding", {})
+        require(identity.get("atom_order") == template_identity.get("atom_order"), "metal scientific review: template atom order mismatch")
+        require(identity.get("coordinate_changes") == template_identity.get("coordinate_changes"), "metal scientific review: template coordinate changes mismatch")
+    if candidate is not None:
+        require(candidate_path is not None, "metal scientific review: candidate_path is required with a candidate")
+        validate_structure(candidate, "candidate")
+        require(candidate.get("support_status") == "unsupported_transition_metal" and candidate.get("review_status") != "promoted_offline", "metal scientific review: candidate is not an unsupported, non-promoted metal case")
+        require(review.get("candidate_source", {}).get("sha256") == sha256(candidate_path), "metal scientific review: candidate hash mismatch")
+        for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+            require(review.get(key) == candidate.get(key), f"metal scientific review: candidate {key} mismatch")
+        expected_order = [
+            {"index": item.get("index"), "element": item.get("element"), "role": item.get("role")}
+            for item in candidate.get("atom_map", [])
+        ]
+        require(identity.get("atom_order") == expected_order, "metal scientific review: candidate atom order mismatch")
+        require(identity.get("total_charge") == candidate.get("chemical_state", {}).get("charge"), "metal scientific review: candidate charge mismatch")
+        require(identity.get("multiplicity") == candidate.get("chemical_state", {}).get("multiplicity"), "metal scientific review: candidate multiplicity mismatch")
+    if review_source is not None:
+        require(review_source_path is not None, "metal scientific review: review_source_path is required with a review source")
+        validate_metal_scientific_review_source(review_source)
+        require(review.get("review_source", {}).get("sha256") == sha256(review_source_path), "metal scientific review: review-source hash mismatch")
+        require(review.get("review_id") == review_source.get("review_id"), "metal scientific review: review-source ID mismatch")
+        require(review.get("review_scope") == review_source.get("provenance"), "metal scientific review: review-source provenance drift")
+        require(review.get("sections") == review_source.get("sections"), "metal scientific review: review-source section drift")
+        require(review.get("candidate_source", {}).get("sha256") == review_source.get("candidate_sha256"), "metal scientific review: review-source candidate binding mismatch")
+        if design is not None:
+            require(review_source.get("design_payload_sha256") == design.get("design_payload_sha256"), "metal scientific review: review source/design payload mismatch")
+        if template is not None:
+            require(review_source.get("template_payload_sha256") == template.get("template_payload_sha256"), "metal scientific review: review source/template payload mismatch")
+
+
+def validate_metal_result_observation(
+    observation: dict[str, Any],
+    template: dict[str, Any] | None = None,
+    template_path: Path | None = None,
+    candidate: dict[str, Any] | None = None,
+    candidate_path: Path | None = None,
+    log_path: Path | None = None,
+) -> None:
+    """Validate a read-only metal log observation without granting TS status."""
+    validate_structure(observation, "metal-result-observation")
+    expected_payload = payload_sha256(
+        {key: value for key, value in observation.items() if key != "audit_payload_sha256"}
+    )
+    require(
+        observation.get("audit_payload_sha256") == expected_payload,
+        "metal result observation: payload hash mismatch",
+    )
+    require(observation.get("calculation_ready") is False, "metal result observation: calculation_ready must remain false")
+    require(observation.get("no_submission_authorization") is True, "metal result observation: submission authority is forbidden")
+    require(observation.get("runtime_support_status") == "unsupported_requires_extension", "metal result observation: runtime support must remain blocked")
+    require(observation.get("submission_decision") == "refused", "metal result observation: submission decision must remain refused")
+    require(observation.get("promotion_decision") == "refused", "metal result observation: promotion decision must remain refused")
+    require(observation.get("status") == "parsed_observation_blocked", "metal result observation: blocked status was bypassed")
+    require(
+        observation.get("claim_ceiling") == "parsed_observation_only_no_ts_or_selectivity_claim",
+        "metal result observation: claim ceiling was widened",
+    )
+
+    identity = observation.get("identity_binding", {})
+    atom_order = identity.get("atom_order", [])
+    require(
+        [item.get("index") for item in atom_order] == list(range(1, len(atom_order) + 1)),
+        "metal result observation: atom order must be contiguous and one-based",
+    )
+    require(identity.get("atom_count") == len(atom_order), "metal result observation: atom count differs from atom order")
+    for atom in atom_order:
+        require(
+            ATOMIC_NUMBERS.get(atom.get("element")) == atom.get("atomic_number"),
+            "metal result observation: atomic number and element differ",
+        )
+    require(identity.get("identity_observation_status") == "matched_candidate", "metal result observation: identity match is not established")
+    require(identity.get("charge_multiplicity_record_count", 0) >= 1, "metal result observation: charge/multiplicity evidence is absent")
+    require(identity.get("orientation_count", 0) >= 1, "metal result observation: orientation evidence is absent")
+
+    frequencies = observation.get("frequency_observations", {})
+    values = frequencies.get("frequencies_cm_1", [])
+    imaginary = frequencies.get("imaginary_frequencies_cm_1", [])
+    require(all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in values), "metal result observation: frequencies must be finite")
+    require(all(value < 0 for value in imaginary), "metal result observation: imaginary-frequency list contains a non-negative value")
+    require(frequencies.get("frequency_count") == len(values), "metal result observation: frequency count mismatch")
+    require(imaginary == [value for value in values if value < 0], "metal result observation: imaginary-frequency list mismatch")
+    require(frequencies.get("raw_imaginary_frequency_count") == len(imaginary), "metal result observation: imaginary-frequency count mismatch")
+    require(frequencies.get("exactly_one_raw_imaginary_observed") is (len(imaginary) == 1), "metal result observation: one-imaginary observation flag mismatch")
+    require(frequencies.get("completeness_status") == "unassessed_requires_expected_mode_count", "metal result observation: frequency completeness was inferred")
+    require(frequencies.get("mode_review_status") == "not_performed", "metal result observation: mode review was inferred")
+
+    wavefunction = observation.get("wavefunction_observations", {})
+    require(wavefunction.get("threshold_assessment") == "not_performed_no_approved_policy", "metal result observation: wavefunction thresholds were inferred")
+    for item in wavefunction.get("s2_observations", []):
+        require(
+            all(isinstance(item.get(key), (int, float)) and not isinstance(item.get(key), bool) and math.isfinite(item[key]) for key in ("before_annihilation", "after_annihilation")),
+            "metal result observation: S**2 observations must be finite",
+        )
+
+    coordination = observation.get("coordination_observations", {})
+    require(
+        coordination.get("inventory_assessment") == "not_performed_no_reviewed_windows_or_hapticity_rules",
+        "metal result observation: coordination inventory was accepted without reviewed rules",
+    )
+    for contact in coordination.get("contacts", []):
+        initial = contact.get("initial_distance_angstrom")
+        final = contact.get("final_distance_angstrom")
+        delta = contact.get("distance_change_angstrom")
+        require(
+            all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in (initial, final, delta)),
+            "metal result observation: coordination distances must be finite",
+        )
+        require(initial >= 0 and final >= 0, "metal result observation: coordination distances must be non-negative")
+        require(math.isclose(delta, final - initial, abs_tol=1e-7), "metal result observation: coordination-distance delta mismatch")
+        require(contact.get("distance_window_angstrom") is None, "metal result observation: coordination distance window was inferred")
+        require(contact.get("review_status") == "observed_unreviewed_no_window", "metal result observation: coordination contact was accepted")
+
+    required_sections = {
+        "electron_accounting", "spin_surface", "wavefunction",
+        "coordination", "method_protocol", "ts_and_path",
+    }
+    sections = observation.get("audit_sections", {})
+    require(set(sections) == required_sections, "metal result observation: audit-section inventory is incomplete")
+    require(
+        all(item.get("status") == "blocked_pending_review" and item.get("reason") for item in sections.values()),
+        "metal result observation: a scientific review section was bypassed",
+    )
+    require(observation.get("diagnostics"), "metal result observation: diagnostics are missing")
+
+    if template is not None:
+        require(template_path is not None, "metal result observation: template_path is required with a template")
+        validate_metal_ts_audit_template(template)
+        require(observation.get("template_source", {}).get("sha256") == sha256(template_path), "metal result observation: template hash mismatch")
+        for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+            require(observation.get(key) == template.get(key), f"metal result observation: template {key} mismatch")
+        expected_contacts = {
+            (item.get("donor_atom"), item.get("acceptor_atom"), item.get("kind"))
+            for item in template.get("identity_binding", {}).get("coordination_contacts", [])
+        }
+        observed_contacts = {
+            (item.get("donor_atom"), item.get("acceptor_atom"), item.get("kind"))
+            for item in coordination.get("contacts", [])
+        }
+        require(observed_contacts == expected_contacts, "metal result observation: template coordination-contact inventory mismatch")
+
+    if candidate is not None:
+        require(candidate_path is not None, "metal result observation: candidate_path is required with a candidate")
+        validate_structure(candidate, "candidate")
+        require(candidate.get("support_status") == "unsupported_transition_metal", "metal result observation: candidate is not an unsupported metal case")
+        require(candidate.get("review_status") != "promoted_offline", "metal result observation: unsupported candidate was promoted")
+        require(observation.get("candidate_source", {}).get("sha256") == sha256(candidate_path), "metal result observation: candidate hash mismatch")
+        require(identity.get("charge") == candidate.get("chemical_state", {}).get("charge"), "metal result observation: candidate charge mismatch")
+        require(identity.get("multiplicity") == candidate.get("chemical_state", {}).get("multiplicity"), "metal result observation: candidate multiplicity mismatch")
+        expected_order = [
+            {"index": item.get("index"), "element": item.get("element")}
+            for item in candidate.get("atom_map", [])
+        ]
+        observed_order = [
+            {"index": item.get("index"), "element": item.get("element")}
+            for item in atom_order
+        ]
+        require(observed_order == expected_order, "metal result observation: candidate atom order mismatch")
+
+    if log_path is not None:
+        require(log_path.is_file() and not log_path.is_symlink(), "metal result observation: log must be a regular non-symlink file")
+        require(observation.get("log_source", {}).get("sha256") == sha256(log_path), "metal result observation: log hash mismatch")
+
+
+def validate_metal_input_observation(
+    observation: dict[str, Any],
+    template: dict[str, Any] | None = None,
+    template_path: Path | None = None,
+    candidate: dict[str, Any] | None = None,
+    candidate_path: Path | None = None,
+    scientific_review: dict[str, Any] | None = None,
+    scientific_review_path: Path | None = None,
+    input_path: Path | None = None,
+) -> None:
+    """Validate a read-only existing-input observation with all authority refused."""
+    validate_structure(observation, "metal-input-observation")
+    expected_payload = payload_sha256(
+        {key: value for key, value in observation.items() if key != "audit_payload_sha256"}
+    )
+    require(observation.get("audit_payload_sha256") == expected_payload, "metal input observation: payload hash mismatch")
+    require(observation.get("status") == "parsed_input_observation_blocked", "metal input observation: blocked status was bypassed")
+    require(observation.get("calculation_ready") is False, "metal input observation: calculation_ready must remain false")
+    require(observation.get("no_submission_authorization") is True, "metal input observation: submission authority is forbidden")
+    require(observation.get("runtime_support_status") == "unsupported_requires_extension", "metal input observation: runtime support must remain blocked")
+    require(observation.get("input_acceptance_decision") == "not_granted_by_artifact", "metal input observation: input acceptance was granted")
+    require(observation.get("protocol_selection_decision") == "absent_not_authorized", "metal input observation: protocol selection was inferred")
+    require(observation.get("submission_decision") == "refused", "metal input observation: submission decision must remain refused")
+    require(observation.get("promotion_decision") == "refused", "metal input observation: promotion decision must remain refused")
+    require(
+        observation.get("claim_ceiling") == "existing_input_observation_only_no_acceptance_execution_ts_or_selectivity_claim",
+        "metal input observation: claim ceiling was widened",
+    )
+    parser = observation.get("parser", {})
+    require(
+        parser.get("parser_id") == "auto_g16_asymmetric_metal_input_observer_v1"
+        and parser.get("scope") == "offline_read_only_existing_input_observation"
+        and parser.get("renders_input") is False,
+        "metal input observation: parser scope or rendering refusal changed",
+    )
+
+    identity = observation.get("identity_binding", {})
+    atom_order = identity.get("atom_order", [])
+    require(
+        [item.get("index") for item in atom_order] == list(range(1, len(atom_order) + 1)),
+        "metal input observation: atom order must be contiguous and one-based",
+    )
+    require(identity.get("atom_count") == len(atom_order), "metal input observation: atom count differs from atom order")
+    for atom in atom_order:
+        require(
+            ATOMIC_NUMBERS.get(atom.get("element")) == atom.get("atomic_number"),
+            "metal input observation: atomic number and element differ",
+        )
+    require(
+        identity.get("identity_observation_status") == "matched_candidate_template_review",
+        "metal input observation: exact identity match is not established",
+    )
+
+    parsed = observation.get("input_observations", {})
+    require(parsed.get("charge") == identity.get("charge"), "metal input observation: parsed charge differs from identity")
+    require(parsed.get("multiplicity") == identity.get("multiplicity"), "metal input observation: parsed multiplicity differs from identity")
+    require(parsed.get("atom_count") == len(atom_order), "metal input observation: parsed atom count differs from identity")
+    require(parsed.get("atom_order") == atom_order, "metal input observation: parsed atom order differs from identity")
+    route = parsed.get("route_text", "")
+    require(isinstance(route, str) and route.startswith("#"), "metal input observation: route observation is malformed")
+    require(
+        parsed.get("route_sha256") == hashlib.sha256(route.encode("utf-8")).hexdigest(),
+        "metal input observation: route hash mismatch",
+    )
+    route_lower = route.lower()
+    task = parsed.get("task_text_observations", {})
+    expected_task = {
+        "opt_text_observed": re.search(r"(?i)(?:^|[\s,(])opt(?:[\s,=(]|$)", route) is not None,
+        "freq_text_observed": re.search(r"(?i)(?:^|[\s,(])freq(?:[\s,=(]|$)", route) is not None,
+        "ts_text_observed": re.search(r"(?i)(?:^|[\s,(])ts(?:[\s,)=]|$)", route) is not None,
+        "geom_check_text_observed": "geom=check" in route_lower or "geom=allcheck" in route_lower,
+        "gen_or_genecp_text_observed": re.search(r"(?i)(?:^|[\s/])gen(?:ecp)?(?:[\s,]|$)", route) is not None,
+    }
+    require(task == expected_task, "metal input observation: task-text flags differ from the observed route")
+    require(task.get("geom_check_text_observed") is False, "metal input observation: Geom=Check/AllCheck ambiguity was accepted")
+    require(parsed.get("explicit_cartesian_geometry_status") == "parsed", "metal input observation: explicit Cartesian geometry was not parsed")
+    require(parsed.get("protocol_selection_binding_status") == "absent_not_accepted", "metal input observation: protocol binding was inferred")
+    require(parsed.get("remote_path_validation_status") == "not_performed_offline_no_execution_authority", "metal input observation: remote path safety was inferred")
+    trailing_count = parsed.get("trailing_section_line_count")
+    trailing_hash = parsed.get("trailing_section_sha256")
+    require(
+        isinstance(trailing_count, int) and not isinstance(trailing_count, bool) and trailing_count >= 0,
+        "metal input observation: trailing-section line count is invalid",
+    )
+    require(
+        (trailing_count == 0 and trailing_hash is None)
+        or (trailing_count > 0 and isinstance(trailing_hash, str) and HASH_RE.fullmatch(trailing_hash) is not None),
+        "metal input observation: trailing-section hash/count mismatch",
+    )
+    directives = parsed.get("link0_directives", [])
+    keys = [item.get("key") for item in directives]
+    require(len(keys) == len(set(keys)), "metal input observation: duplicate Link 0 directive")
+    absolute_path = re.compile(r"^(?:/|[A-Za-z]:[\\/])")
+    expected_absolute = any(absolute_path.match(str(item.get("value", ""))) is not None for item in directives)
+    require(
+        parsed.get("contains_absolute_link0_path_observed") is expected_absolute,
+        "metal input observation: absolute Link 0 path flag mismatch",
+    )
+
+    review_binding = observation.get("review_binding", {})
+    require(
+        review_binding.get("scientific_acceptance_decision") == "not_granted_by_artifact",
+        "metal input observation: bound review granted scientific acceptance",
+    )
+    sections = observation.get("audit_sections", {})
+    require(set(sections) == METAL_REVIEW_SECTIONS, "metal input observation: audit-section inventory is incomplete")
+    require(
+        all(item.get("status") == "blocked_pending_review" and item.get("reason") for item in sections.values()),
+        "metal input observation: a scientific review section was bypassed",
+    )
+    completion = observation.get("completion", {})
+    require(completion.get("metal_m2c_input_observation") == "implemented_offline", "metal input observation: M2c status is invalid")
+    require(completion.get("metal_m2_offline_runtime_contract") == "blocked", "metal input observation: M2 runtime contract was widened")
+    require(completion.get("metal_m3_execution_boundary") == "blocked", "metal input observation: M3 execution boundary was widened")
+    require(completion.get("metal_m4_live_smoke") == "blocked", "metal input observation: M4 live smoke was widened")
+    require(observation.get("diagnostics") and observation.get("hard_rejections"), "metal input observation: refusal evidence is missing")
+
+    if template is not None:
+        require(template_path is not None, "metal input observation: template_path is required with a template")
+        validate_metal_ts_audit_template(template)
+        require(observation.get("template_source", {}).get("sha256") == sha256(template_path), "metal input observation: template hash mismatch")
+        for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+            require(observation.get(key) == template.get(key), f"metal input observation: template {key} mismatch")
+        template_order = [
+            {"index": item.get("index"), "element": item.get("element")}
+            for item in template.get("identity_binding", {}).get("atom_order", [])
+        ]
+        observed_order = [{"index": item.get("index"), "element": item.get("element")} for item in atom_order]
+        require(observed_order == template_order, "metal input observation: template atom order mismatch")
+        require(identity.get("charge") == template.get("identity_binding", {}).get("charge"), "metal input observation: template charge mismatch")
+        require(identity.get("multiplicity") == template.get("identity_binding", {}).get("multiplicity"), "metal input observation: template multiplicity mismatch")
+
+    if candidate is not None:
+        require(candidate_path is not None, "metal input observation: candidate_path is required with a candidate")
+        validate_structure(candidate, "candidate")
+        require(candidate.get("support_status") == "unsupported_transition_metal", "metal input observation: candidate is not an unsupported metal case")
+        require(candidate.get("review_status") != "promoted_offline", "metal input observation: unsupported candidate was promoted")
+        require(observation.get("candidate_source", {}).get("sha256") == sha256(candidate_path), "metal input observation: candidate hash mismatch")
+        candidate_order = [
+            {"index": item.get("index"), "element": item.get("element")}
+            for item in candidate.get("atom_map", [])
+        ]
+        observed_order = [{"index": item.get("index"), "element": item.get("element")} for item in atom_order]
+        require(observed_order == candidate_order, "metal input observation: candidate atom order mismatch")
+        require(identity.get("charge") == candidate.get("chemical_state", {}).get("charge"), "metal input observation: candidate charge mismatch")
+        require(identity.get("multiplicity") == candidate.get("chemical_state", {}).get("multiplicity"), "metal input observation: candidate multiplicity mismatch")
+
+    if scientific_review is not None:
+        require(scientific_review_path is not None, "metal input observation: scientific_review_path is required with a review")
+        validate_metal_scientific_review(scientific_review)
+        require(
+            observation.get("scientific_review_source", {}).get("sha256") == sha256(scientific_review_path),
+            "metal input observation: scientific-review hash mismatch",
+        )
+        require(review_binding.get("review_id") == scientific_review.get("review_id"), "metal input observation: review ID mismatch")
+        require(review_binding.get("review_status") == scientific_review.get("status"), "metal input observation: review status mismatch")
+        require(
+            review_binding.get("metal_m1_scientific_review_status")
+            == scientific_review.get("completion", {}).get("metal_m1_scientific_review_status"),
+            "metal input observation: M1 status mismatch",
+        )
+        for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+            require(observation.get(key) == scientific_review.get(key), f"metal input observation: review {key} mismatch")
+
+    if input_path is not None:
+        require(input_path.is_file() and not input_path.is_symlink(), "metal input observation: input must be a regular non-symlink file")
+        require(observation.get("input_source", {}).get("sha256") == sha256(input_path), "metal input observation: input hash mismatch")
+
+
+def _validate_metal_acceptance_sections(
+    sections: Any,
+    scientific_review: dict[str, Any] | None = None,
+    input_observation: dict[str, Any] | None = None,
+    result_observation: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    require(isinstance(sections, dict) and set(sections) == METAL_ACCEPTANCE_SECTIONS, "metal acceptance: section inventory is incomplete")
+    fact_fields = {
+        "wavefunction": {"observed_s2_count", "stability_statement_observed", "spin_contamination_assessment", "occupation_assessment", "alternative_solution_assessment", "multireference_assessment"},
+        "coordination": {"contact_assessments", "hapticity_assessment", "ligand_inventory_assessment", "unintended_state_change"},
+        "mode": {"raw_imaginary_frequency_count", "mode_evidence_sha256", "intended_coordinate_assessment", "unintended_coordination_loss_assessment"},
+        "input_acceptance": {"input_sha256", "protocol_options_sha256", "protocol_selection_sha256", "input_approval_sha256", "input_result_lineage_sha256", "exact_input_hash_confirmed", "route_reviewed", "element_basis_ecp_coverage_reviewed", "solvent_thermochemistry_reviewed", "resource_and_server_path_reviewed"},
+    }
+    decisions: dict[str, str] = {}
+    for name in sorted(METAL_ACCEPTANCE_SECTIONS):
+        section = sections[name]
+        require(isinstance(section, dict) and set(section) == {"decision", "facts", "evidence", "review_notes", "blockers"}, f"metal acceptance: {name} section fields are incomplete")
+        decision = section.get("decision")
+        require(decision in METAL_ACCEPTANCE_DECISIONS, f"metal acceptance: {name} decision is invalid")
+        decisions[name] = decision
+        facts = section.get("facts")
+        require(isinstance(facts, dict) and set(facts) == fact_fields[name], f"metal acceptance: {name} facts are incomplete")
+        evidence = section.get("evidence")
+        require(isinstance(evidence, list), f"metal acceptance: {name} evidence must be an array")
+        evidence_ids: set[str] = set()
+        for item in evidence:
+            require(isinstance(item, dict) and set(item) == {"evidence_id", "evidence_kind", "sha256", "locator"}, f"metal acceptance: {name} evidence record is invalid")
+            evidence_id = item.get("evidence_id")
+            require(isinstance(evidence_id, str) and ID_RE.fullmatch(evidence_id) is not None and evidence_id not in evidence_ids, f"metal acceptance: {name} evidence ID is invalid or duplicate")
+            evidence_ids.add(evidence_id)
+            require(item.get("evidence_kind") in {"synthetic_fixture", "reviewer_record", "mode_displacement", "protocol_artifact", "input_approval", "coordination_review", "wavefunction_review"}, f"metal acceptance: {name} evidence kind is invalid")
+            value = item.get("sha256")
+            require(value is None or (isinstance(value, str) and HASH_RE.fullmatch(value) is not None), f"metal acceptance: {name} evidence hash is invalid")
+            require(isinstance(item.get("locator"), str) and item["locator"].strip(), f"metal acceptance: {name} evidence locator is missing")
+        require(isinstance(section.get("review_notes"), str) and section["review_notes"].strip(), f"metal acceptance: {name} review notes are missing")
+        blockers = section.get("blockers")
+        require(isinstance(blockers, list) and all(isinstance(item, str) and item.strip() for item in blockers), f"metal acceptance: {name} blockers are invalid")
+        if decision == "blocked_missing_evidence":
+            require(blockers, f"metal acceptance: {name} blocked decision lacks blockers")
+        else:
+            require(evidence and all(item.get("sha256") is not None for item in evidence), f"metal acceptance: {name} reviewed decision lacks hash-bound evidence")
+        if decision == "accepted_for_bounded_offline_review":
+            require(not blockers, f"metal acceptance: {name} accepted decision retains blockers")
+            if scientific_review is not None:
+                m1_name = {"wavefunction": "wavefunction", "coordination": "coordination", "mode": "ts_and_path", "input_acceptance": "method_protocol"}[name]
+                require(scientific_review.get("sections", {}).get(m1_name, {}).get("status") == "reviewed_for_bounded_example", f"metal acceptance: {name} accepted while M1 is blocked")
+
+    wave = sections["wavefunction"]["facts"]
+    if result_observation is not None:
+        observed = result_observation.get("wavefunction_observations", {})
+        require(wave.get("observed_s2_count") in {None, len(observed.get("s2_observations", []))}, "metal acceptance: wavefunction S2 count mismatch")
+        require(wave.get("stability_statement_observed") in {None, observed.get("stability_statement_observed")}, "metal acceptance: stability observation mismatch")
+    if decisions["wavefunction"] == "accepted_for_bounded_offline_review":
+        require(wave.get("stability_statement_observed") is True, "metal acceptance: wavefunction accepted without stability evidence")
+        require(all(isinstance(wave.get(key), str) and wave[key].strip() for key in ("spin_contamination_assessment", "occupation_assessment", "alternative_solution_assessment", "multireference_assessment")), "metal acceptance: wavefunction accepted without full assessments")
+
+    coordination = sections["coordination"]["facts"]
+    contacts = coordination.get("contact_assessments")
+    require(isinstance(contacts, list), "metal acceptance: coordination contacts must be an array")
+    if result_observation is not None and contacts:
+        expected = result_observation.get("coordination_observations", {}).get("contacts", [])
+        keys = ("donor_atom", "acceptor_atom", "kind", "initial_distance_angstrom", "final_distance_angstrom")
+        require([{key: item.get(key) for key in keys} for item in contacts] == [{key: item.get(key) for key in keys} for item in expected], "metal acceptance: coordination observation mismatch")
+    if decisions["coordination"] == "accepted_for_bounded_offline_review":
+        if result_observation is not None:
+            require(len(contacts) == len(result_observation.get("coordination_observations", {}).get("contacts", [])), "metal acceptance: coordination contact coverage mismatch")
+        require(all(item.get("within_reviewed_window") is True for item in contacts), "metal acceptance: coordination accepted with an unpassed contact")
+        require(coordination.get("unintended_state_change") is False, "metal acceptance: coordination accepted an unintended state change")
+        require(all(isinstance(coordination.get(key), str) and coordination[key].strip() for key in ("hapticity_assessment", "ligand_inventory_assessment")), "metal acceptance: coordination accepted without inventory review")
+
+    mode = sections["mode"]["facts"]
+    if result_observation is not None:
+        count = result_observation.get("frequency_observations", {}).get("raw_imaginary_frequency_count")
+        require(mode.get("raw_imaginary_frequency_count") in {None, count}, "metal acceptance: mode frequency count mismatch")
+    if decisions["mode"] == "accepted_for_bounded_offline_review":
+        require(mode.get("raw_imaginary_frequency_count") == 1, "metal acceptance: mode requires exactly one imaginary frequency")
+        require(isinstance(mode.get("mode_evidence_sha256"), str) and HASH_RE.fullmatch(mode["mode_evidence_sha256"]) is not None, "metal acceptance: mode evidence hash is missing")
+        require(all(isinstance(mode.get(key), str) and mode[key].strip() for key in ("intended_coordinate_assessment", "unintended_coordination_loss_assessment")), "metal acceptance: mode accepted without displacement assessments")
+
+    input_facts = sections["input_acceptance"]["facts"]
+    if input_observation is not None:
+        require(input_facts.get("input_sha256") in {None, input_observation.get("input_source", {}).get("sha256")}, "metal acceptance: exact input hash mismatch")
+    if decisions["input_acceptance"] == "accepted_for_bounded_offline_review":
+        for key in ("input_sha256", "protocol_options_sha256", "protocol_selection_sha256", "input_approval_sha256", "input_result_lineage_sha256"):
+            require(isinstance(input_facts.get(key), str) and HASH_RE.fullmatch(input_facts[key]) is not None, f"metal acceptance: input {key} is missing")
+        for key in ("exact_input_hash_confirmed", "route_reviewed", "element_basis_ecp_coverage_reviewed", "solvent_thermochemistry_reviewed", "resource_and_server_path_reviewed"):
+            require(input_facts.get(key) is True, f"metal acceptance: input {key} was not reviewed")
+    return decisions
+
+
+def validate_metal_acceptance_review_source(source: dict[str, Any]) -> None:
+    validate_structure(source, "metal-acceptance-review-source")
+    _validate_metal_acceptance_sections(source.get("sections"))
+
+
+def validate_metal_acceptance_review(
+    review: dict[str, Any],
+    template: dict[str, Any] | None = None, template_path: Path | None = None,
+    candidate: dict[str, Any] | None = None, candidate_path: Path | None = None,
+    scientific_review: dict[str, Any] | None = None, scientific_review_path: Path | None = None,
+    input_observation: dict[str, Any] | None = None, input_observation_path: Path | None = None,
+    result_observation: dict[str, Any] | None = None, result_observation_path: Path | None = None,
+    decision_source: dict[str, Any] | None = None, decision_source_path: Path | None = None,
+) -> None:
+    validate_structure(review, "metal-acceptance-review")
+    expected_payload = payload_sha256({key: value for key, value in review.items() if key != "review_payload_sha256"})
+    require(review.get("review_payload_sha256") == expected_payload, "metal acceptance review: payload hash mismatch")
+    require(review.get("calculation_ready") is False and review.get("no_submission_authorization") is True, "metal acceptance review: offline refusal flags changed")
+    require(review.get("runtime_support_status") == "unsupported_requires_extension", "metal acceptance review: runtime support was widened")
+    for field in ("scientific_acceptance_decision", "input_acceptance_decision", "mode_acceptance_decision"):
+        require(review.get(field) == "not_granted_by_artifact", f"metal acceptance review: {field} was granted")
+    require(review.get("promotion_decision") == "refused" and review.get("submission_decision") == "refused", "metal acceptance review: promotion or submission was granted")
+    require(review.get("claim_ceiling") == "manual_decision_record_only_no_runtime_promotion_ts_path_or_selectivity_claim", "metal acceptance review: claim ceiling was widened")
+    decisions = _validate_metal_acceptance_sections(review.get("sections"), scientific_review, input_observation, result_observation)
+    accepted = sorted(name for name, value in decisions.items() if value == "accepted_for_bounded_offline_review")
+    rejected = sorted(name for name, value in decisions.items() if value == "rejected_by_reviewer")
+    blocked = sorted(name for name, value in decisions.items() if value == "blocked_missing_evidence")
+    summary = review.get("decision_summary", {})
+    require(summary.get("accepted_sections") == accepted and summary.get("rejected_sections") == rejected and summary.get("blocked_sections") == blocked, "metal acceptance review: decision summary mismatch")
+    all_accepted = len(accepted) == len(METAL_ACCEPTANCE_SECTIONS)
+    expected_m2 = "not_satisfied_synthetic_fixture" if all_accepted and review.get("scope", {}).get("scope_kind") == "synthetic_nonresearch_fixture" else "reviewed_bounded_example_runtime_unsupported" if all_accepted else "reviewer_rejected" if rejected else "pending_acceptance_review"
+    require(summary.get("metal_m2_acceptance_review_status") == expected_m2, "metal acceptance review: M2 status mismatch")
+    expected_status = "acceptance_record_complete_runtime_unsupported" if all_accepted else "acceptance_record_contains_rejection_runtime_unsupported" if rejected else "blocked_incomplete_acceptance_review"
+    require(review.get("status") == expected_status, "metal acceptance review: top-level status mismatch")
+    completion = review.get("completion", {})
+    require(completion.get("metal_m2d_acceptance_review_contract") == "implemented_offline" and completion.get("metal_m2_offline_runtime_contract") == "blocked" and completion.get("metal_m3_execution_boundary") == "blocked" and completion.get("metal_m4_live_smoke") == "blocked", "metal acceptance review: downstream boundary was widened")
+    identity = review.get("identity_binding", {})
+    order = identity.get("atom_order", [])
+    require([item.get("index") for item in order] == list(range(1, len(order) + 1)) and identity.get("atom_count") == len(order), "metal acceptance review: atom order/count mismatch")
+    require(all(ATOMIC_NUMBERS.get(item.get("element")) == item.get("atomic_number") for item in order), "metal acceptance review: atomic number/element mismatch")
+    require(review.get("hard_rejections"), "metal acceptance review: hard rejections are missing")
+
+    artifacts = (
+        (template, template_path, "template_source", validate_metal_ts_audit_template),
+        (candidate, candidate_path, "candidate_source", lambda value: validate_structure(value, "candidate")),
+        (scientific_review, scientific_review_path, "scientific_review_source", validate_metal_scientific_review),
+        (input_observation, input_observation_path, "input_observation_source", validate_metal_input_observation),
+        (result_observation, result_observation_path, "result_observation_source", validate_metal_result_observation),
+        (decision_source, decision_source_path, "decision_source", validate_metal_acceptance_review_source),
+    )
+    for artifact, path, binding, validator in artifacts:
+        if artifact is None:
+            continue
+        require(path is not None, f"metal acceptance review: {binding} path is required")
+        validator(artifact)
+        require(review.get(binding, {}).get("sha256") == sha256(path), f"metal acceptance review: {binding} hash mismatch")
+    if candidate is not None:
+        require(candidate.get("support_status") == "unsupported_transition_metal" and candidate.get("review_status") != "promoted_offline", "metal acceptance review: candidate support boundary changed")
+        require(identity.get("charge") == candidate.get("chemical_state", {}).get("charge") and identity.get("multiplicity") == candidate.get("chemical_state", {}).get("multiplicity"), "metal acceptance review: candidate charge/multiplicity mismatch")
+        require([{"index": item.get("index"), "element": item.get("element")} for item in order] == [{"index": item.get("index"), "element": item.get("element")} for item in candidate.get("atom_map", [])], "metal acceptance review: candidate atom order mismatch")
+    for artifact in (template, candidate, scientific_review, input_observation, result_observation, decision_source):
+        if artifact is None:
+            continue
+        for key in ("study_id", "candidate_id", "mechanism_id", "channel_id", "catalyst_state_id"):
+            if key in artifact:
+                require(review.get(key) == artifact.get(key), f"metal acceptance review: {key} lineage mismatch")
+    if decision_source is not None:
+        require(review.get("review_id") == decision_source.get("review_id") and review.get("scope") == decision_source.get("scope") and review.get("sections") == decision_source.get("sections"), "metal acceptance review: decision source content drift")
 
 
 def validate_smoke_proposal(
@@ -956,6 +1751,12 @@ def main() -> int:
         "materializations": validate_materializations,
         "metal-support": validate_metal_support,
         "metal-ts-audit-template": validate_metal_ts_audit_template,
+        "metal-scientific-review-source": validate_metal_scientific_review_source,
+        "metal-scientific-review": validate_metal_scientific_review,
+        "metal-input-observation": validate_metal_input_observation,
+        "metal-result-observation": validate_metal_result_observation,
+        "metal-acceptance-review-source": validate_metal_acceptance_review_source,
+        "metal-acceptance-review": validate_metal_acceptance_review,
         "smoke-proposal": validate_smoke_proposal,
         "live-smoke-evidence": validate_live_smoke_evidence,
         "literature-benchmark": validate_literature_benchmark,

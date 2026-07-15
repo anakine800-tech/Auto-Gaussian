@@ -230,7 +230,11 @@ class AsymmetricBuilderTests(unittest.TestCase):
                 if item["status"] == "implemented_offline"
             }
             self.assertEqual(implemented, {
-                "metal_m0_offline_design", "metal_m2a_candidate_audit_template",
+                "metal_m0_offline_design", "metal_m1_review_contract",
+                "metal_m2a_candidate_audit_template",
+                "metal_m2b_result_observation",
+                "metal_m2c_input_observation",
+                "metal_m2d_acceptance_review_contract",
             })
             audit_template_path = root / "metal-ts-audit-template.json"
             audit_template = ASYM.build_metal_ts_audit_template(
@@ -254,12 +258,489 @@ class AsymmetricBuilderTests(unittest.TestCase):
                 contact["distance_window_angstrom"] is None
                 for contact in audit_template["identity_binding"]["coordination_contacts"]
             ))
+            review_path = root / "metal-scientific-review.json"
+            review = ASYM.build_metal_scientific_review(
+                metal,
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_scientific_review_complete.json",
+                review_path,
+            )
+            second_review_path = root / "metal-scientific-review-second.json"
+            ASYM.build_metal_scientific_review(
+                metal,
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_scientific_review_complete.json",
+                second_review_path,
+            )
+            self.assertEqual(review_path.read_bytes(), second_review_path.read_bytes())
+            self.assertEqual(review["status"], "review_contract_complete_runtime_unsupported")
+            self.assertEqual(review["scientific_acceptance_decision"], "not_granted_by_artifact")
+            self.assertEqual(
+                review["completion"]["metal_m1_scientific_review_status"],
+                "not_satisfied_synthetic_fixture",
+            )
+            self.assertFalse(review["literature_values_are_defaults"])
+            self.assertFalse(review["calculation_ready"])
+
+            input_observation_path = root / "metal-input-observation.json"
+            input_observation = ASYM.audit_metal_input_observation(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                review_path,
+                FIXTURES / "metal_input_observation.gjf",
+                input_observation_path,
+            )
+            second_input_observation_path = root / "metal-input-observation-second.json"
+            ASYM.audit_metal_input_observation(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                review_path,
+                FIXTURES / "metal_input_observation.gjf",
+                second_input_observation_path,
+            )
+            self.assertEqual(input_observation_path.read_bytes(), second_input_observation_path.read_bytes())
+            self.assertEqual(input_observation["status"], "parsed_input_observation_blocked")
+            self.assertEqual(input_observation["input_acceptance_decision"], "not_granted_by_artifact")
+            self.assertEqual(input_observation["protocol_selection_decision"], "absent_not_authorized")
+            self.assertEqual(input_observation["promotion_decision"], "refused")
+            self.assertEqual(input_observation["submission_decision"], "refused")
+            self.assertFalse(input_observation["parser"]["renders_input"])
+            self.assertEqual(input_observation["input_observations"]["atom_count"], 7)
+            self.assertTrue(input_observation["input_observations"]["task_text_observations"]["ts_text_observed"])
+            self.assertTrue(all(
+                section["status"] == "blocked_pending_review"
+                for section in input_observation["audit_sections"].values()
+            ))
+
+            incomplete_review_path = root / "metal-scientific-review-incomplete.json"
+            incomplete_review = ASYM.build_metal_scientific_review(
+                metal,
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_scientific_review_incomplete.json",
+                incomplete_review_path,
+            )
+            self.assertEqual(incomplete_review["status"], "blocked_incomplete_scientific_review")
+            self.assertEqual(len(incomplete_review["completion"]["blocked_sections"]), 6)
+            self.assertIsNone(
+                incomplete_review["sections"]["electron_accounting"]["facts"]["total_valence_electron_count"]
+            )
+            incomplete_input_observation = ASYM.audit_metal_input_observation(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                incomplete_review_path,
+                FIXTURES / "metal_input_observation.gjf",
+                root / "metal-input-observation-incomplete-m1.json",
+            )
+            self.assertEqual(
+                incomplete_input_observation["review_binding"]["metal_m1_scientific_review_status"],
+                "pending_scientific_review",
+            )
+            self.assertEqual(
+                incomplete_input_observation["input_acceptance_decision"],
+                "not_granted_by_artifact",
+            )
+            observation_path = root / "metal-result-observation.json"
+            observation = ASYM.audit_metal_result_observation(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_observation_success.txt",
+                observation_path,
+            )
+            second_observation_path = root / "metal-result-observation-second.json"
+            ASYM.audit_metal_result_observation(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_observation_success.txt",
+                second_observation_path,
+            )
+            self.assertEqual(observation_path.read_bytes(), second_observation_path.read_bytes())
+            self.assertEqual(observation["status"], "parsed_observation_blocked")
+            self.assertFalse(observation["calculation_ready"])
+            self.assertEqual(observation["promotion_decision"], "refused")
+            self.assertEqual(observation["frequency_observations"]["raw_imaginary_frequency_count"], 1)
+            self.assertTrue(observation["frequency_observations"]["exactly_one_raw_imaginary_observed"])
+            self.assertEqual(observation["frequency_observations"]["mode_review_status"], "not_performed")
+            self.assertTrue(all(
+                section["status"] == "blocked_pending_review"
+                for section in observation["audit_sections"].values()
+            ))
+            self.assertTrue(all(
+                contact["review_status"] == "observed_unreviewed_no_window"
+                for contact in observation["coordination_observations"]["contacts"]
+            ))
+            acceptance_path = root / "metal-acceptance-review.json"
+            acceptance = ASYM.build_metal_acceptance_review(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                review_path,
+                input_observation_path,
+                observation_path,
+                FIXTURES / "metal_acceptance_review_complete.json",
+                acceptance_path,
+            )
+            second_acceptance_path = root / "metal-acceptance-review-second.json"
+            ASYM.build_metal_acceptance_review(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                review_path,
+                input_observation_path,
+                observation_path,
+                FIXTURES / "metal_acceptance_review_complete.json",
+                second_acceptance_path,
+            )
+            self.assertEqual(acceptance_path.read_bytes(), second_acceptance_path.read_bytes())
+            self.assertEqual(acceptance["status"], "acceptance_record_complete_runtime_unsupported")
+            self.assertEqual(acceptance["decision_summary"]["metal_m2_acceptance_review_status"], "not_satisfied_synthetic_fixture")
+            self.assertEqual(acceptance["scientific_acceptance_decision"], "not_granted_by_artifact")
+            self.assertEqual(acceptance["input_acceptance_decision"], "not_granted_by_artifact")
+            self.assertEqual(acceptance["mode_acceptance_decision"], "not_granted_by_artifact")
+            self.assertEqual(acceptance["promotion_decision"], "refused")
+
+            incomplete_acceptance = ASYM.build_metal_acceptance_review(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                review_path,
+                input_observation_path,
+                observation_path,
+                FIXTURES / "metal_acceptance_review_incomplete.json",
+                root / "metal-acceptance-review-incomplete.json",
+            )
+            self.assertEqual(incomplete_acceptance["status"], "blocked_incomplete_acceptance_review")
+            self.assertEqual(len(incomplete_acceptance["decision_summary"]["blocked_sections"]), 4)
+            serialized_observation = observation_path.read_text(encoding="utf-8").lower()
+            for forbidden in ("qsub", "#p ", "/home/user100/sdl", "gaussian-asymmetric-ts-result/1"):
+                self.assertNotIn(forbidden, serialized_observation)
+
+            incomplete_path = root / "metal-result-incomplete.json"
+            incomplete = ASYM.audit_metal_result_observation(
+                audit_template_path,
+                FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_observation_incomplete.txt",
+                incomplete_path,
+            )
+            self.assertEqual(incomplete["termination_observations"]["error_termination_count"], 1)
+            self.assertEqual(incomplete["frequency_observations"]["frequency_count"], 0)
+            self.assertEqual(incomplete["status"], "parsed_observation_blocked")
             self.assertEqual(proposal["status"], "planned_not_submitted")
             self.assertFalse(proposal["calculation_ready"])
             self.assertEqual(proposal["chemical_system"]["candidate_id"], "wang2024_bf3_ts1")
             self.assertIsNone(proposal["proposed_gaussian"]["route"])
             with self.assertRaisesRegex(ASYM.OfflineError, "priority-1"):
                 ASYM.propose_smoke(WANG_BF3 / "candidate-ledger.json", "wang2024_bf3_ts2_b1", root / "forbidden-smoke.json")
+
+    def test_metal_input_observation_rejects_identity_route_and_authority_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            design_path = root / "metal-support.json"
+            template_path = root / "metal-template.json"
+            review_path = root / "metal-review.json"
+            ASYM.design_metal_support(FIXTURES / "metal_study.json", design_path)
+            ASYM.build_metal_ts_audit_template(
+                design_path, FIXTURES / "metal_candidate.json", template_path
+            )
+            ASYM.build_metal_scientific_review(
+                design_path,
+                template_path,
+                FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_scientific_review_complete.json",
+                review_path,
+            )
+            source = (FIXTURES / "metal_input_observation.gjf").read_text(encoding="utf-8")
+
+            wrong_charge = root / "wrong-charge.gjf"
+            wrong_charge.write_text(source.replace("\n0 1\nPd", "\n1 1\nPd"), encoding="utf-8")
+            with self.assertRaisesRegex(ASYM.OfflineError, "charge/multiplicity differs"):
+                ASYM.audit_metal_input_observation(
+                    template_path, FIXTURES / "metal_candidate.json", review_path,
+                    wrong_charge, root / "wrong-charge.json",
+                )
+
+            wrong_order = root / "wrong-order.gjf"
+            wrong_order.write_text(
+                source.replace("P   2.000000", "C   2.000000", 1), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ASYM.OfflineError, "atom order differs"):
+                ASYM.audit_metal_input_observation(
+                    template_path, FIXTURES / "metal_candidate.json", review_path,
+                    wrong_order, root / "wrong-order.json",
+                )
+
+            link1 = root / "link1.gjf"
+            link1.write_text(source + "\n--Link1--\n", encoding="utf-8")
+            with self.assertRaisesRegex(ASYM.OfflineError, "multi-step"):
+                ASYM.audit_metal_input_observation(
+                    template_path, FIXTURES / "metal_candidate.json", review_path,
+                    link1, root / "link1.json",
+                )
+
+            geom_check = root / "geom-check.gjf"
+            geom_check.write_text(
+                source.replace("#p synthetic_fixture", "#p synthetic_fixture geom=check"),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ASYM.OfflineError, "Geom=Check"):
+                ASYM.audit_metal_input_observation(
+                    template_path, FIXTURES / "metal_candidate.json", review_path,
+                    geom_check, root / "geom-check.json",
+                )
+
+            absolute_and_trailing = root / "absolute-and-trailing.gjf"
+            absolute_and_trailing.write_text(
+                source.replace(
+                    "%chk=synthetic_metal_fixture.chk",
+                    "%chk=/outside_unvalidated/fixture.chk",
+                ) + "\nPd 0\n****\n",
+                encoding="utf-8",
+            )
+            edge_observation = ASYM.audit_metal_input_observation(
+                template_path, FIXTURES / "metal_candidate.json", review_path,
+                absolute_and_trailing, root / "absolute-and-trailing.json",
+            )
+            self.assertTrue(
+                edge_observation["input_observations"]["contains_absolute_link0_path_observed"]
+            )
+            self.assertEqual(edge_observation["input_observations"]["trailing_section_line_count"], 2)
+            self.assertIsNotNone(edge_observation["input_observations"]["trailing_section_sha256"])
+            self.assertEqual(
+                edge_observation["input_observations"]["remote_path_validation_status"],
+                "not_performed_offline_no_execution_authority",
+            )
+
+            widened_review = json.loads(review_path.read_text(encoding="utf-8"))
+            widened_review["scientific_acceptance_decision"] = "accepted"
+            widened_review["review_payload_sha256"] = ASYM.sha256_data({
+                key: value for key, value in widened_review.items()
+                if key != "review_payload_sha256"
+            })
+            widened_review_path = root / "widened-review.json"
+            widened_review_path.write_text(
+                json.dumps(widened_review, sort_keys=True), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ASYM.OfflineError, "widened authority"):
+                ASYM.audit_metal_input_observation(
+                    template_path, FIXTURES / "metal_candidate.json", widened_review_path,
+                    FIXTURES / "metal_input_observation.gjf", root / "widened.json",
+                )
+
+    def test_metal_result_observation_rejects_identity_and_lineage_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            design_path = root / "metal-support.json"
+            template_path = root / "metal-template.json"
+            ASYM.design_metal_support(FIXTURES / "metal_study.json", design_path)
+            ASYM.build_metal_ts_audit_template(
+                design_path, FIXTURES / "metal_candidate.json", template_path
+            )
+
+            wrong_charge = root / "wrong-charge.log"
+            wrong_charge.write_text(
+                (FIXTURES / "metal_observation_success.txt").read_text(encoding="utf-8").replace(
+                    "Charge = 0 Multiplicity = 1", "Charge = 1 Multiplicity = 1"
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ASYM.OfflineError, "charge/multiplicity differs"):
+                ASYM.audit_metal_result_observation(
+                    template_path, FIXTURES / "metal_candidate.json", wrong_charge,
+                    root / "wrong-charge.json",
+                )
+
+            wrong_order = root / "wrong-order.log"
+            wrong_order.write_text(
+                (FIXTURES / "metal_observation_success.txt").read_text(encoding="utf-8").replace(
+                    "      1         46           0", "      1         15           0"
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ASYM.OfflineError, "atom order differs"):
+                ASYM.audit_metal_result_observation(
+                    template_path, FIXTURES / "metal_candidate.json", wrong_order,
+                    root / "wrong-order.json",
+                )
+
+            tampered_template = json.loads(template_path.read_text(encoding="utf-8"))
+            tampered_template["candidate_id"] = "metal_ts_drifted"
+            tampered_path = root / "tampered-template.json"
+            dump(tampered_path, tampered_template)
+            with self.assertRaisesRegex(ASYM.OfflineError, "payload hash mismatch"):
+                ASYM.audit_metal_result_observation(
+                    tampered_path, FIXTURES / "metal_candidate.json",
+                    FIXTURES / "metal_observation_success.txt", root / "tampered.json",
+                )
+
+            bypassed_template = json.loads(template_path.read_text(encoding="utf-8"))
+            bypassed_template["audit_sections"]["wavefunction"]["status"] = "accepted"
+            bypassed_template["template_payload_sha256"] = ASYM.sha256_data(
+                {
+                    key: value
+                    for key, value in bypassed_template.items()
+                    if key != "template_payload_sha256"
+                }
+            )
+            bypassed_path = root / "bypassed-template.json"
+            dump(bypassed_path, bypassed_template)
+            with self.assertRaisesRegex(ASYM.OfflineError, "bypassed a scientific review gate"):
+                ASYM.audit_metal_result_observation(
+                    bypassed_path, FIXTURES / "metal_candidate.json",
+                    FIXTURES / "metal_observation_success.txt", root / "bypassed.json",
+                )
+
+    def test_metal_acceptance_review_records_rejection_and_refuses_missing_acceptance_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            design = root / "design.json"
+            template = root / "template.json"
+            review = root / "review.json"
+            input_observation = root / "input.json"
+            result_observation = root / "result.json"
+            ASYM.design_metal_support(FIXTURES / "metal_study.json", design)
+            ASYM.build_metal_ts_audit_template(design, FIXTURES / "metal_candidate.json", template)
+            ASYM.build_metal_scientific_review(
+                design, template, FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_scientific_review_complete.json", review,
+            )
+            ASYM.audit_metal_input_observation(
+                template, FIXTURES / "metal_candidate.json", review,
+                FIXTURES / "metal_input_observation.gjf", input_observation,
+            )
+            ASYM.audit_metal_result_observation(
+                template, FIXTURES / "metal_candidate.json",
+                FIXTURES / "metal_observation_success.txt", result_observation,
+            )
+            source = json.loads(
+                (FIXTURES / "metal_acceptance_review_complete.json").read_text(encoding="utf-8")
+            )
+
+            rejected = copy.deepcopy(source)
+            rejected["review_id"] = "fixture_metal_m2_rejected"
+            rejected["sections"]["wavefunction"]["decision"] = "rejected_by_reviewer"
+            rejected["sections"]["wavefunction"]["blockers"] = ["Synthetic reviewer rejection token."]
+            rejected_path = root / "rejected-source.json"
+            dump(rejected_path, rejected)
+            rejected_review = ASYM.build_metal_acceptance_review(
+                template, FIXTURES / "metal_candidate.json", review,
+                input_observation, result_observation, rejected_path,
+                root / "rejected-review.json",
+            )
+            self.assertEqual(rejected_review["status"], "acceptance_record_contains_rejection_runtime_unsupported")
+            self.assertEqual(rejected_review["decision_summary"]["metal_m2_acceptance_review_status"], "reviewer_rejected")
+            self.assertEqual(rejected_review["promotion_decision"], "refused")
+
+            missing_mode = copy.deepcopy(source)
+            missing_mode["review_id"] = "fixture_metal_m2_missing_mode"
+            missing_mode["sections"]["mode"]["facts"]["mode_evidence_sha256"] = None
+            missing_mode_path = root / "missing-mode.json"
+            dump(missing_mode_path, missing_mode)
+            with self.assertRaisesRegex(ASYM.OfflineError, "mode evidence hash"):
+                ASYM.build_metal_acceptance_review(
+                    template, FIXTURES / "metal_candidate.json", review,
+                    input_observation, result_observation, missing_mode_path,
+                    root / "missing-mode-review.json",
+                )
+
+            unreviewed_input = copy.deepcopy(source)
+            unreviewed_input["review_id"] = "fixture_metal_m2_unreviewed_input"
+            unreviewed_input["sections"]["input_acceptance"]["facts"]["route_reviewed"] = False
+            unreviewed_input_path = root / "unreviewed-input.json"
+            dump(unreviewed_input_path, unreviewed_input)
+            with self.assertRaisesRegex(ASYM.OfflineError, "route_reviewed was not reviewed"):
+                ASYM.build_metal_acceptance_review(
+                    template, FIXTURES / "metal_candidate.json", review,
+                    input_observation, result_observation, unreviewed_input_path,
+                    root / "unreviewed-input-review.json",
+                )
+
+            lineage_drift = copy.deepcopy(source)
+            lineage_drift["review_id"] = "fixture_metal_m2_lineage_drift"
+            lineage_drift["source_bindings"]["result_observation_sha256"] = "0" * 64
+            lineage_drift_path = root / "lineage-drift.json"
+            dump(lineage_drift_path, lineage_drift)
+            with self.assertRaisesRegex(ASYM.OfflineError, "hash binding mismatch"):
+                ASYM.build_metal_acceptance_review(
+                    template, FIXTURES / "metal_candidate.json", review,
+                    input_observation, result_observation, lineage_drift_path,
+                    root / "lineage-drift-review.json",
+                )
+
+    def test_metal_scientific_review_rejects_lineage_defaults_and_strategy_bypass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            design_path = root / "metal-support.json"
+            template_path = root / "metal-template.json"
+            ASYM.design_metal_support(FIXTURES / "metal_study.json", design_path)
+            ASYM.build_metal_ts_audit_template(
+                design_path, FIXTURES / "metal_candidate.json", template_path
+            )
+
+            wrong_hash = json.loads(
+                (FIXTURES / "metal_scientific_review_complete.json").read_text(encoding="utf-8")
+            )
+            wrong_hash["candidate_sha256"] = "f" * 64
+            wrong_hash_path = root / "wrong-hash.json"
+            dump(wrong_hash_path, wrong_hash)
+            with self.assertRaisesRegex(ASYM.OfflineError, "candidate hash mismatch"):
+                ASYM.build_metal_scientific_review(
+                    design_path, template_path, FIXTURES / "metal_candidate.json",
+                    wrong_hash_path, root / "wrong-hash-review.json",
+                )
+
+            selected_execution = json.loads(
+                (FIXTURES / "metal_scientific_review_complete.json").read_text(encoding="utf-8")
+            )
+            selected_execution["sections"]["ts_and_path"]["facts"]["execution_selection_status"] = "selected"
+            selected_execution_path = root / "selected-execution.json"
+            dump(selected_execution_path, selected_execution)
+            with self.assertRaisesRegex(ASYM.OfflineError, "must not select an execution strategy"):
+                ASYM.build_metal_scientific_review(
+                    design_path, template_path, FIXTURES / "metal_candidate.json",
+                    selected_execution_path, root / "selected-execution-review.json",
+                )
+
+            outside_strategy = json.loads(
+                (FIXTURES / "metal_scientific_review_complete.json").read_text(encoding="utf-8")
+            )
+            outside_strategy["sections"]["ts_and_path"]["facts"]["reviewed_strategy_candidate_id"] = "mts_outside_inventory"
+            outside_strategy_path = root / "outside-strategy.json"
+            dump(outside_strategy_path, outside_strategy)
+            with self.assertRaisesRegex(ASYM.OfflineError, "differs from the design inventory"):
+                ASYM.build_metal_scientific_review(
+                    design_path, template_path, FIXTURES / "metal_candidate.json",
+                    outside_strategy_path, root / "outside-strategy-review.json",
+                )
+
+            blocked_with_no_reason = json.loads(
+                (FIXTURES / "metal_scientific_review_incomplete.json").read_text(encoding="utf-8")
+            )
+            blocked_with_no_reason["sections"]["method_protocol"]["blockers"] = []
+            blocked_with_no_reason_path = root / "blocked-no-reason.json"
+            dump(blocked_with_no_reason_path, blocked_with_no_reason)
+            with self.assertRaisesRegex(ASYM.OfflineError, "blocked status lacks blockers"):
+                ASYM.build_metal_scientific_review(
+                    design_path, template_path, FIXTURES / "metal_candidate.json",
+                    blocked_with_no_reason_path, root / "blocked-no-reason-review.json",
+                )
+
+            bypassed_template = json.loads(template_path.read_text(encoding="utf-8"))
+            bypassed_template["audit_sections"]["coordination"]["status"] = "accepted"
+            bypassed_template["template_payload_sha256"] = ASYM.sha256_data(
+                {
+                    key: value
+                    for key, value in bypassed_template.items()
+                    if key != "template_payload_sha256"
+                }
+            )
+            bypassed_template_path = root / "review-bypassed-template.json"
+            dump(bypassed_template_path, bypassed_template)
+            with self.assertRaisesRegex(ASYM.OfflineError, "review gate was bypassed"):
+                ASYM.build_metal_scientific_review(
+                    design_path, bypassed_template_path,
+                    FIXTURES / "metal_candidate.json",
+                    FIXTURES / "metal_scientific_review_complete.json",
+                    root / "review-bypassed-template-output.json",
+                )
 
     def test_result_ingestion_refuses_transition_metal_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

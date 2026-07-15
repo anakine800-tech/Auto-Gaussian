@@ -261,16 +261,28 @@ input.
 The versioned extension milestones are:
 
 1. `M0`: deterministic offline state/search design and refusal audit;
-2. `M1`: scientific review of oxidation states, electron counts, spin
+2. `M1-contract`: candidate-bound scientific-review source/output schemas,
+   builder, validator, dry run and refusal tests;
+3. `M1`: real scientific review of oxidation states, electron counts, spin
    surfaces, wavefunctions, coordination states and mechanism families;
-3. `M2a`: candidate-bound offline atom/state/coordination audit template;
-4. `M2`: offline metal-specific structured-result and parser implementation;
-5. `M3`: malformed, wrong-state, wrong-coordination, spin and wavefunction
+4. `M2a`: candidate-bound offline atom/state/coordination audit template;
+5. `M2b`: candidate-bound, observation-only log parser with unconditional
+   scientific-acceptance and promotion refusal;
+6. `M2c`: candidate/template/M1-bound read-only observation of an existing
+   single-step Cartesian Gaussian input, with no rendering, protocol selection
+   or input acceptance;
+7. `M2d`: four-section manual wavefunction, coordination, mode and input-
+   acceptance decision sidecar, with no top-level authority;
+8. `M2`: runtime/promotion contracts beyond the M2b/M2c observers and M2d
+   decision record;
+9. `M3`: malformed, wrong-state, wrong-coordination, spin and wavefunction
    failure fixtures; and
-6. `M4`: a separately approved exact live smoke test.
+10. `M4`: a separately approved exact live smoke test.
 
-`M0` and `M2a` are implemented offline. The submission decision remains unconditionally
-`refused`, including when every review field is filled.
+`M0`, `M1-contract`, `M2a`, `M2b`, `M2c` and the M2d decision contract are
+implemented offline. The real M1/M2 scientific example remains pending.
+Scientific acceptance is never granted; promotion and submission remain
+refused, including when all four synthetic M2d sections are accepted.
 
 ## 8. Chiral-boron-specific design
 
@@ -502,7 +514,21 @@ The implemented contract consists of:
 - `gaussian-asymmetric-metal-support-design/1` — refusal-preserving metal
   scientific design;
 - `gaussian-asymmetric-metal-ts-audit-template/1` — candidate-bound blocked
-  electron/spin/wavefunction/coordination/method/TS audit contract; and
+  electron/spin/wavefunction/coordination/method/TS audit contract;
+- `gaussian-asymmetric-metal-scientific-review-source/1` — reviewer-supplied,
+  exact-lineage M1 values and closed evidence locators;
+- `gaussian-asymmetric-metal-scientific-review/1` — candidate-bound M1 sidecar
+  with no scientific acceptance, promotion, input or execution authority;
+- `gaussian-asymmetric-metal-input-observation/1` — candidate/template/M1-
+  bound read-only facts from an existing single-step Cartesian Gaussian input;
+  route and identity matching grant no protocol, input or execution approval;
+- `gaussian-asymmetric-metal-result-observation/1` — candidate-bound read-only
+  terminal/frequency/`S**2`/stability-text/coordination-distance facts with no
+  TS, promotion, selectivity or execution claim; and
+- `gaussian-asymmetric-metal-acceptance-review-source/1` and
+  `gaussian-asymmetric-metal-acceptance-review/1` — reviewer-authored and
+  candidate-bound four-section M2 decision records with no top-level
+  acceptance, promotion or execution authority; and
 - `gaussian-asymmetric-literature-benchmark-ledger/1` — reviewed literature
   coordinates, exact hashes, identities, expected observables, and unresolved
   approval gates; and
@@ -527,21 +553,24 @@ same-channel geometry deduplication; real-file candidate hashing; TS evidence
 ingestion; log-sum-exp ensemble aggregation; ee and sensitivity scenarios;
 transition-metal state/search-family design with explicit oxidation/electron,
 spin, wavefunction, coordination and method review blocks, three unselected TS
-strategy candidates, candidate-bound metal TS audit templates, extension
-milestones and enforced refusal; and a precise
+strategy candidates, candidate-bound metal TS audit templates, an M1 review
+sidecar, M2b observation-only metal log parser, M2c existing-input observer,
+M2d four-section manual-decision sidecar, extension milestones and enforced
+refusal; and a precise
 BF3-TS1/BF3-TS2-B1/B2 literature ledger plus a
 historical BF3-TS1 evidence chain and an in-flight BF3-TS2-B1 lineage.
 
 Remaining work is scientific review rather than live execution:
 
-1. use the metal design artifact to review a concrete reaction's oxidation
-   states, electron accounting, spin surfaces, wavefunctions, coordination
-   states, elementary-step classes and TS-search families;
-2. define M1 acceptance criteria while preserving the unconditional runtime
-   refusal;
-3. use the implemented M2a candidate template while preparing the remaining
-   M2/M3 structured-result parsers and negative fixtures before any
-   metal input builder is considered;
+1. use the implemented M1 sidecar contract to review a real candidate's
+   oxidation/electron accounting, spin surfaces, wavefunction, coordination,
+   method evidence and TS-design candidate without inferring missing values;
+2. keep `metal_m1_scientific_review` pending until that real review is field-
+   complete; record completeness still grants no scientific acceptance;
+3. use the implemented M2a template, M2b/M2c observers and M2d manual-decision
+   sidecar for one real bounded review while preparing M3 runtime/promotion and
+   adversarial execution-boundary fixtures; M2d section decisions grant no
+   live authority;
 4. independently accept or reject BF3-TS2-B1 from stable terminal evidence,
    exactly one imaginary frequency and manual C13–C21 mode review;
 5. decide on BF3-TS2-B2 only after that B1 decision; and
