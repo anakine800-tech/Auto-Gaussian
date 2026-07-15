@@ -21,25 +21,23 @@ that a machine-local deployment is current. The namespace remains mandatory
 for future project Skills; versioned scientific schemas and immutable
 historical records retain their identifiers.
 
-For the 2.1.0 release candidate, all eight then-published repository/deployed
-pairs were verified synchronized after named-directory diff review and
-repository validation. This machine-local deployment does not authorize a live
-test or calculation. The release candidate passed 134 offline unit tests,
-Python compilation, shell syntax checks and all eight Skill structural
-validations.
+For the 2.1.0 release candidate, all eight repository/deployed pairs were
+verified synchronized after named-directory diff review and repository
+validation. This machine-local deployment does not authorize a live test or
+calculation. The release candidate passed 134 offline unit tests, Python
+compilation, shell syntax checks and all eight Skill structural validations.
 
-The W2 feature line passes 145 offline unit tests after adding the ninth Skill,
-including a fresh W1-builder-to-W2-snapshot integration smoke over public
-synthetic fixtures. It has not been deployed and grants no live or calculation
-authority; the synthetic smoke is workflow evidence, not CAT2 scientific
-evidence.
+The post-2.1.0 W2B-2 candidate passes 166 offline unit tests under Python
+3.11, including immutable-record validation, deterministic store/index
+rebuilds, permission-negative queries, reviewed import/export, redaction,
+snapshot binding and the GaussView Unicode-path regression. It has not been
+deployed and grants no network, Gaussian, PBS or calculation authority.
 
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
-offline reusable-knowledge foundation and the remaining general literature-
-evidence/TS-precedent, mechanism-network, calculation-DAG, free-energy/kinetic,
-and final-report layers needed to progress from W1 to an auditable whole-
-reaction study.
+offline reusable-knowledge foundation and the remaining literature TS-
+precedent, mechanism-network, calculation-DAG, free-energy/kinetic and final-
+report layers needed to progress from W1 to an auditable whole-reaction study.
 
 ## Current capability
 
@@ -66,10 +64,15 @@ The version-controlled source under `skills/` currently provides:
   Crossref/OpenAlex metadata retrieval, raw-response hashes, DOI deduplication,
   transparent lexical screening, source-located evidence templates and fail-
   closed evidence validation; and
-- an offline W2 knowledge-base Skill with immutable structure/state, method,
-  source, link and snapshot contracts, content-addressed objects, dry-run
-  imports, deterministic SQLite rebuilds, conflict ledgers and fail-closed
-  access filtering.
+- the W2A `auto-g16-knowledge-base` Skill with five closed immutable-record
+  contracts, strict canonical-hash validation, identity/state/geometry
+  separation, complete reported-method/source-anchor rules, typed links,
+  immutable snapshot membership and duplicate/conflict audit reporting; and
+- its W2B-1 canonical record/object layout, content-address verification,
+  deterministic SQLite migration/rebuild, stale-index refusal, exact offline
+  permission-filtered query and snapshot dependency verification; and
+- its W2B-2 hash-bound plan-review-apply import, lawful-object ingestion,
+  dependency-aware redacted/full JSON export and transfer manifests.
 
 The W1 builder assigns stable step/occurrence/condition IDs, binds every drawn
 reactant/product exactly once, refuses missing condition decisions, preserves
@@ -77,21 +80,17 @@ source-exact values, records blockers and never produces a calculation-ready
 or submission-authorizing artifact. It does not yet create a mechanism,
 reference basin, candidate geometry, protocol or calculation DAG.
 
-The repository now provides the offline `auto-g16-knowledge-base` MVP. Its
-canonical source is immutable JSON plus content-addressed objects; SQLite is a
-rebuildable index. It separates chemical identity from represented state,
-reported/internal/benchmarked method classes, bibliographic identity from
-source-located claims, direct from analogous links, and current database state
-from immutable per-study snapshots. It refuses missing object hashes, record
-and DOI conflicts, unreviewed snapshot dependencies, access downgrades and any
-calculation authorization. The normative design and implemented workflow are
-recorded in `skills/auto-g16-reaction-workflow/references/knowledge-database-design.md`
-and `skills/auto-g16-knowledge-base/references/contracts-and-workflow.md`.
-
-The repository still does not provide a live multi-user PostgreSQL/chemical-
-search service, authentication/audit server, raw legacy group-database
-migrations, or a committed mutable group store. Those remain separate later
-milestones and are not required for the offline W2 MVP.
+The repository now provides the W2A portable record layer for reviewed
+catalyst/ligand identities, represented states, geometries, complete
+computational methods, papers/SI/books, typed links and immutable per-study
+snapshots. W2B-1 adds canonical record/object verification, deterministic
+SQLite migrations/rebuild/query and declared offline-principal filtering.
+W2B-2 adds exact plan-review-apply import, lawful content-addressed-object
+ingestion, `no_export` exclusion, metadata-redacted/full JSON export and
+dependency-aware downgrade. It still lacks authentication, signatures,
+durable audit logging, binary export and chemical search. Offline access checks
+are not a filesystem or multi-user security boundary. The W2 design and remaining stages
+are recorded in `skills/auto-g16-reaction-workflow/references/knowledge-database-design.md`.
 
 The repository now provides reproducible metadata discovery and source-evidence
 review scaffolding, but not automatic lawful full-text/SI extraction,
@@ -327,11 +326,12 @@ candidate still requires its own new gate.
 
 ## Next approval gates
 
-1. Bind one reviewed W1 study to the implemented W2 knowledge snapshot, then
-   implement the remaining literature mechanism-support/TS-precedent contracts.
-   Only after offline acceptance,
-   separately approve one real-reaction literature-search smoke; it must not
-   generate an input or authorize calculation.
+1. Continue the W2 `auto-g16-knowledge-base` from the completed W2B-2 offline
+   store/import/export foundation with authentication, durable audit logging,
+   chemical search and a separately reviewed service boundary. Then implement the
+   literature query/evidence/mechanism-support/TS-precedent contracts. Only
+   after offline acceptance, separately approve one real-reaction literature-
+   search smoke; it must not generate an input or authorize calculation.
 2. Select a concrete metal–chiral-ligand reaction for milestone M1 and review
    its oxidation/electron accounting, spin surfaces, wavefunctions,
    coordination states, elementary-step classes and three candidate TS-search

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/transfer-approval.schema.json",
+  "title": "Auto-G16 knowledge import or export approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "operation", "plan_schema", "plan_sha256", "decision", "reviewer", "reviewed_at", "notes", "calculation_ready", "no_submission_authorization", "approval_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-knowledge-transfer-approval/1"},
+    "operation": {"enum": ["import", "export"]},
+    "plan_schema": {"enum": ["auto-g16-knowledge-import-plan/1", "auto-g16-knowledge-export-plan/1"]},
+    "plan_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "decision": {"enum": ["approved", "rejected"]},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at": {"$ref": "_common.schema.json#/$defs/timestamp"},
+    "notes": {"$ref": "_common.schema.json#/$defs/stringArray"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "approval_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  }
+}

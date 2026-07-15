@@ -1,10 +1,13 @@
 # Auto-G16 Reusable Knowledge Database Design
 
-Status: W2 design contract. The offline builder, canonical importer,
-content-addressed object store, deterministic SQLite index/query, typed links,
-permission filtering and immutable snapshot workflow are implemented by
-`auto-g16-knowledge-base`. A multi-user service and raw legacy-source migration
-adapters remain separate future milestones.
+Status: W2A record contracts, strict validation and frozen fixtures are
+implemented by `auto-g16-knowledge-base`. W2B-1 adds an immutable canonical
+record/object layout, deterministic SQLite migration and rebuild, exact
+permission-filtered offline queries, and snapshot dependency verification.
+W2B-2 adds plan-review-apply import, controlled lawful-object ingestion, and
+permission-aware full or metadata-redacted JSON export. Authenticated write
+APIs, signatures, durable audit logging, binary export, chemical search, and a
+multi-user service remain unimplemented.
 
 The project Skill is named `auto-g16-knowledge-base`. It provides one
 audited knowledge infrastructure with three logically separate registries:
@@ -68,11 +71,18 @@ Every record requires:
 - a stable logical ID and immutable revision ID;
 - canonical payload SHA-256 and schema version;
 - creation time, author/importer, reviewer, review status, and review notes;
-- `supersedes` and `superseded_by` links rather than in-place scientific edits;
+- independent typed links for supersession rather than in-place scientific
+  edits;
 - source category, access class, license/storage status, and provenance;
 - typed aliases and external identifiers;
 - explicit uncertainty, missing fields, contradictions, and blockers; and
-- typed outgoing and incoming relationship IDs.
+- immutable relationship endpoints and evidence.
+
+Do not store a mutable `superseded_by` field or incoming-link list in an older
+canonical revision. Represent supersession as a new
+`auto-g16-knowledge-link/1` record. Derive `superseded_by` and incoming-link
+views from the rebuildable index so later relationships never rewrite an older
+scientific record.
 
 Use `draft`, `reviewed`, `reviewed_with_limits`, `deprecated`, `retracted`, and
 `blocked` as distinct states. Retrieval may show a draft, but only reviewed
@@ -271,13 +281,9 @@ group standard.
 
 ## 10. Import and update rules
 
-The implemented canonical-record and content-object importers accept reviewed
-structure, method, source and link records with a dry-run report before commit.
-Provide future raw-source adapters for ChemDraw packages, SDF/MOL/XYZ files,
+Provide future importers for reviewed ChemDraw packages, SDF/MOL/XYZ files,
 existing catalyst spreadsheets, protocol ledgers, citation exports, DOI/ISBN
-metadata and completed study evidence indexes. Keep lawful PDFs/SI in the
-content-addressed object workflow rather than teaching an adapter to bypass
-access review.
+metadata, lawful PDFs/SI, and completed study evidence indexes.
 
 Every importer must:
 
@@ -310,7 +316,7 @@ Retain explicit states for:
 Do not replace these with a generic confidence score or omit them from search
 results because they are inconvenient.
 
-## 12. Implementation sequence and acceptance
+## 12. Future implementation sequence and acceptance
 
 Implement `auto-g16-knowledge-base` in phases:
 
@@ -324,6 +330,13 @@ Implement `auto-g16-knowledge-base` in phases:
 6. cross-registry links and immutable study snapshots;
 7. role/access/export tests for unpublished group records; and
 8. only then a separately approved multi-user service prototype.
+
+W2A completes phase 1 and the contract/fixture portion of phases 3–7. W2B-1
+completes the canonical layout, phase-2 SQLite migration/rebuild and exact
+query foundation, content-address verification, access-negative tests and
+snapshot dependency checks. W2B-2 completes the offline reviewed import,
+lawful-object ingestion, JSON export and redaction portion. Chemical search,
+binary export, authenticated auditing and multi-user enforcement remain W2.
 
 Offline acceptance requires deterministic rebuilds, exact hash checks,
 round-trip export, conflict/duplicate fixtures, permission-negative tests,

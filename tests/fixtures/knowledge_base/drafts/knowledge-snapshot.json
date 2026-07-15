@@ -1,0 +1,70 @@
+{
+  "schema": "auto-g16-knowledge-snapshot/1",
+  "record_id": "fixture_study_snapshot",
+  "revision_id": "fixture_study_snapshot_r001",
+  "created_at": "2026-07-15T00:00:00+00:00",
+  "created_by": "fixture_author",
+  "review": {
+    "status": "reviewed_with_limits",
+    "reviewer": "fixture_reviewer",
+    "reviewed_at": "2026-07-15T01:00:00+00:00",
+    "notes": ["Synthetic snapshot retains an unresolved geometry limitation."]
+  },
+  "access": {
+    "class": "project_restricted",
+    "owner_project": "fixture_project",
+    "permitted_principals": ["fixture_reviewer"],
+    "export_policy": "metadata_redacted"
+  },
+  "provenance": {
+    "source_kind": "manual_review",
+    "importer": null,
+    "source_artifacts": []
+  },
+  "aliases": [{"type": "preferred_name", "value": "Fixture W2 study knowledge snapshot"}],
+  "external_identifiers": [],
+  "uncertainties": [
+    {"code": "geometry_visualization_only", "message": "The retained geometry is for visualization only.", "source_refs": ["fixture_boron_catalyst_geometry_r001"]}
+  ],
+  "contradictions": [],
+  "blockers": [
+    {"code": "no_calculation_authority", "message": "The snapshot cannot authorize input generation or calculation.", "source_refs": []}
+  ],
+  "study_id": "fixture_reaction_study",
+  "parent_reaction_intake": {
+    "path": "reaction-intake.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "size_bytes": 1024,
+    "schema": "gaussian-reaction-intake/1",
+    "payload_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "queries": [
+    {"query_id": "fixture_structure_query", "registry": "structure", "query": "internal code FIX-B-01", "filters": ["review_status=reviewed"], "executed_at": "2026-07-15T00:10:00+00:00"},
+    {"query_id": "fixture_method_query", "registry": "method", "query": "synthetic boron fixture optimization frequency", "filters": ["source_class=literature_reported"], "executed_at": "2026-07-15T00:11:00+00:00"},
+    {"query_id": "fixture_source_query", "registry": "source", "query": "10.5555/auto.g16.fixture", "filters": ["review_status=reviewed"], "executed_at": "2026-07-15T00:12:00+00:00"}
+  ],
+  "selection_decisions": [
+    {"decision_id": "include_identity", "record_ref": {"record_type": "structure", "record_id": "fixture_boron_catalyst", "revision_id": "fixture_boron_catalyst_r001", "payload_sha256": "65e800a2decdbb5fdaa3bec462fb83794e5bad1d01d04cf4bac8a39b049b5279"}, "decision": "included", "rationale": "Reviewed fixture identity matches the internal code."},
+    {"decision_id": "include_state", "record_ref": {"record_type": "structure", "record_id": "fixture_boron_catalyst_neutral_state", "revision_id": "fixture_boron_catalyst_neutral_state_r001", "payload_sha256": "14064f71775d120047a06407734fe7636458332842cb0a2ce682e4291b836b04"}, "decision": "included", "rationale": "Exact reviewed charge and multiplicity state is retained separately."},
+    {"decision_id": "include_geometry", "record_ref": {"record_type": "structure", "record_id": "fixture_boron_catalyst_geometry", "revision_id": "fixture_boron_catalyst_geometry_r001", "payload_sha256": "179db894f334622f10478ca9c7078c744a236f41c67c242f9770b9b44b1c473c"}, "decision": "included", "rationale": "Visualization-only geometry is retained with its limitation."},
+    {"decision_id": "include_method", "record_ref": {"record_type": "method", "record_id": "fixture_reported_method", "revision_id": "fixture_reported_method_r001", "payload_sha256": "af656c1e93130638d22d848acdfd8d1a36aa4904dea382514a847721029f964d"}, "decision": "included", "rationale": "Reported protocol is retained only as a candidate evidence record."},
+    {"decision_id": "include_article", "record_ref": {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15"}, "decision": "included", "rationale": "Primary synthetic source carries the method anchor."},
+    {"decision_id": "include_book", "record_ref": {"record_type": "source", "record_id": "fixture_book", "revision_id": "fixture_book_r001", "payload_sha256": "c71c416370604086b8ae685166a154a40e9cf6af1ae1c89ee77d5ab98f2a9fed"}, "decision": "included", "rationale": "Book edition and page anchor exercise source rules."},
+    {"decision_id": "include_link", "record_ref": {"record_type": "link", "record_id": "fixture_structure_source_link", "revision_id": "fixture_structure_source_link_r001", "payload_sha256": "6b931ef34b91559c03c4514c5d6aa167bac35bc0867fcbec167a1f2ec2c7ac6a"}, "decision": "included", "rationale": "Reviewed link records the exact relationship and evidence anchor."}
+  ],
+  "included_records": [
+    {"record_type": "structure", "record_id": "fixture_boron_catalyst", "revision_id": "fixture_boron_catalyst_r001", "payload_sha256": "65e800a2decdbb5fdaa3bec462fb83794e5bad1d01d04cf4bac8a39b049b5279", "review_status": "reviewed", "access_class": "group_internal"},
+    {"record_type": "structure", "record_id": "fixture_boron_catalyst_neutral_state", "revision_id": "fixture_boron_catalyst_neutral_state_r001", "payload_sha256": "14064f71775d120047a06407734fe7636458332842cb0a2ce682e4291b836b04", "review_status": "reviewed", "access_class": "project_restricted"},
+    {"record_type": "structure", "record_id": "fixture_boron_catalyst_geometry", "revision_id": "fixture_boron_catalyst_geometry_r001", "payload_sha256": "179db894f334622f10478ca9c7078c744a236f41c67c242f9770b9b44b1c473c", "review_status": "reviewed_with_limits", "access_class": "project_restricted"},
+    {"record_type": "method", "record_id": "fixture_reported_method", "revision_id": "fixture_reported_method_r001", "payload_sha256": "af656c1e93130638d22d848acdfd8d1a36aa4904dea382514a847721029f964d", "review_status": "reviewed", "access_class": "public"},
+    {"record_type": "source", "record_id": "fixture_article", "revision_id": "fixture_article_r001", "payload_sha256": "f2f0e6ab8605b1174026a008fb8291bd881d3254730b1f0381775bbe52d4fd15", "review_status": "reviewed", "access_class": "public"},
+    {"record_type": "source", "record_id": "fixture_book", "revision_id": "fixture_book_r001", "payload_sha256": "c71c416370604086b8ae685166a154a40e9cf6af1ae1c89ee77d5ab98f2a9fed", "review_status": "reviewed", "access_class": "group_internal"},
+    {"record_type": "link", "record_id": "fixture_structure_source_link", "revision_id": "fixture_structure_source_link_r001", "payload_sha256": "6b931ef34b91559c03c4514c5d6aa167bac35bc0867fcbec167a1f2ec2c7ac6a", "review_status": "reviewed_with_limits", "access_class": "group_internal"}
+  ],
+  "redactions": ["Project-restricted geometry content is not exported by this snapshot fixture."],
+  "unresolved_gaps": ["No benchmark validates transferability of the literature-reported method."],
+  "dependency_digest": null,
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "payload_sha256": null
+}

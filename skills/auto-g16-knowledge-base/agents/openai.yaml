@@ -1,4 +1,4 @@
 interface:
   display_name: "Auto-G16 Knowledge Base"
-  short_description: "Build audited offline scientific knowledge registries"
-  default_prompt: "Use $auto-g16-knowledge-base to validate, index, search, import, and snapshot reviewed Auto-G16 knowledge records."
+  short_description: "Curate, import, and redact Gaussian knowledge"
+  default_prompt: "Use $auto-g16-knowledge-base to plan, review, and apply an immutable knowledge import or permission-aware redacted export."

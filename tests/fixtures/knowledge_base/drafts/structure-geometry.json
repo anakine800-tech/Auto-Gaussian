@@ -1,0 +1,65 @@
+{
+  "schema": "auto-g16-structure-record/1",
+  "record_id": "fixture_boron_catalyst_geometry",
+  "revision_id": "fixture_boron_catalyst_geometry_r001",
+  "created_at": "2026-07-15T00:00:00+00:00",
+  "created_by": "fixture_author",
+  "review": {
+    "status": "reviewed_with_limits",
+    "reviewer": "fixture_reviewer",
+    "reviewed_at": "2026-07-15T01:00:00+00:00",
+    "notes": ["Synthetic visualization geometry; no optimization evidence."]
+  },
+  "access": {
+    "class": "project_restricted",
+    "owner_project": "fixture_project",
+    "permitted_principals": ["fixture_reviewer"],
+    "export_policy": "metadata_redacted"
+  },
+  "provenance": {
+    "source_kind": "manual_review",
+    "importer": null,
+    "source_artifacts": []
+  },
+  "aliases": [{"type": "preferred_name", "value": "Fixture boron catalyst visualization geometry"}],
+  "external_identifiers": [],
+  "uncertainties": [
+    {"code": "unoptimized_geometry", "message": "The geometry is not an optimized minimum.", "source_refs": []}
+  ],
+  "contradictions": [],
+  "blockers": [
+    {"code": "not_calculation_input", "message": "The visualization geometry cannot be promoted directly to calculation input.", "source_refs": []}
+  ],
+  "record_scope": "geometry",
+  "identity": null,
+  "parent_identity": null,
+  "state": null,
+  "parent_state": {
+    "record_type": "structure",
+    "record_id": "fixture_boron_catalyst_neutral_state",
+    "revision_id": "fixture_boron_catalyst_neutral_state_r001",
+    "payload_sha256": "14064f71775d120047a06407734fe7636458332842cb0a2ce682e4291b836b04"
+  },
+  "representations": [
+    {
+      "representation_id": "fixture_xyz_rep",
+      "format": "xyz",
+      "object": {
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 128,
+        "media_type": "chemical/x-xyz",
+        "storage_status": "metadata_only",
+        "original_name": "fixture.xyz"
+      },
+      "source_exact": false,
+      "atom_order": "reviewed",
+      "review_scope": "atom order and represented state only",
+      "geometry_provenance": "visualization_only",
+      "supporting_record_refs": [],
+      "limitations": ["XYZ does not establish connectivity.", "No optimization evidence is attached."]
+    }
+  ],
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "payload_sha256": null
+}

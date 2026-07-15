@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/source-record.schema.json",
+  "title": "Auto-G16 literature and book source record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "record_id", "revision_id", "created_at", "created_by", "review", "access", "provenance", "aliases", "external_identifiers", "uncertainties", "contradictions", "blockers", "source_type", "bibliography", "version", "access_details", "objects", "anchors", "claims", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-source-record/1"},
+    "record_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "revision_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "created_at": {"$ref": "_common.schema.json#/$defs/timestamp"},
+    "created_by": {"type": "string", "minLength": 1},
+    "review": {"$ref": "_common.schema.json#/$defs/review"},
+    "access": {"$ref": "_common.schema.json#/$defs/access"},
+    "provenance": {"$ref": "_common.schema.json#/$defs/provenance"},
+    "aliases": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/alias"}},
+    "external_identifiers": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/externalIdentifier"}},
+    "uncertainties": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "contradictions": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "blockers": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/issue"}},
+    "source_type": {"enum": ["journal_article", "supporting_information", "book", "book_chapter", "handbook", "thesis", "preprint", "patent", "correction", "retraction", "dataset", "repository"]},
+    "bibliography": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["doi", "isbn", "issn", "publisher", "authors", "editors", "title", "year", "journal", "volume", "issue", "page_range", "article_number", "stable_url"],
+      "properties": {
+        "doi": {"type": ["string", "null"]},
+        "isbn": {"type": ["string", "null"]},
+        "issn": {"type": ["string", "null"]},
+        "publisher": {"type": ["string", "null"]},
+        "authors": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "editors": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "title": {"type": "string", "minLength": 1},
+        "year": {"type": ["integer", "null"], "minimum": 1000, "maximum": 3000},
+        "journal": {"type": ["string", "null"]},
+        "volume": {"type": ["string", "null"]},
+        "issue": {"type": ["string", "null"]},
+        "page_range": {"type": ["string", "null"]},
+        "article_number": {"type": ["string", "null"]},
+        "stable_url": {"type": ["string", "null"]}
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edition", "chapter", "version_label", "language"],
+      "properties": {
+        "edition": {"type": ["string", "null"]},
+        "chapter": {"type": ["string", "null"]},
+        "version_label": {"type": ["string", "null"]},
+        "language": {"type": "string", "minLength": 1}
+      }
+    },
+    "access_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accessed_at", "license", "storage_status", "access_limitations"],
+      "properties": {
+        "accessed_at": {"$ref": "_common.schema.json#/$defs/timestamp"},
+        "license": {"type": ["string", "null"]},
+        "storage_status": {"enum": ["lawful_local_object", "metadata_only", "external_reference_only"]},
+        "access_limitations": {"$ref": "_common.schema.json#/$defs/stringArray"}
+      }
+    },
+    "objects": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/objectRef"}},
+    "anchors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["anchor_id", "locator_type", "locator", "object_sha256", "notes"],
+        "properties": {
+          "anchor_id": {"$ref": "_common.schema.json#/$defs/id"},
+          "locator_type": {"enum": ["page", "section", "scheme", "figure", "table", "equation", "paragraph", "si_section", "coordinate_block", "chapter", "repository_item"]},
+          "locator": {"type": "string", "minLength": 1},
+          "object_sha256": {"anyOf": [{"$ref": "_common.schema.json#/$defs/sha256"}, {"type": "null"}]},
+          "notes": {"$ref": "_common.schema.json#/$defs/stringArray"}
+        }
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_id", "category", "statement_type", "text", "anchor_ids", "review_status"],
+        "properties": {
+          "claim_id": {"$ref": "_common.schema.json#/$defs/id"},
+          "category": {"type": "string", "minLength": 1},
+          "statement_type": {"enum": ["paraphrase", "short_quote", "reviewer_interpretation"]},
+          "text": {"type": "string", "minLength": 1},
+          "anchor_ids": {"$ref": "_common.schema.json#/$defs/stringArray"},
+          "review_status": {"enum": ["reviewed", "reviewed_with_limits", "unverified", "contradicted"]}
+        }
+      }
+    },
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  }
+}

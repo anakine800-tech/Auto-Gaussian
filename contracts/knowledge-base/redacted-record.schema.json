@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/redacted-record.schema.json",
+  "title": "Auto-G16 minimal redacted knowledge-record envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "record_type", "record_id", "revision_id", "canonical_payload_sha256", "canonical_schema", "review_status", "access_class", "redaction_reason", "scientific_content_included", "objects_included", "calculation_ready", "no_submission_authorization"],
+  "properties": {
+    "schema": {"const": "auto-g16-knowledge-redacted-record/1"},
+    "record_type": {"enum": ["structure", "method", "source", "link", "snapshot"]},
+    "record_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "revision_id": {"$ref": "_common.schema.json#/$defs/id"},
+    "canonical_payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"},
+    "canonical_schema": {"type": "string", "minLength": 1},
+    "review_status": {"enum": ["draft", "reviewed", "reviewed_with_limits", "deprecated", "retracted", "blocked"]},
+    "access_class": {"enum": ["public", "group_internal", "project_restricted", "confidential_unpublished"]},
+    "redaction_reason": {"type": "string", "minLength": 1},
+    "scientific_content_included": {"const": false},
+    "objects_included": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true}
+  }
+}
