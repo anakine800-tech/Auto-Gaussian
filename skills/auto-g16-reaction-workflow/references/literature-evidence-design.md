@@ -1,9 +1,11 @@
 # Literature Evidence and Transition-State Precedent Design
 
-Status: W2 design contract. `auto-g16-reaction-literature` implements the query,
-metadata retrieval, screening, and editable/finalized evidence-record stages.
-Automated full-text extraction, mechanism-support matrices, and transition-state
-precedent/seed builders remain unimplemented.
+Status: W2 design plus a smallest coherent TS-precedent-map implementation.
+`auto-g16-reaction-literature` implements query, metadata retrieval, screening,
+and editable/finalized evidence-record stages. `auto-g16-reaction-workflow`
+implements the strict offline `gaussian-ts-precedent-map/1` translation slice.
+Automated full-text extraction, mechanism-support matrices, and seed-geometry
+construction remain unimplemented.
 
 Every artifact described here must retain:
 
@@ -46,16 +48,16 @@ rendering, or live execution.
 
 ## 2. Planned artifact chain
 
-The `auto-g16-reaction-literature` component is designed to emit four immutable,
-hash-bound artifact types. Version 1 emits the first two; the last two remain
-future extensions:
+The four-artifact design is split across owning Skills. The literature Skill
+emits the first two, reaction workflow now emits the fourth as a separate
+offline translation, and the third mechanism-support stage remains future:
 
 | Artifact | Required role |
 | --- | --- |
 | `gaussian-reaction-literature-query/1` | records the decomposed scientific question, search ladder, databases, exact queries, dates, filters, and coverage limits |
 | `gaussian-reaction-literature-evidence/1` | records primary sources, exact source locations, extracted claims, computational details, structures, contradictory evidence, and extraction confidence |
 | `gaussian-reaction-mechanism-support/1` | maps each reviewed source claim to included, competing, contradicted, or still-unsupported mechanism hypotheses |
-| `gaussian-ts-precedent-map/1` | translates applicable evidence into reviewed TS-family and initial-seed proposals with atom-map, geometry, provenance, and uncertainty fields |
+| `gaussian-ts-precedent-map/1` | implemented offline translation of reviewed edges/evidence into non-promotable TS-family and seed-strategy review records with atom-map, geometry scope, provenance, and uncertainty fields |
 
 Each child artifact must bind the exact payload hashes of the reaction intake,
 species registry, condition model, applicable
@@ -200,6 +202,13 @@ mechanism operates in the target reaction.
 
 ## 8. Transition-state precedent map
 
+The smallest offline implementation is normative in
+`ts-precedent-map-contract.md`. It requires exact W1, knowledge, literature and
+mechanism-network bindings and independently recomputes every record. Because
+the mechanism-support parent remains unavailable, a locally complete promotion
+review is retained only as a conditional record and cannot enter candidate
+construction.
+
 For every proposed mechanism edge and stereochemical channel, record:
 
 - target state IDs and stable atom IDs;
@@ -218,9 +227,18 @@ For every proposed mechanism edge and stereochemical channel, record:
 
 Published coordinates may be reused only after identity, atom-order,
 stereochemistry, charge, multiplicity, coordination, and source-hash audit.
+The source-structure coordinate provenance and each transferred geometry item
+must name the same finalized literature candidate and source location; a
+coordinate object additionally requires its exact file hash and coordinate
+block anchor. Figure/topology provenance carries no coordinate object or
+anchor.
 Coordinates unavailable from the source must not be fabricated by reading
 precise 3D positions from a schematic figure. A figure may support topology
-and approximate relationships only, with that limitation recorded.
+and approximate relationships only, with that limitation recorded. Numeric
+geometry is represented by a finite value or bounded range, whereas topology,
+facial/orientational relationships, and conformer families use explicit
+qualitative descriptors rather than invented numbers. Target-context charge
+and multiplicity are checked against both mechanism-edge endpoints.
 
 ## 9. Human review gates
 
@@ -257,21 +275,26 @@ Retain and distinguish:
 A failed or negative precedent is evidence and remains in the ledger. The tool
 must not rank it out of view merely because it does not yield a usable seed.
 
-## 11. Future implementation acceptance
+## 11. Implementation acceptance and remaining work
 
-The complete four-stage tool is not finished until offline tests demonstrate:
+The implemented TS-precedent slice has offline tests for exact, close, remote
+and unusable analogies; stable atom/ref and source-to-target mapping failures;
+coordinate provenance and approximate-range refusal; all six strategy states;
+immutable binding drift/forgery; overwrite refusal; deterministic output; and
+unconditional safety constants.
 
-- deterministic query and evidence artifacts from frozen search fixtures;
-- DOI/version deduplication and correction/retraction linking;
-- exact primary-source and supporting-information anchors;
-- strict separation of reported facts, derived facts, and interpretation;
-- decomposed applicability decisions with contradictory examples;
-- preservation of missing data and access limitations as blockers;
-- source-to-target atom-map and coordinate-provenance refusal cases;
-- TS precedent maps covering exact, close, remote, and unusable analogies;
-- no fabricated coordinates or computational settings;
-- immutable hashes, supersession, and fail-closed validation; and
-- unconditional refusal to mark calculation readiness or submission authority.
+The complete four-stage literature/mechanism-support system is not finished
+until remaining work demonstrates:
+
+- correction/retraction and version links across the full evidence chain;
+- any future lawful automated full-text extraction with reported/derived/
+  interpretation separation and preserved access limits;
+- a closed, reviewed `gaussian-reaction-mechanism-support/1` matrix with
+  contradictory and unsupported hypotheses retained;
+- end-to-end linkage of that matrix into the existing TS-precedent gate without
+  treating analogy as mechanism proof; and
+- regression evidence that later candidate construction still cannot create a
+  geometry, select a protocol, or authorize calculation without its own gates.
 
 Only after those offline gates pass should a separately approved real-reaction
 search smoke be proposed. A literature search smoke is not a Gaussian live

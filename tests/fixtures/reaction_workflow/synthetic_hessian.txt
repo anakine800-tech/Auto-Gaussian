@@ -1,0 +1,2 @@
+Synthetic offline Hessian-object placeholder for refusal tests only.
+It is not a Gaussian checkpoint, force-constant matrix, or calculation result.

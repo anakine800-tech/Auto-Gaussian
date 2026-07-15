@@ -47,7 +47,8 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
-  species registry, balance review and condition-to-model decisions. Its W1
+  species registry, balance review, condition-to-model decisions, reviewed
+  mechanism-network hypotheses and the non-promotable TS-precedent map. Its
   artifacts explicitly grant no calculation or live authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
@@ -76,9 +77,9 @@ retain their existing names for compatibility and provenance.
   dependency-aware downgrade. Binary objects are never exported.
 - W2 still requires authentication, signatures, durable audit logging,
   chemical search and multi-user enforcement.
-- mechanism-support matrices, source-to-target atom correspondence, and
-  reviewed target TS-seed proposals remain future extensions to the implemented
-  reaction-literature layer.
+- the strict source-to-target atom-correspondence and TS-precedent review map is
+  implemented in `auto-g16-reaction-workflow`; mechanism-support matrices and
+  seed-geometry construction remain future extensions.
 
 ## Offline planning/audit module
 
@@ -156,8 +157,8 @@ python3 -m unittest discover -s tests -v
    explicitly approved smoke gate.
 3. Continue W2 from the implemented W2B-2 store/import/export foundation with
    authenticated enforcement, durable audit logging and chemical search. Then
-   extend the separate literature-evidence
-   layer toward mechanism support and TS precedents.
+   extend the separate literature-evidence layer toward mechanism support; the
+   TS-precedent review map is already implemented but remains non-promotable.
 4. Implement the W3 mechanism-network, calculation-DAG and evidence-index layer.
    Existing Skills remain specialist components rather than a monolithic
    automatic mechanism generator.

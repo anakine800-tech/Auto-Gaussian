@@ -158,13 +158,39 @@ The separate `auto-g16-knowledge-base` Skill implements the offline immutable
 registry, permission-filtered index, typed-link and snapshot MVP. This W1
 builder does not invoke it automatically or fabricate a snapshot. The separate
 `auto-g16-reaction-literature` Skill implements the query, metadata
-retrieval, screening and source-evidence stages, but not the planned mechanism-
-support or TS-precedent-map stages. This W1 builder still performs none of those
+retrieval, screening and source-evidence stages. This Skill now also owns a
+small separate offline TS-precedent-map builder described below; mechanism
+support remains unimplemented. This W1 builder still performs none of those
 actions. Do not claim that a database was queried or updated, claim that a
 search was performed without its immutable artifacts, infer a mechanism from a
 citation, or transfer an unreviewed structure/geometry. A database match and
 literature similarity do not prove the target mechanism or TS and grant no
 calculation authorization.
+
+### Optional reviewed TS-precedent map
+
+Invoke this only after an immutable W1 chain, reviewed mechanism-network
+artifact, reviewed knowledge snapshot, finalized literature evidence with all
+four W1/knowledge bindings, and an explicit human-authored precedent review
+exist. Read
+[references/ts-precedent-map-contract.md](references/ts-precedent-map-contract.md),
+then run:
+
+```bash
+PRECEDENT_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py"
+
+python3 "$PRECEDENT_TOOL" build mechanism-network.json knowledge-snapshot.json \
+  literature-evidence.json --review ts-precedent-review.json \
+  --output ts-precedent-map.json
+python3 "$PRECEDENT_TOOL" validate ts-precedent-map.json
+```
+
+This converts reviewed edges and evidence into immutable atom-correspondence,
+geometry-transfer-scope and seed-strategy review records. It copies no
+coordinates and constructs no geometry. Since
+`gaussian-reaction-mechanism-support/1` is still unavailable, every output is
+non-promotable even when a precedent's local promotion prerequisites are
+complete.
 
 ## Scientific boundaries
 
@@ -192,14 +218,20 @@ calculation authorization.
   contract implemented offline by `auto-g16-knowledge-base`; multi-user service
   and raw legacy migrations remain future work.
 - `references/literature-evidence-design.md`: W2 reproducible search, evidence
-  extraction, applicability review and TS-precedent contract. The query and
-  evidence stages are implemented by `auto-g16-reaction-literature`; later
-  mechanism-support and TS-precedent stages remain design-only.
+  extraction, applicability review and TS-precedent design. The query and
+  evidence stages are implemented by `auto-g16-reaction-literature`; the
+  smallest offline TS-precedent-map slice is implemented here; mechanism
+  support remains design-only.
+- `references/ts-precedent-map-contract.md`: implemented immutable-parent,
+  atom-correspondence, geometry-transfer, strategy and fail-closed promotion
+  rules for `gaussian-ts-precedent-map/1`.
 - `references/mechanism-network-contract.md`: implemented first W3 offline
   review/output semantics, fail-closed diagnostics and mandatory evidence
   blocker.
 - `scripts/mechanism_network.py`: standard-library-only deterministic W3
   mechanism-network builder and validator; no calculation or live path.
+- `scripts/ts_precedent_map.py`: standard-library-only deterministic TS
+  precedent-map builder and validator; no coordinate or input construction.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
-  schemas for intake, registry, condition-model and mechanism-network
-  artifacts.
+  schemas for intake, registry, condition-model, mechanism-network and TS-
+  precedent-map artifacts.
