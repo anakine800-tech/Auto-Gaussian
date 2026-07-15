@@ -191,7 +191,10 @@ the origin evidence-gate owner validator and match the selected exact W1 and
 network parents. Its eligibility is edge-plus-stereochemical-channel scoped,
 while calculation-plan review `/1` carries only edge IDs; therefore the DAG
 retains `mechanism_support_channel_mapping_missing` and never collapses channel
-decisions into edge-level readiness. Use repeated
+decisions into edge-level readiness. If the owner review/gate is blocked or
+has blockers, those exact normalized blockers and
+`mechanism_support_not_promotable` remain in the plan/index; channel mapping is
+not suggested until the owner gate is accepted and clear. Use repeated
 `--supersedes-plan FILE` bindings only for exact immutable earlier plans
 explicitly superseded by the review; never rewrite an older plan.
 

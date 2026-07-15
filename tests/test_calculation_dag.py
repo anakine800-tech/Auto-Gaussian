@@ -40,6 +40,12 @@ assert MECHANISM_SPEC and MECHANISM_SPEC.loader
 MECHANISM_FIXTURE = importlib.util.module_from_spec(MECHANISM_SPEC)
 MECHANISM_SPEC.loader.exec_module(MECHANISM_FIXTURE)
 
+SUPPORT_TEST_PATH = ROOT / "tests" / "test_mechanism_support.py"
+SUPPORT_SPEC = importlib.util.spec_from_file_location("calculation_dag_support_fixture", SUPPORT_TEST_PATH)
+assert SUPPORT_SPEC and SUPPORT_SPEC.loader
+SUPPORT_FIXTURE = importlib.util.module_from_spec(SUPPORT_SPEC)
+SUPPORT_SPEC.loader.exec_module(SUPPORT_FIXTURE)
+
 TS_PRECEDENT_TEST_PATH = ROOT / "tests" / "test_ts_precedent_map.py"
 TS_PRECEDENT_SPEC = importlib.util.spec_from_file_location("calculation_dag_ts_precedent_fixture", TS_PRECEDENT_TEST_PATH)
 assert TS_PRECEDENT_SPEC and TS_PRECEDENT_SPEC.loader
@@ -961,6 +967,105 @@ class CalculationDagTests(unittest.TestCase):
         self.assertIn("exact selected artifact path", mismatched.stderr.lower())
         self.assertFalse(mismatched_plan.exists())
 
+    def test_nonpromotable_support_preserves_owner_blockers_and_resume_action(self) -> None:
+        for decision, expected_stage_status in (
+            ("accepted_with_blockers", "accepted_with_blockers"),
+            ("blocked", "blocked"),
+        ):
+            with self.subTest(decision=decision):
+                work = self.workdir(f"support_gate_{decision}").resolve()
+                helper = SUPPORT_FIXTURE.MechanismSupportTests(
+                    "test_supported_conditional_unsupported_contradicted_and_novel_missing"
+                )
+
+                def block_every_channel(review: dict[str, object]) -> None:
+                    review["review_decision"] = decision
+                    for record in review["records"]:
+                        record["exploration_decision"] = {
+                            "status": "blocked",
+                            "rationale": "Synthetic unresolved owner blocker for DAG propagation.",
+                            "reviewer": "fixture_reviewer",
+                            "reviewed_at": "2026-07-16T00:00:00+00:00",
+                            "resolved_blockers": [],
+                            "unresolved_blockers": ["Owner evidence gate remains unresolved."],
+                            "resolved_conflict_record_ids": [],
+                        }
+                        record["claim_support_decision"] = {
+                            "status": "rejected" if record["classification"]["category"] == "excluded" else "not_promoted",
+                            "rationale": "No mechanism claim promotion while the owner gate is unresolved.",
+                            "reviewer": "fixture_reviewer",
+                            "reviewed_at": "2026-07-16T00:00:00+00:00",
+                            "resolved_blockers": [],
+                            "unresolved_blockers": ["Independent target-mechanism support is not established."],
+                            "resolved_conflict_record_ids": [],
+                        }
+
+                prepared, support_path, built_support = helper.build_support(
+                    work, review_mutator=block_every_channel
+                )
+                self.assert_success(built_support)
+                support = load_json(support_path)
+                self.assertTrue(support["blockers"])
+                self.assertEqual(
+                    support["gate_status"],
+                    "blocked" if decision == "blocked" else "reviewed_with_blockers",
+                )
+                w1 = prepared["w1"]
+                intake_path, registry_path, condition_path, mechanism_path = w1[:4]
+                intake, registry, condition, mechanism_artifact = w1[4:]
+                review = load_json(REVIEW_TEMPLATE)
+                review["intake_payload_sha256"] = intake["payload_sha256"]
+                review["species_registry_payload_sha256"] = registry["payload_sha256"]
+                review["condition_model_payload_sha256"] = condition["payload_sha256"]
+                review["mechanism_network_payload_sha256"] = mechanism_artifact["payload_sha256"]
+                review["mechanism_support_payload_sha256"] = support["payload_sha256"]
+                draft_path = work / "calculation-review-draft.json"
+                review_path = work / "calculation-review.json"
+                plan_path = work / "calculation-plan.json"
+                write_json(draft_path, review)
+                self.assert_success(self.run_cli(
+                    "finalize-review", str(draft_path), "--output", str(review_path)
+                ))
+                self.assert_success(self.run_cli(
+                    "build-plan",
+                    str(intake_path), str(registry_path), str(condition_path), str(mechanism_path),
+                    "--review", str(review_path),
+                    "--mechanism-support", str(support_path),
+                    "--output", str(plan_path),
+                ))
+                plan = load_json(plan_path)
+                plan_blockers = {item["blocker_id"]: item for item in plan["blockers"]}
+                self.assertIn("mechanism_support_not_promotable", plan_blockers)
+                self.assertNotIn("mechanism_support_channel_mapping_missing", plan_blockers)
+                normalized_support = [
+                    item for item in plan["blockers"]
+                    if item["scope"] == "mechanism_support" and item["blocker_id"] != "mechanism_support_not_promotable"
+                ]
+                self.assertTrue(normalized_support)
+                for owner_blocker in support["blockers"]:
+                    self.assertTrue(any(
+                        owner_blocker["description"] in item["description"]
+                        for item in normalized_support
+                    ))
+                self.assertTrue(any(
+                    item["scope"] == "mechanism_network"
+                    and "mechanism support" in item["description"].lower().replace("-", " ")
+                    for item in plan["blockers"]
+                ))
+
+                index_path = work / "study-index.json"
+                self.assert_success(self.run_cli("build-index", str(plan_path), "--output", str(index_path)))
+                index = load_json(index_path)
+                support_stage = next(item for item in index["stage_gates"] if item["stage_id"] == "mechanism_support")
+                self.assertEqual(support_stage["status"], expected_stage_status)
+                self.assertIn("mechanism_support_not_promotable", support_stage["blocker_ids"])
+                self.assertEqual(index["last_accepted_stage"], "mechanism_network")
+                self.assertEqual(index["next_safe_offline_action"], "review_mechanism_support_owner_blockers")
+                self.assertEqual(
+                    index["next_blockers"],
+                    [plan_blockers[item] for item in sorted(support_stage["blocker_ids"])],
+                )
+
     def test_reviewed_external_target_mapping_builds_append_only_node_update(self) -> None:
         work = self.workdir("dag_owned_target_mapping")
         _review, plan_path, built = self.build_plan(work)
@@ -1126,6 +1231,32 @@ class CalculationDagTests(unittest.TestCase):
         checked = self.run_cli("validate-node-update", str(forged_path))
         self.assertNotEqual(checked.returncode, 0)
         self.assertRegex(checked.stderr.lower(), r"deterministic|reconstruction|differs")
+
+        # A review copied beneath another root retains a valid self hash but
+        # its relative bindings no longer identify the reviewed plan/import.
+        # The update validator must not reinterpret those literals relative
+        # to its own parent directory.
+        nested = work / "nested-review-root"
+        nested.mkdir()
+        nested_review = nested / "good-mapping-review.json"
+        nested_review.write_bytes(good_review.read_bytes())
+        review_check = self.run_cli("validate-target-mapping-review", str(nested_review))
+        self.assertNotEqual(review_check.returncode, 0)
+        confused = load_json(good_update)
+        nested_document = load_json(nested_review)
+        confused["review_source"] = {
+            "path": nested_review.relative_to(work).as_posix(),
+            "sha256": hashlib.sha256(nested_review.read_bytes()).hexdigest(),
+            "size_bytes": nested_review.stat().st_size,
+            "schema": "gaussian-reaction-calculation-target-mapping-review/1",
+            "payload_sha256": nested_document["payload_sha256"],
+        }
+        rehash(confused)
+        confused_path = work / "root-confused-node-update.json"
+        write_json(confused_path, confused)
+        confused_check = self.run_cli("validate-node-update", str(confused_path))
+        self.assertNotEqual(confused_check.returncode, 0)
+        self.assertRegex(confused_check.stderr.lower(), r"artifact root|mapping review|missing")
 
     def test_invalid_mechanism_and_atom_references_fail_closed(self) -> None:
         def unknown_state(review: dict[str, object]) -> None:

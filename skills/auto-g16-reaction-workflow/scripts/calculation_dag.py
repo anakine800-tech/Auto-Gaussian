@@ -926,7 +926,7 @@ def _validate_dependency_target_continuity(
 def _assemble_nodes(
     review: dict[str, Any],
     mechanism_artifact: dict[str, Any],
-    support_bound: bool,
+    support_state: str,
     precedent_eligible_edges: set[str] | None,
     upstream_blockers: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str], dict[str, Any], list[dict[str, Any]]]:
@@ -941,13 +941,26 @@ def _assemble_nodes(
     alternative_index = _index_by(alternatives, "group_id", "alternative group")
 
     global_blockers = list(upstream_blockers)
-    support_blocker_id = "mechanism_support_channel_mapping_missing" if support_bound else "mechanism_support_missing"
-    support_description = (
-        f"Bound {SUPPORT_SCHEMA} passed its owner validator and exact-parent checks, but this DAG review has no explicit reviewed edge-plus-stereochemical-channel mapping; edge-only targets cannot promote readiness."
-        if support_bound
-        else f"Required {SUPPORT_SCHEMA} is not bound; mechanism hypotheses cannot become calculation-ready."
-    )
-    global_blockers.append(_blocker(support_blocker_id, "study", support_description, ("scientific_readiness", "calculation_dag")))
+    require(support_state in {"missing", "not_promotable", "reviewed"}, "invalid mechanism-support integration state")
+    if support_state == "missing":
+        support_blocker_id = "mechanism_support_missing"
+        global_blockers.append(_blocker(
+            support_blocker_id,
+            "study",
+            f"Required {SUPPORT_SCHEMA} is not bound; mechanism hypotheses cannot become calculation-ready.",
+            ("scientific_readiness", "calculation_dag"),
+        ))
+    elif support_state == "not_promotable":
+        support_blocker_id = "mechanism_support_not_promotable"
+        require(any(item["blocker_id"] == support_blocker_id for item in global_blockers), "non-promotable mechanism support lacks its normalized plan blocker")
+    else:
+        support_blocker_id = "mechanism_support_channel_mapping_missing"
+        global_blockers.append(_blocker(
+            support_blocker_id,
+            "study",
+            f"Bound {SUPPORT_SCHEMA} passed its owner validator and acceptable gate checks, but this DAG review has no explicit reviewed edge-plus-stereochemical-channel mapping; edge-only targets cannot promote readiness.",
+            ("scientific_readiness", "calculation_dag"),
+        ))
     active_edge_ids = {
         edge_id
         for node in reviewed_nodes.values()
@@ -1026,7 +1039,8 @@ def _assemble_nodes(
     assembled: dict[str, dict[str, Any]] = {}
     all_blockers = list(global_blockers)
     study_scientific_ids = [item["blocker_id"] for item in upstream_blockers]
-    study_scientific_ids.append(support_blocker_id)
+    if support_blocker_id not in study_scientific_ids:
+        study_scientific_ids.append(support_blocker_id)
     if review_blocker_id is not None:
         study_scientific_ids.append(review_blocker_id)
     for node_id in order:
@@ -1160,6 +1174,8 @@ def _assemble_plan(
     condition_binding: dict[str, Any],
     mechanism_binding: dict[str, Any],
     support_binding: dict[str, Any] | None,
+    support_promotable: bool | None,
+    support_gate_blockers: list[dict[str, Any]],
     precedent_binding: dict[str, Any] | None,
     precedent_eligible_edges: set[str] | None,
     review_binding: dict[str, Any],
@@ -1192,6 +1208,8 @@ def _assemble_plan(
     require(review["mechanism_support_payload_sha256"] == support_hash, "review mechanism-support payload hash mismatch")
     require(review["ts_precedent_map_payload_sha256"] == precedent_hash, "review TS-precedent payload hash mismatch")
     require(review["superseded_plan_payload_sha256s"] == sorted(item["payload_sha256"] for item in superseded_bindings), "review superseded-plan hash set mismatch")
+    require((support_binding is None) == (support_promotable is None), "mechanism-support binding and owner gate assessment must be supplied together")
+    require(not support_gate_blockers or support_binding is not None, "mechanism-support gate blockers require a bound artifact")
 
     upstream_blockers = _upstream_gate_blockers([
         ("reaction_intake", intake),
@@ -1199,13 +1217,14 @@ def _assemble_plan(
         ("condition_model", condition),
         ("mechanism_network", mechanism_artifact),
     ])
-    if support_binding is not None:
+    upstream_blockers.extend(support_gate_blockers)
+    if support_promotable is True:
         deferred_support_id = _derived_id("upstream_mechanism_network", "mechanism_support_unavailable")
         upstream_blockers = [item for item in upstream_blockers if item["blocker_id"] != deferred_support_id]
     nodes, order, coverage, blockers = _assemble_nodes(
         review,
         mechanism_artifact,
-        support_binding is not None,
+        "missing" if support_binding is None else ("reviewed" if support_promotable else "not_promotable"),
         precedent_eligible_edges,
         upstream_blockers,
     )
@@ -1266,7 +1285,7 @@ def _validate_mechanism_support(
     artifact_path: Path,
     study_id: str,
     selected_parents: tuple[tuple[str, Path, dict[str, Any]], ...],
-) -> None:
+) -> bool:
     """Validate origin/main evidence-gate /1 without edge-level promotion.
 
     The owner contract is scoped by both mechanism edge and stereochemical
@@ -1279,6 +1298,33 @@ def _validate_mechanism_support(
     _check_study_and_safety(artifact, study_id, "mechanism support")
     require(artifact.get("mechanism_claim_validation_present") is False, "mechanism support cannot validate a mechanism claim")
     _require_exact_selected_parents(artifact, artifact_path, selected_parents, "mechanism-support")
+    review = artifact.get("review")
+    blockers = artifact.get("blockers")
+    require(isinstance(review, dict), "mechanism-support review summary is missing")
+    require(isinstance(blockers, list), "mechanism-support blockers must be an array")
+    return (
+        review.get("decision") == "accepted"
+        and artifact.get("gate_status") == "reviewed"
+        and not blockers
+    )
+
+
+def _mechanism_support_gate_blockers(
+    artifact: dict[str, Any], promotable: bool,
+) -> list[dict[str, Any]]:
+    if promotable:
+        return []
+    records = _normalized_upstream_gate_blockers("mechanism_support", artifact)
+    review = artifact.get("review", {})
+    records.append(_blocker(
+        "mechanism_support_not_promotable",
+        "mechanism_support",
+        "The exact owner-validated mechanism-support artifact is not promotable: "
+        f"review decision={review.get('decision')!s}, gate_status={artifact.get('gate_status')!s}. "
+        "Resolve its owner blockers before adding a DAG edge/channel mapping.",
+        ("mechanism_support", "scientific_readiness", "calculation_dag"),
+    ))
+    return _sort_blockers(records)
 
 
 def _validated_ts_precedent_edges(
@@ -1347,9 +1393,11 @@ def build_plan(
     review = normalize_review(review, require_hash=True)
     support_binding = None
     support = None
+    support_promotable = None
+    support_gate_blockers: list[dict[str, Any]] = []
     if support_path is not None:
         support, support_binding = _binding_from_path(support_path, root, SUPPORT_SCHEMA, "mechanism support")
-        _validate_mechanism_support(
+        support_promotable = _validate_mechanism_support(
             support,
             support_path,
             review["study_id"],
@@ -1360,6 +1408,7 @@ def build_plan(
                 ("mechanism_network", mechanism_path, mechanism_binding),
             ),
         )
+        support_gate_blockers = _mechanism_support_gate_blockers(support, support_promotable)
     precedent_binding = None
     precedent_eligible_edges = None
     if precedent_path is not None:
@@ -1398,6 +1447,8 @@ def build_plan(
         condition_binding=condition_binding,
         mechanism_binding=mechanism_binding,
         support_binding=support_binding,
+        support_promotable=support_promotable,
+        support_gate_blockers=support_gate_blockers,
         precedent_binding=precedent_binding,
         precedent_eligible_edges=precedent_eligible_edges,
         review_binding=review_binding,
@@ -1433,9 +1484,12 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
         review = normalize_review(review, require_hash=True)
         support_binding = artifact["mechanism_support"]
         support_path: Path | None = None
+        support: dict[str, Any] | None = None
+        support_promotable: bool | None = None
+        support_gate_blockers: list[dict[str, Any]] = []
         if support_binding is not None:
             support, support_path = _resolve_binding(support_binding, path, SUPPORT_SCHEMA, "mechanism support")
-            _validate_mechanism_support(
+            support_promotable = _validate_mechanism_support(
                 support,
                 support_path,
                 artifact["study_id"],
@@ -1446,6 +1500,7 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
                     ("mechanism_network", mechanism_path, artifact["mechanism_network"]),
                 ),
             )
+            support_gate_blockers = _mechanism_support_gate_blockers(support, support_promotable)
         precedent_binding = artifact["ts_precedent_map"]
         precedent_eligible_edges = None
         if precedent_binding is not None:
@@ -1508,6 +1563,8 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
             condition_binding=artifact["condition_model"],
             mechanism_binding=artifact["mechanism_network"],
             support_binding=support_binding,
+            support_promotable=support_promotable,
+            support_gate_blockers=support_gate_blockers,
             precedent_binding=precedent_binding,
             precedent_eligible_edges=precedent_eligible_edges,
             review_binding=artifact["review_source"],
@@ -1519,6 +1576,7 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
             "registry": registry,
             "condition": condition,
             "mechanism": mechanism_artifact,
+            "support": support,
             "superseded_plan_bindings": [history_by_payload[key] for key in sorted(history_by_payload)],
         }
     finally:
@@ -1583,8 +1641,31 @@ def _derive_index(plan: dict[str, Any], plan_binding: dict[str, Any], chain: dic
         excluded_blocker_ids={deferred_support_id},
     )
 
-    support_blocker_id = "mechanism_support_missing" if plan["mechanism_support"] is None else "mechanism_support_channel_mapping_missing"
-    stage_specs.append(("mechanism_support", "mechanism_support", "missing" if plan["mechanism_support"] is None else "blocked", [support_blocker_id]))
+    support_artifact = chain.get("support")
+    if plan["mechanism_support"] is None:
+        support_ids = ["mechanism_support_missing"]
+        if deferred_support_id in plan_blockers:
+            support_ids.append(deferred_support_id)
+        stage_specs.append(("mechanism_support", "mechanism_support", "missing", support_ids))
+    else:
+        require(isinstance(support_artifact, dict), "bound mechanism support is absent from validated plan chain")
+        support_promotable = (
+            support_artifact.get("review", {}).get("decision") == "accepted"
+            and support_artifact.get("gate_status") == "reviewed"
+            and support_artifact.get("blockers") == []
+        )
+        if support_promotable:
+            support_ids = ["mechanism_support_channel_mapping_missing"]
+            support_status = "blocked"
+        else:
+            normalized_support = _mechanism_support_gate_blockers(support_artifact, False)
+            for record in normalized_support:
+                require(plan_blockers.get(record["blocker_id"]) == record, f"study-index mechanism-support blocker differs from normalized plan blocker: {record['blocker_id']}")
+            support_ids = [item["blocker_id"] for item in normalized_support]
+            if deferred_support_id in plan_blockers:
+                support_ids.append(deferred_support_id)
+            support_status = "blocked" if support_artifact.get("gate_status") == "blocked" else "accepted_with_blockers"
+        stage_specs.append(("mechanism_support", "mechanism_support", support_status, sorted(set(support_ids))))
     if plan["ts_precedent_map"] is None:
         stage_specs.append(("ts_precedent_map", "ts_precedent_map", "missing", ["ts_precedent_map_missing"]))
     elif "ts_precedent_coverage_incomplete" in plan_blockers:
@@ -1618,7 +1699,9 @@ def _derive_index(plan: dict[str, Any], plan_binding: dict[str, Any], chain: dic
             next_ids = ids
 
     next_blockers = _sort_blockers(plan_blockers[blocker_id] for blocker_id in next_ids)
-    if "mechanism_support_channel_mapping_missing" in next_ids:
+    if "mechanism_support_not_promotable" in next_ids:
+        next_action = "review_mechanism_support_owner_blockers"
+    elif "mechanism_support_channel_mapping_missing" in next_ids:
         next_action = "add_reviewed_edge_channel_mapping"
     elif "mechanism_support_missing" in next_ids or "mechanism_support_unavailable" in next_ids:
         next_action = "bind_reviewed_mechanism_support"
@@ -1894,16 +1977,23 @@ def _validate_node_update_internal(path: Path, stack: set[Path]) -> dict[str, An
         require(artifact["schema"] == NODE_UPDATE_SCHEMA, "unrecognized calculation node-update schema")
         validate_payload(artifact, "calculation node update")
         require(artifact["calculation_ready"] is False and artifact["no_submission_authorization"] is True, "calculation node update violates offline safety constants")
-        review, _review_path = _resolve_binding(artifact["review_source"], path, MAPPING_REVIEW_SCHEMA, "node-update mapping review")
+        review, review_path = _resolve_binding(artifact["review_source"], path, MAPPING_REVIEW_SCHEMA, "node-update mapping review")
+        require(
+            review_path.parent.resolve() == path.parent.absolute().resolve(),
+            "node update and mapping review must share one artifact root",
+        )
         review = normalize_mapping_review(review, require_hash=True)
+        reviewed_plan, reviewed_target_import = _validate_mapping_review_semantics(review, review_path)
         require(artifact["target_plan"] == review["target_plan"], "node-update target_plan differs from its reviewed mapping")
         require(artifact["artifact"] == review["target_import"], "node-update artifact differs from its reviewed target import")
         require(artifact["supersedes"] == review["supersedes"], "node-update supersedes differs from its reviewed mapping")
         plan, plan_path = _resolve_binding(artifact["target_plan"], path, PLAN_SCHEMA, "node-update target plan")
         validated_plan, _chain = _validate_plan_internal(plan_path, set())
         require(plan == validated_plan, "node-update target plan changed during validation")
+        require(plan == reviewed_plan, "node-update target plan differs from mapping-review-root validation")
         target_import, target_import_path = _resolve_binding(artifact["artifact"], path, TARGET_IMPORT_SCHEMA, "node-update candidate target import")
         _validated_upstream(target_import_path, calculation_artifacts.validate_artifact, "candidate target import")
+        require(target_import == reviewed_target_import, "node-update target import differs from mapping-review-root validation")
         for index, binding in enumerate(artifact["supersedes"]):
             previous, previous_path = _resolve_binding(binding, path, NODE_UPDATE_SCHEMA, f"node-update supersedes[{index}]")
             validated_previous = _validate_node_update_internal(previous_path, stack)

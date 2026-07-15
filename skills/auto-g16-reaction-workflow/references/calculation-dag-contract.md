@@ -47,6 +47,12 @@ and payload hash. Owner eligibility remains scoped to an exact edge and
 stereochemical channel. Calculation-plan review `/1` has only `edge_ids`, so
 the DAG deliberately retains `mechanism_support_channel_mapping_missing` and
 does not reduce channel-specific evidence to an edge-wide readiness result.
+A bound support artifact is considered owner-promotable only when its review
+decision is exactly `accepted`, its gate is `reviewed`, and its owner blocker
+list is empty. A `blocked` or `reviewed_with_blockers` artifact retains the
+network availability blocker, propagates every normalized owner blocker plus
+`mechanism_support_not_promotable`, and makes the study index direct the user
+back to the owner gate rather than to channel mapping.
 A supplied TS-precedent map also passes its owner validator and must bind the
 same exact W1/network/support parents. The DAG accepts coverage only for a
 record or de novo seed plan whose reviewed disposition is
@@ -287,6 +293,10 @@ Standalone validation reruns the calculation-plan validator, the adapter owner
 validator, exact local reference checks, node-kind/locator checks, target-key
 selection and deterministic reconstruction. Adapter references that permit an
 absolute path or null payload are not copied into the DAG reference layer.
+The mapping review and node update must share one artifact root; node-update
+validation revalidates all review bindings relative to the review file itself
+and compares them with the update-side resolution, preventing parent/subfolder
+root reinterpretation.
 Neither artifact mutates the plan or changes any readiness, execution or
 evidence-acceptance axis. Supersession is append-only and every review/update
 retains `calculation_ready: false` and `no_submission_authorization: true`.

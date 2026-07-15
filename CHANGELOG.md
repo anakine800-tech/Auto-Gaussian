@@ -41,6 +41,11 @@ All notable public release changes are recorded here. The project follows
   `/1` is append-only and restricted to `candidate_inventory` on a
   `ts_candidate`; it never treats `external_target_key` as `node_id`, accepts
   absolute/null DAG references, mutates a plan, or promotes readiness.
+- Owner-valid but blocked or reviewed-with-blockers mechanism support now
+  retains the network availability blocker, normalized owner descriptions and
+  `mechanism_support_not_promotable`; the study index resumes at owner review
+  instead of prematurely suggesting channel mapping. Node-update validation
+  also rejects mapping-review/update root reinterpretation.
 - A closed standard-library-only `gaussian-reaction-mechanism-support/1`
   builder/validator with exact W1, mechanism-network, knowledge-snapshot,
   finalized-literature and immutable-review bindings; deterministic claim and
