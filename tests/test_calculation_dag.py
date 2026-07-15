@@ -798,14 +798,16 @@ class CalculationDagTests(unittest.TestCase):
         self.assertNotEqual(stages["ts_precedent_map"]["status"], "accepted")
         self.assertTrue(index["next_blockers"])
 
-    def test_owner_validated_ts_precedent_clears_only_matching_edge_gate(self) -> None:
+    def test_owner_validated_optional_artifacts_retain_channel_mapping_gate(self) -> None:
         work = self.workdir("validated_ts_precedent")
         helper = TS_PRECEDENT_FIXTURE.TsPrecedentMapTests(
-            "test_four_analogy_classes_build_deterministically_and_remain_blocked"
+            "test_four_analogy_classes_and_novel_de_novo_plan_are_exactly_gated"
         )
         prepared, precedent_path, built_precedent = helper.build_map(work)
         self.assert_success(built_precedent)
         precedent = load_json(precedent_path)
+        support_path = prepared["support_path"]
+        support = prepared["support"]
         w1 = prepared["w1"]
         intake_path, registry_path, condition_path, mechanism_path = w1[:4]
         intake, registry, condition, mechanism_artifact = w1[4:]
@@ -815,6 +817,7 @@ class CalculationDagTests(unittest.TestCase):
         review["species_registry_payload_sha256"] = registry["payload_sha256"]
         review["condition_model_payload_sha256"] = condition["payload_sha256"]
         review["mechanism_network_payload_sha256"] = mechanism_artifact["payload_sha256"]
+        review["mechanism_support_payload_sha256"] = support["payload_sha256"]
         review["ts_precedent_map_payload_sha256"] = precedent["payload_sha256"]
         draft_path = work / "validated-precedent-review-draft.json"
         review_path = work / "validated-precedent-review.json"
@@ -830,6 +833,8 @@ class CalculationDagTests(unittest.TestCase):
             str(mechanism_path),
             "--review",
             str(review_path),
+            "--mechanism-support",
+            str(support_path),
             "--ts-precedent-map",
             str(precedent_path),
             "--output",
@@ -840,9 +845,10 @@ class CalculationDagTests(unittest.TestCase):
         self.assertNotIn("ts_precedent_map_missing", blocker_ids)
         self.assertNotIn("ts_precedent_validation_unavailable", blocker_ids)
         self.assertNotIn("ts_precedent_coverage_incomplete", blocker_ids)
+        self.assertIn("mechanism_support_channel_mapping_missing", blocker_ids)
         edge_node = by_id(plan["nodes"], "node_id", "ts_candidate_primary")
         self.assertFalse(any("ts_precedent" in item for item in edge_node["readiness"]["scientific"]["blocker_ids"]))
-        self.assertIn("mechanism_support_missing", edge_node["readiness"]["scientific"]["blocker_ids"])
+        self.assertIn("mechanism_support_channel_mapping_missing", edge_node["readiness"]["scientific"]["blocker_ids"])
         self.assertFalse(edge_node["executable"])
 
         index_path = work / "validated-precedent-index.json"
@@ -850,6 +856,12 @@ class CalculationDagTests(unittest.TestCase):
         index = load_json(index_path)
         precedent_entry = next(item for item in index["artifacts"] if item["role"] == "ts_precedent_map")
         self.assertEqual(precedent_entry["status"], "current")
+        support_entry = next(item for item in index["artifacts"] if item["role"] == "mechanism_support")
+        self.assertEqual(support_entry["status"], "current")
+        support_stage = next(item for item in index["stage_gates"] if item["stage_id"] == "mechanism_support")
+        self.assertEqual(support_stage["status"], "blocked")
+        self.assertEqual(support_stage["blocker_ids"], ["mechanism_support_channel_mapping_missing"])
+        self.assertEqual(index["next_safe_offline_action"], "add_reviewed_edge_channel_mapping")
         self.assertFalse(index["calculation_ready"])
         self.assertTrue(index["no_submission_authorization"])
 
@@ -864,6 +876,8 @@ class CalculationDagTests(unittest.TestCase):
             str(mechanism_copy),
             "--review",
             str(review_path),
+            "--mechanism-support",
+            str(support_path),
             "--ts-precedent-map",
             str(precedent_path),
             "--output",

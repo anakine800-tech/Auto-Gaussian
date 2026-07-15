@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 Gaussian 学习知识库"
+  short_description: "面向零基础的可迁移 Gaussian 学习与操作知识"
+  default_prompt: "Use $auto-g16-gaussian-learning-library to explain this Gaussian topic clearly for a beginner without source citations."

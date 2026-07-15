@@ -40,18 +40,22 @@ A calculation plan binds the exact W1 intake, species registry, condition
 model, finalized W3 mechanism network, immutable plan-review source, and every
 superseded plan. `mechanism_support` and `ts_precedent_map` are nullable exact
 bindings. Their absence creates explicit blockers and cannot be treated as an
-empty successful review. Mechanism support has no owner validator on this
-baseline, so a supplied binding is recorded only as `bound_unvalidated` and
-cannot clear scientific readiness. A supplied TS-precedent map is different:
-the DAG calls its owner validator, requires its exact intake, registry,
-condition-model and mechanism-network parents to equal the selected plan
-parents by path, file hash, byte size and payload hash, and accepts coverage
-only for a record whose reviewed disposition is
+empty successful review. A supplied mechanism-support artifact must pass the
+origin evidence-gate owner validator and bind the exact selected intake,
+registry, condition model and mechanism network by path, file hash, byte size
+and payload hash. Owner eligibility remains scoped to an exact edge and
+stereochemical channel. Calculation-plan review `/1` has only `edge_ids`, so
+the DAG deliberately retains `mechanism_support_channel_mapping_missing` and
+does not reduce channel-specific evidence to an edge-wide readiness result.
+A supplied TS-precedent map also passes its owner validator and must bind the
+same exact W1/network/support parents. The DAG accepts coverage only for a
+record or de novo seed plan whose reviewed disposition is
 `accepted_for_candidate_construction` and whose local promotion requirements
-are complete. Missing coverage remains an edge-target blocker. The map's
-mandatory mechanism-support gate remains untouched, so validated precedent
-coverage still cannot make any node executable or calculation-ready. Presence
-or a self-consistent payload hash alone never promotes support or precedent.
+are complete and owner gate is `candidate_construction_eligible`. Missing
+coverage remains an edge-target blocker. The independent channel-mapping gate
+still prevents validated precedent coverage from making a node executable or
+calculation-ready. Presence or a self-consistent payload hash alone never
+promotes support or precedent.
 
 The selected W1 and W3 artifacts must also form one exact immutable chain. The
 registry's intake reference, the condition model's intake/registry references,

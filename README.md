@@ -14,9 +14,10 @@ As of 2026-07-16, the Auto-G16 feature line includes the guarded RTwin/PBS
 workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
-the W3 offline mechanism-network slice. The current Unreleased work adds the
-smallest deterministic calculation-plan DAG and read-only reaction-study index
-over exact immutable upstream artifacts. The 2.2.0 release also includes
+the W3 offline mechanism-network slice. The current feature line adds the
+offline mechanism-support two-gate, TS-precedent/de novo-planning stages, and
+the smallest deterministic calculation-plan DAG and read-only reaction-study
+index over exact immutable upstream artifacts. The 2.2.0 release also includes
 transition-metal M1/M2 observation and review contracts while preserving the
 unconditional metal runtime refusal. Every layer retains its individual
 scientific and live-action approval gates.
@@ -39,6 +40,10 @@ retain their existing names for compatibility and provenance.
 
 ## Baseline Skills
 
+- `skills/auto-g16-gaussian-learning-library`: self-contained beginner-facing
+  Gaussian and computational-chemistry teaching library with 72 searchable
+  knowledge cards. It explains concepts and evidence boundaries but does not
+  select production protocols or authorize calculations.
 - `skills/auto-g16-chemdraw-structures`: quick or strict ChemDraw-compatible structure and complete reaction-scheme reconstruction, including native round-trip validation.
 - `skills/auto-g16-chemdraw-pipeline`: audited ChemDraw-to-Cartesian conversion.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
@@ -46,13 +51,15 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
   species registry, balance review, condition-to-model decisions, reviewed
-  mechanism-network hypotheses, the non-promotable TS-precedent map, and the
-  Unreleased calculation-plan/study-index slice. The planning layer binds the
-  exact W1 chain and finalized mechanism network, retains missing mechanism
-  support as a blocker, and accepts TS-precedent edge coverage only after the
-  owner validator proves the exact W1/network chain and a locally accepted
-  promotion-complete record. Every calculation node remains non-executable;
-  these artifacts grant no calculation or live authorization.
+  mechanism-network hypotheses, edge/channel mechanism-support classification,
+  independent exploration and claim-support gates, and TS-precedent/de novo
+  seed planning, plus the Unreleased calculation-plan/study-index slice. The
+  planning layer binds the exact W1/network chain and calls owner validators
+  before clearing only matching precedent-coverage blockers. Because the DAG
+  review currently carries edge IDs but no reviewed stereochemical-channel
+  mapping, even owner-validated mechanism support remains explicitly blocked.
+  Every calculation node remains non-executable; these artifacts grant no
+  calculation or live authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
   screening, evidence templates and fail-closed source-review validation. It
@@ -80,9 +87,11 @@ retain their existing names for compatibility and provenance.
   dependency-aware downgrade. Binary objects are never exported.
 - W2 still requires authentication, signatures, durable audit logging,
   chemical search and multi-user enforcement.
-- the strict source-to-target atom-correspondence and TS-precedent review map is
-  implemented in `auto-g16-reaction-workflow`; mechanism-support matrices and
-  seed-geometry construction remain future extensions.
+- strict edge/channel mechanism-support and source-to-target TS-precedent
+  review are implemented in `auto-g16-reaction-workflow`. A reviewed novel
+  hypothesis may be exploration-eligible without a direct precedent while its
+  mechanism claim remains unsupported and unvalidated. Seed-geometry
+  construction remains a future extension.
 
 ## Offline planning/audit module
 
@@ -159,13 +168,13 @@ python3 -m unittest discover -s tests -v
    branch, run offline validation first, and merge only after the applicable
    explicitly approved smoke gate.
 3. Continue W2 from the implemented W2B-2 store/import/export foundation with
-   authenticated enforcement, durable audit logging and chemical search. Then
-   extend the separate literature-evidence layer toward mechanism support; the
-   TS-precedent review map is already implemented but remains non-promotable.
-4. Continue W3 from the implemented mechanism network and Unreleased offline
-   calculation-plan/study-index slice toward specialist evidence adapters and
-   a reaction-level evidence index. Existing Skills remain specialist
-   components rather than a monolithic automatic mechanism generator.
+   authenticated enforcement, durable audit logging, chemical search and
+   later independent evidence revisions for mechanism claims.
+4. Continue the implemented W3 mechanism-network/support/TS-planning and
+   offline calculation-plan/study-index foundation toward specialist evidence
+   adapters and a reaction-level evidence index. Existing Skills remain
+   specialist components rather than a monolithic automatic mechanism
+   generator.
 5. Connect candidate/protocol/input and result/energy adapters, then validate a
    small closed-shell main-group reaction from ChemDraw through minima, TS,
    path, and common-reference energy evidence.

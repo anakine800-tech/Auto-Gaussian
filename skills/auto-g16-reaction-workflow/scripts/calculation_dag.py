@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import mechanism_network as mechanism
+import mechanism_support
 import reaction_workflow as rw
 import ts_precedent_map as ts_precedent
 
@@ -922,9 +923,9 @@ def _assemble_nodes(
     alternative_index = _index_by(alternatives, "group_id", "alternative group")
 
     global_blockers = list(upstream_blockers)
-    support_blocker_id = "mechanism_support_validation_unavailable" if support_bound else "mechanism_support_missing"
+    support_blocker_id = "mechanism_support_channel_mapping_missing" if support_bound else "mechanism_support_missing"
     support_description = (
-        f"Bound {SUPPORT_SCHEMA} remains provenance-only because its owner schema and semantic validator are unavailable; presence cannot promote readiness."
+        f"Bound {SUPPORT_SCHEMA} passed its owner validator and exact-parent checks, but this DAG review has no explicit reviewed edge-plus-stereochemical-channel mapping; edge-only targets cannot promote readiness."
         if support_bound
         else f"Required {SUPPORT_SCHEMA} is not bound; mechanism hypotheses cannot become calculation-ready."
     )
@@ -1180,6 +1181,9 @@ def _assemble_plan(
         ("condition_model", condition),
         ("mechanism_network", mechanism_artifact),
     ])
+    if support_binding is not None:
+        deferred_support_id = _derived_id("upstream_mechanism_network", "mechanism_support_unavailable")
+        upstream_blockers = [item for item in upstream_blockers if item["blocker_id"] != deferred_support_id]
     nodes, order, coverage, blockers = _assemble_nodes(
         review,
         mechanism_artifact,
@@ -1220,6 +1224,45 @@ def _validated_upstream(path: Path, validator: Any, label: str) -> None:
         raise ContractError(f"{label} validation failed: {exc}") from exc
 
 
+def _require_exact_selected_parents(
+    artifact: dict[str, Any],
+    artifact_path: Path,
+    selected_parents: tuple[tuple[str, Path, dict[str, Any]], ...],
+    label: str,
+) -> None:
+    for field, selected_path, binding in selected_parents:
+        reference = artifact.get(field)
+        _require_reference_matches_binding(reference, binding, f"{label} {field}")
+        require(reference.get("size_bytes") == binding["size_bytes"], f"{label} {field} byte size does not match the selected immutable artifact")
+        reference_path = Path(_string(reference.get("path"), f"{label} {field}.path"))
+        candidate = reference_path if reference_path.is_absolute() else artifact_path.parent / reference_path
+        _reject_absolute_symlink_chain(candidate, f"{label} {field}")
+        require(
+            candidate.resolve() == selected_path.resolve(),
+            f"{label} {field} does not reference the exact selected artifact path",
+        )
+
+
+def _validate_mechanism_support(
+    artifact: dict[str, Any],
+    artifact_path: Path,
+    study_id: str,
+    selected_parents: tuple[tuple[str, Path, dict[str, Any]], ...],
+) -> None:
+    """Validate origin/main evidence-gate /1 without edge-level promotion.
+
+    The owner contract is scoped by both mechanism edge and stereochemical
+    channel.  Calculation-plan review /1 has only edge IDs, so this bridge may
+    authenticate the artifact and its exact parents but must retain a channel-
+    mapping blocker until a later reviewed contract supplies that dimension.
+    """
+
+    _validated_upstream(artifact_path, mechanism_support.validate, "mechanism support")
+    _check_study_and_safety(artifact, study_id, "mechanism support")
+    require(artifact.get("mechanism_claim_validation_present") is False, "mechanism support cannot validate a mechanism claim")
+    _require_exact_selected_parents(artifact, artifact_path, selected_parents, "mechanism-support")
+
+
 def _validated_ts_precedent_edges(
     artifact: dict[str, Any],
     artifact_path: Path,
@@ -1228,34 +1271,26 @@ def _validated_ts_precedent_edges(
 ) -> set[str]:
     """Return only owner-validated, locally accepted edge coverage.
 
-    The TS-precedent owner still blocks candidate construction on missing
-    mechanism support.  This assessment clears only the separate
-    TS-precedent-availability blocker for an exactly matching edge; it cannot
-    clear mechanism support, make a node executable, or grant live authority.
+    This assessment clears only the separate TS-precedent-availability blocker
+    for an exactly matching owner-eligible edge.  It cannot clear the DAG's
+    missing edge-plus-channel mapping, make a node executable, or grant live
+    authority.
     """
 
     _validated_upstream(artifact_path, ts_precedent.validate, "TS precedent map")
     _check_study_and_safety(artifact, study_id, "TS precedent map")
-    for field, selected_path, binding in selected_parents:
-        reference = artifact.get(field)
-        _require_reference_matches_binding(reference, binding, f"TS-precedent {field}")
-        require(reference.get("size_bytes") == binding["size_bytes"], f"TS-precedent {field} byte size does not match the selected immutable artifact")
-        reference_path = Path(_string(reference.get("path"), f"TS-precedent {field}.path"))
-        candidate = reference_path if reference_path.is_absolute() else artifact_path.parent / reference_path
-        _reject_absolute_symlink_chain(candidate, f"TS-precedent {field}")
-        require(
-            candidate.resolve() == selected_path.resolve(),
-            f"TS-precedent {field} does not reference the exact selected artifact path",
-        )
+    _require_exact_selected_parents(artifact, artifact_path, selected_parents, "TS-precedent")
 
     review = artifact.get("review")
     require(isinstance(review, dict), "TS-precedent review summary is missing")
     if review.get("decision") != "accepted":
         return set()
     records = artifact.get("records")
+    de_novo = artifact.get("de_novo_seed_plans")
     require(isinstance(records, list), "TS-precedent records must be an array")
+    require(isinstance(de_novo, list), "TS-precedent de_novo_seed_plans must be an array")
     eligible: set[str] = set()
-    for record in records:
+    for record in [*records, *de_novo]:
         require(isinstance(record, dict), "TS-precedent record must be an object")
         disposition = record.get("disposition")
         target = record.get("target")
@@ -1264,7 +1299,7 @@ def _validated_ts_precedent_edges(
         if disposition.get("status") != "accepted_for_candidate_construction":
             continue
         require(record.get("promotion_requirements_complete") is True, "accepted TS-precedent record lacks complete local promotion requirements")
-        require(record.get("candidate_construction_gate") == "blocked_pending_mechanism_support", "accepted TS-precedent record has an unexpected owner gate")
+        require(record.get("candidate_construction_gate") == "candidate_construction_eligible", "accepted TS-precedent record has an unexpected owner gate")
         eligible.add(_identifier(target.get("edge_id"), "accepted TS-precedent edge_id"))
     return eligible
 
@@ -1293,12 +1328,24 @@ def build_plan(
     review, review_binding = _binding_from_path(review_path, root, REVIEW_SCHEMA, "calculation-plan review source")
     review = normalize_review(review, require_hash=True)
     support_binding = None
+    support = None
     if support_path is not None:
         support, support_binding = _binding_from_path(support_path, root, SUPPORT_SCHEMA, "mechanism support")
-        _check_study_and_safety(support, review["study_id"], "mechanism support")
+        _validate_mechanism_support(
+            support,
+            support_path,
+            review["study_id"],
+            (
+                ("reaction_intake", intake_path, intake_binding),
+                ("species_registry", registry_path, registry_binding),
+                ("condition_model", condition_path, condition_binding),
+                ("mechanism_network", mechanism_path, mechanism_binding),
+            ),
+        )
     precedent_binding = None
     precedent_eligible_edges = None
     if precedent_path is not None:
+        require(support_path is not None and support_binding is not None and support is not None, "TS precedent map requires the exact selected mechanism-support artifact")
         precedent, precedent_binding = _binding_from_path(precedent_path, root, PRECEDENT_SCHEMA, "TS precedent map")
         precedent_eligible_edges = _validated_ts_precedent_edges(
             precedent,
@@ -1309,6 +1356,7 @@ def build_plan(
                 ("species_registry", registry_path, registry_binding),
                 ("condition_model", condition_path, condition_binding),
                 ("mechanism_network", mechanism_path, mechanism_binding),
+                ("mechanism_support", support_path, support_binding),
             ),
         )
     superseded_bindings: list[dict[str, Any]] = []
@@ -1366,12 +1414,24 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
         review, _review_path = _resolve_binding(artifact["review_source"], path, REVIEW_SCHEMA, "calculation-plan review source")
         review = normalize_review(review, require_hash=True)
         support_binding = artifact["mechanism_support"]
+        support_path: Path | None = None
         if support_binding is not None:
-            support, _ = _resolve_binding(support_binding, path, SUPPORT_SCHEMA, "mechanism support")
-            _check_study_and_safety(support, artifact["study_id"], "mechanism support")
+            support, support_path = _resolve_binding(support_binding, path, SUPPORT_SCHEMA, "mechanism support")
+            _validate_mechanism_support(
+                support,
+                support_path,
+                artifact["study_id"],
+                (
+                    ("reaction_intake", intake_path, artifact["intake"]),
+                    ("species_registry", registry_path, artifact["species_registry"]),
+                    ("condition_model", condition_path, artifact["condition_model"]),
+                    ("mechanism_network", mechanism_path, artifact["mechanism_network"]),
+                ),
+            )
         precedent_binding = artifact["ts_precedent_map"]
         precedent_eligible_edges = None
         if precedent_binding is not None:
+            require(support_binding is not None and support_path is not None, "TS precedent map requires the exact selected mechanism-support artifact")
             precedent, precedent_path = _resolve_binding(precedent_binding, path, PRECEDENT_SCHEMA, "TS precedent map")
             precedent_eligible_edges = _validated_ts_precedent_edges(
                 precedent,
@@ -1382,6 +1442,7 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
                     ("species_registry", registry_path, artifact["species_registry"]),
                     ("condition_model", condition_path, artifact["condition_model"]),
                     ("mechanism_network", mechanism_path, artifact["mechanism_network"]),
+                    ("mechanism_support", support_path, support_binding),
                 ),
             )
         require(isinstance(artifact["superseded_plans"], list), "superseded_plans must be an array")
@@ -1468,7 +1529,7 @@ def _derive_index(plan: dict[str, Any], plan_binding: dict[str, Any], chain: dic
         {"role": "species_registry", "status": "current", "artifact": plan["species_registry"]},
         {"role": "condition_model", "status": "current", "artifact": plan["condition_model"]},
         {"role": "mechanism_network", "status": "current", "artifact": plan["mechanism_network"]},
-        {"role": "mechanism_support", "status": "missing" if plan["mechanism_support"] is None else "bound_unvalidated", "artifact": plan["mechanism_support"]},
+        {"role": "mechanism_support", "status": "missing" if plan["mechanism_support"] is None else "current", "artifact": plan["mechanism_support"]},
         {"role": "ts_precedent_map", "status": "missing" if plan["ts_precedent_map"] is None else "current", "artifact": plan["ts_precedent_map"]},
         {"role": "calculation_plan_review", "status": "current", "artifact": plan["review_source"]},
         {"role": "calculation_plan", "status": "current", "artifact": plan_binding},
@@ -1504,7 +1565,7 @@ def _derive_index(plan: dict[str, Any], plan_binding: dict[str, Any], chain: dic
         excluded_blocker_ids={deferred_support_id},
     )
 
-    support_blocker_id = "mechanism_support_missing" if plan["mechanism_support"] is None else "mechanism_support_validation_unavailable"
+    support_blocker_id = "mechanism_support_missing" if plan["mechanism_support"] is None else "mechanism_support_channel_mapping_missing"
     stage_specs.append(("mechanism_support", "mechanism_support", "missing" if plan["mechanism_support"] is None else "blocked", [support_blocker_id]))
     if plan["ts_precedent_map"] is None:
         stage_specs.append(("ts_precedent_map", "ts_precedent_map", "missing", ["ts_precedent_map_missing"]))
@@ -1539,8 +1600,8 @@ def _derive_index(plan: dict[str, Any], plan_binding: dict[str, Any], chain: dic
             next_ids = ids
 
     next_blockers = _sort_blockers(plan_blockers[blocker_id] for blocker_id in next_ids)
-    if "mechanism_support_validation_unavailable" in next_ids:
-        next_action = "await_mechanism_support_owner_validator"
+    if "mechanism_support_channel_mapping_missing" in next_ids:
+        next_action = "add_reviewed_edge_channel_mapping"
     elif "mechanism_support_missing" in next_ids or "mechanism_support_unavailable" in next_ids:
         next_action = "bind_reviewed_mechanism_support"
     elif "ts_precedent_validation_unavailable" in next_ids:

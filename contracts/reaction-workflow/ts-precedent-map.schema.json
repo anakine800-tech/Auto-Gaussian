@@ -7,7 +7,7 @@
   "required": [
     "schema", "study_id", "reaction_intake", "species_registry", "condition_model",
     "mechanism_network", "knowledge_snapshot", "literature_evidence", "review_source",
-    "mechanism_support", "records", "blockers", "review", "gate_status",
+    "mechanism_support", "records", "de_novo_seed_plans", "blockers", "review", "gate_status",
     "candidate_construction_promotable", "calculation_ready",
     "no_submission_authorization", "payload_sha256"
   ],
@@ -21,12 +21,13 @@
     "knowledge_snapshot": {"$ref": "#/$defs/artifactRef"},
     "literature_evidence": {"$ref": "#/$defs/artifactRef"},
     "review_source": {"$ref": "#/$defs/fileRef"},
-    "mechanism_support": {"$ref": "#/$defs/mechanismSupport"},
+    "mechanism_support": {"$ref": "#/$defs/artifactRef"},
     "records": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/record"}},
-    "blockers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/blocker"}},
+    "de_novo_seed_plans": {"type": "array", "items": {"$ref": "#/$defs/deNovoSeedPlan"}},
+    "blockers": {"type": "array", "items": {"$ref": "#/$defs/blocker"}},
     "review": {"$ref": "#/$defs/review"},
     "gate_status": {"enum": ["reviewed", "reviewed_with_blockers", "blocked"]},
-    "candidate_construction_promotable": {"const": false},
+    "candidate_construction_promotable": {"type": "boolean"},
     "calculation_ready": {"const": false},
     "no_submission_authorization": {"const": true},
     "payload_sha256": {"$ref": "#/$defs/sha256"}
@@ -317,7 +318,8 @@
         "source_to_target_atom_mapping", "target_context", "geometry_transfer",
         "seed_strategy", "strategy_prerequisites", "applicability_review",
         "uncertainties", "alternatives", "negative_evidence", "disposition", "blockers",
-        "notes", "promotion_requirements_complete", "candidate_construction_gate"
+        "notes", "promotion_requirements_complete", "mechanism_support_gate",
+        "candidate_construction_gate"
       ],
       "properties": {
         "precedent_id": {"$ref": "#/$defs/id"}, "target": {"$ref": "#/$defs/target"},
@@ -332,7 +334,8 @@
         "negative_evidence": {"$ref": "#/$defs/stringArray"}, "disposition": {"$ref": "#/$defs/disposition"},
         "blockers": {"$ref": "#/$defs/stringArray"}, "notes": {"$ref": "#/$defs/stringArray"},
         "promotion_requirements_complete": {"type": "boolean"},
-        "candidate_construction_gate": {"enum": ["blocked_pending_mechanism_support", "not_promoted_by_disposition"]}
+        "mechanism_support_gate": {"$ref": "#/$defs/mechanismSupportGate"},
+        "candidate_construction_gate": {"enum": ["candidate_construction_eligible", "blocked_by_hypothesis_exploration_gate", "not_promoted_by_disposition"]}
       },
       "allOf": [
         {"oneOf": [
@@ -373,13 +376,43 @@
       "required": ["decision", "notes"],
       "properties": {"decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]}, "notes": {"$ref": "#/$defs/stringArray"}}
     },
-    "mechanismSupport": {
+    "mechanismSupportGate": {
       "type": "object", "additionalProperties": false,
-      "required": ["schema", "status", "candidate_construction_promotable"],
+      "required": ["support_record_ids", "hypothesis_exploration_eligible", "mechanism_claim_supported", "mechanism_claim_validated"],
       "properties": {
-        "schema": {"const": "gaussian-reaction-mechanism-support/1"},
-        "status": {"const": "unavailable_unimplemented"},
-        "candidate_construction_promotable": {"const": false}
+        "support_record_ids": {"$ref": "#/$defs/idArray"},
+        "hypothesis_exploration_eligible": {"type": "boolean"},
+        "mechanism_claim_supported": {"type": "boolean"},
+        "mechanism_claim_validated": {"const": false}
+      }
+    },
+    "deNovoSeedPlan": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "seed_plan_id", "record_kind", "target", "target_context",
+        "source_precedent", "source_coordinates_used", "seed_strategy",
+        "strategy_prerequisites", "uncertainties", "alternatives", "falsifiers",
+        "disposition", "blockers", "notes", "promotion_requirements_complete",
+        "mechanism_support_gate", "candidate_construction_gate"
+      ],
+      "properties": {
+        "seed_plan_id": {"$ref": "#/$defs/id"},
+        "record_kind": {"const": "de_novo_seed_plan"},
+        "target": {"$ref": "#/$defs/target"},
+        "target_context": {"$ref": "#/$defs/targetContext"},
+        "source_precedent": {"type": "null"},
+        "source_coordinates_used": {"const": false},
+        "seed_strategy": {"enum": ["reviewed_structure_rebuild", "endpoint_qst_family", "relaxed_scan"]},
+        "strategy_prerequisites": {"$ref": "#/$defs/prerequisites"},
+        "uncertainties": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}},
+        "alternatives": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}},
+        "falsifiers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}},
+        "disposition": {"$ref": "#/$defs/disposition"},
+        "blockers": {"$ref": "#/$defs/stringArray"},
+        "notes": {"$ref": "#/$defs/stringArray"},
+        "promotion_requirements_complete": {"type": "boolean"},
+        "mechanism_support_gate": {"$ref": "#/$defs/mechanismSupportGate"},
+        "candidate_construction_gate": {"enum": ["candidate_construction_eligible", "not_promoted_by_disposition"]}
       }
     }
   }

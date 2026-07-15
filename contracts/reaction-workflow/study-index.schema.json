@@ -76,7 +76,7 @@
       "required": ["role", "status", "artifact"],
       "properties": {
         "role": {"$ref": "#/$defs/id"},
-        "status": {"enum": ["current", "superseded", "missing", "bound_unvalidated"]},
+        "status": {"enum": ["current", "superseded", "missing"]},
         "artifact": {"$ref": "#/$defs/nullableBoundArtifact"}
       }
     },

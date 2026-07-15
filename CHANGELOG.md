@@ -20,9 +20,12 @@ All notable public release changes are recorded here. The project follows
   offline contract in
   `skills/auto-g16-reaction-workflow/references/calculation-dag-contract.md`.
   Missing mechanism-support and TS-precedent bindings remain explicit
-  blockers. Mechanism support remains bound-but-unvalidated on this baseline;
-  TS-precedent coverage clears only per matching edge after its owner validator
-  proves the exact W1/network parents and a locally accepted complete record.
+  blockers. Supplied mechanism support must pass the origin evidence-gate
+  owner validator and match the exact W1/network parents, but remains blocked
+  because calculation-plan review `/1` has no reviewed edge-plus-channel
+  mapping. TS-precedent coverage clears only per matching edge after its owner
+  validator proves the exact W1/network/support parents and a locally accepted
+  complete record.
 - Target-shaped dependency checks require an edge single-point to consume a
   reviewed TS-Freq result, and every edge-target node inherits the TS-
   precedent gate. Study-index stages follow W1, mechanism network, mechanism
@@ -31,6 +34,22 @@ All notable public release changes are recorded here. The project follows
 - Supersession validation is iterative for long node chains and rejects plan-
   ancestry paths beyond the documented 128-artifact limit with a controlled
   contract error.
+- A closed standard-library-only `gaussian-reaction-mechanism-support/1`
+  builder/validator with exact W1, mechanism-network, knowledge-snapshot,
+  finalized-literature and immutable-review bindings; deterministic claim and
+  location hashes; complete edge/channel scientific review; preserved negative
+  evidence; and separate hypothesis-exploration and mechanism-claim-support
+  decisions.
+- Exact mechanism-support binding in `gaussian-ts-precedent-map/1` plus a
+  source-free de novo endpoint/QST, scan or reviewed-rebuild planning path for
+  exploration-eligible novel hypotheses.
+
+### Changed
+
+- Treat absence of direct literature precedent as a visible
+  `novel_hypothesis_no_direct_precedent` evidence gap rather than automatic
+  exclusion from reviewed computational exploration. Analogy and internal
+  rationale still do not support or validate a mechanism claim.
 
 ### Safety
 
@@ -42,6 +61,10 @@ All notable public release changes are recorded here. The project follows
   render an input, create a server project or job, or perform Gaussian, SSH,
   PBS, submission, retry, cancellation, deletion, deployment, or other live
   action.
+- Mechanism-support and TS-planning artifacts remain
+  `calculation_ready: false` and `no_submission_authorization: true`; de novo
+  plans contain no source precedent or source coordinates and grant no method,
+  Gaussian, PBS, deployment or live authority.
 
 ## [2.2.0] - 2026-07-15
 

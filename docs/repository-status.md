@@ -12,8 +12,8 @@ mechanism-network slice, release/dependency/security hardening, and the
 transition-metal offline preview contracts described below. Publication of
 the verified `v2.2.0` tag and GitHub Release was authorized on 2026-07-15.
 
-All nine repository-owned Skill folders and machine names now use the
-`auto-g16-` prefix, and all nine human-facing display names begin with
+All ten repository-owned Skill folders and machine names now use the
+`auto-g16-` prefix, and all ten human-facing display names begin with
 `Auto-G16`. Repository source remains authoritative. Release deployment must
 run `scripts/check_skill_sync.py`, review the exact named-Skill diffs, and
 synchronize only the validated release copies; a GitHub checkout never implies
@@ -22,7 +22,7 @@ for future project Skills; versioned scientific schemas and immutable
 historical records retain their identifiers.
 
 The v2.1.0 release deployment covered the eight Skills in that tag. The current
-repository contains nine Skills. Machine-local deployments are deliberately
+repository contains ten Skills. Machine-local deployments are deliberately
 not treated as repository state: each named Skill must be validated, diffed
 and synchronized independently from `skills/`. Deployment never authorizes a
 live test or calculation.
@@ -46,23 +46,29 @@ The current Unreleased feature branch adds the smallest coherent offline
 calculation-planning layer. It binds the exact W1 intake, species registry and
 condition model plus the finalized mechanism network by file SHA-256, byte
 size and canonical payload SHA-256. Missing mechanism-support and TS-precedent
-artifacts remain explicit blockers. Mechanism support has no owner validator
-on this baseline, so a supplied file remains `bound_unvalidated` provenance.
-The implemented TS-precedent owner validator must instead prove the exact
-W1/network chain and a locally accepted, promotion-complete record before the
-DAG clears only that edge's precedent blocker. No node becomes executable.
+artifacts remain explicit blockers. Supplied artifacts must pass their exact
+origin owner validators and match the selected W1/network/support chain. The
+DAG may clear only matching precedent coverage. It cannot promote the
+edge-plus-stereochemical-channel mechanism-support decision because plan
+review `/1` has no reviewed channel mapping. It never imports fields from the
+incompatible unmerged mechanism-support matrix model, promotes from file
+presence, or makes a node executable.
 
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
-offline reusable-knowledge, mechanism-network, TS-precedent and calculation-
-DAG/study-index foundations and the remaining mechanism-support, specialist
-calculation/evidence adapter, free-energy/kinetic and final-report layers
-needed to progress from W1 to an auditable whole-reaction study.
+offline reusable-knowledge, mechanism-network, mechanism-support and
+TS-precedent/de novo-planning and calculation-DAG/study-index foundations and
+the remaining specialist calculation/evidence adapter, free-energy/kinetic and
+final-report layers needed to progress from W1 to an auditable whole-reaction
+study.
 
 ## Current capability
 
 The version-controlled source under `skills/` currently provides:
 
+- a self-contained Gaussian and computational-chemistry learning library with
+  72 searchable knowledge cards, beginner-oriented explanations, and explicit
+  separation between teaching examples and calculation authorization;
 - ChemDraw structure reconstruction and explicit stereochemical review;
 - strict whole-scheme transcription, source-exact/normalized conditions and
   editable reaction-package artifacts recovered into repository source;
@@ -99,13 +105,19 @@ The version-controlled source under `skills/` currently provides:
   permission-filtered query and snapshot dependency verification; and
 - its W2B-2 hash-bound plan-review-apply import, lawful-object ingestion,
   dependency-aware redacted/full JSON export and transfer manifests.
+- a strict offline `gaussian-reaction-mechanism-support/1` builder/validator
+  with exact W1/network/snapshot/evidence/review bindings, per-edge/channel
+  evidence classification, preserved contradictions and separate
+  `hypothesis_exploration_eligible` and `mechanism_claim_supported` decisions;
 - a smallest coherent offline `gaussian-ts-precedent-map/1` builder/validator
   that binds the exact W1, mechanism-network, knowledge-snapshot, finalized
   literature-evidence and review-source artifacts; verifies stable target atom
   IDs and source-to-target correspondence; distinguishes transferable from
   rebuild-required geometry; separates numeric geometry ranges from qualitative
   topology/orientation descriptors; binds charge/multiplicity to the edge
-  endpoints; and audits six non-executing seed strategies.
+  endpoints; audits six non-executing seed strategies; binds the exact
+  mechanism-support artifact; and records source-free de novo endpoint/QST,
+  scan or reviewed-rebuild plans for exploration-eligible novel hypotheses.
 
 The W1 builder assigns stable step/occurrence/condition IDs, binds every drawn
 reactant/product exactly once, refuses missing condition decisions, preserves
@@ -146,11 +158,13 @@ are not a filesystem or multi-user security boundary. The W2 design and remainin
 are recorded in `skills/auto-g16-reaction-workflow/references/knowledge-database-design.md`.
 
 The repository now provides reproducible metadata discovery, source-evidence
-review scaffolding and the strict offline TS-precedent translation slice. It
-still does not provide automatic lawful full-text/SI extraction,
-mechanism-support matrices, seed-geometry construction, mechanism validation,
-TS validation or protocol selection. The TS-precedent map remains
-non-promotable while mechanism support is absent. The existing BF3 and
+review scaffolding, strict offline mechanism-support classification and the
+TS-precedent/de novo-planning slice. Missing direct literature precedent is
+recorded as an evidence gap, not automatic exclusion: an explicitly reviewed
+novel edge may be exploration-eligible while `mechanism_claim_supported` and
+`mechanism_claim_validated` remain false. It still does not provide automatic
+lawful full-text/SI extraction, seed-geometry construction, mechanism
+validation, TS validation or protocol selection. The existing BF3 and
 asymmetric-catalysis records remain fixed precedents rather than automatic
 target-mechanism proof. The full W2 contract and remaining stages are recorded in
 `skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`.
@@ -453,13 +467,15 @@ candidate still requires its own new gate.
 
 1. Continue the W2 `auto-g16-knowledge-base` from the completed W2B-2 offline
    store/import/export foundation with authentication, durable audit logging,
-   chemical search and a separately reviewed service boundary. Then implement
-   the missing mechanism-support contract and integrate it without weakening
-   the now-implemented non-promotable TS-precedent gate. Bind only exact
-   owner-validated artifacts to a new calculation plan and study index; never
-   promote from file presence. Only after offline acceptance, separately
-   approve one real-reaction literature-search smoke; it must not generate an
-   input, make a node executable or authorize calculation.
+   chemical search and a separately reviewed service boundary. Extend the
+   implemented mechanism-support gate only through new immutable independent
+   evidence revisions without equating analogy with validation. Bind only
+   exact owner-validated support/precedent artifacts to a new calculation plan
+   and study index; never promote from file presence or mix the incompatible
+   unmerged matrix `/1` model into the origin evidence-gate contract. Only
+   after offline acceptance, separately approve one real-reaction literature-
+   search smoke; it must not generate an input, make a node executable or
+   authorize calculation.
 2. Use the implemented candidate-bound M1 sidecar for one concrete metal–
    chiral-ligand reaction and review its oxidation/electron accounting, spin
    surfaces, wavefunction, coordination state, method evidence, elementary-
