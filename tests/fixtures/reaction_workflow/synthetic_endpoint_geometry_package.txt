@@ -1,0 +1,2 @@
+Synthetic offline endpoint-geometry package marker.
+No real structure, coordinate set, Gaussian input, or calculation authorization is contained here.

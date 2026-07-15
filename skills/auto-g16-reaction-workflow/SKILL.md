@@ -133,13 +133,14 @@ python3 "$NETWORK_TOOL" build reaction-intake.json species-registry.json \
 python3 "$NETWORK_TOOL" validate mechanism-network.json
 ```
 
-This first W3 slice validates complete reviewed states, exact atom maps,
+This upstream W3 slice validates complete reviewed states, exact atom maps,
 connectivity changes, element/charge conservation, competing networks,
 reference basins and catalyst-projection closure. It does not infer any of
-them. Because `gaussian-reaction-mechanism-support/1` remains unimplemented,
-every output retains `mechanism_support_unavailable`, remains
-`calculation_ready: false`, and grants no mechanism promotion, calculation DAG,
-protocol, Gaussian input, or live authority.
+them. The network necessarily precedes its child mechanism-support artifact,
+so it retains a null child binding and `mechanism_support_unavailable`; this is
+an ordering blocker, not a claim that the child builder is unimplemented.
+Network output remains `calculation_ready: false` and grants no mechanism
+promotion, calculation DAG, protocol, Gaussian input, or live authority.
 
 ### 5. Preserve the W2 knowledge and literature gates
 
@@ -157,17 +158,41 @@ when planning that future layer.
 The separate `auto-g16-knowledge-base` Skill implements the offline immutable
 registry, permission-filtered index, typed-link and snapshot MVP. This W1
 builder does not invoke it automatically or fabricate a snapshot. The separate
-`auto-g16-reaction-literature` Skill implements the query, metadata
-retrieval, screening and source-evidence stages. This Skill now also owns a
-small separate offline TS-precedent-map builder described below; mechanism
-support remains unimplemented. This W1 builder still performs none of those
+`auto-g16-reaction-literature` Skill implements the query, metadata retrieval,
+screening and source-evidence stages. This Skill now also owns separate offline
+mechanism-support and TS-precedent-map builders described below. This W1
+builder still performs none of those
 actions. Do not claim that a database was queried or updated, claim that a
 search was performed without its immutable artifacts, infer a mechanism from a
 citation, or transfer an unreviewed structure/geometry. A database match and
 literature similarity do not prove the target mechanism or TS and grant no
 calculation authorization.
 
-### Optional reviewed TS-precedent map
+### Optional reviewed mechanism-support gate
+
+Invoke this only after the immutable W1/network chain, knowledge snapshot,
+finalized literature evidence and a human-authored edge/channel review exist.
+Read
+[references/mechanism-support-contract.md](references/mechanism-support-contract.md),
+then run:
+
+```bash
+SUPPORT_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/mechanism_support.py"
+
+python3 "$SUPPORT_TOOL" build mechanism-network.json knowledge-snapshot.json \
+  literature-evidence.json --review mechanism-support-review.json \
+  --output mechanism-support.json
+python3 "$SUPPORT_TOOL" validate mechanism-support.json
+```
+
+The artifact keeps evidence classification separate from two independent
+decisions. A reviewed novel edge may be `hypothesis_exploration_eligible` when
+no direct precedent was found, but it remains not literature-supported and not
+mechanism-validated. Direct evidence, analogy, internal rationale,
+contradictions and missing precedent remain distinct. Every output remains
+offline and non-authorizing.
+
+### Optional reviewed TS-precedent and de novo seed map
 
 Invoke this only after an immutable W1 chain, reviewed mechanism-network
 artifact, reviewed knowledge snapshot, finalized literature evidence with all
@@ -180,17 +205,19 @@ then run:
 PRECEDENT_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py"
 
 python3 "$PRECEDENT_TOOL" build mechanism-network.json knowledge-snapshot.json \
-  literature-evidence.json --review ts-precedent-review.json \
+  literature-evidence.json mechanism-support.json \
+  --review ts-precedent-review.json \
   --output ts-precedent-map.json
 python3 "$PRECEDENT_TOOL" validate ts-precedent-map.json
 ```
 
 This converts reviewed edges and evidence into immutable atom-correspondence,
 geometry-transfer-scope and seed-strategy review records. It copies no
-coordinates and constructs no geometry. Since
-`gaussian-reaction-mechanism-support/1` is still unavailable, every output is
-non-promotable even when a precedent's local promotion prerequisites are
-complete.
+coordinates and constructs no geometry. The exact mechanism-support edge and
+channel must be exploration-eligible. A novel edge with no direct precedent
+may use a separate de novo endpoint/QST, scan or reviewed-rebuild plan with
+`source_precedent: null` and `source_coordinates_used: false`; that does not
+make the mechanism claim literature-supported or validated.
 
 ## Scientific boundaries
 
@@ -218,10 +245,13 @@ complete.
   contract implemented offline by `auto-g16-knowledge-base`; multi-user service
   and raw legacy migrations remain future work.
 - `references/literature-evidence-design.md`: W2 reproducible search, evidence
-  extraction, applicability review and TS-precedent design. The query and
-  evidence stages are implemented by `auto-g16-reaction-literature`; the
-  smallest offline TS-precedent-map slice is implemented here; mechanism
-  support remains design-only.
+  extraction, applicability review, mechanism-support and TS-precedent design.
+  The query and evidence stages are implemented by
+  `auto-g16-reaction-literature`; the strict offline mechanism-support and
+  TS-precedent/de novo-planning slices are implemented here.
+- `references/mechanism-support-contract.md`: implemented immutable-parent,
+  edge/channel evidence classification, independent exploration and claim-
+  support decisions, contradiction handling and fail-closed rules.
 - `references/ts-precedent-map-contract.md`: implemented immutable-parent,
   atom-correspondence, geometry-transfer, strategy and fail-closed promotion
   rules for `gaussian-ts-precedent-map/1`.
@@ -230,8 +260,10 @@ complete.
   blocker.
 - `scripts/mechanism_network.py`: standard-library-only deterministic W3
   mechanism-network builder and validator; no calculation or live path.
+- `scripts/mechanism_support.py`: standard-library-only deterministic evidence
+  classification and two-gate builder/validator; no calculation or live path.
 - `scripts/ts_precedent_map.py`: standard-library-only deterministic TS
   precedent-map builder and validator; no coordinate or input construction.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
-  schemas for intake, registry, condition-model, mechanism-network and TS-
-  precedent-map artifacts.
+  schemas for intake, registry, condition-model, mechanism-network,
+  mechanism-support and TS-precedent-map artifacts.

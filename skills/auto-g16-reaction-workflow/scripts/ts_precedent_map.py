@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import mechanism_network as mn
+import mechanism_support as ms
 import reaction_workflow as rw
 
 
@@ -32,7 +33,8 @@ SUPPORT_SCHEMA = "gaussian-reaction-mechanism-support/1"
 REVIEW_KEYS = {
     "schema", "study_id", "mechanism_network_payload_sha256",
     "knowledge_snapshot_payload_sha256", "literature_evidence_payload_sha256",
-    "records", "review_decision", "review_notes",
+    "mechanism_support_payload_sha256", "records", "de_novo_seed_plans",
+    "review_decision", "review_notes",
 }
 RECORD_KEYS = {
     "precedent_id", "target", "source_precedent", "source_structure",
@@ -53,6 +55,7 @@ STRATEGIES = {
     "published_coordinates", "reviewed_structure_rebuild", "endpoint_qst_family",
     "relaxed_scan", "hessian_guided_guess", "unsupported",
 }
+DE_NOVO_STRATEGIES = {"reviewed_structure_rebuild", "endpoint_qst_family", "relaxed_scan"}
 AUDIT_FIELDS = {
     "identity", "atom_order", "stereochemistry", "formal_charge",
     "multiplicity", "coordination",
@@ -209,6 +212,32 @@ def _load_upstream(mechanism_path: Path, snapshot_path: Path, evidence_path: Pat
     rw.require(knowledge_bound_path.resolve() == snapshot_path.resolve(), "literature knowledge-snapshot path differs from supplied snapshot")
     rw.require(knowledge_bound["payload_sha256"] == snapshot["payload_sha256"], "literature knowledge-snapshot payload differs from supplied snapshot")
     return mechanism, snapshot, evidence, network_bindings
+
+
+def _load_support(
+    support_path: Path, mechanism_path: Path, snapshot_path: Path, evidence_path: Path,
+) -> dict[str, Any]:
+    _require_regular_file(support_path, "mechanism-support input")
+    ms.validate(support_path)
+    support = rw.load_json(support_path)
+    for key, expected_path, expected_payload in (
+        ("mechanism_network", mechanism_path, rw.load_json(mechanism_path)["payload_sha256"]),
+        ("knowledge_snapshot", snapshot_path, rw.load_json(snapshot_path)["payload_sha256"]),
+        ("literature_evidence", evidence_path, rw.load_json(evidence_path)["evidence_review_payload_sha256"]),
+    ):
+        ref = support[key]
+        rw.require(_resolve(ref, support_path).resolve() == expected_path.resolve(), f"mechanism support {key} path differs from TS-precedent parent")
+        rw.require(ref["payload_sha256"] == expected_payload, f"mechanism support {key} payload differs from TS-precedent parent")
+    return support
+
+
+def _support_summaries(support: dict[str, Any]) -> dict[tuple[str, str | None], dict[str, Any]]:
+    result: dict[tuple[str, str | None], dict[str, Any]] = {}
+    for item in support["edge_channel_summary"]:
+        key = (item["edge_id"], item["stereochemical_channel"])
+        rw.require(key not in result, "mechanism support contains duplicate edge/channel summaries")
+        result[key] = item
+    return result
 
 
 def _pair_list(value: Any, label: str, valid_atoms: set[str]) -> list[list[str]]:
@@ -593,7 +622,7 @@ def _strategy_complete(strategy: str, prerequisites: dict[str, Any], source_stru
     return False
 
 
-def _normalize_record(raw: dict[str, Any], edges: dict[str, dict[str, Any]], states: dict[str, dict[str, Any]], edge_diagnostics: dict[str, dict[str, Any]], blocked_scopes: set[str], candidates: dict[str, dict[str, Any]], review_path: Path) -> dict[str, Any]:
+def _normalize_record(raw: dict[str, Any], edges: dict[str, dict[str, Any]], states: dict[str, dict[str, Any]], edge_diagnostics: dict[str, dict[str, Any]], blocked_scopes: set[str], candidates: dict[str, dict[str, Any]], support_summaries: dict[tuple[str, str | None], dict[str, Any]], review_path: Path) -> dict[str, Any]:
     data = _exact(raw, RECORD_KEYS, f"precedent {raw.get('precedent_id', '?')}")
     precedent_id = rw._require_id(data["precedent_id"], "precedent_id")
     target_raw = data["target"]
@@ -649,7 +678,21 @@ def _normalize_record(raw: dict[str, Any], edges: dict[str, dict[str, Any]], sta
         elif strategy == "reviewed_structure_rebuild":
             rw.require(source["bounded_use"] in {"geometry_seed_support", "ts_topology_support"}, f"precedent {precedent_id}: structure rebuild requires a geometry/topology bounded use")
         rw.require(bool(uncertainties) and bool(alternatives), f"precedent {precedent_id}: accepted disposition requires explicit uncertainty and alternative review")
-    gate = "blocked_pending_mechanism_support" if status == "accepted_for_candidate_construction" else "not_promoted_by_disposition"
+    summary = support_summaries.get((target["edge_id"], target["stereochemical_channel"]))
+    rw.require(summary is not None, f"precedent {precedent_id}: exact edge/channel is absent from mechanism support")
+    support_gate = {
+        "support_record_ids": summary["support_record_ids"],
+        "hypothesis_exploration_eligible": summary["hypothesis_exploration_eligible"],
+        "mechanism_claim_supported": summary["mechanism_claim_supported"],
+        "mechanism_claim_validated": False,
+    }
+    gate = (
+        "candidate_construction_eligible"
+        if status == "accepted_for_candidate_construction" and summary["hypothesis_exploration_eligible"]
+        else "blocked_by_hypothesis_exploration_gate"
+        if status == "accepted_for_candidate_construction"
+        else "not_promoted_by_disposition"
+    )
     return {
         "precedent_id": precedent_id, "target": target, "source_precedent": source,
         "source_structure": source_structure, "source_to_target_atom_mapping": mapping,
@@ -661,17 +704,111 @@ def _normalize_record(raw: dict[str, Any], edges: dict[str, dict[str, Any]], sta
         "blockers": record_blockers,
         "notes": rw._string_list(data["notes"], f"precedent {precedent_id}.notes"),
         "promotion_requirements_complete": complete and applicability["status"] == "reviewed" and promotion["status"] == "approved",
+        "mechanism_support_gate": support_gate,
         "candidate_construction_gate": gate,
     }
 
 
-def _normalize_review(review: dict[str, Any], mechanism: dict[str, Any], snapshot: dict[str, Any], evidence: dict[str, Any], review_path: Path) -> tuple[list[dict[str, Any]], str, list[str]]:
+def _de_novo_strategy_complete(strategy: str, prerequisites: dict[str, Any], target: dict[str, Any]) -> bool:
+    assertions = set(prerequisites["reviewed_assertions"])
+    endpoints = set(prerequisites["endpoint_state_ids"])
+    if strategy == "endpoint_qst_family":
+        return (
+            endpoints == {target["from_state_id"], target["to_state_id"]}
+            and prerequisites["source_object"] is not None
+            and bool(prerequisites["source_anchor"])
+            and "endpoint_geometries_reviewed" in assertions
+        )
+    if strategy == "reviewed_structure_rebuild":
+        return (
+            endpoints <= {target["from_state_id"], target["to_state_id"]}
+            and prerequisites["source_object"] is not None
+            and bool(prerequisites["source_anchor"])
+            and "de_novo_rebuild_scope_reviewed" in assertions
+        )
+    if strategy == "relaxed_scan":
+        return (
+            endpoints <= {target["from_state_id"], target["to_state_id"]}
+            and "scan_scope_and_coordinate_reviewed" in assertions
+        )
+    return False
+
+
+def _normalize_de_novo_plan(
+    raw: Any, edges: dict[str, dict[str, Any]], states: dict[str, dict[str, Any]],
+    edge_diagnostics: dict[str, dict[str, Any]], blocked_scopes: set[str],
+    support_summaries: dict[tuple[str, str | None], dict[str, Any]], review_path: Path,
+) -> dict[str, Any]:
+    data = _exact(raw, {
+        "seed_plan_id", "target", "target_context", "seed_strategy",
+        "strategy_prerequisites", "uncertainties", "alternatives", "falsifiers",
+        "disposition", "blockers", "notes",
+    }, f"de novo seed plan {raw.get('seed_plan_id', '?') if isinstance(raw, dict) else '?'}")
+    plan_id = rw._require_id(data["seed_plan_id"], "de novo seed_plan_id")
+    target_raw = data["target"]
+    rw.require(isinstance(target_raw, dict) and target_raw.get("edge_id") in edges, f"de novo seed plan {plan_id} references an unknown mechanism edge")
+    edge = edges[target_raw["edge_id"]]
+    target = _normalize_target(target_raw, edge, states, f"de novo seed plan {plan_id}.target")
+    context = _normalize_context(data["target_context"], target, states, f"de novo seed plan {plan_id}.target_context")
+    strategy = rw._require_string(data["seed_strategy"], f"de novo seed plan {plan_id}.seed_strategy")
+    rw.require(strategy in DE_NOVO_STRATEGIES, f"de novo seed plan {plan_id} must use an endpoint/QST, scan, or reviewed rebuild strategy")
+    prerequisites = _normalize_prerequisites(data["strategy_prerequisites"], review_path, f"de novo seed plan {plan_id}.strategy_prerequisites")
+    rw.require(not prerequisites["geometry_item_ids"], f"de novo seed plan {plan_id} cannot reference transferable precedent geometry")
+    complete = _de_novo_strategy_complete(strategy, prerequisites, target)
+    uncertainties = rw._string_list(data["uncertainties"], f"de novo seed plan {plan_id}.uncertainties", nonempty=True)
+    alternatives = rw._string_list(data["alternatives"], f"de novo seed plan {plan_id}.alternatives", nonempty=True)
+    falsifiers = rw._string_list(data["falsifiers"], f"de novo seed plan {plan_id}.falsifiers", nonempty=True)
+    record_blockers = rw._string_list(data["blockers"], f"de novo seed plan {plan_id}.blockers")
+    disposition = _exact(data["disposition"], {"status", "promotion_review"}, f"de novo seed plan {plan_id}.disposition")
+    status = rw._require_string(disposition["status"], f"de novo seed plan {plan_id}.disposition.status")
+    rw.require(status in {"proposed", "accepted_for_candidate_construction", "rejected", "blocked"}, f"de novo seed plan {plan_id}.disposition.status is invalid")
+    promotion = _exact(disposition["promotion_review"], {"status", "reviewer", "reviewed_at", "rationale"}, f"de novo seed plan {plan_id}.promotion_review")
+    rw.require(promotion["status"] in {"pending", "approved", "rejected", "blocked"}, f"de novo seed plan {plan_id}.promotion_review.status is invalid")
+    for key in ("reviewer", "reviewed_at"):
+        rw.require(promotion[key] is None or (isinstance(promotion[key], str) and promotion[key].strip()), f"de novo seed plan {plan_id}.promotion_review.{key} is invalid")
+    promotion["rationale"] = rw._require_string(promotion["rationale"], f"de novo seed plan {plan_id}.promotion_review.rationale")
+    summary = support_summaries.get((target["edge_id"], target["stereochemical_channel"]))
+    rw.require(summary is not None, f"de novo seed plan {plan_id}: exact edge/channel is absent from mechanism support")
+    if status == "accepted_for_candidate_construction":
+        rw.require(summary["hypothesis_exploration_eligible"], f"de novo seed plan {plan_id}: accepted disposition requires hypothesis_exploration_eligible for the exact edge/channel")
+        rw.require(edge["review_status"] == "reviewed_hypothesis" and not edge["blockers"], f"de novo seed plan {plan_id}: accepted disposition requires an unblocked reviewed edge")
+        rw.require(all(states[state_id]["review_status"] == "reviewed_hypothesis" and not states[state_id]["blockers"] for state_id in (target["from_state_id"], target["to_state_id"])), f"de novo seed plan {plan_id}: accepted disposition requires unblocked reviewed endpoint states")
+        diagnostic = edge_diagnostics[edge["edge_id"]]
+        rw.require(diagnostic["elements_conserved"] and diagnostic["charge_conserved"] and diagnostic["connection_changes_consistent"], f"de novo seed plan {plan_id}: accepted disposition requires a conserved, connectivity-consistent edge")
+        rw.require(not ({edge["edge_id"], target["from_state_id"], target["to_state_id"]} & blocked_scopes), f"de novo seed plan {plan_id}: mechanism-network blockers apply to the target edge or states")
+        rw.require(target["eligibility"] == "eligible" and context["review_status"] == "reviewed", f"de novo seed plan {plan_id}: accepted disposition requires reviewed target eligibility/context")
+        rw.require(promotion["status"] == "approved" and promotion["reviewer"] and promotion["reviewed_at"], f"de novo seed plan {plan_id}: accepted disposition requires explicit promotion review")
+        rw.require(not record_blockers and complete, f"de novo seed plan {plan_id}: accepted strategy prerequisites are incomplete or blocked")
+    support_gate = {
+        "support_record_ids": summary["support_record_ids"],
+        "hypothesis_exploration_eligible": summary["hypothesis_exploration_eligible"],
+        "mechanism_claim_supported": summary["mechanism_claim_supported"],
+        "mechanism_claim_validated": False,
+    }
+    gate = "candidate_construction_eligible" if status == "accepted_for_candidate_construction" else "not_promoted_by_disposition"
+    return {
+        "seed_plan_id": plan_id, "record_kind": "de_novo_seed_plan",
+        "target": target, "target_context": context, "source_precedent": None,
+        "source_coordinates_used": False, "seed_strategy": strategy,
+        "strategy_prerequisites": prerequisites, "uncertainties": uncertainties,
+        "alternatives": alternatives, "falsifiers": falsifiers,
+        "disposition": {"status": status, "promotion_review": dict(promotion)},
+        "blockers": record_blockers,
+        "notes": rw._string_list(data["notes"], f"de novo seed plan {plan_id}.notes"),
+        "promotion_requirements_complete": complete and promotion["status"] == "approved",
+        "mechanism_support_gate": support_gate,
+        "candidate_construction_gate": gate,
+    }
+
+
+def _normalize_review(review: dict[str, Any], mechanism: dict[str, Any], snapshot: dict[str, Any], evidence: dict[str, Any], support: dict[str, Any], review_path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str, list[str]]:
     _exact(review, REVIEW_KEYS, "TS-precedent review")
     rw.require(review["schema"] == REVIEW_SCHEMA, "unrecognized TS-precedent review schema")
     rw.require(review["study_id"] == mechanism["study_id"] == snapshot["study_id"], "TS-precedent review study_id differs from upstream")
     rw.require(review["mechanism_network_payload_sha256"] == mechanism["payload_sha256"], "TS-precedent review mechanism-network hash mismatch")
     rw.require(review["knowledge_snapshot_payload_sha256"] == snapshot["payload_sha256"], "TS-precedent review knowledge-snapshot hash mismatch")
     rw.require(review["literature_evidence_payload_sha256"] == evidence["evidence_review_payload_sha256"], "TS-precedent review literature-evidence hash mismatch")
+    rw.require(review["mechanism_support_payload_sha256"] == support["payload_sha256"], "TS-precedent review mechanism-support hash mismatch")
     raw_records = review["records"]
     rw.require(isinstance(raw_records, list) and raw_records, "TS-precedent review records must be a non-empty array")
     edges = {item["edge_id"]: item for item in mechanism["edges"]}
@@ -679,27 +816,55 @@ def _normalize_review(review: dict[str, Any], mechanism: dict[str, Any], snapsho
     edge_diagnostics = {item["edge_id"]: item for item in mechanism["diagnostics"]["edge_conservation_and_connectivity"]}
     blocked_scopes = {item["scope"] for item in mechanism["blockers"] if item["blocker_id"] != "mechanism_support_unavailable"}
     candidates = _evidence_reviews(evidence)
+    support_summaries = _support_summaries(support)
     records: list[dict[str, Any]] = []
     ids: set[str] = set()
     for raw in raw_records:
-        normalized = _normalize_record(raw, edges, states, edge_diagnostics, blocked_scopes, candidates, review_path)
+        normalized = _normalize_record(raw, edges, states, edge_diagnostics, blocked_scopes, candidates, support_summaries, review_path)
         rw.require(normalized["precedent_id"] not in ids, f"duplicate precedent_id: {normalized['precedent_id']}")
         ids.add(normalized["precedent_id"]); records.append(normalized)
+    plans: list[dict[str, Any]] = []
+    plan_ids: set[str] = set()
+    raw_plans = review["de_novo_seed_plans"]
+    rw.require(isinstance(raw_plans, list), "TS-precedent de_novo_seed_plans must be an array")
+    for raw_plan in raw_plans:
+        plan = _normalize_de_novo_plan(raw_plan, edges, states, edge_diagnostics, blocked_scopes, support_summaries, review_path)
+        rw.require(plan["seed_plan_id"] not in plan_ids and plan["seed_plan_id"] not in ids, f"duplicate TS precedent/de novo plan ID: {plan['seed_plan_id']}")
+        plan_ids.add(plan["seed_plan_id"]); plans.append(plan)
     decision = rw._require_string(review["review_decision"], "TS-precedent review_decision")
     rw.require(decision in rw.REVIEW_DECISIONS, "invalid TS-precedent review_decision")
-    return sorted(records, key=lambda item: item["precedent_id"]), decision, rw._string_list(review["review_notes"], "TS-precedent review_notes")
+    if decision == "blocked":
+        rw.require(
+            not any(
+                item["candidate_construction_gate"] == "candidate_construction_eligible"
+                for item in [*records, *plans]
+            ),
+            "a blocked TS-precedent review cannot promote candidate construction",
+        )
+    return sorted(records, key=lambda item: item["precedent_id"]), sorted(plans, key=lambda item: item["seed_plan_id"]), decision, rw._string_list(review["review_notes"], "TS-precedent review_notes")
 
 
-def build(mechanism_path: Path, snapshot_path: Path, evidence_path: Path, review_path: Path, output: Path) -> dict[str, Any]:
+def build(mechanism_path: Path, snapshot_path: Path, evidence_path: Path, support_path: Path, review_path: Path, output: Path) -> dict[str, Any]:
     mechanism, snapshot, evidence, w1 = _load_upstream(mechanism_path, snapshot_path, evidence_path)
+    support = _load_support(support_path, mechanism_path, snapshot_path, evidence_path)
     _require_regular_file(review_path, "TS-precedent review input")
     review = rw.load_json(review_path)
-    records, decision, notes = _normalize_review(review, mechanism, snapshot, evidence, review_path)
-    blocker = rw._blocker(
-        "mechanism_support_unavailable", "study",
-        f"Required {SUPPORT_SCHEMA} remains unimplemented; locally reviewed precedent dispositions cannot enter candidate construction.",
-        ("candidate_construction", "mechanism_promotion", "ts_seed_construction"),
-    )
+    records, de_novo_plans, decision, notes = _normalize_review(review, mechanism, snapshot, evidence, support, review_path)
+    blocked_items = [
+        (item.get("precedent_id") or item.get("seed_plan_id"), item["target"]["edge_id"])
+        for item in [*records, *de_novo_plans]
+        if item["candidate_construction_gate"] == "blocked_by_hypothesis_exploration_gate"
+    ]
+    blockers = [
+        rw._blocker(
+            f"{item_id}_exploration_gate" if len(f"{item_id}_exploration_gate") <= 64 else f"ts_gate_{rw.sha256_data(item_id)[:20]}",
+            edge_id,
+            f"Candidate construction for {item_id} is blocked because the exact edge/channel is not hypothesis_exploration_eligible.",
+            ("candidate_construction", "ts_seed_construction"),
+        )
+        for item_id, edge_id in blocked_items
+    ]
+    promotable = any(item["candidate_construction_gate"] == "candidate_construction_eligible" for item in [*records, *de_novo_plans])
     artifact = {
         "schema": OUTPUT_SCHEMA, "study_id": mechanism["study_id"],
         "reaction_intake": _input_ref(w1["reaction_intake"][0], w1["reaction_intake"][1]["payload_sha256"]),
@@ -708,12 +873,13 @@ def build(mechanism_path: Path, snapshot_path: Path, evidence_path: Path, review
         "mechanism_network": _input_ref(mechanism_path, mechanism["payload_sha256"]),
         "knowledge_snapshot": _input_ref(snapshot_path, snapshot["payload_sha256"]),
         "literature_evidence": _input_ref(evidence_path, evidence["evidence_review_payload_sha256"]),
+        "mechanism_support": _input_ref(support_path, support["payload_sha256"]),
         "review_source": rw._artifact_ref(review_path),
-        "mechanism_support": {"schema": SUPPORT_SCHEMA, "status": "unavailable_unimplemented", "candidate_construction_promotable": False},
-        "records": records, "blockers": [blocker],
+        "records": records, "de_novo_seed_plans": de_novo_plans,
+        "blockers": rw._sort_blockers(blockers),
         "review": {"decision": decision, "notes": notes},
-        "gate_status": rw._gate_status(decision, [blocker]),
-        "candidate_construction_promotable": False,
+        "gate_status": rw._gate_status(decision, blockers),
+        "candidate_construction_promotable": promotable,
         "calculation_ready": False, "no_submission_authorization": True,
     }
     rw.finalize_artifact(artifact)
@@ -726,22 +892,26 @@ def validate(path: Path) -> dict[str, Any]:
     keys = {
         "schema", "study_id", "reaction_intake", "species_registry", "condition_model",
         "mechanism_network", "knowledge_snapshot", "literature_evidence", "review_source",
-        "mechanism_support", "records", "blockers", "review", "gate_status",
+        "mechanism_support", "records", "de_novo_seed_plans", "blockers", "review", "gate_status",
         "candidate_construction_promotable", "calculation_ready",
         "no_submission_authorization", "payload_sha256",
     }
     _exact(artifact, keys, "TS-precedent artifact")
     rw.require(artifact["schema"] == OUTPUT_SCHEMA, "unrecognized TS-precedent artifact schema")
     rw.validate_payload_hash(artifact)
-    rw.require(artifact["calculation_ready"] is False and artifact["no_submission_authorization"] is True and artifact["candidate_construction_promotable"] is False, "TS-precedent artifact violates safety constants")
+    rw.require(artifact["calculation_ready"] is False and artifact["no_submission_authorization"] is True and isinstance(artifact["candidate_construction_promotable"], bool), "TS-precedent artifact violates safety constants")
     mechanism = _verify_generic_input_ref(artifact["mechanism_network"], path, mn.OUTPUT_SCHEMA, "payload_sha256", "TS-precedent mechanism network")
     snapshot = _verify_generic_input_ref(artifact["knowledge_snapshot"], path, KNOWLEDGE_SCHEMA, "payload_sha256", "TS-precedent knowledge snapshot")
     evidence = _verify_generic_input_ref(artifact["literature_evidence"], path, LITERATURE_SCHEMA, "evidence_review_payload_sha256", "TS-precedent literature evidence")
+    support = _verify_generic_input_ref(artifact["mechanism_support"], path, ms.OUTPUT_SCHEMA, "payload_sha256", "TS-precedent mechanism support")
     mechanism_path = _resolve(artifact["mechanism_network"], path)
     snapshot_path = _resolve(artifact["knowledge_snapshot"], path)
     evidence_path = _resolve(artifact["literature_evidence"], path)
+    support_path = _resolve(artifact["mechanism_support"], path)
     loaded_mechanism, loaded_snapshot, loaded_evidence, w1 = _load_upstream(mechanism_path, snapshot_path, evidence_path)
+    loaded_support = _load_support(support_path, mechanism_path, snapshot_path, evidence_path)
     rw.require(mechanism == loaded_mechanism and snapshot == loaded_snapshot and evidence == loaded_evidence, "TS-precedent upstream recomputation mismatch")
+    rw.require(support == loaded_support, "TS-precedent mechanism-support recomputation mismatch")
     for key, schema in (("reaction_intake", rw.INTAKE_SCHEMA), ("species_registry", rw.REGISTRY_SCHEMA), ("condition_model", rw.CONDITION_SCHEMA)):
         bound = _verify_generic_input_ref(artifact[key], path, schema, "payload_sha256", f"TS-precedent {key}")
         rw.require(bound == w1[key][1], f"TS-precedent {key} differs from mechanism-network W1 binding")
@@ -749,15 +919,29 @@ def validate(path: Path) -> dict[str, Any]:
     review_path = _resolve(review_ref, path)
     rw.require(review_path.is_file() and not review_path.is_symlink(), "TS-precedent review source is missing or a symlink")
     rw.require(review_ref["sha256"] == rw.sha256_file(review_path) and review_ref["size_bytes"] == review_path.stat().st_size, "TS-precedent review source binding mismatch")
-    records, decision, notes = _normalize_review(rw.load_json(review_path), mechanism, snapshot, evidence, review_path)
+    records, de_novo_plans, decision, notes = _normalize_review(rw.load_json(review_path), mechanism, snapshot, evidence, support, review_path)
     rw.require(artifact["records"] == records, "TS-precedent records differ from immutable review recomputation")
-    expected_support = {"schema": SUPPORT_SCHEMA, "status": "unavailable_unimplemented", "candidate_construction_promotable": False}
-    rw.require(artifact["mechanism_support"] == expected_support, "TS-precedent mechanism-support blocker was weakened")
-    expected_blocker = rw._blocker("mechanism_support_unavailable", "study", f"Required {SUPPORT_SCHEMA} remains unimplemented; locally reviewed precedent dispositions cannot enter candidate construction.", ("candidate_construction", "mechanism_promotion", "ts_seed_construction"))
-    rw.require(artifact["blockers"] == [expected_blocker], "TS-precedent blockers differ from mandatory fail-closed state")
+    rw.require(artifact["de_novo_seed_plans"] == de_novo_plans, "TS-precedent de novo seed plans differ from immutable review recomputation")
+    blocked_items = [
+        (item.get("precedent_id") or item.get("seed_plan_id"), item["target"]["edge_id"])
+        for item in [*records, *de_novo_plans]
+        if item["candidate_construction_gate"] == "blocked_by_hypothesis_exploration_gate"
+    ]
+    expected_blockers = rw._sort_blockers([
+        rw._blocker(
+            f"{item_id}_exploration_gate" if len(f"{item_id}_exploration_gate") <= 64 else f"ts_gate_{rw.sha256_data(item_id)[:20]}",
+            edge_id,
+            f"Candidate construction for {item_id} is blocked because the exact edge/channel is not hypothesis_exploration_eligible.",
+            ("candidate_construction", "ts_seed_construction"),
+        )
+        for item_id, edge_id in blocked_items
+    ])
+    rw.require(artifact["blockers"] == expected_blockers, "TS-precedent blockers differ from mechanism-support gate recomputation")
     rw.require(artifact["review"] == {"decision": decision, "notes": notes}, "TS-precedent review differs from immutable source")
-    rw.require(artifact["gate_status"] == rw._gate_status(decision, [expected_blocker]), "TS-precedent gate_status is inconsistent")
-    return {"schema": "gaussian-ts-precedent-map-validation/1", "artifact_schema": OUTPUT_SCHEMA, "study_id": artifact["study_id"], "gate_status": artifact["gate_status"], "record_count": len(records), "payload_sha256": artifact["payload_sha256"], "live_actions": False}
+    rw.require(artifact["gate_status"] == rw._gate_status(decision, expected_blockers), "TS-precedent gate_status is inconsistent")
+    expected_promotable = any(item["candidate_construction_gate"] == "candidate_construction_eligible" for item in [*records, *de_novo_plans])
+    rw.require(artifact["candidate_construction_promotable"] is expected_promotable, "TS-precedent candidate-construction summary is inconsistent")
+    return {"schema": "gaussian-ts-precedent-map-validation/1", "artifact_schema": OUTPUT_SCHEMA, "study_id": artifact["study_id"], "gate_status": artifact["gate_status"], "record_count": len(records), "de_novo_seed_plan_count": len(de_novo_plans), "payload_sha256": artifact["payload_sha256"], "live_actions": False}
 
 
 def parser() -> argparse.ArgumentParser:
@@ -767,6 +951,7 @@ def parser() -> argparse.ArgumentParser:
     build_parser.add_argument("mechanism_network", type=Path)
     build_parser.add_argument("knowledge_snapshot", type=Path)
     build_parser.add_argument("literature_evidence", type=Path)
+    build_parser.add_argument("mechanism_support", type=Path)
     build_parser.add_argument("--review", type=Path, required=True)
     build_parser.add_argument("--output", type=Path, required=True)
     validate_parser = commands.add_parser("validate", help="validate and independently recompute one TS-precedent map")
@@ -778,7 +963,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "build":
-            result = build(args.mechanism_network, args.knowledge_snapshot, args.literature_evidence, args.review, args.output)
+            result = build(args.mechanism_network, args.knowledge_snapshot, args.literature_evidence, args.mechanism_support, args.review, args.output)
         else:
             result = validate(args.artifact)
     except (rw.OfflineError, KB.OfflineError, OSError, ValueError, AssertionError, SystemExit) as exc:

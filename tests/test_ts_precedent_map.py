@@ -18,6 +18,7 @@ ROOT = Path(__file__).parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "reaction_workflow"
 TOOL = ROOT / "skills" / "auto-g16-reaction-workflow" / "scripts" / "ts_precedent_map.py"
 W3_TOOL = ROOT / "skills" / "auto-g16-reaction-workflow" / "scripts" / "mechanism_network.py"
+SUPPORT_TOOL = ROOT / "skills" / "auto-g16-reaction-workflow" / "scripts" / "mechanism_support.py"
 SCHEMA = ROOT / "contracts" / "reaction-workflow" / "ts-precedent-map.schema.json"
 
 
@@ -150,6 +151,98 @@ class TsPrecedentMapTests(unittest.TestCase):
         write_json(path, evidence)
         return path, evidence, cases, location
 
+    def support_target(self, edge: dict[str, object]) -> dict[str, object]:
+        return {
+            "edge_id": edge["edge_id"], "from_state_id": edge["from_state_id"],
+            "to_state_id": edge["to_state_id"], "stereochemical_channel": edge["stereochemical_channel"],
+            "edge_atom_mapping": copy.deepcopy(edge["atom_mapping"]),
+            "forming_pairs": [item["atom_ids"] for item in edge["connection_changes"] if item["before_order"] is None and item["after_order"] is not None],
+            "breaking_pairs": [item["atom_ids"] for item in edge["connection_changes"] if item["before_order"] is not None and item["after_order"] is None],
+            "transfers": copy.deepcopy(edge["transfers"]),
+        }
+
+    def support_mechanistic_review(self, edge: dict[str, object], states: dict[str, dict[str, object]]) -> dict[str, object]:
+        source = states[str(edge["from_state_id"])]
+        target = states[str(edge["to_state_id"])]
+        coordination = lambda state: [copy.deepcopy(item) for item in state["connections"] if item["kind"] == "coordination"]
+        reviewed = {"status": "reviewed", "rationale": "Synthetic complete edge review."}
+        return {
+            "active_catalyst_state": {"from_catalyst_projection": copy.deepcopy(source["catalyst_projection"]), "to_catalyst_projection": copy.deepcopy(target["catalyst_projection"]), **reviewed},
+            "elementary_step_atom_correspondence": {"state_changes": copy.deepcopy(edge["state_changes"]), **reviewed},
+            "charge_multiplicity_spin": {
+                "from_formal_charge": source["formal_charge"], "from_multiplicity": source["multiplicity"], "from_spin_description": "Reviewed singlet fixture.",
+                "to_formal_charge": target["formal_charge"], "to_multiplicity": target["multiplicity"], "to_spin_description": "Reviewed singlet fixture.", **reviewed,
+            },
+            "coordination_ion_pair": {"from_coordination_connections": coordination(source), "to_coordination_connections": coordination(target), "ion_pair_assessment": "No ion pair in fixture.", **reviewed},
+            "stereochemical_channel": {"channel": edge["stereochemical_channel"], "from_stereochemistry": copy.deepcopy(source["stereochemistry"]), "to_stereochemistry": copy.deepcopy(target["stereochemistry"]), **reviewed},
+        }
+
+    def build_support(self, root: Path, w1, snapshot_path: Path, snapshot: dict[str, object], evidence_path: Path, evidence: dict[str, object]) -> tuple[Path, dict[str, object]]:
+        mechanism = w1[7]
+        edges = {item["edge_id"]: item for item in mechanism["edges"]}
+        states = {item["state_id"]: item for item in mechanism["states"]}
+        candidates = {item["candidate_id"]: item for item in evidence["reviews"]}
+        specs = [
+            ("ts_support_exact", "edge_activation", "lit_exact", "transition_state_model", "direct", "direct_literature_support"),
+            ("ts_support_novel_direct", "edge_direct", "lit_remote", "coordinates", "missing", "absence_of_direct_precedent"),
+            ("ts_support_novel_release", "edge_release", "lit_unusable", "coordinates", "missing", "absence_of_direct_precedent"),
+        ]
+        records = []
+        for record_id, edge_id, candidate_id, evidence_target, category, basis in specs:
+            edge = edges[edge_id]
+            candidate = candidates[candidate_id]
+            claim = candidate["evidence"][evidence_target]
+            location = claim["source_locations"][0] if claim["status"] == "source_reports" else None
+            dimensions = [
+                {"dimension": name, "value": value, "rationale": "Synthetic applicability copied from finalized evidence.", "source_anchor": location["locator"] if location else "No direct source location found."}
+                for name, value in candidate["directness_dimensions"].items()
+            ]
+            records.append({
+                "support_record_id": record_id, "target": self.support_target(edge),
+                "evidence": {"candidate_id": candidate_id, "evidence_target": evidence_target, "source_location": location},
+                "applicability_dimensions": dimensions,
+                "classification": {
+                    "category": category, "evidence_basis": basis,
+                    "claim_effect": "supports" if category == "direct" else "does_not_address",
+                    "evidence_kind": "computational" if category == "direct" else "not_applicable",
+                    "rationale": "Synthetic TS integration classification.",
+                    "alternative_explanations": ["Competing fixture edge."],
+                    "important_mismatches": [] if category == "direct" else ["No direct literature precedent was located."],
+                },
+                "mechanistic_review": self.support_mechanistic_review(edge, states),
+                "hypothesis_review": {
+                    "internal_rationale": "Exact reviewed bookkeeping defines a falsifiable exploration hypothesis.",
+                    "alternatives": ["Competing reviewed fixture edge."], "uncertainties": ["Synthetic fixture only."],
+                    "contradictions": [], "falsifiers": ["Endpoint atom or charge inconsistency would falsify the plan."],
+                },
+                "exploration_decision": {
+                    "status": "eligible", "rationale": "Explicit reviewed exploration decision.", "reviewer": "fixture_reviewer",
+                    "reviewed_at": "2026-07-16T00:00:00+00:00", "resolved_blockers": ["Scientific bookkeeping review complete."],
+                    "unresolved_blockers": [], "resolved_conflict_record_ids": [],
+                },
+                "claim_support_decision": {
+                    "status": "conditional" if category == "direct" else "not_promoted",
+                    "rationale": "TS evidence or absence does not validate the mechanism claim.", "reviewer": "fixture_reviewer",
+                    "reviewed_at": "2026-07-16T00:00:00+00:00", "resolved_blockers": [],
+                    "unresolved_blockers": ["Independent target-mechanism evidence is absent."], "resolved_conflict_record_ids": [],
+                },
+                "negative_evidence": [], "notes": ["Synthetic integration record."],
+            })
+        review = {
+            "schema": "gaussian-reaction-mechanism-support-review/1", "study_id": mechanism["study_id"],
+            "reaction_intake_payload_sha256": w1[4]["payload_sha256"], "species_registry_payload_sha256": w1[5]["payload_sha256"],
+            "condition_model_payload_sha256": w1[6]["payload_sha256"], "mechanism_network_payload_sha256": mechanism["payload_sha256"],
+            "knowledge_snapshot_payload_sha256": snapshot["payload_sha256"], "literature_evidence_payload_sha256": evidence["evidence_review_payload_sha256"],
+            "records": records, "review_decision": "accepted", "reviewer": "fixture_reviewer", "reviewed_at": "2026-07-16T00:00:00+00:00",
+            "review_notes": ["Every edge/channel is explicitly exploration reviewed without claiming mechanism validation."],
+        }
+        review_path = root / "ts_mechanism_support_review.json"
+        write_json(review_path, review)
+        path = root / "ts_mechanism_support.json"
+        result = self.run_tool(SUPPORT_TOOL, "build", str(w1[3]), str(snapshot_path), str(evidence_path), "--review", str(review_path), "--output", str(path))
+        self.assert_success(result)
+        return path, json.loads(path.read_text(encoding="utf-8"))
+
     def base_record(self, case: dict[str, str], location: dict[str, str]) -> dict[str, object]:
         exact = case["relationship"] == "exact"
         close = case["relationship"] == "close"
@@ -253,17 +346,55 @@ class TsPrecedentMapTests(unittest.TestCase):
         w1 = self.build_mechanism(root)
         snapshot_path, snapshot = self.build_snapshot(root, w1[0], w1[4])
         evidence_path, evidence, cases, location = self.build_evidence(root, w1, snapshot_path, snapshot)
+        support_path, support = self.build_support(root, w1, snapshot_path, snapshot, evidence_path, evidence)
+        mechanism = w1[7]
+        direct_edge = next(item for item in mechanism["edges"] if item["edge_id"] == "edge_direct")
+        de_novo_target = self.support_target(direct_edge)
+        de_novo_target.pop("edge_atom_mapping")
+        de_novo_target = {
+            **de_novo_target, "eligibility": "eligible",
+            "eligibility_reviewed": True, "stereochemical_channel_reviewed": True,
+        }
+        endpoint_package = FIXTURES / "synthetic_endpoint_geometry_package.txt"
+        de_novo_plan = {
+            "seed_plan_id": "de_novo_direct_edge", "target": de_novo_target,
+            "target_context": {
+                "catalyst_state": "Reviewed synthetic Pd fixture", "coordination": "No retained catalyst contact",
+                "ion_pair_additive_placement": "No ion pair in the fixture", "formal_charge": 0, "multiplicity": 1,
+                "approach_topology": "De novo endpoint/QST family", "facial_orientational_relationship": "Not applicable in achiral fixture",
+                "conformer_family": "Synthetic endpoint family", "review_status": "reviewed",
+                "rationale": "Exact endpoint context is reviewed without a literature precedent.",
+            },
+            "seed_strategy": "endpoint_qst_family",
+            "strategy_prerequisites": {
+                "status": "complete", "endpoint_state_ids": ["state_reactants", "state_products"],
+                "geometry_item_ids": [], "source_object": file_ref(endpoint_package),
+                "source_anchor": "synthetic endpoint package marker",
+                "reviewed_assertions": ["endpoint_geometries_reviewed"],
+                "notes": ["No precedent coordinates or geometry are used."],
+            },
+            "uncertainties": ["No direct precedent was located."],
+            "alternatives": ["The activation/release network remains an alternative."],
+            "falsifiers": ["Failure of the reviewed endpoint correspondence would reject this seed family."],
+            "disposition": {"status": "accepted_for_candidate_construction", "promotion_review": {
+                "status": "approved", "reviewer": "fixture_reviewer", "reviewed_at": "2026-07-16T00:00:00+00:00",
+                "rationale": "Exploration eligibility permits de novo planning without mechanism claim support.",
+            }},
+            "blockers": [], "notes": ["Synthetic de novo plan; no source precedent is asserted."],
+        }
         review = {
             "schema": "gaussian-ts-precedent-map-review/1", "study_id": "mechanism_network_fixture",
             "mechanism_network_payload_sha256": w1[7]["payload_sha256"],
             "knowledge_snapshot_payload_sha256": snapshot["payload_sha256"],
             "literature_evidence_payload_sha256": evidence["evidence_review_payload_sha256"],
+            "mechanism_support_payload_sha256": support["payload_sha256"],
             "records": [self.base_record(case, location) for case in reversed(cases)],
+            "de_novo_seed_plans": [de_novo_plan],
             "review_decision": "accepted", "review_notes": ["Synthetic review of exact, close, remote, and unusable precedents."],
         }
         review_path = root / "ts_precedent_review.json"
         write_json(review_path, review)
-        return {"w1": w1, "snapshot_path": snapshot_path, "snapshot": snapshot, "evidence_path": evidence_path, "evidence": evidence, "review_path": review_path, "review": review}
+        return {"w1": w1, "snapshot_path": snapshot_path, "snapshot": snapshot, "evidence_path": evidence_path, "evidence": evidence, "support_path": support_path, "support": support, "review_path": review_path, "review": review}
 
     def build_map(self, root: Path, mutator=None):
         prepared = self.prepare(root)
@@ -273,10 +404,10 @@ class TsPrecedentMapTests(unittest.TestCase):
             prepared["review_path"].unlink()
             write_json(prepared["review_path"], review)
         output = root / "ts_precedent_map.json"
-        result = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), "--review", str(prepared["review_path"]), "--output", str(output))
+        result = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), str(prepared["support_path"]), "--review", str(prepared["review_path"]), "--output", str(output))
         return prepared, output, result
 
-    def test_four_analogy_classes_build_deterministically_and_remain_blocked(self) -> None:
+    def test_four_analogy_classes_and_novel_de_novo_plan_are_exactly_gated(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             prepared, output, result = self.build_map(root)
@@ -292,9 +423,18 @@ class TsPrecedentMapTests(unittest.TestCase):
             self.assertIsNone(qualitative["value"])
             self.assertIsNone(qualitative["range"])
             self.assertTrue(accepted["promotion_requirements_complete"])
-            self.assertEqual(accepted["candidate_construction_gate"], "blocked_pending_mechanism_support")
-            self.assertEqual([item["blocker_id"] for item in artifact["blockers"]], ["mechanism_support_unavailable"])
-            self.assertFalse(artifact["candidate_construction_promotable"])
+            self.assertEqual(accepted["candidate_construction_gate"], "candidate_construction_eligible")
+            self.assertTrue(accepted["mechanism_support_gate"]["hypothesis_exploration_eligible"])
+            self.assertFalse(accepted["mechanism_support_gate"]["mechanism_claim_supported"])
+            de_novo = artifact["de_novo_seed_plans"][0]
+            self.assertEqual(de_novo["record_kind"], "de_novo_seed_plan")
+            self.assertIsNone(de_novo["source_precedent"])
+            self.assertFalse(de_novo["source_coordinates_used"])
+            self.assertEqual(de_novo["candidate_construction_gate"], "candidate_construction_eligible")
+            self.assertTrue(de_novo["mechanism_support_gate"]["hypothesis_exploration_eligible"])
+            self.assertFalse(de_novo["mechanism_support_gate"]["mechanism_claim_supported"])
+            self.assertEqual(artifact["blockers"], [])
+            self.assertTrue(artifact["candidate_construction_promotable"])
             self.assertFalse(artifact["calculation_ready"])
             self.assertTrue(artifact["no_submission_authorization"])
             self.assert_success(self.run_tool(TOOL, "validate", str(output)))
@@ -309,10 +449,10 @@ class TsPrecedentMapTests(unittest.TestCase):
                 CONTRACT._validate_schema_instance(invalid_qualitative, schema, schema)
 
             second = root / "second.json"
-            again = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), "--review", str(prepared["review_path"]), "--output", str(second))
+            again = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), str(prepared["support_path"]), "--review", str(prepared["review_path"]), "--output", str(second))
             self.assert_success(again)
             self.assertEqual(output.read_bytes(), second.read_bytes())
-            overwrite = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), "--review", str(prepared["review_path"]), "--output", str(output))
+            overwrite = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), str(prepared["support_path"]), "--review", str(prepared["review_path"]), "--output", str(output))
             self.assertEqual(overwrite.returncode, 2)
             self.assertIn("refusing to overwrite", overwrite.stderr)
 
@@ -414,19 +554,19 @@ class TsPrecedentMapTests(unittest.TestCase):
                 self.assertIn("require explicit negative_evidence", result.stderr)
                 self.assertFalse(output.exists())
 
+        with tempfile.TemporaryDirectory() as temp:
+            def block_top_level_review(review):
+                review["review_decision"] = "blocked"
+            _, output, result = self.build_map(Path(temp), block_top_level_review)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("blocked TS-precedent review cannot promote", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_accepted_disposition_rejects_rehashed_disallowed_bounded_use(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             prepared = self.prepare(root)
-            evidence = copy.deepcopy(prepared["evidence"])
-            evidence_record = next(item for item in evidence["reviews"] if item["candidate_id"] == "lit_exact")
-            evidence_record["reviewer_decision"]["bounded_use"] = "protocol_candidate_support"
-            evidence = LIT.add_payload_hash(evidence, "evidence_review_payload_sha256")
-            prepared["evidence_path"].unlink()
-            write_json(prepared["evidence_path"], evidence)
-
             review = prepared["review"]
-            review["literature_evidence_payload_sha256"] = evidence["evidence_review_payload_sha256"]
             exact = next(item for item in review["records"] if item["precedent_id"] == "precedent_exact")
             exact["source_precedent"]["bounded_use"] = "protocol_candidate_support"
             prepared["review_path"].unlink()
@@ -435,12 +575,43 @@ class TsPrecedentMapTests(unittest.TestCase):
             output = root / "ts_precedent_map.json"
             result = self.run_tool(
                 TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]),
-                str(prepared["evidence_path"]), "--review", str(prepared["review_path"]),
+                str(prepared["evidence_path"]), str(prepared["support_path"]), "--review", str(prepared["review_path"]),
                 "--output", str(output),
             )
             self.assertEqual(result.returncode, 2)
-            self.assertIn("requires geometry_seed_support or ts_topology_support", result.stderr)
+            self.assertIn("bounded_use differs from finalized evidence", result.stderr)
             self.assertFalse(output.exists())
+
+    def test_de_novo_plan_requires_exact_edge_channel_exploration_eligibility(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prepared = self.prepare(root)
+            support_review = json.loads((root / "ts_mechanism_support_review.json").read_text(encoding="utf-8"))
+            novel = next(item for item in support_review["records"] if item["support_record_id"] == "ts_support_novel_direct")
+            novel["exploration_decision"].update({
+                "status": "blocked", "resolved_blockers": [],
+                "unresolved_blockers": ["Synthetic unresolved state defect."],
+            })
+            support_review_path = root / "blocked_support_review.json"
+            write_json(support_review_path, support_review)
+            blocked_support_path = root / "blocked_support.json"
+            built = self.run_tool(
+                SUPPORT_TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]),
+                str(prepared["evidence_path"]), "--review", str(support_review_path),
+                "--output", str(blocked_support_path),
+            )
+            self.assert_success(built)
+            blocked_support = json.loads(blocked_support_path.read_text(encoding="utf-8"))
+            prepared["review"]["mechanism_support_payload_sha256"] = blocked_support["payload_sha256"]
+            prepared["review_path"].unlink()
+            write_json(prepared["review_path"], prepared["review"])
+            result = self.run_tool(
+                TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]),
+                str(prepared["evidence_path"]), str(blocked_support_path),
+                "--review", str(prepared["review_path"]), "--output", str(root / "blocked-map.json"),
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("requires hypothesis_exploration_eligible for the exact edge/channel", result.stderr)
 
     def test_strategy_references_and_published_geometry_provenance_are_closed(self) -> None:
         def dangling_geometry(record):
@@ -541,6 +712,7 @@ class TsPrecedentMapTests(unittest.TestCase):
                 result = self.run_tool(
                     TOOL, "build", str(linked if source_key == "mechanism" else mechanism),
                     str(prepared["snapshot_path"]), str(prepared["evidence_path"]),
+                    str(prepared["support_path"]),
                     "--review", str(linked if source_key == "review" else review),
                     "--output", str(root / f"{source_key}-output.json"),
                 )
@@ -555,19 +727,19 @@ class TsPrecedentMapTests(unittest.TestCase):
             review = prepared["review"]
             review["records"][0]["gaussian_route"] = "forbidden"
             prepared["review_path"].unlink(); write_json(prepared["review_path"], review)
-            result = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), "--review", str(prepared["review_path"]), "--output", str(root / "unknown.json"))
+            result = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), str(prepared["support_path"]), "--review", str(prepared["review_path"]), "--output", str(root / "unknown.json"))
             self.assertEqual(result.returncode, 2)
             self.assertIn("unknown fields", result.stderr)
 
             duplicate = root / "duplicate.json"
             duplicate.write_text('{"schema":"gaussian-ts-precedent-map-review/1","schema":"gaussian-ts-precedent-map-review/1"}', encoding="utf-8")
-            result = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), "--review", str(duplicate), "--output", str(root / "duplicate-output.json"))
+            result = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), str(prepared["support_path"]), "--review", str(duplicate), "--output", str(root / "duplicate-output.json"))
             self.assertEqual(result.returncode, 2)
             self.assertIn("duplicate JSON object key", result.stderr)
 
             nonfinite = root / "nonfinite.json"
             nonfinite.write_text('{"value":NaN}', encoding="utf-8")
-            result = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), "--review", str(nonfinite), "--output", str(root / "nonfinite-output.json"))
+            result = self.run_tool(TOOL, "build", str(prepared["w1"][3]), str(prepared["snapshot_path"]), str(prepared["evidence_path"]), str(prepared["support_path"]), "--review", str(nonfinite), "--output", str(root / "nonfinite-output.json"))
             self.assertEqual(result.returncode, 2)
             self.assertIn("non-standard JSON numeric constant", result.stderr)
 

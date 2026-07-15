@@ -178,6 +178,14 @@ literature retrieval. Local TS claims still require exactly one raw imaginary
 frequency, explicit normal-mode review, and, for path validation, two completed
 directions with structurally identified endpoints under the owning Skills.
 
+Failure to find a direct precedent in a bounded search is an evidence gap, not
+an automatic prohibition on exploring a reviewed novel organic mechanism. The
+downstream mechanism-support artifact must keep that gap separate from analogy,
+internal rationale, contradiction, and later experimental or computational
+evidence. It may approve bounded hypothesis exploration independently, but
+literature analogy or absence of contradiction never validates the mechanism
+claim.
+
 ## 6. API and copyright constraints
 
 Crossref exposes deposited bibliographic metadata through a public REST API.

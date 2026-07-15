@@ -5,6 +5,32 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- A closed standard-library-only `gaussian-reaction-mechanism-support/1`
+  builder/validator with exact W1, mechanism-network, knowledge-snapshot,
+  finalized-literature and immutable-review bindings; deterministic claim and
+  location hashes; complete edge/channel scientific review; preserved negative
+  evidence; and separate hypothesis-exploration and mechanism-claim-support
+  decisions.
+- Exact mechanism-support binding in `gaussian-ts-precedent-map/1` plus a
+  source-free de novo endpoint/QST, scan or reviewed-rebuild planning path for
+  exploration-eligible novel hypotheses.
+
+### Changed
+
+- Treat absence of direct literature precedent as a visible
+  `novel_hypothesis_no_direct_precedent` evidence gap rather than automatic
+  exclusion from reviewed computational exploration. Analogy and internal
+  rationale still do not support or validate a mechanism claim.
+
+### Safety
+
+- Mechanism-support and TS-planning artifacts remain
+  `calculation_ready: false` and `no_submission_authorization: true`; de novo
+  plans contain no source precedent or source coordinates and grant no method,
+  Gaussian, PBS, deployment or live authority.
+
 ## [2.2.0] - 2026-07-15
 
 ### Added
