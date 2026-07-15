@@ -6,8 +6,11 @@ Stable release branch: `main`. New work uses short-lived `codex/` feature
 branches and is integrated through reviewed pull requests with required checks.
 
 Auto-G16 2.1.0 was released on 2026-07-14. It contains the W1 reaction-intake
-and reaction-literature capability added after `v2.0.1`. Post-release W2
-knowledge-base work is present on `main` and remains unreleased.
+and reaction-literature capability added after `v2.0.1`. Auto-G16 2.2.0 is now
+a release candidate containing the post-2.1 W2 knowledge base, W3 offline
+mechanism-network slice, release/dependency/security hardening, and the
+transition-metal offline preview contracts described below. No `v2.2.0` tag or
+GitHub Release has been created.
 
 All nine repository-owned Skill folders and machine names now use the
 `auto-g16-` prefix, and all nine human-facing display names begin with
@@ -24,18 +27,20 @@ not treated as repository state: each named Skill must be validated, diffed
 and synchronized independently from `skills/`. Deployment never authorizes a
 live test or calculation.
 
-The post-2.1.0 W2B-2 line is covered by the current offline suite, including
-immutable-record validation, deterministic store/index rebuilds,
+The 2.2.0 candidate's W2B-2 line is covered by the current offline suite,
+including immutable-record validation, deterministic store/index rebuilds,
 permission-negative queries, reviewed import/export, redaction, snapshot
 binding and the GaussView Unicode-path regression. It grants no network,
 Gaussian, PBS or calculation authority.
 
-The current `codex/transition-metal-offline-contract` feature branch adds the
-candidate-bound M1 review sidecar contract and M2b observation-only metal
-parser, an M2c read-only observer for existing Gaussian inputs and an M2d
-four-section manual acceptance-decision sidecar, and has not been deployed. Its
-repository copy therefore must be treated as newer than any installed copy
-until a future approved named-Skill synchronization.
+The merged transition-metal preview adds the candidate-bound M1 review sidecar
+contract and M2b observation-only metal parser, an M2c read-only observer for
+existing Gaussian inputs and an M2d four-section manual acceptance-decision
+sidecar. The exact `auto-g16-asymmetric-catalysis` named Skill was synchronized
+and its explicitly approved deployed-copy offline smoke passed while retaining
+`unsupported_requires_extension`, refused submission, `calculation_ready:
+false`, and `live_actions: false`. This is not metal runtime support or
+scientific acceptance.
 
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented

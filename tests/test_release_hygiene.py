@@ -44,7 +44,11 @@ def tracked_files() -> list[Path]:
 class ReleaseHygieneTests(unittest.TestCase):
     def test_release_metadata_is_present(self) -> None:
         self.assertIn("MIT License", (ROOT / "LICENSE").read_text())
-        self.assertIn("## [2.1.0]", (ROOT / "CHANGELOG.md").read_text())
+        changelog = (ROOT / "CHANGELOG.md").read_text()
+        self.assertIn("## [2.2.0]", changelog)
+        self.assertIn("[2.2.0]:", changelog)
+        self.assertIn("2.2.0 Release Candidate", (ROOT / "README.md").read_text())
+        self.assertTrue((ROOT / "docs" / "release-2.2.0-checklist.md").is_file())
         workflow = ROOT / ".github" / "workflows" / "offline-tests.yml"
         self.assertTrue(workflow.is_file())
         self.assertIn("unittest discover", workflow.read_text())

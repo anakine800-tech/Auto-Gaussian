@@ -5,6 +5,8 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-15
+
 ### Added
 
 - `auto-g16-knowledge-base` W2A with closed immutable structure, method,
@@ -23,6 +25,11 @@ All notable public release changes are recorded here. The project follows
   NumPy paths.
 - CI coverage that extracts a GitHub-style source archive and runs the full
   offline suite without relying on `.git` metadata.
+- The W3 offline mechanism-network contract, deterministic builder, reviewed
+  condition/species bindings, blocker ledger and non-authorizing fixtures.
+- Transition-metal M1 scientific-review and M2 input/result observation and
+  manual acceptance-review contracts, with deterministic builders, semantic
+  validation, evidence-bound scope and adversarial refusal fixtures.
 
 ### Changed
 
@@ -30,6 +37,8 @@ All notable public release changes are recorded here. The project follows
   protected and feature work is integrated through reviewed pull requests.
 - Made release-hygiene scanning work both in a Git checkout and in generated
   source archives.
+- Preserved native Unicode workspace paths when opening the GaussView SSH
+  control session from macOS Terminal.
 
 ### Safety
 
@@ -37,6 +46,12 @@ All notable public release changes are recorded here. The project follows
   retain `calculation_ready: false` and `no_submission_authorization: true`;
   W2 has no network, Gaussian input, PBS or deployment capability. Offline
   principal declarations are not authentication or a multi-user boundary.
+- Transition-metal artifacts remain offline review records: scientific, input
+  and mode acceptance are not granted; runtime remains
+  `unsupported_requires_extension`; promotion and submission remain refused.
+- GitHub Secret Scanning with push protection, Dependabot security updates,
+  dependency graph analysis and Python CodeQL default scanning are enabled for
+  the public repository.
 
 ## [2.1.0] - 2026-07-14
 
@@ -77,6 +92,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v2.0.0
