@@ -42,6 +42,16 @@ These rules apply to the entire repository.
 - Keep live tests opt-in and require the same confirmation gates as normal operations.
 - Preserve manifests, input hashes, logs, checkpoints, job IDs, and structured result files.
 
+## Codex thread and worktree isolation
+
+- Treat one independently developed Codex task as one Codex worktree and one unique `codex/` feature branch.
+- When the user asks in conversation to create a new isolated task, chat, thread, or work area, use the Codex thread-creation capability with a `worktree` environment. Do not switch the branch of the current shared checkout.
+- Create a fresh worktree task when the new work does not need the current conversation history. Fork the current task into a worktree when the user wants to preserve the completed conversation context.
+- Start from the project's default branch unless the user explicitly names an existing branch or asks to include the current working tree and its uncommitted changes. Never include uncommitted changes implicitly.
+- Keep the original repository checkout stable for inspection, integration, and release work. Do not manually reuse one feature branch across multiple active worktrees.
+- Recognize requests such as `新建隔离任务：<工作内容>` and `把当前对话分叉到独立 worktree` as explicit authorization to create the corresponding Codex task and worktree.
+- If the Codex thread/worktree capability is unavailable, report that limitation instead of changing the current checkout as a workaround.
+
 ## Git and secrets
 
 - Do not commit passwords, private keys, host credentials, local SSH configuration, Gaussian outputs, checkpoints, or server scratch data.
