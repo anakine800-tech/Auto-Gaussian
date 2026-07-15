@@ -2,15 +2,12 @@
 
 Status date: 2026-07-15
 
-Stable release branch: `main`. Canonical future-work integration branch:
-`codex/Auto-Gaussian`.
+Stable release branch: `main`. New work uses short-lived `codex/` feature
+branches and is integrated through reviewed pull requests with required checks.
 
-W0/W1 source branch: `codex/w0-w1-reaction-intake`. Its offline gates and the
-separately approved real strict native-ChemDraw smoke test passed on 2026-07-14,
-so this capability is eligible for integration into `codex/Auto-Gaussian`.
-
-Release candidate: Auto-G16 2.1.0, containing the integrated W1 reaction intake
-and reaction-literature capability added after `v2.0.1`.
+Auto-G16 2.1.0 was released on 2026-07-14. It contains the W1 reaction-intake
+and reaction-literature capability added after `v2.0.1`. Post-release W2
+knowledge-base work is present on `main` and remains unreleased.
 
 All nine repository-owned Skill folders and machine names now use the
 `auto-g16-` prefix, and all nine human-facing display names begin with
@@ -21,17 +18,17 @@ that a machine-local deployment is current. The namespace remains mandatory
 for future project Skills; versioned scientific schemas and immutable
 historical records retain their identifiers.
 
-For the 2.1.0 release candidate, all eight repository/deployed pairs were
-verified synchronized after named-directory diff review and repository
-validation. This machine-local deployment does not authorize a live test or
-calculation. The release candidate passed 134 offline unit tests, Python
-compilation, shell syntax checks and all eight Skill structural validations.
+The v2.1.0 release deployment covered the eight Skills in that tag. The current
+repository contains nine Skills. Machine-local deployments are deliberately
+not treated as repository state: each named Skill must be validated, diffed
+and synchronized independently from `skills/`. Deployment never authorizes a
+live test or calculation.
 
-The post-2.1.0 W2B-2 candidate passes 166 offline unit tests under Python
-3.11, including immutable-record validation, deterministic store/index
-rebuilds, permission-negative queries, reviewed import/export, redaction,
-snapshot binding and the GaussView Unicode-path regression. It has not been
-deployed and grants no network, Gaussian, PBS or calculation authority.
+The post-2.1.0 W2B-2 line is covered by the current offline suite, including
+immutable-record validation, deterministic store/index rebuilds,
+permission-negative queries, reviewed import/export, redaction, snapshot
+binding and the GaussView Unicode-path regression. It grants no network,
+Gaussian, PBS or calculation authority.
 
 The target architecture is specified in
 `docs/end-to-end-reaction-computation-workflow.md`. It defines the implemented
