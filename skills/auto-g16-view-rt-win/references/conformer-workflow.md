@@ -18,6 +18,15 @@ Every generated manifest must remain `candidate_only: true` and `calculation_rea
 
 Use `select --confirmed` to promote a reviewed candidate. Selection copies the immutable GJF/XYZ and records the source ensemble hash. It does not delete other candidates and does not authorize Gaussian submission by itself; method, basis, temperature, standard state, and resources still require calculation approval.
 
+## R09 dual-route planning boundary
+
+Pass an exact immutable reviewed R08 handoff to
+`auto-g16-conformer-search`. That Skill owns only non-executable dual-route
+planning, supplied candidate legality auditing, structural cross-matching,
+negative evidence, clustering, and medoid review. It does not edit or
+supersede R08, and its candidate-only handoff does not accept a minimum,
+complete R09 thermochemistry, or authorize Gaussian/PBS execution.
+
 ## Gaussian refinement
 
 Calculate all retained candidates that could contribute materially, using the same approved Opt-Freq-single-point stack. Reject failed optimizations and structures with imaginary frequencies when modeling minima. Check whether multiple starting conformers converge to the same optimized structure before population analysis. Use composite Gaussian Gibbs energies—not force-field rankings—for final relative energies and Boltzmann populations.

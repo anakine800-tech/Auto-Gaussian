@@ -64,6 +64,7 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-chemdraw-structures`: quick or strict ChemDraw-compatible structure and complete reaction-scheme reconstruction, including native round-trip validation.
 - `skills/auto-g16-chemdraw-pipeline`: audited ChemDraw-to-Cartesian conversion.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
+- `skills/auto-g16-conformer-search`: offline, hash-bound A/A1/A2 and B/B1/B2 conformer/complex discovery planning, supplied-candidate legality auditing, composite structural cross-validation, negative-evidence preservation, clustering, medoids, and candidate-only handoff. It never executes xTB, CREST, Gaussian, PBS, or SSH.
 - `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,

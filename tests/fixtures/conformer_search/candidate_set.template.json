@@ -1,0 +1,11 @@
+{
+  "schema": "gaussian-conformer-candidate-set/1",
+  "plan_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "raw_sampling_counts": {"a1_crest": 40, "a2_xtb_md": 40, "b1_etkdg": 30, "b2_directed": 30},
+  "audit_policy": {"minimum_distance_angstrom": 0.4},
+  "category_contracts": [
+    {"category_id": "contact_face", "required_bonds": [], "forbidden_bonds": [[0, 2]], "descriptor_constraints": [{"descriptor_id": "site_pair", "kind": "distance", "minimum": 2.0, "maximum": 3.0}]},
+    {"category_id": "loose_face", "required_bonds": [], "forbidden_bonds": [[0, 2]], "descriptor_constraints": [{"descriptor_id": "site_pair", "kind": "distance", "minimum": 2.0, "maximum": 3.0}]}
+  ],
+  "candidates": []
+}

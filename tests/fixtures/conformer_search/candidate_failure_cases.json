@@ -1,0 +1,11 @@
+{
+  "schema": "gaussian-conformer-synthetic-failure-cases/1",
+  "cases": [
+    {"case_id": "mapping_drift", "mutation": "swap_first_two_map_ids", "expected_status": "invalid", "expected_evidence": "mapping_or_atom_order_drift"},
+    {"case_id": "wrong_bond", "mutation": "add_forbidden_bond_0_2", "expected_status": "state_changed", "expected_evidence": "molecular_graph_changed"},
+    {"case_id": "non_target_h_transfer", "mutation": "change_explicit_h_fragment", "expected_status": "state_changed", "expected_evidence": "fragment_or_explicit_h_ownership_changed"},
+    {"case_id": "fragment_dissociation", "mutation": "mark_dissociated", "expected_status": "state_changed", "expected_evidence": "dissociated"},
+    {"case_id": "atom_collision", "mutation": "move_atom_1_within_0_1_angstrom", "expected_status": "invalid", "expected_evidence": "atom_collision"},
+    {"case_id": "optimization_failure", "mutation": "mark_xtb_failed", "expected_status": "invalid", "expected_evidence": "xtb_optimization_not_converged"}
+  ]
+}

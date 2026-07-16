@@ -129,6 +129,11 @@ Open candidates in GaussView when 3D inspection matters. After explicit review, 
 
 Selection is not evidence that rank 1 is the only relevant conformer. Retain all candidates within the approved energy window, calculate them with the same Opt-Freq-single-point protocol, and use Gaussian Gibbs energies for Boltzmann populations. Read [references/conformer-workflow.md](references/conformer-workflow.md) before generating or selecting an ensemble.
 
+Hand an exact immutable reviewed R08 artifact to
+`auto-g16-conformer-search` when dual-route discovery planning, supplied
+candidate legality auditing, or cross-route clustering is required. That
+separate offline Skill never alters the R08 artifact or grants execution.
+
 ## Bundled scripts
 
 - `scripts/prepare_preview.py`: create and audit one preview input.
