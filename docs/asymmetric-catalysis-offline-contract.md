@@ -27,6 +27,8 @@ server-data authority.
 | literature benchmark | `gaussian-asymmetric-literature-benchmark-ledger/1` | hash-bound literature coordinates, identities, expected observables, and unresolved gates |
 | smoke proposal | `gaussian-asymmetric-smoke-proposal/1` | priority-1 closed-shell main-group plan with no live authority |
 | live-smoke evidence | `gaussian-asymmetric-live-smoke-evidence/1` | sanitized, hash-bound terminal/run/TS/mode evidence with no job ID, server path, log, or checkpoint |
+| metal P0 candidate inventory | `gaussian-asymmetric-metal-p0-candidate-inventory/1` | nullable, evidence-bound real-candidate identity, atom-map, coordination, diagnostics and blocker record with no M1 acceptance |
+| metal P0-P1 baseline | `gaussian-asymmetric-metal-p0-p1-baseline/1` | separates the provisional minimal smoke candidate, blocked P1 chain and final asymmetric target; `can_enter_p2` remains false |
 
 The JSON Schemas are in `contracts/asymmetric-catalysis/`. Draft 2020-12
 structural validity is necessary but not sufficient. Cross-file and scientific

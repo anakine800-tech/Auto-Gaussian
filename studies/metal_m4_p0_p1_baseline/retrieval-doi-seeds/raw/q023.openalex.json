@@ -1,0 +1,1323 @@
+{
+  "group_by": [],
+  "meta": {
+    "cost_usd": 0.0001,
+    "count": 1,
+    "db_response_time_ms": 16,
+    "groups_count": null,
+    "page": 1,
+    "per_page": 3,
+    "x_query": {
+      "oql": "works where DOI is (https://doi.org/10.1038/s41467-018-07462-w)",
+      "oqo": {
+        "filter_rows": [
+          {
+            "column_id": "doi",
+            "value": "https://doi.org/10.1038/s41467-018-07462-w"
+          }
+        ],
+        "get_rows": "works",
+        "per_page": 3
+      },
+      "url": "/works?filter=doi:https:%2F%2Fdoi.org%2F10.1038%2Fs41467-018-07462-w&per_page=3"
+    }
+  },
+  "results": [
+    {
+      "abstract_inverted_index": {
+        "(S/C": [
+          42
+        ],
+        "(an": [
+          22
+        ],
+        "(ee": [
+          49
+        ],
+        "5000)": [
+          45
+        ],
+        "99.9%).": [
+          52
+        ],
+        "Asymmetric": [
+          0
+        ],
+        "Herein,": [
+          17
+        ],
+        "N-tosylimines": [
+          35
+        ],
+        "Pd": [
+          24
+        ],
+        "Quantum": [
+          53
+        ],
+        "R-reaction": [
+          70
+        ],
+        "S-": [
+          68
+        ],
+        "a": [
+          8
+        ],
+        "acetate": [
+          21
+        ],
+        "activities": [
+          41
+        ],
+        "an": [
+          18
+        ],
+        "and": [
+          46,
+          69
+        ],
+        "are": [
+          61
+        ],
+        "area": [
+          13
+        ],
+        "asymmetric": [
+          15,
+          30
+        ],
+        "calculations": [
+          55
+        ],
+        "catalysis.": [
+          16
+        ],
+        "catalytic": [
+          40
+        ],
+        "catalyzed": [
+          29
+        ],
+        "challenge": [
+          10
+        ],
+        "chemical": [
+          54
+        ],
+        "constitutes": [
+          7
+        ],
+        "different": [
+          67
+        ],
+        "due": [
+          63
+        ],
+        "efficient": [
+          19
+        ],
+        "enantioselectivities": [
+          48,
+          60
+        ],
+        "excellent": [
+          47
+        ],
+        "high": [
+          39,
+          59
+        ],
+        "hindered": [
+          4,
+          34
+        ],
+        "hydrogenation": [
+          1,
+          31
+        ],
+        "in": [
+          11
+        ],
+        "inexpensive": [
+          23
+        ],
+        "is": [
+          36
+        ],
+        "long-standing": [
+          9
+        ],
+        "low": [
+          27
+        ],
+        "observed": [
+          62
+        ],
+        "of": [
+          2,
+          14,
+          32
+        ],
+        "palladium": [
+          20
+        ],
+        "pathways.": [
+          71
+        ],
+        "realized": [
+          37
+        ],
+        "salt": [
+          25
+        ],
+        "sterically": [
+          3,
+          33
+        ],
+        "still": [
+          6
+        ],
+        "structurally": [
+          66
+        ],
+        "substrates": [
+          5
+        ],
+        "suggest": [
+          56
+        ],
+        "that": [
+          57
+        ],
+        "the": [
+          12,
+          65
+        ],
+        "to": [
+          44,
+          51,
+          64
+        ],
+        "toxicity)": [
+          28
+        ],
+        "uniformly": [
+          58
+        ],
+        "up": [
+          43,
+          50
+        ],
+        "with": [
+          26,
+          38
+        ]
+      },
+      "apc_list": {
+        "currency": "GBP",
+        "value": 3920,
+        "value_usd": 4808
+      },
+      "apc_paid": {
+        "currency": "GBP",
+        "value": 3920,
+        "value_usd": 4808
+      },
+      "authorships": [
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I183067930"
+              ],
+              "raw_affiliation_string": "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
+            }
+          ],
+          "author": {
+            "display_name": "Jianzhong Chen",
+            "id": "https://openalex.org/A5009267288",
+            "orcid": "https://orcid.org/0000-0002-7117-269X"
+          },
+          "author_position": "first",
+          "countries": [
+            "CN"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Shanghai Jiao Tong University",
+              "id": "https://openalex.org/I183067930",
+              "lineage": [
+                "https://openalex.org/I183067930"
+              ],
+              "ror": "https://ror.org/0220qvk04",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
+          ],
+          "raw_author_name": "Jianzhong Chen",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I183067930"
+              ],
+              "raw_affiliation_string": "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
+            }
+          ],
+          "author": {
+            "display_name": "Zhenfeng Zhang",
+            "id": "https://openalex.org/A5100731779",
+            "orcid": "https://orcid.org/0000-0003-3295-6966"
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Shanghai Jiao Tong University",
+              "id": "https://openalex.org/I183067930",
+              "lineage": [
+                "https://openalex.org/I183067930"
+              ],
+              "ror": "https://ror.org/0220qvk04",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
+          ],
+          "raw_author_name": "Zhenfeng Zhang",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I183067930"
+              ],
+              "raw_affiliation_string": "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
+            }
+          ],
+          "author": {
+            "display_name": "Bowen Li",
+            "id": "https://openalex.org/A5100387290",
+            "orcid": "https://orcid.org/0000-0002-8595-0712"
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Shanghai Jiao Tong University",
+              "id": "https://openalex.org/I183067930",
+              "lineage": [
+                "https://openalex.org/I183067930"
+              ],
+              "ror": "https://ror.org/0220qvk04",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
+          ],
+          "raw_author_name": "Bowen Li",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I143593769"
+              ],
+              "raw_affiliation_string": "School of Chemistry and Molecular Engineering, East China University of Science and Technology, Shanghai, 200237, China"
+            }
+          ],
+          "author": {
+            "display_name": "Feilong Li",
+            "id": "https://openalex.org/A5101974535",
+            "orcid": "https://orcid.org/0000-0002-9194-1871"
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "East China University of Science and Technology",
+              "id": "https://openalex.org/I143593769",
+              "lineage": [
+                "https://openalex.org/I143593769"
+              ],
+              "ror": "https://ror.org/01vyrm377",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "School of Chemistry and Molecular Engineering, East China University of Science and Technology, Shanghai, 200237, China"
+          ],
+          "raw_author_name": "Feilong Li",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I143593769"
+              ],
+              "raw_affiliation_string": "School of Chemistry and Molecular Engineering, East China University of Science and Technology, Shanghai, 200237, China"
+            }
+          ],
+          "author": {
+            "display_name": "Yulin Wang",
+            "id": "https://openalex.org/A5100418044",
+            "orcid": "https://orcid.org/0000-0002-5934-4014"
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "East China University of Science and Technology",
+              "id": "https://openalex.org/I143593769",
+              "lineage": [
+                "https://openalex.org/I143593769"
+              ],
+              "ror": "https://ror.org/01vyrm377",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "School of Chemistry and Molecular Engineering, East China University of Science and Technology, Shanghai, 200237, China"
+          ],
+          "raw_author_name": "Yulin Wang",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I143593769"
+              ],
+              "raw_affiliation_string": "School of Chemistry and Molecular Engineering, East China University of Science and Technology, Shanghai, 200237, China"
+            }
+          ],
+          "author": {
+            "display_name": "Min Zhao",
+            "id": "https://openalex.org/A5044775492",
+            "orcid": "https://orcid.org/0000-0002-9012-217X"
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "East China University of Science and Technology",
+              "id": "https://openalex.org/I143593769",
+              "lineage": [
+                "https://openalex.org/I143593769"
+              ],
+              "ror": "https://ror.org/01vyrm377",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "School of Chemistry and Molecular Engineering, East China University of Science and Technology, Shanghai, 200237, China"
+          ],
+          "raw_author_name": "Min Zhao",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I201537933"
+              ],
+              "raw_affiliation_string": "Department of Chemistry, Graduate School of Science, Tohoku University, Aramaki 3-6, Aoba-ku, Sendai, 9808578, Japan"
+            }
+          ],
+          "author": {
+            "display_name": "Ilya D. Gridnev",
+            "id": "https://openalex.org/A5103220757",
+            "orcid": "https://orcid.org/0000-0001-9306-7316"
+          },
+          "author_position": "middle",
+          "countries": [
+            "JP"
+          ],
+          "institutions": [
+            {
+              "country_code": "JP",
+              "display_name": "Tohoku University",
+              "id": "https://openalex.org/I201537933",
+              "lineage": [
+                "https://openalex.org/I201537933"
+              ],
+              "ror": "https://ror.org/01dq60k83",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Department of Chemistry, Graduate School of Science, Tohoku University, Aramaki 3-6, Aoba-ku, Sendai, 9808578, Japan"
+          ],
+          "raw_author_name": "Ilya D. Gridnev",
+          "raw_orcid": "https://orcid.org/0000-0001-9306-7316"
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I159385669"
+              ],
+              "raw_affiliation_string": "Department of Chemistry, Graduate School of Science, Chiba University, Chiba, 263-8522, Japan"
+            }
+          ],
+          "author": {
+            "display_name": "Tsuneo Imamoto",
+            "id": "https://openalex.org/A5013756072",
+            "orcid": "https://orcid.org/0000-0003-3197-197X"
+          },
+          "author_position": "middle",
+          "countries": [
+            "JP"
+          ],
+          "institutions": [
+            {
+              "country_code": "JP",
+              "display_name": "Chiba University",
+              "id": "https://openalex.org/I159385669",
+              "lineage": [
+                "https://openalex.org/I159385669"
+              ],
+              "ror": "https://ror.org/01hjzeq58",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Department of Chemistry, Graduate School of Science, Chiba University, Chiba, 263-8522, Japan"
+          ],
+          "raw_author_name": "Tsuneo Imamoto",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I183067930"
+              ],
+              "raw_affiliation_string": "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China. wanbin@sjtu.edu.cn"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I183067930"
+              ],
+              "raw_affiliation_string": "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
+            }
+          ],
+          "author": {
+            "display_name": "Wanbin Zhang",
+            "id": "https://openalex.org/A5051565228",
+            "orcid": "https://orcid.org/0000-0002-4788-4195"
+          },
+          "author_position": "last",
+          "countries": [
+            "CN"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Shanghai Jiao Tong University",
+              "id": "https://openalex.org/I183067930",
+              "lineage": [
+                "https://openalex.org/I183067930"
+              ],
+              "ror": "https://ror.org/0220qvk04",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": true,
+          "raw_affiliation_strings": [
+            "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China. wanbin@sjtu.edu.cn",
+            "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
+          ],
+          "raw_author_name": "Wanbin Zhang",
+          "raw_orcid": "https://orcid.org/0000-0002-4788-4195"
+        }
+      ],
+      "awards": [
+        {
+          "display_name": null,
+          "funder_award_id": "201701070002E00030",
+          "funder_display_name": "Science and Technology Commission of Shanghai Municipality",
+          "funder_id": "https://openalex.org/F4320321885",
+          "id": "https://openalex.org/G1522166730"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "17ZR1415200",
+          "funder_display_name": "Science and Technology Commission of Shanghai Municipality",
+          "funder_id": "https://openalex.org/F4320321885",
+          "id": "https://openalex.org/G2624239250"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "21702134",
+          "funder_display_name": "National Natural Science Foundation of China",
+          "funder_id": "https://openalex.org/F4320321001",
+          "id": "https://openalex.org/G275662071"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "201701070002E00030",
+          "funder_display_name": "Shanghai Municipal Education Commission",
+          "funder_id": "https://openalex.org/F4320321881",
+          "id": "https://openalex.org/G4703902075"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "15JC1402200",
+          "funder_display_name": "Science and Technology Commission of Shanghai Municipality",
+          "funder_id": "https://openalex.org/F4320321885",
+          "id": "https://openalex.org/G5542171677"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "No. 201701070002E00030",
+          "funder_display_name": "Shanghai Municipal Education Commission",
+          "funder_id": "https://openalex.org/F4320321881",
+          "id": "https://openalex.org/G5798709417"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "21620102003",
+          "funder_display_name": "National Natural Science Foundation of China",
+          "funder_id": "https://openalex.org/F4320321001",
+          "id": "https://openalex.org/G84208628"
+        }
+      ],
+      "best_oa_location": {
+        "id": "doi:10.1038/s41467-018-07462-w",
+        "is_accepted": true,
+        "is_oa": true,
+        "is_published": true,
+        "landing_page_url": "https://doi.org/10.1038/s41467-018-07462-w",
+        "license": "cc-by",
+        "license_id": "https://openalex.org/licenses/cc-by",
+        "pdf_url": "https://www.nature.com/articles/s41467-018-07462-w.pdf",
+        "raw_source_name": "Nature Communications",
+        "raw_type": "journal-article",
+        "source": {
+          "display_name": "Nature Communications",
+          "host_organization": "https://openalex.org/P4310319908",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310319908",
+            "https://openalex.org/P4310319965"
+          ],
+          "host_organization_lineage_names": [
+            "Nature Portfolio",
+            "Springer Nature"
+          ],
+          "host_organization_name": "Nature Portfolio",
+          "id": "https://openalex.org/S64187185",
+          "is_core": true,
+          "is_in_doaj": true,
+          "is_oa": true,
+          "issn": [
+            "2041-1723"
+          ],
+          "issn_l": "2041-1723",
+          "type": "journal"
+        },
+        "version": "publishedVersion"
+      },
+      "biblio": {
+        "first_page": "5000",
+        "issue": "1",
+        "last_page": "5000",
+        "volume": "9"
+      },
+      "citation_normalized_percentile": {
+        "is_in_top_10_percent": true,
+        "is_in_top_1_percent": false,
+        "value": 0.92769256
+      },
+      "cited_by_count": 99,
+      "cited_by_percentile_year": {
+        "max": 100,
+        "min": 99
+      },
+      "concepts": [
+        {
+          "display_name": "Steric effects",
+          "id": "https://openalex.org/C201194858",
+          "level": 2,
+          "score": 0.9497115612030029,
+          "wikidata": "https://www.wikidata.org/wiki/Q898238"
+        },
+        {
+          "display_name": "Catalysis",
+          "id": "https://openalex.org/C161790260",
+          "level": 2,
+          "score": 0.8494247794151306,
+          "wikidata": "https://www.wikidata.org/wiki/Q82264"
+        },
+        {
+          "display_name": "Asymmetric hydrogenation",
+          "id": "https://openalex.org/C197356162",
+          "level": 4,
+          "score": 0.7150073051452637,
+          "wikidata": "https://www.wikidata.org/wiki/Q4812077"
+        },
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/C185592680",
+          "level": 0,
+          "score": 0.67195063829422,
+          "wikidata": "https://www.wikidata.org/wiki/Q2329"
+        },
+        {
+          "display_name": "Quantum chemical",
+          "id": "https://openalex.org/C2991951333",
+          "level": 3,
+          "score": 0.6482391357421875,
+          "wikidata": "https://www.wikidata.org/wiki/Q188403"
+        },
+        {
+          "display_name": "Salt (chemistry)",
+          "id": "https://openalex.org/C2776371256",
+          "level": 2,
+          "score": 0.6151580810546875,
+          "wikidata": "https://www.wikidata.org/wiki/Q12370"
+        },
+        {
+          "display_name": "Palladium",
+          "id": "https://openalex.org/C502130503",
+          "level": 3,
+          "score": 0.5540067553520203,
+          "wikidata": "https://www.wikidata.org/wiki/Q1089"
+        },
+        {
+          "display_name": "Combinatorial chemistry",
+          "id": "https://openalex.org/C21951064",
+          "level": 1,
+          "score": 0.39176130294799805,
+          "wikidata": "https://www.wikidata.org/wiki/Q899212"
+        },
+        {
+          "display_name": "Enantioselective synthesis",
+          "id": "https://openalex.org/C146686406",
+          "level": 3,
+          "score": 0.3384712338447571,
+          "wikidata": "https://www.wikidata.org/wiki/Q898628"
+        },
+        {
+          "display_name": "Organic chemistry",
+          "id": "https://openalex.org/C178790620",
+          "level": 1,
+          "score": 0.30701014399528503,
+          "wikidata": "https://www.wikidata.org/wiki/Q11351"
+        },
+        {
+          "display_name": "Molecule",
+          "id": "https://openalex.org/C32909587",
+          "level": 2,
+          "score": 0.19436287879943848,
+          "wikidata": "https://www.wikidata.org/wiki/Q11369"
+        }
+      ],
+      "content_urls": {
+        "grobid_xml": "https://content.openalex.org/works/W2901892671.grobid-xml",
+        "pdf": "https://content.openalex.org/works/W2901892671.pdf"
+      },
+      "corresponding_author_ids": [
+        "https://openalex.org/A5051565228"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I183067930"
+      ],
+      "countries_distinct_count": 2,
+      "counts_by_year": [
+        {
+          "cited_by_count": 3,
+          "year": 2026
+        },
+        {
+          "cited_by_count": 15,
+          "year": 2025
+        },
+        {
+          "cited_by_count": 14,
+          "year": 2024
+        },
+        {
+          "cited_by_count": 13,
+          "year": 2023
+        },
+        {
+          "cited_by_count": 18,
+          "year": 2022
+        },
+        {
+          "cited_by_count": 13,
+          "year": 2021
+        },
+        {
+          "cited_by_count": 11,
+          "year": 2020
+        },
+        {
+          "cited_by_count": 12,
+          "year": 2019
+        }
+      ],
+      "created_date": "2025-10-10T00:00:00",
+      "display_name": "Pd(OAc)2-catalyzed asymmetric hydrogenation of sterically hindered N-tosylimines",
+      "doi": "https://doi.org/10.1038/s41467-018-07462-w",
+      "funders": [
+        {
+          "display_name": "National Natural Science Foundation of China",
+          "id": "https://openalex.org/F4320321001",
+          "ror": "https://ror.org/01h0zpd94"
+        },
+        {
+          "display_name": "Shanghai Municipal Education Commission",
+          "id": "https://openalex.org/F4320321881",
+          "ror": "https://ror.org/05tewj457"
+        },
+        {
+          "display_name": "Science and Technology Commission of Shanghai Municipality",
+          "id": "https://openalex.org/F4320321885",
+          "ror": "https://ror.org/03kt66j61"
+        },
+        {
+          "display_name": "East China Normal University",
+          "id": "https://openalex.org/F4320322370",
+          "ror": "https://ror.org/02n96ep67"
+        },
+        {
+          "display_name": "Shanghai Jiao Tong University",
+          "id": "https://openalex.org/F4320322999",
+          "ror": "https://ror.org/0220qvk04"
+        },
+        {
+          "display_name": "Peking University",
+          "id": "https://openalex.org/F4320324787",
+          "ror": "https://ror.org/02v51f717"
+        }
+      ],
+      "fwci": 3.1783,
+      "has_content": {
+        "grobid_xml": true,
+        "pdf": true
+      },
+      "has_fulltext": true,
+      "id": "https://openalex.org/W2901892671",
+      "ids": {
+        "doi": "https://doi.org/10.1038/s41467-018-07462-w",
+        "mag": "2901892671",
+        "openalex": "https://openalex.org/W2901892671",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/30479338"
+      },
+      "indexed_in": [
+        "crossref",
+        "doaj",
+        "pubmed"
+      ],
+      "institutions": [],
+      "institutions_distinct_count": 9,
+      "is_paratext": false,
+      "is_retracted": false,
+      "is_xpac": false,
+      "keywords": [
+        {
+          "display_name": "Steric effects",
+          "id": "https://openalex.org/keywords/steric-effects",
+          "score": 0.9497115612030029
+        },
+        {
+          "display_name": "Catalysis",
+          "id": "https://openalex.org/keywords/catalysis",
+          "score": 0.8494247794151306
+        },
+        {
+          "display_name": "Asymmetric hydrogenation",
+          "id": "https://openalex.org/keywords/asymmetric-hydrogenation",
+          "score": 0.7150073051452637
+        },
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/keywords/chemistry",
+          "score": 0.67195063829422
+        },
+        {
+          "display_name": "Quantum chemical",
+          "id": "https://openalex.org/keywords/quantum-chemical",
+          "score": 0.6482391357421875
+        },
+        {
+          "display_name": "Salt (chemistry)",
+          "id": "https://openalex.org/keywords/salt",
+          "score": 0.6151580810546875
+        },
+        {
+          "display_name": "Palladium",
+          "id": "https://openalex.org/keywords/palladium",
+          "score": 0.5540067553520203
+        },
+        {
+          "display_name": "Combinatorial chemistry",
+          "id": "https://openalex.org/keywords/combinatorial-chemistry",
+          "score": 0.39176130294799805
+        },
+        {
+          "display_name": "Enantioselective synthesis",
+          "id": "https://openalex.org/keywords/enantioselective-synthesis",
+          "score": 0.3384712338447571
+        },
+        {
+          "display_name": "Organic chemistry",
+          "id": "https://openalex.org/keywords/organic-chemistry",
+          "score": 0.30701014399528503
+        },
+        {
+          "display_name": "Molecule",
+          "id": "https://openalex.org/keywords/molecule",
+          "score": 0.19436287879943848
+        }
+      ],
+      "language": "en",
+      "locations": [
+        {
+          "id": "doi:10.1038/s41467-018-07462-w",
+          "is_accepted": true,
+          "is_oa": true,
+          "is_published": true,
+          "landing_page_url": "https://doi.org/10.1038/s41467-018-07462-w",
+          "license": "cc-by",
+          "license_id": "https://openalex.org/licenses/cc-by",
+          "pdf_url": "https://www.nature.com/articles/s41467-018-07462-w.pdf",
+          "raw_source_name": "Nature Communications",
+          "raw_type": "journal-article",
+          "source": {
+            "display_name": "Nature Communications",
+            "host_organization": "https://openalex.org/P4310319908",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310319908",
+              "https://openalex.org/P4310319965"
+            ],
+            "host_organization_lineage_names": [
+              "Nature Portfolio",
+              "Springer Nature"
+            ],
+            "host_organization_name": "Nature Portfolio",
+            "id": "https://openalex.org/S64187185",
+            "is_core": true,
+            "is_in_doaj": true,
+            "is_oa": true,
+            "issn": [
+              "2041-1723"
+            ],
+            "issn_l": "2041-1723",
+            "type": "journal"
+          },
+          "version": "publishedVersion"
+        },
+        {
+          "id": "pmid:30479338",
+          "is_accepted": true,
+          "is_oa": false,
+          "is_published": true,
+          "landing_page_url": "https://pubmed.ncbi.nlm.nih.gov/30479338",
+          "license": null,
+          "license_id": null,
+          "pdf_url": null,
+          "raw_source_name": "Nature communications",
+          "raw_type": null,
+          "source": {
+            "display_name": "PubMed",
+            "host_organization": "https://openalex.org/I1299303238",
+            "host_organization_lineage": [
+              "https://openalex.org/I1299303238"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "National Institutes of Health",
+            "id": "https://openalex.org/S4306525036",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "publishedVersion"
+        },
+        {
+          "id": "pmh:oai:RePEc:nat:natcom:v:9:y:2018:i:1:d:10.1038_s41467-018-07462-w",
+          "is_accepted": false,
+          "is_oa": false,
+          "is_published": false,
+          "landing_page_url": "https://www.nature.com/articles/s41467-018-07462-w",
+          "license": null,
+          "license_id": null,
+          "pdf_url": null,
+          "raw_source_name": null,
+          "raw_type": "article",
+          "source": {
+            "display_name": "RePEc: Research Papers in Economics",
+            "host_organization": "https://openalex.org/I77793887",
+            "host_organization_lineage": [
+              "https://openalex.org/I77793887"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "Federal Reserve Bank of St. Louis",
+            "id": "https://openalex.org/S4306401271",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "submittedVersion"
+        },
+        {
+          "id": "pmh:oai:doaj.org/article:61887082b7564dc1b11a43ae2c800e82",
+          "is_accepted": false,
+          "is_oa": true,
+          "is_published": false,
+          "landing_page_url": "https://doaj.org/article/61887082b7564dc1b11a43ae2c800e82",
+          "license": "cc-by-sa",
+          "license_id": "https://openalex.org/licenses/cc-by-sa",
+          "pdf_url": null,
+          "raw_source_name": "Nature Communications, Vol 9, Iss 1, Pp 1-10 (2018)",
+          "raw_type": "article",
+          "source": {
+            "display_name": "DOAJ (DOAJ: Directory of Open Access Journals)",
+            "host_organization": null,
+            "host_organization_lineage": [],
+            "host_organization_lineage_names": [],
+            "host_organization_name": null,
+            "id": "https://openalex.org/S4306401280",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "submittedVersion"
+        },
+        {
+          "id": "pmh:oai:doaj.org/article:7b5fe7b7136145ee9b2d05627f6bcf3a",
+          "is_accepted": false,
+          "is_oa": false,
+          "is_published": false,
+          "landing_page_url": "https://doaj.org/article/7b5fe7b7136145ee9b2d05627f6bcf3a",
+          "license": null,
+          "license_id": null,
+          "pdf_url": null,
+          "raw_source_name": "Nature Communications, Vol 9, Iss 1, Pp 1-10 (2018)",
+          "raw_type": "article",
+          "source": {
+            "display_name": "DOAJ (DOAJ: Directory of Open Access Journals)",
+            "host_organization": null,
+            "host_organization_lineage": [],
+            "host_organization_lineage_names": [],
+            "host_organization_name": null,
+            "id": "https://openalex.org/S4306401280",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "submittedVersion"
+        },
+        {
+          "id": "pmh:oai:europepmc.org:5240220",
+          "is_accepted": false,
+          "is_oa": true,
+          "is_published": false,
+          "landing_page_url": "http://europepmc.org/pmc/articles/PMC6258694",
+          "license": "other-oa",
+          "license_id": "https://openalex.org/licenses/other-oa",
+          "pdf_url": null,
+          "raw_source_name": "",
+          "raw_type": "Text",
+          "source": {
+            "display_name": "Europe PMC (PubMed Central)",
+            "host_organization": "https://openalex.org/I1303153112",
+            "host_organization_lineage": [
+              "https://openalex.org/I1303153112"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "European Bioinformatics Institute",
+            "id": "https://openalex.org/S4306400806",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "submittedVersion"
+        },
+        {
+          "id": "pmh:oai:pubmedcentral.nih.gov:6258694",
+          "is_accepted": false,
+          "is_oa": true,
+          "is_published": false,
+          "landing_page_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/6258694",
+          "license": "cc-by",
+          "license_id": "https://openalex.org/licenses/cc-by",
+          "pdf_url": null,
+          "raw_source_name": "Nat Commun",
+          "raw_type": "Text",
+          "source": {
+            "display_name": "PubMed Central",
+            "host_organization": "https://openalex.org/I1299303238",
+            "host_organization_lineage": [
+              "https://openalex.org/I1299303238"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "National Institutes of Health",
+            "id": "https://openalex.org/S2764455111",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": true,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "submittedVersion"
+        }
+      ],
+      "locations_count": 7,
+      "mesh": [],
+      "open_access": {
+        "any_repository_has_fulltext": true,
+        "is_oa": true,
+        "oa_status": "gold",
+        "oa_url": "https://www.nature.com/articles/s41467-018-07462-w.pdf"
+      },
+      "primary_location": {
+        "id": "doi:10.1038/s41467-018-07462-w",
+        "is_accepted": true,
+        "is_oa": true,
+        "is_published": true,
+        "landing_page_url": "https://doi.org/10.1038/s41467-018-07462-w",
+        "license": "cc-by",
+        "license_id": "https://openalex.org/licenses/cc-by",
+        "pdf_url": "https://www.nature.com/articles/s41467-018-07462-w.pdf",
+        "raw_source_name": "Nature Communications",
+        "raw_type": "journal-article",
+        "source": {
+          "display_name": "Nature Communications",
+          "host_organization": "https://openalex.org/P4310319908",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310319908",
+            "https://openalex.org/P4310319965"
+          ],
+          "host_organization_lineage_names": [
+            "Nature Portfolio",
+            "Springer Nature"
+          ],
+          "host_organization_name": "Nature Portfolio",
+          "id": "https://openalex.org/S64187185",
+          "is_core": true,
+          "is_in_doaj": true,
+          "is_oa": true,
+          "issn": [
+            "2041-1723"
+          ],
+          "issn_l": "2041-1723",
+          "type": "journal"
+        },
+        "version": "publishedVersion"
+      },
+      "primary_topic": {
+        "display_name": "Asymmetric Hydrogenation and Catalysis",
+        "domain": {
+          "display_name": "Physical Sciences",
+          "id": "https://openalex.org/domains/3"
+        },
+        "field": {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/fields/16"
+        },
+        "id": "https://openalex.org/T11281",
+        "score": 1.0,
+        "subfield": {
+          "display_name": "Inorganic Chemistry",
+          "id": "https://openalex.org/subfields/1604"
+        }
+      },
+      "publication_date": "2018-11-21",
+      "publication_year": 2018,
+      "referenced_works": [
+        "https://openalex.org/W1949238412",
+        "https://openalex.org/W1974713831",
+        "https://openalex.org/W1980551830",
+        "https://openalex.org/W1989368783",
+        "https://openalex.org/W1991839781",
+        "https://openalex.org/W1994662793",
+        "https://openalex.org/W1999927015",
+        "https://openalex.org/W2003995483",
+        "https://openalex.org/W2008655356",
+        "https://openalex.org/W2009884940",
+        "https://openalex.org/W2013434549",
+        "https://openalex.org/W2024869919",
+        "https://openalex.org/W2028713583",
+        "https://openalex.org/W2040718816",
+        "https://openalex.org/W2061885157",
+        "https://openalex.org/W2065638141",
+        "https://openalex.org/W2066132168",
+        "https://openalex.org/W2066564720",
+        "https://openalex.org/W2091136253",
+        "https://openalex.org/W2093530598",
+        "https://openalex.org/W2097446202",
+        "https://openalex.org/W2097981241",
+        "https://openalex.org/W2099838354",
+        "https://openalex.org/W2103945489",
+        "https://openalex.org/W2109560352",
+        "https://openalex.org/W2115203482",
+        "https://openalex.org/W2115262159",
+        "https://openalex.org/W2116137178",
+        "https://openalex.org/W2124304763",
+        "https://openalex.org/W2125467885",
+        "https://openalex.org/W2125573926",
+        "https://openalex.org/W2129111124",
+        "https://openalex.org/W2129515601",
+        "https://openalex.org/W2134764589",
+        "https://openalex.org/W2139998287",
+        "https://openalex.org/W2148013826",
+        "https://openalex.org/W2153697537",
+        "https://openalex.org/W2154913676",
+        "https://openalex.org/W2156702966",
+        "https://openalex.org/W2158429666",
+        "https://openalex.org/W2159327167",
+        "https://openalex.org/W2161182282",
+        "https://openalex.org/W2167253247",
+        "https://openalex.org/W2170676330",
+        "https://openalex.org/W2173884963",
+        "https://openalex.org/W2265865093",
+        "https://openalex.org/W2314862299",
+        "https://openalex.org/W2320501534",
+        "https://openalex.org/W2321599691",
+        "https://openalex.org/W2325025064",
+        "https://openalex.org/W2325982852",
+        "https://openalex.org/W2333017227",
+        "https://openalex.org/W2344031581",
+        "https://openalex.org/W2395594043",
+        "https://openalex.org/W2421104481",
+        "https://openalex.org/W2423902806",
+        "https://openalex.org/W2484065370",
+        "https://openalex.org/W2498906420",
+        "https://openalex.org/W2543585436",
+        "https://openalex.org/W2552085994",
+        "https://openalex.org/W2555113729",
+        "https://openalex.org/W2557618057",
+        "https://openalex.org/W2589755022",
+        "https://openalex.org/W2766298998",
+        "https://openalex.org/W2791761438",
+        "https://openalex.org/W2949337847",
+        "https://openalex.org/W2950304129",
+        "https://openalex.org/W2953119373",
+        "https://openalex.org/W4285719527"
+      ],
+      "referenced_works_count": 69,
+      "related_works": [
+        "https://openalex.org/W4206261876",
+        "https://openalex.org/W3155189705",
+        "https://openalex.org/W2118332265",
+        "https://openalex.org/W2952040026",
+        "https://openalex.org/W2949633962",
+        "https://openalex.org/W4206608877",
+        "https://openalex.org/W2086778627",
+        "https://openalex.org/W4383065574",
+        "https://openalex.org/W2013045429",
+        "https://openalex.org/W2472685186"
+      ],
+      "sustainable_development_goals": [],
+      "title": "Pd(OAc)2-catalyzed asymmetric hydrogenation of sterically hindered N-tosylimines",
+      "topics": [
+        {
+          "display_name": "Asymmetric Hydrogenation and Catalysis",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemistry",
+            "id": "https://openalex.org/fields/16"
+          },
+          "id": "https://openalex.org/T11281",
+          "score": 1.0,
+          "subfield": {
+            "display_name": "Inorganic Chemistry",
+            "id": "https://openalex.org/subfields/1604"
+          }
+        },
+        {
+          "display_name": "Surface Chemistry and Catalysis",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Engineering",
+            "id": "https://openalex.org/fields/22"
+          },
+          "id": "https://openalex.org/T12285",
+          "score": 0.9958000183105469,
+          "subfield": {
+            "display_name": "Biomedical Engineering",
+            "id": "https://openalex.org/subfields/2204"
+          }
+        },
+        {
+          "display_name": "Asymmetric Synthesis and Catalysis",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemistry",
+            "id": "https://openalex.org/fields/16"
+          },
+          "id": "https://openalex.org/T10013",
+          "score": 0.986299991607666,
+          "subfield": {
+            "display_name": "Organic Chemistry",
+            "id": "https://openalex.org/subfields/1605"
+          }
+        }
+      ],
+      "type": "article",
+      "updated_date": "2026-06-17T06:14:20.161405"
+    }
+  ]
+}

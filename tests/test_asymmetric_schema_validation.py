@@ -677,6 +677,8 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
             "metal-result-observation": metal_result_observation_instance(),
             "metal-acceptance-review-source": metal_acceptance_review_source_instance(),
             "metal-acceptance-review": metal_acceptance_review_instance(),
+            "metal-p0-p1-baseline": load(ROOT / "studies" / "metal_m4_p0_p1_baseline" / "baseline.json"),
+            "metal-p0-candidate-inventory": load(ROOT / "studies" / "metal_m4_p0_p1_baseline" / "r33-candidate-inventory.json"),
             "smoke-proposal": load(ROOT / "docs" / "asymmetric-catalysis-smoke-proposal.json"),
             "live-smoke-evidence": live_smoke_evidence_instance(),
             "literature-benchmark": load(ROOT / "studies" / "wang_2024_bf3_ts" / "candidate-ledger.json"),
