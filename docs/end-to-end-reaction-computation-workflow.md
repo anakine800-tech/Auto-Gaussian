@@ -465,7 +465,7 @@ outputs, approval state, and retry lineage.
 Execution remains confined below `/home/user100/SDL`, refuses non-empty or
 symlinked projects, submits exactly once, and never deletes server data.
 
-The Unreleased first calculation-DAG slice deliberately stops before those
+The 2.3.0 calculation-DAG slice deliberately stops before those
 executable job records. `gaussian-reaction-calculation-plan/1` contains stable
 logical calculation needs and their dependencies, alternatives, supersession,
 blockers and retained historical dispositions. It binds the exact W1 chain and
@@ -634,7 +634,7 @@ must not automatically promote its parent scientific hypothesis.
 ## 6. Top-level data contracts and roadmap
 
 Existing specialist schemas remain authoritative for their own artifacts. W1,
-the W3 mechanism-network/support/TS-planning slices, and the Unreleased
+the W3 mechanism-network/support/TS-planning slices, and the 2.3.0
 calculation-plan, study-index and first calculation-artifact adapter contracts
 now implement part of the top-level layer; the remaining rows are the bounded
 roadmap rather than implied current capabilities:
@@ -719,7 +719,7 @@ reaction workflow.
 | reusable group structure, method, and literature/book databases | W2A through W2B-2 offline foundation implemented | canonical contracts, store/object verification, deterministic SQLite, exact access filtering, reviewed import, lawful-object ingestion, redacted JSON export, typed links and snapshot verification exist; chemical search and authenticated service enforcement remain missing |
 | general literature search, evidence extraction and TS-precedent mapping | offline query, evidence, support and planning slices implemented | exact claim/location binding, decomposed applicability, independent exploration/claim gates, source-to-target mapping and de novo planning exist; full-text automation and geometry construction remain missing |
 | mechanism network and catalyst-cycle DAG | general offline network/cycle-closure audit plus non-executable calculation dependency DAG implemented | no executable scheduler or project-level mutable execution state machine |
-| reaction calculation plan and study index | Unreleased first offline slice implemented | deterministic non-executable DAG and immutable resume view bind exact W1/network/support/precedent artifacts, preserve alternatives/supersession/history and separate readiness dimensions; no geometry, protocol, input, server job, evidence adapter or live authority |
+| reaction calculation plan and study index | 2.3.0 first offline slice implemented | deterministic non-executable DAG and immutable resume view bind exact W1/network/support/precedent artifacts, preserve alternatives/supersession/history and separate readiness dimensions; no geometry, protocol, input, server job, evidence adapter or live authority |
 | deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
 | calculation-artifact adapters | first narrow offline slice implemented in repository source | stable candidate-target imports, one exact reviewed closed-shell main-group single-guess TS/Freq handoff, blocked/electronic-only energy lineage and observation-only attempt links; no DAG mutation, live approval, staging or submission |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
@@ -727,7 +727,7 @@ reaction workflow.
 | protocol `loose`/`standard`/`strict` proposal and selection | implemented as a standalone gate | does not choose a protocol or authorize input submission; the current generic automatic execution entry does not yet require and consume the selection artifact end to end |
 | guarded PBS submit/watch/fetch/analyze | implemented per approved job | the offline plan/index does not schedule or update jobs; no whole-study executable dependency scheduler, finite-batch approval manifest or specialist result adapter exists |
 | minimum Opt/Freq/single-point parsing and conformer aggregation | implemented per reviewed structure/family | no reaction-wide species registry, post-optimization identity clustering, or balanced free-energy network |
-| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | released baseline is synchronized; unreleased specialist classification/mode-geometry replay helpers are currently repository source only | no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
+| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | 2.3.0 candidate source and the read-only compared deployed copy are synchronized; specialist classification/mode-geometry replay helpers are included | no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
 | TS candidate-space result ingestion and two-channel Boltzmann/ee sensitivity | implemented offline | only `boltzmann_ts_ensemble`; no general kinetic network, energetic-span engine, or protocol-matrix uncertainty propagation |
 | final project report and claim-state engine | missing | current documents and analyses are study-specific rather than generated from one top-level evidence index |
 
@@ -992,7 +992,7 @@ Acceptance requires deterministic rebuilds, hash-drift refusal, cycle and mass/
 charge diagnostics, blocked unsupported states, and resume from every gate.
 
 Feature status on 2026-07-16: the mechanism-network slice is implemented, and
-the current Unreleased work adds the smallest offline calculation plan and
+the 2.3.0 candidate adds the smallest offline calculation plan and
 read-only study index. The plan binds the exact W1 chain and finalized network,
 validates stable logical nodes, dependencies, alternatives and supersession,
 and retains failed, rejected, skipped and historical work. The index derives
