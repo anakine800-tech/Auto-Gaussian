@@ -39,7 +39,7 @@ any record/object import or permission-aware export.
 Run the repository source helper:
 
 ```bash
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   validate RECORD.json
 ```
 
@@ -53,7 +53,7 @@ To hash a reviewed draft without changing its scientific or permission state,
 set `payload_sha256` to `null` and write a new output:
 
 ```bash
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   finalize DRAFT.json --output RECORD.json
 ```
 
@@ -64,7 +64,7 @@ Audit a bounded set for duplicate candidates or conflicting immutable
 revisions without merging it:
 
 ```bash
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   audit-set RECORD.json OTHER-RECORD.json
 ```
 
@@ -73,18 +73,18 @@ python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
 Initialize an empty canonical layout:
 
 ```bash
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   init-store STORE --store-id GROUP_STORE
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   verify-store STORE
 ```
 
 Build a fresh derived index and run a fail-closed exact query:
 
 ```bash
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   rebuild-index --store STORE --output STORE/indexes/index.sqlite
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   query --store STORE --index STORE/indexes/index.sqlite --registry source
 ```
 
@@ -95,7 +95,7 @@ refuses a stale or modified index.
 Verify a frozen snapshot and its exact parent reaction intake separately:
 
 ```bash
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   verify-snapshot SNAPSHOT.json --store STORE --artifact-root STUDY_DIR
 ```
 
@@ -117,13 +117,13 @@ python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
 Never copy records or objects into a canonical store manually. Use:
 
 ```bash
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   plan-import --store STORE --record RECORD.json \
   --object SHA256=OBJECT --plan-id IMPORT_ID --output IMPORT-PLAN.json
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   review-import --plan IMPORT-PLAN.json --decision approved \
   --reviewer REVIEWER --output IMPORT-APPROVAL.json
-python3 skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/knowledge_base.py \
   apply-import --store STORE --plan IMPORT-PLAN.json \
   --approval IMPORT-APPROVAL.json --output IMPORT-RESULT.json
 ```

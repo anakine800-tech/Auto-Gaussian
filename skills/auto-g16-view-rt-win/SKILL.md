@@ -68,7 +68,7 @@ $AUTO_G16_RDKIT_PYTHON \
 Open TS imaginary-mode displacement artifacts. The wrapper keeps each XYZ immutable and creates an audited, non-Gaussian MOL preview automatically:
 
 ```bash
-python3 ~/.codex/skills/auto-g16-view-rt-win/scripts/windows_gaussview.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" ~/.codex/skills/auto-g16-view-rt-win/scripts/windows_gaussview.py \
   open /path/to/mode_plus.xyz --project ts_mode_plus
 ```
 

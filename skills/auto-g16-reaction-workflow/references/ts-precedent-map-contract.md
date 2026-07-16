@@ -117,12 +117,12 @@ resource, server, job or submission approval.
 ## Commands
 
 ```bash
-python3 skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py build \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py build \
   mechanism-network.json knowledge-snapshot.json literature-evidence.json \
   mechanism-support.json \
   --review ts-precedent-review.json --output ts-precedent-map.json
 
-python3 skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py validate \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py validate \
   ts-precedent-map.json
 ```
 

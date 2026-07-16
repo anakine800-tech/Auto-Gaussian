@@ -154,16 +154,29 @@ submodule, symlink, or remote.
 
 ## Installation and local configuration
 
-The offline planning, parsing and audit layers support Python 3.11 through
-3.13 and
-have no third-party runtime dependency. The ChemDraw and conformer layers
-additionally require the packages recorded in
-`requirements/chemistry.txt` (RDKit, Pillow and NumPy). Install them in an
-isolated environment when those optional paths are needed:
+The repository has two explicit local profiles. `core` is the default and is
+fixed to Miniforge Python 3.13.13; it runs the standard-library-only planning,
+parsing, audit, deployment and test flows. `chem` is fixed to Python 3.11.15
+and is reserved for RDKit, NumPy and Pillow workflows. `.python-version`,
+`pyproject.toml`, `environment.yml`, `environment-chem.yml` and
+`config/python-environments.json` record this contract. The exact optional
+package versions live in `requirements/chemistry.lock.txt`.
+
+Use the repository launcher for both execution and installation. It resolves
+an absolute interpreter from an environment variable, the ignored runtime
+configuration, or the reviewed Miniforge fallback; validates the exact Python
+version; and then replaces itself with that interpreter. It never chooses
+`python3` from `PATH`:
 
 ```bash
-python3 -m pip install -r requirements/chemistry.txt
+./scripts/python core -m unittest discover -s tests -v
+./scripts/python chem -m pip install --requirement requirements/chemistry.txt
+./scripts/python chem path/to/rdkit_script.py --help
 ```
+
+The Python-file shebangs remain portable compatibility metadata. Repository
+and deployed Skill commands must invoke scripts with the selected interpreter
+instead of executing those files directly.
 
 ChemDraw, GaussView, Gaussian and PBS remain separately licensed external
 software and are not distributed here.
@@ -173,7 +186,9 @@ SSH aliases locally. For desktop use, copy `config/runtime.example.json` to
 `~/.config/auto-g16/runtime.json`; set `AUTO_G16_RUNTIME_CONFIG` only when a
 different local path is needed. Environment variables override the JSON keys:
 
+- `AUTO_G16_CORE_PYTHON`
 - `AUTO_G16_RDKIT_PYTHON`
+- `AUTO_G16_BOOTSTRAP_PYTHON` (launcher bootstrap only; normally unnecessary)
 - `AUTO_G16_RTWIN_SSH_CONFIG`
 - `AUTO_G16_WINDOWS_TARGET`
 - `AUTO_G16_WINDOWS_HOST` (connection probe only)
@@ -183,11 +198,26 @@ different local path is needed. Environment variables override the JSON keys:
 - `AUTO_G16_GAUSSVIEW_EXE`
 - `AUTO_G16_PIPELINE_SCRIPTS`
 
-Do not commit the resolved values. Run the offline suite with:
+Do not commit the resolved values. Inspect both environments, including the
+selected executable, exact Python version, pip module path and the installed
+RDKit, NumPy and Pillow versions, with:
 
 ```bash
-python3 -m unittest discover -s tests -v
+./scripts/python check
 ```
+
+Add `--skill-sync` to compare every repository Skill deployment package with
+its installed `~/.codex/skills/<name>` copy using the same reviewed core
+interpreter:
+
+```bash
+./scripts/python check --skill-sync
+```
+
+The sync check is read-only. Deployment remains a separate, review-gated
+`scripts/sync_named_skill.py` dry-run/plan-hash/apply workflow. Neither Python
+environment setup nor Skill synchronization changes the RTwin, Windows,
+Gaussian or PBS approval boundaries.
 
 ## Development sequence
 
@@ -228,6 +258,9 @@ Repository-wide operational rules are in `AGENTS.md`.
 ## Repository helpers
 
 - `config/*.example` contains placeholders only; real SSH/server configuration stays ignored.
+- `scripts/python` is the only documented repository Python entry point;
+  `scripts/python_environment.py` resolves absolute interpreters and rejects
+  version or chemistry-package drift before normal execution.
 - `scripts/check_skill_sync.py` compares the exact named-Skill deployment
   package, including manifest-mapped authoritative contracts, with installed
   copies.

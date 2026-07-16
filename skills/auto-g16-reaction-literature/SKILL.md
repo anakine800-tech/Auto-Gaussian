@@ -45,7 +45,7 @@ reviewing a candidate publication.
 Run the deterministic helper from the repository source of truth:
 
 ```bash
-python3 skills/auto-g16-reaction-literature/scripts/literature_search.py --help
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-literature/scripts/literature_search.py --help
 ```
 
 Every command refuses to overwrite an existing file or retrieval directory.
@@ -73,7 +73,7 @@ meaningful under those limits.
 ### 2. Build a query plan offline
 
 ```bash
-python3 skills/auto-g16-reaction-literature/scripts/literature_search.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-literature/scripts/literature_search.py \
   plan INTAKE.json --output search-plan.json
 ```
 
@@ -92,7 +92,7 @@ read from `OPENALEX_API_KEY` by default. Never place a key in an intake, plan,
 command transcript, or committed file.
 
 ```bash
-python3 skills/auto-g16-reaction-literature/scripts/literature_search.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-literature/scripts/literature_search.py \
   retrieve search-plan.json --output-dir retrieval-001 \
   --sources crossref,openalex --rows 20 --mailto "$CROSSREF_MAILTO"
 ```
@@ -109,7 +109,7 @@ request and expects files named `<query-id>.<source>.json`.
 ### 4. Deduplicate and rank for screening
 
 ```bash
-python3 skills/auto-g16-reaction-literature/scripts/literature_search.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-literature/scripts/literature_search.py \
   rank search-plan.json retrieval-001/retrieval.json \
   --output candidate-ledger.json --report screening-report.md
 ```
@@ -123,7 +123,7 @@ reviewed intake or evidence ledger with provenance.
 ### 5. Create and complete the evidence review
 
 ```bash
-python3 skills/auto-g16-reaction-literature/scripts/literature_search.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-literature/scripts/literature_search.py \
   init-review candidate-ledger.json --output evidence-review.json --limit 20
 ```
 
@@ -149,7 +149,7 @@ replace missing evidence with a plausible guess.
 Validate the edited review before handing it downstream:
 
 ```bash
-python3 skills/auto-g16-reaction-literature/scripts/literature_search.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-literature/scripts/literature_search.py \
   validate-review evidence-review.json --output evidence-review-final.json
 ```
 

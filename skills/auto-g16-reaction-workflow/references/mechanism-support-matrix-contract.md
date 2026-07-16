@@ -112,11 +112,11 @@ or other immutable historical records.
 ```bash
 MATRIX_TOOL="skills/auto-g16-reaction-workflow/scripts/mechanism_support_matrix.py"
 
-python3 "$MATRIX_TOOL" build mechanism-support.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$MATRIX_TOOL" build mechanism-support.json \
   --review mechanism-support-matrix-review.json \
   --output mechanism-support-matrix.json
 
-python3 "$MATRIX_TOOL" validate mechanism-support-matrix.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$MATRIX_TOOL" validate mechanism-support-matrix.json
 ```
 
 Both commands use only the Python standard library and perform no subprocess,

@@ -78,11 +78,11 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
 
 # Review an already rendered input only
-python3 "$AUTO" prepare /path/to/reviewed.gjf \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" prepare /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example
 
 # Approved unattended run
-python3 "$AUTO" auto /path/to/reviewed.gjf \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" auto /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example \
   --approval-record /path/to/live-submission-approval.json \
   --confirmed --watch
@@ -91,7 +91,7 @@ python3 "$AUTO" auto /path/to/reviewed.gjf \
 For a local dry run that performs no SSH, PBS or Gaussian action:
 
 ```bash
-python3 "$AUTO" auto /path/to/reviewed.gjf \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" auto /path/to/reviewed.gjf \
   --project dry_test --local-dir /path/to/outputs/dry_test \
   --confirmed --dry-run
 ```
@@ -114,12 +114,12 @@ Use `scripts/gaussian_workflow.py build` to turn one selected, audited Cartesian
 WORKFLOW="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_workflow.py"
 AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
 
-python3 "$WORKFLOW" build selected.gjf \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$WORKFLOW" build selected.gjf \
   --output project_ofs.gjf \
   --sp-route '#p <approved-single-point-method/basis> <approved-solvent>' \
   --temperature 298.15 --standard-state 1M
 
-python3 "$AUTO" auto project_ofs.gjf \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" auto project_ofs.gjf \
   --project project_ofs --local-dir /path/to/project_ofs \
   --approval-record /path/to/live-submission-approval.json \
   --confirmed --watch
@@ -144,15 +144,15 @@ When the first route uses `Geom=AllCheck`, require a same-stem `gaussian-allchec
 ```bash
 HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 
-python3 "$HELPER" preflight /path/to/job.gjf --project example
-python3 "$HELPER" submit /path/to/job.gjf --project example \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" preflight /path/to/job.gjf --project example
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" submit /path/to/job.gjf --project example \
   --local-dir /path/to/bundle --confirmed
-python3 "$HELPER" inspect --project example --job-id 563.master \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" inspect --project example --job-id 563.master \
   --input-stem example_cartesian --local-dir /path/to/bundle
-python3 "$HELPER" watch --project example --job-id 563.master \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" watch --project example --job-id 563.master \
   --input-stem example_cartesian --local-dir /path/to/bundle \
   --output-dir /path/to/results --fetch
-python3 "$HELPER" analyze /path/to/results/example_cartesian.log \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" analyze /path/to/results/example_cartesian.log \
   --output-dir /path/to/results
 ```
 
@@ -172,12 +172,12 @@ Treat terminal scheduler-zombie cleanup as an automatic evidence-gated operation
 HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 
 # Read-only two-observation diagnosis
-python3 "$HELPER" diagnose-zombie \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" diagnose-zombie \
   --project example --job-id 565.master --input-stem example \
   --local-dir /path/to/bundle --stability-seconds 10
 
 # Automatic only after the repeated evidence gate passes
-python3 "$HELPER" cleanup-zombie \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" cleanup-zombie \
   --project example --job-id 565.master --input-stem example \
   --local-dir /path/to/bundle --stability-seconds 10 \
   --verify-seconds 5

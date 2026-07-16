@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import platform
+import sys
 from pathlib import Path
 
 from skill_package import PackageError, inventory, package_inventory
@@ -23,6 +25,11 @@ def main() -> int:
     )
     parser.add_argument("--skill", action="append", dest="skills")
     args = parser.parse_args()
+
+    print(
+        f"runtime: python={Path(sys.executable).resolve()} "
+        f"version={platform.python_version()}"
+    )
 
     repo_root = Path(args.repo_root).expanduser().resolve()
     source_root = repo_root / "skills"

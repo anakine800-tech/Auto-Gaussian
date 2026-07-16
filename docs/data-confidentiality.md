@@ -25,7 +25,7 @@ Before adding a public study under `studies/`:
    explicitly cleared for public release.
 3. Keep raw Gaussian logs, checkpoints, server paths, job IDs, credentials,
    local paths, and native experimental source files out of Git.
-4. Run `python3 -m unittest tests.test_release_hygiene -v`.
+4. Run `./scripts/python core -m unittest tests.test_release_hygiene -v`.
 
 The ignore rules and release-hygiene tests are guardrails, not declassification
 tools. They cannot make confidential content safe after it has entered Git

@@ -1,6 +1,5 @@
 # Optional dependencies for ChemDraw parsing, depiction, and conformer paths.
 # The core offline audit and validation suite uses only the Python standard
-# library. Install this file only when the chemistry/depiction paths are used.
-numpy>=1.26
-Pillow>=12.2.0
-rdkit>=2023.9
+# library. This indirection makes even a plain ``pip install -r`` consume the
+# reviewed exact lock rather than resolving floating minimum versions.
+-r chemistry.lock.txt

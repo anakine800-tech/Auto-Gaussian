@@ -475,7 +475,7 @@ its SHA-256 and correctly invalidates downstream bindings.
 The repository validator uses only the Python standard library:
 
 ```bash
-python3 scripts/validate_asymmetric_contract.py \
+./scripts/python core scripts/validate_asymmetric_contract.py \
   --study tests/fixtures/asymmetric_catalysis/boron_study.json \
   --candidate tests/fixtures/asymmetric_catalysis/boron_candidate.json
 ```
@@ -484,7 +484,7 @@ Standalone artifacts, including a sanitized live-smoke record, use repeatable
 `--artifact` arguments:
 
 ```bash
-python3 scripts/validate_asymmetric_contract.py \
+./scripts/python core scripts/validate_asymmetric_contract.py \
   --artifact path/to/sanitized-live-smoke-evidence.json
 ```
 
@@ -495,7 +495,7 @@ and does not prove that the candidate search is complete.
 The deterministic builder is also standard-library only:
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py --help
+./scripts/python core skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py --help
 ```
 
 `ingest-result` derives validation levels from existing `auto-g16-ts-irc`

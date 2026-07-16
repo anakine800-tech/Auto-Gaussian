@@ -117,11 +117,11 @@ $AUTO_G16_RDKIT_PYTHON \
   --charge 0 --multiplicity 1 \
   --allow-ambiguous-stereo
 
-python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
   copy-to-vm /path/to/outputs/AAtest/AAtest_cartesian.gjf \
   '<WINDOWS_PROJECT_ROOT>\AAtest_cartesian\AAtest_cartesian.gjf'
 
-python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
   open-gview --kill-existing \
   '<WINDOWS_PROJECT_ROOT>\AAtest_cartesian\AAtest_cartesian.gjf'
 ```
@@ -159,8 +159,8 @@ For stereogenic or atropisomeric molecules, retain the ChemDraw preview and mani
 Use the existing Gaussian VM skill and its bundled script. The local `.gjf` should be the reviewed artifact:
 
 ```bash
-python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" status
-python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" status
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
   run /path/to/outputs/example.gjf --project-name example --wait
 ```
 
@@ -173,7 +173,7 @@ Treat `Normal termination` near the end of the log as success. For `Error termin
 After a successful run, open the Windows-side `.log` or `.chk` with:
 
 ```bash
-python3 "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "${CODEX_HOME:-$HOME/.codex}/skills/gaussian-parallels-vm/scripts/gaussian_vm.py" \
   open-gview '<WINDOWS_PROJECT_ROOT>\example\example.log'
 ```
 

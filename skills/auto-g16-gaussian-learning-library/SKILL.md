@@ -23,7 +23,7 @@ Use this skill as a self-contained teaching and lookup library. It is designed f
 2. Read only the relevant reference file or search the library:
 
    ```bash
-   python3 scripts/search_knowledge.py --query "频率计算为什么要做"
+   "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" scripts/search_knowledge.py --query "频率计算为什么要做"
    ```
 
 3. If the request concerns a real molecule or calculation, collect the minimum missing facts before giving an actionable input or protocol.

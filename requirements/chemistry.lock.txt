@@ -1,0 +1,6 @@
+# Exact optional chemistry environment used by local runtime checks and CI.
+# Keep this file aligned with config/python-environments.json and
+# environment-chem.yml. Update it only after an offline compatibility review.
+numpy==2.4.6
+Pillow==12.3.0
+rdkit==2026.03.3

@@ -124,11 +124,11 @@ All mechanism-support and TS-precedent outputs unconditionally retain
 ## Commands
 
 ```bash
-python3 skills/auto-g16-reaction-workflow/scripts/mechanism_support.py build \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-workflow/scripts/mechanism_support.py build \
   mechanism-network.json knowledge-snapshot.json literature-evidence.json \
   --review mechanism-support-review.json --output mechanism-support.json
 
-python3 skills/auto-g16-reaction-workflow/scripts/mechanism_support.py validate \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-reaction-workflow/scripts/mechanism_support.py validate \
   mechanism-support.json
 ```
 

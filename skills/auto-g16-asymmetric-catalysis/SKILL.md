@@ -74,14 +74,14 @@ All implemented commands use only the Python standard library and refuse to
 overwrite an existing output. Run them from the repository source of truth:
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py --help
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py --help
 ```
 
 For a reviewed literature reproduction, build the immutable coordinate and
 expectation ledger before creating any study-specific calculation proposal:
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   build-literature-benchmark studies/wang_2024_bf3_ts/benchmark-source.json \
   --output candidate-ledger.json
 ```
@@ -130,7 +130,7 @@ section blocked. Do not fill those fields by editing the template or treat the
 template as an input-preparation artifact.
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   build-metal-ts-audit-template METAL-SUPPORT.json CANDIDATE.json \
   --output METAL-TS-AUDIT-TEMPLATE.json
 ```
@@ -143,7 +143,7 @@ coordination, method and TS-design value must already exist in the review
 source and cite a source locator.
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   build-metal-scientific-review METAL-SUPPORT.json \
   METAL-TS-AUDIT-TEMPLATE.json CANDIDATE.json REVIEW-SOURCE.json \
   --output METAL-SCIENTIFIC-REVIEW.json
@@ -169,7 +169,7 @@ multiplicity, atom order, coordinate-block hash, task-keyword text and a hash
 of any uninterpreted trailing section.
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   audit-metal-input METAL-TS-AUDIT-TEMPLATE.json CANDIDATE.json \
   METAL-SCIENTIFIC-REVIEW.json EXISTING.gjf \
   --output METAL-INPUT-OBSERVATION.json
@@ -196,7 +196,7 @@ observations. Every scientific audit remains blocked even when the log has
 normal termination and exactly one imaginary frequency.
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   audit-metal-result METAL-TS-AUDIT-TEMPLATE.json CANDIDATE.json EXISTING.log \
   --output METAL-RESULT-OBSERVATION.json
 ```
@@ -216,7 +216,7 @@ each section must be explicitly accepted for bounded offline review, rejected,
 or blocked for missing evidence.
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   build-metal-acceptance-review METAL-TS-AUDIT-TEMPLATE.json CANDIDATE.json \
   METAL-SCIENTIFIC-REVIEW.json METAL-INPUT-OBSERVATION.json \
   METAL-RESULT-OBSERVATION.json DECISION-SOURCE.json \
@@ -387,7 +387,7 @@ must keep them null and must not render an input. This command does not submit,
 create a server directory, or approve any protocol.
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   propose-smoke studies/wang_2024_bf3_ts/candidate-ledger.json \
   --candidate-id wang2024_bf3_ts1 \
   --output docs/asymmetric-catalysis-smoke-proposal.json

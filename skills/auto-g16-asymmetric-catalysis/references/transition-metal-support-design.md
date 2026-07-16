@@ -18,7 +18,7 @@ no_submission_authorization: true
 Run only the offline design command:
 
 ```bash
-python3 skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py \
   design-metal-support STUDY.json --output METAL-SUPPORT.json
 ```
 
