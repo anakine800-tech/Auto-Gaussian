@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 Metal TS Runtime Contract"
+  short_description: "Offline metal TS P2-P4 acceptance and promotion gates"
+  default_prompt: "Use $auto-g16-metal-ts to audit an offline metal TS input, result, or promotion decision without live execution."

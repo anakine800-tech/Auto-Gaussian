@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-metal-ts-input-approval/1",
+  "title": "Auto-G16 Metal TS Input Approval",
+  "type": "object",
+  "required": ["schema", "candidate_sha256", "m1_review_sha256", "protocol_options_sha256", "protocol_selection_sha256", "input_observation_sha256", "input_sha256", "identity", "wavefunction", "basis_ecp_review", "seed_strategy", "decision", "authorizations", "submission_decision", "approval_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-metal-ts-input-approval/1"},
+    "decision": {"const": "approved_for_offline_result_intake"},
+    "submission_decision": {"const": "refused"},
+    "seed_strategy": {"type": "object", "required": ["type"], "properties": {"type": {"const": "hessian_guided_single_guess"}}},
+    "approval_payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

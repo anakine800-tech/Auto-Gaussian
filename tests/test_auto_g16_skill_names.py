@@ -16,6 +16,7 @@ EXPECTED = {
     "auto-g16-chemdraw-structures",
     "auto-g16-gaussian-learning-library",
     "auto-g16-knowledge-base",
+    "auto-g16-metal-ts",
     "auto-g16-reaction-literature",
     "auto-g16-reaction-workflow",
     "auto-g16-rtwin-pbs",

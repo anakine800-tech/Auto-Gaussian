@@ -97,3 +97,12 @@ B2 live authority.
    provenance, then perform the required C13–H14–N22 mode review before any TS
    acceptance.
 6. Return to broader chiral-boron construction and enumeration afterward.
+# P2-P4 metal TS runtime boundary
+
+`auto-g16-metal-ts` now provides an offline-only, candidate/M1/protocol-bound
+input approval, metal-specific result acceptance, and separate promotion
+decision. It supports only an evidence-bound Hessian-guided single guess and
+keeps every live/submission action refused. The existing main-group
+`auto-g16-ts-irc` transition-metal refusal is unchanged. P5 remains blocked on
+a real completed M1 case, reviewed P2-P4 artifacts, independent security and
+scientific review, and a separately approved execution design/live smoke.

@@ -374,11 +374,14 @@ implementation.
   sidecar contract for wavefunction, coordination, mode and input decisions;
   implemented offline without top-level acceptance, promotion, submission or
   execution authority.
-- `metal_m2_offline_runtime_contract`: metal input/result acceptance parsers,
-  reviewed wavefunction/coordination checks and promotion
-  rules beyond the M2b/M2c observers; blocked.
+- `metal_m2_offline_runtime_contract`: implemented by the separate offline-only
+  `auto-g16-metal-ts` Skill as candidate/M1/protocol-bound input approval,
+  metal-specific result acceptance and explicit promotion artifacts.
+- `metal_m3_adversarial_contract`: offline fixtures cover identity/state,
+  stability/spin, coordination/ligand, mode, checkpoint/Hessian, basis/ECP and
+  rehash-forgery failures; implemented without execution authority.
 - `metal_m3_execution_boundary`: separately reviewed execution design with
-  exact scientific and live gates; blocked.
+  exact scientific and live gates; still blocked.
 - `metal_m4_live_smoke`: small closed-shell single-reference metal TS smoke
   only after M1-M3 pass and receive explicit approval; blocked.
 
