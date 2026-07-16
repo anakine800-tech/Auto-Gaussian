@@ -21,10 +21,10 @@ Gaussian learning library, public-repository confidentiality guardrails,
 named-Skill packaging, and deterministic Python environment management.
 
 Repository source under `skills/` is authoritative. A checkout alone says
-nothing about `~/.codex/skills`: machine-local deployment status is an external
-fact outside this checkout. The read-only 2026-07-16 comparison reported all
-ten named packages synchronized, but this does not authorize deployment or
-predict the state of another machine or later checkout.
+nothing about `~/.codex/skills`. Machine-local deployment status is an
+external fact outside this checkout. The read-only 2026-07-16 comparison
+reported all ten named packages synchronized, but this does not authorize
+deployment or predict the state of another machine or later checkout.
 
 All candidate planning and adapter artifacts remain non-authorizing. They do
 not select scientific methods, make calculation nodes executable, accept a TS,
