@@ -12,15 +12,19 @@
   "milestones": [
     {
       "phase": "P0",
-      "status": "provisional_candidate",
+      "status": "r33_rejected_replacement_selection_blocked",
       "implemented": true,
       "evidence_complete": false,
       "executable": false,
       "evidence": [
         {"kind": "commit", "locator": "5218c831ecd849e57446d1601c8e4df33e3e0640", "sha256": null},
-        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/baseline.json", "sha256": "73317d7fdaf63edb26866452371cf7b637c998fa60fd2d1fe75d7ac1ab7a9003"}
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/baseline.json", "sha256": "73317d7fdaf63edb26866452371cf7b637c998fa60fd2d1fe75d7ac1ab7a9003"},
+        {"kind": "contract", "locator": "contracts/metal-ts/first-metal-smoke-decision.schema.json", "sha256": "ef73fb4964946ebd82d97aabd77118952da100b7b2824329b086fdaa4fe737db"},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/r33-first-metal-smoke-decision.json", "sha256": "3188f84c27264003654ce265a9ab06fd759b76ea569df364a5ce87dc527d17ff"},
+        {"kind": "contract", "locator": "contracts/metal-ts/replacement-candidate-selection.schema.json", "sha256": "9be4a6c53ebf89b9148d02748afbf9a46e2efa5c8057f1632970143275240a7a"},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/replacement-candidate-selection.json", "sha256": "bc36bd7a5756c4dd072afc555334a4e5998da66ca878206f84d5e27e9df08a41"}
       ],
-      "blockers": ["The selected MOBH35 R33 item remains a provisional smoke candidate and has no calculation authority."]
+      "blockers": ["R33 is formally rejected as the first metal smoke because its candidate-bound identity and electronic-structure model cannot be closed.", "The bounded replacement review found no candidate satisfying all mandatory source-completeness criteria; no formal replacement candidate or M1 sidecar exists."]
     },
     {
       "phase": "P1",
@@ -78,5 +82,5 @@
       "blockers": ["The package is planned_not_submitted and blocked by incomplete P1 plus absent real P2-P4 candidate evidence and metal execution-boundary approval.", "Protocol options/selection, input draft/hash, resources, fresh server directory, and exact live authorization are absent.", "No SSH, PBS, Gaussian, retry, IRC, cancellation, cleanup, deployment, or live smoke was authorized or executed."]
     }
   ],
-  "readiness_payload_sha256": "0cb019bee14825e140bfb532e1f78ed4b7b39149f3086ac46ca2cc5c754b2104"
+  "readiness_payload_sha256": "5cc94c2ce120cbadf2508c696698a0434a99632d2f7c7d7ef654d1bdf96283fc"
 }

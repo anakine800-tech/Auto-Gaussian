@@ -3,16 +3,16 @@
 This directory records a reviewable offline baseline. It contains no Gaussian
 input, protocol selection, PBS path, live approval or execution authority.
 
-## P0 result
+## P0 decision
 
-MOBH35 reaction 33 is the provisional first metal-smoke candidate. The lawful
+MOBH35 reaction 33 was the provisional first metal-smoke candidate. The lawful
 CC-BY supporting archive provides 15-atom `start`, `TS` and `end` Cartesian
 blocks (`Pt1 C1 N2 H11`). The diagnostics workbook reports the formula field
 `CH11N2Pt(1+)` and candidate-specific T1, D1, FOD(TPSS), HOMO-LUMO-gap and
 M-diagnostic observations. Those values are observations, not acceptance
 thresholds or an Auto-G16 method choice.
 
-The one-based atom map and five-contact coordination inventory are frozen in
+The one-based atom order and five-contact geometric inventory are frozen in
 `r33-candidate-inventory.json`. Distances support only these geometric
 observations: C1-H7 shortens, Pt2-H7 lengthens and Pt2-C1 lengthens from start
 through TS to end. Chemical step naming, mode identity and endpoint identity
@@ -91,3 +91,26 @@ only allowed server root is `/home/user100/SDL`; no directory was created. The
 package authorizes no SSH, PBS, Gaussian, retry, IRC, cancellation, cleanup or
 deployment action and is not itself submission authorization. The integrated
 status remains indexed in `p0-p5-readiness.json`.
+
+## Approved candidate-selection decision
+
+`r33-first-metal-smoke-decision.json` formally rejects R33 only as the first
+Auto-G16 metal smoke. It binds the exact P1 ledger, blocked M1 review, P5
+package, and readiness lineage reviewed at the decision point. The decision is
+not a criticism of the cited publications, MOBH35, the reaction, or R33's
+general chemical value.
+
+`replacement-candidate-selection.json` applies a stricter non-asymmetric
+benchmark selection contract rather than fabricating two stereochemical
+channels. The bounded review ranks a Pd(PHOX) TS20 literature object, a nickel
+H2-pathway family, and a zinc-fluorination mechanism paper by proximity to a
+reviewable candidate. None closes exact immutable coordinates, charge and
+electronic-state assumptions, full species and reaction mapping, candidate-
+specific mode/path evidence, complete protocol provenance, and the required
+wavefunction-risk policy at once. Consequently no replacement candidate, real
+M1 source, or real M1 sidecar was emitted, and no P5 authority exists.
+
+The shortlist is not proof that no suitable published candidate exists. Its
+claim ceiling is a bounded source screen and gap decision; it does not prove a
+TS, reaction path, protocol suitability, chemical correctness, or live
+execution readiness.

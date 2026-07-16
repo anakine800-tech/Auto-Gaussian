@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/metal-ts/replacement-candidate-selection.schema.json",
+  "title": "Auto-G16 replacement metal smoke candidate selection ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "ledger_id", "review_date", "status", "search_scope", "promotion_criteria", "ranked_shortlist", "selection_decision", "m1_outcome", "live_actions", "claim_ceiling", "ledger_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-replacement-metal-smoke-selection/1"},
+    "ledger_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "review_date": {"type": "string", "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}$"},
+    "status": {"const": "blocked_no_candidate_closed"},
+    "search_scope": {"type": "object"},
+    "promotion_criteria": {"type": "array", "minItems": 10, "items": {"type": "string", "minLength": 8}},
+    "ranked_shortlist": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/candidate"}},
+    "selection_decision": {"type": "object", "additionalProperties": false, "required": ["selected_candidate", "formal_candidate_emitted", "reason"], "properties": {"selected_candidate": {"type": "null"}, "formal_candidate_emitted": {"const": false}, "reason": {"type": "string", "minLength": 20}}},
+    "m1_outcome": {"type": "object", "additionalProperties": false, "required": ["source_emitted", "sidecar_emitted", "builder_invoked", "synthetic_fixture_used"], "properties": {"source_emitted": {"const": false}, "sidecar_emitted": {"const": false}, "builder_invoked": {"const": false}, "synthetic_fixture_used": {"const": false}}},
+    "live_actions": {"type": "object", "additionalProperties": false, "required": ["authorized", "executed"], "properties": {"authorized": {"const": false}, "executed": {"const": false}}},
+    "claim_ceiling": {"const": "bounded_source_screen_and_gap_decision_only_not_proof_of_absence_candidate_correctness_ts_validity_protocol_acceptance_or_execution_authority"},
+    "ledger_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "candidate": {"type": "object", "additionalProperties": false, "required": ["rank", "candidate_id", "citation", "source_access", "candidate_identity", "evidence_observations", "criterion_status", "gaps", "disposition"], "properties": {"rank": {"type": "integer", "minimum": 1}, "candidate_id": {"type": "string", "minLength": 3}, "citation": {"type": "object"}, "source_access": {"type": "object"}, "candidate_identity": {"anyOf": [{"type": "object"}, {"type": "null"}]}, "evidence_observations": {"type": "array", "items": {"type": "string"}}, "criterion_status": {"type": "object"}, "gaps": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 8}}, "disposition": {"const": "blocked_not_promoted"}}}
+  }
+}
