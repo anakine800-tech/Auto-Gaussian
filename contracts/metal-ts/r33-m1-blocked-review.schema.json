@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/metal-ts/r33-m1-blocked-review.schema.json",
+  "title": "Auto-G16 R33 blocked M1 review record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "review_id", "status", "candidate_inventory", "p1_evidence_ledger", "existing_builder_assessment", "prerequisites", "section_dispositions", "gap_ledger", "m1_status", "calculation_ready", "runtime_support_status", "scientific_acceptance_decision", "promotion_decision", "submission_decision", "no_submission_authorization", "claim_ceiling", "review_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-r33-metal-m1-blocked-review/1"},
+    "review_id": {"const": "mobh35_r33_m1_blocked_20260716"},
+    "status": {"const": "blocked_no_real_sidecar_emitted"},
+    "candidate_inventory": {"$ref": "#/$defs/binding"},
+    "p1_evidence_ledger": {"$ref": "#/$defs/binding"},
+    "existing_builder_assessment": {"$ref": "#/$defs/builder"},
+    "prerequisites": {"type": "array", "minItems": 6, "items": {"$ref": "#/$defs/prerequisite"}},
+    "section_dispositions": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"$ref": "#/$defs/disposition"}},
+    "gap_ledger": {"type": "array", "minItems": 12, "items": {"$ref": "#/$defs/gap"}},
+    "m1_status": {"const": "pending_scientific_review"},
+    "calculation_ready": {"const": false},
+    "runtime_support_status": {"const": "unsupported_requires_extension"},
+    "scientific_acceptance_decision": {"const": "not_granted_by_artifact"},
+    "promotion_decision": {"const": "refused"},
+    "submission_decision": {"const": "refused"},
+    "no_submission_authorization": {"const": true},
+    "claim_ceiling": {"const": "blocked_gap_record_only_not_a_gaussian_asymmetric_metal_scientific_review_sidecar"},
+    "review_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "schema"],
+      "properties": {
+        "path": {"type": "string", "minLength": 3},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema": {"type": "string", "minLength": 3}
+      }
+    },
+    "builder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "invoked", "reason", "synthetic_fixture_used"],
+      "properties": {
+        "command": {"const": "build-metal-scientific-review"},
+        "invoked": {"const": false},
+        "reason": {"type": "string", "minLength": 20},
+        "synthetic_fixture_used": {"const": false}
+      }
+    },
+    "prerequisite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "artifact", "blockers"],
+      "properties": {
+        "name": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["available", "blocked", "not_emitted"]},
+        "artifact": {"anyOf": [{"$ref": "#/$defs/binding"}, {"type": "null"}]},
+        "blockers": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 8}}
+      }
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section", "status", "blockers"],
+      "properties": {
+        "section": {"enum": ["electron_accounting", "spin_surface", "wavefunction", "coordination", "method_protocol", "ts_and_path"]},
+        "status": {"const": "blocked_missing_evidence"},
+        "blockers": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 8}}
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gap_id", "field", "current_value", "evidence_limit", "required_human_fact"],
+      "properties": {
+        "gap_id": {"$ref": "#/$defs/id"},
+        "field": {"type": "string", "minLength": 3},
+        "current_value": {"type": "null"},
+        "evidence_limit": {"type": "string", "minLength": 8},
+        "required_human_fact": {"type": "string", "minLength": 8}
+      }
+    }
+  }
+}

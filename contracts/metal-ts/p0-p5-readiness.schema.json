@@ -44,9 +44,10 @@
         "status": {
           "enum": [
             "provisional_candidate",
-            "blocked_candidate_multiplicity_closed_shell_and_m1",
+            "r33_rejected_replacement_selection_blocked",
+            "blocked_incomplete_electron_spin_wavefunction_coordination_method_ts_m1",
             "engineering_contract_implemented_activation_blocked_by_p1",
-            "live_smoke_not_authorized_not_executed"
+            "approval_package_assembled_planned_not_submitted_blocked"
           ]
         },
         "implemented": {"type": "boolean"},

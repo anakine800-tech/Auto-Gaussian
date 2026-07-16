@@ -1,0 +1,102 @@
+{
+  "schema": "auto-g16-metal-p5-approval-package/1",
+  "package_id": "mobh35_r33_p5_planned_20260716",
+  "status": "planned_not_submitted",
+  "approval_readiness": "blocked_not_ready_for_live_approval",
+  "candidate": {
+    "path": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json",
+    "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497",
+    "schema": "gaussian-asymmetric-metal-p0-candidate-inventory/1",
+    "payload_sha256": null
+  },
+  "p1_evidence_ledger": {
+    "path": "studies/metal_m4_p0_p1_baseline/r33-p1-evidence-ledger.json",
+    "sha256": "04dfa06a1b882401176982af8fb0d2aeb4c526a01b0ee16f8dbcd4ae0e81b38b",
+    "schema": "auto-g16-r33-p1-evidence-ledger/1",
+    "payload_sha256": "d5e076d960241484fa828e5b9746558d0624f56a6b74df5cb032d168d681cce6"
+  },
+  "m1_review": {
+    "path": "studies/metal_m4_p0_p1_baseline/r33-m1-blocked-review.json",
+    "sha256": "bae51315c9fc5d4578c87d6ec044e6bb5f7beef532939327c7f1dc5d72a6f2d0",
+    "schema": "auto-g16-r33-metal-m1-blocked-review/1",
+    "payload_sha256": "9d64e277968316df612299e4e4190212b996ff8774d9849461168acf29d4e472"
+  },
+  "protocol": {
+    "options": null,
+    "options_status": "not_created_blocked_by_p1",
+    "selection": null,
+    "selection_status": "absent_not_authorized",
+    "literature_values_are_defaults": false
+  },
+  "input_draft": {
+    "status": "not_rendered_blocked",
+    "path": null,
+    "sha256": null,
+    "route": null,
+    "charge": 1,
+    "multiplicity": 1
+  },
+  "resources": {
+    "status": "not_selected",
+    "tier": null,
+    "memory_gb": null,
+    "cores": null
+  },
+  "server_plan": {
+    "allowed_root": "/home/user100/SDL",
+    "project_name": null,
+    "remote_workdir": null,
+    "canonical_path": null,
+    "fresh_directory_status": "not_created_not_checked",
+    "actual_directory_created": false,
+    "overwrite": false
+  },
+  "live_authorization": {
+    "authorized": false,
+    "approval_record": null,
+    "package_is_submission_authorization": false
+  },
+  "automatic_actions": {
+    "ssh": false,
+    "pbs": false,
+    "gaussian": false,
+    "retry": false,
+    "irc": false,
+    "cancellation": false,
+    "cleanup": false,
+    "deployment": false
+  },
+  "blockers": [
+    "P1 is not scientifically closed and the real M1 sidecar was not emitted.",
+    "Formal oxidation state, ligand-charge convention, d count, total electron count, and parity are unresolved.",
+    "Credible alternative multiplicities, common spin reference, and surface-crossing relevance are unresolved.",
+    "Wavefunction family, SCF stability, S-squared, occupations, alternative solutions, and multireference policy are unresolved.",
+    "Coordination number, geometry, ligand identities, denticity, hapticity, environment occupancy, and distance windows are unresolved.",
+    "Reactant and product identities, chemical atom roles, elementary-step class, and intended reaction coordinate are unresolved.",
+    "No candidate-bound raw imaginary mode, displacement review, or metal-appropriate path evidence exists.",
+    "No three-tier protocol options artifact or protocol selection exists.",
+    "No Gaussian input draft, route, or input SHA-256 exists.",
+    "No resource tier, memory, or core count has been selected.",
+    "No fresh server project name or canonical path has been selected or created.",
+    "Real candidate-bound P2 input approval, P3 result acceptance, and P4 promotion evidence do not exist.",
+    "The transition-metal path remains unsupported by auto-g16-ts-irc and no execution-boundary extension has been approved.",
+    "No exact live authorization record exists."
+  ],
+  "required_human_facts": [
+    "Accept or reject a source-located formal Pt oxidation-state and ligand-charge bookkeeping model.",
+    "Supply reviewed d-electron, total-electron, and parity records without using them to infer multiplicity.",
+    "Review multiplicity 1 plus credible alternative multiplicities and surface-crossing relevance.",
+    "Select and justify the wavefunction hypothesis and all stability, S-squared, occupation, alternative-solution, and multireference checks.",
+    "Assign nuclearity, coordination number and geometry, ligand identities, denticity, hapticity, occupancy, contacts, and distance windows.",
+    "Identify reactant, TS, and product states and approve the exact one-based chemical atom map and intended coordinate.",
+    "Classify the elementary step and define metal-specific mode and path acceptance evidence.",
+    "Create and review route-free loose, standard, and strict protocol candidates with method, basis/ECP, relativity, solvent, and thermochemistry evidence.",
+    "Make a separate hash-bound protocol selection that authorizes only an offline input draft.",
+    "Render and review the exact input, route, charge, multiplicity, resources, and input SHA-256 only after upstream gates pass.",
+    "Choose a fresh project name below /home/user100/SDL and verify its canonical empty-directory state only at a separately approved later gate.",
+    "Complete real candidate-bound P2-P4 reviews and an independently reviewed metal execution-boundary design.",
+    "Provide a separate exact live-submission approval if and only if every prior gate later passes."
+  ],
+  "claim_ceiling": "approval_gap_package_only_no_input_acceptance_submission_execution_ts_path_or_chemical_correctness_claim",
+  "package_payload_sha256": "3ea702a68777db45648cd0db8f87b97e5010d31b48a583f66e28427541b422ad"
+}

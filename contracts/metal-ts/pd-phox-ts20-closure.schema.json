@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/metal-ts/pd-phox-ts20-closure.schema.json",
+  "title": "Auto-G16 Pd(PHOX) TS20 source-bound closure review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "review_id", "review_date", "status", "source_identity", "reviewer_confirmation", "source_objects", "followup_search", "coordinate_lineage", "candidate_facts", "method_facts", "gap_ledger", "m1_decision", "authorization", "claim_ceiling", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-pd-phox-ts20-candidate-closure/1"},
+    "review_id": {"const": "pd_phox_ts20_closure_20260716"},
+    "review_date": {"const": "2026-07-16"},
+    "status": {"const": "blocked_source_incomplete_no_real_m1"},
+    "source_identity": {"$ref": "#/$defs/sourceIdentity"},
+    "reviewer_confirmation": {"$ref": "#/$defs/reviewerConfirmation"},
+    "source_objects": {"type": "array", "minItems": 4, "items": {"$ref": "#/$defs/sourceObject"}},
+    "followup_search": {"$ref": "#/$defs/followupSearch"},
+    "coordinate_lineage": {"$ref": "#/$defs/coordinateLineage"},
+    "candidate_facts": {"$ref": "#/$defs/factMap"},
+    "method_facts": {"$ref": "#/$defs/factMap"},
+    "gap_ledger": {"type": "array", "minItems": 12, "items": {"$ref": "#/$defs/gap"}},
+    "m1_decision": {"$ref": "#/$defs/m1"},
+    "authorization": {"$ref": "#/$defs/authorization"},
+    "claim_ceiling": {"const": "source_bound_blocked_candidate_closure_only_no_ts_path_chemical_correctness_scientific_acceptance_protocol_selection_p5_or_live_authority"},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "sourceIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requested_doi", "requested_doi_status", "requested_doi_title", "matched_doi", "matched_title", "correction_doi", "identity_decision"],
+      "properties": {
+        "requested_doi": {"const": "10.1021/acscatal.0c03282"},
+        "requested_doi_status": {"const": "mismatch_not_pd_phox_ts20"},
+        "requested_doi_title": {"type": "string", "minLength": 20},
+        "matched_doi": {"const": "10.1021/jacs.0c06243"},
+        "matched_title": {"type": "string", "minLength": 20},
+        "correction_doi": {"const": "10.1021/jacs.0c11706"},
+        "identity_decision": {"const": "do_not_merge_requested_doi_with_matched_article"}
+      }
+    },
+    "reviewerConfirmation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["confirmed_doi", "confirmation_date", "scope", "scientific_fields_supplied"],
+      "properties": {
+        "confirmed_doi": {"const": "10.1021/jacs.0c06243"},
+        "confirmation_date": {"const": "2026-07-16"},
+        "scope": {"const": "source_identity_only"},
+        "scientific_fields_supplied": {"const": false}
+      }
+    },
+    "followupSearch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["search_date", "lanes", "repositories_checked", "new_primary_objects", "result", "limitations"],
+      "properties": {
+        "search_date": {"const": "2026-07-16"},
+        "lanes": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 5}},
+        "repositories_checked": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 5}},
+        "new_primary_objects": {"const": 0},
+        "result": {"const": "no_candidate_level_orca_input_output_frequency_hessian_or_irc_dataset_found"},
+        "limitations": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 8}}
+      }
+    },
+    "sourceObject": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "uri", "access_date", "relation", "sha256", "retention", "claim_ceiling"],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]+$"},
+        "uri": {"type": "string", "minLength": 10},
+        "access_date": {"const": "2026-07-16"},
+        "relation": {"type": "string", "minLength": 8},
+        "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "retention": {"enum": ["temporary_local_object_not_versioned", "metadata_only_versionable"]},
+        "claim_ceiling": {"type": "string", "minLength": 12}
+      }
+    },
+    "coordinate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["label", "si_pages", "atom_count", "formula", "canonical_block_sha256", "atom_order_status"],
+      "properties": {
+        "label": {"type": "string", "minLength": 3},
+        "si_pages": {"type": "string", "minLength": 3},
+        "atom_count": {"const": 82},
+        "formula": {"const": "C35H42NO2PPd"},
+        "canonical_block_sha256": {"$ref": "#/$defs/sha256"},
+        "atom_order_status": {"const": "source_order_preserved"}
+      }
+    },
+    "coordinateLineage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_pdf_sha256", "precursor", "candidate", "product_or_successor", "one_based_atom_map", "forming_bond", "breaking_bond"],
+      "properties": {
+        "source_pdf_sha256": {"$ref": "#/$defs/sha256"},
+        "precursor": {"$ref": "#/$defs/coordinate"},
+        "candidate": {"$ref": "#/$defs/coordinate"},
+        "product_or_successor": {"type": "null"},
+        "one_based_atom_map": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "mapping"],
+          "properties": {
+            "status": {"const": "closed_by_identical_source_element_order_precursor_to_ts"},
+            "mapping": {"type": "array", "minItems": 82, "maxItems": 82, "uniqueItems": true, "items": {"type": "integer", "minimum": 1, "maximum": 82}}
+          }
+        },
+        "forming_bond": {"type": "null"},
+        "breaking_bond": {"type": "null"}
+      }
+    },
+    "fact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["value", "status", "locator", "ceiling"],
+      "properties": {
+        "value": {},
+        "status": {"enum": ["source_reports", "not_found", "source_ambiguous", "not_reviewed"]},
+        "locator": {"anyOf": [{"type": "string", "minLength": 3}, {"type": "null"}]},
+        "ceiling": {"type": "string", "minLength": 8}
+      }
+    },
+    "factMap": {"type": "object", "minProperties": 10, "additionalProperties": {"$ref": "#/$defs/fact"}},
+    "gap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["field", "status", "search_scope", "required_human_fact"],
+      "properties": {
+        "field": {"type": "string", "minLength": 3},
+        "status": {"enum": ["not_found", "source_ambiguous", "not_reviewed"]},
+        "search_scope": {"type": "string", "minLength": 12},
+        "required_human_fact": {"type": "string", "minLength": 12}
+      }
+    },
+    "m1": {
+      "type": "object", "additionalProperties": false,
+      "required": ["formal_candidate_closed", "review_source_emitted", "sidecar_emitted", "builder_invoked", "synthetic_fixture_used", "decision"],
+      "properties": {
+        "formal_candidate_closed": {"const": false}, "review_source_emitted": {"const": false}, "sidecar_emitted": {"const": false}, "builder_invoked": {"const": false}, "synthetic_fixture_used": {"const": false},
+        "decision": {"const": "defer_and_reject_promotion_until_all_mandatory_fields_are_source_closed"}
+      }
+    },
+    "authorization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["calculation_ready", "p5_blocked", "live_actions_authorized", "live_actions_executed", "no_submission_authorization"],
+      "properties": {"calculation_ready": {"const": false}, "p5_blocked": {"const": true}, "live_actions_authorized": {"const": false}, "live_actions_executed": {"const": false}, "no_submission_authorization": {"const": true}}
+    }
+  }
+}

@@ -61,8 +61,7 @@ class MetalP0P5ReadinessTests(unittest.TestCase):
         milestones = self.matrix["milestones"]
         self.assertEqual([item["phase"] for item in milestones], ["P0", "P1", "P2", "P3", "P4", "P5"])
         self.assertTrue(all(not item["evidence_complete"] and not item["executable"] for item in milestones))
-        self.assertTrue(all(item["implemented"] for item in milestones[:5]))
-        self.assertFalse(milestones[5]["implemented"])
+        self.assertTrue(all(item["implemented"] for item in milestones))
 
     def test_scientific_and_live_blockers_are_explicit(self):
         by_phase = {item["phase"]: item for item in self.matrix["milestones"]}
@@ -70,7 +69,7 @@ class MetalP0P5ReadinessTests(unittest.TestCase):
         self.assertIn("closed-shell", " ".join(by_phase["P1"]["blockers"]))
         self.assertTrue(all("P1" in " ".join(by_phase[p]["blockers"]) for p in ("P2", "P3", "P4")))
         self.assertEqual(self.matrix["live_actions"], {"authorized": False, "executed": False})
-        self.assertEqual(by_phase["P5"]["status"], "live_smoke_not_authorized_not_executed")
+        self.assertEqual(by_phase["P5"]["status"], "approval_package_assembled_planned_not_submitted_blocked")
 
     def test_index_rejects_payload_path_hash_and_phase_forgery(self):
         cases = []

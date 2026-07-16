@@ -111,7 +111,33 @@ The integrated P0-P5 state is machine-readable in
 `studies/metal_m4_p0_p1_baseline/p0-p5-readiness.json`. Its schema deliberately
 keeps three claims separate: an engineering contract can be `implemented`
 while candidate-bound evidence is not `evidence_complete` and the phase is not
-`executable`. P0 is provisional; P1 lacks candidate-level multiplicity,
-closed-shell/single-reference suitability, and remaining M1 evidence; P2-P4
-are implemented offline but cannot activate for a real case until P1 passes;
-P5 is neither authorized nor executed.
+`executable`. P0 is provisional. The 2022 primary article now supplies a
+source-reported closed-shell singlet candidate for R33, but P1 still lacks
+closed electron accounting, alternative spin-surface review, a wavefunction
+and multireference policy, coordination and chemical-state assignments,
+method/TS design evidence, and a real builder-compatible M1 chain. P2-P4 are
+implemented offline but cannot activate for this real case until P1 passes.
+
+The Pd(PHOX) TS20 replacement follow-up also remains blocked. It corrected the
+shortlist DOI from the unrelated `10.1021/acscatal.0c03282` to
+`10.1021/jacs.0c06243`, hash-bound the lawful version-matched SI objects, and
+froze source-order 82-atom `(Si)-13` and `(Si/chair/ax)-TS20` coordinate-block
+hashes with an identity one-based atom map. It did not find source-closed
+charge, multiplicity, electron accounting, wavefunction policy, direct
+successor coordinates, one-based bond-change atoms, raw mode displacement,
+structured IRC endpoints, relativity, exact TS20 program version or search
+algorithm. Therefore no formal candidate or real M1 exists.
+
+The user has confirmed the corrected JACS DOI. That decision resolves which
+article is in scope but supplies none of the missing electronic-state,
+coordination, wavefunction, mode/path or method facts. An expanded repository
+search found no candidate-level ORCA archive, and the article/SI program-
+version statements remain inconsistent for exact TS20 attribution.
+
+P5 now has a strict offline approval-package contract and a candidate-bound
+`planned_not_submitted` package. Its protocol, selection, input, resource and
+server-project fields remain null; live authorization is false; no server
+directory exists; and every SSH, PBS, Gaussian, retry, IRC, cancellation,
+cleanup and deployment action remains false. The package is reviewable as a
+gap record but is not ready for live approval and never constitutes submission
+authorization.

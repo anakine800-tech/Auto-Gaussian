@@ -1,0 +1,57 @@
+{
+  "schema": "auto-g16-replacement-metal-smoke-selection/1",
+  "ledger_id": "metal_smoke_replacement_review_20260716",
+  "review_date": "2026-07-16",
+  "status": "blocked_no_candidate_closed",
+  "search_scope": {
+    "purpose": "Find a source-complete non-asymmetric transition-metal benchmark candidate suitable for a formal candidate/M1 contract.",
+    "reviewed_sources": ["Existing six-record DOI-seed ledger", "MOBH35 primary article and lawful SI lineage already reviewed for R33", "bounded web discovery of open primary articles and supporting-information descriptions"],
+    "databases_or_sites": ["OpenAlex replay already versioned", "Europe PMC and publisher/open-access primary pages through web discovery"],
+    "crossref_status": "skipped_no_contact_address_supplied",
+    "search_date": "2026-07-16",
+    "limitations": ["No structure or substructure search", "No paywall bypass", "Discovery snippets were not accepted as candidate facts", "A finite search cannot prove that no source-complete candidate exists"]
+  },
+  "promotion_criteria": [
+    "Exact candidate identity and version-matched primary source", "Lawfully available immutable coordinates with exact atom order", "Source-reported total charge", "Source-reported multiplicity and electronic-state assumptions", "Source-reported metal oxidation and ligand-charge model or explicit reviewer closure", "Exact nuclearity, coordination, ligand, substrate, counterion, and explicit-environment identities", "Reactant, TS, and product identities", "Chemical atom mapping or equivalently reviewable intended reaction coordinate", "Source-located normal-mode and path evidence status", "Optimization and frequency method provenance", "Basis and ECP by element plus relativity provenance", "Solvent, thermochemistry, standard-state, temperature, and low-frequency provenance", "Transition-state search strategy provenance", "Candidate-specific wavefunction, stability, spin-contamination, occupation, alternative-solution, and multireference review policy"
+  ],
+  "ranked_shortlist": [
+    {
+      "rank": 1,
+      "candidate_id": "pd_phox_ts20_reductive_elimination",
+      "citation": {"title": "Reaction Mechanism, Origins of Enantioselectivity, and Reactivity Trends in Asymmetric Allylic Alkylation", "doi": "10.1021/jacs.0c06243", "primary_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7802888/"},
+      "source_access": {"status": "primary_article_and_version_matched_si_reviewed", "access_date": "2026-07-16", "claim_ceiling": "source-bound blocked candidate review; the supplied DOI 10.1021/acscatal.0c03282 is an unrelated article and is not merged"},
+      "candidate_identity": {"reported_label": "(Si/chair/ax)-TS20", "reported_step": "inner-sphere C-C reductive elimination from Pd(PHOX) enolate", "exact_structure_revision": "a5707f9d61192dec453bac2c736474884891692be2381f45735a398e52a655c3"},
+      "evidence_observations": ["CaltechAUTHORS supplies the version-matched SI PDF and energy workbook with SHA-256 hashes recorded in the closure artifact.", "The SI preserves 82-atom source coordinates for (Si)-13 and (Si/chair/ax)-TS20 with identical element order.", "The article/SI reports the study-level optimization, frequency, single-point, solvation and thermochemistry stack, but does not source-close charge, multiplicity, wavefunction policy, raw mode displacement, structured IRC endpoints, relativity or TS search strategy for the exact candidate."],
+      "criterion_status": {"identity": "closed_after_doi_correction", "coordinates_atom_order": "closed_precursor_and_ts_product_missing", "charge": "not_found", "multiplicity_electronic_state": "not_found", "coordination_species": "source_ambiguous", "reactant_ts_product_map": "partial_precursor_ts_one_based_map_only", "method_basis_ecp_relativity": "partial_relativity_not_found", "solvent_thermochemistry": "reported_study_level_not_acceptance", "ts_strategy_mode_irc": "generic_statements_not_candidate_specific_endpoint_closed", "wavefunction_risk_policy": "not_found"},
+      "gaps": ["The user-supplied DOI is unrelated; human confirmation of the corrected JACS DOI is required.", "Exact candidate charge, multiplicity, oxidation-state and ligand-charge bookkeeping remain unclosed.", "No source-exact direct successor/product-complex coordinates, one-based reaction-coordinate atoms, raw imaginary mode displacement or structured bidirectional IRC endpoints were found.", "Relativity, exact candidate program version, TS localization strategy and wavefunction/stability/S2/occupation/multireference policies remain unclosed."],
+      "disposition": "blocked_not_promoted"
+    },
+    {
+      "rank": 2,
+      "candidate_id": "ni_pr2nr2_h2_pathway_unspecified_ts",
+      "citation": {"title": "Conformational constraints in [Ni(PR2NR'2)2] complexes for tuning H2 production and oxidation", "doi": null, "primary_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12477667/"},
+      "source_access": {"status": "open_primary_article_screened", "access_date": "2026-07-16", "claim_ceiling": "article-level protocol observation; no exact benchmark TS selected"},
+      "candidate_identity": null,
+      "evidence_observations": ["Primary article reports B3LYP-D3, SDD ECP/basis for Ni, 6-31G(d,p) for other atoms, larger single-point basis, normal-mode analysis, and IRC calculations."],
+      "criterion_status": {"identity": "blocked_no_exact_ts_selected", "coordinates_atom_order": "not_reviewed", "charge": "not_reviewed", "multiplicity_electronic_state": "not_reviewed", "coordination_species": "article_family_only", "reactant_ts_product_map": "not_reviewed", "method_basis_ecp_relativity": "partial", "solvent_thermochemistry": "not_closed", "ts_strategy_mode_irc": "generic_article_statement_only", "wavefunction_risk_policy": "not_found"},
+      "gaps": ["No single exact TS candidate was selected and bound to coordinates.", "Charge, multiplicity, electronic-state assumptions and exact species mapping were not candidate-bound.", "Candidate-specific mode and bidirectional endpoint evidence were not established.", "Complete relativity, thermochemistry and wavefunction-risk policies were not closed."],
+      "disposition": "blocked_not_promoted"
+    },
+    {
+      "rank": 3,
+      "candidate_id": "zinc_fluorination_metathesis_ts_unspecified",
+      "citation": {"title": "Metathesis Mechanism of Zinc-Catalyzed Fluorination of Alkenes with Hypervalent Fluoroiodine", "doi": "10.1021/acscatal.6b02731", "primary_url": "https://doi.org/10.1021/acscatal.6b02731"},
+      "source_access": {"status": "metadata_only_unverified", "access_date": "2026-07-16", "claim_ceiling": "discovery metadata only"},
+      "candidate_identity": null,
+      "evidence_observations": ["Existing OpenAlex seed retrieval identified a computational mechanism/selectivity article; no primary/SI candidate facts were accepted."],
+      "criterion_status": {"identity": "not_reviewed", "coordinates_atom_order": "not_reviewed", "charge": "not_reviewed", "multiplicity_electronic_state": "not_reviewed", "coordination_species": "not_reviewed", "reactant_ts_product_map": "not_reviewed", "method_basis_ecp_relativity": "not_reviewed", "solvent_thermochemistry": "not_reviewed", "ts_strategy_mode_irc": "not_reviewed", "wavefunction_risk_policy": "not_reviewed"},
+      "gaps": ["Primary article and version-matched SI were not lawfully reviewed in this bounded pass.", "All exact candidate, electronic-state, coordinate, reaction-map, method and TS-evidence fields remain unverified."],
+      "disposition": "blocked_not_promoted"
+    }
+  ],
+  "selection_decision": {"selected_candidate": null, "formal_candidate_emitted": false, "reason": "No screened alternative satisfies every mandatory candidate-bound identity, electronic-structure, coordinate, reaction-path, protocol-provenance, and wavefunction-risk criterion. Ranking reflects proximity to reviewability, not scientific acceptance."},
+  "m1_outcome": {"source_emitted": false, "sidecar_emitted": false, "builder_invoked": false, "synthetic_fixture_used": false},
+  "live_actions": {"authorized": false, "executed": false},
+  "claim_ceiling": "bounded_source_screen_and_gap_decision_only_not_proof_of_absence_candidate_correctness_ts_validity_protocol_acceptance_or_execution_authority",
+  "ledger_payload_sha256": "26d0220f6e9349f43d3d7dade1577e1bd3d4b2e68627f1094543ab0f52240ff1"
+}

@@ -1,0 +1,25 @@
+{
+  "schema": "auto-g16-first-metal-smoke-decision/1",
+  "decision_id": "mobh35_r33_first_smoke_rejection_20260716",
+  "decision_date": "2026-07-16",
+  "candidate_id": "mobh35_r33_pt_h_scrambling",
+  "decision": "rejected_as_first_metal_smoke",
+  "scope": "R33 is rejected only as the first Auto-G16 transition-metal smoke candidate because its candidate-bound P1/M1 prerequisites cannot be closed from the reviewed evidence. This is not a rejection of the publication, benchmark set, reaction, or candidate's general chemical value.",
+  "bindings": [
+    {"role": "p1_evidence_ledger", "path": "studies/metal_m4_p0_p1_baseline/r33-p1-evidence-ledger.json", "sha256": "04dfa06a1b882401176982af8fb0d2aeb4c526a01b0ee16f8dbcd4ae0e81b38b", "schema": "auto-g16-r33-p1-evidence-ledger/1", "git_revision": "3d819a959f5a850665baa71308a4928466939968"},
+    {"role": "blocked_m1_review", "path": "studies/metal_m4_p0_p1_baseline/r33-m1-blocked-review.json", "sha256": "bae51315c9fc5d4578c87d6ec044e6bb5f7beef532939327c7f1dc5d72a6f2d0", "schema": "auto-g16-r33-metal-m1-blocked-review/1", "git_revision": "3d819a959f5a850665baa71308a4928466939968"},
+    {"role": "p5_approval_package", "path": "studies/metal_m4_p0_p1_baseline/r33-p5-approval-package.json", "sha256": "4cad30427be6297b2c2ba8553b6aafc17fd9af731390fb95d833a918dbe01add", "schema": "auto-g16-metal-p5-approval-package/1", "git_revision": "3d819a959f5a850665baa71308a4928466939968"},
+    {"role": "readiness_lineage_at_decision", "path": "studies/metal_m4_p0_p1_baseline/p0-p5-readiness.json", "sha256": "08fce7bf41395ebe7632dac36aca240e59de6dad284a0ea9f96d577f626c1a6e", "schema": "auto-g16-metal-p0-p5-readiness/1", "git_revision": "3d819a959f5a850665baa71308a4928466939968"}
+  ],
+  "grounds": [
+    "Exact +1 charge and a source-reported closed-shell singlet calculation setting do not establish an accepted electronic-state model.",
+    "Formal oxidation state, ligand charge bookkeeping, d-electron count, alternative spin surfaces, wavefunction and stability policy remain unresolved.",
+    "Exact ligand and coordination identities, reactant and product identities, chemical atom mapping, intended reaction coordinate, normal-mode evidence, and path evidence remain unresolved.",
+    "Candidate-bound method, basis, ECP, relativity, solvent, thermochemistry, and transition-state strategy provenance remain unresolved.",
+    "The existing asymmetric M1 builder prerequisites cannot be truthfully supplied for this non-asymmetric benchmark without inferred or synthetic chemistry."
+  ],
+  "consequences": {"r33_p1_closed": false, "r33_m1_emitted": false, "r33_p5_executable": false, "replacement_review_required": true},
+  "live_actions": {"authorized": false, "executed": false},
+  "claim_ceiling": "candidate_selection_decision_only_not_a_claim_about_the_publication_general_chemical_value_ts_validity_or_execution_authority",
+  "decision_payload_sha256": "d313340e83ae59fcbc8e9ecb146655fc31de3161f499cba64c82107daccb5033"
+}
