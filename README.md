@@ -8,9 +8,14 @@ This repository is the version-controlled source of truth. Installed copies
 under `~/.codex/skills` are deployment targets and must not be edited
 independently.
 
-## Current repository status
+## Unreleased after 2.2.0
 
-As of 2026-07-16, the Auto-G16 feature line includes the guarded RTwin/PBS
+The latest release is Auto-Gaussian 2.2.0, published on 2026-07-15. The
+`main` branch is the review-gated, publishable source line; commits after the
+`v2.2.0` tag are unreleased source and are not part of the 2.2.0 release
+artifact or any machine-local deployment merely because they are on `main`.
+
+As of 2026-07-16, the publishable `main` source includes the guarded RTwin/PBS
 workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
@@ -23,7 +28,7 @@ transition-metal M1/M2 observation and review contracts while preserving the
 unconditional metal runtime refusal. Every layer retains its individual
 scientific and live-action approval gates.
 
-The current unreleased source also contains the first offline calculation-
+The unreleased source after 2.2.0 also contains the first offline calculation-
 artifact adapter slice: immutable candidate-target imports, exact reviewed
 closed-shell main-group TS/Freq input handoffs, blocked/electronic-only energy
 lineage, and observation-only attempt links that bind the exact handoff, job
@@ -149,7 +154,8 @@ submodule, symlink, or remote.
 
 ## Installation and local configuration
 
-The offline planning, parsing and audit layers use Python 3.11 or later and
+The offline planning, parsing and audit layers support Python 3.11 through
+3.13 and
 have no third-party runtime dependency. The ChemDraw and conformer layers
 additionally require the packages recorded in
 `requirements/chemistry.txt` (RDKit, Pillow and NumPy). Install them in an
