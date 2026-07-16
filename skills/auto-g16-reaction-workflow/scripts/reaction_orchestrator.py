@@ -40,7 +40,7 @@ STATE_CANDIDATE_REVIEW_SCHEMA = "gaussian-reaction-state-candidate-construction-
 STATE_CANDIDATE_SCHEMA = "gaussian-reaction-state-candidate-materialization/1"
 DAG_REVIEW_SCHEMA = "gaussian-reaction-calculation-dag-review/1"
 DAG_SCHEMA = "gaussian-reaction-calculation-dag/1"
-INDEX_SCHEMA = "gaussian-reaction-study-index/1"
+INDEX_SCHEMA = "gaussian-reaction-orchestration-index/1"
 
 COMPUTE_NODE_TYPES = {
     "minimum_opt_freq", "transition_state_opt_freq", "single_point",

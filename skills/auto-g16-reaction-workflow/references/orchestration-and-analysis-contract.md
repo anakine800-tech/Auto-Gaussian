@@ -83,11 +83,16 @@ IRC direction remain separate scientific gates.
 
 ## 4. Derived study index
 
-`gaussian-reaction-study-index/1` binds exactly one mechanism-support artifact,
+`gaussian-reaction-orchestration-index/1` binds exactly one mechanism-support artifact,
 mechanism network, TS-precedent map, and calculation DAG, plus zero or more
 candidate materializations. It derives gates, completed nodes, candidate
 coverage, and next safe offline actions. No caller can set an editable project
 status.
+
+This is a legacy-compatible experimental view. It is not the authoritative
+`gaussian-reaction-study-index/1` owned by `calculation_dag.py`, and it cannot
+replace, mutate, update, or promote the authoritative calculation plan or
+study index.
 
 ## 5. Normalized energy records
 

@@ -140,13 +140,9 @@ def sha256_data(data: Any) -> str:
 
 
 def write_json(path: Path, data: Any) -> None:
-    encoded = canonical_bytes(data)
+    require(not path.exists(), f"refusing to overwrite existing artifact: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with path.open("xb") as handle:
-            handle.write(encoded)
-    except FileExistsError as exc:
-        raise OfflineError(f"refusing to overwrite existing artifact: {path}") from exc
+    path.write_bytes(canonical_bytes(data))
 
 
 def payload_sha256(data: dict[str, Any]) -> str:

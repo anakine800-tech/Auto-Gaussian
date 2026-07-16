@@ -213,11 +213,11 @@
       "type": "object", "additionalProperties": false,
       "required": ["required", "start_state_id", "regenerated_state_id", "closure_edge_ids", "review_status", "rationale"],
       "properties": {
-        "required": {"type": "boolean"},
-        "start_state_id": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
-        "regenerated_state_id": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
-        "closure_edge_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}},
-        "review_status": {"enum": ["reviewed", "not_applicable"]},
+        "required": {"const": true},
+        "start_state_id": {"$ref": "#/$defs/id"},
+        "regenerated_state_id": {"$ref": "#/$defs/id"},
+        "closure_edge_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+        "review_status": {"const": "reviewed"},
         "rationale": {"type": "string", "minLength": 1}
       }
     },
@@ -263,16 +263,14 @@
     },
     "networkDiagnostic": {
       "type": "object", "additionalProperties": false,
-      "required": ["network_id", "catalyst_cycle_required", "diagnostic_status", "closure_path_valid", "catalyst_atom_projection_closed", "catalyst_descriptor_equivalent", "catalyst_connectivity_equivalent", "catalyst_cycle_closed"],
+      "required": ["network_id", "closure_path_valid", "catalyst_atom_projection_closed", "catalyst_descriptor_equivalent", "catalyst_connectivity_equivalent", "catalyst_cycle_closed"],
       "properties": {
         "network_id": {"$ref": "#/$defs/id"},
-        "catalyst_cycle_required": {"type": "boolean"},
-        "diagnostic_status": {"enum": ["reviewed_closed", "not_applicable"]},
-        "closure_path_valid": {"type": ["boolean", "null"]},
-        "catalyst_atom_projection_closed": {"type": ["boolean", "null"]},
-        "catalyst_descriptor_equivalent": {"type": ["boolean", "null"]},
-        "catalyst_connectivity_equivalent": {"type": ["boolean", "null"]},
-        "catalyst_cycle_closed": {"type": ["boolean", "null"]}
+        "closure_path_valid": {"const": true},
+        "catalyst_atom_projection_closed": {"type": "boolean"},
+        "catalyst_descriptor_equivalent": {"type": "boolean"},
+        "catalyst_connectivity_equivalent": {"type": "boolean"},
+        "catalyst_cycle_closed": {"type": "boolean"}
       }
     },
     "edgeComparison": {

@@ -69,7 +69,7 @@ class ReactionOrchestratorTests(unittest.TestCase):
         source = ROOT / "tests" / "fixtures" / "reaction_workflow" / "ts_precedent_source_main_group.xyz"
         atom_order = [
             {"atom_id": atom_id, "element": element}
-            for atom_id, element in (("r_h1", "H"), ("r_h2", "H"), ("r_i1", "I"), ("r_i2", "I"))
+            for atom_id, element in (("r_h1", "H"), ("r_h2", "H"), ("r_i1", "I"), ("r_i2", "I"), ("r_pd", "B"))
         ]
         self.assertEqual({item["atom_id"] for item in state["atoms"]}, {item["atom_id"] for item in atom_order})
         review = {
@@ -171,9 +171,7 @@ class ReactionOrchestratorTests(unittest.TestCase):
             root = Path(tmp)
             chain = self.build_supported_chain(root)
             for diagnostic in chain["network"]["diagnostics"]["network_catalyst_projection_closure"]:
-                self.assertFalse(diagnostic["catalyst_cycle_required"])
-                self.assertEqual(diagnostic["diagnostic_status"], "not_applicable")
-                self.assertIsNone(diagnostic["catalyst_cycle_closed"])
+                self.assertTrue(diagnostic["catalyst_cycle_closed"])
             network_schema = json.loads((ROOT / "contracts" / "reaction-workflow" / "mechanism-network.schema.json").read_text(encoding="utf-8"))
             SCHEMA_VALIDATOR._validate_schema_instance(chain["network"], network_schema, network_schema)
             candidate_path, candidate = self.build_candidate(chain, root)
@@ -182,7 +180,7 @@ class ReactionOrchestratorTests(unittest.TestCase):
             self.assertFalse(candidate["calculation_ready"])
             self.assertTrue(candidate["no_input_render_authorization"])
             self.assertTrue(candidate["no_submission_authorization"])
-            self.assertEqual({atom["element"] for atom in candidate["atoms"]}, {"H", "I"})
+            self.assertEqual({atom["element"] for atom in candidate["atoms"]}, {"B", "H", "I"})
             orchestrator.validate_candidate(candidate_path)
             tampered_candidate = copy.deepcopy(candidate)
             tampered_candidate["target"]["stereochemical_channel"] = "tampered_channel"
@@ -194,7 +192,7 @@ class ReactionOrchestratorTests(unittest.TestCase):
 
             state_candidate_path, state_candidate = self.build_state_candidate(chain, root)
             self.assertEqual(state_candidate["candidate_kind"], "complex_seed")
-            self.assertEqual(state_candidate["target"]["component_count"], 2)
+            self.assertEqual(state_candidate["target"]["component_count"], 3)
             self.assertTrue(state_candidate["requires_visible_review"])
             self.assertFalse(state_candidate["calculation_ready"])
             orchestrator.validate_state_candidate(state_candidate_path)
@@ -299,7 +297,7 @@ class ReactionOrchestratorTests(unittest.TestCase):
             orchestrator.validate_index(index_path)
             for schema_name, instance in (
                 ("calculation-dag.schema.json", dag),
-                ("study-index.schema.json", index),
+                ("orchestration-index.schema.json", index),
             ):
                 schema = json.loads((ROOT / "contracts" / "reaction-workflow" / schema_name).read_text(encoding="utf-8"))
                 SCHEMA_VALIDATOR._validate_schema_instance(instance, schema, schema)

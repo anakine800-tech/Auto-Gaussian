@@ -68,6 +68,15 @@ calculation/evidence adapter, free-energy/kinetic and
 final-report layers needed to progress from W1 to an auditable whole-reaction
 study.
 
+The salvaged experimental source also retains a fully offline candidate-
+materialization and reaction-analysis prototype. It builds reviewed main-group
+Cartesian seeds, normalized Gibbs records, conformer ensembles, activity-
+adjusted Eyring comparisons, explicit uncertainty scenarios and deterministic
+bounded reports. Its compatibility `gaussian-reaction-calculation-dag/1` and
+distinct `gaussian-reaction-orchestration-index/1` remain isolated from the
+authoritative `gaussian-reaction-calculation-plan/1` and
+`gaussian-reaction-study-index/1`; they cannot mutate or promote the owner DAG.
+
 The unreleased repository source now adds the smallest calculation-artifact
 adapter slice under `auto-g16-reaction-workflow`: stable external candidate
 targets, one exact reviewed closed-shell main-group TS/Freq input handoff,

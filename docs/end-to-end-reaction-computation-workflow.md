@@ -111,7 +111,7 @@ The intended ownership is:
 | protocol selection | `auto-g16-rtwin-pbs` protocol gate | reviewed `loose`/`standard`/`strict` candidates and explicit selection |
 | live execution | `auto-g16-rtwin-pbs` | fresh SDL projects, transfer hashes, PBS lifecycle, fetch, generic result parsing |
 | TS scientific evidence | `auto-g16-ts-irc` | TS/Freq, mode review, checkpoint lineage, IRC, endpoint evidence |
-| future energy/kinetic layer | future top-level module | balanced free energies, profiles, energetic span or microkinetics, uncertainty |
+| experimental energy/kinetic layer | `auto-g16-reaction-workflow` salvaged offline prototype | normalized reviewed energies, conformer ensembles, activity-adjusted Eyring comparisons, explicit uncertainty scenarios and bounded reports; still separate from the authoritative calculation-plan/study-index DAG and not a production microkinetic layer |
 
 The top-level orchestrator must not duplicate the specialist parsers. It should
 index their immutable artifacts, enforce dependencies, expose blockers, and

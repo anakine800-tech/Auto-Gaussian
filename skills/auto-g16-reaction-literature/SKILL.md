@@ -165,9 +165,8 @@ it never overwrites the draft.
   mechanism-support and TS-precedent promotion blocked.
 - Give direct and analogous precedents to `auto-g16-asymmetric-catalysis` only
   as literature evidence with explicit analogy dimensions and gaps.
-- Give reviewed claims to the separate mechanism-support and TS-precedent/de
-  novo builders owned by `auto-g16-reaction-workflow` without turning them into
-  a selected route or a validated mechanism.
+- Give a reviewed elementary-step hypothesis to a future mechanism-network or
+  TS-seed Skill without turning it into a selected route.
 - Use `auto-g16-ts-irc` only after a separate reviewed structure, protocol, and
   stage-specific approval exists. Literature-reported IRC is not local IRC
   validation.

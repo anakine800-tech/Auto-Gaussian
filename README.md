@@ -33,6 +33,14 @@ a newly rehashed document. It does not implement or mutate a calculation DAG
 and grants no staging, submission, retry, cleanup, deployment, or live-smoke
 authority.
 
+The salvaged offline research prototype is retained as a separate experimental
+slice for reviewed Cartesian candidate materialization, normalized Gibbs-energy
+records, conformer ensembles, Eyring/activity comparisons, explicit uncertainty
+scenarios, and deterministic bounded reports. Its compatibility
+`gaussian-reaction-calculation-dag/1` and distinct
+`gaussian-reaction-orchestration-index/1` do not replace or mutate the
+authoritative calculation-plan/study-index DAG and grant no live authority.
+
 `main` is the stable release branch. Feature work uses short-lived `codex/`
 branches and reaches `main` only through reviewed pull requests with the
 required offline checks passing.

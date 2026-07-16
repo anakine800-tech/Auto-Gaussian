@@ -8,7 +8,6 @@
 4. Evidence extraction
 5. Claim levels and handoff
 6. API and copyright constraints
-7. Mechanism-support and TS-precedent translation
 
 ## 1. Intake contract
 
@@ -210,34 +209,3 @@ API results may be incomplete, stale, duplicated, or wrongly linked. Always
 open the DOI/publisher record and version-matched SI before accepting a
 candidate-specific claim. Never bypass authentication, robots rules, or
 publisher access controls.
-
-## 7. Mechanism-support and TS-precedent translation
-
-Hand a finalized `gaussian-reaction-literature-evidence/1` artifact to the
-separate `mechanism_support.py` and `ts_precedent_map.py` tools owned by
-`auto-g16-reaction-workflow`. This literature Skill does not run those
-translations or make their promotion decisions. Both tools require exact
-hash-bound W1, knowledge-snapshot, and mechanism-network parents.
-
-The mechanism-support review must bind each source claim by deterministic
-candidate/claim/location identities and canonical payload hashes. Every
-reviewed mechanism edge and stereochemical channel requires an explicit
-record, including exact atom correspondence, all applicability dimensions,
-alternatives, falsifiers, contradictions, and two separate decisions:
-`hypothesis_exploration_eligible` and `mechanism_claim_supported`. A changed
-claim, location, edge, channel, or cross-target substitution fails validation.
-
-The TS-precedent review must bind each record to a network edge and its reviewed
-stereochemical channel. Forming/breaking/transferring atom sets must match the
-edge. Coordinate-based entries require a frozen XYZ hash, explicit source atom
-order, complete bijective source-to-target atom map, element agreement, and
-reviewed provenance. Missing coordinates may support topology but cannot be
-materialized as published-coordinate seeds.
-
-The TS map may open candidate construction for a locally complete accepted
-precedent or de novo plan only when its exact edge/channel is explicitly
-exploration-eligible. Missing precedent may justify a clearly source-free de
-novo plan but never mechanism-claim support. Both output validators reload
-parents and review sources and independently rebuild their artifacts. Neither
-artifact proves a mechanism, selects a computational protocol, creates a
-Gaussian input, validates a local TS, or authorizes a calculation.

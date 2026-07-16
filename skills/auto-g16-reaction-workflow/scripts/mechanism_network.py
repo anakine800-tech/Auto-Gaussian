@@ -100,9 +100,7 @@ def _connection_map(state: dict[str, Any]) -> dict[tuple[str, str, str], str]:
 
 
 def _normalize_state(
-    raw: dict[str, Any],
-    registry_metadata: dict[str, dict[str, Any]],
-    condition_decisions: dict[str, dict[str, Any]],
+    raw: dict[str, Any], registry_metadata: dict[str, dict[str, Any]], condition_ids: set[str]
 ) -> dict[str, Any]:
     keys = {
         "state_id", "label", "state_class", "atoms", "components", "formal_charge",
@@ -235,22 +233,7 @@ def _normalize_state(
         })
     environment = _exact(data["environment_model"], {"condition_decision_ids", "additional_terms", "review_status", "rationale"}, f"state {state_id}.environment_model")
     state_conditions = rw._string_list(environment["condition_decision_ids"], f"state {state_id}.environment_model.condition_decision_ids")
-    rw.require(set(state_conditions) <= set(condition_decisions), f"state {state_id} references unknown condition decisions")
-    represented_species = set(state_source_inventories)
-    for condition_id in state_conditions:
-        condition_decision = condition_decisions[condition_id]
-        if condition_decision["treatment"] == "explicit_component":
-            missing_species = set(condition_decision["species_ids"]) - represented_species
-            rw.require(
-                not missing_species,
-                f"state {state_id} references explicit condition {condition_id} but omits species: {', '.join(sorted(missing_species))}",
-            )
-    for condition_id, condition_decision in condition_decisions.items():
-        if condition_decision["treatment"] == "explicit_component" and represented_species & set(condition_decision["species_ids"]):
-            rw.require(
-                condition_id in state_conditions,
-                f"state {state_id} contains species from explicit condition {condition_id} without binding that condition decision",
-            )
+    rw.require(set(state_conditions) <= condition_ids, f"state {state_id} references unknown condition decisions")
     additional_terms = rw._string_list(environment["additional_terms"], f"state {state_id}.environment_model.additional_terms")
     environment_status = rw._require_string(environment["review_status"], f"state {state_id}.environment_model.review_status")
     rw.require(environment_status in {"reviewed", "blocked"}, f"state {state_id}.environment_model.review_status is invalid")
@@ -426,65 +409,47 @@ def _normalize_network(raw: dict[str, Any], states: dict[str, dict[str, Any]], e
     role = rw._require_string(data["role"], f"network {network_id}.role")
     rw.require(role in {"primary", "competing"}, f"network {network_id}.role is invalid")
     cycle = _exact(data["catalyst_cycle"], {"required", "start_state_id", "regenerated_state_id", "closure_edge_ids", "review_status", "rationale"}, f"network {network_id}.catalyst_cycle")
-    rw.require(type(cycle["required"]) is bool, f"network {network_id}.catalyst_cycle.required must be boolean")
-    if cycle["required"]:
-        start_id = rw._require_id(cycle["start_state_id"], f"network {network_id} catalyst start")
-        regenerated_id = rw._require_id(cycle["regenerated_state_id"], f"network {network_id} catalyst regenerated state")
-        closure_edge_ids = rw._string_list(cycle["closure_edge_ids"], f"network {network_id}.catalyst_cycle.closure_edge_ids", nonempty=True)
-        rw.require(set(closure_edge_ids) <= set(edge_ids), f"network {network_id} closure path uses an edge outside the network")
-        current_state = start_id
-        mapped_atoms: dict[str, str] | None = None
-        for position, edge_id in enumerate(closure_edge_ids):
-            edge = edges[edge_id]
-            rw.require(edge["from_state_id"] == current_state, f"network {network_id} catalyst closure edges are not a contiguous directed path")
-            if position == 0:
-                mapped_atoms = dict(edge["_mapping"])
-            else:
-                assert mapped_atoms is not None
-                mapped_atoms = {origin: edge["_mapping"][current] for origin, current in mapped_atoms.items()}
-            current_state = edge["to_state_id"]
-        rw.require(current_state == regenerated_id, f"network {network_id} catalyst closure path does not end at regenerated_state_id")
-        start_projection = states[start_id]["catalyst_projection"]
-        end_projection = states[regenerated_id]["catalyst_projection"]
-        rw.require(start_projection is not None and end_projection is not None, f"network {network_id} catalyst closure requires reviewed endpoint projections")
-        assert mapped_atoms is not None
-        mapped_catalyst_atoms = {mapped_atoms[atom_id] for atom_id in start_projection["catalyst_atom_ids"]}
-        atom_projection_closed = mapped_catalyst_atoms == set(end_projection["catalyst_atom_ids"])
-        descriptor_equivalent = _projection_descriptor(start_projection) == _projection_descriptor(end_projection)
-        start_internal = _connection_map(states[start_id])
-        end_internal = _connection_map(states[regenerated_id])
-        projected_start_connections = {
-            (tuple(sorted((mapped_atoms[key[0]], mapped_atoms[key[1]]))), key[2], order)
-            for key, order in start_internal.items()
-            if key[0] in start_projection["catalyst_atom_ids"] or key[1] in start_projection["catalyst_atom_ids"]
-        }
-        projected_end_connections = {
-            ((key[0], key[1]), key[2], order)
-            for key, order in end_internal.items()
-            if key[0] in end_projection["catalyst_atom_ids"] or key[1] in end_projection["catalyst_atom_ids"]
-        }
-        connectivity_equivalent = projected_start_connections == projected_end_connections
-        closed = atom_projection_closed and descriptor_equivalent and connectivity_equivalent
-        rw.require(closed, f"network {network_id} catalyst projection does not close")
-        cycle_status = rw._require_string(cycle["review_status"], f"network {network_id}.catalyst_cycle.review_status")
-        rw.require(cycle_status == "reviewed", f"network {network_id} catalyst cycle must be reviewed")
-        diagnostic_status = "reviewed_closed"
-        closure_path_valid: bool | None = True
-    else:
-        rw.require(cycle["start_state_id"] is None and cycle["regenerated_state_id"] is None, f"network {network_id} noncatalytic cycle must use null endpoint states")
-        closure_edge_ids = rw._string_list(cycle["closure_edge_ids"], f"network {network_id}.catalyst_cycle.closure_edge_ids")
-        rw.require(not closure_edge_ids, f"network {network_id} noncatalytic cycle must not list closure edges")
-        cycle_status = rw._require_string(cycle["review_status"], f"network {network_id}.catalyst_cycle.review_status")
-        rw.require(cycle_status == "not_applicable", f"network {network_id} noncatalytic cycle review_status must be not_applicable")
-        rw.require(all(states[state_id]["catalyst_projection"] is None for state_id in state_ids), f"network {network_id} cannot mark catalyst closure not applicable while retaining catalyst projections")
-        start_id = None
-        regenerated_id = None
-        atom_projection_closed = None
-        descriptor_equivalent = None
-        connectivity_equivalent = None
-        closed = None
-        diagnostic_status = "not_applicable"
-        closure_path_valid = None
+    rw.require(cycle["required"] is True, f"network {network_id} must retain catalyst projection closure in this W3 slice")
+    start_id = rw._require_id(cycle["start_state_id"], f"network {network_id} catalyst start")
+    regenerated_id = rw._require_id(cycle["regenerated_state_id"], f"network {network_id} catalyst regenerated state")
+    closure_edge_ids = rw._string_list(cycle["closure_edge_ids"], f"network {network_id}.catalyst_cycle.closure_edge_ids", nonempty=True)
+    rw.require(set(closure_edge_ids) <= set(edge_ids), f"network {network_id} closure path uses an edge outside the network")
+    current_state = start_id
+    mapped_atoms: dict[str, str] | None = None
+    for position, edge_id in enumerate(closure_edge_ids):
+        edge = edges[edge_id]
+        rw.require(edge["from_state_id"] == current_state, f"network {network_id} catalyst closure edges are not a contiguous directed path")
+        if position == 0:
+            mapped_atoms = dict(edge["_mapping"])
+        else:
+            assert mapped_atoms is not None
+            mapped_atoms = {origin: edge["_mapping"][current] for origin, current in mapped_atoms.items()}
+        current_state = edge["to_state_id"]
+    rw.require(current_state == regenerated_id, f"network {network_id} catalyst closure path does not end at regenerated_state_id")
+    start_projection = states[start_id]["catalyst_projection"]
+    end_projection = states[regenerated_id]["catalyst_projection"]
+    rw.require(start_projection is not None and end_projection is not None, f"network {network_id} catalyst closure requires reviewed endpoint projections")
+    assert mapped_atoms is not None
+    mapped_catalyst_atoms = {mapped_atoms[atom_id] for atom_id in start_projection["catalyst_atom_ids"]}
+    atom_projection_closed = mapped_catalyst_atoms == set(end_projection["catalyst_atom_ids"])
+    descriptor_equivalent = _projection_descriptor(start_projection) == _projection_descriptor(end_projection)
+    start_internal = _connection_map(states[start_id])
+    end_internal = _connection_map(states[regenerated_id])
+    projected_start_connections = {
+        (tuple(sorted((mapped_atoms[key[0]], mapped_atoms[key[1]]))), key[2], order)
+        for key, order in start_internal.items()
+        if key[0] in start_projection["catalyst_atom_ids"] or key[1] in start_projection["catalyst_atom_ids"]
+    }
+    projected_end_connections = {
+        ((key[0], key[1]), key[2], order)
+        for key, order in end_internal.items()
+        if key[0] in end_projection["catalyst_atom_ids"] or key[1] in end_projection["catalyst_atom_ids"]
+    }
+    connectivity_equivalent = projected_start_connections == projected_end_connections
+    closed = atom_projection_closed and descriptor_equivalent and connectivity_equivalent
+    rw.require(closed, f"network {network_id} catalyst projection does not close")
+    cycle_status = rw._require_string(cycle["review_status"], f"network {network_id}.catalyst_cycle.review_status")
+    rw.require(cycle_status == "reviewed", f"network {network_id} catalyst cycle must be reviewed")
     review_status = rw._require_string(data["review_status"], f"network {network_id}.review_status")
     rw.require(review_status in {"reviewed_hypothesis", "blocked"}, f"network {network_id}.review_status is invalid")
     disposition = rw._require_string(data["disposition"], f"network {network_id}.disposition")
@@ -497,22 +462,13 @@ def _normalize_network(raw: dict[str, Any], states: dict[str, dict[str, Any]], e
         "edge_ids": sorted(edge_ids),
         "entry_state_id": entry,
         "exit_state_id": exit_state,
-        "catalyst_cycle": {"required": cycle["required"], "start_state_id": start_id, "regenerated_state_id": regenerated_id, "closure_edge_ids": closure_edge_ids, "review_status": cycle_status, "rationale": rw._require_string(cycle["rationale"], f"network {network_id}.catalyst_cycle.rationale")},
+        "catalyst_cycle": {"required": True, "start_state_id": start_id, "regenerated_state_id": regenerated_id, "closure_edge_ids": closure_edge_ids, "review_status": cycle_status, "rationale": rw._require_string(cycle["rationale"], f"network {network_id}.catalyst_cycle.rationale")},
         "disposition": disposition,
         "review_status": review_status,
         "blockers": rw._string_list(data["blockers"], f"network {network_id}.blockers"),
         "notes": rw._string_list(data["notes"], f"network {network_id}.notes"),
     }
-    diagnostic = {
-        "network_id": network_id,
-        "catalyst_cycle_required": cycle["required"],
-        "diagnostic_status": diagnostic_status,
-        "closure_path_valid": closure_path_valid,
-        "catalyst_atom_projection_closed": atom_projection_closed,
-        "catalyst_descriptor_equivalent": descriptor_equivalent,
-        "catalyst_connectivity_equivalent": connectivity_equivalent,
-        "catalyst_cycle_closed": closed,
-    }
+    diagnostic = {"network_id": network_id, "closure_path_valid": True, "catalyst_atom_projection_closed": atom_projection_closed, "catalyst_descriptor_equivalent": descriptor_equivalent, "catalyst_connectivity_equivalent": connectivity_equivalent, "catalyst_cycle_closed": closed}
     return normalized, diagnostic
 
 
@@ -570,13 +526,9 @@ def _strip_private(item: dict[str, Any]) -> dict[str, Any]:
 
 def _analyze(raw_states: Any, raw_edges: Any, raw_networks: Any, raw_basins: Any, registry: dict[str, Any], condition: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     registry_metadata = _registry_atom_metadata(registry)
-    condition_decisions = {item["condition_id"]: item for item in condition["decisions"]}
-    condition_ids = set(condition_decisions)
+    condition_ids = {item["condition_id"] for item in condition["decisions"]}
     state_inputs = _unique_ids(raw_states, "state_id", "states")
-    states = {
-        state_id: _normalize_state(raw, registry_metadata, condition_decisions)
-        for state_id, raw in state_inputs.items()
-    }
+    states = {state_id: _normalize_state(raw, registry_metadata, condition_ids) for state_id, raw in state_inputs.items()}
     edge_inputs = _unique_ids(raw_edges, "edge_id", "edges")
     edges: dict[str, dict[str, Any]] = {}
     edge_diagnostics: list[dict[str, Any]] = []
@@ -671,11 +623,6 @@ def _referenced_path(reference: dict[str, Any], owner_path: Path) -> Path:
 
 
 def build(intake_path: Path, registry_path: Path, condition_path: Path, review_path: Path, output: Path) -> dict[str, Any]:
-    intake_path = intake_path.absolute()
-    registry_path = registry_path.absolute()
-    condition_path = condition_path.absolute()
-    review_path = review_path.absolute()
-    output = output.absolute()
     intake, registry, condition = _load_chain(intake_path, registry_path, condition_path)
     review = rw.load_json(review_path)
     states, edges, networks, basins, diagnostics, blockers, decision, review_notes = _normalize_review(review, intake, registry, condition)

@@ -7,6 +7,14 @@ All notable public release changes are recorded here. The project follows
 
 ### Added
 
+- A salvaged, standard-library-only experimental orchestration/analysis slice
+  with reviewed main-group Cartesian candidate materialization, normalized
+  Gibbs-energy records, conformer ensembles, activity-adjusted Eyring
+  comparisons, explicit uncertainty scenarios and deterministic bounded
+  Markdown reports. Its compatibility DAG and distinct
+  `gaussian-reaction-orchestration-index/1` cannot replace or mutate the
+  authoritative calculation-plan/study-index DAG.
+
 - A standard-library-only `gaussian-reaction-calculation-plan/1` builder and
   validator with stable DAG/node identities, exact W1 and finalized mechanism-
   network bindings by file SHA-256, byte size and payload SHA-256, explicit
@@ -93,6 +101,11 @@ All notable public release changes are recorded here. The project follows
   artifacts are not renamed, aliased, or rewritten.
 
 ### Safety
+
+- Salvaged orchestration and analysis artifacts remain offline,
+  non-executable and non-authorizing. Synthetic fixtures are permanently
+  capped at `contract_fixture_only`; transition-metal materialization and
+  electronic-only energy promotion remain refused.
 
 - The calculation-planning slice separates scientific readiness, input-review
   readiness, live-approval readiness, execution state, and evidence

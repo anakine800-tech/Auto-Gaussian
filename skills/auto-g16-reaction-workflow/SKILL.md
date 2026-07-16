@@ -252,6 +252,29 @@ Its gate order is W1, finalized mechanism network, exact network support,
 dependent TS precedent, calculation plan, input review, then live approval;
 each emitted stage blocker resolves to the plan's normalized blocker record.
 
+### Optional experimental materialization and bounded-analysis slice
+
+Use this salvaged source only as an offline experimental layer. Read
+[references/orchestration-and-analysis-contract.md](references/orchestration-and-analysis-contract.md)
+before running `scripts/reaction_orchestrator.py` or
+`scripts/reaction_analysis.py`.
+
+The orchestrator materializes only explicitly reviewed main-group Cartesian
+candidate seeds and can retain a finite compatibility DAG. Its derived
+`gaussian-reaction-orchestration-index/1` is intentionally distinct from the
+authoritative `gaussian-reaction-study-index/1`; it must not replace, mutate or
+promote `calculation_dag.py` artifacts. The analysis tool normalizes reviewed
+electronic and thermal Gibbs components, aggregates conformers, applies
+explicit activity factors, evaluates reviewed uncertainty offsets, and renders
+a bounded deterministic Markdown report.
+
+Synthetic sources remain `contract_fixture_only`. Transition-metal candidate
+materialization, absent thermochemical fields, inconsistent temperature or
+standard state, negative barriers, incomplete TS-mode evidence, and formal
+electronic-only adapter energies remain refused or explicitly blocked. Neither
+tool renders Gaussian input or performs staging, SSH, PBS, submission, retry,
+cancellation, cleanup or deployment.
+
 ### 6. Use the optional reviewed calculation-artifact adapter
 
 Use this only after the exact upstream candidate, protocol, input review, or

@@ -1,4 +1,4 @@
 interface:
   display_name: "Auto-G16 Reaction Literature"
-  short_description: "Retrieve and audit reaction literature evidence"
-  default_prompt: "Use $auto-g16-reaction-literature to retrieve, deduplicate, and audit source-located evidence for my reaction, then prepare a conservative handoff to the separate workflow-owned mechanism-support and TS-precedent stages."
+  short_description: "Retrieve and audit mechanism and transition-state literature"
+  default_prompt: "Use $auto-g16-reaction-literature to retrieve and audit literature relevant to my reaction mechanism and transition-state hypotheses."

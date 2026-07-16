@@ -15,67 +15,36 @@ def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def _nonmetal_review(review: dict[str, Any]) -> None:
-    """Convert the catalytic network fixture into an explicit noncatalytic one."""
+def _main_group_review(review: dict[str, Any]) -> None:
+    """Replace the metal center while preserving the owner W3 cycle contract."""
 
     for state in review["states"]:
-        state["atoms"] = [atom for atom in state["atoms"] if atom["element"] != "Pd"]
-        components = []
-        for component in state["components"]:
-            component["atom_ids"] = [
-                atom_id for atom_id in component["atom_ids"]
-                if not atom_id.endswith("_pd")
-            ]
-            if component["atom_ids"]:
-                components.append(component)
-        state["components"] = components
-        state["connections"] = [
-            connection for connection in state["connections"]
-            if not any(atom_id.endswith("_pd") for atom_id in connection["atom_ids"])
-        ]
-        state["catalyst_projection"] = None
-        state["environment_model"]["rationale"] = (
-            "The fixture Pd condition is explicitly excluded from this "
-            "noncatalytic computational model."
-        )
+        for atom in state["atoms"]:
+            if atom["element"] == "Pd":
+                atom["element"] = "B"
         state["notes"].append(
-            "Pd was removed only to create a main-group offline contract fixture."
+            "The synthetic catalyst center is boron so the fixture remains main-group."
         )
     for edge in review["edges"]:
-        edge["atom_mapping"] = [
-            mapping for mapping in edge["atom_mapping"]
-            if not mapping["from_atom_id"].endswith("_pd")
-            and not mapping["to_atom_id"].endswith("_pd")
-        ]
-        edge["connection_changes"] = [
-            change for change in edge["connection_changes"]
-            if not any(atom_id.endswith("_pd") for atom_id in change["atom_ids"])
-        ]
-        edge["transfers"] = [
-            transfer for transfer in edge["transfers"]
-            if not any(
-                transfer[key].endswith("_pd")
-                for key in ("atom_id", "donor_atom_id", "acceptor_atom_id")
-            )
-        ]
-        edge["state_changes"] = {
-            "oxidation_state": "not applicable in the main-group fixture",
-            "spin": "singlet fixture throughout",
-            "ligand": "not applicable",
-            "coordination": "no metal coordination is represented",
-            "protonation": "none",
-        }
-    for network in review["networks"]:
-        network["catalyst_cycle"] = {
-            "required": False,
-            "start_state_id": None,
-            "regenerated_state_id": None,
-            "closure_edge_ids": [],
-            "review_status": "not_applicable",
-            "rationale": "No catalyst atom is represented in the main-group fixture network.",
-        }
+        edge["state_changes"]["oxidation_state"] = (
+            "Synthetic boron-state bookkeeping; no oxidation-state claim."
+        )
     review["review_notes"].append(
-        "Synthetic noncatalytic main-group fixture; no chemical claim is made."
+        "Synthetic main-group catalytic-cycle fixture; no chemical claim is made."
+    )
+
+
+def _main_group_registry(review: dict[str, Any]) -> None:
+    """Replace the condition-component identity with a reviewed boron fixture."""
+
+    catalyst = next(item for item in review["species"] if item["species_id"] == "palladium")
+    catalyst["preferred_label"] = "B catalyst fixture"
+    catalyst["formula"] = "B"
+    catalyst["structure"]["path"] = str(FIXTURES / "boron.smi")
+    catalyst["atom_identity"]["atoms"][0]["element"] = "B"
+    catalyst["represented_form"] = "explicit main-group closed-shell contract fixture"
+    catalyst["notes"].append(
+        "The stable fixture species ID is retained while the reviewed represented identity is boron."
     )
 
 
@@ -93,60 +62,18 @@ def _build_context(root: Path, *, nonmetal: bool) -> tuple[Any, dict[str, Any]]:
         (
             intake_path,
             registry_path,
-            _original_condition_path,
+            condition_path,
             intake,
             registry,
-            _original_condition,
-        ) = network_helper.build_upstream(root)
-        import reaction_workflow as rw
-
-        policy_not_applicable = {
-            "status": "not_applicable",
-            "value": None,
-            "unit": None,
-            "model": None,
-            "rationale": "Not assigned by the noncatalytic contract fixture.",
-        }
-        nonmetal_condition_review = {
-            "schema": "gaussian-reaction-condition-review/1",
-            "study_id": intake["study_id"],
-            "intake_payload_sha256": intake["payload_sha256"],
-            "registry_payload_sha256": registry["payload_sha256"],
-            "global_model": {
-                "standard_state": dict(policy_not_applicable),
-                "temperature_policy": dict(policy_not_applicable),
-                "concentration_policy": dict(policy_not_applicable),
-                "pressure_policy": dict(policy_not_applicable),
-                "explicit_component_policy": dict(policy_not_applicable),
-            },
-            "decisions": [
-                {
-                    "condition_id": "step_001_component_001",
-                    "treatment": "experimental_context_only",
-                    "species_ids": [],
-                    "model": None,
-                    "rationale": "Pd is explicitly excluded only for this noncatalytic main-group contract fixture.",
-                    "review_status": "reviewed",
-                }
-            ],
-            "review_decision": "accepted",
-            "review_notes": [
-                "The source Pd label is retained, but its computational exclusion is explicit and hash-bound."
-            ],
-        }
-        nonmetal_condition_review_path = root / "nonmetal_condition_review.json"
-        _write_json(nonmetal_condition_review_path, nonmetal_condition_review)
-        condition_path = root / "nonmetal_condition.json"
-        condition = rw.build_condition_model(
-            intake_path,
-            registry_path,
-            nonmetal_condition_review_path,
-            condition_path,
+            condition,
+        ) = network_helper.build_upstream(
+            root,
+            lambda review: _main_group_registry(review),
         )
         mechanism_review_path, mechanism_review = network_helper.review(
             root, intake, registry, condition
         )
-        _nonmetal_review(mechanism_review)
+        _main_group_review(mechanism_review)
         mechanism_review_path.unlink()
         _write_json(mechanism_review_path, mechanism_review)
         mechanism_path = root / "mechanism_nonmetal.json"
