@@ -31,12 +31,12 @@ Use the standard-library-only CLI for this state transition:
 ```bash
 TOOL="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/protocol_selection.py"
 
-python3 "$TOOL" propose request.json --profiles reviewed_profiles.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" propose request.json --profiles reviewed_profiles.json \
   --output protocol_options.json
-python3 "$TOOL" select protocol_options.json --tier standard \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" select protocol_options.json --tier standard \
   --approval-record user_decision.json --confirmed \
   --output protocol_selection.json
-python3 "$TOOL" validate protocol_selection.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" validate protocol_selection.json \
   --options protocol_options.json
 ```
 

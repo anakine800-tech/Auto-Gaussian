@@ -5,6 +5,14 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Changed
+
+- Added deterministic `core` (Python 3.13.13) and `chem` (Python 3.11.15)
+  interpreter profiles, exact chemistry dependency locking, a PATH-independent
+  launcher, runtime/package self-checks, and interpreter-aware named-Skill
+  deployment drift reporting. These changes are local and offline only; they
+  do not alter RTwin, Windows, Gaussian or PBS safety gates.
+
 ### Added
 
 - A standard-library-only `gaussian-reaction-calculation-plan/1` builder and

@@ -1,0 +1,26 @@
+{
+  "schema": "auto-g16-python-environments/1",
+  "default_profile": "core",
+  "profiles": {
+    "core": {
+      "python_version": "3.13.13",
+      "environment_variable": "AUTO_G16_CORE_PYTHON",
+      "runtime_config_key": "core_python",
+      "fallback": "~/miniforge3/bin/python3",
+      "requirements": null,
+      "packages": {}
+    },
+    "chem": {
+      "python_version": "3.11.15",
+      "environment_variable": "AUTO_G16_RDKIT_PYTHON",
+      "runtime_config_key": "rdkit_python",
+      "fallback": "~/miniforge3/envs/chem/bin/python",
+      "requirements": "requirements/chemistry.lock.txt",
+      "packages": {
+        "numpy": "2.4.6",
+        "Pillow": "12.3.0",
+        "rdkit": "2026.03.3"
+      }
+    }
+  }
+}

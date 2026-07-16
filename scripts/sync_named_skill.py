@@ -7,7 +7,9 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -152,6 +154,10 @@ def main() -> int:
     parser.add_argument("--confirmed", action="store_true")
     parser.add_argument("--plan-sha256")
     args = parser.parse_args()
+    print(
+        f"runtime: python={Path(sys.executable).resolve()} "
+        f"version={platform.python_version()}"
+    )
     try:
         result = sync_skill(
             Path(args.repo_root), Path(args.installed_root), args.skill,

@@ -55,10 +55,13 @@ class ReleaseHygieneTests(unittest.TestCase):
 
     def test_optional_chemistry_dependencies_are_declared(self) -> None:
         requirements = ROOT / "requirements" / "chemistry.txt"
+        lock = ROOT / "requirements" / "chemistry.lock.txt"
         self.assertTrue(requirements.is_file())
-        declared = requirements.read_text(encoding="utf-8").lower()
+        self.assertTrue(lock.is_file())
+        self.assertIn("-r chemistry.lock.txt", requirements.read_text(encoding="utf-8"))
+        declared = lock.read_text(encoding="utf-8").lower()
         for dependency in ("numpy", "pillow", "rdkit"):
-            self.assertRegex(declared, rf"(?m)^{dependency}[=<>!~]")
+            self.assertRegex(declared, rf"(?m)^{dependency}==[^\s]+$")
 
     def test_offline_ci_uses_audited_actions_and_supported_python_matrix(self) -> None:
         workflow = (
@@ -78,14 +81,10 @@ class ReleaseHygieneTests(unittest.TestCase):
         workflow = (
             ROOT / ".github" / "workflows" / "offline-tests.yml"
         ).read_text(encoding="utf-8")
-        constraints_path = "requirements/chemistry-ci-constraints.txt"
-        self.assertIn(
-            "--requirement requirements/chemistry.txt "
-            "--constraint requirements/chemistry-ci-constraints.txt",
-            workflow,
-        )
-        self.assertIn(constraints_path, workflow)
-        constraints = (ROOT / constraints_path).read_text(encoding="utf-8").lower()
+        lock_path = "requirements/chemistry.lock.txt"
+        self.assertIn("--requirement requirements/chemistry.txt", workflow)
+        self.assertIn(lock_path, workflow)
+        constraints = (ROOT / lock_path).read_text(encoding="utf-8").lower()
         for dependency in ("numpy", "pillow", "rdkit"):
             self.assertRegex(constraints, rf"(?m)^{dependency}==[^\s]+$")
 

@@ -29,7 +29,7 @@ approved protocol, a new formal study can be built with `build-study` and
 Run the offline checks with:
 
 ```bash
-python3 -m unittest tests.test_asymmetric_real_case
+./scripts/python core -m unittest tests.test_asymmetric_real_case
 ```
 
 The separately approved real strict ChemDraw-to-W1 smoke test completed on

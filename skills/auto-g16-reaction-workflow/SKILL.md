@@ -51,7 +51,7 @@ review decision. Then run:
 ```bash
 TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/reaction_workflow.py"
 
-python3 "$TOOL" build-intake intake-request.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-intake intake-request.json \
   --scheme normalized_scheme.json --output reaction-intake.json
 ```
 
@@ -72,7 +72,7 @@ unshown balance species explicitly; never repair an imbalance by changing a
 drawn structure.
 
 ```bash
-python3 "$TOOL" build-registry reaction-intake.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-registry reaction-intake.json \
   --review species-review.json --output species-registry.json
 ```
 
@@ -100,7 +100,7 @@ component policies. A solvent name does not select a continuum model; a
 catalyst or additive does not become a spectator automatically.
 
 ```bash
-python3 "$TOOL" build-condition-model reaction-intake.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-condition-model reaction-intake.json \
   species-registry.json --review condition-review.json \
   --output condition-model.json
 ```
@@ -112,9 +112,9 @@ visible blockers.
 ### 4. Validate and stop at the W1 boundary
 
 ```bash
-python3 "$TOOL" validate reaction-intake.json
-python3 "$TOOL" validate species-registry.json
-python3 "$TOOL" validate condition-model.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" validate reaction-intake.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" validate species-registry.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" validate condition-model.json
 ```
 
 Report each gate as `reviewed`, `reviewed_with_blockers`, or `blocked`, together
@@ -135,10 +135,10 @@ then run:
 ```bash
 NETWORK_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/mechanism_network.py"
 
-python3 "$NETWORK_TOOL" build reaction-intake.json species-registry.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$NETWORK_TOOL" build reaction-intake.json species-registry.json \
   condition-model.json --review mechanism-network-review.json \
   --output mechanism-network.json
-python3 "$NETWORK_TOOL" validate mechanism-network.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$NETWORK_TOOL" validate mechanism-network.json
 ```
 
 This upstream W3 slice validates complete reviewed states, exact atom maps,
@@ -161,18 +161,18 @@ changing its scientific decisions:
 ```bash
 DAG_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/calculation_dag.py"
 
-python3 "$DAG_TOOL" finalize-review calculation-plan-review.draft.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" finalize-review calculation-plan-review.draft.json \
   --output calculation-plan-review.json
 ```
 
 Build and validate the non-executable plan:
 
 ```bash
-python3 "$DAG_TOOL" build-plan reaction-intake.json species-registry.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" build-plan reaction-intake.json species-registry.json \
   condition-model.json mechanism-network.json \
   --review calculation-plan-review.json \
   --output calculation-plan.json
-python3 "$DAG_TOOL" validate-plan calculation-plan.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" validate-plan calculation-plan.json
 ```
 
 Every required artifact binding records its relative path, file SHA-256, byte
@@ -215,9 +215,9 @@ artifacts is refused with a controlled offline contract error.
 Build the immutable read-only resume view only from an exact validated plan:
 
 ```bash
-python3 "$DAG_TOOL" build-index calculation-plan.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" build-index calculation-plan.json \
   --output reaction-study-index.json
-python3 "$DAG_TOOL" validate-index reaction-study-index.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" validate-index reaction-study-index.json
 ```
 
 The index derives stage gates, the last accepted stage, next blockers,
@@ -234,12 +234,12 @@ replace every placeholder with an exact local binding and explicit human
 decision, then run:
 
 ```bash
-python3 "$DAG_TOOL" finalize-target-mapping-review mapping-review.draft.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" finalize-target-mapping-review mapping-review.draft.json \
   --output mapping-review.json
-python3 "$DAG_TOOL" validate-target-mapping-review mapping-review.json
-python3 "$DAG_TOOL" build-node-update mapping-review.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" validate-target-mapping-review mapping-review.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" build-node-update mapping-review.json \
   --output candidate-node-update.json
-python3 "$DAG_TOOL" validate-node-update candidate-node-update.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$DAG_TOOL" validate-node-update candidate-node-update.json
 ```
 
 The `/1` bridge is closed to `expected_node_kind: ts_candidate`,
@@ -270,21 +270,21 @@ schemas. Direct directory copying is not a complete deployment package.
 ```bash
 ADAPTER="skills/auto-g16-reaction-workflow/scripts/calculation_artifacts.py"
 
-python3 "$ADAPTER" export-targets candidate-ledger.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$ADAPTER" export-targets candidate-ledger.json \
   --study asymmetric-study.json --import-id reviewed_target_import \
   --output candidate-target-import.json
 
-python3 "$ADAPTER" build-input-handoff promoted-candidate.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$ADAPTER" build-input-handoff promoted-candidate.json \
   --study asymmetric-study.json --options protocol-options.json \
   --selection protocol-selection.json --review exact-input-review.json \
   --output-input reviewed-ts.gjf \
   --output-manifest reviewed-ts.handoff.json
 
-python3 "$ADAPTER" project-energy promoted-candidate.json parsed-ts-result.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$ADAPTER" project-energy promoted-candidate.json parsed-ts-result.json \
   --review energy-review.json --output-record reviewed-energy.json \
   --output-lineage energy-lineage.json
 
-python3 "$ADAPTER" link-attempt \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$ADAPTER" link-attempt \
   --external-target-key asymmetric_candidate:study_id:candidate_id \
   --input-handoff reviewed-ts.handoff.json \
   --sanitized-job sanitized-job-observation.json \
@@ -292,10 +292,10 @@ python3 "$ADAPTER" link-attempt \
   --mode-review ts-mode-review.json --scientific-decision ts-mode-decision.json \
   --attempt-link-id reviewed_attempt_link --output calculation-attempt-link.json
 
-python3 "$ADAPTER" validate candidate-target-import.json
-python3 "$ADAPTER" validate reviewed-ts.handoff.json
-python3 "$ADAPTER" validate energy-lineage.json
-python3 "$ADAPTER" validate calculation-attempt-link.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$ADAPTER" validate candidate-target-import.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$ADAPTER" validate reviewed-ts.handoff.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$ADAPTER" validate energy-lineage.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$ADAPTER" validate calculation-attempt-link.json
 ```
 
 Validate an energy projection through its lineage sidecar. The bare reviewed
@@ -358,10 +358,10 @@ then run:
 ```bash
 SUPPORT_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/mechanism_support.py"
 
-python3 "$SUPPORT_TOOL" build mechanism-network.json knowledge-snapshot.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$SUPPORT_TOOL" build mechanism-network.json knowledge-snapshot.json \
   literature-evidence.json --review mechanism-support-review.json \
   --output mechanism-support.json
-python3 "$SUPPORT_TOOL" validate mechanism-support.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$SUPPORT_TOOL" validate mechanism-support.json
 ```
 
 The artifact keeps evidence classification separate from two independent
@@ -382,10 +382,10 @@ then run:
 ```bash
 MATRIX_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/mechanism_support_matrix.py"
 
-python3 "$MATRIX_TOOL" build mechanism-support.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$MATRIX_TOOL" build mechanism-support.json \
   --review mechanism-support-matrix-review.json \
   --output mechanism-support-matrix.json
-python3 "$MATRIX_TOOL" validate mechanism-support-matrix.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$MATRIX_TOOL" validate mechanism-support-matrix.json
 ```
 
 `gaussian-reaction-mechanism-support-matrix/1` is a distinct comparison view,
@@ -408,11 +408,11 @@ then run:
 ```bash
 PRECEDENT_TOOL="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/ts_precedent_map.py"
 
-python3 "$PRECEDENT_TOOL" build mechanism-network.json knowledge-snapshot.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$PRECEDENT_TOOL" build mechanism-network.json knowledge-snapshot.json \
   literature-evidence.json mechanism-support.json \
   --review ts-precedent-review.json \
   --output ts-precedent-map.json
-python3 "$PRECEDENT_TOOL" validate ts-precedent-map.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$PRECEDENT_TOOL" validate ts-precedent-map.json
 ```
 
 This converts reviewed edges and evidence into immutable atom-correspondence,

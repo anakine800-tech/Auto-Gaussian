@@ -1,4 +1,5 @@
 {
+  "core_python": "/absolute/path/to/python3.13",
   "rdkit_python": "/path/to/rdkit-enabled-python",
   "chemdraw_pipeline_scripts": "/path/to/auto-g16-chemdraw-pipeline/scripts",
   "rtwin_ssh_config": "/path/to/ignored/ssh_config",

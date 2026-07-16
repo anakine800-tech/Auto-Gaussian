@@ -1,0 +1,6 @@
+name: auto-g16-core
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13.13
+  - pip=26.1.2

@@ -1,6 +1,0 @@
-# Reproducible CI resolution for the optional chemistry dependency set.
-# Verified together by installation and import under Python 3.13 on 2026-07-16.
-# User-facing minimum versions remain in requirements/chemistry.txt.
-numpy==2.2.6
-Pillow==12.2.0
-rdkit==2025.3.5

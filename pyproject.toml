@@ -1,0 +1,13 @@
+[project]
+name = "auto-g16"
+version = "2.2.0"
+description = "Guarded, offline-first Gaussian workflow Skills"
+requires-python = ">=3.11,<3.14"
+dependencies = []
+
+[tool.auto-g16.python]
+default-profile = "core"
+environment-registry = "config/python-environments.json"
+core-environment = "environment.yml"
+chemistry-environment = "environment-chem.yml"
+chemistry-lock = "requirements/chemistry.lock.txt"

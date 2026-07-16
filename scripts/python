@@ -1,0 +1,43 @@
+#!/bin/sh
+# Stable Auto-G16 Python entry point. The bootstrap interpreter only reads the
+# environment registry; scientific scripts are re-executed by the selected,
+# version-checked profile interpreter.
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+HOME_DIR=${HOME:?HOME must be set}
+
+if [ -n "${AUTO_G16_BOOTSTRAP_PYTHON:-}" ]; then
+    BOOTSTRAP=$AUTO_G16_BOOTSTRAP_PYTHON
+elif [ -n "${AUTO_G16_CORE_PYTHON:-}" ]; then
+    BOOTSTRAP=$AUTO_G16_CORE_PYTHON
+elif [ -x "$HOME_DIR/miniforge3/bin/python3" ]; then
+    BOOTSTRAP=$HOME_DIR/miniforge3/bin/python3
+elif [ -x /usr/bin/python3 ]; then
+    BOOTSTRAP=/usr/bin/python3
+else
+    echo "ERROR: no absolute bootstrap Python found; set AUTO_G16_BOOTSTRAP_PYTHON" >&2
+    exit 2
+fi
+
+if [ ! -x "$BOOTSTRAP" ]; then
+    echo "ERROR: bootstrap Python is not executable: $BOOTSTRAP" >&2
+    exit 2
+fi
+
+case "${1:-}" in
+    core|chem)
+        PROFILE=$1
+        shift
+        exec "$BOOTSTRAP" "$SCRIPT_DIR/python_environment.py" run "$PROFILE" -- "$@"
+        ;;
+    check|resolve)
+        exec "$BOOTSTRAP" "$SCRIPT_DIR/python_environment.py" "$@"
+        ;;
+    *)
+        echo "usage: scripts/python {core|chem} PYTHON_ARGS..." >&2
+        echo "       scripts/python check [--profile core|chem] [--skill-sync] [--json]" >&2
+        echo "       scripts/python resolve {core|chem}" >&2
+        exit 2
+        ;;
+esac

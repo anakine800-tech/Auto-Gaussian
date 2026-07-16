@@ -64,36 +64,36 @@ Use this Skill for the scientific layer only. Use `auto-g16-rtwin-pbs` for the R
 ```bash
 TOOL="$HOME/.codex/skills/auto-g16-ts-irc/scripts/ts_irc.py"
 
-python3 "$TOOL" validate-inputs --mode qst2 \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" validate-inputs --mode qst2 \
   --reactant reactant.gjf --product product.gjf --atom-map atom_map.json
-python3 "$TOOL" create-family --input-audit input_audit.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" create-family --input-audit input_audit.json \
   --protocol approved_protocol.json --output family.json
 
-python3 "$TOOL" ingest-terminal \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" ingest-terminal \
   --template terminal-intake-template.json --input exact_input.gjf \
   --job live/project/job.json --log live/project/results/exact_input.log \
   --output live/project/results/terminal_intake.json
 
-python3 "$TOOL" analyze-ts ts_freq.log --output ts_freq_result.json
-python3 "$TOOL" mode-review ts_freq_result.json --output-dir mode_review \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" analyze-ts ts_freq.log --output ts_freq_result.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" mode-review ts_freq_result.json --output-dir mode_review \
   --forming 1,7 --breaking 2,5
-python3 ~/.codex/skills/auto-g16-view-rt-win/scripts/windows_gaussview.py \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" ~/.codex/skills/auto-g16-view-rt-win/scripts/windows_gaussview.py \
   open mode_review/mode_plus.xyz --project abc_mode_plus
-python3 "$TOOL" record-mode-decision mode_review/mode_review.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" record-mode-decision mode_review/mode_review.json \
   --decision accepted --output mode_decision.json --confirmed
 
-python3 "$TOOL" audit-checkpoint \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" audit-checkpoint \
   --ts-input ts.gjf --ts-log ts.log --ts-result ts_freq_result.json \
   --checkpoint ts.chk --mode-review mode_review/mode_review.json \
   --mode-decision mode_decision.json --output checkpoint_audit.json
 
-python3 "$TOOL" build-allcheck-irc \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-allcheck-irc \
   --checkpoint-audit checkpoint_audit.json --checkpoint ts.chk \
   --output reviewed_forward.gjf --direction forward \
   --route '#p <approved IRC Forward route including RCFC Geom=AllCheck Guess=Read>' \
   --memory 12GB --nprocshared 8
 
-python3 "$TOOL" plan-irc family.json --ts-result ts_freq_result.json \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" plan-irc family.json --ts-result ts_freq_result.json \
   --checkpoint ts.chk --mode-review mode_review/mode_review.json \
   --mode-decision mode_decision.json \
   --g16-revision '<revision parsed from TS log>' \
@@ -101,30 +101,30 @@ python3 "$TOOL" plan-irc family.json --ts-result ts_freq_result.json \
   --reverse-route '#p <approved IRC Reverse route>' --forward-project abc_if \
   --reverse-project abc_ir --output irc_plan.json --confirmed
 
-python3 "$TOOL" audit-irc-endpoint \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" audit-irc-endpoint \
   --irc-input irc_forward.gjf --irc-log irc_forward.log \
   --irc-result result.json --job job.json --checkpoint irc_forward.chk \
   --direction forward --chemical-side reactant --expected-points 30 \
   --forming 1,7 --output endpoint_audit.json
 
-python3 "$TOOL" build-allcheck-endpoint \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-allcheck-endpoint \
   --endpoint-audit endpoint_audit.json --checkpoint irc_forward.chk \
   --output endpoint_opt_freq.gjf \
   --route '#p <approved endpoint Opt Freq route including Geom=AllCheck Guess=Read>' \
   --memory 12GB --nprocshared 8
 
-python3 "$TOOL" propose-endpoint-components \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" propose-endpoint-components \
   --endpoint-audit endpoint_audit.json --irc-result result.json \
   --output component_proposal.json
 
 # Create and explicitly confirm a gaussian-irc-component-review/1 record first.
-python3 "$TOOL" build-fragment-endpoints \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-fragment-endpoints \
   --component-proposal component_proposal.json \
   --component-review component_review.json --output-dir fragment_jobs \
   --route '#p <approved explicit-Cartesian Opt Freq route>' \
   --memory 50GB --nprocshared 22
 
-python3 "$TOOL" audit-fragment-endpoints \
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" audit-fragment-endpoints \
   --plan fragment_jobs/fragment_endpoint_plan.json \
   --result project_a=project_a/result.json \
   --result project_b=project_b/result.json \
