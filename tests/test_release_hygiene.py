@@ -60,6 +60,52 @@ class ReleaseHygieneTests(unittest.TestCase):
         for dependency in ("numpy", "pillow", "rdkit"):
             self.assertRegex(declared, rf"(?m)^{dependency}[=<>!~]")
 
+    def test_offline_ci_uses_audited_actions_and_supported_python_matrix(self) -> None:
+        workflow = (
+            ROOT / ".github" / "workflows" / "offline-tests.yml"
+        ).read_text(encoding="utf-8")
+        action_uses = re.findall(
+            r"(?m)^\s*- uses: (actions/(?:checkout|setup-python))@([^\s]+)$",
+            workflow,
+        )
+        self.assertEqual(len(action_uses), 4)
+        for action, revision in action_uses:
+            self.assertRegex(revision, r"^[0-9a-f]{40}$", action)
+        versions = set(re.findall(r'"(3\.1[123])"', workflow))
+        self.assertEqual(versions, {"3.11", "3.12", "3.13"})
+
+    def test_chemistry_ci_resolution_is_constrained(self) -> None:
+        workflow = (
+            ROOT / ".github" / "workflows" / "offline-tests.yml"
+        ).read_text(encoding="utf-8")
+        constraints_path = "requirements/chemistry-ci-constraints.txt"
+        self.assertIn(
+            "--requirement requirements/chemistry.txt "
+            "--constraint requirements/chemistry-ci-constraints.txt",
+            workflow,
+        )
+        self.assertIn(constraints_path, workflow)
+        constraints = (ROOT / constraints_path).read_text(encoding="utf-8").lower()
+        for dependency in ("numpy", "pillow", "rdkit"):
+            self.assertRegex(constraints, rf"(?m)^{dependency}==[^\s]+$")
+
+    def test_repository_status_separates_current_and_historical_evidence(self) -> None:
+        status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
+        self.assertIn("## Current mainline state", status)
+        self.assertIn("external fact outside this checkout", status)
+        for evidence_type in ("Feature", "Deployment", "Test"):
+            self.assertRegex(
+                status,
+                rf"(?m)^### {evidence_type} evidence — \d{{4}}-\d{{2}}-\d{{2}} — commit [0-9a-f]{{40}}$",
+            )
+        for stale in (
+            "current Unreleased feature branch",
+            "current feature branch adds",
+            "remains undeployed",
+            "## Working-tree note",
+        ):
+            self.assertNotIn(stale, status)
+
     def test_no_machine_specific_identity_or_address_is_tracked(self) -> None:
         retired_machine_values = [
             "".join(("sun", "deli")),

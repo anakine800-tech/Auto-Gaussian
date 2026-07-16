@@ -83,6 +83,11 @@ All notable public release changes are recorded here. The project follows
 
 ### Changed
 
+- Clarified the post-2.2.0 release boundary, Python 3.11–3.13 support, and
+  current-versus-historical repository status. Offline CI now covers Python
+  3.13, pins GitHub Actions to audited full commit SHAs, and resolves the
+  optional chemistry stack through a separately verified constraints file
+  while preserving user-facing minimum dependency versions.
 - Treat absence of direct literature precedent as a visible
   `novel_hypothesis_no_direct_precedent` evidence gap rather than automatic
   exclusion from reviewed computational exploration. Analogy and internal
