@@ -1,0 +1,1497 @@
+{
+  "group_by": [],
+  "meta": {
+    "cost_usd": 0.0001,
+    "count": 1,
+    "db_response_time_ms": 46,
+    "groups_count": null,
+    "page": 1,
+    "per_page": 3,
+    "x_query": {
+      "oql": "works where DOI is (https://doi.org/10.1021/jacs.5c13835)",
+      "oqo": {
+        "filter_rows": [
+          {
+            "column_id": "doi",
+            "value": "https://doi.org/10.1021/jacs.5c13835"
+          }
+        ],
+        "get_rows": "works",
+        "per_page": 3
+      },
+      "url": "/works?filter=doi:https:%2F%2Fdoi.org%2F10.1021%2Fjacs.5c13835&per_page=3"
+    }
+  },
+  "results": [
+    {
+      "abstract_inverted_index": {
+        "1,3-disubstituted": [
+          139
+        ],
+        "2-alkylbenzoxazoles": [
+          65,
+          85
+        ],
+        "As": [
+          36
+        ],
+        "Asymmetric": [
+          0
+        ],
+        "Extending": [
+          107
+        ],
+        "Herein,": [
+          50
+        ],
+        "In": [
+          134
+        ],
+        "The": [
+          74
+        ],
+        "This": [
+          27
+        ],
+        "a": [
+          24,
+          37,
+          53,
+          87,
+          119
+        ],
+        "achieving": [
+          99
+        ],
+        "acidic": [
+          20
+        ],
+        "activation": [
+          82
+        ],
+        "acyclic": [
+          138
+        ],
+        "adjacent": [
+          153
+        ],
+        "alkyl": [
+          11
+        ],
+        "alkyl-substituted": [
+          4
+        ],
+        "alkylation": [
+          61,
+          129
+        ],
+        "allenylic": [
+          60
+        ],
+        "allylic": [
+          128,
+          140
+        ],
+        "also": [
+          116
+        ],
+        "and": [
+          58,
+          94,
+          103,
+          105
+        ],
+        "are": [
+          142
+        ],
+        "at": [
+          6
+        ],
+        "azaarenes": [
+          5
+        ],
+        "azaarenes.": [
+          133
+        ],
+        "base.": [
+          26
+        ],
+        "bearing": [
+          151
+        ],
+        "because": [
+          15
+        ],
+        "been": [
+          44
+        ],
+        "bonds": [
+          22
+        ],
+        "borane/nickel": [
+          72
+        ],
+        "borane/palladium": [
+          120
+        ],
+        "borane/transition": [
+          112
+        ],
+        "both": [
+          100
+        ],
+        "by": [
+          33,
+          70,
+          86,
+          92
+        ],
+        "catalysis,": [
+          114
+        ],
+        "catalysis.": [
+          73
+        ],
+        "catalysts.": [
+          35
+        ],
+        "catalytic": [
+          81
+        ],
+        "challenging": [
+          14
+        ],
+        "chiral": [
+          34
+        ],
+        "conjugated": [
+          67
+        ],
+        "construction": [
+          148
+        ],
+        "crucial": [
+          97
+        ],
+        "demonstrate": [
+          117
+        ],
+        "deprotonation": [
+          16,
+          91
+        ],
+        "diastereo-": [
+          57,
+          104
+        ],
+        "effective": [
+          31
+        ],
+        "effectively": [
+          122
+        ],
+        "electrophiles,": [
+          145
+        ],
+        "enabled": [
+          69
+        ],
+        "enabling": [
+          146
+        ],
+        "enantiocontrol": [
+          32
+        ],
+        "enantioselective": [
+          59
+        ],
+        "enantioselectivities.": [
+          106
+        ],
+        "enynes,": [
+          68
+        ],
+        "esters": [
+          141
+        ],
+        "few": [
+          40
+        ],
+        "for": [
+          55,
+          98
+        ],
+        "functionalization": [
+          1
+        ],
+        "have": [
+          43,
+          46
+        ],
+        "high": [
+          101
+        ],
+        "highly": [
+          56
+        ],
+        "hinges": [
+          79
+        ],
+        "impedes": [
+          30
+        ],
+        "is": [
+          13,
+          96
+        ],
+        "limitations": [
+          125
+        ],
+        "metal": [
+          113
+        ],
+        "method": [
+          54,
+          78
+        ],
+        "narrow": [
+          47
+        ],
+        "of": [
+          2,
+          9,
+          17,
+          63,
+          76,
+          83,
+          110,
+          126,
+          131,
+          149
+        ],
+        "often": [
+          29
+        ],
+        "on": [
+          80
+        ],
+        "overcomes": [
+          123
+        ],
+        "palladium-catalyzed": [
+          127
+        ],
+        "particular,": [
+          135
+        ],
+        "permits": [
+          90
+        ],
+        "previously": [
+          136
+        ],
+        "products": [
+          150
+        ],
+        "reactions": [
+          41,
+          62,
+          130
+        ],
+        "rendered": [
+          143
+        ],
+        "report": [
+          52
+        ],
+        "reported": [
+          45
+        ],
+        "requirement": [
+          28
+        ],
+        "requires": [
+          23
+        ],
+        "result,": [
+          38
+        ],
+        "scopes.": [
+          49
+        ],
+        "stereocenters.": [
+          154
+        ],
+        "strong": [
+          25
+        ],
+        "substituent": [
+          12
+        ],
+        "substrate": [
+          48
+        ],
+        "success": [
+          75
+        ],
+        "synergistic": [
+          71,
+          111
+        ],
+        "system": [
+          121
+        ],
+        "that": [
+          42,
+          118
+        ],
+        "the": [
+          7,
+          10,
+          18,
+          39,
+          84,
+          108,
+          124,
+          147
+        ],
+        "this": [
+          77
+        ],
+        "thus": [
+          95
+        ],
+        "triarylborane,": [
+          88
+        ],
+        "triethylamine": [
+          93
+        ],
+        "two": [
+          152
+        ],
+        "unactivated": [
+          3,
+          64,
+          132
+        ],
+        "unreactive": [
+          137
+        ],
+        "utility": [
+          109
+        ],
+        "viable": [
+          144
+        ],
+        "we": [
+          51,
+          115
+        ],
+        "weakly": [
+          19
+        ],
+        "which": [
+          89
+        ],
+        "with": [
+          66
+        ],
+        "yields": [
+          102
+        ],
+        "α-C-H": [
+          21
+        ],
+        "α-position": [
+          8
+        ]
+      },
+      "apc_list": null,
+      "apc_paid": null,
+      "authorships": [
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+            }
+          ],
+          "author": {
+            "display_name": "Qi-Fei Liu",
+            "id": "https://openalex.org/A5007572025",
+            "orcid": null
+          },
+          "author_position": "first",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+          ],
+          "raw_author_name": "Qi-Fei Liu",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+            }
+          ],
+          "author": {
+            "display_name": "Qianqian Peng",
+            "id": "https://openalex.org/A5103746037",
+            "orcid": null
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+          ],
+          "raw_author_name": "Qian-Qian Peng",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+            }
+          ],
+          "author": {
+            "display_name": "Sheng-Shi Hao",
+            "id": null,
+            "orcid": null
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+          ],
+          "raw_author_name": "Sheng-Shi Hao",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            }
+          ],
+          "author": {
+            "display_name": "Lu Liu",
+            "id": "https://openalex.org/A5108125409",
+            "orcid": "https://orcid.org/0009-0003-8497-4135"
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+          ],
+          "raw_author_name": "Lu Liu",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+            }
+          ],
+          "author": {
+            "display_name": "Fu-Hao Zhang",
+            "id": "https://openalex.org/A5033366769",
+            "orcid": null
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+          ],
+          "raw_author_name": "Fu-Hao Zhang",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+            }
+          ],
+          "author": {
+            "display_name": "Zhu-Jun Shi",
+            "id": "https://openalex.org/A5019537447",
+            "orcid": null
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+          ],
+          "raw_author_name": "Zhu-Jun Shi",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+            }
+          ],
+          "author": {
+            "display_name": "Jian‐Hua Xie",
+            "id": "https://openalex.org/A5081876255",
+            "orcid": "https://orcid.org/0000-0003-3907-2530"
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+          ],
+          "raw_author_name": "Jian-Hua Xie",
+          "raw_orcid": "https://orcid.org/0000-0003-3907-2530"
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+            }
+          ],
+          "author": {
+            "display_name": "Chongren Ai",
+            "id": "https://openalex.org/A5050035838",
+            "orcid": null
+          },
+          "author_position": "middle",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": true,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+          ],
+          "raw_author_name": "Chong-Ren Ai",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "Nankai University"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I4210137229"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry"
+            },
+            {
+              "institution_ids": [
+                "https://openalex.org/I205237279"
+              ],
+              "raw_affiliation_string": "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+            }
+          ],
+          "author": {
+            "display_name": "Xiaochen Wang",
+            "id": "https://openalex.org/A5100401905",
+            "orcid": "https://orcid.org/0000-0001-5863-0804"
+          },
+          "author_position": "last",
+          "countries": [
+            "CN",
+            "HU"
+          ],
+          "institutions": [
+            {
+              "country_code": "CN",
+              "display_name": "Nankai University",
+              "id": "https://openalex.org/I205237279",
+              "lineage": [
+                "https://openalex.org/I205237279"
+              ],
+              "ror": "https://ror.org/01y1kjr75",
+              "type": "education"
+            },
+            {
+              "country_code": "HU",
+              "display_name": "Institute of Organic Chemistry",
+              "id": "https://openalex.org/I4210137229",
+              "lineage": [
+                "https://openalex.org/I4210137229",
+                "https://openalex.org/I4387152226",
+                "https://openalex.org/I80251312"
+              ],
+              "ror": "https://ror.org/03azyh744",
+              "type": "facility"
+            }
+          ],
+          "is_corresponding": true,
+          "raw_affiliation_strings": [
+            "Nankai University",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry",
+            "State Key Laboratory and Institute of Elemento-Organic Chemistry, Haihe Laboratory of Sustainable Chemical Transformations, Frontiers Science Center for New Organic Matter, College of Chemistry, Nankai University, Tianjin 300071, China"
+          ],
+          "raw_author_name": "Xiao-Chen Wang",
+          "raw_orcid": "https://orcid.org/0000-0001-5863-0804"
+        }
+      ],
+      "awards": [
+        {
+          "display_name": null,
+          "funder_award_id": "22221002",
+          "funder_display_name": "National Natural Science Foundation of China",
+          "funder_id": "https://openalex.org/F4320321001",
+          "id": "https://openalex.org/G2777012027"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "2021YFA1500200",
+          "funder_display_name": "National Key Research and Development Program of China",
+          "funder_id": "https://openalex.org/F4320335777",
+          "id": "https://openalex.org/G2805647916"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "22371141",
+          "funder_display_name": "National Natural Science Foundation of China",
+          "funder_id": "https://openalex.org/F4320321001",
+          "id": "https://openalex.org/G4840630872"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "22188101",
+          "funder_display_name": "National Natural Science Foundation of China",
+          "funder_id": "https://openalex.org/F4320321001",
+          "id": "https://openalex.org/G4890951106"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "63181206",
+          "funder_display_name": "Nankai University",
+          "funder_id": "https://openalex.org/F4320323021",
+          "id": "https://openalex.org/G8476429284"
+        }
+      ],
+      "best_oa_location": null,
+      "biblio": {
+        "first_page": "40799",
+        "issue": "44",
+        "last_page": "40806",
+        "volume": "147"
+      },
+      "citation_normalized_percentile": {
+        "is_in_top_10_percent": false,
+        "is_in_top_1_percent": false,
+        "value": 0.86183344
+      },
+      "cited_by_count": 3,
+      "cited_by_percentile_year": {
+        "max": 99,
+        "min": 98
+      },
+      "concepts": [
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/C185592680",
+          "level": 0,
+          "score": 0.9682999849319458,
+          "wikidata": "https://www.wikidata.org/wiki/Q2329"
+        },
+        {
+          "display_name": "Deprotonation",
+          "id": "https://openalex.org/C118629725",
+          "level": 3,
+          "score": 0.8736000061035156,
+          "wikidata": "https://www.wikidata.org/wiki/Q2686738"
+        },
+        {
+          "display_name": "Allylic rearrangement",
+          "id": "https://openalex.org/C120095180",
+          "level": 3,
+          "score": 0.8210999965667725,
+          "wikidata": "https://www.wikidata.org/wiki/Q2695010"
+        },
+        {
+          "display_name": "Tsuji–Trost reaction",
+          "id": "https://openalex.org/C27083343",
+          "level": 4,
+          "score": 0.6823999881744385,
+          "wikidata": "https://www.wikidata.org/wiki/Q900629"
+        },
+        {
+          "display_name": "Alkylation",
+          "id": "https://openalex.org/C164361826",
+          "level": 3,
+          "score": 0.6614999771118164,
+          "wikidata": "https://www.wikidata.org/wiki/Q177604"
+        },
+        {
+          "display_name": "Substituent",
+          "id": "https://openalex.org/C2778689049",
+          "level": 2,
+          "score": 0.6132000088691711,
+          "wikidata": "https://www.wikidata.org/wiki/Q898422"
+        },
+        {
+          "display_name": "Enantioselective synthesis",
+          "id": "https://openalex.org/C146686406",
+          "level": 3,
+          "score": 0.5855000019073486,
+          "wikidata": "https://www.wikidata.org/wiki/Q898628"
+        },
+        {
+          "display_name": "Substrate (aquarium)",
+          "id": "https://openalex.org/C2777289219",
+          "level": 2,
+          "score": 0.49239999055862427,
+          "wikidata": "https://www.wikidata.org/wiki/Q7632154"
+        },
+        {
+          "display_name": "Catalysis",
+          "id": "https://openalex.org/C161790260",
+          "level": 2,
+          "score": 0.48899999260902405,
+          "wikidata": "https://www.wikidata.org/wiki/Q82264"
+        },
+        {
+          "display_name": "Combinatorial chemistry",
+          "id": "https://openalex.org/C21951064",
+          "level": 1,
+          "score": 0.47189998626708984,
+          "wikidata": "https://www.wikidata.org/wiki/Q899212"
+        },
+        {
+          "display_name": "Triethylamine",
+          "id": "https://openalex.org/C2781283055",
+          "level": 2,
+          "score": 0.4632999897003174,
+          "wikidata": "https://www.wikidata.org/wiki/Q139199"
+        },
+        {
+          "display_name": "Conjugated system",
+          "id": "https://openalex.org/C112613896",
+          "level": 3,
+          "score": 0.42340001463890076,
+          "wikidata": "https://www.wikidata.org/wiki/Q898370"
+        },
+        {
+          "display_name": "Alkyl",
+          "id": "https://openalex.org/C2780263894",
+          "level": 2,
+          "score": 0.42160001397132874,
+          "wikidata": "https://www.wikidata.org/wiki/Q335268"
+        },
+        {
+          "display_name": "Organic chemistry",
+          "id": "https://openalex.org/C178790620",
+          "level": 1,
+          "score": 0.4185999929904938,
+          "wikidata": "https://www.wikidata.org/wiki/Q11351"
+        },
+        {
+          "display_name": "Medicinal chemistry",
+          "id": "https://openalex.org/C155647269",
+          "level": 1,
+          "score": 0.32690000534057617,
+          "wikidata": "https://www.wikidata.org/wiki/Q243455"
+        },
+        {
+          "display_name": "Reaction conditions",
+          "id": "https://openalex.org/C2991944050",
+          "level": 3,
+          "score": 0.28040000796318054,
+          "wikidata": "https://www.wikidata.org/wiki/Q36534"
+        }
+      ],
+      "content_urls": null,
+      "corresponding_author_ids": [
+        "https://openalex.org/A5050035838",
+        "https://openalex.org/A5100401905"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I205237279",
+        "https://openalex.org/I4210137229"
+      ],
+      "countries_distinct_count": 2,
+      "counts_by_year": [
+        {
+          "cited_by_count": 3,
+          "year": 2026
+        }
+      ],
+      "created_date": "2025-10-24T00:00:00",
+      "display_name": "Borane/Transition Metal–Catalyzed Allenylic and Allylic Alkylation of Unactivated 2-Alkylbenzoxazoles",
+      "doi": "https://doi.org/10.1021/jacs.5c13835",
+      "funders": [
+        {
+          "display_name": "National Natural Science Foundation of China",
+          "id": "https://openalex.org/F4320321001",
+          "ror": "https://ror.org/01h0zpd94"
+        },
+        {
+          "display_name": "Nankai University",
+          "id": "https://openalex.org/F4320323021",
+          "ror": "https://ror.org/01y1kjr75"
+        },
+        {
+          "display_name": "National Key Research and Development Program of China",
+          "id": "https://openalex.org/F4320335777",
+          "ror": null
+        }
+      ],
+      "fwci": 1.9164,
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": false
+      },
+      "has_fulltext": false,
+      "id": "https://openalex.org/W4415522813",
+      "ids": {
+        "doi": "https://doi.org/10.1021/jacs.5c13835",
+        "openalex": "https://openalex.org/W4415522813",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/41134299"
+      },
+      "indexed_in": [
+        "crossref",
+        "pubmed"
+      ],
+      "institutions": [],
+      "institutions_distinct_count": 9,
+      "is_paratext": false,
+      "is_retracted": false,
+      "is_xpac": false,
+      "keywords": [
+        {
+          "display_name": "Deprotonation",
+          "id": "https://openalex.org/keywords/deprotonation",
+          "score": 0.8736000061035156
+        },
+        {
+          "display_name": "Allylic rearrangement",
+          "id": "https://openalex.org/keywords/allylic-rearrangement",
+          "score": 0.8210999965667725
+        },
+        {
+          "display_name": "Tsuji–Trost reaction",
+          "id": "https://openalex.org/keywords/tsuji–trost-reaction",
+          "score": 0.6823999881744385
+        },
+        {
+          "display_name": "Alkylation",
+          "id": "https://openalex.org/keywords/alkylation",
+          "score": 0.6614999771118164
+        },
+        {
+          "display_name": "Substituent",
+          "id": "https://openalex.org/keywords/substituent",
+          "score": 0.6132000088691711
+        },
+        {
+          "display_name": "Enantioselective synthesis",
+          "id": "https://openalex.org/keywords/enantioselective-synthesis",
+          "score": 0.5855000019073486
+        }
+      ],
+      "language": "en",
+      "locations": [
+        {
+          "id": "doi:10.1021/jacs.5c13835",
+          "is_accepted": true,
+          "is_oa": false,
+          "is_published": true,
+          "landing_page_url": "https://doi.org/10.1021/jacs.5c13835",
+          "license": null,
+          "license_id": null,
+          "pdf_url": null,
+          "raw_source_name": "Journal of the American Chemical Society",
+          "raw_type": "journal-article",
+          "source": {
+            "display_name": "Journal of the American Chemical Society",
+            "host_organization": "https://openalex.org/P4310320006",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320006"
+            ],
+            "host_organization_lineage_names": [
+              "American Chemical Society"
+            ],
+            "host_organization_name": "American Chemical Society",
+            "id": "https://openalex.org/S111155417",
+            "is_core": true,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": [
+              "0002-7863",
+              "1520-5126",
+              "1943-2984"
+            ],
+            "issn_l": "0002-7863",
+            "type": "journal"
+          },
+          "version": "publishedVersion"
+        },
+        {
+          "id": "pmid:41134299",
+          "is_accepted": true,
+          "is_oa": false,
+          "is_published": true,
+          "landing_page_url": "https://pubmed.ncbi.nlm.nih.gov/41134299",
+          "license": null,
+          "license_id": null,
+          "pdf_url": null,
+          "raw_source_name": "Journal of the American Chemical Society",
+          "raw_type": null,
+          "source": {
+            "display_name": "PubMed",
+            "host_organization": "https://openalex.org/I1299303238",
+            "host_organization_lineage": [
+              "https://openalex.org/I1299303238"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "National Institutes of Health",
+            "id": "https://openalex.org/S4306525036",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "publishedVersion"
+        }
+      ],
+      "locations_count": 2,
+      "mesh": [],
+      "open_access": {
+        "any_repository_has_fulltext": false,
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null
+      },
+      "primary_location": {
+        "id": "doi:10.1021/jacs.5c13835",
+        "is_accepted": true,
+        "is_oa": false,
+        "is_published": true,
+        "landing_page_url": "https://doi.org/10.1021/jacs.5c13835",
+        "license": null,
+        "license_id": null,
+        "pdf_url": null,
+        "raw_source_name": "Journal of the American Chemical Society",
+        "raw_type": "journal-article",
+        "source": {
+          "display_name": "Journal of the American Chemical Society",
+          "host_organization": "https://openalex.org/P4310320006",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320006"
+          ],
+          "host_organization_lineage_names": [
+            "American Chemical Society"
+          ],
+          "host_organization_name": "American Chemical Society",
+          "id": "https://openalex.org/S111155417",
+          "is_core": true,
+          "is_in_doaj": false,
+          "is_oa": false,
+          "issn": [
+            "0002-7863",
+            "1520-5126",
+            "1943-2984"
+          ],
+          "issn_l": "0002-7863",
+          "type": "journal"
+        },
+        "version": "publishedVersion"
+      },
+      "primary_topic": {
+        "display_name": "Organoboron and organosilicon chemistry",
+        "domain": {
+          "display_name": "Physical Sciences",
+          "id": "https://openalex.org/domains/3"
+        },
+        "field": {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/fields/16"
+        },
+        "id": "https://openalex.org/T11441",
+        "score": 0.9998999834060669,
+        "subfield": {
+          "display_name": "Organic Chemistry",
+          "id": "https://openalex.org/subfields/1605"
+        }
+      },
+      "publication_date": "2025-10-24",
+      "publication_year": 2025,
+      "referenced_works": [
+        "https://openalex.org/W1937779226",
+        "https://openalex.org/W1964692505",
+        "https://openalex.org/W1973499955",
+        "https://openalex.org/W1982214939",
+        "https://openalex.org/W1987753766",
+        "https://openalex.org/W2010878369",
+        "https://openalex.org/W2014489293",
+        "https://openalex.org/W2064998085",
+        "https://openalex.org/W2070559249",
+        "https://openalex.org/W2077104814",
+        "https://openalex.org/W2078955698",
+        "https://openalex.org/W2083546911",
+        "https://openalex.org/W2092558045",
+        "https://openalex.org/W2171184734",
+        "https://openalex.org/W2267483994",
+        "https://openalex.org/W2293647565",
+        "https://openalex.org/W2407040666",
+        "https://openalex.org/W2560096417",
+        "https://openalex.org/W2571321338",
+        "https://openalex.org/W2592216807",
+        "https://openalex.org/W2601730875",
+        "https://openalex.org/W2729233269",
+        "https://openalex.org/W2751116624",
+        "https://openalex.org/W2752666318",
+        "https://openalex.org/W2778288459",
+        "https://openalex.org/W2784276047",
+        "https://openalex.org/W2792833810",
+        "https://openalex.org/W2800179861",
+        "https://openalex.org/W2800630960",
+        "https://openalex.org/W2800680133",
+        "https://openalex.org/W2802454936",
+        "https://openalex.org/W2806278407",
+        "https://openalex.org/W2880853724",
+        "https://openalex.org/W2890726722",
+        "https://openalex.org/W2891425610",
+        "https://openalex.org/W2917398445",
+        "https://openalex.org/W2944619666",
+        "https://openalex.org/W2952422722",
+        "https://openalex.org/W2963168922",
+        "https://openalex.org/W2964175616",
+        "https://openalex.org/W2969214357",
+        "https://openalex.org/W2969856757",
+        "https://openalex.org/W2972905481",
+        "https://openalex.org/W3008144924",
+        "https://openalex.org/W3118564699",
+        "https://openalex.org/W3127654797",
+        "https://openalex.org/W3163473284",
+        "https://openalex.org/W3213410705",
+        "https://openalex.org/W4214936865",
+        "https://openalex.org/W4288753042",
+        "https://openalex.org/W4307645913",
+        "https://openalex.org/W4377099782",
+        "https://openalex.org/W4377238978",
+        "https://openalex.org/W4387581039",
+        "https://openalex.org/W4387884356",
+        "https://openalex.org/W4388659367",
+        "https://openalex.org/W4389221220",
+        "https://openalex.org/W4393092132",
+        "https://openalex.org/W4400581728",
+        "https://openalex.org/W4400989810",
+        "https://openalex.org/W4401727937",
+        "https://openalex.org/W4402966563",
+        "https://openalex.org/W4404977751",
+        "https://openalex.org/W4405740300",
+        "https://openalex.org/W4410260938"
+      ],
+      "referenced_works_count": 65,
+      "related_works": [],
+      "sustainable_development_goals": [],
+      "title": "Borane/Transition Metal–Catalyzed Allenylic and Allylic Alkylation of Unactivated 2-Alkylbenzoxazoles",
+      "topics": [
+        {
+          "display_name": "Organoboron and organosilicon chemistry",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemistry",
+            "id": "https://openalex.org/fields/16"
+          },
+          "id": "https://openalex.org/T11441",
+          "score": 0.9998999834060669,
+          "subfield": {
+            "display_name": "Organic Chemistry",
+            "id": "https://openalex.org/subfields/1605"
+          }
+        },
+        {
+          "display_name": "Catalytic C–H Functionalization Methods",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemistry",
+            "id": "https://openalex.org/fields/16"
+          },
+          "id": "https://openalex.org/T10354",
+          "score": 0.9995999932289124,
+          "subfield": {
+            "display_name": "Organic Chemistry",
+            "id": "https://openalex.org/subfields/1605"
+          }
+        },
+        {
+          "display_name": "Catalytic Cross-Coupling Reactions",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemistry",
+            "id": "https://openalex.org/fields/16"
+          },
+          "id": "https://openalex.org/T10548",
+          "score": 0.9973000288009644,
+          "subfield": {
+            "display_name": "Organic Chemistry",
+            "id": "https://openalex.org/subfields/1605"
+          }
+        }
+      ],
+      "type": "article",
+      "updated_date": "2026-06-25T08:15:23.626066"
+    }
+  ]
+}

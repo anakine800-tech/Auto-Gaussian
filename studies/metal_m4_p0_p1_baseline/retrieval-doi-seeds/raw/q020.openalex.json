@@ -1,0 +1,844 @@
+{
+  "group_by": [],
+  "meta": {
+    "cost_usd": 0.0001,
+    "count": 1,
+    "db_response_time_ms": 28,
+    "groups_count": null,
+    "page": 1,
+    "per_page": 3,
+    "x_query": {
+      "oql": "works where DOI is (https://doi.org/10.1021/acs.jctc.1c01126)",
+      "oqo": {
+        "filter_rows": [
+          {
+            "column_id": "doi",
+            "value": "https://doi.org/10.1021/acs.jctc.1c01126"
+          }
+        ],
+        "get_rows": "works",
+        "per_page": 3
+      },
+      "url": "/works?filter=doi:https:%2F%2Fdoi.org%2F10.1021%2Facs.jctc.1c01126&per_page=3"
+    }
+  },
+  "results": [
+    {
+      "abstract_inverted_index": {
+        "[TPSS].": [
+          0
+        ]
+      },
+      "apc_list": null,
+      "apc_paid": null,
+      "authorships": [
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I53964585"
+              ],
+              "raw_affiliation_string": "Department of Molecular Chemistry and Materials Science, Weizmann Institute of Science, Reḥovot 7610001, Israel"
+            }
+          ],
+          "author": {
+            "display_name": "Emmanouil Semidalas",
+            "id": "https://openalex.org/A5012118886",
+            "orcid": "https://orcid.org/0000-0002-4464-4057"
+          },
+          "author_position": "first",
+          "countries": [
+            "IL"
+          ],
+          "institutions": [
+            {
+              "country_code": "IL",
+              "display_name": "Weizmann Institute of Science",
+              "id": "https://openalex.org/I53964585",
+              "lineage": [
+                "https://openalex.org/I53964585"
+              ],
+              "ror": "https://ror.org/0316ej306",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Department of Molecular Chemistry and Materials Science, Weizmann Institute of Science, Reḥovot 7610001, Israel"
+          ],
+          "raw_author_name": "Emmanouil Semidalas",
+          "raw_orcid": "https://orcid.org/0000-0002-4464-4057"
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I53964585"
+              ],
+              "raw_affiliation_string": "Department of Molecular Chemistry and Materials Science, Weizmann Institute of Science, Reḥovot 7610001, Israel"
+            }
+          ],
+          "author": {
+            "display_name": "Jan M. L. Martin",
+            "id": "https://openalex.org/A5015331508",
+            "orcid": "https://orcid.org/0000-0002-0005-5074"
+          },
+          "author_position": "last",
+          "countries": [
+            "IL"
+          ],
+          "institutions": [
+            {
+              "country_code": "IL",
+              "display_name": "Weizmann Institute of Science",
+              "id": "https://openalex.org/I53964585",
+              "lineage": [
+                "https://openalex.org/I53964585"
+              ],
+              "ror": "https://ror.org/0316ej306",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": true,
+          "raw_affiliation_strings": [
+            "Department of Molecular Chemistry and Materials Science, Weizmann Institute of Science, Reḥovot 7610001, Israel"
+          ],
+          "raw_author_name": "Jan M.L. Martin",
+          "raw_orcid": "https://orcid.org/0000-0002-0005-5074"
+        }
+      ],
+      "awards": [
+        {
+          "display_name": null,
+          "funder_award_id": "2020/05",
+          "funder_display_name": "Minerva Foundation",
+          "funder_id": "https://openalex.org/F4320320878",
+          "id": "https://openalex.org/G3502236132"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "F ZP 052-1/2019-2020",
+          "funder_display_name": "Alexander S. Onassis Public Benefit Foundation",
+          "funder_id": "https://openalex.org/F4320323220",
+          "id": "https://openalex.org/G3914125424"
+        },
+        {
+          "display_name": null,
+          "funder_award_id": "1969/20",
+          "funder_display_name": "Israel Science Foundation",
+          "funder_id": "https://openalex.org/F4320322252",
+          "id": "https://openalex.org/G5006546076"
+        }
+      ],
+      "best_oa_location": {
+        "id": "doi:10.1021/acs.jctc.1c01126",
+        "is_accepted": true,
+        "is_oa": true,
+        "is_published": true,
+        "landing_page_url": "https://doi.org/10.1021/acs.jctc.1c01126",
+        "license": "cc-by",
+        "license_id": "https://openalex.org/licenses/cc-by",
+        "pdf_url": "https://pubs.acs.org/doi/pdf/10.1021/acs.jctc.1c01126",
+        "raw_source_name": "Journal of Chemical Theory and Computation",
+        "raw_type": "journal-article",
+        "source": {
+          "display_name": "Journal of Chemical Theory and Computation",
+          "host_organization": "https://openalex.org/P4310320006",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320006"
+          ],
+          "host_organization_lineage_names": [
+            "American Chemical Society"
+          ],
+          "host_organization_name": "American Chemical Society",
+          "id": "https://openalex.org/S189701308",
+          "is_core": true,
+          "is_in_doaj": false,
+          "is_oa": false,
+          "issn": [
+            "1549-9618",
+            "1549-9626"
+          ],
+          "issn_l": "1549-9618",
+          "type": "journal"
+        },
+        "version": "publishedVersion"
+      },
+      "biblio": {
+        "first_page": "883",
+        "issue": "2",
+        "last_page": "898",
+        "volume": "18"
+      },
+      "citation_normalized_percentile": {
+        "is_in_top_10_percent": true,
+        "is_in_top_1_percent": false,
+        "value": 0.95431718
+      },
+      "cited_by_count": 63,
+      "cited_by_percentile_year": {
+        "max": 100,
+        "min": 99
+      },
+      "concepts": [
+        {
+          "display_name": "Coupled cluster",
+          "id": "https://openalex.org/C19637589",
+          "level": 3,
+          "score": 0.6556170582771301,
+          "wikidata": "https://www.wikidata.org/wiki/Q1117940"
+        },
+        {
+          "display_name": "Benchmark (surveying)",
+          "id": "https://openalex.org/C185798385",
+          "level": 2,
+          "score": 0.5543239116668701,
+          "wikidata": "https://www.wikidata.org/wiki/Q1161707"
+        },
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/C185592680",
+          "level": 0,
+          "score": 0.4821171760559082,
+          "wikidata": "https://www.wikidata.org/wiki/Q2329"
+        },
+        {
+          "display_name": "Basis set",
+          "id": "https://openalex.org/C65956243",
+          "level": 3,
+          "score": 0.47353193163871765,
+          "wikidata": "https://www.wikidata.org/wiki/Q2664086"
+        },
+        {
+          "display_name": "Correlation",
+          "id": "https://openalex.org/C117220453",
+          "level": 2,
+          "score": 0.47007089853286743,
+          "wikidata": "https://www.wikidata.org/wiki/Q5172842"
+        },
+        {
+          "display_name": "Atomic orbital",
+          "id": "https://openalex.org/C189394030",
+          "level": 3,
+          "score": 0.45526838302612305,
+          "wikidata": "https://www.wikidata.org/wiki/Q53860"
+        },
+        {
+          "display_name": "Density functional theory",
+          "id": "https://openalex.org/C152365726",
+          "level": 2,
+          "score": 0.4428861439228058,
+          "wikidata": "https://www.wikidata.org/wiki/Q1048589"
+        },
+        {
+          "display_name": "Computational chemistry",
+          "id": "https://openalex.org/C147597530",
+          "level": 1,
+          "score": 0.40692228078842163,
+          "wikidata": "https://www.wikidata.org/wiki/Q369472"
+        },
+        {
+          "display_name": "Physics",
+          "id": "https://openalex.org/C121332964",
+          "level": 0,
+          "score": 0.40057143568992615,
+          "wikidata": "https://www.wikidata.org/wiki/Q413"
+        },
+        {
+          "display_name": "Statistical physics",
+          "id": "https://openalex.org/C121864883",
+          "level": 1,
+          "score": 0.34442365169525146,
+          "wikidata": "https://www.wikidata.org/wiki/Q677916"
+        },
+        {
+          "display_name": "Molecule",
+          "id": "https://openalex.org/C32909587",
+          "level": 2,
+          "score": 0.32635992765426636,
+          "wikidata": "https://www.wikidata.org/wiki/Q11369"
+        },
+        {
+          "display_name": "Quantum mechanics",
+          "id": "https://openalex.org/C62520636",
+          "level": 1,
+          "score": 0.3208726644515991,
+          "wikidata": "https://www.wikidata.org/wiki/Q944"
+        },
+        {
+          "display_name": "Thermodynamics",
+          "id": "https://openalex.org/C97355855",
+          "level": 1,
+          "score": 0.3204299211502075,
+          "wikidata": "https://www.wikidata.org/wiki/Q11473"
+        },
+        {
+          "display_name": "Mathematics",
+          "id": "https://openalex.org/C33923547",
+          "level": 0,
+          "score": 0.2616536021232605,
+          "wikidata": "https://www.wikidata.org/wiki/Q395"
+        },
+        {
+          "display_name": "Geodesy",
+          "id": "https://openalex.org/C13280743",
+          "level": 1,
+          "score": 0.0,
+          "wikidata": "https://www.wikidata.org/wiki/Q131089"
+        },
+        {
+          "display_name": "Electron",
+          "id": "https://openalex.org/C147120987",
+          "level": 2,
+          "score": 0.0,
+          "wikidata": "https://www.wikidata.org/wiki/Q2225"
+        },
+        {
+          "display_name": "Geometry",
+          "id": "https://openalex.org/C2524010",
+          "level": 1,
+          "score": 0.0,
+          "wikidata": "https://www.wikidata.org/wiki/Q8087"
+        },
+        {
+          "display_name": "Geography",
+          "id": "https://openalex.org/C205649164",
+          "level": 0,
+          "score": 0.0,
+          "wikidata": "https://www.wikidata.org/wiki/Q1071"
+        }
+      ],
+      "content_urls": {
+        "pdf": "https://content.openalex.org/works/W3213086071.pdf"
+      },
+      "corresponding_author_ids": [
+        "https://openalex.org/A5015331508"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I53964585"
+      ],
+      "countries_distinct_count": 1,
+      "counts_by_year": [
+        {
+          "cited_by_count": 5,
+          "year": 2026
+        },
+        {
+          "cited_by_count": 15,
+          "year": 2025
+        },
+        {
+          "cited_by_count": 13,
+          "year": 2024
+        },
+        {
+          "cited_by_count": 22,
+          "year": 2023
+        },
+        {
+          "cited_by_count": 8,
+          "year": 2022
+        }
+      ],
+      "created_date": "2025-10-10T00:00:00",
+      "display_name": "The MOBH35 Metal–Organic Barrier Heights Reconsidered: Performance of Local-Orbital Coupled Cluster Approaches in Different Static Correlation Regimes",
+      "doi": "https://doi.org/10.1021/acs.jctc.1c01126",
+      "funders": [
+        {
+          "display_name": "Minerva Foundation",
+          "id": "https://openalex.org/F4320320878",
+          "ror": "https://ror.org/02rxjts25"
+        },
+        {
+          "display_name": "Israel Science Foundation",
+          "id": "https://openalex.org/F4320322252",
+          "ror": "https://ror.org/04sazxf24"
+        },
+        {
+          "display_name": "Alexander S. Onassis Public Benefit Foundation",
+          "id": "https://openalex.org/F4320323220",
+          "ror": "https://ror.org/017nq0d63"
+        },
+        {
+          "display_name": "Helen and Martin Kimmel Center for Molecular Design, Weizmann Institute of Science",
+          "id": "https://openalex.org/F4320336936",
+          "ror": null
+        }
+      ],
+      "fwci": 4.239,
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": true
+      },
+      "has_fulltext": false,
+      "id": "https://openalex.org/W3213086071",
+      "ids": {
+        "doi": "https://doi.org/10.1021/acs.jctc.1c01126",
+        "mag": "3213086071",
+        "openalex": "https://openalex.org/W3213086071",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/35045709"
+      },
+      "indexed_in": [
+        "arxiv",
+        "crossref",
+        "pubmed"
+      ],
+      "institutions": [],
+      "institutions_distinct_count": 1,
+      "is_paratext": false,
+      "is_retracted": false,
+      "is_xpac": false,
+      "keywords": [
+        {
+          "display_name": "Coupled cluster",
+          "id": "https://openalex.org/keywords/coupled-cluster",
+          "score": 0.6556170582771301
+        },
+        {
+          "display_name": "Benchmark (surveying)",
+          "id": "https://openalex.org/keywords/benchmark",
+          "score": 0.5543239116668701
+        },
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/keywords/chemistry",
+          "score": 0.4821171760559082
+        },
+        {
+          "display_name": "Basis set",
+          "id": "https://openalex.org/keywords/basis-set",
+          "score": 0.47353193163871765
+        },
+        {
+          "display_name": "Correlation",
+          "id": "https://openalex.org/keywords/correlation",
+          "score": 0.47007089853286743
+        },
+        {
+          "display_name": "Atomic orbital",
+          "id": "https://openalex.org/keywords/atomic-orbital",
+          "score": 0.45526838302612305
+        },
+        {
+          "display_name": "Density functional theory",
+          "id": "https://openalex.org/keywords/density-functional-theory",
+          "score": 0.4428861439228058
+        },
+        {
+          "display_name": "Computational chemistry",
+          "id": "https://openalex.org/keywords/computational-chemistry",
+          "score": 0.40692228078842163
+        },
+        {
+          "display_name": "Physics",
+          "id": "https://openalex.org/keywords/physics",
+          "score": 0.40057143568992615
+        },
+        {
+          "display_name": "Statistical physics",
+          "id": "https://openalex.org/keywords/statistical-physics",
+          "score": 0.34442365169525146
+        },
+        {
+          "display_name": "Molecule",
+          "id": "https://openalex.org/keywords/molecule",
+          "score": 0.32635992765426636
+        },
+        {
+          "display_name": "Quantum mechanics",
+          "id": "https://openalex.org/keywords/quantum-mechanics",
+          "score": 0.3208726644515991
+        },
+        {
+          "display_name": "Thermodynamics",
+          "id": "https://openalex.org/keywords/thermodynamics",
+          "score": 0.3204299211502075
+        },
+        {
+          "display_name": "Mathematics",
+          "id": "https://openalex.org/keywords/mathematics",
+          "score": 0.2616536021232605
+        }
+      ],
+      "language": "en",
+      "locations": [
+        {
+          "id": "doi:10.1021/acs.jctc.1c01126",
+          "is_accepted": true,
+          "is_oa": true,
+          "is_published": true,
+          "landing_page_url": "https://doi.org/10.1021/acs.jctc.1c01126",
+          "license": "cc-by",
+          "license_id": "https://openalex.org/licenses/cc-by",
+          "pdf_url": "https://pubs.acs.org/doi/pdf/10.1021/acs.jctc.1c01126",
+          "raw_source_name": "Journal of Chemical Theory and Computation",
+          "raw_type": "journal-article",
+          "source": {
+            "display_name": "Journal of Chemical Theory and Computation",
+            "host_organization": "https://openalex.org/P4310320006",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320006"
+            ],
+            "host_organization_lineage_names": [
+              "American Chemical Society"
+            ],
+            "host_organization_name": "American Chemical Society",
+            "id": "https://openalex.org/S189701308",
+            "is_core": true,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": [
+              "1549-9618",
+              "1549-9626"
+            ],
+            "issn_l": "1549-9618",
+            "type": "journal"
+          },
+          "version": "publishedVersion"
+        },
+        {
+          "id": "pmid:35045709",
+          "is_accepted": true,
+          "is_oa": false,
+          "is_published": true,
+          "landing_page_url": "https://pubmed.ncbi.nlm.nih.gov/35045709",
+          "license": null,
+          "license_id": null,
+          "pdf_url": null,
+          "raw_source_name": "Journal of chemical theory and computation",
+          "raw_type": null,
+          "source": {
+            "display_name": "PubMed",
+            "host_organization": "https://openalex.org/I1299303238",
+            "host_organization_lineage": [
+              "https://openalex.org/I1299303238"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "National Institutes of Health",
+            "id": "https://openalex.org/S4306525036",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "publishedVersion"
+        },
+        {
+          "id": "pmh:oai:arXiv.org:2111.04777",
+          "is_accepted": false,
+          "is_oa": true,
+          "is_published": false,
+          "landing_page_url": "http://arxiv.org/abs/2111.04777",
+          "license": null,
+          "license_id": null,
+          "pdf_url": "https://arxiv.org/pdf/2111.04777",
+          "raw_source_name": null,
+          "raw_type": "text",
+          "source": {
+            "display_name": "arXiv (Cornell University)",
+            "host_organization": "https://openalex.org/I205783295",
+            "host_organization_lineage": [
+              "https://openalex.org/I205783295"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "Cornell University",
+            "id": "https://openalex.org/S4306400194",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": true,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "submittedVersion"
+        },
+        {
+          "id": "pmh:oai:pubmedcentral.nih.gov:8830049",
+          "is_accepted": false,
+          "is_oa": true,
+          "is_published": false,
+          "landing_page_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/8830049",
+          "license": "cc-by",
+          "license_id": "https://openalex.org/licenses/cc-by",
+          "pdf_url": null,
+          "raw_source_name": "J Chem Theory Comput",
+          "raw_type": "Text",
+          "source": {
+            "display_name": "PubMed Central",
+            "host_organization": "https://openalex.org/I1299303238",
+            "host_organization_lineage": [
+              "https://openalex.org/I1299303238"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "National Institutes of Health",
+            "id": "https://openalex.org/S2764455111",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": true,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "submittedVersion"
+        }
+      ],
+      "locations_count": 4,
+      "mesh": [],
+      "open_access": {
+        "any_repository_has_fulltext": true,
+        "is_oa": true,
+        "oa_status": "hybrid",
+        "oa_url": "https://pubs.acs.org/doi/pdf/10.1021/acs.jctc.1c01126"
+      },
+      "primary_location": {
+        "id": "doi:10.1021/acs.jctc.1c01126",
+        "is_accepted": true,
+        "is_oa": true,
+        "is_published": true,
+        "landing_page_url": "https://doi.org/10.1021/acs.jctc.1c01126",
+        "license": "cc-by",
+        "license_id": "https://openalex.org/licenses/cc-by",
+        "pdf_url": "https://pubs.acs.org/doi/pdf/10.1021/acs.jctc.1c01126",
+        "raw_source_name": "Journal of Chemical Theory and Computation",
+        "raw_type": "journal-article",
+        "source": {
+          "display_name": "Journal of Chemical Theory and Computation",
+          "host_organization": "https://openalex.org/P4310320006",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320006"
+          ],
+          "host_organization_lineage_names": [
+            "American Chemical Society"
+          ],
+          "host_organization_name": "American Chemical Society",
+          "id": "https://openalex.org/S189701308",
+          "is_core": true,
+          "is_in_doaj": false,
+          "is_oa": false,
+          "issn": [
+            "1549-9618",
+            "1549-9626"
+          ],
+          "issn_l": "1549-9618",
+          "type": "journal"
+        },
+        "version": "publishedVersion"
+      },
+      "primary_topic": {
+        "display_name": "Asymmetric Hydrogenation and Catalysis",
+        "domain": {
+          "display_name": "Physical Sciences",
+          "id": "https://openalex.org/domains/3"
+        },
+        "field": {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/fields/16"
+        },
+        "id": "https://openalex.org/T11281",
+        "score": 0.9995999932289124,
+        "subfield": {
+          "display_name": "Inorganic Chemistry",
+          "id": "https://openalex.org/subfields/1604"
+        }
+      },
+      "publication_date": "2022-01-19",
+      "publication_year": 2022,
+      "referenced_works": [
+        "https://openalex.org/W1596146594",
+        "https://openalex.org/W1970000657",
+        "https://openalex.org/W1972160231",
+        "https://openalex.org/W1973799503",
+        "https://openalex.org/W1976774792",
+        "https://openalex.org/W1976828279",
+        "https://openalex.org/W1978455437",
+        "https://openalex.org/W1980438315",
+        "https://openalex.org/W1980473944",
+        "https://openalex.org/W1981368803",
+        "https://openalex.org/W1981807278",
+        "https://openalex.org/W1984964490",
+        "https://openalex.org/W1988091937",
+        "https://openalex.org/W1989371738",
+        "https://openalex.org/W1991180721",
+        "https://openalex.org/W1992346891",
+        "https://openalex.org/W1997036033",
+        "https://openalex.org/W1998434228",
+        "https://openalex.org/W2001781331",
+        "https://openalex.org/W2002077442",
+        "https://openalex.org/W2008423326",
+        "https://openalex.org/W2010399932",
+        "https://openalex.org/W2014900585",
+        "https://openalex.org/W2017245598",
+        "https://openalex.org/W2017583835",
+        "https://openalex.org/W2018674598",
+        "https://openalex.org/W2021158289",
+        "https://openalex.org/W2035963412",
+        "https://openalex.org/W2038451118",
+        "https://openalex.org/W2039293281",
+        "https://openalex.org/W2044507210",
+        "https://openalex.org/W2045210181",
+        "https://openalex.org/W2050729144",
+        "https://openalex.org/W2050858126",
+        "https://openalex.org/W2051891162",
+        "https://openalex.org/W2056361814",
+        "https://openalex.org/W2057367433",
+        "https://openalex.org/W2057521586",
+        "https://openalex.org/W2061369359",
+        "https://openalex.org/W2062991523",
+        "https://openalex.org/W2067362550",
+        "https://openalex.org/W2068947977",
+        "https://openalex.org/W2069342338",
+        "https://openalex.org/W2078511427",
+        "https://openalex.org/W2082037815",
+        "https://openalex.org/W2092930273",
+        "https://openalex.org/W2094536236",
+        "https://openalex.org/W2096747776",
+        "https://openalex.org/W2097574296",
+        "https://openalex.org/W2099796414",
+        "https://openalex.org/W2104631894",
+        "https://openalex.org/W2109314832",
+        "https://openalex.org/W2110733790",
+        "https://openalex.org/W2119193951",
+        "https://openalex.org/W2127580921",
+        "https://openalex.org/W2130074818",
+        "https://openalex.org/W2132799557",
+        "https://openalex.org/W2133824255",
+        "https://openalex.org/W2144596014",
+        "https://openalex.org/W2144786012",
+        "https://openalex.org/W2147626542",
+        "https://openalex.org/W2160425716",
+        "https://openalex.org/W2165131446",
+        "https://openalex.org/W2169892960",
+        "https://openalex.org/W2315689622",
+        "https://openalex.org/W2318139590",
+        "https://openalex.org/W2318775199",
+        "https://openalex.org/W2332752561",
+        "https://openalex.org/W2333875011",
+        "https://openalex.org/W2484276062",
+        "https://openalex.org/W2562379986",
+        "https://openalex.org/W2582743722",
+        "https://openalex.org/W2607884604",
+        "https://openalex.org/W2608245994",
+        "https://openalex.org/W2611394338",
+        "https://openalex.org/W2614641477",
+        "https://openalex.org/W2621161140",
+        "https://openalex.org/W2625340301",
+        "https://openalex.org/W2726770424",
+        "https://openalex.org/W2729895185",
+        "https://openalex.org/W2754419863",
+        "https://openalex.org/W2757591247",
+        "https://openalex.org/W2766033847",
+        "https://openalex.org/W2775561819",
+        "https://openalex.org/W2782113496",
+        "https://openalex.org/W2790580607",
+        "https://openalex.org/W2798993728",
+        "https://openalex.org/W2810062942",
+        "https://openalex.org/W2813651344",
+        "https://openalex.org/W2883985996",
+        "https://openalex.org/W2898972408",
+        "https://openalex.org/W2902460153",
+        "https://openalex.org/W2939868671",
+        "https://openalex.org/W2954588120",
+        "https://openalex.org/W2962933122",
+        "https://openalex.org/W2970397043",
+        "https://openalex.org/W2970855335",
+        "https://openalex.org/W2990556831",
+        "https://openalex.org/W2990752114",
+        "https://openalex.org/W3002480413",
+        "https://openalex.org/W3007776841",
+        "https://openalex.org/W3008495456",
+        "https://openalex.org/W3017284665",
+        "https://openalex.org/W3023212112",
+        "https://openalex.org/W3024385728",
+        "https://openalex.org/W3029125203",
+        "https://openalex.org/W3034310241",
+        "https://openalex.org/W3047254230",
+        "https://openalex.org/W3083957614",
+        "https://openalex.org/W3089242664",
+        "https://openalex.org/W3100859786",
+        "https://openalex.org/W3103614117",
+        "https://openalex.org/W3104541550",
+        "https://openalex.org/W3127306392",
+        "https://openalex.org/W3128571884",
+        "https://openalex.org/W3200321099",
+        "https://openalex.org/W3203161262",
+        "https://openalex.org/W3211101016",
+        "https://openalex.org/W4211021194",
+        "https://openalex.org/W4302061487",
+        "https://openalex.org/W4309444599",
+        "https://openalex.org/W4310259710"
+      ],
+      "referenced_works_count": 122,
+      "related_works": [
+        "https://openalex.org/W2085271587",
+        "https://openalex.org/W2188489321",
+        "https://openalex.org/W2072016216",
+        "https://openalex.org/W1998004681",
+        "https://openalex.org/W2072108342",
+        "https://openalex.org/W2016562941",
+        "https://openalex.org/W2730317904",
+        "https://openalex.org/W3013683052",
+        "https://openalex.org/W4294991667",
+        "https://openalex.org/W1995363368"
+      ],
+      "sustainable_development_goals": [],
+      "title": "The MOBH35 Metal–Organic Barrier Heights Reconsidered: Performance of Local-Orbital Coupled Cluster Approaches in Different Static Correlation Regimes",
+      "topics": [
+        {
+          "display_name": "Asymmetric Hydrogenation and Catalysis",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemistry",
+            "id": "https://openalex.org/fields/16"
+          },
+          "id": "https://openalex.org/T11281",
+          "score": 0.9995999932289124,
+          "subfield": {
+            "display_name": "Inorganic Chemistry",
+            "id": "https://openalex.org/subfields/1604"
+          }
+        },
+        {
+          "display_name": "Catalytic Processes in Materials Science",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Materials Science",
+            "id": "https://openalex.org/fields/25"
+          },
+          "id": "https://openalex.org/T10192",
+          "score": 0.9991999864578247,
+          "subfield": {
+            "display_name": "Materials Chemistry",
+            "id": "https://openalex.org/subfields/2505"
+          }
+        },
+        {
+          "display_name": "Ammonia Synthesis and Nitrogen Reduction",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemical Engineering",
+            "id": "https://openalex.org/fields/15"
+          },
+          "id": "https://openalex.org/T12112",
+          "score": 0.9988999962806702,
+          "subfield": {
+            "display_name": "Catalysis",
+            "id": "https://openalex.org/subfields/1503"
+          }
+        }
+      ],
+      "type": "article",
+      "updated_date": "2026-07-03T08:13:44.112507"
+    }
+  ]
+}

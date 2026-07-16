@@ -1,0 +1,124 @@
+{
+  "schema": "gaussian-asymmetric-metal-p0-candidate-inventory/1",
+  "candidate_id": "mobh35_r33_pt_h_scrambling",
+  "status": "provisional_p0_blocked",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "identity": {
+    "dataset_reaction": "MOBH35 reaction 33",
+    "formula_source_text": "CH11N2Pt(1+)",
+    "total_charge": 1,
+    "multiplicity": null,
+    "atom_count": 15,
+    "element_counts": {"Pt": 1, "C": 1, "N": 2, "H": 11}
+  },
+  "electronic_state": {
+    "dataset_level_closed_shell_context": "source_reports_closed_shell_dataset_context",
+    "candidate_level_closed_shell_status": "blocked_pending_candidate_specific_source",
+    "single_reference_status": "diagnostics_observed_not_accepted",
+    "oxidation_state": null,
+    "d_electron_count": null,
+    "wavefunction": null
+  },
+  "structures": {
+    "path": "studies/metal_m4_p0_p1_baseline/r33-start-ts-end.xyz",
+    "sha256": "f2104dc1db9f4fb44542d48c0321715f5060f4b99a80f1301bfe4c8aa277b5f3",
+    "schema": "multi_xyz_start_ts_end_with_source_attribution/1"
+  },
+  "atom_map": [
+    {"index": 1, "element": "C", "source_atom_id": "r33_c1", "role": "carbon_observed"},
+    {"index": 2, "element": "Pt", "source_atom_id": "r33_pt2", "role": "metal_center"},
+    {"index": 3, "element": "N", "source_atom_id": "r33_n3", "role": "nitrogen_donor_observed"},
+    {"index": 4, "element": "N", "source_atom_id": "r33_n4", "role": "nitrogen_donor_observed"},
+    {"index": 5, "element": "H", "source_atom_id": "r33_h5", "role": "pt_bound_hydrogen_observed"},
+    {"index": 6, "element": "H", "source_atom_id": "r33_h6", "role": "hydrogen_observed"},
+    {"index": 7, "element": "H", "source_atom_id": "r33_h7", "role": "intended_coordinate_atom_geometric_observation"},
+    {"index": 8, "element": "H", "source_atom_id": "r33_h8", "role": "hydrogen_observed"},
+    {"index": 9, "element": "H", "source_atom_id": "r33_h9", "role": "hydrogen_observed"},
+    {"index": 10, "element": "H", "source_atom_id": "r33_h10", "role": "hydrogen_observed"},
+    {"index": 11, "element": "H", "source_atom_id": "r33_h11", "role": "hydrogen_observed"},
+    {"index": 12, "element": "H", "source_atom_id": "r33_h12", "role": "hydrogen_observed"},
+    {"index": 13, "element": "H", "source_atom_id": "r33_h13", "role": "hydrogen_observed"},
+    {"index": 14, "element": "H", "source_atom_id": "r33_h14", "role": "hydrogen_observed"},
+    {"index": 15, "element": "H", "source_atom_id": "r33_h15", "role": "hydrogen_observed"}
+  ],
+  "intended_coordinate": {
+    "coordinate_atom": "r33_h7",
+    "observed_changes": [
+      {"atoms": [1, 7], "observation": "forming_distance_decreases", "distances_angstrom": {"start": 2.4640, "ts": 1.7333, "end": 1.1722}},
+      {"atoms": [2, 7], "observation": "metal_hydrogen_distance_increases", "distances_angstrom": {"start": 1.5265, "ts": 1.5523, "end": 1.7966}},
+      {"atoms": [2, 1], "observation": "metal_carbon_distance_increases", "distances_angstrom": {"start": 2.0496, "ts": 2.1098, "end": 2.3662}}
+    ],
+    "chemical_assignment_status": "geometric_observation_only_pending_source_review",
+    "endpoint_identity_status": "blocked_pending_source_and_reviewer_identity"
+  },
+  "coordination_inventory": [
+    {"contact_id": "r33_pt2_c1", "atoms": [2, 1], "kind": "pt_c", "distances_angstrom": {"start": 2.0496, "ts": 2.1098, "end": 2.3662}, "distance_window_angstrom": null, "review_status": "observed_unreviewed_no_window"},
+    {"contact_id": "r33_pt2_n3", "atoms": [2, 3], "kind": "pt_n", "distances_angstrom": {"start": 2.2734, "ts": 2.1864, "end": 2.0630}, "distance_window_angstrom": null, "review_status": "observed_unreviewed_no_window"},
+    {"contact_id": "r33_pt2_n4", "atoms": [2, 4], "kind": "pt_n", "distances_angstrom": {"start": 2.2645, "ts": 2.2603, "end": 2.2621}, "distance_window_angstrom": null, "review_status": "observed_unreviewed_no_window"},
+    {"contact_id": "r33_pt2_h5", "atoms": [2, 5], "kind": "pt_h", "distances_angstrom": {"start": 1.5574, "ts": 1.5618, "end": 1.5626}, "distance_window_angstrom": null, "review_status": "observed_unreviewed_no_window"},
+    {"contact_id": "r33_pt2_h7", "atoms": [2, 7], "kind": "pt_h", "distances_angstrom": {"start": 1.5265, "ts": 1.5523, "end": 1.7966}, "distance_window_angstrom": null, "review_status": "observed_unreviewed_no_window"}
+  ],
+  "diagnostics": [
+    {"structure": "start", "t1": 0.0122099, "d1": 0.0392713, "fod_tpss": 0.048126, "homo_lumo_gap_ev": 12.3564, "mdiag": 0.059, "source_range": "Diagnostics Def2SV_P or Def2SVP!B100:S100", "decision": "observed_not_accepted_no_universal_threshold"},
+    {"structure": "ts", "t1": 0.0156354, "d1": 0.0582186, "fod_tpss": 0.028779, "homo_lumo_gap_ev": 13.1969, "mdiag": 0.056, "source_range": "Diagnostics Def2SV_P or Def2SVP!B101:S101", "decision": "observed_not_accepted_no_universal_threshold"},
+    {"structure": "end", "t1": 0.0161670, "d1": 0.0646033, "fod_tpss": 0.061227, "homo_lumo_gap_ev": 13.4672, "mdiag": 0.044, "source_range": "Diagnostics Def2SV_P or Def2SVP!B99:S99", "decision": "observed_not_accepted_no_universal_threshold"}
+  ],
+  "source_records": [
+    {
+      "source_id": "europe_pmc_supplementary_zip",
+      "legal_access": "cc_by_open_access",
+      "locator": "PMCID PMC8830049 supplementary archive downloaded through Europe PMC",
+      "artifact_sha256": "50db8fb318cbe01b37b72d3d748bb0bfa8c8062a7c842780fbbde36f7f5db8c0",
+      "claim_scope": "Binds the lawful container for the diagnostics workbook and coordinate text only.",
+      "unresolved": ["No scientific field is accepted from the container hash alone."]
+    },
+    {
+      "source_id": "r33_diagnostics_workbook",
+      "legal_access": "cc_by_open_access",
+      "locator": "ct1c01126_si_002.xlsx sheet Diagnostics Def2SV_P or Def2SVP: rows 99-101 diagnostics; O202:O204 formula field CH11N2Pt(1+)",
+      "artifact_sha256": "39c7fa3cf3fd6eff751af34c8a458bfacdfb159f894672a3c3b87fd604a4a3b2",
+      "claim_scope": "Reports R33 diagnostic observations and the +1 formula field; benchmark methods are not Auto-G16 protocol selections.",
+      "unresolved": ["multiplicity", "candidate-level closed-shell assignment", "wavefunction acceptance", "oxidation state", "d-electron count"]
+    },
+    {
+      "source_id": "r33_coordinate_text",
+      "legal_access": "cc_by_open_access",
+      "locator": "ct1c01126_si_003.txt blocks 33_start, 33_ts and 33_end",
+      "artifact_sha256": "105d7b83ea22660dfd3964bd62017f72a997eb2f936f7bb8c7a447704b885603",
+      "claim_scope": "Reports ordered 15-atom start, TS and end Cartesian coordinates for the MOBH35 reoptimized reduced coordination state.",
+      "unresolved": ["charge and multiplicity absent from coordinate text", "atom chemical roles", "reaction coordinate identity", "endpoint chemical identity", "mode displacement"]
+    },
+    {
+      "source_id": "mobh35_chemrxiv_v2_author_archive",
+      "legal_access": "cc_by_nc_nd_open_access",
+      "locator": "Cambridge Open Engage API item 60c74167842e6505f1db1ea0 and author ChemRxiv v2 asset mobh35-tar.tgz; downloaded size 84982 bytes; archive members r33+.xyz, ts33+.xyz and p33+.xyz; metadata license CC BY-NC-ND 4.0",
+      "artifact_sha256": "c5c0c0027129c392e81f61925d18a7a982ce1577c76fe48d2e9a54beb713fe78",
+      "claim_scope": "Author-origin archive comments report CH11N2Pt+ and therefore strengthen data-level +1 charge provenance; they do not report multiplicity. The paper reports R33 T1=0.033 and describes the set as at most mildly multireference and single-reference-determinant dominated, which strengthens suitability evidence but is not candidate-level acceptance.",
+      "unresolved": ["multiplicity absent", "closed-shell and single-reference suitability not reviewer-accepted", "archive not ingested because the non-derivative licensed binary is unnecessary for the versioned evidence index"]
+    },
+    {
+      "source_id": "r33_primary_reaction_background",
+      "legal_access": "publisher_metadata",
+      "locator": "MOBH35 Table 4 ref 136; Iron, Lo, Martin and Keinan, JACS 2002, DOI 10.1021/ja025667v",
+      "artifact_sha256": null,
+      "claim_scope": "The publisher abstract reports H/D scrambling through an eta2-CH-CH4 complex and separately names the [(NH3)3PtMe(H)2]+ model used to test Tp rigidity; the 15-atom N2 coordinate object is not asserted to be that N3 model.",
+      "unresolved": ["exact mapping between MOBH35 R33 and the primary-paper model", "candidate multiplicity", "candidate electronic assignment", "endpoint identity"]
+    },
+    {
+      "source_id": "r33_primary_si_figshare_metadata",
+      "legal_access": "cc_by_nc_open_metadata",
+      "locator": "ACS Figshare API article 3642549; dataset DOI 10.1021/ja025667v.s003; file 5731353 ja025667v_si_003.txt; size 46316; MD5 9ec842c2537f2510f8a217dffff4e298; public CC BY-NC 4.0 metadata",
+      "artifact_sha256": null,
+      "claim_scope": "Primary-SI metadata supplies a lawful future retrieval route and repeats the [(NH3)3PtMe(H)2]+ and eta2-CH-CH4 scrambling background; file content was not obtained or reviewed.",
+      "unresolved": ["S3 DNS failure prevented download", "file content unreviewed", "candidate multiplicity", "mapping to the N2 R33 reduced coordination state", "endpoint identity"]
+    }
+  ],
+  "unresolved_fields": [
+    "multiplicity", "candidate_level_closed_shell_assignment", "oxidation_state", "d_electron_count",
+    "wavefunction_and_stability_policy", "chemical_atom_roles", "reaction_coordinate_identity",
+    "endpoint_chemical_identity", "coordination_distance_windows", "imaginary_mode_displacement",
+    "three_tier_protocol", "metal_m2_runtime", "metal_m3_execution_boundary"
+  ],
+  "claim_ceiling": "candidate_inventory_and_observations_only_no_m1_acceptance_protocol_ts_or_live_authority"
+}

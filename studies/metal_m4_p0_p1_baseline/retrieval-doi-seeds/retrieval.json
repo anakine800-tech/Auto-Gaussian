@@ -1,0 +1,158 @@
+{
+  "calculation_ready": false,
+  "crossref_contact_supplied": false,
+  "entries": [
+    {
+      "mode": "doi",
+      "query_id": "q020",
+      "source": "crossref",
+      "status": "skipped_missing_crossref_contact"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q020",
+      "raw_path": "raw/q020.openalex.json",
+      "raw_sha256": "cec225ba15b371be8ca434a9813e9a0bb3d735b3ac95deef97c1d1ea57d56b76",
+      "request_url": "https://api.openalex.org/works?per_page=3&filter=doi%3Ahttps%3A%2F%2Fdoi.org%2F10.1021%2Facs.jctc.1c01126",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "1",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "999",
+        "X-RateLimit-Reset": "49644"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q021",
+      "source": "crossref",
+      "status": "skipped_missing_crossref_contact"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q021",
+      "raw_path": "raw/q021.openalex.json",
+      "raw_sha256": "29d7a96eebdd6e813a43c0dd119e4156a859f176382191237875d550cf1a4a67",
+      "request_url": "https://api.openalex.org/works?per_page=3&filter=doi%3Ahttps%3A%2F%2Fdoi.org%2F10.1021%2Facs.jpca.9b01546",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "1",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "998",
+        "X-RateLimit-Reset": "49643"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q022",
+      "source": "crossref",
+      "status": "skipped_missing_crossref_contact"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q022",
+      "raw_path": "raw/q022.openalex.json",
+      "raw_sha256": "1aa7d3bb3f03aa9693be1e5d704dc351df0c689a3272ad22838fa80558fd48f4",
+      "request_url": "https://api.openalex.org/works?per_page=3&filter=doi%3Ahttps%3A%2F%2Fdoi.org%2F10.1021%2Facs.jpca.9b06135",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "1",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "997",
+        "X-RateLimit-Reset": "49642"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q023",
+      "source": "crossref",
+      "status": "skipped_missing_crossref_contact"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q023",
+      "raw_path": "raw/q023.openalex.json",
+      "raw_sha256": "8d1767da47ba7c7a4a8055bf17bc055aad9ebfedfc699d25fc6396dda8397d4a",
+      "request_url": "https://api.openalex.org/works?per_page=3&filter=doi%3Ahttps%3A%2F%2Fdoi.org%2F10.1038%2Fs41467-018-07462-w",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "1",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "996",
+        "X-RateLimit-Reset": "49642"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q024",
+      "source": "crossref",
+      "status": "skipped_missing_crossref_contact"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q024",
+      "raw_path": "raw/q024.openalex.json",
+      "raw_sha256": "a8a1b8ad0777797ee3a57a2024634cf993179d93250fd93ca41d3e222f07860e",
+      "request_url": "https://api.openalex.org/works?per_page=3&filter=doi%3Ahttps%3A%2F%2Fdoi.org%2F10.1021%2Facscatal.6b02731",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "1",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "995",
+        "X-RateLimit-Reset": "49641"
+      },
+      "source": "openalex",
+      "status": "success"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q025",
+      "source": "crossref",
+      "status": "skipped_missing_crossref_contact"
+    },
+    {
+      "mode": "doi",
+      "query_id": "q025",
+      "raw_path": "raw/q025.openalex.json",
+      "raw_sha256": "306d704698d6ce0bd8ad2e1ba0bf79b2def657b4daa1fec6fbc2801328ddfdac",
+      "request_url": "https://api.openalex.org/works?per_page=3&filter=doi%3Ahttps%3A%2F%2Fdoi.org%2F10.1021%2Fjacs.5c13835",
+      "response_headers": {
+        "X-RateLimit-Credits-Used": "1",
+        "X-RateLimit-Limit": "1000",
+        "X-RateLimit-Remaining": "994",
+        "X-RateLimit-Reset": "49640"
+      },
+      "source": "openalex",
+      "status": "success"
+    }
+  ],
+  "limitations": [
+    "Only metadata API payloads were retrieved; no publisher full text or SI was fetched.",
+    "API relevance order and citation counts are discovery signals, not scientific evidence."
+  ],
+  "mode": "live_metadata_api",
+  "no_submission_authorization": true,
+  "openalex_api_key_supplied": false,
+  "plan_artifact": {
+    "path": "studies/metal_m4_p0_p1_baseline/search-plan-v2.json",
+    "sha256": "0ca5d1cb8cfeaa613a382944ca51784303b28c6e892972527d4f0538cbfa598e"
+  },
+  "request_id": "metal_m4_p0_candidate_search_20260716",
+  "retrieval_payload_sha256": "7605b3a782c0c9495d97606b6f9990681b4999d9e8cf43c1f0d91cf223d7124d",
+  "retrieved_at": "2026-07-16T10:12:40+00:00",
+  "rows_per_query": 3,
+  "schema": "gaussian-reaction-literature-retrieval/1",
+  "sources_requested": [
+    "crossref",
+    "openalex"
+  ],
+  "summary": {
+    "failed_or_skipped_payloads": 6,
+    "query_count": 6,
+    "request_count": 12,
+    "successful_payloads": 6
+  }
+}

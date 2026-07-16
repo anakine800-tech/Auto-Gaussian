@@ -1,0 +1,43 @@
+{
+  "schema": "gaussian-reaction-literature-request/1",
+  "request_id": "metal_m4_p0_candidate_search_20260716",
+  "scientific_question": "Which lawfully accessible transition-metal TS precedents could serve as a minimal M4 smoke candidate while keeping the Wang 2025 borane/nickel system as a separate asymmetric target?",
+  "reaction": {
+    "transformation_class": "small homogeneous transition-metal elementary-step transition state",
+    "components": [
+      {"role": "catalyst", "name": "mononuclear transition-metal complex", "identifiers": {}},
+      {"role": "substrate", "name": "source-reported small substrate", "identifiers": {}}
+    ],
+    "catalyst_states": [],
+    "bond_changes": [],
+    "unresolved": [
+      "candidate identity and exact atom map",
+      "charge and multiplicity",
+      "closed-shell single-reference evidence",
+      "coordination and endpoint inventory"
+    ]
+  },
+  "search_terms": {
+    "exact_phrases": ["Cartesian coordinates", "transition state"],
+    "catalyst_terms": ["mononuclear transition metal", "palladium hydride", "zinc catalyst"],
+    "substrate_terms": ["imine", "alkene"],
+    "transformation_terms": ["hydride transfer", "metathesis", "asymmetric hydrogenation"],
+    "mechanism_terms": ["single surface", "closed shell", "intrinsic reaction coordinate"],
+    "exclusions": ["spin crossover", "minimum energy crossing point", "multireference", "polynuclear", "surface catalysis"]
+  },
+  "mechanism_hypotheses": [],
+  "target_evidence": [
+    "active_catalyst_state", "elementary_step", "transition_state_model",
+    "computational_protocol", "normal_mode", "irc", "coordinates"
+  ],
+  "known_citations": [
+    {"doi": "10.1021/acs.jctc.1c01126", "role": "open_mobh35_reconsideration_and_coordinate_source"},
+    {"doi": "10.1021/acs.jpca.9b01546", "role": "original_mobh35_dataset_and_r33_energy_table"},
+    {"doi": "10.1021/acs.jpca.9b06135", "role": "original_mobh35_correction_check"},
+    {"doi": "10.1038/s41467-018-07462-w", "role": "open_asymmetric_pd_hydride_candidate"},
+    {"doi": "10.1021/acscatal.6b02731", "role": "small_zinc_metathesis_candidate"},
+    {"doi": "10.1021/jacs.5c13835", "role": "final_target_anchor_not_smoke"}
+  ],
+  "publication_years": {"from": 1990, "until": 2026},
+  "review_status": "reviewed_for_search_only"
+}

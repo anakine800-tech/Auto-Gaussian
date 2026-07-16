@@ -1,0 +1,564 @@
+{
+  "calculation_ready": false,
+  "created_at": "2026-07-16T10:12:29+00:00",
+  "intake_artifact": {
+    "path": "studies/metal_m4_p0_p1_baseline/literature-intake.json",
+    "sha256": "c8bec4423dacff4bcadfe038c5ff1d5321f11878ebfd048d4e13e595f19a7416"
+  },
+  "limitations": [
+    "Queries combine only reviewed intake terms and generic evidence words.",
+    "No structure or substructure search is performed.",
+    "A finite zero-result search does not prove absence of precedent.",
+    "All returned records remain metadata-only candidates pending primary/SI review."
+  ],
+  "mechanism_hypotheses": [],
+  "no_submission_authorization": true,
+  "promotable_to_mechanism_support": false,
+  "promotable_to_ts_precedent_map": false,
+  "promotion_blockers": [
+    "missing_upstream_binding:reaction_intake",
+    "missing_upstream_binding:species_registry",
+    "missing_upstream_binding:condition_model",
+    "missing_upstream_binding:knowledge_snapshot"
+  ],
+  "publication_years": {
+    "from": 1990,
+    "until": 2026
+  },
+  "queries": [
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "exact_system",
+      "mode": "bibliographic",
+      "query_id": "q001",
+      "query_text": "\"Cartesian coordinates\"",
+      "rationale": "User-supplied exact phrase for high-precision discovery.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "exact_system",
+      "mode": "bibliographic",
+      "query_id": "q002",
+      "query_text": "\"transition state\"",
+      "rationale": "User-supplied exact phrase for high-precision discovery.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "catalyst_transformation",
+      "mode": "bibliographic",
+      "query_id": "q003",
+      "query_text": "\"mononuclear transition metal\" \"hydride transfer\"",
+      "rationale": "Preserve catalyst and transformation while relaxing exact substrates.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "catalyst_transformation",
+      "mode": "bibliographic",
+      "query_id": "q004",
+      "query_text": "\"mononuclear transition metal\" metathesis",
+      "rationale": "Preserve catalyst and transformation while relaxing exact substrates.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "catalyst_transformation",
+      "mode": "bibliographic",
+      "query_id": "q005",
+      "query_text": "\"palladium hydride\" \"hydride transfer\"",
+      "rationale": "Preserve catalyst and transformation while relaxing exact substrates.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "catalyst_transformation",
+      "mode": "bibliographic",
+      "query_id": "q006",
+      "query_text": "\"palladium hydride\" metathesis",
+      "rationale": "Preserve catalyst and transformation while relaxing exact substrates.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "substrate_transformation",
+      "mode": "bibliographic",
+      "query_id": "q007",
+      "query_text": "imine \"hydride transfer\"",
+      "rationale": "Preserve substrate and transformation while allowing catalyst analogies.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "substrate_transformation",
+      "mode": "bibliographic",
+      "query_id": "q008",
+      "query_text": "imine metathesis",
+      "rationale": "Preserve substrate and transformation while allowing catalyst analogies.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "substrate_transformation",
+      "mode": "bibliographic",
+      "query_id": "q009",
+      "query_text": "alkene \"hydride transfer\"",
+      "rationale": "Preserve substrate and transformation while allowing catalyst analogies.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "substrate_transformation",
+      "mode": "bibliographic",
+      "query_id": "q010",
+      "query_text": "alkene metathesis",
+      "rationale": "Preserve substrate and transformation while allowing catalyst analogies.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "elementary_step"
+      ],
+      "lane": "mechanism_hypothesis",
+      "mode": "bibliographic",
+      "query_id": "q011",
+      "query_text": "\"hydride transfer\" \"single surface\" mechanism",
+      "rationale": "Search an explicit, unselected mechanism term from the intake.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "elementary_step"
+      ],
+      "lane": "mechanism_hypothesis",
+      "mode": "bibliographic",
+      "query_id": "q012",
+      "query_text": "\"hydride transfer\" \"closed shell\" mechanism",
+      "rationale": "Search an explicit, unselected mechanism term from the intake.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism",
+        "alternative_pathway",
+        "elementary_step"
+      ],
+      "lane": "mechanism_hypothesis",
+      "mode": "bibliographic",
+      "query_id": "q013",
+      "query_text": "\"hydride transfer\" \"intrinsic reaction coordinate\" mechanism",
+      "rationale": "Search an explicit, unselected mechanism term from the intake.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "transition_state_model"
+      ],
+      "lane": "ts_computational",
+      "mode": "bibliographic",
+      "query_id": "q014",
+      "query_text": "\"hydride transfer\" \"mononuclear transition metal\" \"transition state\"",
+      "rationale": "Add a generic computational-evidence term without selecting a method.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "transition_state_model"
+      ],
+      "lane": "ts_computational",
+      "mode": "bibliographic",
+      "query_id": "q015",
+      "query_text": "\"hydride transfer\" \"mononuclear transition metal\" DFT",
+      "rationale": "Add a generic computational-evidence term without selecting a method.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "transition_state_model"
+      ],
+      "lane": "ts_computational",
+      "mode": "bibliographic",
+      "query_id": "q016",
+      "query_text": "\"hydride transfer\" \"mononuclear transition metal\" \"activation barrier\"",
+      "rationale": "Add a generic computational-evidence term without selecting a method.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "transition_state_model"
+      ],
+      "lane": "ts_computational",
+      "mode": "bibliographic",
+      "query_id": "q017",
+      "query_text": "\"hydride transfer\" \"mononuclear transition metal\" IRC",
+      "rationale": "Add a generic computational-evidence term without selecting a method.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "computational_protocol",
+        "coordinates",
+        "irc",
+        "normal_mode",
+        "transition_state_model"
+      ],
+      "lane": "elementary_step_analogy",
+      "mode": "bibliographic",
+      "query_id": "q018",
+      "query_text": "\"hydride transfer\" \"transition state\"",
+      "rationale": "Broaden to the transformation class; any result is analogy until reviewed.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "proposed_mechanism"
+      ],
+      "lane": "review_vocabulary",
+      "mode": "bibliographic",
+      "query_id": "q019",
+      "query_text": "\"hydride transfer\" mechanism review",
+      "rationale": "Find review vocabulary and seed citations; reviews are not candidate-specific evidence.",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "seed_doi",
+      "mode": "doi",
+      "query_id": "q020",
+      "query_text": "10.1021/acs.jctc.1c01126",
+      "rationale": "Retrieve user-supplied DOI seed (open_mobh35_reconsideration_and_coordinate_source).",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "seed_doi",
+      "mode": "doi",
+      "query_id": "q021",
+      "query_text": "10.1021/acs.jpca.9b01546",
+      "rationale": "Retrieve user-supplied DOI seed (original_mobh35_dataset_and_r33_energy_table).",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "seed_doi",
+      "mode": "doi",
+      "query_id": "q022",
+      "query_text": "10.1021/acs.jpca.9b06135",
+      "rationale": "Retrieve user-supplied DOI seed (original_mobh35_correction_check).",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "seed_doi",
+      "mode": "doi",
+      "query_id": "q023",
+      "query_text": "10.1038/s41467-018-07462-w",
+      "rationale": "Retrieve user-supplied DOI seed (open_asymmetric_pd_hydride_candidate).",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "seed_doi",
+      "mode": "doi",
+      "query_id": "q024",
+      "query_text": "10.1021/acscatal.6b02731",
+      "rationale": "Retrieve user-supplied DOI seed (small_zinc_metathesis_candidate).",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    },
+    {
+      "expected_evidence": [
+        "active_catalyst_state",
+        "elementary_step",
+        "transition_state_model",
+        "computational_protocol",
+        "normal_mode",
+        "irc",
+        "coordinates"
+      ],
+      "lane": "seed_doi",
+      "mode": "doi",
+      "query_id": "q025",
+      "query_text": "10.1021/jacs.5c13835",
+      "rationale": "Retrieve user-supplied DOI seed (final_target_anchor_not_smoke).",
+      "sources": [
+        "crossref",
+        "openalex"
+      ]
+    }
+  ],
+  "query_count": 25,
+  "ranking_terms": {
+    "catalyst_terms": [
+      "mononuclear transition metal",
+      "palladium hydride",
+      "zinc catalyst"
+    ],
+    "exact_phrases": [
+      "Cartesian coordinates",
+      "transition state"
+    ],
+    "exclusions": [
+      "spin crossover",
+      "minimum energy crossing point",
+      "multireference",
+      "polynuclear",
+      "surface catalysis"
+    ],
+    "mechanism_terms": [
+      "single surface",
+      "closed shell",
+      "intrinsic reaction coordinate"
+    ],
+    "substrate_terms": [
+      "imine",
+      "alkene"
+    ],
+    "transformation_terms": [
+      "hydride transfer",
+      "metathesis",
+      "asymmetric hydrogenation"
+    ]
+  },
+  "reaction_summary": {
+    "transformation_class": "small homogeneous transition-metal elementary-step transition state",
+    "unresolved": [
+      "candidate identity and exact atom map",
+      "charge and multiplicity",
+      "closed-shell single-reference evidence",
+      "coordination and endpoint inventory"
+    ]
+  },
+  "request_id": "metal_m4_p0_candidate_search_20260716",
+  "schema": "gaussian-reaction-literature-query/1",
+  "scientific_question": "Which lawfully accessible transition-metal TS precedents could serve as a minimal M4 smoke candidate while keeping the Wang 2025 borane/nickel system as a separate asymmetric target?",
+  "search_plan_payload_sha256": "1f14091598e51392ab4cb1ee405c6c8d9162985844f248a11638acf4bf70486e",
+  "target_evidence": [
+    "active_catalyst_state",
+    "elementary_step",
+    "transition_state_model",
+    "computational_protocol",
+    "normal_mode",
+    "irc",
+    "coordinates"
+  ],
+  "upstream_artifacts": {
+    "condition_model": null,
+    "knowledge_snapshot": null,
+    "reaction_intake": null,
+    "species_registry": null
+  },
+  "w2_binding_status": "standalone_search_not_promotable"
+}

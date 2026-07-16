@@ -1,0 +1,1010 @@
+{
+  "group_by": [],
+  "meta": {
+    "cost_usd": 0.0001,
+    "count": 1,
+    "db_response_time_ms": 18,
+    "groups_count": null,
+    "page": 1,
+    "per_page": 3,
+    "x_query": {
+      "oql": "works where DOI is (https://doi.org/10.1021/acscatal.6b02731)",
+      "oqo": {
+        "filter_rows": [
+          {
+            "column_id": "doi",
+            "value": "https://doi.org/10.1021/acscatal.6b02731"
+          }
+        ],
+        "get_rows": "works",
+        "per_page": 3
+      },
+      "url": "/works?filter=doi:https:%2F%2Fdoi.org%2F10.1021%2Facscatal.6b02731&per_page=3"
+    }
+  },
+  "results": [
+    {
+      "abstract_inverted_index": {
+        "An": [
+          41,
+          94
+        ],
+        "C–F": [
+          66
+        ],
+        "Density": [
+          7
+        ],
+        "Download": [
+          3
+        ],
+        "High": [
+          0
+        ],
+        "Image": [
+          2
+        ],
+        "In": [
+          27
+        ],
+        "MS": [
+          4
+        ],
+        "PowerPoint": [
+          5
+        ],
+        "Resolution": [
+          1
+        ],
+        "Slide": [
+          6
+        ],
+        "The": [
+          55
+        ],
+        "This": [
+          81
+        ],
+        "Zn": [
+          31
+        ],
+        "Zn-catalyzed": [
+          19
+        ],
+        "Zn-mediated": [
+          49
+        ],
+        "a": [
+          60,
+          69
+        ],
+        "accounts": [
+          88
+        ],
+        "activation": [
+          43,
+          56
+        ],
+        "alkenes": [
+          23
+        ],
+        "alternative": [
+          95
+        ],
+        "aminofluorination": [
+          79
+        ],
+        "an": [
+          98
+        ],
+        "and": [
+          68,
+          87
+        ],
+        "are": [
+          11
+        ],
+        "associated": [
+          106
+        ],
+        "atom": [
+          36
+        ],
+        "barriers": [
+          86
+        ],
+        "be": [
+          105
+        ],
+        "benziodoxole": [
+          53
+        ],
+        "bond": [
+          67
+        ],
+        "by": [
+          59
+        ],
+        "calculations": [
+          10
+        ],
+        "cation": [
+          100
+        ],
+        "closing": [
+          72
+        ],
+        "coordinates": [
+          32
+        ],
+        "energies.": [
+          109
+        ],
+        "energy": [
+          85
+        ],
+        "feasible": [
+          84
+        ],
+        "final": [
+          78
+        ],
+        "fluorination": [
+          47
+        ],
+        "fluorine": [
+          35
+        ],
+        "fluoro-benziodoxole": [
+          25,
+          39
+        ],
+        "fluorocyclization": [
+          20
+        ],
+        "followed": [
+          58
+        ],
+        "for": [
+          45,
+          89
+        ],
+        "form": [
+          64
+        ],
+        "functional": [
+          8
+        ],
+        "has": [
+          83
+        ],
+        "high": [
+          108
+        ],
+        "important": [
+          42
+        ],
+        "initial": [
+          29
+        ],
+        "intermediate": [
+          101
+        ],
+        "involves": [
+          48
+        ],
+        "involving": [
+          97
+        ],
+        "iodocyclopropylium": [
+          99
+        ],
+        "is": [
+          57,
+          102
+        ],
+        "isomerization": [
+          50
+        ],
+        "mechanism": [
+          16,
+          82,
+          96
+        ],
+        "metathesis": [
+          61
+        ],
+        "nucleophilic": [
+          70
+        ],
+        "observed": [
+          91
+        ],
+        "of": [
+          17,
+          22,
+          37,
+          51
+        ],
+        "outcome.": [
+          93
+        ],
+        "product.": [
+          80
+        ],
+        "reaction": [
+          21
+        ],
+        "reagent.": [
+          26,
+          40,
+          54
+        ],
+        "ring": [
+          74
+        ],
+        "selectivity": [
+          92
+        ],
+        "shown": [
+          103
+        ],
+        "step": [
+          30,
+          44,
+          62
+        ],
+        "substitution,": [
+          71
+        ],
+        "the": [
+          15,
+          18,
+          28,
+          34,
+          38,
+          46,
+          52,
+          65,
+          73,
+          77,
+          90
+        ],
+        "theory": [
+          9
+        ],
+        "to": [
+          13,
+          33,
+          63,
+          75,
+          104
+        ],
+        "unravel": [
+          14
+        ],
+        "used": [
+          12
+        ],
+        "using": [
+          24
+        ],
+        "with": [
+          107
+        ],
+        "yield": [
+          76
+        ]
+      },
+      "apc_list": null,
+      "apc_paid": {
+        "currency": "EUR",
+        "value": 1413,
+        "value_usd": 1523
+      },
+      "authorships": [
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I161593684"
+              ],
+              "raw_affiliation_string": "Department of Organic Chemistry,\rArrhenius Laboratory, Stockholm University, 106 91 Stockholm, Sweden"
+            }
+          ],
+          "author": {
+            "display_name": "Jiji Zhang",
+            "id": "https://openalex.org/A5103001150",
+            "orcid": "https://orcid.org/0000-0002-0965-687X"
+          },
+          "author_position": "first",
+          "countries": [
+            "SE"
+          ],
+          "institutions": [
+            {
+              "country_code": "SE",
+              "display_name": "Stockholm University",
+              "id": "https://openalex.org/I161593684",
+              "lineage": [
+                "https://openalex.org/I161593684"
+              ],
+              "ror": "https://ror.org/05f0yaq80",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Department of Organic Chemistry,\rArrhenius Laboratory, Stockholm University, 106 91 Stockholm, Sweden"
+          ],
+          "raw_author_name": "Jiji Zhang",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I161593684"
+              ],
+              "raw_affiliation_string": "Department of Organic Chemistry,\rArrhenius Laboratory, Stockholm University, 106 91 Stockholm, Sweden"
+            }
+          ],
+          "author": {
+            "display_name": "Kálmán J. Szabó",
+            "id": "https://openalex.org/A5088269285",
+            "orcid": "https://orcid.org/0000-0002-9349-7137"
+          },
+          "author_position": "middle",
+          "countries": [
+            "SE"
+          ],
+          "institutions": [
+            {
+              "country_code": "SE",
+              "display_name": "Stockholm University",
+              "id": "https://openalex.org/I161593684",
+              "lineage": [
+                "https://openalex.org/I161593684"
+              ],
+              "ror": "https://ror.org/05f0yaq80",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": true,
+          "raw_affiliation_strings": [
+            "Department of Organic Chemistry,\rArrhenius Laboratory, Stockholm University, 106 91 Stockholm, Sweden"
+          ],
+          "raw_author_name": "Kálmán J. Szabó",
+          "raw_orcid": null
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I161593684"
+              ],
+              "raw_affiliation_string": "Department of Organic Chemistry,\rArrhenius Laboratory, Stockholm University, 106 91 Stockholm, Sweden"
+            }
+          ],
+          "author": {
+            "display_name": "Fahmi Himo",
+            "id": "https://openalex.org/A5030863006",
+            "orcid": "https://orcid.org/0000-0002-1012-5611"
+          },
+          "author_position": "last",
+          "countries": [
+            "SE"
+          ],
+          "institutions": [
+            {
+              "country_code": "SE",
+              "display_name": "Stockholm University",
+              "id": "https://openalex.org/I161593684",
+              "lineage": [
+                "https://openalex.org/I161593684"
+              ],
+              "ror": "https://ror.org/05f0yaq80",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": true,
+          "raw_affiliation_strings": [
+            "Department of Organic Chemistry,\rArrhenius Laboratory, Stockholm University, 106 91 Stockholm, Sweden"
+          ],
+          "raw_author_name": "Fahmi Himo",
+          "raw_orcid": "https://orcid.org/0000-0002-1012-5611"
+        }
+      ],
+      "awards": [],
+      "best_oa_location": {
+        "id": "doi:10.1021/acscatal.6b02731",
+        "is_accepted": true,
+        "is_oa": true,
+        "is_published": true,
+        "landing_page_url": "https://doi.org/10.1021/acscatal.6b02731",
+        "license": "other-oa",
+        "license_id": "https://openalex.org/licenses/other-oa",
+        "pdf_url": "https://pubs.acs.org/doi/pdf/10.1021/acscatal.6b02731",
+        "raw_source_name": "ACS Catalysis",
+        "raw_type": "journal-article",
+        "source": {
+          "display_name": "ACS Catalysis",
+          "host_organization": "https://openalex.org/P4310320006",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320006"
+          ],
+          "host_organization_lineage_names": [
+            "American Chemical Society"
+          ],
+          "host_organization_name": "American Chemical Society",
+          "id": "https://openalex.org/S37391459",
+          "is_core": true,
+          "is_in_doaj": false,
+          "is_oa": false,
+          "issn": [
+            "2155-5435"
+          ],
+          "issn_l": "2155-5435",
+          "type": "journal"
+        },
+        "version": "publishedVersion"
+      },
+      "biblio": {
+        "first_page": "1093",
+        "issue": "2",
+        "last_page": "1100",
+        "volume": "7"
+      },
+      "citation_normalized_percentile": {
+        "is_in_top_10_percent": true,
+        "is_in_top_1_percent": false,
+        "value": 0.9666348
+      },
+      "cited_by_count": 62,
+      "cited_by_percentile_year": {
+        "max": 99,
+        "min": 91
+      },
+      "concepts": [
+        {
+          "display_name": "Hypervalent molecule",
+          "id": "https://openalex.org/C96149497",
+          "level": 3,
+          "score": 0.8923184871673584,
+          "wikidata": "https://www.wikidata.org/wiki/Q556957"
+        },
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/C185592680",
+          "level": 0,
+          "score": 0.8100775480270386,
+          "wikidata": "https://www.wikidata.org/wiki/Q2329"
+        },
+        {
+          "display_name": "Reagent",
+          "id": "https://openalex.org/C40875361",
+          "level": 2,
+          "score": 0.7545816898345947,
+          "wikidata": "https://www.wikidata.org/wiki/Q2356542"
+        },
+        {
+          "display_name": "Metathesis",
+          "id": "https://openalex.org/C153914509",
+          "level": 4,
+          "score": 0.7188665866851807,
+          "wikidata": "https://www.wikidata.org/wiki/Q191090"
+        },
+        {
+          "display_name": "Catalysis",
+          "id": "https://openalex.org/C161790260",
+          "level": 2,
+          "score": 0.6790716648101807,
+          "wikidata": "https://www.wikidata.org/wiki/Q82264"
+        },
+        {
+          "display_name": "Nucleophile",
+          "id": "https://openalex.org/C178907741",
+          "level": 3,
+          "score": 0.6751965880393982,
+          "wikidata": "https://www.wikidata.org/wiki/Q745930"
+        },
+        {
+          "display_name": "Isomerization",
+          "id": "https://openalex.org/C126661725",
+          "level": 3,
+          "score": 0.6372029781341553,
+          "wikidata": "https://www.wikidata.org/wiki/Q903420"
+        },
+        {
+          "display_name": "Salt metathesis reaction",
+          "id": "https://openalex.org/C44138296",
+          "level": 5,
+          "score": 0.5546662211418152,
+          "wikidata": "https://www.wikidata.org/wiki/Q13533728"
+        },
+        {
+          "display_name": "Selectivity",
+          "id": "https://openalex.org/C118792377",
+          "level": 3,
+          "score": 0.5205936431884766,
+          "wikidata": "https://www.wikidata.org/wiki/Q108584245"
+        },
+        {
+          "display_name": "Yield (engineering)",
+          "id": "https://openalex.org/C134121241",
+          "level": 2,
+          "score": 0.48157382011413574,
+          "wikidata": "https://www.wikidata.org/wiki/Q899301"
+        },
+        {
+          "display_name": "Fluorine",
+          "id": "https://openalex.org/C506198293",
+          "level": 2,
+          "score": 0.4805181920528412,
+          "wikidata": "https://www.wikidata.org/wiki/Q650"
+        },
+        {
+          "display_name": "Reaction mechanism",
+          "id": "https://openalex.org/C65024703",
+          "level": 3,
+          "score": 0.42929011583328247,
+          "wikidata": "https://www.wikidata.org/wiki/Q373406"
+        },
+        {
+          "display_name": "Combinatorial chemistry",
+          "id": "https://openalex.org/C21951064",
+          "level": 1,
+          "score": 0.390055775642395,
+          "wikidata": "https://www.wikidata.org/wiki/Q899212"
+        },
+        {
+          "display_name": "Photochemistry",
+          "id": "https://openalex.org/C75473681",
+          "level": 1,
+          "score": 0.36541420221328735,
+          "wikidata": "https://www.wikidata.org/wiki/Q188651"
+        },
+        {
+          "display_name": "Medicinal chemistry",
+          "id": "https://openalex.org/C155647269",
+          "level": 1,
+          "score": 0.3538345396518707,
+          "wikidata": "https://www.wikidata.org/wiki/Q243455"
+        },
+        {
+          "display_name": "Organic chemistry",
+          "id": "https://openalex.org/C178790620",
+          "level": 1,
+          "score": 0.3004532754421234,
+          "wikidata": "https://www.wikidata.org/wiki/Q11351"
+        },
+        {
+          "display_name": "Materials science",
+          "id": "https://openalex.org/C192562407",
+          "level": 0,
+          "score": 0.07557997107505798,
+          "wikidata": "https://www.wikidata.org/wiki/Q228736"
+        },
+        {
+          "display_name": "Polymerization",
+          "id": "https://openalex.org/C44228677",
+          "level": 3,
+          "score": 0.0,
+          "wikidata": "https://www.wikidata.org/wiki/Q181898"
+        },
+        {
+          "display_name": "Metallurgy",
+          "id": "https://openalex.org/C191897082",
+          "level": 1,
+          "score": 0.0,
+          "wikidata": "https://www.wikidata.org/wiki/Q11467"
+        },
+        {
+          "display_name": "Polymer",
+          "id": "https://openalex.org/C521977710",
+          "level": 2,
+          "score": 0.0,
+          "wikidata": "https://www.wikidata.org/wiki/Q81163"
+        }
+      ],
+      "content_urls": {
+        "pdf": "https://content.openalex.org/works/W2566109365.pdf"
+      },
+      "corresponding_author_ids": [
+        "https://openalex.org/A5030863006",
+        "https://openalex.org/A5088269285"
+      ],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I161593684"
+      ],
+      "countries_distinct_count": 1,
+      "counts_by_year": [
+        {
+          "cited_by_count": 1,
+          "year": 2025
+        },
+        {
+          "cited_by_count": 4,
+          "year": 2024
+        },
+        {
+          "cited_by_count": 3,
+          "year": 2023
+        },
+        {
+          "cited_by_count": 5,
+          "year": 2022
+        },
+        {
+          "cited_by_count": 5,
+          "year": 2021
+        },
+        {
+          "cited_by_count": 11,
+          "year": 2020
+        },
+        {
+          "cited_by_count": 11,
+          "year": 2019
+        },
+        {
+          "cited_by_count": 12,
+          "year": 2018
+        },
+        {
+          "cited_by_count": 10,
+          "year": 2017
+        }
+      ],
+      "created_date": "2025-10-10T00:00:00",
+      "display_name": "Metathesis Mechanism of Zinc-Catalyzed Fluorination of Alkenes with Hypervalent Fluoroiodine",
+      "doi": "https://doi.org/10.1021/acscatal.6b02731",
+      "funders": [
+        {
+          "display_name": "Knut och Alice Wallenbergs Stiftelse",
+          "id": "https://openalex.org/F4320322327",
+          "ror": "https://ror.org/004hzzk67"
+        },
+        {
+          "display_name": "Vetenskapsrådet",
+          "id": "https://openalex.org/F4320322581",
+          "ror": "https://ror.org/03zttf063"
+        }
+      ],
+      "fwci": 5.6911,
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": true
+      },
+      "has_fulltext": false,
+      "id": "https://openalex.org/W2566109365",
+      "ids": {
+        "doi": "https://doi.org/10.1021/acscatal.6b02731",
+        "mag": "2566109365",
+        "openalex": "https://openalex.org/W2566109365"
+      },
+      "indexed_in": [
+        "crossref"
+      ],
+      "institutions": [],
+      "institutions_distinct_count": 3,
+      "is_paratext": false,
+      "is_retracted": false,
+      "is_xpac": false,
+      "keywords": [
+        {
+          "display_name": "Hypervalent molecule",
+          "id": "https://openalex.org/keywords/hypervalent-molecule",
+          "score": 0.8923184871673584
+        },
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/keywords/chemistry",
+          "score": 0.8100775480270386
+        },
+        {
+          "display_name": "Reagent",
+          "id": "https://openalex.org/keywords/reagent",
+          "score": 0.7545816898345947
+        },
+        {
+          "display_name": "Metathesis",
+          "id": "https://openalex.org/keywords/metathesis",
+          "score": 0.7188665866851807
+        },
+        {
+          "display_name": "Catalysis",
+          "id": "https://openalex.org/keywords/catalysis",
+          "score": 0.6790716648101807
+        },
+        {
+          "display_name": "Nucleophile",
+          "id": "https://openalex.org/keywords/nucleophile",
+          "score": 0.6751965880393982
+        },
+        {
+          "display_name": "Isomerization",
+          "id": "https://openalex.org/keywords/isomerization",
+          "score": 0.6372029781341553
+        },
+        {
+          "display_name": "Salt metathesis reaction",
+          "id": "https://openalex.org/keywords/salt-metathesis-reaction",
+          "score": 0.5546662211418152
+        },
+        {
+          "display_name": "Selectivity",
+          "id": "https://openalex.org/keywords/selectivity",
+          "score": 0.5205936431884766
+        },
+        {
+          "display_name": "Yield (engineering)",
+          "id": "https://openalex.org/keywords/yield",
+          "score": 0.48157382011413574
+        },
+        {
+          "display_name": "Fluorine",
+          "id": "https://openalex.org/keywords/fluorine",
+          "score": 0.4805181920528412
+        },
+        {
+          "display_name": "Reaction mechanism",
+          "id": "https://openalex.org/keywords/reaction-mechanism",
+          "score": 0.42929011583328247
+        },
+        {
+          "display_name": "Combinatorial chemistry",
+          "id": "https://openalex.org/keywords/combinatorial-chemistry",
+          "score": 0.390055775642395
+        },
+        {
+          "display_name": "Photochemistry",
+          "id": "https://openalex.org/keywords/photochemistry",
+          "score": 0.36541420221328735
+        },
+        {
+          "display_name": "Medicinal chemistry",
+          "id": "https://openalex.org/keywords/medicinal-chemistry",
+          "score": 0.3538345396518707
+        },
+        {
+          "display_name": "Organic chemistry",
+          "id": "https://openalex.org/keywords/organic-chemistry",
+          "score": 0.3004532754421234
+        },
+        {
+          "display_name": "Materials science",
+          "id": "https://openalex.org/keywords/materials-science",
+          "score": 0.07557997107505798
+        }
+      ],
+      "language": "en",
+      "locations": [
+        {
+          "id": "doi:10.1021/acscatal.6b02731",
+          "is_accepted": true,
+          "is_oa": true,
+          "is_published": true,
+          "landing_page_url": "https://doi.org/10.1021/acscatal.6b02731",
+          "license": "other-oa",
+          "license_id": "https://openalex.org/licenses/other-oa",
+          "pdf_url": "https://pubs.acs.org/doi/pdf/10.1021/acscatal.6b02731",
+          "raw_source_name": "ACS Catalysis",
+          "raw_type": "journal-article",
+          "source": {
+            "display_name": "ACS Catalysis",
+            "host_organization": "https://openalex.org/P4310320006",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320006"
+            ],
+            "host_organization_lineage_names": [
+              "American Chemical Society"
+            ],
+            "host_organization_name": "American Chemical Society",
+            "id": "https://openalex.org/S37391459",
+            "is_core": true,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": [
+              "2155-5435"
+            ],
+            "issn_l": "2155-5435",
+            "type": "journal"
+          },
+          "version": "publishedVersion"
+        }
+      ],
+      "locations_count": 1,
+      "mesh": [],
+      "open_access": {
+        "any_repository_has_fulltext": false,
+        "is_oa": true,
+        "oa_status": "hybrid",
+        "oa_url": "https://pubs.acs.org/doi/pdf/10.1021/acscatal.6b02731"
+      },
+      "primary_location": {
+        "id": "doi:10.1021/acscatal.6b02731",
+        "is_accepted": true,
+        "is_oa": true,
+        "is_published": true,
+        "landing_page_url": "https://doi.org/10.1021/acscatal.6b02731",
+        "license": "other-oa",
+        "license_id": "https://openalex.org/licenses/other-oa",
+        "pdf_url": "https://pubs.acs.org/doi/pdf/10.1021/acscatal.6b02731",
+        "raw_source_name": "ACS Catalysis",
+        "raw_type": "journal-article",
+        "source": {
+          "display_name": "ACS Catalysis",
+          "host_organization": "https://openalex.org/P4310320006",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320006"
+          ],
+          "host_organization_lineage_names": [
+            "American Chemical Society"
+          ],
+          "host_organization_name": "American Chemical Society",
+          "id": "https://openalex.org/S37391459",
+          "is_core": true,
+          "is_in_doaj": false,
+          "is_oa": false,
+          "issn": [
+            "2155-5435"
+          ],
+          "issn_l": "2155-5435",
+          "type": "journal"
+        },
+        "version": "publishedVersion"
+      },
+      "primary_topic": {
+        "display_name": "Fluorine in Organic Chemistry",
+        "domain": {
+          "display_name": "Life Sciences",
+          "id": "https://openalex.org/domains/1"
+        },
+        "field": {
+          "display_name": "Pharmacology, Toxicology and Pharmaceutics",
+          "id": "https://openalex.org/fields/30"
+        },
+        "id": "https://openalex.org/T10947",
+        "score": 0.9998999834060669,
+        "subfield": {
+          "display_name": "Pharmaceutical Science",
+          "id": "https://openalex.org/subfields/3003"
+        }
+      },
+      "publication_date": "2016-12-19",
+      "publication_year": 2016,
+      "referenced_works": [
+        "https://openalex.org/W327057510",
+        "https://openalex.org/W339141829",
+        "https://openalex.org/W1955520209",
+        "https://openalex.org/W1989622129",
+        "https://openalex.org/W2009008810",
+        "https://openalex.org/W2011215428",
+        "https://openalex.org/W2013411924",
+        "https://openalex.org/W2023271753",
+        "https://openalex.org/W2029976355",
+        "https://openalex.org/W2063663996",
+        "https://openalex.org/W2067480446",
+        "https://openalex.org/W2081613332",
+        "https://openalex.org/W2084785265",
+        "https://openalex.org/W2092157292",
+        "https://openalex.org/W2094065729",
+        "https://openalex.org/W2096747776",
+        "https://openalex.org/W2099835493",
+        "https://openalex.org/W2104316583",
+        "https://openalex.org/W2113233200",
+        "https://openalex.org/W2128601181",
+        "https://openalex.org/W2129457584",
+        "https://openalex.org/W2133503656",
+        "https://openalex.org/W2134519608",
+        "https://openalex.org/W2143981217",
+        "https://openalex.org/W2149783594",
+        "https://openalex.org/W2150460719",
+        "https://openalex.org/W2161235007",
+        "https://openalex.org/W2168916022",
+        "https://openalex.org/W2190650378",
+        "https://openalex.org/W2202368847",
+        "https://openalex.org/W2207795580",
+        "https://openalex.org/W2236663492",
+        "https://openalex.org/W2237872262",
+        "https://openalex.org/W2267475013",
+        "https://openalex.org/W2284843420",
+        "https://openalex.org/W2289346722",
+        "https://openalex.org/W2302948427",
+        "https://openalex.org/W2320223079",
+        "https://openalex.org/W2322697916",
+        "https://openalex.org/W2327425582",
+        "https://openalex.org/W2328019769",
+        "https://openalex.org/W2328517025",
+        "https://openalex.org/W2329217615",
+        "https://openalex.org/W2332086101",
+        "https://openalex.org/W2333129245",
+        "https://openalex.org/W2406451943",
+        "https://openalex.org/W2465690517",
+        "https://openalex.org/W2509477767",
+        "https://openalex.org/W2512451148",
+        "https://openalex.org/W2519009365",
+        "https://openalex.org/W2519621309",
+        "https://openalex.org/W2551587980",
+        "https://openalex.org/W2949439903"
+      ],
+      "referenced_works_count": 53,
+      "related_works": [
+        "https://openalex.org/W4253122750",
+        "https://openalex.org/W4229512243",
+        "https://openalex.org/W2076439324",
+        "https://openalex.org/W2074096979",
+        "https://openalex.org/W4284886698",
+        "https://openalex.org/W1992759346",
+        "https://openalex.org/W2884782837",
+        "https://openalex.org/W1979779949",
+        "https://openalex.org/W96976644",
+        "https://openalex.org/W2033194223"
+      ],
+      "sustainable_development_goals": [
+        {
+          "display_name": "Affordable and clean energy",
+          "id": "https://metadata.un.org/sdg/7",
+          "score": 0.8100000023841858
+        }
+      ],
+      "title": "Metathesis Mechanism of Zinc-Catalyzed Fluorination of Alkenes with Hypervalent Fluoroiodine",
+      "topics": [
+        {
+          "display_name": "Fluorine in Organic Chemistry",
+          "domain": {
+            "display_name": "Life Sciences",
+            "id": "https://openalex.org/domains/1"
+          },
+          "field": {
+            "display_name": "Pharmacology, Toxicology and Pharmaceutics",
+            "id": "https://openalex.org/fields/30"
+          },
+          "id": "https://openalex.org/T10947",
+          "score": 0.9998999834060669,
+          "subfield": {
+            "display_name": "Pharmaceutical Science",
+            "id": "https://openalex.org/subfields/3003"
+          }
+        },
+        {
+          "display_name": "Cyclopropane Reaction Mechanisms",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemistry",
+            "id": "https://openalex.org/fields/16"
+          },
+          "id": "https://openalex.org/T11611",
+          "score": 0.9621999859809875,
+          "subfield": {
+            "display_name": "Organic Chemistry",
+            "id": "https://openalex.org/subfields/1605"
+          }
+        },
+        {
+          "display_name": "Synthesis and Catalytic Reactions",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Chemistry",
+            "id": "https://openalex.org/fields/16"
+          },
+          "id": "https://openalex.org/T12251",
+          "score": 0.9405999779701233,
+          "subfield": {
+            "display_name": "Organic Chemistry",
+            "id": "https://openalex.org/subfields/1605"
+          }
+        }
+      ],
+      "type": "article",
+      "updated_date": "2026-06-23T06:36:01.041984"
+    }
+  ]
+}

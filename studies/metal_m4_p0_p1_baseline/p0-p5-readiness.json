@@ -1,0 +1,75 @@
+{
+  "schema": "auto-g16-metal-p0-p5-readiness/1",
+  "matrix_id": "metal_p0_p5_integration_20260716",
+  "status_date": "2026-07-16",
+  "claim_ceiling": "p0_p5_engineering_and_evidence_status_index_only_no_scientific_acceptance_execution_live_authority_or_chemical_path_coverage",
+  "live_actions": {"authorized": false, "executed": false},
+  "dimensions": {
+    "implemented": "the repository contains and offline-tests the engineering contract for this phase",
+    "evidence_complete": "all candidate-bound scientific evidence and reviews required by this phase are complete",
+    "executable": "the phase has every scientific and authorization gate needed to permit its next action"
+  },
+  "milestones": [
+    {
+      "phase": "P0",
+      "status": "provisional_candidate",
+      "implemented": true,
+      "evidence_complete": false,
+      "executable": false,
+      "evidence": [
+        {"kind": "commit", "locator": "5218c831ecd849e57446d1601c8e4df33e3e0640", "sha256": null},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/baseline.json", "sha256": "73317d7fdaf63edb26866452371cf7b637c998fa60fd2d1fe75d7ac1ab7a9003"}
+      ],
+      "blockers": ["The selected MOBH35 R33 item remains a provisional smoke candidate and has no calculation authority."]
+    },
+    {
+      "phase": "P1",
+      "status": "blocked_candidate_multiplicity_closed_shell_and_m1",
+      "implemented": true,
+      "evidence_complete": false,
+      "executable": false,
+      "evidence": [
+        {"kind": "contract", "locator": "contracts/asymmetric-catalysis/metal-p0-p1-baseline.schema.json", "sha256": "05c6531f534a03f2c58b6497f14385edc77bdd554fb9f8eaab21cb0b1b9b91e2"},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json", "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497"}
+      ],
+      "blockers": ["Candidate-level multiplicity and closed-shell/single-reference suitability are not established.", "The remaining candidate-bound M1 scientific evidence and review are incomplete."]
+    },
+    {
+      "phase": "P2",
+      "status": "engineering_contract_implemented_activation_blocked_by_p1",
+      "implemented": true,
+      "evidence_complete": false,
+      "executable": false,
+      "evidence": [{"kind": "commit", "locator": "890dbef87369f53d6c3808df4f4c3943ebd612fd", "sha256": null}, {"kind": "contract", "locator": "contracts/metal-ts/input-approval.schema.json", "sha256": "08387029022377f19d279b08b048fac06191af98a366ac59e69ed9aaaf98dafd"}],
+      "blockers": ["Real-case activation is blocked by the incomplete P1 candidate evidence chain."]
+    },
+    {
+      "phase": "P3",
+      "status": "engineering_contract_implemented_activation_blocked_by_p1",
+      "implemented": true,
+      "evidence_complete": false,
+      "executable": false,
+      "evidence": [{"kind": "commit", "locator": "18545cbee46370b12c080489a4a0c1e25772ded7", "sha256": null}, {"kind": "contract", "locator": "contracts/metal-ts/result-acceptance.schema.json", "sha256": "56e6bded409bc7cbae91e47bcdde6d21a808d5ee9d30bffad8f6dd32239cb721"}],
+      "blockers": ["Real-case activation is blocked by P1 and therefore has no candidate-bound result evidence."]
+    },
+    {
+      "phase": "P4",
+      "status": "engineering_contract_implemented_activation_blocked_by_p1",
+      "implemented": true,
+      "evidence_complete": false,
+      "executable": false,
+      "evidence": [{"kind": "test", "locator": "tests/test_metal_ts_runtime_contract.py", "sha256": "6730d387a89e386a0f2c074ffa4f6b5b27e8f4ffe1d4492cb6237898ab694216"}, {"kind": "contract", "locator": "contracts/metal-ts/promotion-decision.schema.json", "sha256": "dd62e4a08f04079e1b6f697910eacd610da28add1777c83e3bae6d86584bed1a"}],
+      "blockers": ["Real-case promotion review cannot activate until P1 and all upstream candidate-bound gates pass."]
+    },
+    {
+      "phase": "P5",
+      "status": "live_smoke_not_authorized_not_executed",
+      "implemented": false,
+      "evidence_complete": false,
+      "executable": false,
+      "evidence": [{"kind": "commit", "locator": "18545cbee46370b12c080489a4a0c1e25772ded7", "sha256": null}],
+      "blockers": ["No exact live-smoke authorization was granted.", "No SSH, PBS, Gaussian, deployment, or live smoke was executed."]
+    }
+  ],
+  "readiness_payload_sha256": "eca36795057a1890c9c0ff39c11a5d4f5625d7f64f1044bcff9b9a7cbc88342e"
+}
