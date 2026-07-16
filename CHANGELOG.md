@@ -5,6 +5,8 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-07-16
+
 ### Changed
 
 - Added deterministic `core` (Python 3.13.13) and `chem` (Python 3.11.15)
@@ -214,7 +216,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.0.0...v2.0.1

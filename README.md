@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.2.0
+# Auto-G16 — Auto-Gaussian 2.3.0
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -8,27 +8,28 @@ This repository is the version-controlled source of truth. Installed copies
 under `~/.codex/skills` are deployment targets and must not be edited
 independently.
 
-## Unreleased after 2.2.0
+## 2.3.0 release candidate
 
-The latest release is Auto-Gaussian 2.2.0, published on 2026-07-15. The
-`main` branch is the review-gated, publishable source line; commits after the
-`v2.2.0` tag are unreleased source and are not part of the 2.2.0 release
-artifact or any machine-local deployment merely because they are on `main`.
+Auto-Gaussian 2.3.0 release metadata was prepared on 2026-07-16 from reviewed
+`main` commit `1d730218048c52a395b379cbe4653c9e2b8def97`. The immutable
+`v2.2.0` release remains published history. An annotated `v2.3.0` tag and
+GitHub Release are separate publication actions and have not been authorized
+or created by this release-preparation change.
 
-As of 2026-07-16, the publishable `main` source includes the guarded RTwin/PBS
+As of 2026-07-16, the 2.3.0 candidate source includes the guarded RTwin/PBS
 workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
 planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
 immutable knowledge records and reviewed store/import/export foundation, and
-the W3 offline mechanism-network slice. The current feature line adds the
+the W3 offline mechanism-network slice. The candidate adds the
 offline mechanism-support two-gate, separate mechanism-support matrix view,
 TS-precedent/de novo-planning stages, and the smallest deterministic
 calculation-plan DAG and read-only reaction-study index over exact immutable
-upstream artifacts. The 2.2.0 release also includes
+upstream artifacts. It also includes
 transition-metal M1/M2 observation and review contracts while preserving the
 unconditional metal runtime refusal. Every layer retains its individual
 scientific and live-action approval gates.
 
-The unreleased source after 2.2.0 also contains the first offline calculation-
+The 2.3.0 candidate also contains the first offline calculation-
 artifact adapter slice: immutable candidate-target imports, exact reviewed
 closed-shell main-group TS/Freq input handoffs, blocked/electronic-only energy
 lineage, and observation-only attempt links that bind the exact handoff, job
@@ -70,7 +71,7 @@ retain their existing names for compatibility and provenance.
   mechanism-network hypotheses, edge/channel mechanism-support classification,
   independent exploration and claim-support gates, a separate immutable
   row-by-evidence comparison matrix, TS-precedent/de novo seed planning, the
-  Unreleased calculation-plan/study-index slice, and a
+  2.3.0 calculation-plan/study-index slice, and a
   narrow exact-reviewed calculation-artifact adapter. The
   planning layer binds the exact W1/network chain and calls owner validators
   before clearing only matching precedent-coverage blockers. Because the DAG

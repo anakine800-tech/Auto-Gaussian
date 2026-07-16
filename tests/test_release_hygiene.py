@@ -45,9 +45,26 @@ class ReleaseHygieneTests(unittest.TestCase):
     def test_release_metadata_is_present(self) -> None:
         self.assertIn("MIT License", (ROOT / "LICENSE").read_text())
         changelog = (ROOT / "CHANGELOG.md").read_text()
+        pyproject = (ROOT / "pyproject.toml").read_text()
+        self.assertRegex(pyproject, r'(?m)^version = "2\.3\.0"$')
+        self.assertIn("## [Unreleased]\n\n## [2.3.0] - 2026-07-16", changelog)
+        self.assertIn(
+            "[Unreleased]: https://github.com/anakine800-tech/"
+            "Auto-Gaussian/compare/v2.3.0...HEAD",
+            changelog,
+        )
+        self.assertIn(
+            "[2.3.0]: https://github.com/anakine800-tech/"
+            "Auto-Gaussian/compare/v2.2.0...v2.3.0",
+            changelog,
+        )
+        self.assertIn("Auto-Gaussian 2.3.0", (ROOT / "README.md").read_text())
+        self.assertTrue((ROOT / "docs" / "release-2.3.0-checklist.md").is_file())
+
+        # Preserve the prior release entry, compare link, and checklist as
+        # immutable public history rather than rewriting them for 2.3.0.
         self.assertIn("## [2.2.0]", changelog)
         self.assertIn("[2.2.0]:", changelog)
-        self.assertIn("Auto-Gaussian 2.2.0", (ROOT / "README.md").read_text())
         self.assertTrue((ROOT / "docs" / "release-2.2.0-checklist.md").is_file())
         workflow = ROOT / ".github" / "workflows" / "offline-tests.yml"
         self.assertTrue(workflow.is_file())
