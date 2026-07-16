@@ -5,6 +5,13 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- Added machine-readable software citation metadata, signed-tag policy,
+  release-provenance manifest generation/validation, controlled DOI/SWHID
+  backfill, and a minimum version/commit/input-hash record for future papers,
+  supporting information packages, and research datasets.
+
 ## [2.3.0] - 2026-07-16
 
 ### Changed

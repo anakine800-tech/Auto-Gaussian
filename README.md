@@ -256,6 +256,25 @@ Gaussian or PBS approval boundaries.
 See `docs/ts-freq-irc-design.md` for the implemented TS–Freq–IRC design history.
 Repository-wide operational rules are in `AGENTS.md`.
 
+## Citation and release provenance
+
+If Auto-G16 is used in research, cite the exact release rather than a mutable
+branch. GitHub reads [`CITATION.cff`](CITATION.cff) and offers APA/BibTeX
+metadata through **Cite this repository**. For a concrete calculation, record
+the exact version DOI, full Git commit SHA, and SHA-256 of every material
+Gaussian input and reviewed workflow manifest.
+
+- Latest recorded release: `v2.3.0`
+- Version DOI: <!-- release-provenance:version-doi:start -->`pending Zenodo archival`<!-- release-provenance:version-doi:end -->
+- Auto-G16 concept DOI: <!-- release-provenance:concept-doi:start -->`pending Zenodo archival`<!-- release-provenance:concept-doi:end -->
+- Software Heritage SWHID: <!-- release-provenance:swhid:start -->`swh:1:rev:3125b46eec8176812d5e927ef2dbddd86d2c936b`<!-- release-provenance:swhid:end -->
+
+The complete signed-tag, DOI-backfill, manifest-validation, and research-output
+recording rules are in `docs/release-provenance.md`; a copyable paper/SI/data
+template is in `docs/research-output-citation-template.md`. Existing tags
+through `v2.3.0` remain unchanged. Every later formal release must use a signed
+annotated tag.
+
 ## Repository helpers
 
 - `config/*.example` contains placeholders only; real SSH/server configuration stays ignored.
@@ -265,6 +284,8 @@ Repository-wide operational rules are in `AGENTS.md`.
 - `scripts/check_skill_sync.py` compares the exact named-Skill deployment
   package, including manifest-mapped authoritative contracts, with installed
   copies.
+- `scripts/release_provenance.py` generates, validates, and DOI/SWHID-finalizes
+  release manifests without replacing an existing non-null identifier.
 - `scripts/sync_named_skill.py` prints a no-write named-Skill deployment plan
   by default and applies it only with `--apply --confirmed --plan-sha256
   <REVIEWED_HASH>`; it refuses symlinks, path escape and implicit deletion of

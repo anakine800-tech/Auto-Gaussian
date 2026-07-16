@@ -1,0 +1,31 @@
+{
+  "artifacts": [],
+  "citation": {
+    "bytes": 605,
+    "path": "release-manifests/citations/v2.3.0.cff",
+    "sha256": "0ce3d0eb7d03244fb8aa086f35f9bfda80c0b32a33a8ba18ba422329583a3257"
+  },
+  "identifiers": {
+    "concept_doi": null,
+    "software_heritage_swhid": "swh:1:rev:3125b46eec8176812d5e927ef2dbddd86d2c936b",
+    "version_doi": null
+  },
+  "manifest_status": "post_release_backfill",
+  "project": "Auto-G16",
+  "published_at": "2026-07-16T04:58:20Z",
+  "release_url": "https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v2.3.0",
+  "repository_url": "https://github.com/anakine800-tech/Auto-Gaussian",
+  "schema": "auto-g16-release-provenance/1",
+  "source": {
+    "annotated": true,
+    "commit_sha": "3125b46eec8176812d5e927ef2dbddd86d2c936b",
+    "signature": {
+      "format": null,
+      "present": false,
+      "required": false
+    },
+    "tag_object_id": "981801189bffb257f0828e9f57d464a9bfa2ad4b"
+  },
+  "tag": "v2.3.0",
+  "version": "2.3.0"
+}

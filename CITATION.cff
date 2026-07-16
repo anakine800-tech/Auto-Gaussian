@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: >-
+  If you use Auto-G16, cite the exact software release and record its
+  version DOI, Git commit SHA, and relevant input SHA-256 values.
+title: "Auto-G16: Audited Gaussian Workflow Skills"
+type: software
+authors:
+  - family-names: "Sun"
+    given-names: "Deli"
+repository-code: "https://github.com/anakine800-tech/Auto-Gaussian"
+url: "https://github.com/anakine800-tech/Auto-Gaussian"
+license: MIT
+version: "2.3.0"
+date-released: "2026-07-16"
+keywords:
+  - Gaussian
+  - computational chemistry
+  - scientific workflows
+  - transition states
+  - intrinsic reaction coordinate

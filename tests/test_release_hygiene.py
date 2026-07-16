@@ -47,7 +47,8 @@ class ReleaseHygieneTests(unittest.TestCase):
         changelog = (ROOT / "CHANGELOG.md").read_text()
         pyproject = (ROOT / "pyproject.toml").read_text()
         self.assertRegex(pyproject, r'(?m)^version = "2\.3\.0"$')
-        self.assertIn("## [Unreleased]\n\n## [2.3.0] - 2026-07-16", changelog)
+        self.assertIn("## [Unreleased]", changelog)
+        self.assertIn("## [2.3.0] - 2026-07-16", changelog)
         self.assertIn(
             "[Unreleased]: https://github.com/anakine800-tech/"
             "Auto-Gaussian/compare/v2.3.0...HEAD",
@@ -60,6 +61,15 @@ class ReleaseHygieneTests(unittest.TestCase):
         )
         self.assertIn("Auto-Gaussian 2.3.0", (ROOT / "README.md").read_text())
         self.assertTrue((ROOT / "docs" / "release-2.3.0-checklist.md").is_file())
+        self.assertTrue((ROOT / "CITATION.cff").is_file())
+        self.assertTrue((ROOT / "docs" / "release-provenance.md").is_file())
+        self.assertTrue(
+            (ROOT / "docs" / "research-output-citation-template.md").is_file()
+        )
+        self.assertTrue(
+            (ROOT / "release-manifests" / "v2.3.0.json").is_file()
+        )
+        self.assertTrue((ROOT / "scripts" / "release_provenance.py").is_file())
 
         # Preserve the prior release entry, compare link, and checklist as
         # immutable public history rather than rewriting them for 2.3.0.
@@ -69,6 +79,27 @@ class ReleaseHygieneTests(unittest.TestCase):
         workflow = ROOT / ".github" / "workflows" / "offline-tests.yml"
         self.assertTrue(workflow.is_file())
         self.assertIn("unittest discover", workflow.read_text())
+
+    def test_citation_metadata_is_public_machine_readable_and_not_fabricated(self) -> None:
+        citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
+        for field in (
+            "cff-version: 1.2.0",
+            'title: "Auto-G16: Audited Gaussian Workflow Skills"',
+            "type: software",
+            'version: "2.3.0"',
+            'date-released: "2026-07-16"',
+            'license: MIT',
+            'repository-code: "https://github.com/anakine800-tech/Auto-Gaussian"',
+        ):
+            self.assertIn(field, citation)
+        self.assertNotRegex(citation, r"0000-000[0-9]-000[0-9]-000[0-9]")
+        self.assertNotIn("doi:", citation.lower())
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for field in ("version-doi", "concept-doi", "swhid"):
+            self.assertEqual(
+                readme.count(f"release-provenance:{field}:start"), 1
+            )
+            self.assertEqual(readme.count(f"release-provenance:{field}:end"), 1)
 
     def test_optional_chemistry_dependencies_are_declared(self) -> None:
         requirements = ROOT / "requirements" / "chemistry.txt"
