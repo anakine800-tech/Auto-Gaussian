@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -39,12 +40,22 @@ class MetalSmokeCandidateDecisionTests(unittest.TestCase):
         self.assertEqual(decision["decision_payload_sha256"], payload_digest(decision, "decision_payload_sha256"))
         self.assertEqual(decision["decision"], "rejected_as_first_metal_smoke")
         self.assertIn("not a rejection", decision["scope"])
+        git_history_available = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=ROOT, check=False, capture_output=True,
+        ).returncode == 0
         for binding in decision["bindings"]:
-            historical = subprocess.run(
-                ["git", "show", f'{binding["git_revision"]}:{binding["path"]}'],
-                cwd=ROOT, check=True, capture_output=True,
-            ).stdout
-            self.assertEqual(binding["sha256"], hashlib.sha256(historical).hexdigest())
+            self.assertRegex(binding["git_revision"], re.compile(r"^[0-9a-f]{40}$"))
+            bound_path = Path(binding["path"])
+            self.assertFalse(bound_path.is_absolute())
+            self.assertNotIn("..", bound_path.parts)
+            self.assertTrue((ROOT / bound_path).is_file())
+            if git_history_available:
+                historical = subprocess.run(
+                    ["git", "show", f'{binding["git_revision"]}:{binding["path"]}'],
+                    cwd=ROOT, check=True, capture_output=True,
+                ).stdout
+                self.assertEqual(binding["sha256"], hashlib.sha256(historical).hexdigest())
         self.assertFalse(decision["consequences"]["r33_p1_closed"])
         self.assertFalse(decision["consequences"]["r33_m1_emitted"])
         self.assertFalse(decision["consequences"]["r33_p5_executable"])
