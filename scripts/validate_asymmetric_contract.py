@@ -35,6 +35,8 @@ SCHEMA_IDS = {
     "metal-result-observation": "gaussian-asymmetric-metal-result-observation/1",
     "metal-acceptance-review-source": "gaussian-asymmetric-metal-acceptance-review-source/1",
     "metal-acceptance-review": "gaussian-asymmetric-metal-acceptance-review/1",
+    "metal-p0-p1-baseline": "gaussian-asymmetric-metal-p0-p1-baseline/1",
+    "metal-p0-candidate-inventory": "gaussian-asymmetric-metal-p0-candidate-inventory/1",
     "smoke-proposal": "gaussian-asymmetric-smoke-proposal/1",
     "live-smoke-evidence": "gaussian-asymmetric-live-smoke-evidence/1",
     "literature-benchmark": "gaussian-asymmetric-literature-benchmark-ledger/1",

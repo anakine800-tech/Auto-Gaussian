@@ -1,0 +1,129 @@
+{
+  "schema": "gaussian-asymmetric-metal-p0-p1-baseline/1",
+  "baseline_id": "metal_m4_p0_p1_20260716",
+  "status": "reviewed_offline_blocked",
+  "review_date": "2026-07-16",
+  "calculation_ready": false,
+  "no_submission_authorization": true,
+  "smoke_and_target_are_separate": true,
+  "milestone_status": {
+    "p0": "provisional_candidate_established_blocked",
+    "p1": "blocked_before_real_candidate_and_m1",
+    "can_enter_p2": false
+  },
+  "m4_smoke_screen": {
+    "selection_status": "provisional_candidate_blocked",
+    "candidate": {
+      "candidate_id": "mobh35_r33_pt_h_scrambling",
+      "dataset_reaction": "MOBH35 reaction 33",
+      "metal": "Pt",
+      "atom_inventory": {"atom_count": 15, "element_counts": {"Pt": 1, "C": 1, "N": 2, "H": 11}},
+      "structure_set": {
+        "path": "studies/metal_m4_p0_p1_baseline/r33-start-ts-end.xyz",
+        "sha256": "f2104dc1db9f4fb44542d48c0321715f5060f4b99a80f1301bfe4c8aa277b5f3",
+        "schema": "multi_xyz_start_ts_end_with_source_attribution/1"
+      },
+      "candidate_inventory": {
+        "path": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json",
+        "sha256": "2af44a60d0039c9b67e1790c9db655ca50396ee28ce7c5b681d0ee2355259e93",
+        "schema": "gaussian-asymmetric-metal-p0-candidate-inventory/1"
+      },
+      "reported_energies_kcal_mol": {"forward": 1.5, "reverse": 8.1, "reaction": -6.6},
+      "source_records": [
+        {
+          "source_id": "mobh35_original_2019",
+          "source_kind": "dataset_table",
+          "legal_access": "publisher_metadata",
+          "locator": "DOI 10.1021/acs.jpca.9b01546, Table 4, reaction 33 and ref 136",
+          "artifact_sha256": null,
+          "claim_scope": "Reports the R33 forward, reverse and reaction benchmark energies; no method is adopted as a new protocol.",
+          "unresolved": ["candidate multiplicity", "candidate electronic assignment"]
+        },
+        {
+          "source_id": "mobh35_reconsidered_2022",
+          "source_kind": "open_review_article",
+          "legal_access": "cc_by_open_access",
+          "locator": "DOI 10.1021/acs.jctc.1c01126; PMCID PMC8830049",
+          "artifact_sha256": "50db8fb318cbe01b37b72d3d748bb0bfa8c8062a7c842780fbbde36f7f5db8c0",
+          "claim_scope": "Open reassessment and lawful source of the version-matched supplementary coordinate archive.",
+          "unresolved": ["container hash alone accepts no scientific field"]
+        },
+        {
+          "source_id": "mobh35_r33_coordinates",
+          "source_kind": "open_supporting_information",
+          "legal_access": "cc_by_open_access",
+          "locator": "ct1c01126_si_003.txt blocks 33_start, 33_ts and 33_end; source SHA-256 105d7b83ea22660dfd3964bd62017f72a997eb2f936f7bb8c7a447704b885603",
+          "artifact_sha256": "105d7b83ea22660dfd3964bd62017f72a997eb2f936f7bb8c7a447704b885603",
+          "claim_scope": "Reports three 15-atom Cartesian blocks with Pt1 C1 N2 H11; the text does not report charge or multiplicity.",
+          "unresolved": ["charge in coordinate text", "multiplicity", "chemical atom roles", "endpoint identity"]
+        },
+        {
+          "source_id": "r33_original_reaction_2002",
+          "source_kind": "primary_article",
+          "legal_access": "publisher_metadata",
+          "locator": "DOI 10.1021/ja025667v; JACS 2002, 124, 7041-7054",
+          "artifact_sha256": null,
+          "claim_scope": "Identifies the Pt methyl-hydride H/D-scrambling chemistry and separately reports the [(NH3)3PtMe(H)2]+ rigidity-test model; the 15-atom N2 MOBH35 reoptimized reduced coordination state is not asserted to be that N3 model.",
+          "unresolved": ["exact mapping to the reoptimized R33 reduced coordination state", "multiplicity", "endpoint identity"]
+        }
+      ],
+      "assessment": "smallest_concrete_candidate_found_but_not_m4_ready"
+    },
+    "criteria": [
+      {"criterion_id": "lawful_coordinates", "requirement": "Lawfully accessible start, TS and end Cartesian coordinates with stable hashes.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "small_single_metal", "requirement": "One metal center and a reviewed small atom inventory suitable for a bounded smoke.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "exact_atom_map", "requirement": "A contiguous one-based atom map binds start, TS and end without element-order drift.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "closed_electron_accounting", "requirement": "Reviewer-supplied charge, multiplicity, oxidation and ligand-charge convention close electron accounting.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "single_reference_review", "requirement": "Candidate-specific wavefunction, stability and multireference evidence supports a single-reference treatment.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "single_surface_review", "requirement": "Credible multiplicities and crossing relevance are reviewed with no unresolved spin crossing or MECP requirement.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "simple_coordination", "requirement": "Complete coordination contacts, ligand inventory, hapticity and distance windows are reviewed with no complex hapticity.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "reaction_coordinate", "requirement": "The intended forming, breaking or transferring atoms and endpoint identities are source-located and reviewed.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "real_m1_chain", "requirement": "Candidate-bound M0, blocked M2a, real M1 review source and M1 sidecar have exact hashes.", "status": "required_not_yet_satisfied"},
+      {"criterion_id": "runtime_and_execution_gates", "requirement": "Metal M2 runtime and M3 execution contracts pass before a separately approved exact M4 action.", "status": "required_not_yet_satisfied"}
+    ],
+    "required_prior_milestones": ["metal_m1_scientific_review", "metal_m2_offline_runtime_contract", "metal_m3_execution_boundary", "explicit_exact_live_approval"],
+    "exclusions": [
+      "Wang 2025 borane/nickel is retained as the final asymmetric target and is too complex for the first metal smoke.",
+      "The open Pd-hydride TS(S)/TS(R) case has public coordinates but roughly 90-plus atoms per TS and is not minimal.",
+      "MOBH35 benchmark methods and energies are evidence for R33 only and are not a protocol default."
+    ]
+  },
+  "asymmetric_target": {
+    "target_id": "wang_2025_borane_nickel_allenylic",
+    "role": "final_asymmetric_target_not_smoke",
+    "source_doi": "10.1021/jacs.5c13835",
+    "source_class": "primary_article_and_supporting_information",
+    "stereochemical_channels": [
+      {"channel_id": "wang_2025_product_r", "product_configuration": "r", "mapping_status": "blocked_pending_exact_atom_map_and_endpoint_identity"},
+      {"channel_id": "wang_2025_product_s", "product_configuration": "s", "mapping_status": "blocked_pending_exact_atom_map_and_endpoint_identity"}
+    ],
+    "source_ceiling": "literature_anchor_only_no_candidate_bound_m1",
+    "selection_status": "blocked_missing_candidate_bound_facts"
+  },
+  "contract_probe": {
+    "scope": "synthetic_fixture_contract_probe_only",
+    "scientific_status": "does_not_satisfy_real_m1_or_m4",
+    "artifacts": {
+      "study": {"path": "tests/fixtures/asymmetric_catalysis/metal_study.json", "sha256": "c4e32a787fa39e7c077a609305b0149fc9499ed0272997b04b0a8e5c44205f82", "schema": "gaussian-asymmetric-catalysis-study/1"},
+      "candidate_atom_map_and_coordination_inventory": {"path": "tests/fixtures/asymmetric_catalysis/metal_candidate.json", "sha256": "00a724bf7fb2386cb4167603390cedfcf87c1cd3337dfe120730e77384f04f45", "schema": "gaussian-asymmetric-ts-candidate/1"},
+      "m0_design": {"path": "studies/metal_m4_p0_p1_baseline/contract-probe/m0-design.json", "sha256": "9de724589ddf0afe494ebceab50948f1b6471b159b6644ce2a100d036ac715c8", "schema": "gaussian-asymmetric-metal-support-design/1"},
+      "m2a_template": {"path": "studies/metal_m4_p0_p1_baseline/contract-probe/m2a-template.json", "sha256": "6420909a7983021e836c54da8779a8bb9e2c97745e94c5445f28af8d844cf0b8", "schema": "gaussian-asymmetric-metal-ts-audit-template/1"},
+      "m1_review_source": {"path": "tests/fixtures/asymmetric_catalysis/metal_scientific_review_incomplete.json", "sha256": "2e970b7964d1926dc0b2be5ed39b848b01e595bc8bd3dc63f986fc1b6b5e31db", "schema": "gaussian-asymmetric-metal-scientific-review-source/1"},
+      "m1_sidecar": {"path": "studies/metal_m4_p0_p1_baseline/contract-probe/m1-sidecar.json", "sha256": "f0e217535448b68e65cd534167f8482cb433839765ae16f8745b7f7228b54759", "schema": "gaussian-asymmetric-metal-scientific-review/1"}
+    }
+  },
+  "blockers": [
+    {"field": "r33_charge", "reason": "The open R33 coordinate text contains no charge record.", "required_evidence": "Candidate-specific primary or dataset source plus reviewer decision."},
+    {"field": "r33_multiplicity", "reason": "The open R33 coordinate text contains no multiplicity record.", "required_evidence": "Candidate-specific source locator and reviewed multiplicity inventory."},
+    {"field": "r33_electron_accounting", "reason": "Oxidation state, ligand-charge convention, d count and parity are not candidate-bound.", "required_evidence": "Reviewer-supplied electron-accounting record with evidence locators."},
+    {"field": "r33_wavefunction", "reason": "Dataset-level closed-shell labeling is not candidate-level single-reference acceptance.", "required_evidence": "Wavefunction, stability, occupation, alternative-solution and multireference review."},
+    {"field": "r33_atom_map", "reason": "Element order is observed but chemical atom roles and cross-structure correspondence are unreviewed.", "required_evidence": "One-based reviewed atom map for all three structures."},
+    {"field": "r33_coordination", "reason": "Pt coordination contacts, ligand identities and distance windows are not inventoried.", "required_evidence": "Candidate-bound coordination inventory and reviewer-supplied windows."},
+    {"field": "r33_coordinate", "reason": "The actual H-scrambling forming and breaking pairs are not yet source-located and mapped.", "required_evidence": "Reviewed elementary-step class, intended coordinate and endpoint identities."},
+    {"field": "r33_ts_evidence", "reason": "The coordinate archive alone does not provide a candidate-bound raw imaginary mode or displacement review.", "required_evidence": "Source-located frequency/mode evidence or a later separately approved local result review."},
+    {"field": "r33_method", "reason": "No new-system three-tier protocol has been proposed or selected.", "required_evidence": "Metal-specific method review followed by independent protocol options and selection."},
+    {"field": "metal_runtime", "reason": "The repository metal runtime and M3 execution boundary remain unsupported.", "required_evidence": "Implemented and adversarially tested M2 and M3 contracts before any M4 proposal."},
+    {"field": "wang_candidate", "reason": "Wang 2025 lacks repository-bound exact coordinates, atom maps and coordination inventory.", "required_evidence": "Lawfully reviewed SI transcription and candidate hashes for both stereochemical channels."}
+  ],
+  "claim_ceiling": "p0_p1_screening_and_blocker_baseline_only_no_scientific_acceptance_ts_selectivity_or_live_authority"
+}

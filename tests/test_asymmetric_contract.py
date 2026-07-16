@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,6 +39,8 @@ class AsymmetricCatalysisContractTests(unittest.TestCase):
             "metal-ts-audit-template", "metal-scientific-review-source",
             "metal-scientific-review", "metal-input-observation", "metal-result-observation",
             "metal-acceptance-review-source", "metal-acceptance-review",
+            "metal-p0-p1-baseline",
+            "metal-p0-candidate-inventory",
             "live-smoke-evidence", "literature-benchmark",
         }
         found = set()
@@ -47,6 +51,47 @@ class AsymmetricCatalysisContractTests(unittest.TestCase):
             self.assertFalse(document["additionalProperties"])
             found.add(path.name.removesuffix(".schema.json"))
         self.assertEqual(found, expected)
+
+    def test_metal_p0_p1_real_inventory_is_hash_bound_and_p2_blocked(self) -> None:
+        study_dir = ROOT / "studies" / "metal_m4_p0_p1_baseline"
+        baseline = CONTRACT.load_json(study_dir / "baseline.json")
+        inventory = CONTRACT.load_json(study_dir / "r33-candidate-inventory.json")
+        self.assertEqual(CONTRACT.validate_structure(baseline), "metal-p0-p1-baseline")
+        self.assertEqual(CONTRACT.validate_structure(inventory), "metal-p0-candidate-inventory")
+        self.assertFalse(baseline["milestone_status"]["can_enter_p2"])
+        self.assertEqual(baseline["milestone_status"]["p1"], "blocked_before_real_candidate_and_m1")
+        self.assertIsNone(inventory["identity"]["multiplicity"])
+        self.assertEqual(inventory["identity"]["total_charge"], 1)
+        self.assertEqual(inventory["electronic_state"]["single_reference_status"], "diagnostics_observed_not_accepted")
+        self.assertEqual(len({atom["source_atom_id"] for atom in inventory["atom_map"]}), 15)
+        self.assertEqual([atom["index"] for atom in inventory["atom_map"]], list(range(1, 16)))
+        self.assertEqual({item["contact_id"] for item in inventory["coordination_inventory"]}, {
+            "r33_pt2_c1", "r33_pt2_n3", "r33_pt2_n4", "r33_pt2_h5", "r33_pt2_h7",
+        })
+        self.assertTrue(all(item["decision"] == "observed_not_accepted_no_universal_threshold" for item in inventory["diagnostics"]))
+        self.assertTrue(all({"legal_access", "artifact_sha256", "claim_scope", "unresolved"} <= set(item) for item in inventory["source_records"]))
+
+        for artifact in baseline["contract_probe"]["artifacts"].values():
+            path = ROOT / artifact["path"]
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), artifact["sha256"])
+        candidate_inventory = baseline["m4_smoke_screen"]["candidate"]["candidate_inventory"]
+        self.assertEqual(hashlib.sha256((ROOT / candidate_inventory["path"]).read_bytes()).hexdigest(), candidate_inventory["sha256"])
+
+        xyz_lines = (study_dir / "r33-start-ts-end.xyz").read_text(encoding="utf-8").splitlines()
+        blocks = {}
+        for offset, label in ((2, "start"), (19, "ts"), (36, "end")):
+            blocks[label] = [tuple(map(float, line.split()[1:])) for line in xyz_lines[offset:offset + 15]]
+        for contact in inventory["coordination_inventory"]:
+            left, right = contact["atoms"]
+            for label in ("start", "ts", "end"):
+                observed = math.dist(blocks[label][left - 1], blocks[label][right - 1])
+                self.assertAlmostEqual(observed, contact["distances_angstrom"][label], places=4)
+
+        unsupported_candidate = CONTRACT.load_json(FIXTURES / "metal_candidate.json")
+        unsupported_candidate["chemical_state"]["multiplicity"] = None
+        unsupported_candidate["electronic_state"]["multiplicity"] = None
+        with self.assertRaises(CONTRACT.ContractError):
+            CONTRACT.validate_structure(unsupported_candidate, "candidate")
 
     def test_metal_scope_evidence_contract_rejects_scope_only_laundering(self) -> None:
         m1_source = self.load("metal_scientific_review_complete.json")

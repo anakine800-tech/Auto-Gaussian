@@ -1,0 +1,1347 @@
+{
+  "group_by": [],
+  "meta": {
+    "cost_usd": 0.0001,
+    "count": 1,
+    "db_response_time_ms": 46,
+    "groups_count": null,
+    "page": 1,
+    "per_page": 3,
+    "x_query": {
+      "oql": "works where DOI is (https://doi.org/10.1021/acs.jpca.9b06135)",
+      "oqo": {
+        "filter_rows": [
+          {
+            "column_id": "doi",
+            "value": "https://doi.org/10.1021/acs.jpca.9b06135"
+          }
+        ],
+        "get_rows": "works",
+        "per_page": 3
+      },
+      "url": "/works?filter=doi:https:%2F%2Fdoi.org%2F10.1021%2Facs.jpca.9b06135&per_page=3"
+    }
+  },
+  "results": [
+    {
+      "abstract_inverted_index": {
+        "\"Evaluating": [
+          10
+        ],
+        "(1)»Supporting": [
+          237
+        ],
+        "(243": [
+          232
+        ],
+        "(Web):July": [
+          52
+        ],
+        "(both": [
+          110
+        ],
+        "123,": [
+          48
+        ],
+        "15,": [
+          53
+        ],
+        "2008": [
+          109
+        ],
+        "2019": [
+          66
+        ],
+        "2019,": [
+          47
+        ],
+        "2019Publication": [
+          54
+        ],
+        "2019Published": [
+          59
+        ],
+        "2019https://pubs.acs.org/doi/10.1021/acs.jpca.9b06135https://doi.org/10.1021/acs.jpca.9b06135correctionACS": [
+          63
+        ],
+        "25": [
+          61
+        ],
+        "29,": [
+          49
+        ],
+        "6379–6380Publication": [
+          50
+        ],
+        "A": [
+          46
+        ],
+        "A.": [
+          27,
+          29,
+          33
+        ],
+        "ABOUT": [
+          94
+        ],
+        "ADVERTISEMENT": [
+          0
+        ],
+        "ARTICLEThis": [
+          4
+        ],
+        "Add": [
+          214
+        ],
+        "Altmetric": [
+          156,
+          204
+        ],
+        "American": [
+          67
+        ],
+        "Attention": [
+          157,
+          205
+        ],
+        "Barrier": [
+          13
+        ],
+        "Benchmark": [
+          25
+        ],
+        "COUNTER-compliant": [
+          100
+        ],
+        "Chem.": [
+          45
+        ],
+        "Chemical": [
+          68
+        ],
+        "Clicking": [
+          173
+        ],
+        "Crossref": [
+          145,
+          153
+        ],
+        "Database\"Mark": [
+          26
+        ],
+        "Date": [
+          51
+        ],
+        "Density": [
+          18
+        ],
+        "Description": [
+          221
+        ],
+        "Exchange–Correlation": [
+          21
+        ],
+        "ExportRISCitationCitation": [
+          222
+        ],
+        "Find": [
+          149,
+          199
+        ],
+        "Full": [
+          217
+        ],
+        "Functional": [
+          19
+        ],
+        "Functionals:": [
+          22
+        ],
+        "Get": [
+          234,
+          241
+        ],
+        "HTML)": [
+          113
+        ],
+        "Heights": [
+          14
+        ],
+        "History": [
+          55
+        ],
+        "ISSUEPREVAddition/CorrectionNEXTORIGINAL": [
+          3
+        ],
+        "InAdd": [
+          216
+        ],
+        "InRedditEmail": [
+          230
+        ],
+        "Info": [
+          236
+        ],
+        "Information": [
+          238,
+          240
+        ],
+        "Iron*Mark": [
+          28
+        ],
+        "IronMore": [
+          30
+        ],
+        "Ironhttp://orcid.org/0000-0001-9774-2358": [
+          34
+        ],
+        "J.": [
+          43
+        ],
+        "JanesMore": [
+          38
+        ],
+        "JanesTrevor": [
+          37
+        ],
+        "Janeshttp://orcid.org/0000-0002-5469-0495Cite": [
+          41
+        ],
+        "July": [
+          58,
+          62
+        ],
+        "KB)": [
+          233
+        ],
+        "Latest": [
+          17
+        ],
+        "Learn": [
+          91
+        ],
+        "METRICSArticle": [
+          96
+        ],
+        "MOBH35": [
+          24
+        ],
+        "Mark": [
+          32
+        ],
+        "Metal": [
+          12
+        ],
+        "MoreArticle": [
+          92
+        ],
+        "November": [
+          108
+        ],
+        "Options": [
+          227
+        ],
+        "PDF": [
+          111,
+          231
+        ],
+        "Phys.": [
+          44
+        ],
+        "PublicationsCopyright": [
+          64
+        ],
+        "Published": [
+          56
+        ],
+        "RETURN": [
+          1
+        ],
+        "ReferenceAdd": [
+          220
+        ],
+        "Request": [
+          79
+        ],
+        "Score": [
+          158,
+          206
+        ],
+        "Share": [
+          213,
+          228
+        ],
+        "Society.": [
+          69
+        ],
+        "Supporting": [
+          239
+        ],
+        "THESE": [
+          95
+        ],
+        "TO": [
+          2
+        ],
+        "Terms": [
+          76
+        ],
+        "Text": [
+          218
+        ],
+        "The": [
+          23
+        ],
+        "Theory": [
+          20
+        ],
+        "These": [
+          119
+        ],
+        "This": [
+          70,
+          82
+        ],
+        "Transition": [
+          11
+        ],
+        "Trevor": [
+          36,
+          40
+        ],
+        "Use.": [
+          78
+        ],
+        "Views": [
+          97
+        ],
+        "Views2114Altmetric-Citations30LEARN": [
+          93
+        ],
+        "a": [
+          7,
+          160,
+          167,
+          180
+        ],
+        "about": [
+          152,
+          187
+        ],
+        "abstractCitation": [
+          224
+        ],
+        "access": [
+          87
+        ],
+        "across": [
+          114
+        ],
+        "additional": [
+          185
+        ],
+        "all": [
+          115
+        ],
+        "altmetric.com": [
+          183
+        ],
+        "and": [
+          35,
+          112,
+          117,
+          146,
+          190,
+          207,
+          223,
+          225
+        ],
+        "are": [
+          98,
+          121,
+          134
+        ],
+        "article": [
+          105,
+          169
+        ],
+        "article,": [
+          142
+        ],
+        "article.": [
+          198
+        ],
+        "articles": [
+          139
+        ],
+        "at": [
+          182
+        ],
+        "attention": [
+          165
+        ],
+        "available": [
+          73
+        ],
+        "by": [
+          31,
+          39,
+          144
+        ],
+        "calculated": [
+          143
+        ],
+        "calculated.": [
+          212
+        ],
+        "citation": [
+          154
+        ],
+        "citing": [
+          140
+        ],
+        "correctionCorrection": [
+          8
+        ],
+        "counts.The": [
+          155
+        ],
+        "daily.": [
+          148
+        ],
+        "days.Citations": [
+          133
+        ],
+        "details": [
+          186
+        ],
+        "donut": [
+          176
+        ],
+        "downloads": [
+          106
+        ],
+        "e-Alerts": [
+          242
+        ],
+        "e-AlertscloseSupporting": [
+          235
+        ],
+        "few": [
+          132
+        ],
+        "for": [
+          195
+        ],
+        "free": [
+          85
+        ],
+        "full": [
+          103
+        ],
+        "given": [
+          197
+        ],
+        "has": [
+          170
+        ],
+        "how": [
+          208
+        ],
+        "icon": [
+          177
+        ],
+        "individuals.": [
+          118
+        ],
+        "information": [
+          151,
+          201
+        ],
+        "inissue": [
+          60
+        ],
+        "institutions": [
+          116
+        ],
+        "is": [
+          6,
+          72,
+          84,
+          159,
+          211
+        ],
+        "last": [
+          131
+        ],
+        "leading": [
+          127
+        ],
+        "load": [
+          179
+        ],
+        "measure": [
+          162
+        ],
+        "media": [
+          193
+        ],
+        "metrics": [
+          120
+        ],
+        "more": [
+          150,
+          200
+        ],
+        "notice": [
+          5
+        ],
+        "number": [
+          136
+        ],
+        "of": [
+          77,
+          102,
+          137,
+          163
+        ],
+        "on": [
+          174,
+          202
+        ],
+        "onFacebookTwitterWechatLinked": [
+          229
+        ],
+        "online.": [
+          172
+        ],
+        "online15": [
+          57
+        ],
+        "other": [
+          138
+        ],
+        "page": [
+          181
+        ],
+        "permissions": [
+          81
+        ],
+        "presence": [
+          194
+        ],
+        "publication": [
+          71,
+          83
+        ],
+        "quantitative": [
+          161
+        ],
+        "received": [
+          171
+        ],
+        "referencesMore": [
+          226
+        ],
+        "reflect": [
+          125
+        ],
+        "regularly": [
+          122
+        ],
+        "research": [
+          168
+        ],
+        "reuse": [
+          80
+        ],
+        "score": [
+          189,
+          210
+        ],
+        "since": [
+          107
+        ],
+        "site.": [
+          90
+        ],
+        "social": [
+          192
+        ],
+        "sum": [
+          101
+        ],
+        "text": [
+          104
+        ],
+        "that": [
+          166
+        ],
+        "the": [
+          16,
+          99,
+          130,
+          135,
+          164,
+          175,
+          188,
+          191,
+          196,
+          203,
+          209
+        ],
+        "these": [
+          75
+        ],
+        "this": [
+          89,
+          141
+        ],
+        "this:": [
+          42
+        ],
+        "through": [
+          88
+        ],
+        "to": [
+          9,
+          86,
+          124,
+          129
+        ],
+        "toView": [
+          215
+        ],
+        "under": [
+          74
+        ],
+        "up": [
+          128
+        ],
+        "updated": [
+          123,
+          147
+        ],
+        "usage": [
+          126
+        ],
+        "will": [
+          178
+        ],
+        "with": [
+          15,
+          184,
+          219
+        ],
+        "©": [
+          65
+        ]
+      },
+      "apc_list": null,
+      "apc_paid": null,
+      "authorships": [
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I53964585"
+              ],
+              "raw_affiliation_string": "Computational Chemistry Unit, Department of Chemical Research Support, Weizmann Institute of Science, Rehovot, Israel 7610001"
+            }
+          ],
+          "author": {
+            "display_name": "Mark A. Iron",
+            "id": "https://openalex.org/A5040172155",
+            "orcid": "https://orcid.org/0000-0001-9774-2358"
+          },
+          "author_position": "first",
+          "countries": [
+            "IL"
+          ],
+          "institutions": [
+            {
+              "country_code": "IL",
+              "display_name": "Weizmann Institute of Science",
+              "id": "https://openalex.org/I53964585",
+              "lineage": [
+                "https://openalex.org/I53964585"
+              ],
+              "ror": "https://ror.org/0316ej306",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Computational Chemistry Unit, Department of Chemical Research Support, Weizmann Institute of Science, Rehovot, Israel 7610001"
+          ],
+          "raw_author_name": "Mark A. Iron",
+          "raw_orcid": "https://orcid.org/0000-0001-9774-2358"
+        },
+        {
+          "affiliations": [
+            {
+              "institution_ids": [
+                "https://openalex.org/I53964585"
+              ],
+              "raw_affiliation_string": "Department of Organic Chemistry, Weizmann Institute of Science, Rehovot, Israel 7610001"
+            }
+          ],
+          "author": {
+            "display_name": "Trevor Janes",
+            "id": "https://openalex.org/A5063706558",
+            "orcid": "https://orcid.org/0000-0002-5469-0495"
+          },
+          "author_position": "last",
+          "countries": [
+            "IL"
+          ],
+          "institutions": [
+            {
+              "country_code": "IL",
+              "display_name": "Weizmann Institute of Science",
+              "id": "https://openalex.org/I53964585",
+              "lineage": [
+                "https://openalex.org/I53964585"
+              ],
+              "ror": "https://ror.org/0316ej306",
+              "type": "education"
+            }
+          ],
+          "is_corresponding": false,
+          "raw_affiliation_strings": [
+            "Department of Organic Chemistry, Weizmann Institute of Science, Rehovot, Israel 7610001"
+          ],
+          "raw_author_name": "Trevor Janes",
+          "raw_orcid": "https://orcid.org/0000-0002-5469-0495"
+        }
+      ],
+      "awards": [],
+      "best_oa_location": null,
+      "biblio": {
+        "first_page": "6379",
+        "issue": "29",
+        "last_page": "6380",
+        "volume": "123"
+      },
+      "citation_normalized_percentile": null,
+      "cited_by_count": 66,
+      "cited_by_percentile_year": null,
+      "concepts": [
+        {
+          "display_name": "Benchmark (surveying)",
+          "id": "https://openalex.org/C185798385",
+          "level": 2,
+          "score": 0.7428715229034424,
+          "wikidata": "https://www.wikidata.org/wiki/Q1161707"
+        },
+        {
+          "display_name": "Density functional theory",
+          "id": "https://openalex.org/C152365726",
+          "level": 2,
+          "score": 0.6098355054855347,
+          "wikidata": "https://www.wikidata.org/wiki/Q1048589"
+        },
+        {
+          "display_name": "Database",
+          "id": "https://openalex.org/C77088390",
+          "level": 1,
+          "score": 0.5272000432014465,
+          "wikidata": "https://www.wikidata.org/wiki/Q8513"
+        },
+        {
+          "display_name": "Correlation",
+          "id": "https://openalex.org/C117220453",
+          "level": 2,
+          "score": 0.5021295547485352,
+          "wikidata": "https://www.wikidata.org/wiki/Q5172842"
+        },
+        {
+          "display_name": "Computer science",
+          "id": "https://openalex.org/C41008148",
+          "level": 0,
+          "score": 0.4437254071235657,
+          "wikidata": "https://www.wikidata.org/wiki/Q21198"
+        },
+        {
+          "display_name": "Data mining",
+          "id": "https://openalex.org/C124101348",
+          "level": 1,
+          "score": 0.35575589537620544,
+          "wikidata": "https://www.wikidata.org/wiki/Q172491"
+        },
+        {
+          "display_name": "Computational chemistry",
+          "id": "https://openalex.org/C147597530",
+          "level": 1,
+          "score": 0.2614426910877228,
+          "wikidata": "https://www.wikidata.org/wiki/Q369472"
+        },
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/C185592680",
+          "level": 0,
+          "score": 0.24798175692558289,
+          "wikidata": "https://www.wikidata.org/wiki/Q2329"
+        },
+        {
+          "display_name": "Mathematics",
+          "id": "https://openalex.org/C33923547",
+          "level": 0,
+          "score": 0.212392657995224,
+          "wikidata": "https://www.wikidata.org/wiki/Q395"
+        },
+        {
+          "display_name": "Geography",
+          "id": "https://openalex.org/C205649164",
+          "level": 0,
+          "score": 0.15122216939926147,
+          "wikidata": "https://www.wikidata.org/wiki/Q1071"
+        },
+        {
+          "display_name": "Geometry",
+          "id": "https://openalex.org/C2524010",
+          "level": 1,
+          "score": 0.0912676453590393,
+          "wikidata": "https://www.wikidata.org/wiki/Q8087"
+        },
+        {
+          "display_name": "Cartography",
+          "id": "https://openalex.org/C58640448",
+          "level": 1,
+          "score": 0.07443144917488098,
+          "wikidata": "https://www.wikidata.org/wiki/Q42515"
+        }
+      ],
+      "content_urls": null,
+      "corresponding_author_ids": [],
+      "corresponding_institution_ids": [
+        "https://openalex.org/I53964585"
+      ],
+      "countries_distinct_count": 1,
+      "counts_by_year": [
+        {
+          "cited_by_count": 2,
+          "year": 2026
+        },
+        {
+          "cited_by_count": 6,
+          "year": 2025
+        },
+        {
+          "cited_by_count": 6,
+          "year": 2024
+        },
+        {
+          "cited_by_count": 19,
+          "year": 2023
+        },
+        {
+          "cited_by_count": 13,
+          "year": 2022
+        },
+        {
+          "cited_by_count": 7,
+          "year": 2021
+        },
+        {
+          "cited_by_count": 10,
+          "year": 2020
+        },
+        {
+          "cited_by_count": 3,
+          "year": 2019
+        }
+      ],
+      "created_date": "2025-10-10T00:00:00",
+      "display_name": "Correction to “Evaluating Transition Metal Barrier Heights with the Latest Density Functional Theory Exchange–Correlation Functionals: The MOBH35 Benchmark Database”",
+      "doi": "https://doi.org/10.1021/acs.jpca.9b06135",
+      "funders": [
+        {
+          "display_name": "Weizmann Institute of Science",
+          "id": "https://openalex.org/F4320320946",
+          "ror": "https://ror.org/0316ej306"
+        },
+        {
+          "display_name": "Azrieli Foundation",
+          "id": "https://openalex.org/F4320323139",
+          "ror": "https://ror.org/009svts64"
+        }
+      ],
+      "fwci": null,
+      "has_content": {
+        "grobid_xml": false,
+        "pdf": false
+      },
+      "has_fulltext": false,
+      "id": "https://openalex.org/W2939868671",
+      "ids": {
+        "doi": "https://doi.org/10.1021/acs.jpca.9b06135",
+        "mag": "2939868671",
+        "openalex": "https://openalex.org/W2939868671",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/31306024"
+      },
+      "indexed_in": [
+        "crossref",
+        "pubmed"
+      ],
+      "institutions": [],
+      "institutions_distinct_count": 1,
+      "is_paratext": false,
+      "is_retracted": false,
+      "is_xpac": false,
+      "keywords": [
+        {
+          "display_name": "Benchmark (surveying)",
+          "id": "https://openalex.org/keywords/benchmark",
+          "score": 0.7428715229034424
+        },
+        {
+          "display_name": "Density functional theory",
+          "id": "https://openalex.org/keywords/density-functional-theory",
+          "score": 0.6098355054855347
+        },
+        {
+          "display_name": "Database",
+          "id": "https://openalex.org/keywords/database",
+          "score": 0.5272000432014465
+        },
+        {
+          "display_name": "Correlation",
+          "id": "https://openalex.org/keywords/correlation",
+          "score": 0.5021295547485352
+        },
+        {
+          "display_name": "Computer science",
+          "id": "https://openalex.org/keywords/computer-science",
+          "score": 0.4437254071235657
+        },
+        {
+          "display_name": "Data mining",
+          "id": "https://openalex.org/keywords/data-mining",
+          "score": 0.35575589537620544
+        },
+        {
+          "display_name": "Computational chemistry",
+          "id": "https://openalex.org/keywords/computational-chemistry",
+          "score": 0.2614426910877228
+        },
+        {
+          "display_name": "Chemistry",
+          "id": "https://openalex.org/keywords/chemistry",
+          "score": 0.24798175692558289
+        },
+        {
+          "display_name": "Mathematics",
+          "id": "https://openalex.org/keywords/mathematics",
+          "score": 0.212392657995224
+        },
+        {
+          "display_name": "Geography",
+          "id": "https://openalex.org/keywords/geography",
+          "score": 0.15122216939926147
+        },
+        {
+          "display_name": "Geometry",
+          "id": "https://openalex.org/keywords/geometry",
+          "score": 0.0912676453590393
+        },
+        {
+          "display_name": "Cartography",
+          "id": "https://openalex.org/keywords/cartography",
+          "score": 0.07443144917488098
+        }
+      ],
+      "language": "en",
+      "locations": [
+        {
+          "id": "doi:10.1021/acs.jpca.9b06135",
+          "is_accepted": true,
+          "is_oa": false,
+          "is_published": true,
+          "landing_page_url": "https://doi.org/10.1021/acs.jpca.9b06135",
+          "license": null,
+          "license_id": null,
+          "pdf_url": null,
+          "raw_source_name": "The Journal of Physical Chemistry A",
+          "raw_type": "journal-article",
+          "source": {
+            "display_name": "The Journal of Physical Chemistry A",
+            "host_organization": "https://openalex.org/P4310320006",
+            "host_organization_lineage": [
+              "https://openalex.org/P4310320006"
+            ],
+            "host_organization_lineage_names": [
+              "American Chemical Society"
+            ],
+            "host_organization_name": "American Chemical Society",
+            "id": "https://openalex.org/S146709414",
+            "is_core": true,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": [
+              "1089-5639",
+              "1520-5215"
+            ],
+            "issn_l": "1089-5639",
+            "type": "journal"
+          },
+          "version": "publishedVersion"
+        },
+        {
+          "id": "pmid:31306024",
+          "is_accepted": true,
+          "is_oa": false,
+          "is_published": true,
+          "landing_page_url": "https://pubmed.ncbi.nlm.nih.gov/31306024",
+          "license": null,
+          "license_id": null,
+          "pdf_url": null,
+          "raw_source_name": "The journal of physical chemistry. A",
+          "raw_type": null,
+          "source": {
+            "display_name": "PubMed",
+            "host_organization": "https://openalex.org/I1299303238",
+            "host_organization_lineage": [
+              "https://openalex.org/I1299303238"
+            ],
+            "host_organization_lineage_names": [],
+            "host_organization_name": "National Institutes of Health",
+            "id": "https://openalex.org/S4306525036",
+            "is_core": false,
+            "is_in_doaj": false,
+            "is_oa": false,
+            "issn": null,
+            "issn_l": null,
+            "type": "repository"
+          },
+          "version": "publishedVersion"
+        }
+      ],
+      "locations_count": 2,
+      "mesh": [],
+      "open_access": {
+        "any_repository_has_fulltext": false,
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null
+      },
+      "primary_location": {
+        "id": "doi:10.1021/acs.jpca.9b06135",
+        "is_accepted": true,
+        "is_oa": false,
+        "is_published": true,
+        "landing_page_url": "https://doi.org/10.1021/acs.jpca.9b06135",
+        "license": null,
+        "license_id": null,
+        "pdf_url": null,
+        "raw_source_name": "The Journal of Physical Chemistry A",
+        "raw_type": "journal-article",
+        "source": {
+          "display_name": "The Journal of Physical Chemistry A",
+          "host_organization": "https://openalex.org/P4310320006",
+          "host_organization_lineage": [
+            "https://openalex.org/P4310320006"
+          ],
+          "host_organization_lineage_names": [
+            "American Chemical Society"
+          ],
+          "host_organization_name": "American Chemical Society",
+          "id": "https://openalex.org/S146709414",
+          "is_core": true,
+          "is_in_doaj": false,
+          "is_oa": false,
+          "issn": [
+            "1089-5639",
+            "1520-5215"
+          ],
+          "issn_l": "1089-5639",
+          "type": "journal"
+        },
+        "version": "publishedVersion"
+      },
+      "primary_topic": {
+        "display_name": "Nuclear Materials and Properties",
+        "domain": {
+          "display_name": "Physical Sciences",
+          "id": "https://openalex.org/domains/3"
+        },
+        "field": {
+          "display_name": "Materials Science",
+          "id": "https://openalex.org/fields/25"
+        },
+        "id": "https://openalex.org/T11242",
+        "score": 0.9879000186920166,
+        "subfield": {
+          "display_name": "Materials Chemistry",
+          "id": "https://openalex.org/subfields/2505"
+        }
+      },
+      "publication_date": "2019-07-15",
+      "publication_year": 2019,
+      "referenced_works": [
+        "https://openalex.org/W1543582093",
+        "https://openalex.org/W1563033401",
+        "https://openalex.org/W1965237409",
+        "https://openalex.org/W1967340146",
+        "https://openalex.org/W1968074774",
+        "https://openalex.org/W1968241508",
+        "https://openalex.org/W1970000657",
+        "https://openalex.org/W1970292201",
+        "https://openalex.org/W1970623278",
+        "https://openalex.org/W1971483183",
+        "https://openalex.org/W1973953671",
+        "https://openalex.org/W1976774792",
+        "https://openalex.org/W1980151421",
+        "https://openalex.org/W1980625065",
+        "https://openalex.org/W1981368803",
+        "https://openalex.org/W1981451973",
+        "https://openalex.org/W1981807278",
+        "https://openalex.org/W1982062653",
+        "https://openalex.org/W1982356449",
+        "https://openalex.org/W1982595063",
+        "https://openalex.org/W1983656816",
+        "https://openalex.org/W1986002339",
+        "https://openalex.org/W1988091937",
+        "https://openalex.org/W1988636074",
+        "https://openalex.org/W1990270507",
+        "https://openalex.org/W1994379204",
+        "https://openalex.org/W1994880295",
+        "https://openalex.org/W1995792670",
+        "https://openalex.org/W1995818918",
+        "https://openalex.org/W1996095059",
+        "https://openalex.org/W1997012750",
+        "https://openalex.org/W1997036033",
+        "https://openalex.org/W1998633323",
+        "https://openalex.org/W1998866028",
+        "https://openalex.org/W2000798385",
+        "https://openalex.org/W2001753500",
+        "https://openalex.org/W2002782616",
+        "https://openalex.org/W2003286577",
+        "https://openalex.org/W2003452348",
+        "https://openalex.org/W2004575088",
+        "https://openalex.org/W2004977100",
+        "https://openalex.org/W2007045536",
+        "https://openalex.org/W2008423326",
+        "https://openalex.org/W2008704834",
+        "https://openalex.org/W2012129602",
+        "https://openalex.org/W2012165618",
+        "https://openalex.org/W2014287668",
+        "https://openalex.org/W2015723183",
+        "https://openalex.org/W2017956449",
+        "https://openalex.org/W2018674598",
+        "https://openalex.org/W2023271753",
+        "https://openalex.org/W2025874194",
+        "https://openalex.org/W2027568006",
+        "https://openalex.org/W2028541459",
+        "https://openalex.org/W2030687437",
+        "https://openalex.org/W2030976617",
+        "https://openalex.org/W2032084435",
+        "https://openalex.org/W2032719166",
+        "https://openalex.org/W2034465848",
+        "https://openalex.org/W2038135746",
+        "https://openalex.org/W2038533471",
+        "https://openalex.org/W2039293281",
+        "https://openalex.org/W2041306940",
+        "https://openalex.org/W2044591029",
+        "https://openalex.org/W2045210181",
+        "https://openalex.org/W2045239086",
+        "https://openalex.org/W2046270983",
+        "https://openalex.org/W2047524879",
+        "https://openalex.org/W2047644723",
+        "https://openalex.org/W2048577460",
+        "https://openalex.org/W2048869251",
+        "https://openalex.org/W2049681700",
+        "https://openalex.org/W2051245001",
+        "https://openalex.org/W2054704030",
+        "https://openalex.org/W2054818934",
+        "https://openalex.org/W2055872350",
+        "https://openalex.org/W2057500969",
+        "https://openalex.org/W2057815662",
+        "https://openalex.org/W2058210956",
+        "https://openalex.org/W2059175253",
+        "https://openalex.org/W2060079271",
+        "https://openalex.org/W2062852634",
+        "https://openalex.org/W2065115647",
+        "https://openalex.org/W2067718414",
+        "https://openalex.org/W2068319106",
+        "https://openalex.org/W2070203126",
+        "https://openalex.org/W2071085919",
+        "https://openalex.org/W2071965345",
+        "https://openalex.org/W2072565033",
+        "https://openalex.org/W2073813840",
+        "https://openalex.org/W2075923342",
+        "https://openalex.org/W2076462975",
+        "https://openalex.org/W2078146328",
+        "https://openalex.org/W2078511427",
+        "https://openalex.org/W2078786624",
+        "https://openalex.org/W2079245444",
+        "https://openalex.org/W2079460619",
+        "https://openalex.org/W2080709819",
+        "https://openalex.org/W2080864929",
+        "https://openalex.org/W2082917109",
+        "https://openalex.org/W2083622242",
+        "https://openalex.org/W2086457107",
+        "https://openalex.org/W2086957099",
+        "https://openalex.org/W2088206866",
+        "https://openalex.org/W2088902741",
+        "https://openalex.org/W2092157292",
+        "https://openalex.org/W2093032397",
+        "https://openalex.org/W2095100262",
+        "https://openalex.org/W2096747776",
+        "https://openalex.org/W2098963943",
+        "https://openalex.org/W2098985212",
+        "https://openalex.org/W2099190231",
+        "https://openalex.org/W2105859250",
+        "https://openalex.org/W2111533830",
+        "https://openalex.org/W2112054650",
+        "https://openalex.org/W2112850441",
+        "https://openalex.org/W2114860804",
+        "https://openalex.org/W2116667141",
+        "https://openalex.org/W2117894566",
+        "https://openalex.org/W2119079616",
+        "https://openalex.org/W2119547517",
+        "https://openalex.org/W2119913705",
+        "https://openalex.org/W2125794794",
+        "https://openalex.org/W2127513957",
+        "https://openalex.org/W2130759639",
+        "https://openalex.org/W2130925899",
+        "https://openalex.org/W2135261522",
+        "https://openalex.org/W2139958207",
+        "https://openalex.org/W2141809840",
+        "https://openalex.org/W2142860173",
+        "https://openalex.org/W2143981217",
+        "https://openalex.org/W2145408306",
+        "https://openalex.org/W2147753338",
+        "https://openalex.org/W2148284063",
+        "https://openalex.org/W2150195378",
+        "https://openalex.org/W2150697053",
+        "https://openalex.org/W2157883438",
+        "https://openalex.org/W2158955044",
+        "https://openalex.org/W2160478753",
+        "https://openalex.org/W2165131446",
+        "https://openalex.org/W2169784454",
+        "https://openalex.org/W2169858698",
+        "https://openalex.org/W2230728100",
+        "https://openalex.org/W2235977407",
+        "https://openalex.org/W2253854557",
+        "https://openalex.org/W2288881701",
+        "https://openalex.org/W2315680293",
+        "https://openalex.org/W2315785545",
+        "https://openalex.org/W2318775199",
+        "https://openalex.org/W2319247573",
+        "https://openalex.org/W2319564194",
+        "https://openalex.org/W2319748765",
+        "https://openalex.org/W2320534486",
+        "https://openalex.org/W2320540421",
+        "https://openalex.org/W2321413000",
+        "https://openalex.org/W2321622637",
+        "https://openalex.org/W2323519269",
+        "https://openalex.org/W2326398752",
+        "https://openalex.org/W2327617832",
+        "https://openalex.org/W2327779520",
+        "https://openalex.org/W2328198700",
+        "https://openalex.org/W2330586915",
+        "https://openalex.org/W2332371349",
+        "https://openalex.org/W2333103724",
+        "https://openalex.org/W2396559229",
+        "https://openalex.org/W2396666011",
+        "https://openalex.org/W2418973097",
+        "https://openalex.org/W2511380352",
+        "https://openalex.org/W2514101233",
+        "https://openalex.org/W2590931826",
+        "https://openalex.org/W2606145649",
+        "https://openalex.org/W2618455705",
+        "https://openalex.org/W2737449748",
+        "https://openalex.org/W2766033847",
+        "https://openalex.org/W2782113496",
+        "https://openalex.org/W2783530098",
+        "https://openalex.org/W2786557214",
+        "https://openalex.org/W2790580607",
+        "https://openalex.org/W2805650689",
+        "https://openalex.org/W2884171160",
+        "https://openalex.org/W2895215945",
+        "https://openalex.org/W2897973547",
+        "https://openalex.org/W2899473840",
+        "https://openalex.org/W2906349774",
+        "https://openalex.org/W2963657244",
+        "https://openalex.org/W3104541550"
+      ],
+      "referenced_works_count": 186,
+      "related_works": [
+        "https://openalex.org/W2378211422",
+        "https://openalex.org/W2745001401",
+        "https://openalex.org/W4321353415",
+        "https://openalex.org/W2130974462",
+        "https://openalex.org/W2028665553",
+        "https://openalex.org/W2086519370",
+        "https://openalex.org/W972276598",
+        "https://openalex.org/W2087343574",
+        "https://openalex.org/W4246352526",
+        "https://openalex.org/W2121910908"
+      ],
+      "sustainable_development_goals": [
+        {
+          "display_name": "Affordable and clean energy",
+          "id": "https://metadata.un.org/sdg/7",
+          "score": 0.8600000143051147
+        }
+      ],
+      "title": "Correction to “Evaluating Transition Metal Barrier Heights with the Latest Density Functional Theory Exchange–Correlation Functionals: The MOBH35 Benchmark Database”",
+      "topics": [
+        {
+          "display_name": "Nuclear Materials and Properties",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Materials Science",
+            "id": "https://openalex.org/fields/25"
+          },
+          "id": "https://openalex.org/T11242",
+          "score": 0.9879000186920166,
+          "subfield": {
+            "display_name": "Materials Chemistry",
+            "id": "https://openalex.org/subfields/2505"
+          }
+        },
+        {
+          "display_name": "X-ray Spectroscopy and Fluorescence Analysis",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Physics and Astronomy",
+            "id": "https://openalex.org/fields/31"
+          },
+          "id": "https://openalex.org/T11733",
+          "score": 0.9843999743461609,
+          "subfield": {
+            "display_name": "Radiation",
+            "id": "https://openalex.org/subfields/3108"
+          }
+        },
+        {
+          "display_name": "Electron and X-Ray Spectroscopy Techniques",
+          "domain": {
+            "display_name": "Physical Sciences",
+            "id": "https://openalex.org/domains/3"
+          },
+          "field": {
+            "display_name": "Materials Science",
+            "id": "https://openalex.org/fields/25"
+          },
+          "id": "https://openalex.org/T12039",
+          "score": 0.9782000184059143,
+          "subfield": {
+            "display_name": "Surfaces, Coatings and Films",
+            "id": "https://openalex.org/subfields/2508"
+          }
+        }
+      ],
+      "type": "erratum",
+      "updated_date": "2026-07-15T18:14:33.161393"
+    }
+  ]
+}
