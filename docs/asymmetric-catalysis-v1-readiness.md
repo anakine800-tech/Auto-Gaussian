@@ -128,6 +128,12 @@ successor coordinates, one-based bond-change atoms, raw mode displacement,
 structured IRC endpoints, relativity, exact TS20 program version or search
 algorithm. Therefore no formal candidate or real M1 exists.
 
+The user has confirmed the corrected JACS DOI. That decision resolves which
+article is in scope but supplies none of the missing electronic-state,
+coordination, wavefunction, mode/path or method facts. An expanded repository
+search found no candidate-level ORCA archive, and the article/SI program-
+version statements remain inconsistent for exact TS20 attribution.
+
 P5 now has a strict offline approval-package contract and a candidate-bound
 `planned_not_submitted` package. Its protocol, selection, input, resource and
 server-project fields remain null; live authorization is false; no server

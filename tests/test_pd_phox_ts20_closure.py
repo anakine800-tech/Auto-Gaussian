@@ -44,6 +44,18 @@ class PdPhoxTs20ClosureTests(unittest.TestCase):
         self.assertEqual(identity["requested_doi_status"], "mismatch_not_pd_phox_ts20")
         self.assertEqual(identity["matched_doi"], "10.1021/jacs.0c06243")
         self.assertEqual(identity["identity_decision"], "do_not_merge_requested_doi_with_matched_article")
+        confirmation = self.artifact["reviewer_confirmation"]
+        self.assertEqual(confirmation["confirmed_doi"], "10.1021/jacs.0c06243")
+        self.assertEqual(confirmation["scope"], "source_identity_only")
+        self.assertFalse(confirmation["scientific_fields_supplied"])
+
+    def test_followup_search_does_not_invent_missing_orca_evidence(self) -> None:
+        search = self.artifact["followup_search"]
+        self.assertEqual(search["new_primary_objects"], 0)
+        self.assertEqual(search["result"], "no_candidate_level_orca_input_output_frequency_hessian_or_irc_dataset_found")
+        version = self.artifact["method_facts"]["program_version"]
+        self.assertEqual(version["status"], "source_ambiguous")
+        self.assertEqual(version["value"]["article"], "ORCA 4.1.2")
 
     def test_coordinate_lineage_preserves_source_order_without_claiming_product(self) -> None:
         lineage = self.artifact["coordinate_lineage"]

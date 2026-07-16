@@ -23,8 +23,8 @@
         {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/r33-first-metal-smoke-decision.json", "sha256": "3188f84c27264003654ce265a9ab06fd759b76ea569df364a5ce87dc527d17ff"},
         {"kind": "contract", "locator": "contracts/metal-ts/replacement-candidate-selection.schema.json", "sha256": "9be4a6c53ebf89b9148d02748afbf9a46e2efa5c8057f1632970143275240a7a"},
         {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/replacement-candidate-selection.json", "sha256": "0e374aef37e58aed942ae5805d9a4a00588af020b66ee0ecbd5f6731982fd83b"},
-        {"kind": "contract", "locator": "contracts/metal-ts/pd-phox-ts20-closure.schema.json", "sha256": "cb554fe0e5d377a389ded3f6e72c1ae576df025c7a0c81bdc2f165c8b0b52660"},
-        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/pd-phox-ts20-candidate-closure.json", "sha256": "b7c529e78b39ad88426fefbd090a8240da8f26a7092c663a974e744d0a829481"}
+        {"kind": "contract", "locator": "contracts/metal-ts/pd-phox-ts20-closure.schema.json", "sha256": "b42261e64c9814be14ccca2120b5c5a0a983c3bd251ea20ba5298c547e757a5c"},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/pd-phox-ts20-candidate-closure.json", "sha256": "11869e495ed7af7ef416333d2c7b48ed463d822d11a688e6a2b58f93c00d10d1"}
       ],
       "blockers": ["R33 is formally rejected as the first metal smoke because its candidate-bound identity and electronic-structure model cannot be closed.", "The Pd(PHOX) TS20 follow-up corrected the source DOI and closed precursor/TS coordinate hashes and atom order, but charge, multiplicity, electron accounting, wavefunction policy, reaction-coordinate atoms, candidate mode/path evidence, relativity, exact program version and TS strategy remain incomplete.", "No formal replacement candidate, real M1 source or real M1 sidecar exists."]
     },
@@ -84,5 +84,5 @@
       "blockers": ["The package is planned_not_submitted and blocked by incomplete P1 plus absent real P2-P4 candidate evidence and metal execution-boundary approval.", "Protocol options/selection, input draft/hash, resources, fresh server directory, and exact live authorization are absent.", "No SSH, PBS, Gaussian, retry, IRC, cancellation, cleanup, deployment, or live smoke was authorized or executed."]
     }
   ],
-  "readiness_payload_sha256": "230499c3af69712eea256c0238786cec5893609c6b5ce6f0afedea0eec0a4bc3"
+  "readiness_payload_sha256": "d193a77a11397ccc1e8b599f500ded34fc01d356b7c3e496b8738c5f38917124"
 }

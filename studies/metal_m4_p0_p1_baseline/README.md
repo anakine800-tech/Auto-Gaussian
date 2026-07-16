@@ -136,3 +136,12 @@ policy, one-based reaction-coordinate atoms, raw candidate mode displacement,
 structured bidirectional IRC endpoints, explicit relativity, exact candidate
 program version and TS localization strategy are not source-closed. No formal
 candidate, real M1 source or sidecar was emitted, and P5 remains blocked.
+
+The user subsequently confirmed that `10.1021/jacs.0c06243` is the intended
+source. This closes bibliographic selection only. A follow-up search of the
+ACS listing, CaltechAUTHORS API/file inventory, Stoltz group archive,
+PMC/PubMed and the correction record found no additional candidate-level ORCA
+input/output, Hessian, frequency-displacement or IRC dataset. The Stoltz SI is
+byte-identical to the CaltechAUTHORS SI. The article reports ORCA 4.1.2 while
+SI S2 reports ORCA 4.1 and 4.2.1; because no version is bound to the selected
+TS20 calculation, exact program version remains source-ambiguous.

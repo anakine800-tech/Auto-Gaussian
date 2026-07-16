@@ -12,6 +12,12 @@
     "correction_doi": "10.1021/jacs.0c11706",
     "identity_decision": "do_not_merge_requested_doi_with_matched_article"
   },
+  "reviewer_confirmation": {
+    "confirmed_doi": "10.1021/jacs.0c06243",
+    "confirmation_date": "2026-07-16",
+    "scope": "source_identity_only",
+    "scientific_fields_supplied": false
+  },
   "source_objects": [
     {
       "source_id": "requested_doi_crossref",
@@ -50,6 +56,14 @@
       "claim_ceiling": "energy-table observations only; no wavefunction or TS validation claim"
     }
   ],
+  "followup_search": {
+    "search_date": "2026-07-16",
+    "lanes": ["exact TS20 label plus ORCA output", "article DOI plus input/output/Hessian/frequency/IRC terms", "author and institutional repository file inventory", "correction and duplicate-SI verification"],
+    "repositories_checked": ["ACS article and SI listing", "CaltechAUTHORS record API and file inventory", "Stoltz group publication archive", "PMC/PubMed author manuscript and correction record", "bounded web discovery"],
+    "new_primary_objects": 0,
+    "result": "no_candidate_level_orca_input_output_frequency_hessian_or_irc_dataset_found",
+    "limitations": ["No paywall or access-control bypass and no direct author correspondence was attempted.", "Finite keyword and repository searching cannot prove that no private or unindexed calculation archive exists."]
+  },
   "coordinate_lineage": {
     "source_pdf_sha256": "8dcc7689f7064943ba9aa7222fd4714e1b8edb9e76b97d9025dca4e72c706d5f",
     "precursor": {"label": "(Si)-13", "si_pages": "S84-S86", "atom_count": 82, "formula": "C35H42NO2PPd", "canonical_block_sha256": "1ceb76d292833e80c1fdb76abd25006639d6c5250a0a65e4c541f1a550faa28d", "atom_order_status": "source_order_preserved"},
@@ -76,7 +90,7 @@
     "irc_endpoints": {"value": null, "status": "source_ambiguous", "locator": "SI S2 generic IRC statement", "ceiling": "no TS20 direction records or structurally identified endpoint coordinate pair"}
   },
   "method_facts": {
-    "program_version": {"value": ["ORCA 4.1", "ORCA 4.2.1"], "status": "source_ambiguous", "locator": "SI S2", "ceiling": "SI gives study-wide versions but does not bind one version to TS20"},
+    "program_version": {"value": {"article": "ORCA 4.1.2", "si": ["ORCA 4.1", "ORCA 4.2.1"]}, "status": "source_ambiguous", "locator": "article Computational Methods; SI S2", "ceiling": "article and SI conflict and neither binds a particular version to the selected TS20 calculation"},
     "optimization": {"value": "BP86-D3(BJ)/LANL2TZ(f)[Pd]-6-31G(d)[other], gas phase unless noted", "status": "source_reports", "locator": "SI S2 and TS20 table footnotes", "ceiling": "reported reproduction setting, not an Auto-G16 protocol choice"},
     "frequency": {"value": "unscaled frequencies at optimization level", "status": "source_reports", "locator": "SI S2", "ceiling": "study-wide method statement; no raw TS20 frequency list"},
     "single_point_dft": {"value": "M06/def2-TZVP with def2-ECP on Pd and CPCM(THF) for reported text energies; additional functionals tabulated", "status": "source_reports", "locator": "article Computational Methods; SI S2 and Tables 4-7", "ceiling": "reported benchmark methods only"},
@@ -90,7 +104,7 @@
     "scf_and_grid": {"value": "RI/RIJCOSX where applicable, AutoAux, Grid7/GridX9/NoFinalGrid", "status": "source_reports", "locator": "SI S3", "ceiling": "study-wide numerical settings; candidate-specific SCF stability remains absent"}
   },
   "gap_ledger": [
-    {"field": "source_identity.requested_doi", "status": "source_ambiguous", "search_scope": "Crossref DOI identity, PMC metadata, ACS result and CaltechAUTHORS record", "required_human_fact": "Confirm that the intended source is DOI 10.1021/jacs.0c06243 rather than the supplied unrelated ACS Catalysis DOI."},
+    {"field": "source_identity.requested_doi", "status": "source_ambiguous", "search_scope": "Crossref DOI identity, PMC metadata, ACS result, CaltechAUTHORS record and user confirmation", "required_human_fact": "Resolved for review scope by the user's confirmation of DOI 10.1021/jacs.0c06243; immutable historical mismatch is retained."},
     {"field": "coordinate_lineage.product_or_successor", "status": "not_found", "search_scope": "All SI coordinate headings and article TS20 discussion", "required_human_fact": "Source-exact direct successor or product-complex coordinates and its relationship to the selected TS20 conformer."},
     {"field": "candidate.total_charge", "status": "not_found", "search_scope": "Article computational methods, full SI text, TS20 coordinate headings and energy workbook", "required_human_fact": "Candidate-bound total charge with a primary-source or qualified reviewer locator."},
     {"field": "candidate.multiplicity", "status": "not_found", "search_scope": "Article computational methods, full SI text, TS20 coordinate headings and energy workbook", "required_human_fact": "Candidate-bound multiplicity and reviewed electronic-state hypothesis."},
@@ -108,5 +122,5 @@
   "m1_decision": {"formal_candidate_closed": false, "review_source_emitted": false, "sidecar_emitted": false, "builder_invoked": false, "synthetic_fixture_used": false, "decision": "defer_and_reject_promotion_until_all_mandatory_fields_are_source_closed"},
   "authorization": {"calculation_ready": false, "p5_blocked": true, "live_actions_authorized": false, "live_actions_executed": false, "no_submission_authorization": true},
   "claim_ceiling": "source_bound_blocked_candidate_closure_only_no_ts_path_chemical_correctness_scientific_acceptance_protocol_selection_p5_or_live_authority",
-  "payload_sha256": "dc6b75798e0cef67c9a271cad15fd82b94ad87539ebc04e2384403e4e47c98fd"
+  "payload_sha256": "a36ef79e1425eecbe94c13cfc1a984f9edf0f74b55e23318c5d11bf5f22073a7"
 }
