@@ -2,15 +2,19 @@
 
 This is an offline acceptance and promotion boundary, not execution support.
 
-Input approval requires exact candidate, real completed M1, protocol-options,
-protocol-selection, and input-observation payload hashes. The selected option
+Pre-run input approval requires exact path-based candidate, real completed M1,
+protocol-options, protocol-selection, input-observation and a separate
+reviewer-bound input-approval-source. It requires both file-byte SHA-256 and
+normalized payload hashes and does not require a result, log or M2d artifact.
+The selected option
 must bind the options artifact and candidate calculation scope. Every element
 must have basis coverage; every declared ECP element must have ECP name, core
 electron count, and source evidence. Charge, multiplicity, atom order,
 wavefunction, state ID, input hash, and the sole supported Hessian-guided seed
 must agree. Cross-state checkpoint or Hessian provenance is forbidden.
 
-Result acceptance requires normal termination, stationary-point evidence, a
+Post-run result acceptance additionally requires the existing real M2d
+four-section acceptance artifact. It requires normal termination, stationary-point evidence, a
 complete expected frequency list, exactly one raw imaginary frequency, an
 explicit stability result, state-appropriate wavefunction and bounded S**2,
 unchanged ligand inventory, every reviewed coordination contact inside its

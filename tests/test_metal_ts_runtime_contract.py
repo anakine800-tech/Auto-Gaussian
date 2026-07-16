@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import copy, importlib.util, unittest
+import copy, importlib.util, json, tempfile, unittest
 from pathlib import Path
 
 ROOT=Path(__file__).parents[1]
@@ -24,6 +24,47 @@ def result_request():
     return {"input_approval":approval,"result_observation":obs,"wavefunction_acceptance":{"state_id":"pd0_singlet","wavefunction":"restricted_closed_shell","stability_tested":True,"stable":True,"s2_target":0.0,"s2_after":0.01,"s2_tolerance":0.05},"coordination_acceptance":{"expected_ligands":["L1"],"observed_ligands":["L1"],"ligand_inventory_retained":True,"contacts":[{"atoms":[1,2],"minimum":2.0,"maximum":2.5,"observed":2.2}]},"mode_evidence":{"result_observation_sha256":obs["audit_payload_sha256"],"imaginary_frequency_index":0,"intended_coordinate_confirmed":True,"unintended_coordination_or_ligand_loss":False,"reviewer":"chemist","evidence_sha256":"2"*64},"decision":"accepted_for_explicit_promotion_review","confirmed":True}
 
 class MetalRuntimeTests(unittest.TestCase):
+    def make_path_case(self, root):
+        root=Path(root); candidate=json.loads((ROOT/"tests/fixtures/asymmetric_catalysis/metal_candidate.json").read_text())
+        cp=root/"candidate.json"; cp.write_text(json.dumps(candidate))
+        atoms=[{"index":x["index"],"atomic_number":{"Pd":46,"P":15,"C":6,"H":1}[x["element"]],"element":x["element"]} for x in candidate["atom_map"]]
+        sections={k:{"status":"reviewed_for_bounded_example"} for k in ("electron_accounting","spin_surface","wavefunction","coordination","method_protocol","ts_and_path")}
+        m1={"schema":"gaussian-asymmetric-metal-scientific-review/1","candidate_source":{"sha256":M.file_digest(cp)},"candidate_id":candidate["candidate_id"],"identity_binding":{"total_charge":0,"multiplicity":1},"review_scope":{"scope_kind":"primary_literature_bound_review"},"sections":sections,"completion":{"metal_m1_scientific_review_status":"reviewed_bounded_example_runtime_unsupported"}}
+        M.seal_local(m1,"review_payload_sha256"); mp=root/"m1.json"; mp.write_text(json.dumps(m1))
+        option={"option_id":"metal_standard","tier":"standard","option_status":"selectable","unresolved":[]}; M.seal_local(option,"option_payload_sha256")
+        options={"schema":"gaussian-protocol-options/1","options":[option]}; M.seal_local(options,"proposal_payload_sha256"); op=root/"options.json"; op.write_text(json.dumps(options))
+        selection={"schema":"gaussian-protocol-selection/1","options_source":{"sha256":M.file_digest(op)},"proposal_payload_sha256":options["proposal_payload_sha256"],"selected_option":{k:option[k] for k in ("option_id","option_payload_sha256","tier")},"scope_binding":{"structure_sha256":candidate["geometry"]["artifact"]["sha256"],"charge":0,"multiplicity":1,"task_types":["transition_state_optimization","harmonic_frequency"]}}
+        M.seal_local(selection,"selection_payload_sha256"); sp=root/"selection.json"; sp.write_text(json.dumps(selection))
+        obs={"schema":"gaussian-asymmetric-metal-input-observation/1","candidate_source":{"sha256":M.file_digest(cp)},"scientific_review_source":{"sha256":M.file_digest(mp)},"input_source":{"sha256":"a"*64},"identity_binding":{"charge":0,"multiplicity":1,"atom_order":atoms}}
+        M.seal_local(obs,"audit_payload_sha256"); ip=root/"input-observation.json"; ip.write_text(json.dumps(obs))
+        review=lambda: {"accepted":True,"evidence_sha256":"b"*64}
+        source={"schema":"auto-g16-metal-ts-input-approval-source/1","source_bindings":{"candidate_sha256":M.file_digest(cp),"m1_review_sha256":M.file_digest(mp),"protocol_options_sha256":M.file_digest(op),"protocol_selection_sha256":M.file_digest(sp),"input_observation_sha256":M.file_digest(ip)},"scope":{"scope_kind":"reviewer_bound_real_case","reviewer":"chemist","review_date":"2026-07-16"},"identity":{"charge":0,"multiplicity":1,"atom_count":len(atoms),"atom_order":atoms,"state_id":candidate["catalyst_state_id"]},"wavefunction":{"wavefunction":"restricted_closed_shell","state_id":candidate["catalyst_state_id"]},"reviews":{"route":review(),"basis_ecp_relativistic":{"basis_by_element":{"Pd":"b","P":"b","C":"b","H":"b"},"ecp_elements":["Pd"],"ecp_by_element":{"Pd":{"name":"ecp","core_electrons":28,"evidence_id":"ecp_ev"}},"relativistic_treatment":"reviewed ECP scalar treatment"},"solvent":review(),"thermochemistry":review(),"resources":review(),"server_path":review()|{"remote_workdir":"/home/user100/SDL/metal_case"},"seed_strategy":{"type":"hessian_guided_single_guess","state_id":candidate["catalyst_state_id"],"hessian_state_id":candidate["catalyst_state_id"],"checkpoint_state_id":candidate["catalyst_state_id"],"hessian_sha256":"c"*64,"checkpoint_sha256":"d"*64,"evidence_ids":["seed_ev"],"intended_coordinate":[3,4]}},"decision":"approved_for_offline_result_intake","confirmed":True,"unresolved":[]}
+        M.seal_local(source,"source_payload_sha256"); ap=root/"approval-source.json"; ap.write_text(json.dumps(source))
+        return {"artifact_paths":{"candidate":str(cp),"m1_review":str(mp),"protocol_options":str(op),"protocol_selection":str(sp),"input_observation":str(ip),"input_approval_source":str(ap)}}
+
+    def test_pre_run_path_adapter_needs_no_result_but_binds_file_and_payload_hashes(self):
+        with tempfile.TemporaryDirectory() as td:
+            req=self.make_path_case(td); out=M.approve_input_paths(req)
+            self.assertNotIn("result_observation",req["artifact_paths"]); self.assertIn("normalized_payload_sha256",out["path_bindings"]["candidate"])
+            p=Path(req["artifact_paths"]["candidate"]); data=json.loads(p.read_text()); data["candidate_id"]="forged"; p.write_text(json.dumps(data))
+            with self.assertRaisesRegex(M.ContractError,"M1 candidate file SHA-256 mismatch"): M.approve_input_paths(req)
+
+    def test_pre_run_path_adapter_fails_closed_on_missing_gate(self):
+        with tempfile.TemporaryDirectory() as td:
+            req=self.make_path_case(td); p=Path(req["artifact_paths"]["input_approval_source"]); source=json.loads(p.read_text()); source["unresolved"]=["basis gap"]; M.seal_local(source,"source_payload_sha256"); p.write_text(json.dumps(source))
+            with self.assertRaisesRegex(M.ContractError,"source input_observation_sha256 mismatch|not fully approved"): M.approve_input_paths(req)
+
+    def test_metal_schemas_are_fail_closed_at_top_and_key_nesting(self):
+        schemas=ROOT/"contracts/metal-ts"
+        for path in schemas.glob("*.schema.json"):
+            schema=json.loads(path.read_text()); self.assertIs(schema.get("additionalProperties"),False,path.name)
+            self.assertEqual(set(schema["required"]),set(schema["properties"]),path.name)
+        approval=json.loads((schemas/"input-approval.schema.json").read_text())
+        for key in ("identity","wavefunction","seed_strategy","path_bindings","authorizations"):
+            node=approval["properties"][key]
+            if "$ref" in node: node=approval["$defs"][node["$ref"].split("/")[-1]]
+            self.assertIs(node.get("additionalProperties"),False,key)
+
     def test_happy_path_is_offline_and_promotion_is_explicit(self):
         a=M.approve_input(input_request()); self.assertEqual(a["submission_decision"],"refused")
         x=M.accept_result(result_request()); self.assertEqual(x["promotion_decision"],"not_yet_made")

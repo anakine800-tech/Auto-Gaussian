@@ -18,15 +18,15 @@ they receive a separate evidence contract and implementation.
 
 ## State transitions
 
-1. `approve-input` binds the exact candidate, completed real M1 review,
+1. `approve-input-paths` binds the exact candidate, completed real M1 review,
    protocol options and selection, observed existing input, basis/ECP coverage,
    electronic state, atom order, charge/multiplicity, Hessian provenance, and
    a reviewer decision. It grants offline input acceptance only.
-2. `accept-result` binds that approval and an existing result observation. It
+2. `accept-result-paths` binds that approval and an existing result observation. It
    requires identity, state/wavefunction and stability evidence, bounded
    `S**2`, retained coordination/ligand inventory, complete frequencies,
    exactly one imaginary frequency, and hash-bound intended-mode evidence.
-3. `decide-promotion` records an explicit human promotion decision bound to an
+3. `decide-promotion-paths` records an explicit human promotion decision bound to an
    accepted result. Acceptance never promotes implicitly.
 
 Every artifact denies live/submission authority. Any changed upstream payload
@@ -34,9 +34,9 @@ or rehashed-but-semantically-altered object is rejected by recomputing and
 checking its bindings.
 
 ```bash
-python skills/auto-g16-metal-ts/scripts/metal_ts.py approve-input REQUEST.json --output APPROVAL.json
-python skills/auto-g16-metal-ts/scripts/metal_ts.py accept-result REQUEST.json --output ACCEPTANCE.json
-python skills/auto-g16-metal-ts/scripts/metal_ts.py decide-promotion REQUEST.json --output PROMOTION.json
+python skills/auto-g16-metal-ts/scripts/metal_ts.py approve-input-paths REQUEST.json --output APPROVAL.json
+python skills/auto-g16-metal-ts/scripts/metal_ts.py accept-result-paths REQUEST.json --output ACCEPTANCE.json
+python skills/auto-g16-metal-ts/scripts/metal_ts.py decide-promotion-paths REQUEST.json --output PROMOTION.json
 ```
 
 See `references/runtime-contract.md` for the complete evidence and refusal

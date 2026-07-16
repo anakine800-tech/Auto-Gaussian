@@ -1,14 +1,6 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "auto-g16-metal-ts-promotion-decision/1",
-  "title": "Auto-G16 Metal TS Promotion Decision",
-  "type": "object",
-  "required": ["schema", "result_acceptance_sha256", "candidate_sha256", "decision", "reviewer", "rationale", "claim_ceiling", "authorizations", "submission_decision", "promotion_payload_sha256"],
-  "properties": {
-    "schema": {"const": "auto-g16-metal-ts-promotion-decision/1"},
-    "decision": {"enum": ["promoted_for_offline_downstream_review", "rejected", "blocked"]},
-    "submission_decision": {"const": "refused"},
-    "promotion_payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
-  },
-  "additionalProperties": true
+ "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"auto-g16-metal-ts-promotion-decision/1","title":"Auto-G16 Metal TS Promotion Decision","type":"object","additionalProperties":false,
+ "required":["schema","result_acceptance_sha256","result_acceptance_file_sha256","candidate_sha256","decision","reviewer","rationale","claim_ceiling","authorizations","submission_decision","promotion_payload_sha256"],
+ "properties":{"schema":{"const":"auto-g16-metal-ts-promotion-decision/1"},"result_acceptance_sha256":{"$ref":"#/$defs/sha"},"result_acceptance_file_sha256":{"$ref":"#/$defs/sha"},"candidate_sha256":{"$ref":"#/$defs/sha"},"decision":{"enum":["promoted_for_offline_downstream_review","rejected","blocked"]},"reviewer":{"type":"string","minLength":1},"rationale":{"type":"string","minLength":1},"claim_ceiling":{"const":"offline_metal_ts_candidate_only_no_path_or_selectivity_claim"},"authorizations":{"$ref":"#/$defs/denials"},"submission_decision":{"const":"refused"},"promotion_payload_sha256":{"$ref":"#/$defs/sha"}},
+ "$defs":{"sha":{"type":"string","pattern":"^[0-9a-f]{64}$"},"denials":{"type":"object","additionalProperties":false,"required":["render_input","ssh","pbs","gaussian","submit","retry","cancel","cleanup","deploy"],"properties":{"render_input":{"const":false},"ssh":{"const":false},"pbs":{"const":false},"gaussian":{"const":false},"submit":{"const":false},"retry":{"const":false},"cancel":{"const":false},"cleanup":{"const":false},"deploy":{"const":false}}}}
 }
