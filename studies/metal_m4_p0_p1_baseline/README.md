@@ -34,10 +34,26 @@ SHA-256 is invented.
 
 ## P1 result
 
-P1 is blocked before a real `gaussian-asymmetric-ts-candidate/1`. That existing
-contract requires an integer multiplicity, while no candidate-specific R33
-multiplicity source has been verified. Inserting singlet would violate the
-non-inference gate. Consequently no real R33 M0, M2a or M1 sidecar is emitted.
+The bounded 2026-07-16 follow-up review retrieved the lawful 2022 primary
+article full-text XML. Its methods section explicitly says that all systems in
+the study are closed-shell and that the lowest closed-shell singlet SCF
+solution was checked. R33 is retained in that study, so multiplicity 1 is now
+recorded in `r33-p1-evidence-ledger.json` as a source-reported candidate, not
+as an electron-parity inference or a scientific acceptance decision.
+
+P1 remains blocked. The source does not enumerate R33 alternative
+multiplicities or close oxidation/electron accounting, the wavefunction and
+stability policy, coordination and ligand identities, chemical atom roles,
+the elementary step and endpoints, mode/path evidence, or a prospective
+method/ECP/relativity/solvent/thermochemistry/TS-strategy review.
+
+The existing `build-metal-scientific-review` chain also requires a semantically
+valid asymmetric-catalysis study, formal TS candidate, M0 design and blocked
+M2a template. R33 is a non-asymmetric benchmark smoke object, and its sources
+do not define two stereochemical/selectivity channels. Creating those objects
+would require synthetic or inferred chemistry. Therefore the builder was not
+invoked and no real sidecar was emitted. `r33-m1-blocked-review.json` records
+that schema boundary and the exact gap ledger; it is not an M1 sidecar.
 
 `contract-probe/` shows that the existing M0/M2a/M1 builders and refusal chain
 work using an explicitly synthetic fixture. It does not satisfy real M1 or M4.
@@ -45,7 +61,7 @@ The current status is therefore:
 
 ```text
 P0: provisional_candidate_established_blocked
-P1: blocked_before_real_candidate_and_m1
+P1: blocked_after_candidate_bound_evidence_review_no_real_m1
 can_enter_P2: false
 ```
 
@@ -61,14 +77,17 @@ asymmetric target and is deliberately separate from R33.
 
 ## Next required evidence
 
-The exact blockers are enumerated in `baseline.json` and
-`r33-candidate-inventory.json`. Highest priority is a candidate-specific
-multiplicity/closed-shell assignment, followed by formal electron accounting,
-spin-surface alternatives, wavefunction policy, reviewed chemical atom roles,
-reaction-coordinate and endpoint identities, coordination windows,
-candidate-specific mode evidence, and method/ECP/relativity review. The
-implemented P2-P4 offline engineering contracts remain blocked from real-case
-activation by P1. The machine-readable status and the distinct meanings of
-`implemented`, `evidence_complete`, and `executable` are recorded in
-`p0-p5-readiness.json` and its schema at
-`contracts/metal-ts/p0-p5-readiness.schema.json`.
+The exact current blockers are enumerated in `r33-p1-evidence-ledger.json` and
+`r33-m1-blocked-review.json`. Highest priority is formal electron accounting,
+credible alternative spin surfaces, wavefunction/stability/multireference
+policy, coordination and ligand review, chemical atom roles and endpoints,
+mode/path evidence, and method/ECP/relativity review. The implemented P2-P4
+offline engineering contracts remain blocked from real-case activation by P1.
+
+`r33-p5-approval-package.json` is the exact fail-closed P5 planning package. It
+is `planned_not_submitted`, not ready for live approval, and binds null protocol
+options/selection, input draft/hash, resources and server project fields. The
+only allowed server root is `/home/user100/SDL`; no directory was created. The
+package authorizes no SSH, PBS, Gaussian, retry, IRC, cancellation, cleanup or
+deployment action and is not itself submission authorization. The integrated
+status remains indexed in `p0-p5-readiness.json`.

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/metal-ts/r33-p1-evidence-ledger.schema.json",
+  "title": "Auto-G16 R33 candidate-bound P1 evidence ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "ledger_id", "status", "review_date", "candidate_binding", "sources", "sections", "p1_closure", "live_actions", "claim_ceiling", "ledger_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-r33-p1-evidence-ledger/1"},
+    "ledger_id": {"const": "mobh35_r33_p1_review_20260716"},
+    "status": {"const": "blocked_incomplete_scientific_review"},
+    "review_date": {"const": "2026-07-16"},
+    "candidate_binding": {"$ref": "#/$defs/candidateBinding"},
+    "sources": {"type": "array", "minItems": 6, "items": {"$ref": "#/$defs/source"}},
+    "sections": {"$ref": "#/$defs/sections"},
+    "p1_closure": {"$ref": "#/$defs/closure"},
+    "live_actions": {"$ref": "#/$defs/liveActions"},
+    "claim_ceiling": {"const": "candidate_bound_evidence_and_gap_ledger_only_no_scientific_acceptance_ts_path_protocol_or_live_authority"},
+    "ledger_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "schema"],
+      "properties": {
+        "path": {"type": "string", "minLength": 3},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema": {"type": "string", "minLength": 3}
+      }
+    },
+    "candidateBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_id", "inventory", "structures", "total_charge", "multiplicity_candidate", "formal_candidate_status"],
+      "properties": {
+        "candidate_id": {"const": "mobh35_r33_pt_h_scrambling"},
+        "inventory": {"$ref": "#/$defs/artifact"},
+        "structures": {"$ref": "#/$defs/artifact"},
+        "total_charge": {"const": 1},
+        "multiplicity_candidate": {"const": 1},
+        "formal_candidate_status": {"const": "not_emitted_existing_asymmetric_candidate_contract_semantically_unsatisfied"}
+      }
+    },
+    "retrieval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "retrieved_at", "sha256", "versioned_path"],
+      "properties": {
+        "uri": {"type": ["string", "null"]},
+        "retrieved_at": {"type": ["string", "null"]},
+        "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "versioned_path": {"type": ["string", "null"]}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "source_type", "citation", "doi", "locator", "retrieval", "supports", "claim_ceiling"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "source_type": {"enum": ["repository_artifact", "primary_article", "primary_supporting_information", "primary_dataset_metadata", "author_archive"]},
+        "citation": {"type": "string", "minLength": 3},
+        "doi": {"type": ["string", "null"]},
+        "locator": {"type": "string", "minLength": 8},
+        "retrieval": {"$ref": "#/$defs/retrieval"},
+        "supports": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["identity", "charge", "multiplicity", "closed_shell_context", "coordinates", "diagnostics", "reaction_context", "method_context", "source_limit"]}},
+        "claim_ceiling": {"type": "string", "minLength": 8}
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "facts", "evidence_ids", "review_notes", "blockers"],
+      "properties": {
+        "status": {"enum": ["reviewed_observations_with_open_gates", "blocked_missing_evidence"]},
+        "facts": {"type": "object"},
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "review_notes": {"type": "string", "minLength": 8},
+        "blockers": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 8}}
+      }
+    },
+    "sections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["electron_accounting", "spin_surface", "wavefunction", "coordination", "reaction_ts_path", "method_protocol"],
+      "properties": {
+        "electron_accounting": {"$ref": "#/$defs/section"},
+        "spin_surface": {"$ref": "#/$defs/section"},
+        "wavefunction": {"$ref": "#/$defs/section"},
+        "coordination": {"$ref": "#/$defs/section"},
+        "reaction_ts_path": {"$ref": "#/$defs/section"},
+        "method_protocol": {"$ref": "#/$defs/section"}
+      }
+    },
+    "closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["closed", "m1_builder_eligible", "can_enter_p2_real_case", "blocker_ids"],
+      "properties": {
+        "closed": {"const": false},
+        "m1_builder_eligible": {"const": false},
+        "can_enter_p2_real_case": {"const": false},
+        "blocker_ids": {"type": "array", "minItems": 10, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    },
+    "liveActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ssh", "pbs", "gaussian", "deployment", "authorized"],
+      "properties": {
+        "ssh": {"const": false},
+        "pbs": {"const": false},
+        "gaussian": {"const": false},
+        "deployment": {"const": false},
+        "authorized": {"const": false}
+      }
+    }
+  }
+}

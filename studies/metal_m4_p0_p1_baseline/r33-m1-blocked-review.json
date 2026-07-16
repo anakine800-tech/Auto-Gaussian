@@ -1,0 +1,133 @@
+{
+  "schema": "auto-g16-r33-metal-m1-blocked-review/1",
+  "review_id": "mobh35_r33_m1_blocked_20260716",
+  "status": "blocked_no_real_sidecar_emitted",
+  "candidate_inventory": {
+    "path": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json",
+    "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497",
+    "schema": "gaussian-asymmetric-metal-p0-candidate-inventory/1"
+  },
+  "p1_evidence_ledger": {
+    "path": "studies/metal_m4_p0_p1_baseline/r33-p1-evidence-ledger.json",
+    "sha256": "04dfa06a1b882401176982af8fb0d2aeb4c526a01b0ee16f8dbcd4ae0e81b38b",
+    "schema": "auto-g16-r33-p1-evidence-ledger/1"
+  },
+  "existing_builder_assessment": {
+    "command": "build-metal-scientific-review",
+    "invoked": false,
+    "reason": "The builder requires an exact gaussian-asymmetric-catalysis-study/1, gaussian-asymmetric-ts-candidate/1, metal-support design, and M2a template chain. R33 is a non-asymmetric benchmark smoke object with no source-supported two-channel selectivity study, and the existing P0 inventory is not that formal candidate. Emitting those prerequisites would require synthetic or inferred chemistry.",
+    "synthetic_fixture_used": false
+  },
+  "prerequisites": [
+    {
+      "name": "p0_candidate_inventory",
+      "status": "available",
+      "artifact": {
+        "path": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json",
+        "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497",
+        "schema": "gaussian-asymmetric-metal-p0-candidate-inventory/1"
+      },
+      "blockers": ["This is a provisional P0 inventory and does not satisfy the formal asymmetric TS candidate schema or scientific review gate."]
+    },
+    {
+      "name": "asymmetric_study",
+      "status": "not_emitted",
+      "artifact": null,
+      "blockers": ["The available R33 sources do not define two source-supported stereochemical or selectivity channels required by the existing asymmetric study contract."]
+    },
+    {
+      "name": "formal_ts_candidate",
+      "status": "not_emitted",
+      "artifact": null,
+      "blockers": ["Chemical atom roles, coordination assignments, elementary-step identity, channel identity, and candidate dimensions are not source-closed."]
+    },
+    {
+      "name": "metal_support_design",
+      "status": "not_emitted",
+      "artifact": null,
+      "blockers": ["design-metal-support cannot be run without a semantically valid reviewed study; no synthetic study is permitted for this real R33 record."]
+    },
+    {
+      "name": "metal_m2a_template",
+      "status": "not_emitted",
+      "artifact": null,
+      "blockers": ["build-metal-ts-audit-template requires the exact formal candidate and design, both of which remain unavailable."]
+    },
+    {
+      "name": "metal_m1_review_source",
+      "status": "not_emitted",
+      "artifact": null,
+      "blockers": ["The existing source schema requires design, template, and formal-candidate hashes that cannot be honestly supplied."]
+    },
+    {
+      "name": "metal_m1_sidecar",
+      "status": "not_emitted",
+      "artifact": null,
+      "blockers": ["No real sidecar may be generated until the exact non-synthetic upstream chain exists; the contract-probe synthetic sidecar is not reused."]
+    }
+  ],
+  "section_dispositions": [
+    {
+      "section": "electron_accounting",
+      "status": "blocked_missing_evidence",
+      "blockers": ["Charge +1 is source-reported, but formal oxidation state, ligand-charge convention, d count, total electron count, and parity remain null."]
+    },
+    {
+      "section": "spin_surface",
+      "status": "blocked_missing_evidence",
+      "blockers": ["Multiplicity 1 is source-reported for the investigated closed-shell set, but alternative multiplicities and crossing relevance have no candidate-bound review."]
+    },
+    {
+      "section": "wavefunction",
+      "status": "blocked_missing_evidence",
+      "blockers": ["Restricted, unrestricted, RO, or broken-symmetry choice and stability, S-squared, occupation, alternative-solution, and multireference policies remain absent."]
+    },
+    {
+      "section": "coordination",
+      "status": "blocked_missing_evidence",
+      "blockers": ["One-based distances are measured, but coordination number, geometry, ligand identities, denticity, hapticity, occupancy, and distance windows are not assigned."]
+    },
+    {
+      "section": "method_protocol",
+      "status": "blocked_missing_evidence",
+      "blockers": ["Literature method contexts are not protocol defaults; no candidate-bound method, basis/ECP, relativity, solvent, thermochemistry, or three-tier selection exists."]
+    },
+    {
+      "section": "ts_and_path",
+      "status": "blocked_missing_evidence",
+      "blockers": ["Exact endpoint identities, elementary-step class, chemical atom map, mode displacement, IRC evidence, and TS strategy remain absent or unsupported."]
+    }
+  ],
+  "gap_ledger": [
+    {"gap_id": "formal_oxidation_state", "field": "electron_accounting.formal_oxidation_state", "current_value": null, "evidence_limit": "No reviewed source assigns formal Pt oxidation state to the exact N2 R33 object.", "required_human_fact": "Source-located candidate-specific oxidation-state decision and bookkeeping convention."},
+    {"gap_id": "ligand_charge_convention", "field": "electron_accounting.ligand_charge_convention", "current_value": null, "evidence_limit": "Exact ligand identities and formal charges are not reported for the N2 object.", "required_human_fact": "Reviewed ligand identities, formal charges, and non-innocent alternatives."},
+    {"gap_id": "d_electron_count", "field": "electron_accounting.d_electron_count", "current_value": null, "evidence_limit": "No source-reported d count is bound to R33.", "required_human_fact": "Reviewer-confirmed d count tied to the accepted oxidation and ligand-charge convention."},
+    {"gap_id": "total_electron_count", "field": "electron_accounting.total_electron_count", "current_value": null, "evidence_limit": "The source does not report a reviewed total electron count for the exact object.", "required_human_fact": "Reviewer-supplied total electron count with explicit counting convention."},
+    {"gap_id": "electron_parity", "field": "electron_accounting.electron_parity", "current_value": null, "evidence_limit": "Parity was not copied or derived because it cannot establish multiplicity.", "required_human_fact": "Reviewer-recorded parity cross-check that does not infer the spin state."},
+    {"gap_id": "alternative_multiplicities", "field": "spin_surface.credible_alternative_multiplicities", "current_value": null, "evidence_limit": "The source reports a closed-shell singlet treatment but does not enumerate alternatives for R33.", "required_human_fact": "Candidate-bound credible multiplicity inventory and common reference."},
+    {"gap_id": "surface_relationship", "field": "spin_surface.single_surface_and_crossing_model", "current_value": null, "evidence_limit": "No single-surface, spin-crossover, two-state, or MECP assessment is reported for R33.", "required_human_fact": "Reviewer decision on surface relationships and crossing relevance."},
+    {"gap_id": "wavefunction_reference", "field": "wavefunction.reference_family", "current_value": null, "evidence_limit": "Closed-shell singlet treatment does not explicitly identify the Auto-G16 restricted, unrestricted, RO, or broken-symmetry hypothesis.", "required_human_fact": "Candidate-specific wavefunction hypothesis and rejection/escalation rule."},
+    {"gap_id": "scf_stability_policy", "field": "wavefunction.scf_stability_policy", "current_value": null, "evidence_limit": "Cross-program lowest-energy checks are not a candidate-bound stability-analysis policy.", "required_human_fact": "Reviewed stability test, acceptance criterion, and evidence locator."},
+    {"gap_id": "s2_policy", "field": "wavefunction.s2_target_and_tolerance", "current_value": null, "evidence_limit": "No candidate-bound S-squared observation or tolerance is reported.", "required_human_fact": "State-specific S-squared target, observed evidence, and rejection tolerance."},
+    {"gap_id": "occupation_alternative_solutions", "field": "wavefunction.occupation_and_alternative_solution_policy", "current_value": null, "evidence_limit": "Occupation character and alternative solutions are not reported for the exact candidate.", "required_human_fact": "Hash-bound orbital/occupation review and alternative-solution search policy."},
+    {"gap_id": "multireference_policy", "field": "wavefunction.multireference_acceptance_policy", "current_value": null, "evidence_limit": "Several diagnostics are observed, but no universal threshold is accepted and no candidate-specific policy is reported.", "required_human_fact": "System-specific diagnostic set, criteria, reviewer decision, and escalation path."},
+    {"gap_id": "coordination_assignment", "field": "coordination.number_geometry_and_contacts", "current_value": null, "evidence_limit": "Distances alone do not establish coordination number, geometry, or contact acceptance windows.", "required_human_fact": "Reviewed coordination number, geometry, complete contacts, and distance windows."},
+    {"gap_id": "ligand_binding_model", "field": "coordination.ligand_identity_denticity_hapticity", "current_value": null, "evidence_limit": "The N2 coordinate object lacks source-located ligand-role assignments.", "required_human_fact": "Ligand identities, stoichiometry, denticity, hapticity, and hemilability."},
+    {"gap_id": "environment_occupancy", "field": "coordination.substrate_counterion_solvent_additive", "current_value": null, "evidence_limit": "No exact substrate, counterion, ion-pair, solvent, or additive occupancy is reported.", "required_human_fact": "Reviewer-accepted complete species and occupancy inventory."},
+    {"gap_id": "elementary_step_class", "field": "ts_and_path.elementary_step_class", "current_value": null, "evidence_limit": "H/D-scrambling context and distance changes do not assign the exact N2 elementary step.", "required_human_fact": "Source-located elementary-step class and reactant/TS/product identities."},
+    {"gap_id": "chemical_atom_map", "field": "ts_and_path.chemical_atom_map_and_coordinate", "current_value": null, "evidence_limit": "Element order is preserved, but chemical roles and forming/breaking/transferring pairs are unreviewed.", "required_human_fact": "One-based chemical atom map and intended reaction-coordinate pairs."},
+    {"gap_id": "mode_path_evidence", "field": "ts_and_path.mode_and_endpoint_evidence", "current_value": null, "evidence_limit": "No raw imaginary frequency, displacement, bidirectional IRC, or identified endpoints are available.", "required_human_fact": "Exactly-one-imaginary-mode review and separately gated path evidence appropriate to metal support."},
+    {"gap_id": "method_basis_ecp_relativity", "field": "method_protocol.method_basis_ecp_relativity", "current_value": null, "evidence_limit": "Reported literature contexts are not a candidate-bound protocol or per-element acceptance record.", "required_human_fact": "Reviewed method, basis by element, ECP identity/core size, and relativity plan."},
+    {"gap_id": "solvent_thermochemistry", "field": "method_protocol.solvent_and_thermochemistry", "current_value": null, "evidence_limit": "No approved solvent, temperature, standard state, or low-frequency policy exists.", "required_human_fact": "Reviewed solvent and thermochemistry model with all comparison conventions."},
+    {"gap_id": "ts_strategy", "field": "method_protocol.ts_strategy", "current_value": null, "evidence_limit": "No candidate-bound strategy evidence supports selecting one of the three design candidates.", "required_human_fact": "Reviewed Hessian, endpoint, or scan evidence while execution selection remains separately gated."}
+  ],
+  "m1_status": "pending_scientific_review",
+  "calculation_ready": false,
+  "runtime_support_status": "unsupported_requires_extension",
+  "scientific_acceptance_decision": "not_granted_by_artifact",
+  "promotion_decision": "refused",
+  "submission_decision": "refused",
+  "no_submission_authorization": true,
+  "claim_ceiling": "blocked_gap_record_only_not_a_gaussian_asymmetric_metal_scientific_review_sidecar",
+  "review_payload_sha256": "9d64e277968316df612299e4e4190212b996ff8774d9849461168acf29d4e472"
+}

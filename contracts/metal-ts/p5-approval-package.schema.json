@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/metal-ts/p5-approval-package.schema.json",
+  "title": "Auto-G16 transition-metal P5 planned-not-submitted approval package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "package_id", "status", "approval_readiness", "candidate", "p1_evidence_ledger", "m1_review", "protocol", "input_draft", "resources", "server_plan", "live_authorization", "automatic_actions", "blockers", "required_human_facts", "claim_ceiling", "package_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-metal-p5-approval-package/1"},
+    "package_id": {"const": "mobh35_r33_p5_planned_20260716"},
+    "status": {"const": "planned_not_submitted"},
+    "approval_readiness": {"const": "blocked_not_ready_for_live_approval"},
+    "candidate": {"$ref": "#/$defs/binding"},
+    "p1_evidence_ledger": {"$ref": "#/$defs/binding"},
+    "m1_review": {"$ref": "#/$defs/binding"},
+    "protocol": {"$ref": "#/$defs/protocol"},
+    "input_draft": {"$ref": "#/$defs/inputDraft"},
+    "resources": {"$ref": "#/$defs/resources"},
+    "server_plan": {"$ref": "#/$defs/serverPlan"},
+    "live_authorization": {"$ref": "#/$defs/liveAuthorization"},
+    "automatic_actions": {"$ref": "#/$defs/automaticActions"},
+    "blockers": {"type": "array", "minItems": 10, "items": {"type": "string", "minLength": 8}},
+    "required_human_facts": {"type": "array", "minItems": 10, "items": {"type": "string", "minLength": 8}},
+    "claim_ceiling": {"const": "approval_gap_package_only_no_input_acceptance_submission_execution_ts_path_or_chemical_correctness_claim"},
+    "package_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 3},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema": {"type": "string", "minLength": 3},
+        "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["options", "options_status", "selection", "selection_status", "literature_values_are_defaults"],
+      "properties": {
+        "options": {"type": "null"},
+        "options_status": {"const": "not_created_blocked_by_p1"},
+        "selection": {"type": "null"},
+        "selection_status": {"const": "absent_not_authorized"},
+        "literature_values_are_defaults": {"const": false}
+      }
+    },
+    "inputDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "path", "sha256", "route", "charge", "multiplicity"],
+      "properties": {
+        "status": {"const": "not_rendered_blocked"},
+        "path": {"type": "null"},
+        "sha256": {"type": "null"},
+        "route": {"type": "null"},
+        "charge": {"const": 1},
+        "multiplicity": {"const": 1}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "tier", "memory_gb", "cores"],
+      "properties": {
+        "status": {"const": "not_selected"},
+        "tier": {"type": "null"},
+        "memory_gb": {"type": "null"},
+        "cores": {"type": "null"}
+      }
+    },
+    "serverPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_root", "project_name", "remote_workdir", "canonical_path", "fresh_directory_status", "actual_directory_created", "overwrite"],
+      "properties": {
+        "allowed_root": {"const": "/home/user100/SDL"},
+        "project_name": {"type": "null"},
+        "remote_workdir": {"type": "null"},
+        "canonical_path": {"type": "null"},
+        "fresh_directory_status": {"const": "not_created_not_checked"},
+        "actual_directory_created": {"const": false},
+        "overwrite": {"const": false}
+      }
+    },
+    "liveAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorized", "approval_record", "package_is_submission_authorization"],
+      "properties": {
+        "authorized": {"const": false},
+        "approval_record": {"type": "null"},
+        "package_is_submission_authorization": {"const": false}
+      }
+    },
+    "automaticActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ssh", "pbs", "gaussian", "retry", "irc", "cancellation", "cleanup", "deployment"],
+      "properties": {
+        "ssh": {"const": false},
+        "pbs": {"const": false},
+        "gaussian": {"const": false},
+        "retry": {"const": false},
+        "irc": {"const": false},
+        "cancellation": {"const": false},
+        "cleanup": {"const": false},
+        "deployment": {"const": false}
+      }
+    }
+  }
+}

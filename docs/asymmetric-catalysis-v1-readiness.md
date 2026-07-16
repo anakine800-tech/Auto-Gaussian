@@ -111,7 +111,17 @@ The integrated P0-P5 state is machine-readable in
 `studies/metal_m4_p0_p1_baseline/p0-p5-readiness.json`. Its schema deliberately
 keeps three claims separate: an engineering contract can be `implemented`
 while candidate-bound evidence is not `evidence_complete` and the phase is not
-`executable`. P0 is provisional; P1 lacks candidate-level multiplicity,
-closed-shell/single-reference suitability, and remaining M1 evidence; P2-P4
-are implemented offline but cannot activate for a real case until P1 passes;
-P5 is neither authorized nor executed.
+`executable`. P0 is provisional. The 2022 primary article now supplies a
+source-reported closed-shell singlet candidate for R33, but P1 still lacks
+closed electron accounting, alternative spin-surface review, a wavefunction
+and multireference policy, coordination and chemical-state assignments,
+method/TS design evidence, and a real builder-compatible M1 chain. P2-P4 are
+implemented offline but cannot activate for this real case until P1 passes.
+
+P5 now has a strict offline approval-package contract and a candidate-bound
+`planned_not_submitted` package. Its protocol, selection, input, resource and
+server-project fields remain null; live authorization is false; no server
+directory exists; and every SSH, PBS, Gaussian, retry, IRC, cancellation,
+cleanup and deployment action remains false. The package is reviewable as a
+gap record but is not ready for live approval and never constitutes submission
+authorization.

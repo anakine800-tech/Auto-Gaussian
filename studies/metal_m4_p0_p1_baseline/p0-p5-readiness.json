@@ -24,15 +24,19 @@
     },
     {
       "phase": "P1",
-      "status": "blocked_candidate_multiplicity_closed_shell_and_m1",
+      "status": "blocked_incomplete_electron_spin_wavefunction_coordination_method_ts_m1",
       "implemented": true,
       "evidence_complete": false,
       "executable": false,
       "evidence": [
         {"kind": "contract", "locator": "contracts/asymmetric-catalysis/metal-p0-p1-baseline.schema.json", "sha256": "05c6531f534a03f2c58b6497f14385edc77bdd554fb9f8eaab21cb0b1b9b91e2"},
-        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json", "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497"}
+        {"kind": "contract", "locator": "contracts/metal-ts/r33-p1-evidence-ledger.schema.json", "sha256": "bf217849ec7bf4c989066789b44b619d93c9f22a5b0bbf96bc494e12b167bbd4"},
+        {"kind": "contract", "locator": "contracts/metal-ts/r33-m1-blocked-review.schema.json", "sha256": "4a72cf941da87986fbf4359af042b40c48c4ec3c8faf0ee1d172e1e2f6638781"},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json", "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497"},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/r33-p1-evidence-ledger.json", "sha256": "04dfa06a1b882401176982af8fb0d2aeb4c526a01b0ee16f8dbcd4ae0e81b38b"},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/r33-m1-blocked-review.json", "sha256": "bae51315c9fc5d4578c87d6ec044e6bb5f7beef532939327c7f1dc5d72a6f2d0"}
       ],
-      "blockers": ["Candidate-level multiplicity and closed-shell/single-reference suitability are not established.", "The remaining candidate-bound M1 scientific evidence and review are incomplete."]
+      "blockers": ["The primary article reports multiplicity 1 and closed-shell context for the investigated set, but that does not close alternative spin-surface or single-reference suitability review.", "Oxidation/electron accounting, wavefunction policy, coordination, method, TS/path design, and a real builder-compatible M1 chain remain incomplete."]
     },
     {
       "phase": "P2",
@@ -63,13 +67,16 @@
     },
     {
       "phase": "P5",
-      "status": "live_smoke_not_authorized_not_executed",
-      "implemented": false,
+      "status": "approval_package_assembled_planned_not_submitted_blocked",
+      "implemented": true,
       "evidence_complete": false,
       "executable": false,
-      "evidence": [{"kind": "commit", "locator": "18545cbee46370b12c080489a4a0c1e25772ded7", "sha256": null}],
-      "blockers": ["No exact live-smoke authorization was granted.", "No SSH, PBS, Gaussian, deployment, or live smoke was executed."]
+      "evidence": [
+        {"kind": "contract", "locator": "contracts/metal-ts/p5-approval-package.schema.json", "sha256": "cbae7384074bef6a8337cd93ea26dfdfc1abb86a081531a91cc8544345a7e824"},
+        {"kind": "artifact", "locator": "studies/metal_m4_p0_p1_baseline/r33-p5-approval-package.json", "sha256": "4cad30427be6297b2c2ba8553b6aafc17fd9af731390fb95d833a918dbe01add"}
+      ],
+      "blockers": ["The package is planned_not_submitted and blocked by incomplete P1 plus absent real P2-P4 candidate evidence and metal execution-boundary approval.", "Protocol options/selection, input draft/hash, resources, fresh server directory, and exact live authorization are absent.", "No SSH, PBS, Gaussian, retry, IRC, cancellation, cleanup, deployment, or live smoke was authorized or executed."]
     }
   ],
-  "readiness_payload_sha256": "eca36795057a1890c9c0ff39c11a5d4f5625d7f64f1044bcff9b9a7cbc88342e"
+  "readiness_payload_sha256": "0cb019bee14825e140bfb532e1f78ed4b7b39149f3086ac46ca2cc5c754b2104"
 }

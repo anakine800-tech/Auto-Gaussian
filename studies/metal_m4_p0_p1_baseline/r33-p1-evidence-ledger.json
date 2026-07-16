@@ -1,0 +1,352 @@
+{
+  "schema": "auto-g16-r33-p1-evidence-ledger/1",
+  "ledger_id": "mobh35_r33_p1_review_20260716",
+  "status": "blocked_incomplete_scientific_review",
+  "review_date": "2026-07-16",
+  "candidate_binding": {
+    "candidate_id": "mobh35_r33_pt_h_scrambling",
+    "inventory": {
+      "path": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json",
+      "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497",
+      "schema": "gaussian-asymmetric-metal-p0-candidate-inventory/1"
+    },
+    "structures": {
+      "path": "studies/metal_m4_p0_p1_baseline/r33-start-ts-end.xyz",
+      "sha256": "f2104dc1db9f4fb44542d48c0321715f5060f4b99a80f1301bfe4c8aa277b5f3",
+      "schema": "multi_xyz_start_ts_end_with_source_attribution/1"
+    },
+    "total_charge": 1,
+    "multiplicity_candidate": 1,
+    "formal_candidate_status": "not_emitted_existing_asymmetric_candidate_contract_semantically_unsatisfied"
+  },
+  "sources": [
+    {
+      "source_id": "r33_candidate_inventory",
+      "source_type": "repository_artifact",
+      "citation": "Auto-G16 R33 provisional P0 candidate inventory",
+      "doi": null,
+      "locator": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json",
+      "retrieval": {
+        "uri": null,
+        "retrieved_at": null,
+        "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497",
+        "versioned_path": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json"
+      },
+      "supports": ["identity", "charge", "coordinates", "diagnostics", "source_limit"],
+      "claim_ceiling": "Inventory and observations only; no M1 acceptance, protocol, TS, or live authority."
+    },
+    {
+      "source_id": "r33_coordinate_blocks",
+      "source_type": "repository_artifact",
+      "citation": "MOBH35 R33 start, TS, and end coordinate blocks transcribed from ct1c01126_si_003.txt",
+      "doi": "10.1021/acs.jctc.1c01126",
+      "locator": "ct1c01126_si_003.txt blocks 33_start, 33_ts, and 33_end",
+      "retrieval": {
+        "uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC8830049/supplementaryFiles",
+        "retrieved_at": "2026-07-16",
+        "sha256": "105d7b83ea22660dfd3964bd62017f72a997eb2f936f7bb8c7a447704b885603",
+        "versioned_path": "studies/metal_m4_p0_p1_baseline/r33-start-ts-end.xyz"
+      },
+      "supports": ["identity", "coordinates"],
+      "claim_ceiling": "Ordered Cartesian coordinates and element inventory only; charge, multiplicity, roles, mode, and endpoint identities are absent from the coordinate text."
+    },
+    {
+      "source_id": "semidalas_2022_full_text",
+      "source_type": "primary_article",
+      "citation": "Semidalas and Martin, J. Chem. Theory Comput. 2022, 18, 883-898",
+      "doi": "10.1021/acs.jctc.1c01126",
+      "locator": "Methods paragraphs beginning 'Where possible, conventional canonical CCSD(T)' and 'In order to get our bearings concerning static correlation diagnostics'",
+      "retrieval": {
+        "uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC8830049/fullTextXML",
+        "retrieved_at": "2026-07-16",
+        "sha256": "34c6890c02fb12a503fbff049a6119386d9e987ad79bcbdf84e57b2adee7888c",
+        "versioned_path": null
+      },
+      "supports": ["multiplicity", "closed_shell_context", "diagnostics", "method_context", "source_limit"],
+      "claim_ceiling": "The article reports that all investigated systems are closed-shell and that the lowest closed-shell singlet SCF solution was checked; it does not enumerate R33 alternative multiplicities or approve an Auto-G16 wavefunction policy."
+    },
+    {
+      "source_id": "semidalas_2022_supplement_bundle",
+      "source_type": "primary_supporting_information",
+      "citation": "Semidalas and Martin 2022 lawful Europe PMC supplementary bundle",
+      "doi": "10.1021/acs.jctc.1c01126",
+      "locator": "Europe PMC supplementaryFiles response containing ct1c01126_si_001.pdf, ct1c01126_si_002.xlsx, and ct1c01126_si_003.txt",
+      "retrieval": {
+        "uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC8830049/supplementaryFiles",
+        "retrieved_at": "2026-07-16",
+        "sha256": "f0f400a94f841571d62b819a8c1807d2ddc9bb8f28afb0442988c49fb7451e56",
+        "versioned_path": null
+      },
+      "supports": ["identity", "charge", "coordinates", "diagnostics", "method_context"],
+      "claim_ceiling": "Container provenance only; each scientific claim remains bound to its member hash and locator."
+    },
+    {
+      "source_id": "r33_diagnostics_workbook",
+      "source_type": "primary_supporting_information",
+      "citation": "ct1c01126_si_002.xlsx",
+      "doi": "10.1021/acs.jctc.1c01126",
+      "locator": "sheet Diagnostics Def2SV_P or Def2SVP rows 99-101 and formula cells O202:O204",
+      "retrieval": {
+        "uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC8830049/supplementaryFiles",
+        "retrieved_at": "2026-07-16",
+        "sha256": "39c7fa3cf3fd6eff751af34c8a458bfacdfb159f894672a3c3b87fd604a4a3b2",
+        "versioned_path": null
+      },
+      "supports": ["identity", "charge", "diagnostics"],
+      "claim_ceiling": "Reports CH11N2Pt(1+) and numerical diagnostics; it does not itself supply oxidation state, d count, multiplicity, or an acceptance threshold."
+    },
+    {
+      "source_id": "mobh35_author_archive",
+      "source_type": "author_archive",
+      "citation": "Iron and Janes MOBH35 ChemRxiv v2 author archive mobh35-tar.tgz",
+      "doi": "10.1021/acs.jpca.9b01546",
+      "locator": "archive members r33+.xyz, ts33+.xyz, and p33+.xyz comments report CH11N2Pt+",
+      "retrieval": {
+        "uri": "https://chemrxiv.org/engage/chemrxiv/article-details/60c74167842e6505f1db1ea0",
+        "retrieved_at": "2026-07-16",
+        "sha256": "c5c0c0027129c392e81f61925d18a7a982ce1577c76fe48d2e9a54beb713fe78",
+        "versioned_path": null
+      },
+      "supports": ["identity", "charge", "diagnostics", "source_limit"],
+      "claim_ceiling": "Strengthens +1 charge provenance and reported diagnostic context; multiplicity and scientific acceptance are absent."
+    },
+    {
+      "source_id": "iron_2002_figshare_metadata",
+      "source_type": "primary_dataset_metadata",
+      "citation": "Iron, Lo, Martin, and Keinan, JACS 2002 supporting dataset metadata",
+      "doi": "10.1021/ja025667v.s003",
+      "locator": "ACS Figshare API article 3642549, file 5731353, description and related-material fields",
+      "retrieval": {
+        "uri": "https://api.figshare.com/v2/articles/3642549",
+        "retrieved_at": "2026-07-16",
+        "sha256": "4b08bc3cef027c5588e24a9ec15b38557ddc45a2451a9a36b5bc9fb7c329b69f",
+        "versioned_path": null
+      },
+      "supports": ["reaction_context", "method_context", "source_limit"],
+      "claim_ceiling": "Metadata reports TpPtMe(H)2 H/D scrambling, an eta2-CH-CH4 complex, and a separate N3 ammonia model; it does not identify the N2 R33 reduced coordinate state."
+    },
+    {
+      "source_id": "iron_2002_si_file_unread",
+      "source_type": "primary_supporting_information",
+      "citation": "ja025667v_si_003.txt",
+      "doi": "10.1021/ja025667v.s003",
+      "locator": "ACS Figshare file 5731353; size 46316; supplied MD5 9ec842c2537f2510f8a217dffff4e298",
+      "retrieval": {
+        "uri": "https://ndownloader.figshare.com/files/5731353",
+        "retrieved_at": "2026-07-16",
+        "sha256": null,
+        "versioned_path": null
+      },
+      "supports": ["source_limit"],
+      "claim_ceiling": "File content was not obtained because the upstream WAF/S3 path did not yield the object; no content claim is accepted."
+    }
+  ],
+  "sections": {
+    "electron_accounting": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "source_reported_total_charge": 1,
+        "formal_oxidation_state": null,
+        "ligand_charge_convention": null,
+        "non_innocent_ligand_alternatives": null,
+        "d_electron_count": null,
+        "total_electron_count": null,
+        "electron_parity": null,
+        "electron_count_arithmetic_performed": false
+      },
+      "evidence_ids": ["r33_candidate_inventory", "r33_diagnostics_workbook", "mobh35_author_archive"],
+      "review_notes": "Charge +1 is directly source-reported for the exact R33 data object. No oxidation, ligand-charge, d-count, total-electron, or parity value is copied or derived.",
+      "blockers": [
+        "Formal Pt oxidation state is not source-reported for the exact N2 R33 object.",
+        "Ligand identities and charge conventions are not source-reported for the exact N2 R33 object.",
+        "d-electron count, total electron count, and electron parity remain null rather than being inferred from elements or charge."
+      ]
+    },
+    "spin_surface": {
+      "status": "reviewed_observations_with_open_gates",
+      "facts": {
+        "source_reported_multiplicity_candidates": [
+          {
+            "multiplicity": 1,
+            "basis": "The 2022 primary article states that all investigated systems are closed-shell and that convergence to the lowest closed-shell singlet SCF solution was verified."
+          }
+        ],
+        "scientifically_accepted_multiplicity": null,
+        "credible_alternative_multiplicities": null,
+        "relative_spin_state_reference": null,
+        "single_surface_assumption": null,
+        "spin_crossover_relevance": null,
+        "minimum_energy_crossing_relevance": null
+      },
+      "evidence_ids": ["semidalas_2022_full_text", "r33_coordinate_blocks"],
+      "review_notes": "Multiplicity 1 is recorded as a source-reported candidate, not inferred from electron parity and not automatically scientifically accepted.",
+      "blockers": [
+        "No exact R33 source enumerates credible alternative multiplicities or their common energy reference.",
+        "Single-surface, spin-crossover, two-state-reactivity, and MECP relevance have no candidate-bound reviewer decision."
+      ]
+    },
+    "wavefunction": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "reference_family": null,
+        "restricted_unrestricted_ro_or_broken_symmetry": null,
+        "scf_stability_policy": null,
+        "s2_target_and_tolerance": null,
+        "occupation_inspection_policy": null,
+        "alternative_solution_policy": null,
+        "checkpoint_or_guess_reuse_policy": null,
+        "multireference_acceptance_policy": null,
+        "source_observation": "The primary article reports cross-program checks of the lowest closed-shell singlet SCF solution for the investigated set; this is not a candidate-bound Auto-G16 stability or wavefunction acceptance policy.",
+        "observed_diagnostics": [
+          {"structure": "start", "t1": 0.0122099, "d1": 0.0392713, "fod_tpss": 0.048126, "homo_lumo_gap_ev": 12.3564, "mdiag": 0.059},
+          {"structure": "ts", "t1": 0.0156354, "d1": 0.0582186, "fod_tpss": 0.028779, "homo_lumo_gap_ev": 13.1969, "mdiag": 0.056},
+          {"structure": "end", "t1": 0.016167, "d1": 0.0646033, "fod_tpss": 0.061227, "homo_lumo_gap_ev": 13.4672, "mdiag": 0.044}
+        ],
+        "diagnostic_decision": "observed_not_accepted_no_universal_threshold"
+      },
+      "evidence_ids": ["semidalas_2022_full_text", "r33_diagnostics_workbook", "mobh35_author_archive"],
+      "review_notes": "Reported diagnostics and a lowest-solution check are preserved as observations only; SCF convergence is not electronic-state validation.",
+      "blockers": [
+        "Restricted, unrestricted, restricted-open-shell, or broken-symmetry reference choice is not source-reported for the exact candidate.",
+        "SCF stability, S-squared, occupations, alternative solutions, and checkpoint reuse lack candidate-bound policies.",
+        "No reviewer has supplied system-specific multireference diagnostics or acceptance and escalation criteria."
+      ]
+    },
+    "coordination": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "source_observed_nuclearity": 1,
+        "coordination_number": null,
+        "coordination_geometry": null,
+        "ligand_identities": null,
+        "ligand_stoichiometry": null,
+        "denticity": null,
+        "hapticity": null,
+        "substrate_identity_and_binding": null,
+        "counterion_identity_and_placement": null,
+        "explicit_solvent_or_additive_occupancy": null,
+        "measurement_scope": "Exhaustive Pt2-to-every-other-atom distances measured from the three source coordinate blocks; no cutoff, bond, coordination, hapticity, or ligand assignment is inferred.",
+        "one_based_pt_distance_table_angstrom": [
+          {"other_atom": 1, "element": "C", "start": 2.0496, "ts": 2.1098, "end": 2.3662, "chemical_assignment": null},
+          {"other_atom": 3, "element": "N", "start": 2.2734, "ts": 2.1864, "end": 2.0630, "chemical_assignment": null},
+          {"other_atom": 4, "element": "N", "start": 2.2645, "ts": 2.2603, "end": 2.2621, "chemical_assignment": null},
+          {"other_atom": 5, "element": "H", "start": 1.5574, "ts": 1.5618, "end": 1.5626, "chemical_assignment": null},
+          {"other_atom": 6, "element": "H", "start": 2.8404, "ts": 2.7284, "end": 2.6082, "chemical_assignment": null},
+          {"other_atom": 7, "element": "H", "start": 1.5265, "ts": 1.5523, "end": 1.7966, "chemical_assignment": null},
+          {"other_atom": 8, "element": "H", "start": 2.6756, "ts": 2.7702, "end": 3.1042, "chemical_assignment": null},
+          {"other_atom": 9, "element": "H", "start": 2.5654, "ts": 2.4817, "end": 2.3122, "chemical_assignment": null},
+          {"other_atom": 10, "element": "H", "start": 2.6559, "ts": 2.7406, "end": 3.0687, "chemical_assignment": null},
+          {"other_atom": 11, "element": "H", "start": 2.8767, "ts": 2.8657, "end": 2.8498, "chemical_assignment": null},
+          {"other_atom": 12, "element": "H", "start": 2.8215, "ts": 2.8166, "end": 2.8256, "chemical_assignment": null},
+          {"other_atom": 13, "element": "H", "start": 2.7891, "ts": 2.7982, "end": 2.8160, "chemical_assignment": null},
+          {"other_atom": 14, "element": "H", "start": 2.8849, "ts": 2.8198, "end": 2.6745, "chemical_assignment": null},
+          {"other_atom": 15, "element": "H", "start": 2.7834, "ts": 2.6961, "end": 2.6001, "chemical_assignment": null}
+        ]
+      },
+      "evidence_ids": ["r33_candidate_inventory", "r33_coordinate_blocks", "iron_2002_figshare_metadata"],
+      "review_notes": "The contact table is a coordinate measurement table, not a coordination assignment. The N2 R33 object is not silently equated with the separately reported N3 ammonia model.",
+      "blockers": [
+        "Coordination number and geometry have no exact candidate-bound source or reviewer assignment.",
+        "Ligand identity, stoichiometry, denticity, hapticity, and hemilability remain unassigned.",
+        "Substrate, counterion, ion-pair, solvent, additive, agostic, and secondary-sphere roles remain unassigned.",
+        "No reviewer-supplied coordination distance windows exist."
+      ]
+    },
+    "reaction_ts_path": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "source_reaction_context": "The primary 2002 dataset metadata reports Pt methyl-hydride H/D scrambling through an eta2-CH-CH4 complex, but its separately named N3 ammonia model is not the N2 R33 coordinate object.",
+        "reactant_identity": null,
+        "ts_identity": "source_block_label_33_ts_only",
+        "product_identity": null,
+        "atom_order": [
+          {"index": 1, "element": "C"}, {"index": 2, "element": "Pt"}, {"index": 3, "element": "N"}, {"index": 4, "element": "N"},
+          {"index": 5, "element": "H"}, {"index": 6, "element": "H"}, {"index": 7, "element": "H"}, {"index": 8, "element": "H"},
+          {"index": 9, "element": "H"}, {"index": 10, "element": "H"}, {"index": 11, "element": "H"}, {"index": 12, "element": "H"},
+          {"index": 13, "element": "H"}, {"index": 14, "element": "H"}, {"index": 15, "element": "H"}
+        ],
+        "atom_mapping_status": "element_order_preserved_chemical_roles_unreviewed",
+        "elementary_step_class": null,
+        "expected_forming_bond": null,
+        "expected_breaking_bond": null,
+        "expected_transferring_atoms": null,
+        "geometric_observations_only": [
+          {"atoms": [1, 7], "observation": "distance_decreases", "start": 2.4640, "ts": 1.7333, "end": 1.1722},
+          {"atoms": [2, 7], "observation": "distance_increases", "start": 1.5265, "ts": 1.5523, "end": 1.7966},
+          {"atoms": [2, 1], "observation": "distance_increases", "start": 2.0496, "ts": 2.1098, "end": 2.3662}
+        ],
+        "source_reported_raw_imaginary_frequency": null,
+        "mode_displacement_evidence": null,
+        "irc_direction_evidence": null,
+        "structurally_identified_endpoints": null,
+        "required_future_mode_evidence": "Exactly one raw imaginary frequency plus hash-bound displacement review against reviewer-supplied forming, breaking, or transferring coordinates and unintended coordination loss."
+      },
+      "evidence_ids": ["r33_coordinate_blocks", "iron_2002_figshare_metadata", "iron_2002_si_file_unread"],
+      "review_notes": "Source block labels and geometric changes do not establish a chemical elementary-step class, normal mode, IRC connectivity, or endpoint identity.",
+      "blockers": [
+        "Exact reactant and product identities for the N2 R33 coordinate state are not source-located.",
+        "Chemical atom roles and forming, breaking, or transferring pairs are not reviewer accepted.",
+        "No candidate-bound raw imaginary frequency or displacement vector is available.",
+        "No bidirectional IRC with structurally identified endpoints is available, and transition-metal IRC remains unsupported."
+      ]
+    },
+    "method_protocol": {
+      "status": "blocked_missing_evidence",
+      "facts": {
+        "optimization_method": null,
+        "frequency_method": null,
+        "single_point_method": null,
+        "basis_by_element": null,
+        "ecp_by_element": null,
+        "ecp_core_electrons": null,
+        "relativistic_treatment": null,
+        "solvent_model_and_identity": null,
+        "thermochemistry_temperature_standard_state_low_frequency": null,
+        "ts_strategy": null,
+        "route": null,
+        "literature_context_only": "The 2022 article reports def2-family coupled-cluster benchmark calculations, Stuttgart RECP use for second- and third-row transition metals, and lowest closed-shell singlet SCF checks. The 2002 dataset metadata reports mPW1k/LANL2DZ-family and SDD-family model calculations. Neither record is adopted as an Auto-G16 R33 protocol.",
+        "three_tier_protocol_options": null,
+        "protocol_selection": null
+      },
+      "evidence_ids": ["semidalas_2022_full_text", "semidalas_2022_supplement_bundle", "iron_2002_figshare_metadata"],
+      "review_notes": "Reported benchmark and model methods are evidence about their publications only; no method, basis, ECP, solvent, thermochemistry, or TS algorithm is selected.",
+      "blockers": [
+        "Exact R33 optimization and frequency method provenance is not closed by the reviewed sources.",
+        "Per-element basis and ECP identity, ECP core size, and relativistic treatment are not approved.",
+        "Solvent, thermochemistry, temperature, standard state, and low-frequency treatment are not approved.",
+        "No three-tier protocol options artifact, protocol selection, or TS strategy selection exists."
+      ]
+    }
+  },
+  "p1_closure": {
+    "closed": false,
+    "m1_builder_eligible": false,
+    "can_enter_p2_real_case": false,
+    "blocker_ids": [
+      "oxidation_state_missing",
+      "ligand_charge_convention_missing",
+      "electron_counts_missing",
+      "spin_alternatives_missing",
+      "surface_relationship_missing",
+      "wavefunction_policy_missing",
+      "stability_s2_occupation_policy_missing",
+      "coordination_assignment_missing",
+      "chemical_atom_roles_missing",
+      "elementary_step_and_endpoints_missing",
+      "mode_and_path_evidence_missing",
+      "method_basis_ecp_relativity_missing",
+      "solvent_thermochemistry_missing",
+      "ts_strategy_missing",
+      "asymmetric_candidate_contract_semantically_unsatisfied"
+    ]
+  },
+  "live_actions": {
+    "ssh": false,
+    "pbs": false,
+    "gaussian": false,
+    "deployment": false,
+    "authorized": false
+  },
+  "claim_ceiling": "candidate_bound_evidence_and_gap_ledger_only_no_scientific_acceptance_ts_path_protocol_or_live_authority",
+  "ledger_payload_sha256": "d5e076d960241484fa828e5b9746558d0624f56a6b74df5cb032d168d681cce6"
+}
