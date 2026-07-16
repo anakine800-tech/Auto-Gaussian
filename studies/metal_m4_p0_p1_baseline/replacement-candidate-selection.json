@@ -18,12 +18,12 @@
     {
       "rank": 1,
       "candidate_id": "pd_phox_ts20_reductive_elimination",
-      "citation": {"title": "Reaction Mechanism, Origins of Enantioselectivity, and Reactivity Trends in Asymmetric Allylic Alkylation", "doi": "10.1021/acscatal.0c03282", "primary_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7802888/"},
-      "source_access": {"status": "open_primary_article_screened", "access_date": "2026-07-16", "claim_ceiling": "article-level observations only; exact SI coordinate object not ingested or hash-bound"},
-      "candidate_identity": {"reported_label": "TS20", "reported_step": "inner-sphere C-C reductive elimination from Pd(PHOX) enolates", "exact_structure_revision": null},
-      "evidence_observations": ["Primary article reports ORCA 4.1.2, Pd LANL2TZ(f)/Hay-Wadt ECP, 6-31G(d) on other atoms, frequency calculations, and IRC analyses.", "The article distinguishes Re/Si precursor channels and names TS20 as an enantiodetermining C-C-forming structure."],
-      "criterion_status": {"identity": "partial", "coordinates_atom_order": "not_reviewed", "charge": "not_found", "multiplicity_electronic_state": "not_found", "coordination_species": "partial", "reactant_ts_product_map": "partial", "method_basis_ecp_relativity": "partial", "solvent_thermochemistry": "not_closed", "ts_strategy_mode_irc": "article_reports_irc_not_candidate_specific_endpoint_closed", "wavefunction_risk_policy": "not_found"},
-      "gaps": ["No exact lawful TS20 coordinate file and SHA-256 was ingested.", "Exact candidate charge, multiplicity, oxidation-state and ligand-charge bookkeeping were not source-closed in this bounded review.", "Candidate-specific imaginary mode, both IRC directions and structurally identified endpoints were not established.", "Relativity, complete solvent/thermochemistry conventions and wavefunction/stability/multireference policies were not closed."],
+      "citation": {"title": "Reaction Mechanism, Origins of Enantioselectivity, and Reactivity Trends in Asymmetric Allylic Alkylation", "doi": "10.1021/jacs.0c06243", "primary_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7802888/"},
+      "source_access": {"status": "primary_article_and_version_matched_si_reviewed", "access_date": "2026-07-16", "claim_ceiling": "source-bound blocked candidate review; the supplied DOI 10.1021/acscatal.0c03282 is an unrelated article and is not merged"},
+      "candidate_identity": {"reported_label": "(Si/chair/ax)-TS20", "reported_step": "inner-sphere C-C reductive elimination from Pd(PHOX) enolate", "exact_structure_revision": "a5707f9d61192dec453bac2c736474884891692be2381f45735a398e52a655c3"},
+      "evidence_observations": ["CaltechAUTHORS supplies the version-matched SI PDF and energy workbook with SHA-256 hashes recorded in the closure artifact.", "The SI preserves 82-atom source coordinates for (Si)-13 and (Si/chair/ax)-TS20 with identical element order.", "The article/SI reports the study-level optimization, frequency, single-point, solvation and thermochemistry stack, but does not source-close charge, multiplicity, wavefunction policy, raw mode displacement, structured IRC endpoints, relativity or TS search strategy for the exact candidate."],
+      "criterion_status": {"identity": "closed_after_doi_correction", "coordinates_atom_order": "closed_precursor_and_ts_product_missing", "charge": "not_found", "multiplicity_electronic_state": "not_found", "coordination_species": "source_ambiguous", "reactant_ts_product_map": "partial_precursor_ts_one_based_map_only", "method_basis_ecp_relativity": "partial_relativity_not_found", "solvent_thermochemistry": "reported_study_level_not_acceptance", "ts_strategy_mode_irc": "generic_statements_not_candidate_specific_endpoint_closed", "wavefunction_risk_policy": "not_found"},
+      "gaps": ["The user-supplied DOI is unrelated; human confirmation of the corrected JACS DOI is required.", "Exact candidate charge, multiplicity, oxidation-state and ligand-charge bookkeeping remain unclosed.", "No source-exact direct successor/product-complex coordinates, one-based reaction-coordinate atoms, raw imaginary mode displacement or structured bidirectional IRC endpoints were found.", "Relativity, exact candidate program version, TS localization strategy and wavefunction/stability/S2/occupation/multireference policies remain unclosed."],
       "disposition": "blocked_not_promoted"
     },
     {
@@ -53,5 +53,5 @@
   "m1_outcome": {"source_emitted": false, "sidecar_emitted": false, "builder_invoked": false, "synthetic_fixture_used": false},
   "live_actions": {"authorized": false, "executed": false},
   "claim_ceiling": "bounded_source_screen_and_gap_decision_only_not_proof_of_absence_candidate_correctness_ts_validity_protocol_acceptance_or_execution_authority",
-  "ledger_payload_sha256": "29e7f547109a1738a4a1ffec4311fae879e16a8dbc2df56afe54b116084a7daa"
+  "ledger_payload_sha256": "26d0220f6e9349f43d3d7dade1577e1bd3d4b2e68627f1094543ab0f52240ff1"
 }

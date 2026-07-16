@@ -114,3 +114,25 @@ The shortlist is not proof that no suitable published candidate exists. Its
 claim ceiling is a bounded source screen and gap decision; it does not prove a
 TS, reaction path, protocol suitability, chemical correctness, or live
 execution readiness.
+
+## Pd(PHOX) TS20 closure follow-up
+
+`pd-phox-ts20-candidate-closure.json` corrects a material source-identity
+error in the original shortlist: DOI `10.1021/acscatal.0c03282` is an
+unrelated heterogeneous-catalysis article. The Pd(PHOX) TS20 article is JACS
+DOI `10.1021/jacs.0c06243`, with correction DOI `10.1021/jacs.0c11706`.
+
+The CaltechAUTHORS record lawfully supplies the matching SI PDF and energy
+workbook. Their original SHA-256 values are recorded, while the ACS-copyrighted
+objects remain temporary local review inputs and are not versioned. The closure
+artifact freezes source-order coordinate-block hashes for the 82-atom
+`(Si)-13` precursor and `(Si/chair/ax)-TS20`, plus the identity one-based atom
+map. The SI contains all eight TS20 conformers, but no direct successor/product
+coordinate block was established for the selected conformer.
+
+The review remains blocked: exact charge, multiplicity, oxidation-state and
+ligand-charge accounting, wavefunction/stability/S2/occupation/multireference
+policy, one-based reaction-coordinate atoms, raw candidate mode displacement,
+structured bidirectional IRC endpoints, explicit relativity, exact candidate
+program version and TS localization strategy are not source-closed. No formal
+candidate, real M1 source or sidecar was emitted, and P5 remains blocked.

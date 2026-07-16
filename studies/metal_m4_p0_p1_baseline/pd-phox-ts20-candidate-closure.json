@@ -1,0 +1,112 @@
+{
+  "schema": "auto-g16-pd-phox-ts20-candidate-closure/1",
+  "review_id": "pd_phox_ts20_closure_20260716",
+  "review_date": "2026-07-16",
+  "status": "blocked_source_incomplete_no_real_m1",
+  "source_identity": {
+    "requested_doi": "10.1021/acscatal.0c03282",
+    "requested_doi_status": "mismatch_not_pd_phox_ts20",
+    "requested_doi_title": "One-Step Butadiene Synthesis via Gas-Phase Prins Condensation of Propylene with Formaldehyde over Heteropolyacid Catalysts",
+    "matched_doi": "10.1021/jacs.0c06243",
+    "matched_title": "Reaction Mechanism, Origins of Enantioselectivity, and Reactivity Trends in Asymmetric Allylic Alkylation: A Comprehensive Quantum Mechanics Investigation of a C(sp3)-C(sp3) Cross-Coupling",
+    "correction_doi": "10.1021/jacs.0c11706",
+    "identity_decision": "do_not_merge_requested_doi_with_matched_article"
+  },
+  "source_objects": [
+    {
+      "source_id": "requested_doi_crossref",
+      "uri": "https://api.crossref.org/works/10.1021/acscatal.0c03282",
+      "access_date": "2026-07-16",
+      "relation": "identity check for the user-supplied DOI; unrelated article",
+      "sha256": "b8e21c1eb2b5f9869335a303bdb3a479bda8d763317e483ccdf693b04b5ef08b",
+      "retention": "metadata_only_versionable",
+      "claim_ceiling": "bibliographic identity metadata only"
+    },
+    {
+      "source_id": "matched_author_manuscript_xml",
+      "uri": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=7802888",
+      "access_date": "2026-07-16",
+      "relation": "NIH author manuscript for DOI 10.1021/jacs.0c06243; not the version of record",
+      "sha256": "db4ad003d3e969adc2022bbc7b11e4f3d3b25159279fe221d7364e1c28b5e988",
+      "retention": "temporary_local_object_not_versioned",
+      "claim_ceiling": "article text and explicit author-manuscript locators only"
+    },
+    {
+      "source_id": "matched_si_pdf",
+      "uri": "https://authors.library.caltech.edu/api/records/tnr12-zn027/files/ja0c06243_si_001.pdf/content",
+      "access_date": "2026-07-16",
+      "relation": "CaltechAUTHORS supplemental material explicitly attached to DOI 10.1021/jacs.0c06243",
+      "sha256": "8dcc7689f7064943ba9aa7222fd4714e1b8edb9e76b97d9025dca4e72c706d5f",
+      "retention": "temporary_local_object_not_versioned",
+      "claim_ceiling": "short source-located paraphrases and hash-bound factual coordinate blocks; ACS copyrighted SI is not versioned"
+    },
+    {
+      "source_id": "matched_si_energy_workbook",
+      "uri": "https://authors.library.caltech.edu/api/records/tnr12-zn027/files/ja0c06243_si_002.xlsx/content",
+      "access_date": "2026-07-16",
+      "relation": "CaltechAUTHORS quantum-mechanical-energy workbook attached to the same article record",
+      "sha256": "d6ba13bcb3c77bdfbe2b76dd926b8032c8fc246fba0e5a6154306af3c00ac89d",
+      "retention": "temporary_local_object_not_versioned",
+      "claim_ceiling": "energy-table observations only; no wavefunction or TS validation claim"
+    }
+  ],
+  "coordinate_lineage": {
+    "source_pdf_sha256": "8dcc7689f7064943ba9aa7222fd4714e1b8edb9e76b97d9025dca4e72c706d5f",
+    "precursor": {"label": "(Si)-13", "si_pages": "S84-S86", "atom_count": 82, "formula": "C35H42NO2PPd", "canonical_block_sha256": "1ceb76d292833e80c1fdb76abd25006639d6c5250a0a65e4c541f1a550faa28d", "atom_order_status": "source_order_preserved"},
+    "candidate": {"label": "(Si/chair/ax)-TS20", "si_pages": "S198-S200", "atom_count": 82, "formula": "C35H42NO2PPd", "canonical_block_sha256": "a5707f9d61192dec453bac2c736474884891692be2381f45735a398e52a655c3", "atom_order_status": "source_order_preserved"},
+    "product_or_successor": null,
+    "one_based_atom_map": {"status": "closed_by_identical_source_element_order_precursor_to_ts", "mapping": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82]},
+    "forming_bond": null,
+    "breaking_bond": null
+  },
+  "candidate_facts": {
+    "reported_identity": {"value": "(Si/chair/ax)-TS20, one of eight seven-membered-ring reductive-elimination conformers", "status": "source_reports", "locator": "article Figures 9-10; SI Tables 4-7 and S198-S200", "ceiling": "reported label and conformer identity only"},
+    "total_charge": {"value": null, "status": "not_found", "locator": null, "ceiling": "coordinate block has no charge line"},
+    "multiplicity": {"value": null, "status": "not_found", "locator": null, "ceiling": "no candidate-bound multiplicity statement found"},
+    "electronic_state_spin_surface": {"value": null, "status": "source_ambiguous", "locator": "article Introduction mentions Pd(0)/Pd(II) catalysis generally", "ceiling": "general catalytic-cycle language cannot be copied to exact TS20"},
+    "pd_oxidation_state_ligand_charge_d_count": {"value": null, "status": "not_found", "locator": null, "ceiling": "no source-located exact-candidate bookkeeping"},
+    "wavefunction_reference": {"value": null, "status": "not_found", "locator": null, "ceiling": "restricted/unrestricted/RO/broken-symmetry not reported for TS20"},
+    "stability_s2_occupation_multireference": {"value": null, "status": "not_found", "locator": null, "ceiling": "no candidate-bound observations or acceptance policy"},
+    "nuclearity_and_inventory": {"value": "one Pd, one PHOX ligand and bound enolate/allyl-derived organic inventory represented by C35H42NO2PPd", "status": "source_reports", "locator": "SI (Si)-13 and (Si/chair/ax)-TS20 coordinate blocks", "ceiling": "element inventory and article labels only; connectivity is not proven by XYZ"},
+    "coordination_geometry_denticity_hapticity": {"value": null, "status": "source_ambiguous", "locator": "article Figures 8-10", "ceiling": "depiction/general discussion does not close a one-based contact inventory"},
+    "counterion_explicit_solvent_additive": {"value": null, "status": "not_found", "locator": null, "ceiling": "none is explicitly identified in the exact coordinate block"},
+    "elementary_step": {"value": "inner-sphere C-C bond formation described as reductive elimination", "status": "source_reports", "locator": "article Results, Figures 8-10", "ceiling": "author-assigned step label only"},
+    "forming_breaking_coordinate": {"value": null, "status": "not_found", "locator": null, "ceiling": "no one-based atom roles or displacement vector supplied"},
+    "imaginary_frequency_and_mode": {"value": null, "status": "source_ambiguous", "locator": "SI S2 generic stationary-point statement", "ceiling": "generic one-imaginary-mode statement is not a raw candidate-specific value or mode review"},
+    "irc_endpoints": {"value": null, "status": "source_ambiguous", "locator": "SI S2 generic IRC statement", "ceiling": "no TS20 direction records or structurally identified endpoint coordinate pair"}
+  },
+  "method_facts": {
+    "program_version": {"value": ["ORCA 4.1", "ORCA 4.2.1"], "status": "source_ambiguous", "locator": "SI S2", "ceiling": "SI gives study-wide versions but does not bind one version to TS20"},
+    "optimization": {"value": "BP86-D3(BJ)/LANL2TZ(f)[Pd]-6-31G(d)[other], gas phase unless noted", "status": "source_reports", "locator": "SI S2 and TS20 table footnotes", "ceiling": "reported reproduction setting, not an Auto-G16 protocol choice"},
+    "frequency": {"value": "unscaled frequencies at optimization level", "status": "source_reports", "locator": "SI S2", "ceiling": "study-wide method statement; no raw TS20 frequency list"},
+    "single_point_dft": {"value": "M06/def2-TZVP with def2-ECP on Pd and CPCM(THF) for reported text energies; additional functionals tabulated", "status": "source_reports", "locator": "article Computational Methods; SI S2 and Tables 4-7", "ceiling": "reported benchmark methods only"},
+    "single_point_coupled_cluster": {"value": "DLPNO-CCSD(T)/cc-pVTZ-PP[Pd]-cc-pVTZ[other], SK-MCDHF-RSC ECP on Pd, CPCM(THF), NormalPNO with selected TightPNO refinements", "status": "source_reports", "locator": "SI S3; article Computational Methods", "ceiling": "reported energy refinement only"},
+    "basis_by_element": {"value": "Pd LANL2TZ(f) with 28-core Hay-Wadt ECP for optimization; H/C/N/O/P 6-31G(d); all-atom def2-TZVP SP with def2-ECP on Pd", "status": "source_reports", "locator": "SI S2", "ceiling": "reported study stack only"},
+    "relativity": {"value": null, "status": "not_found", "locator": null, "ceiling": "ECP identities/core sizes do not justify inferring a separate relativity model"},
+    "dispersion": {"value": "Becke-Johnson damped D3 for BP86 optimization", "status": "source_reports", "locator": "SI S2", "ceiling": "reported setting only"},
+    "solvent": {"value": "CPCM(THF) for principal single points; optimization geometries described as gas phase in TS20 table footnotes", "status": "source_reports", "locator": "SI S2 and Tables 4-7", "ceiling": "reported solvent treatment only"},
+    "thermochemistry": {"value": "298 K unscaled-frequency thermal corrections; quasi-RRHO; 1 M standard state, with CO2 exception irrelevant to TS20", "status": "source_reports", "locator": "SI S2", "ceiling": "study-wide convention explicitly reported but no candidate-specific correction table"},
+    "ts_search_strategy": {"value": null, "status": "not_found", "locator": null, "ceiling": "no Hessian/QST/scan/other localization procedure bound to TS20"},
+    "scf_and_grid": {"value": "RI/RIJCOSX where applicable, AutoAux, Grid7/GridX9/NoFinalGrid", "status": "source_reports", "locator": "SI S3", "ceiling": "study-wide numerical settings; candidate-specific SCF stability remains absent"}
+  },
+  "gap_ledger": [
+    {"field": "source_identity.requested_doi", "status": "source_ambiguous", "search_scope": "Crossref DOI identity, PMC metadata, ACS result and CaltechAUTHORS record", "required_human_fact": "Confirm that the intended source is DOI 10.1021/jacs.0c06243 rather than the supplied unrelated ACS Catalysis DOI."},
+    {"field": "coordinate_lineage.product_or_successor", "status": "not_found", "search_scope": "All SI coordinate headings and article TS20 discussion", "required_human_fact": "Source-exact direct successor or product-complex coordinates and its relationship to the selected TS20 conformer."},
+    {"field": "candidate.total_charge", "status": "not_found", "search_scope": "Article computational methods, full SI text, TS20 coordinate headings and energy workbook", "required_human_fact": "Candidate-bound total charge with a primary-source or qualified reviewer locator."},
+    {"field": "candidate.multiplicity", "status": "not_found", "search_scope": "Article computational methods, full SI text, TS20 coordinate headings and energy workbook", "required_human_fact": "Candidate-bound multiplicity and reviewed electronic-state hypothesis."},
+    {"field": "candidate.electron_accounting", "status": "not_found", "search_scope": "Article/SI Pd-state language and exact coordinate inventory", "required_human_fact": "Pd formal oxidation state, ligand formal charges, d count and explicit bookkeeping convention."},
+    {"field": "candidate.spin_surface", "status": "source_ambiguous", "search_scope": "Article introduction/results and SI computational details", "required_human_fact": "Credible alternative multiplicities, surface relationship and crossing/MECP relevance review."},
+    {"field": "candidate.wavefunction", "status": "not_found", "search_scope": "Full article/SI searches for restricted, unrestricted, RO, broken symmetry, stability, S2, occupations and diagnostics", "required_human_fact": "Reference family, SCF stability, S2, occupation/alternative-solution and multireference-risk policy."},
+    {"field": "candidate.coordination", "status": "source_ambiguous", "search_scope": "Exact coordinates plus article Figures 8-10 and associated text", "required_human_fact": "One-based Pd contact inventory, geometry, ligand denticity/hapticity and retention criteria."},
+    {"field": "candidate.reaction_coordinate", "status": "not_found", "search_scope": "Article/SI TS20 text, coordinate blocks and figure captions", "required_human_fact": "One-based forming/breaking atom pairs and source-bound chemical atom roles."},
+    {"field": "candidate.mode", "status": "source_ambiguous", "search_scope": "SI generic frequency statement and all TS20-specific sections", "required_human_fact": "Raw imaginary frequency plus hash-bound displacement review along the intended coordinate."},
+    {"field": "candidate.irc_endpoints", "status": "source_ambiguous", "search_scope": "SI generic IRC statement, TS20-specific text and all coordinate headings", "required_human_fact": "Forward/reverse IRC evidence with structurally identified, atom-mapped endpoints."},
+    {"field": "method.program_version", "status": "source_ambiguous", "search_scope": "Article and SI computational-method sections", "required_human_fact": "Exact ORCA version used for the selected TS20 optimization/frequency and each reported single point."},
+    {"field": "method.relativity", "status": "not_found", "search_scope": "Article/SI basis, ECP and coupled-cluster method statements", "required_human_fact": "Explicit candidate-bound relativity statement or reviewer decision; do not infer it from ECP use."},
+    {"field": "method.ts_search_strategy", "status": "not_found", "search_scope": "Full article/SI search for TS localization strategy and TS20 discussion", "required_human_fact": "Candidate-bound TS localization algorithm, seed/Hessian/endpoints and convergence evidence."}
+  ],
+  "m1_decision": {"formal_candidate_closed": false, "review_source_emitted": false, "sidecar_emitted": false, "builder_invoked": false, "synthetic_fixture_used": false, "decision": "defer_and_reject_promotion_until_all_mandatory_fields_are_source_closed"},
+  "authorization": {"calculation_ready": false, "p5_blocked": true, "live_actions_authorized": false, "live_actions_executed": false, "no_submission_authorization": true},
+  "claim_ceiling": "source_bound_blocked_candidate_closure_only_no_ts_path_chemical_correctness_scientific_acceptance_protocol_selection_p5_or_live_authority",
+  "payload_sha256": "dc6b75798e0cef67c9a271cad15fd82b94ad87539ebc04e2384403e4e47c98fd"
+}

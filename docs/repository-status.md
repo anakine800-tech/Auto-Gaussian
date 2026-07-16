@@ -106,6 +106,14 @@ or deployment action was part of that validation.
 
 ## Next approval gates
 
+### Pd(PHOX) TS20 candidate closure - 2026-07-16
+
+The source-bound replacement review is recorded in
+`studies/metal_m4_p0_p1_baseline/pd-phox-ts20-candidate-closure.json`. It
+corrects the DOI identity, preserves original SI SHA-256 and coordinate-block
+lineage, and records a strict gap ledger. Its status is
+`blocked_source_incomplete_no_real_m1`; P5 and all live actions remain blocked.
+
 - Merge release preparation only after its pull-request checks pass and the PR
   is safely mergeable; then verify final `main`, `origin/main`, PR state, and CI.
 - Obtain separate explicit authorization before creating annotated tag
