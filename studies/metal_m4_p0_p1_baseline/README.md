@@ -66,5 +66,9 @@ The exact blockers are enumerated in `baseline.json` and
 multiplicity/closed-shell assignment, followed by formal electron accounting,
 spin-surface alternatives, wavefunction policy, reviewed chemical atom roles,
 reaction-coordinate and endpoint identities, coordination windows,
-candidate-specific mode evidence, method/ECP/relativity review, and the still
-unimplemented metal M2/M3 boundaries.
+candidate-specific mode evidence, and method/ECP/relativity review. The
+implemented P2-P4 offline engineering contracts remain blocked from real-case
+activation by P1. The machine-readable status and the distinct meanings of
+`implemented`, `evidence_complete`, and `executable` are recorded in
+`p0-p5-readiness.json` and its schema at
+`contracts/metal-ts/p0-p5-readiness.schema.json`.

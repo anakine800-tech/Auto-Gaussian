@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/metal-ts/p0-p5-readiness.schema.json",
+  "title": "Auto-G16 transition-metal P0-P5 readiness and evidence matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "matrix_id", "status_date", "claim_ceiling", "live_actions", "dimensions", "milestones", "readiness_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-metal-p0-p5-readiness/1"},
+    "matrix_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "status_date": {"type": "string", "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}$"},
+    "claim_ceiling": {"const": "p0_p5_engineering_and_evidence_status_index_only_no_scientific_acceptance_execution_live_authority_or_chemical_path_coverage"},
+    "readiness_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "live_actions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorized", "executed"],
+      "properties": {"authorized": {"const": false}, "executed": {"const": false}}
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implemented", "evidence_complete", "executable"],
+      "properties": {
+        "implemented": {"const": "the repository contains and offline-tests the engineering contract for this phase"},
+        "evidence_complete": {"const": "all candidate-bound scientific evidence and reviews required by this phase are complete"},
+        "executable": {"const": "the phase has every scientific and authorization gate needed to permit its next action"}
+      }
+    },
+    "milestones": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/milestone"}
+    }
+  },
+  "$defs": {
+    "milestone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "status", "implemented", "evidence_complete", "executable", "evidence", "blockers"],
+      "properties": {
+        "phase": {"enum": ["P0", "P1", "P2", "P3", "P4", "P5"]},
+        "status": {
+          "enum": [
+            "provisional_candidate",
+            "blocked_candidate_multiplicity_closed_shell_and_m1",
+            "engineering_contract_implemented_activation_blocked_by_p1",
+            "live_smoke_not_authorized_not_executed"
+          ]
+        },
+        "implemented": {"type": "boolean"},
+        "evidence_complete": {"const": false},
+        "executable": {"const": false},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "locator", "sha256"],
+            "properties": {
+              "kind": {"enum": ["commit", "artifact", "contract", "test"]},
+              "locator": {"type": "string", "minLength": 3},
+              "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+            }
+          }
+        },
+        "blockers": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 8}}
+      }
+    },
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

@@ -90,6 +90,14 @@
       "unresolved": ["charge and multiplicity absent from coordinate text", "atom chemical roles", "reaction coordinate identity", "endpoint chemical identity", "mode displacement"]
     },
     {
+      "source_id": "mobh35_chemrxiv_v2_author_archive",
+      "legal_access": "cc_by_nc_nd_open_access",
+      "locator": "Cambridge Open Engage API item 60c74167842e6505f1db1ea0 and author ChemRxiv v2 asset mobh35-tar.tgz; downloaded size 84982 bytes; archive members r33+.xyz, ts33+.xyz and p33+.xyz; metadata license CC BY-NC-ND 4.0",
+      "artifact_sha256": "c5c0c0027129c392e81f61925d18a7a982ce1577c76fe48d2e9a54beb713fe78",
+      "claim_scope": "Author-origin archive comments report CH11N2Pt+ and therefore strengthen data-level +1 charge provenance; they do not report multiplicity. The paper reports R33 T1=0.033 and describes the set as at most mildly multireference and single-reference-determinant dominated, which strengthens suitability evidence but is not candidate-level acceptance.",
+      "unresolved": ["multiplicity absent", "closed-shell and single-reference suitability not reviewer-accepted", "archive not ingested because the non-derivative licensed binary is unnecessary for the versioned evidence index"]
+    },
+    {
       "source_id": "r33_primary_reaction_background",
       "legal_access": "publisher_metadata",
       "locator": "MOBH35 Table 4 ref 136; Iron, Lo, Martin and Keinan, JACS 2002, DOI 10.1021/ja025667v",

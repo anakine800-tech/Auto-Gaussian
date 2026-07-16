@@ -25,7 +25,7 @@
       },
       "candidate_inventory": {
         "path": "studies/metal_m4_p0_p1_baseline/r33-candidate-inventory.json",
-        "sha256": "2af44a60d0039c9b67e1790c9db655ca50396ee28ce7c5b681d0ee2355259e93",
+        "sha256": "e810d3e8a17950345b0e71b2b3a7671ecc7136c693f8d803ac87069856542497",
         "schema": "gaussian-asymmetric-metal-p0-candidate-inventory/1"
       },
       "reported_energies_kcal_mol": {"forward": 1.5, "reverse": 8.1, "reaction": -6.6},
@@ -56,6 +56,15 @@
           "artifact_sha256": "105d7b83ea22660dfd3964bd62017f72a997eb2f936f7bb8c7a447704b885603",
           "claim_scope": "Reports three 15-atom Cartesian blocks with Pt1 C1 N2 H11; the text does not report charge or multiplicity.",
           "unresolved": ["charge in coordinate text", "multiplicity", "chemical atom roles", "endpoint identity"]
+        },
+        {
+          "source_id": "mobh35_chemrxiv_v2_author_archive",
+          "source_kind": "open_supporting_information",
+          "legal_access": "cc_by_nc_nd_open_access",
+          "locator": "Cambridge Open Engage API item 60c74167842e6505f1db1ea0; author ChemRxiv v2 mobh35-tar.tgz asset; SHA-256 c5c0c0027129c392e81f61925d18a7a982ce1577c76fe48d2e9a54beb713fe78; size 84982; CC BY-NC-ND 4.0",
+          "artifact_sha256": "c5c0c0027129c392e81f61925d18a7a982ce1577c76fe48d2e9a54beb713fe78",
+          "claim_scope": "Archive members r33+.xyz, ts33+.xyz and p33+.xyz carry CH11N2Pt+ comments supporting +1 charge provenance; paper T1=0.033 and mild-multireference discussion strengthen but do not complete single-reference suitability evidence.",
+          "unresolved": ["multiplicity absent", "candidate-level closed-shell/single-reference review incomplete", "binary archive intentionally not ingested; metadata, size and hash retain lawful provenance"]
         },
         {
           "source_id": "r33_original_reaction_2002",
@@ -113,16 +122,16 @@
     }
   },
   "blockers": [
-    {"field": "r33_charge", "reason": "The open R33 coordinate text contains no charge record.", "required_evidence": "Candidate-specific primary or dataset source plus reviewer decision."},
+    {"field": "r33_charge", "reason": "The author ChemRxiv v2 archive comments support +1 at data level, but no reviewer-bound electron-accounting decision exists.", "required_evidence": "Candidate-specific reviewer decision that closes charge, ligand conventions, oxidation state, d count and parity."},
     {"field": "r33_multiplicity", "reason": "The open R33 coordinate text contains no multiplicity record.", "required_evidence": "Candidate-specific source locator and reviewed multiplicity inventory."},
     {"field": "r33_electron_accounting", "reason": "Oxidation state, ligand-charge convention, d count and parity are not candidate-bound.", "required_evidence": "Reviewer-supplied electron-accounting record with evidence locators."},
-    {"field": "r33_wavefunction", "reason": "Dataset-level closed-shell labeling is not candidate-level single-reference acceptance.", "required_evidence": "Wavefunction, stability, occupation, alternative-solution and multireference review."},
+    {"field": "r33_wavefunction", "reason": "Reported R33 T1=0.033 and the paper's mild-multireference assessment strengthen suitability evidence but do not grant candidate-level single-reference acceptance.", "required_evidence": "Wavefunction, stability, occupation, alternative-solution and multireference review."},
     {"field": "r33_atom_map", "reason": "Element order is observed but chemical atom roles and cross-structure correspondence are unreviewed.", "required_evidence": "One-based reviewed atom map for all three structures."},
     {"field": "r33_coordination", "reason": "Pt coordination contacts, ligand identities and distance windows are not inventoried.", "required_evidence": "Candidate-bound coordination inventory and reviewer-supplied windows."},
     {"field": "r33_coordinate", "reason": "The actual H-scrambling forming and breaking pairs are not yet source-located and mapped.", "required_evidence": "Reviewed elementary-step class, intended coordinate and endpoint identities."},
     {"field": "r33_ts_evidence", "reason": "The coordinate archive alone does not provide a candidate-bound raw imaginary mode or displacement review.", "required_evidence": "Source-located frequency/mode evidence or a later separately approved local result review."},
     {"field": "r33_method", "reason": "No new-system three-tier protocol has been proposed or selected.", "required_evidence": "Metal-specific method review followed by independent protocol options and selection."},
-    {"field": "metal_runtime", "reason": "The repository metal runtime and M3 execution boundary remain unsupported.", "required_evidence": "Implemented and adversarially tested M2 and M3 contracts before any M4 proposal."},
+    {"field": "metal_runtime", "reason": "P2-P4 offline engineering contracts are implemented, but real-case activation remains blocked by incomplete P1 evidence.", "required_evidence": "Complete candidate-bound P1 evidence before applying the tested P2-P4 contracts to a real case."},
     {"field": "wang_candidate", "reason": "Wang 2025 lacks repository-bound exact coordinates, atom maps and coordination inventory.", "required_evidence": "Lawfully reviewed SI transcription and candidate hashes for both stereochemical channels."}
   ],
   "claim_ceiling": "p0_p1_screening_and_blocker_baseline_only_no_scientific_acceptance_ts_selectivity_or_live_authority"

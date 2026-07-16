@@ -1,6 +1,350 @@
 {
- "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"auto-g16-metal-ts-input-approval-source/1","title":"Auto-G16 Metal TS Reviewer Input Approval Source","type":"object","additionalProperties":false,
- "required":["schema","source_bindings","scope","identity","wavefunction","reviews","decision","confirmed","unresolved","source_payload_sha256"],
- "properties":{"schema":{"const":"auto-g16-metal-ts-input-approval-source/1"},"source_bindings":{"type":"object","additionalProperties":false,"required":["candidate_sha256","m1_review_sha256","protocol_options_sha256","protocol_selection_sha256","input_observation_sha256"],"properties":{"candidate_sha256":{"$ref":"#/$defs/sha"},"m1_review_sha256":{"$ref":"#/$defs/sha"},"protocol_options_sha256":{"$ref":"#/$defs/sha"},"protocol_selection_sha256":{"$ref":"#/$defs/sha"},"input_observation_sha256":{"$ref":"#/$defs/sha"}}},"scope":{"type":"object","additionalProperties":false,"required":["scope_kind","reviewer","review_date"],"properties":{"scope_kind":{"const":"reviewer_bound_real_case"},"reviewer":{"type":"string","minLength":1},"review_date":{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}}},"identity":{"$ref":"#/$defs/identity"},"wavefunction":{"type":"object","additionalProperties":false,"required":["wavefunction","state_id"],"properties":{"wavefunction":{"type":"string","minLength":1},"state_id":{"type":"string","minLength":1}}},"reviews":{"type":"object","additionalProperties":false,"required":["route","basis_ecp_relativistic","solvent","thermochemistry","resources","server_path","seed_strategy"],"properties":{"route":{"$ref":"#/$defs/review"},"basis_ecp_relativistic":{"$ref":"#/$defs/basis"},"solvent":{"$ref":"#/$defs/review"},"thermochemistry":{"$ref":"#/$defs/review"},"resources":{"$ref":"#/$defs/review"},"server_path":{"type":"object","additionalProperties":false,"required":["accepted","evidence_sha256","remote_workdir"],"properties":{"accepted":{"const":true},"evidence_sha256":{"$ref":"#/$defs/sha"},"remote_workdir":{"type":"string","pattern":"^/home/user100/SDL/[A-Za-z0-9_]+$"}}},"seed_strategy":{"$ref":"#/$defs/seed"}}},"decision":{"const":"approved_for_offline_result_intake"},"confirmed":{"const":true},"unresolved":{"type":"array","maxItems":0},"source_payload_sha256":{"$ref":"#/$defs/sha"}},
- "$defs":{"sha":{"type":"string","pattern":"^[0-9a-f]{64}$"},"atom":{"type":"object","additionalProperties":false,"required":["index","atomic_number","element"],"properties":{"index":{"type":"integer","minimum":1},"atomic_number":{"type":"integer","minimum":1},"element":{"type":"string","minLength":1}}},"identity":{"type":"object","additionalProperties":false,"required":["charge","multiplicity","atom_count","atom_order","state_id"],"properties":{"charge":{"type":"integer"},"multiplicity":{"type":"integer","minimum":1},"atom_count":{"type":"integer","minimum":1},"atom_order":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/atom"}},"state_id":{"type":"string","minLength":1}}},"basis":{"type":"object","additionalProperties":false,"required":["basis_by_element","ecp_elements","ecp_by_element","relativistic_treatment"],"properties":{"basis_by_element":{"type":"object","minProperties":1,"additionalProperties":{"type":"string","minLength":1}},"ecp_elements":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","minLength":1}},"ecp_by_element":{"type":"object","minProperties":1},"relativistic_treatment":{"type":"string","minLength":1}}},"seed":{"type":"object","additionalProperties":false,"required":["type","state_id","hessian_state_id","checkpoint_state_id","hessian_sha256","checkpoint_sha256","evidence_ids","intended_coordinate"],"properties":{"type":{"const":"hessian_guided_single_guess"},"state_id":{"type":"string"},"hessian_state_id":{"type":"string"},"checkpoint_state_id":{"type":"string"},"hessian_sha256":{"$ref":"#/$defs/sha"},"checkpoint_sha256":{"$ref":"#/$defs/sha"},"evidence_ids":{"type":"array","minItems":1},"intended_coordinate":{"type":"array","minItems":2}}},"review":{"type":"object","additionalProperties":false,"required":["accepted","evidence_sha256"],"properties":{"accepted":{"const":true},"evidence_sha256":{"$ref":"#/$defs/sha"}}}}
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "auto-g16-metal-ts-input-approval-source/1",
+    "title": "Auto-G16 Metal TS Reviewer Input Approval Source",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema",
+        "source_bindings",
+        "metal_support_adapter",
+        "scope",
+        "identity",
+        "wavefunction",
+        "reviews",
+        "decision",
+        "confirmed",
+        "unresolved",
+        "source_payload_sha256"
+    ],
+    "properties": {
+        "schema": {
+            "const": "auto-g16-metal-ts-input-approval-source/1"
+        },
+        "source_bindings": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "candidate_sha256",
+                "m1_review_sha256",
+                "protocol_options_sha256",
+                "protocol_selection_sha256",
+                "input_observation_sha256"
+            ],
+            "properties": {
+                "candidate_sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "m1_review_sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "protocol_options_sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "protocol_selection_sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "input_observation_sha256": {
+                    "$ref": "#/$defs/sha"
+                }
+            }
+        },
+        "metal_support_adapter": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "candidate_sha256", "m1_review_sha256"],
+            "properties": {
+                "status": {"const": "reviewed_m1_extension"},
+                "candidate_sha256": {"$ref": "#/$defs/sha"},
+                "m1_review_sha256": {"$ref": "#/$defs/sha"}
+            }
+        },
+        "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "scope_kind",
+                "reviewer",
+                "review_date"
+            ],
+            "properties": {
+                "scope_kind": {
+                    "const": "reviewer_bound_real_case"
+                },
+                "reviewer": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "review_date": {
+                    "type": "string",
+                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                }
+            }
+        },
+        "identity": {
+            "$ref": "#/$defs/identity"
+        },
+        "wavefunction": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "wavefunction",
+                "state_id"
+            ],
+            "properties": {
+                "wavefunction": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "state_id": {
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "reviews": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "route",
+                "basis_ecp_relativistic",
+                "solvent",
+                "thermochemistry",
+                "resources",
+                "server_path",
+                "seed_strategy"
+            ],
+            "properties": {
+                "route": {
+                    "$ref": "#/$defs/review"
+                },
+                "basis_ecp_relativistic": {
+                    "$ref": "#/$defs/basis"
+                },
+                "solvent": {
+                    "$ref": "#/$defs/review"
+                },
+                "thermochemistry": {
+                    "$ref": "#/$defs/review"
+                },
+                "resources": {
+                    "$ref": "#/$defs/review"
+                },
+                "server_path": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "accepted",
+                        "evidence_sha256",
+                        "remote_workdir"
+                    ],
+                    "properties": {
+                        "accepted": {
+                            "const": true
+                        },
+                        "evidence_sha256": {
+                            "$ref": "#/$defs/sha"
+                        },
+                        "remote_workdir": {
+                            "type": "string",
+                            "pattern": "^/home/user100/SDL/[A-Za-z0-9_]+$"
+                        }
+                    }
+                },
+                "seed_strategy": {
+                    "$ref": "#/$defs/seed"
+                }
+            }
+        },
+        "decision": {
+            "const": "approved_for_offline_result_intake"
+        },
+        "confirmed": {
+            "const": true
+        },
+        "unresolved": {
+            "type": "array",
+            "maxItems": 0
+        },
+        "source_payload_sha256": {
+            "$ref": "#/$defs/sha"
+        }
+    },
+    "$defs": {
+        "sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+        },
+        "atom": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "index",
+                "atomic_number",
+                "element"
+            ],
+            "properties": {
+                "index": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "atomic_number": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "element": {
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "charge",
+                "multiplicity",
+                "atom_count",
+                "atom_order",
+                "state_id"
+            ],
+            "properties": {
+                "charge": {
+                    "type": "integer"
+                },
+                "multiplicity": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "atom_count": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "atom_order": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/$defs/atom"
+                    }
+                },
+                "state_id": {
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "basis": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "basis_by_element",
+                "ecp_elements",
+                "ecp_by_element",
+                "relativistic_treatment",
+                "selected_option_payload_sha256"
+            ],
+            "properties": {
+                "basis_by_element": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "ecp_elements": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "ecp_by_element": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["name", "core_electrons", "evidence_id"],
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "core_electrons": {"type": "integer", "minimum": 1},
+                            "evidence_id": {"type": "string", "minLength": 1}
+                        }
+                    }
+                },
+                "relativistic_treatment": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "selected_option_payload_sha256": {
+                    "$ref": "#/$defs/sha"
+                }
+            }
+        },
+        "seed": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "type",
+                "state_id",
+                "hessian_state_id",
+                "checkpoint_state_id",
+                "hessian_sha256",
+                "checkpoint_sha256",
+                "evidence_ids",
+                "intended_coordinate"
+            ],
+            "properties": {
+                "type": {
+                    "const": "hessian_guided_single_guess"
+                },
+                "state_id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "hessian_state_id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "checkpoint_state_id": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "hessian_sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "checkpoint_sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "evidence_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "intended_coordinate": {
+                    "type": "array",
+                    "minItems": 2,
+                    "uniqueItems": true,
+                    "items": {"type": "integer", "minimum": 1}
+                }
+            }
+        },
+        "review": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "accepted",
+                "evidence_sha256"
+            ],
+            "properties": {
+                "accepted": {
+                    "const": true
+                },
+                "evidence_sha256": {
+                    "$ref": "#/$defs/sha"
+                }
+            }
+        }
+    }
 }

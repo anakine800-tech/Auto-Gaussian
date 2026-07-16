@@ -1,69 +1,452 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/contracts/asymmetric-catalysis/metal-p0-candidate-inventory.schema.json",
-  "title": "Auto-G16 provisional metal P0 candidate inventory",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schema", "candidate_id", "status", "calculation_ready", "no_submission_authorization",
-    "identity", "electronic_state", "structures", "atom_map", "intended_coordinate",
-    "coordination_inventory", "diagnostics", "source_records", "unresolved_fields", "claim_ceiling"
-  ],
-  "properties": {
-    "schema": {"const": "gaussian-asymmetric-metal-p0-candidate-inventory/1"},
-    "candidate_id": {"const": "mobh35_r33_pt_h_scrambling"},
-    "status": {"const": "provisional_p0_blocked"},
-    "calculation_ready": {"const": false},
-    "no_submission_authorization": {"const": true},
-    "identity": {
-      "type": "object", "additionalProperties": false,
-      "required": ["dataset_reaction", "formula_source_text", "total_charge", "multiplicity", "atom_count", "element_counts"],
-      "properties": {
-        "dataset_reaction": {"const": "MOBH35 reaction 33"},
-        "formula_source_text": {"const": "CH11N2Pt(1+)"},
-        "total_charge": {"const": 1},
-        "multiplicity": {"type": "null"},
-        "atom_count": {"const": 15},
-        "element_counts": {"type": "object", "additionalProperties": false, "required": ["Pt", "C", "N", "H"], "properties": {"Pt": {"const": 1}, "C": {"const": 1}, "N": {"const": 2}, "H": {"const": 11}}}
-      }
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://example.invalid/contracts/asymmetric-catalysis/metal-p0-candidate-inventory.schema.json",
+    "title": "Auto-G16 provisional metal P0 candidate inventory",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema",
+        "candidate_id",
+        "status",
+        "calculation_ready",
+        "no_submission_authorization",
+        "identity",
+        "electronic_state",
+        "structures",
+        "atom_map",
+        "intended_coordinate",
+        "coordination_inventory",
+        "diagnostics",
+        "source_records",
+        "unresolved_fields",
+        "claim_ceiling"
+    ],
+    "properties": {
+        "schema": {
+            "const": "gaussian-asymmetric-metal-p0-candidate-inventory/1"
+        },
+        "candidate_id": {
+            "const": "mobh35_r33_pt_h_scrambling"
+        },
+        "status": {
+            "const": "provisional_p0_blocked"
+        },
+        "calculation_ready": {
+            "const": false
+        },
+        "no_submission_authorization": {
+            "const": true
+        },
+        "identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "dataset_reaction",
+                "formula_source_text",
+                "total_charge",
+                "multiplicity",
+                "atom_count",
+                "element_counts"
+            ],
+            "properties": {
+                "dataset_reaction": {
+                    "const": "MOBH35 reaction 33"
+                },
+                "formula_source_text": {
+                    "const": "CH11N2Pt(1+)"
+                },
+                "total_charge": {
+                    "const": 1
+                },
+                "multiplicity": {
+                    "type": "null"
+                },
+                "atom_count": {
+                    "const": 15
+                },
+                "element_counts": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "Pt",
+                        "C",
+                        "N",
+                        "H"
+                    ],
+                    "properties": {
+                        "Pt": {
+                            "const": 1
+                        },
+                        "C": {
+                            "const": 1
+                        },
+                        "N": {
+                            "const": 2
+                        },
+                        "H": {
+                            "const": 11
+                        }
+                    }
+                }
+            }
+        },
+        "electronic_state": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "dataset_level_closed_shell_context",
+                "candidate_level_closed_shell_status",
+                "single_reference_status",
+                "oxidation_state",
+                "d_electron_count",
+                "wavefunction"
+            ],
+            "properties": {
+                "dataset_level_closed_shell_context": {
+                    "const": "source_reports_closed_shell_dataset_context"
+                },
+                "candidate_level_closed_shell_status": {
+                    "const": "blocked_pending_candidate_specific_source"
+                },
+                "single_reference_status": {
+                    "const": "diagnostics_observed_not_accepted"
+                },
+                "oxidation_state": {
+                    "type": "null"
+                },
+                "d_electron_count": {
+                    "type": "null"
+                },
+                "wavefunction": {
+                    "type": "null"
+                }
+            }
+        },
+        "structures": {
+            "$ref": "#/$defs/artifact"
+        },
+        "atom_map": {
+            "type": "array",
+            "minItems": 15,
+            "maxItems": 15,
+            "items": {
+                "$ref": "#/$defs/atom"
+            }
+        },
+        "intended_coordinate": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "coordinate_atom",
+                "observed_changes",
+                "chemical_assignment_status",
+                "endpoint_identity_status"
+            ],
+            "properties": {
+                "coordinate_atom": {
+                    "const": "r33_h7"
+                },
+                "observed_changes": {
+                    "type": "array",
+                    "minItems": 3,
+                    "items": {
+                        "$ref": "#/$defs/change"
+                    }
+                },
+                "chemical_assignment_status": {
+                    "const": "geometric_observation_only_pending_source_review"
+                },
+                "endpoint_identity_status": {
+                    "const": "blocked_pending_source_and_reviewer_identity"
+                }
+            }
+        },
+        "coordination_inventory": {
+            "type": "array",
+            "minItems": 5,
+            "items": {
+                "$ref": "#/$defs/contact"
+            }
+        },
+        "diagnostics": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+                "$ref": "#/$defs/diagnostic"
+            }
+        },
+        "source_records": {
+            "type": "array",
+            "minItems": 4,
+            "items": {
+                "$ref": "#/$defs/source"
+            }
+        },
+        "unresolved_fields": {
+            "type": "array",
+            "minItems": 8,
+            "uniqueItems": true,
+            "items": {
+                "type": "string",
+                "minLength": 3
+            }
+        },
+        "claim_ceiling": {
+            "const": "candidate_inventory_and_observations_only_no_m1_acceptance_protocol_ts_or_live_authority"
+        }
     },
-    "electronic_state": {
-      "type": "object", "additionalProperties": false,
-      "required": ["dataset_level_closed_shell_context", "candidate_level_closed_shell_status", "single_reference_status", "oxidation_state", "d_electron_count", "wavefunction"],
-      "properties": {
-        "dataset_level_closed_shell_context": {"const": "source_reports_closed_shell_dataset_context"},
-        "candidate_level_closed_shell_status": {"const": "blocked_pending_candidate_specific_source"},
-        "single_reference_status": {"const": "diagnostics_observed_not_accepted"},
-        "oxidation_state": {"type": "null"}, "d_electron_count": {"type": "null"}, "wavefunction": {"type": "null"}
-      }
-    },
-    "structures": {"$ref": "#/$defs/artifact"},
-    "atom_map": {"type": "array", "minItems": 15, "maxItems": 15, "items": {"$ref": "#/$defs/atom"}},
-    "intended_coordinate": {
-      "type": "object", "additionalProperties": false,
-      "required": ["coordinate_atom", "observed_changes", "chemical_assignment_status", "endpoint_identity_status"],
-      "properties": {
-        "coordinate_atom": {"const": "r33_h7"},
-        "observed_changes": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/change"}},
-        "chemical_assignment_status": {"const": "geometric_observation_only_pending_source_review"},
-        "endpoint_identity_status": {"const": "blocked_pending_source_and_reviewer_identity"}
-      }
-    },
-    "coordination_inventory": {"type": "array", "minItems": 5, "items": {"$ref": "#/$defs/contact"}},
-    "diagnostics": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/diagnostic"}},
-    "source_records": {"type": "array", "minItems": 4, "items": {"$ref": "#/$defs/source"}},
-    "unresolved_fields": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 3}},
-    "claim_ceiling": {"const": "candidate_inventory_and_observations_only_no_m1_acceptance_protocol_ts_or_live_authority"}
-  },
-  "$defs": {
-    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
-    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "artifact": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "schema"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "schema": {"type": "string", "minLength": 3}}},
-    "atom": {"type": "object", "additionalProperties": false, "required": ["index", "element", "source_atom_id", "role"], "properties": {"index": {"type": "integer", "minimum": 1, "maximum": 15}, "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"}, "source_atom_id": {"$ref": "#/$defs/id"}, "role": {"type": "string", "minLength": 3}}},
-    "distanceSeries": {"type": "object", "additionalProperties": false, "required": ["start", "ts", "end"], "properties": {"start": {"type": "number", "exclusiveMinimum": 0}, "ts": {"type": "number", "exclusiveMinimum": 0}, "end": {"type": "number", "exclusiveMinimum": 0}}},
-    "change": {"type": "object", "additionalProperties": false, "required": ["atoms", "observation", "distances_angstrom"], "properties": {"atoms": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 1, "maximum": 15}}, "observation": {"enum": ["forming_distance_decreases", "metal_hydrogen_distance_increases", "metal_carbon_distance_increases"]}, "distances_angstrom": {"$ref": "#/$defs/distanceSeries"}}},
-    "contact": {"type": "object", "additionalProperties": false, "required": ["contact_id", "atoms", "kind", "distances_angstrom", "distance_window_angstrom", "review_status"], "properties": {"contact_id": {"$ref": "#/$defs/id"}, "atoms": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 1, "maximum": 15}}, "kind": {"enum": ["pt_c", "pt_n", "pt_h"]}, "distances_angstrom": {"$ref": "#/$defs/distanceSeries"}, "distance_window_angstrom": {"type": "null"}, "review_status": {"const": "observed_unreviewed_no_window"}}},
-    "diagnostic": {"type": "object", "additionalProperties": false, "required": ["structure", "t1", "d1", "fod_tpss", "homo_lumo_gap_ev", "mdiag", "source_range", "decision"], "properties": {"structure": {"enum": ["start", "ts", "end"]}, "t1": {"type": "number"}, "d1": {"type": "number"}, "fod_tpss": {"type": "number"}, "homo_lumo_gap_ev": {"type": "number"}, "mdiag": {"type": "number"}, "source_range": {"type": "string", "minLength": 3}, "decision": {"const": "observed_not_accepted_no_universal_threshold"}}},
-    "source": {"type": "object", "additionalProperties": false, "required": ["source_id", "legal_access", "locator", "artifact_sha256", "claim_scope", "unresolved"], "properties": {"source_id": {"$ref": "#/$defs/id"}, "legal_access": {"enum": ["cc_by_open_access", "cc_by_nc_open_metadata", "publisher_metadata", "user_provided_lawful_local_copy"]}, "locator": {"type": "string", "minLength": 8}, "artifact_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "claim_scope": {"type": "string", "minLength": 8}, "unresolved": {"type": "array", "items": {"type": "string", "minLength": 3}}}}
-  }
+    "$defs": {
+        "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,63}$"
+        },
+        "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+        },
+        "artifact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "path",
+                "sha256",
+                "schema"
+            ],
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "sha256": {
+                    "$ref": "#/$defs/sha256"
+                },
+                "schema": {
+                    "type": "string",
+                    "minLength": 3
+                }
+            }
+        },
+        "atom": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "index",
+                "element",
+                "source_atom_id",
+                "role"
+            ],
+            "properties": {
+                "index": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 15
+                },
+                "element": {
+                    "type": "string",
+                    "pattern": "^[A-Z][a-z]?$"
+                },
+                "source_atom_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "role": {
+                    "type": "string",
+                    "minLength": 3
+                }
+            }
+        },
+        "distanceSeries": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "start",
+                "ts",
+                "end"
+            ],
+            "properties": {
+                "start": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                },
+                "ts": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                },
+                "end": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                }
+            }
+        },
+        "change": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "atoms",
+                "observation",
+                "distances_angstrom"
+            ],
+            "properties": {
+                "atoms": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 15
+                    }
+                },
+                "observation": {
+                    "enum": [
+                        "forming_distance_decreases",
+                        "metal_hydrogen_distance_increases",
+                        "metal_carbon_distance_increases"
+                    ]
+                },
+                "distances_angstrom": {
+                    "$ref": "#/$defs/distanceSeries"
+                }
+            }
+        },
+        "contact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "contact_id",
+                "atoms",
+                "kind",
+                "distances_angstrom",
+                "distance_window_angstrom",
+                "review_status"
+            ],
+            "properties": {
+                "contact_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "atoms": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 15
+                    }
+                },
+                "kind": {
+                    "enum": [
+                        "pt_c",
+                        "pt_n",
+                        "pt_h"
+                    ]
+                },
+                "distances_angstrom": {
+                    "$ref": "#/$defs/distanceSeries"
+                },
+                "distance_window_angstrom": {
+                    "type": "null"
+                },
+                "review_status": {
+                    "const": "observed_unreviewed_no_window"
+                }
+            }
+        },
+        "diagnostic": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "structure",
+                "t1",
+                "d1",
+                "fod_tpss",
+                "homo_lumo_gap_ev",
+                "mdiag",
+                "source_range",
+                "decision"
+            ],
+            "properties": {
+                "structure": {
+                    "enum": [
+                        "start",
+                        "ts",
+                        "end"
+                    ]
+                },
+                "t1": {
+                    "type": "number"
+                },
+                "d1": {
+                    "type": "number"
+                },
+                "fod_tpss": {
+                    "type": "number"
+                },
+                "homo_lumo_gap_ev": {
+                    "type": "number"
+                },
+                "mdiag": {
+                    "type": "number"
+                },
+                "source_range": {
+                    "type": "string",
+                    "minLength": 3
+                },
+                "decision": {
+                    "const": "observed_not_accepted_no_universal_threshold"
+                }
+            }
+        },
+        "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "source_id",
+                "legal_access",
+                "locator",
+                "artifact_sha256",
+                "claim_scope",
+                "unresolved"
+            ],
+            "properties": {
+                "source_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "legal_access": {
+                    "enum": [
+                        "cc_by_open_access",
+                        "cc_by_nc_open_metadata",
+                        "cc_by_nc_nd_open_access",
+                        "publisher_metadata",
+                        "user_provided_lawful_local_copy"
+                    ]
+                },
+                "locator": {
+                    "type": "string",
+                    "minLength": 8
+                },
+                "artifact_sha256": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/sha256"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "claim_scope": {
+                    "type": "string",
+                    "minLength": 8
+                },
+                "unresolved": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 3
+                    }
+                }
+            }
+        }
+    }
 }
