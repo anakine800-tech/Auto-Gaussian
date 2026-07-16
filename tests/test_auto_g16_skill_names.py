@@ -14,6 +14,7 @@ EXPECTED = {
     "auto-g16-asymmetric-catalysis",
     "auto-g16-chemdraw-pipeline",
     "auto-g16-chemdraw-structures",
+    "auto-g16-conformer-search",
     "auto-g16-gaussian-learning-library",
     "auto-g16-knowledge-base",
     "auto-g16-metal-ts",

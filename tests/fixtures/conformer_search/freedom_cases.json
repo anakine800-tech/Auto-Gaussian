@@ -1,0 +1,11 @@
+{
+  "schema": "gaussian-conformer-synthetic-freedom-cases/1",
+  "cases": [
+    {"case_id": "rigid_organic", "fragment_count": 1, "n_rot": 0, "n_ring": 0, "d_relative": 0, "n_weak": 0, "n_face": 0, "n_symmetry": 0, "expected_class": "low"},
+    {"case_id": "moderately_flexible", "fragment_count": 1, "n_rot": 3, "n_ring": 0, "d_relative": 0, "n_weak": 0, "n_face": 1, "n_symmetry": 0, "expected_class": "moderate"},
+    {"case_id": "highly_flexible", "fragment_count": 1, "n_rot": 8, "n_ring": 1, "d_relative": 0, "n_weak": 1, "n_face": 1, "n_symmetry": 0, "expected_class": "high"},
+    {"case_id": "symmetric_multi_aromatic", "fragment_count": 1, "n_rot": 2, "n_ring": 0, "d_relative": 0, "n_weak": 2, "n_face": 4, "n_symmetry": 5, "expected_class": "high"},
+    {"case_id": "noncovalent_multifragment", "fragment_count": 2, "n_rot": 2, "n_ring": 0, "d_relative": 6, "n_weak": 2, "n_face": 2, "n_symmetry": 0, "expected_class": "high"},
+    {"case_id": "contact_ion_pair", "fragment_count": 2, "n_rot": 4, "n_ring": 0, "d_relative": 5, "n_weak": 2, "n_face": 2, "n_symmetry": 1, "expected_class": "very_high"}
+  ]
+}

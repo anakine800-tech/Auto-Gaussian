@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/conformer-search/search-plan.schema.json",
+  "title": "Auto-G16 non-executable dual-route conformer search plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plan_id", "revision", "request", "r08_handoff", "state_signature", "freedom_analysis", "locked_route_weights", "locked_subroute_weights", "category_quotas", "category_contracts", "quota_credit_definition", "shared_xtb_protocol", "adapters", "similarity", "dry_run", "execution_allowed", "external_execution_performed", "calculation_ready", "no_submission_authorization", "blockers", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-conformer-search-plan/1"},
+    "plan_id": {"$ref": "#/$defs/id"},
+    "revision": {"$ref": "#/$defs/revision"},
+    "request": {"$ref": "#/$defs/requestBinding"},
+    "r08_handoff": {"$ref": "#/$defs/r08"},
+    "state_signature": {"$ref": "#/$defs/stateSignature"},
+    "freedom_analysis": {"$ref": "#/$defs/freedomAnalysis"},
+    "locked_route_weights": {"$ref": "#/$defs/numberMap"},
+    "locked_subroute_weights": {"$ref": "#/$defs/numberMap"},
+    "category_quotas": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/categoryQuota"}},
+    "category_contracts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/categoryContract"}},
+    "quota_credit_definition": {"const": "legal_xtb_converged_route_internal_independent_structures"},
+    "shared_xtb_protocol": {"$ref": "#/$defs/xtbProtocol"},
+    "adapters": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/adapter"}},
+    "similarity": {"$ref": "#/$defs/similarity"},
+    "dry_run": {"const": true},
+    "execution_allowed": {"const": false},
+    "external_execution_performed": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "strings": {"type": "array", "items": {"type": "string"}},
+    "ids": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+    "numberMap": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"type": "number"}},
+    "integerMap": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"type": "integer", "minimum": 0}},
+    "stringMap": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"type": "string"}},
+    "requestBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-conformer-search-request/1"}}
+    },
+    "previous": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "payload_sha256"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "revision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["revision_id", "supersedes"],
+      "properties": {"revision_id": {"$ref": "#/$defs/id"}, "supersedes": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/previous"}]}}
+    },
+    "r08": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "schema", "immutable", "reviewed"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "schema": {"type": "string", "minLength": 1}, "immutable": {"const": true}, "reviewed": {"const": true}}
+    },
+    "stateSignature": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state_id", "identity", "atom_order", "elements", "fragment_ids", "explicit_hydrogens", "bonds", "formal_charge", "multiplicity", "component_count", "stereochemistry", "state_labels"],
+      "properties": {
+        "state_id": {"$ref": "#/$defs/id"}, "identity": {"type": "string", "minLength": 1},
+        "atom_order": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/id"}},
+        "elements": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+        "fragment_ids": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/id"}},
+        "explicit_hydrogens": {"type": "array", "minItems": 2, "items": {"type": "boolean"}},
+        "bonds": {"type": "array", "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}},
+        "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1}, "component_count": {"type": "integer", "minimum": 1},
+        "stereochemistry": {"$ref": "#/$defs/stringMap"}, "state_labels": {"$ref": "#/$defs/strings"}
+      }
+    },
+    "vector": {
+      "type": "object", "additionalProperties": false,
+      "required": ["n_rot", "n_ring", "d_relative", "n_weak", "n_face", "n_symmetry"],
+      "properties": {"n_rot": {"type": "integer", "minimum": 0}, "n_ring": {"type": "integer", "minimum": 0}, "d_relative": {"type": "integer", "minimum": 0}, "n_weak": {"type": "integer", "minimum": 0}, "n_face": {"type": "integer", "minimum": 0}, "n_symmetry": {"type": "integer", "minimum": 0}}
+    },
+    "bondRecord": {
+      "type": "object", "additionalProperties": false, "required": ["bond_index", "atoms"],
+      "properties": {"bond_index": {"type": "integer", "minimum": 0}, "atoms": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0}}}
+    },
+    "bondExclusion": {
+      "type": "object", "additionalProperties": false, "required": ["bond_index", "atoms", "reason"],
+      "properties": {"bond_index": {"type": "integer", "minimum": 0}, "atoms": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0}}, "reason": {"enum": ["non_single", "ring_bond", "hydrogen_bond", "terminal_heavy_atom", "amide_like"]}}
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false, "required": ["category_id", "route_a_minimum", "route_b_minimum"],
+      "properties": {"category_id": {"$ref": "#/$defs/id"}, "route_a_minimum": {"type": "integer", "minimum": 1}, "route_b_minimum": {"type": "integer", "minimum": 1}}
+    },
+    "freedomAnalysis": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "analysis_id", "request", "vector", "rotatable_bonds", "rotatable_exclusions", "mechanism_category_count", "flexibility_class", "complexity_score", "suggested_total_candidates", "recommended_route_weights", "recommended_subroute_weights", "minimum_category_coverage", "basis", "limitations", "blockers", "supported", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+      "properties": {
+        "schema": {"const": "gaussian-conformer-freedom-analysis/1"}, "analysis_id": {"$ref": "#/$defs/id"}, "request": {"$ref": "#/$defs/requestBinding"},
+        "vector": {"$ref": "#/$defs/vector"}, "rotatable_bonds": {"type": "array", "items": {"$ref": "#/$defs/bondRecord"}}, "rotatable_exclusions": {"type": "array", "items": {"$ref": "#/$defs/bondExclusion"}},
+        "mechanism_category_count": {"type": "integer", "minimum": 1}, "flexibility_class": {"enum": ["low", "moderate", "high", "very_high"]}, "complexity_score": {"type": "integer", "minimum": 0}, "suggested_total_candidates": {"type": "integer", "minimum": 1},
+        "recommended_route_weights": {"$ref": "#/$defs/numberMap"}, "recommended_subroute_weights": {"$ref": "#/$defs/numberMap"}, "minimum_category_coverage": {"type": "array", "items": {"$ref": "#/$defs/coverage"}},
+        "basis": {"$ref": "#/$defs/strings"}, "limitations": {"$ref": "#/$defs/strings"}, "blockers": {"$ref": "#/$defs/strings"}, "supported": {"type": "boolean"},
+        "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "pair": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0}},
+    "descriptor": {
+      "type": "object", "additionalProperties": false, "required": ["descriptor_id", "kind", "minimum", "maximum"],
+      "properties": {"descriptor_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["distance", "angle", "dihedral", "centroid_distance", "plane_angle", "lateral_slip", "contact", "custom"]}, "minimum": {"type": "number"}, "maximum": {"type": "number"}}
+    },
+    "categoryContract": {
+      "type": "object", "additionalProperties": false, "required": ["category_id", "required_bonds", "forbidden_bonds", "descriptor_constraints"],
+      "properties": {"category_id": {"$ref": "#/$defs/id"}, "required_bonds": {"type": "array", "items": {"$ref": "#/$defs/pair"}}, "forbidden_bonds": {"type": "array", "items": {"$ref": "#/$defs/pair"}}, "descriptor_constraints": {"type": "array", "items": {"$ref": "#/$defs/descriptor"}}}
+    },
+    "categoryQuota": {
+      "type": "object", "additionalProperties": false, "required": ["category_id", "total_quota", "route_quotas", "subroute_quotas"],
+      "properties": {"category_id": {"$ref": "#/$defs/id"}, "total_quota": {"type": "integer", "minimum": 2}, "route_quotas": {"$ref": "#/$defs/integerMap"}, "subroute_quotas": {"$ref": "#/$defs/integerMap"}}
+    },
+    "xtbProtocol": {
+      "type": "object", "additionalProperties": false, "required": ["method", "solvent_model", "optimization_convergence", "constraint_release_strategy", "formal_charge", "multiplicity"],
+      "properties": {"method": {"type": "string", "minLength": 1}, "solvent_model": {"type": "string", "minLength": 1}, "optimization_convergence": {"type": "string", "minLength": 1}, "constraint_release_strategy": {"type": "string", "minLength": 1}, "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1}}
+    },
+    "temperaturePhase": {
+      "type": "object", "additionalProperties": false, "required": ["phase", "target_k", "duration_ps"],
+      "properties": {"phase": {"enum": ["heating", "holding", "cooling"]}, "target_k": {"type": "number", "minimum": 0}, "duration_ps": {"type": "number", "exclusiveMinimum": 0}}
+    },
+    "adapterSettings": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sampling_mode", "trajectory_count", "temperature_schedule", "time_step_fs", "trajectory_length_ps", "thermostat", "constraint_ids", "initial_structure_ref", "embedding_method", "enforce_chirality", "force_field_policy", "record_parameter_completeness", "record_convergence", "directed_generator", "category_ids", "candidate_output"],
+      "properties": {
+        "sampling_mode": {"type": ["string", "null"]}, "trajectory_count": {"type": ["integer", "null"], "minimum": 1}, "temperature_schedule": {"type": "array", "items": {"$ref": "#/$defs/temperaturePhase"}},
+        "time_step_fs": {"type": ["number", "null"], "exclusiveMinimum": 0}, "trajectory_length_ps": {"type": ["number", "null"], "exclusiveMinimum": 0}, "thermostat": {"type": ["string", "null"]},
+        "constraint_ids": {"$ref": "#/$defs/ids"}, "initial_structure_ref": {"type": ["string", "null"]}, "embedding_method": {"type": ["string", "null"]}, "enforce_chirality": {"type": ["boolean", "null"]},
+        "force_field_policy": {"type": ["string", "null"]}, "record_parameter_completeness": {"type": ["boolean", "null"]}, "record_convergence": {"type": ["boolean", "null"]},
+        "directed_generator": {"type": ["string", "null"]}, "category_ids": {"$ref": "#/$defs/ids"}, "candidate_output": {"type": ["string", "null"]}
+      }
+    },
+    "adapter": {
+      "type": "object", "additionalProperties": false,
+      "required": ["route_id", "subroute_id", "required_dependencies", "random_seeds", "argv_template", "environment", "settings", "execution_allowed", "command_review_status"],
+      "properties": {
+        "route_id": {"enum": ["route_a", "route_b"]}, "subroute_id": {"enum": ["a1_crest", "a2_xtb_md", "b1_etkdg", "b2_directed"]},
+        "required_dependencies": {"$ref": "#/$defs/strings"}, "random_seeds": {"type": "array", "items": {"type": "integer"}}, "argv_template": {"$ref": "#/$defs/strings"},
+        "environment": {"type": "object", "additionalProperties": {"type": "string"}}, "settings": {"$ref": "#/$defs/adapterSettings"},
+        "execution_allowed": {"const": false}, "command_review_status": {"const": "inert_reviewed_template"}
+      }
+    },
+    "weights": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mapped_rmsd", "symmetry_rmsd", "key_distance", "torsion", "contact", "fragment", "aromatic", "custom"],
+      "properties": {"mapped_rmsd": {"type": "number", "minimum": 0}, "symmetry_rmsd": {"type": "number", "minimum": 0}, "key_distance": {"type": "number", "minimum": 0}, "torsion": {"type": "number", "minimum": 0}, "contact": {"type": "number", "minimum": 0}, "fragment": {"type": "number", "minimum": 0}, "aromatic": {"type": "number", "minimum": 0}, "custom": {"type": "number", "minimum": 0}}
+    },
+    "thresholds": {
+      "type": "object", "additionalProperties": false,
+      "required": ["duplicate_rmsd", "duplicate_key_distance", "high_rmsd", "high_key_distance", "boundary_rmsd", "minimum_contact_similarity"],
+      "properties": {"duplicate_rmsd": {"type": "number", "minimum": 0}, "duplicate_key_distance": {"type": "number", "minimum": 0}, "high_rmsd": {"type": "number", "minimum": 0}, "high_key_distance": {"type": "number", "minimum": 0}, "boundary_rmsd": {"type": "number", "minimum": 0}, "minimum_contact_similarity": {"type": "number", "minimum": 0, "maximum": 1}}
+    },
+    "similarity": {
+      "type": "object", "additionalProperties": false, "required": ["weights", "thresholds", "symmetry_permutations"],
+      "properties": {"weights": {"$ref": "#/$defs/weights"}, "thresholds": {"$ref": "#/$defs/thresholds"}, "symmetry_permutations": {"type": "array", "items": {"type": "array", "items": {"type": "integer", "minimum": 0}}}}
+    }
+  }
+}

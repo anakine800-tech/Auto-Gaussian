@@ -104,6 +104,7 @@ The intended ownership is:
 | --- | --- | --- |
 | structure and scheme intake | `auto-g16-chemdraw-structures` | strict reconstruction, identities, stereochemistry, editable source, source-exact conditions |
 | 2D-to-3D review | `auto-g16-chemdraw-pipeline`, `auto-g16-view-rt-win` | audited main-group Cartesian structures, conformer candidates, visible review |
+| conformer/complex discovery audit | `auto-g16-conformer-search` | reviewed R08 handoff, freedom analysis, preregistered dual-route quotas, supplied-candidate legality, cross-route clustering and candidate-only medoids; no external execution |
 | reusable knowledge databases | `auto-g16-knowledge-base` | implemented W2A contracts plus W2B-1 store/index/query and W2B-2 reviewed import, lawful-object ingestion and redacted JSON export; future authenticated service enforcement and chemical search |
 | reaction-study orchestration | `auto-g16-reaction-workflow` plus future specialist adapters | implemented species registry, condition model, mechanism network, support gate, distinct support-matrix view, TS planning, non-executable calculation plan and read-only study index; future evidence/execution adapters |
 | literature evidence and TS precedent | `auto-g16-reaction-literature` plus `auto-g16-reaction-workflow` | implemented reproducible search/evidence, exact edge/channel mechanism support, TS-precedent translation and source-free de novo planning; geometry construction remains future |
@@ -392,6 +393,12 @@ optimized structure as interchangeable.
 
 Gate R08 promotes immutable reviewed candidates. Promotion never means that a
 candidate is the only relevant conformer or that it is approved for execution.
+
+`auto-g16-conformer-search` may consume that exact reviewed artifact to plan
+two independent structure-discovery routes and audit candidate observations.
+Its route plans are inert, its invalid/state-changed entries remain negative
+evidence, and its reviewed medoids remain candidate-only. It neither replaces
+R08 review nor supplies the Opt/Freq/single-point evidence required below.
 
 ### R09 — Minimum and conformer ensemble calculations
 

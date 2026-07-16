@@ -1,0 +1,6 @@
+{
+  "schema": "gaussian-conformer-ensemble/1",
+  "fixture_id": "generic_reviewed_r08",
+  "candidate_only": true,
+  "review_status": "reviewed_for_r09_fixture"
+}

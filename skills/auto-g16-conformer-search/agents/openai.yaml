@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 Conformer Search"
+  short_description: "Plan and audit dual-route conformer discovery"
+  default_prompt: "Use $auto-g16-conformer-search to build a reviewed offline dual-route conformer-search plan and cross-validate supplied candidate structures."

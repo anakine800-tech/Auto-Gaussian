@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-conformer-search",
+  "include": [
+    {
+      "source": "contracts/conformer-search",
+      "target": "contracts/conformer-search"
+    },
+    {
+      "source": "scripts/validate_asymmetric_contract.py",
+      "target": "scripts/validate_asymmetric_contract.py"
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "schema": "gaussian-conformer-search-request/1",
+  "request_id": "generic_dual_route",
+  "revision": {"revision_id": "generic_rev1", "supersedes": null},
+  "r08_handoff": {
+    "path": "r08_handoff_generic.json",
+    "sha256": "33393112a33f60deb60ec69d8511c4ad857d68e21f70bec8c160462c642b3793",
+    "schema": "gaussian-conformer-ensemble/1",
+    "immutable": true,
+    "reviewed": true
+  },
+  "state": {
+    "state_id": "generic_state",
+    "identity": "synthetic connected main-group fixture",
+    "atoms": [
+      {"atom_id": "atom_c0", "map_id": "map_c0", "atom_index": 0, "element": "C", "fragment_id": "frag_main", "explicit_hydrogen": false},
+      {"atom_id": "atom_c1", "map_id": "map_c1", "atom_index": 1, "element": "C", "fragment_id": "frag_main", "explicit_hydrogen": false},
+      {"atom_id": "atom_c2", "map_id": "map_c2", "atom_index": 2, "element": "C", "fragment_id": "frag_main", "explicit_hydrogen": false},
+      {"atom_id": "atom_c3", "map_id": "map_c3", "atom_index": 3, "element": "C", "fragment_id": "frag_main", "explicit_hydrogen": false},
+      {"atom_id": "atom_h4", "map_id": "map_h4", "atom_index": 4, "element": "H", "fragment_id": "frag_main", "explicit_hydrogen": true},
+      {"atom_id": "atom_h5", "map_id": "map_h5", "atom_index": 5, "element": "H", "fragment_id": "frag_main", "explicit_hydrogen": true}
+    ],
+    "bonds": [
+      {"atoms": [0, 1], "order": 1, "in_ring": false},
+      {"atoms": [1, 2], "order": 1, "in_ring": false},
+      {"atoms": [2, 3], "order": 1, "in_ring": false},
+      {"atoms": [0, 4], "order": 1, "in_ring": false},
+      {"atoms": [3, 5], "order": 1, "in_ring": false}
+    ],
+    "formal_charge": 0,
+    "multiplicity": 1,
+    "component_count": 1,
+    "stereochemistry": {},
+    "state_labels": ["connected", "main_group"],
+    "unsupported_flags": {
+      "transition_metal": false,
+      "open_shell": false,
+      "excited_state": false,
+      "multireference": false,
+      "unknown_coordination": false,
+      "connectivity_change_expected": false
+    }
+  },
+  "categories": [
+    {"category_id": "contact_face", "labels": ["contact", "face_a"], "total_quota": 4, "constraints": {"required_bonds": [], "forbidden_bonds": [[0, 2]], "descriptor_constraints": [{"descriptor_id": "site_pair", "kind": "distance", "minimum": 2.0, "maximum": 3.0}]}},
+    {"category_id": "loose_face", "labels": ["loose", "face_b"], "total_quota": 4, "constraints": {"required_bonds": [], "forbidden_bonds": [[0, 2]], "descriptor_constraints": [{"descriptor_id": "site_pair", "kind": "distance", "minimum": 2.0, "maximum": 3.0}]}}
+  ],
+  "freedom_inputs": {
+    "flexible_ring_count": 0,
+    "relative_constraints": 0,
+    "weak_interaction_types": ["dispersion_contact"],
+    "face_ids": ["face_a", "face_b"],
+    "symmetry_classes": [[0, 3], [1, 2], [4, 5]]
+  },
+  "quota_policy": {
+    "locked_before_results": true,
+    "reviewed": true,
+    "route_weights": {"route_a": 0.5, "route_b": 0.5},
+    "subroute_weights": {"a1_crest": 0.5, "a2_xtb_md": 0.5, "b1_etkdg": 0.5, "b2_directed": 0.5}
+  },
+  "shared_xtb_protocol": {
+    "method": "reviewed_fixture_method",
+    "solvent_model": "reviewed_fixture_solvent",
+    "optimization_convergence": "reviewed_fixture_convergence",
+    "constraint_release_strategy": "reviewed_fixture_release",
+    "formal_charge": 0,
+    "multiplicity": 1
+  },
+  "adapters": [
+    {"route_id": "route_a", "subroute_id": "a1_crest", "required_dependencies": ["crest", "xtb"], "random_seeds": [101, 102], "argv_template": ["{crest_absolute_path}", "{input_xyz}", "{reviewed_argument_file}"], "environment": {}, "settings": {"sampling_mode": "enhanced_sampling", "trajectory_count": 2, "temperature_schedule": [], "time_step_fs": null, "trajectory_length_ps": null, "thermostat": null, "constraint_ids": ["constraint_contact"], "initial_structure_ref": "r08_handoff", "embedding_method": null, "enforce_chirality": null, "force_field_policy": null, "record_parameter_completeness": null, "record_convergence": true, "directed_generator": null, "category_ids": ["contact_face", "loose_face"], "candidate_output": "complete_candidate_set"}, "execution_approved": false},
+    {"route_id": "route_a", "subroute_id": "a2_xtb_md", "required_dependencies": ["xtb"], "random_seeds": [201, 202], "argv_template": ["{xtb_absolute_path}", "{input_xyz}", "{reviewed_md_argument_file}"], "environment": {}, "settings": {"sampling_mode": "heating_annealing", "trajectory_count": 2, "temperature_schedule": [{"phase": "heating", "target_k": 500, "duration_ps": 2}, {"phase": "holding", "target_k": 500, "duration_ps": 5}, {"phase": "cooling", "target_k": 300, "duration_ps": 3}], "time_step_fs": 1.0, "trajectory_length_ps": 10.0, "thermostat": "reviewed_fixture_thermostat", "constraint_ids": ["constraint_contact"], "initial_structure_ref": "r08_handoff", "embedding_method": null, "enforce_chirality": null, "force_field_policy": null, "record_parameter_completeness": null, "record_convergence": true, "directed_generator": null, "category_ids": ["contact_face", "loose_face"], "candidate_output": "trajectory_frames_then_local_optimization"}, "execution_approved": false},
+    {"route_id": "route_b", "subroute_id": "b1_etkdg", "required_dependencies": ["rdkit", "xtb"], "random_seeds": [301, 302], "argv_template": ["{reviewed_python}", "{reviewed_etkdg_adapter}", "{reviewed_config}"], "environment": {}, "settings": {"sampling_mode": "unbiased_embedding", "trajectory_count": 2, "temperature_schedule": [], "time_step_fs": null, "trajectory_length_ps": null, "thermostat": null, "constraint_ids": [], "initial_structure_ref": "r08_handoff", "embedding_method": "ETKDGv3", "enforce_chirality": true, "force_field_policy": "MMFF94s_if_complete_else_UFF", "record_parameter_completeness": true, "record_convergence": true, "directed_generator": null, "category_ids": ["contact_face", "loose_face"], "candidate_output": "complete_candidate_set"}, "execution_approved": false},
+    {"route_id": "route_b", "subroute_id": "b2_directed", "required_dependencies": ["rdkit", "xtb"], "random_seeds": [401, 402], "argv_template": ["{reviewed_python}", "{reviewed_directed_adapter}", "{reviewed_config}"], "environment": {}, "settings": {"sampling_mode": "directed_generation", "trajectory_count": 2, "temperature_schedule": [], "time_step_fs": null, "trajectory_length_ps": null, "thermostat": null, "constraint_ids": ["constraint_contact"], "initial_structure_ref": "r08_handoff", "embedding_method": "configuration_driven", "enforce_chirality": true, "force_field_policy": "MMFF94s_if_complete_else_UFF", "record_parameter_completeness": true, "record_convergence": true, "directed_generator": "configuration_driven", "category_ids": ["contact_face", "loose_face"], "candidate_output": "complete_candidate_set"}, "execution_approved": false}
+  ],
+  "dependency_paths": {"xtb": null, "crest": null, "openbabel": null},
+  "similarity": {
+    "weights": {"mapped_rmsd": 0.2, "symmetry_rmsd": 0.2, "key_distance": 0.15, "torsion": 0.1, "contact": 0.15, "fragment": 0.1, "aromatic": 0.05, "custom": 0.05},
+    "thresholds": {"duplicate_rmsd": 0.25, "duplicate_key_distance": 0.15, "high_rmsd": 0.5, "high_key_distance": 0.25, "boundary_rmsd": 0.75, "minimum_contact_similarity": 0.9},
+    "symmetry_permutations": [[3, 2, 1, 0, 5, 4]]
+  },
+  "reviews": {
+    "identity_reviewed": true,
+    "atom_map_reviewed": true,
+    "connectivity_reviewed": true,
+    "charge_multiplicity_reviewed": true,
+    "stereochemistry_reviewed": true,
+    "fragments_reviewed": true,
+    "categories_reviewed": true,
+    "route_weights_reviewed": true,
+    "subroute_weights_reviewed": true,
+    "xtb_protocol_reviewed": true,
+    "adapter_templates_reviewed": true,
+    "similarity_policy_reviewed": true
+  }
+}

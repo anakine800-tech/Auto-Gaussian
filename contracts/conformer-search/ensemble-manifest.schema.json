@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/conformer-search/ensemble-manifest.schema.json",
+  "title": "Auto-G16 immutable dual-route conformer ensemble manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "manifest_id", "revision", "plan", "candidate_set", "validity_ledger", "state_signature", "locked_route_weights", "locked_subroute_weights", "category_quotas", "raw_sampling_counts", "actual_route_subroute_counts", "candidate_provenance", "validity_counts", "comparisons", "clusters", "consensus_cluster_ids", "secondary_cluster_ids", "invalid_candidates", "negative_evidence_preserved", "quota_fulfillment", "independent_backend_review_queue", "independent_backend_review_complete", "human_review_status", "downstream_handoff_status", "energies_used_for_ranking", "candidate_only", "calculation_ready", "no_submission_authorization", "external_execution_performed", "blockers", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-conformer-ensemble-manifest/1"},
+    "manifest_id": {"$ref": "#/$defs/id"},
+    "revision": {"$ref": "#/$defs/revision"},
+    "plan": {"$ref": "#/$defs/payloadBinding"},
+    "candidate_set": {"$ref": "#/$defs/binding"},
+    "validity_ledger": {"$ref": "#/$defs/payloadBinding"},
+    "state_signature": {"$ref": "#/$defs/stateSignature"},
+    "locked_route_weights": {"$ref": "#/$defs/numberMap"},
+    "locked_subroute_weights": {"$ref": "#/$defs/numberMap"},
+    "category_quotas": {"type": "array", "items": {"$ref": "#/$defs/categoryQuota"}},
+    "raw_sampling_counts": {"$ref": "#/$defs/integerMap"},
+    "actual_route_subroute_counts": {"type": "array", "items": {"$ref": "#/$defs/actualCount"}},
+    "candidate_provenance": {"type": "array", "items": {"$ref": "#/$defs/provenance"}},
+    "validity_counts": {"$ref": "#/$defs/integerMap"},
+    "comparisons": {"type": "array", "items": {"$ref": "#/$defs/comparison"}},
+    "clusters": {"type": "array", "items": {"$ref": "#/$defs/cluster"}},
+    "consensus_cluster_ids": {"$ref": "#/$defs/idArray"},
+    "secondary_cluster_ids": {"$ref": "#/$defs/idArray"},
+    "invalid_candidates": {"type": "array", "items": {"$ref": "#/$defs/ledgerEntry"}},
+    "negative_evidence_preserved": {"const": true},
+    "quota_fulfillment": {"type": "array", "items": {"$ref": "#/$defs/quota"}},
+    "independent_backend_review_queue": {"type": "array", "items": {"$ref": "#/$defs/comparison"}},
+    "independent_backend_review_complete": {"type": "boolean"},
+    "human_review_status": {"const": "pending"},
+    "downstream_handoff_status": {"const": "blocked_pending_review"},
+    "energies_used_for_ranking": {"const": false},
+    "candidate_only": {"const": true},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "external_execution_performed": {"const": false},
+    "blockers": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "idArray": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "numberMap": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"type": "number"}},
+    "integerMap": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"type": "integer", "minimum": 0}},
+    "stringMap": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"type": "string"}},
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string"}}
+    },
+    "payloadBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "previous": {
+      "type": "object", "additionalProperties": false, "required": ["path", "sha256", "payload_sha256"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "revision": {
+      "type": "object", "additionalProperties": false, "required": ["revision_id", "supersedes"],
+      "properties": {"revision_id": {"$ref": "#/$defs/id"}, "supersedes": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/previous"}]}}
+    },
+    "stateSignature": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state_id", "identity", "atom_order", "elements", "fragment_ids", "explicit_hydrogens", "bonds", "formal_charge", "multiplicity", "component_count", "stereochemistry", "state_labels"],
+      "properties": {
+        "state_id": {"$ref": "#/$defs/id"}, "identity": {"type": "string"}, "atom_order": {"$ref": "#/$defs/idArray"}, "elements": {"type": "array", "items": {"type": "string"}},
+        "fragment_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}}, "explicit_hydrogens": {"type": "array", "items": {"type": "boolean"}},
+        "bonds": {"type": "array", "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}},
+        "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1}, "component_count": {"type": "integer", "minimum": 1},
+        "stereochemistry": {"$ref": "#/$defs/stringMap"}, "state_labels": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "categoryQuota": {
+      "type": "object", "additionalProperties": false, "required": ["category_id", "total_quota", "route_quotas", "subroute_quotas"],
+      "properties": {"category_id": {"$ref": "#/$defs/id"}, "total_quota": {"type": "integer", "minimum": 2}, "route_quotas": {"$ref": "#/$defs/integerMap"}, "subroute_quotas": {"$ref": "#/$defs/integerMap"}}
+    },
+    "software": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version", "absolute_path"],
+      "properties": {"name": {"type": "string"}, "version": {"type": ["string", "null"]}, "absolute_path": {"type": ["string", "null"]}}
+    },
+    "energy": {
+      "type": "object", "additionalProperties": false, "required": ["value", "unit", "method", "ranking_allowed"],
+      "properties": {"value": {"type": ["number", "null"]}, "unit": {"type": ["string", "null"]}, "method": {"type": ["string", "null"]}, "ranking_allowed": {"const": false}}
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "route_id", "subroute_id", "category_id", "source_input_sha256", "source_argv", "random_seed", "software", "energy_observation"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"}, "route_id": {"enum": ["route_a", "route_b"]}, "subroute_id": {"enum": ["a1_crest", "a2_xtb_md", "b1_etkdg", "b2_directed"]}, "category_id": {"$ref": "#/$defs/id"},
+        "source_input_sha256": {"$ref": "#/$defs/sha"}, "source_argv": {"type": "array", "items": {"type": "string"}}, "random_seed": {"type": "integer"},
+        "software": {"$ref": "#/$defs/software"}, "energy_observation": {"$ref": "#/$defs/energy"}
+      }
+    },
+    "ledgerEntry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "route_id", "subroute_id", "category_id", "status", "disposition", "accepted_into_quota", "reasons", "state_change_evidence", "source_input_sha256", "source_argv", "random_seed", "software", "energy_observation"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"}, "route_id": {"enum": ["route_a", "route_b"]}, "subroute_id": {"enum": ["a1_crest", "a2_xtb_md", "b1_etkdg", "b2_directed"]}, "category_id": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["invalid", "state_changed"]}, "disposition": {"enum": ["negative_evidence", "new_hypothesis_candidate"]}, "accepted_into_quota": {"const": false},
+        "reasons": {"type": "array", "items": {"type": "string"}}, "state_change_evidence": {"type": "array", "items": {"type": "string"}},
+        "source_input_sha256": {"$ref": "#/$defs/sha"}, "source_argv": {"type": "array", "items": {"type": "string"}}, "random_seed": {"type": "integer"},
+        "software": {"$ref": "#/$defs/software"}, "energy_observation": {"$ref": "#/$defs/energy"}
+      }
+    },
+    "actualCount": {
+      "type": "object", "additionalProperties": false,
+      "required": ["category_id", "route_id", "subroute_id", "observed_candidates", "valid_candidates", "independent_clusters"],
+      "properties": {"category_id": {"$ref": "#/$defs/id"}, "route_id": {"enum": ["route_a", "route_b"]}, "subroute_id": {"enum": ["a1_crest", "a2_xtb_md", "b1_etkdg", "b2_directed"]}, "observed_candidates": {"type": "integer", "minimum": 0}, "valid_candidates": {"type": "integer", "minimum": 0}, "independent_clusters": {"type": "integer", "minimum": 0}}
+    },
+    "components": {
+      "type": "object", "additionalProperties": false, "required": ["mapped_rmsd", "symmetry_rmsd", "key_distance", "torsion", "contact", "fragment", "aromatic", "custom"],
+      "properties": {"mapped_rmsd": {"type": "number"}, "symmetry_rmsd": {"type": "number"}, "key_distance": {"type": "number"}, "torsion": {"type": "number"}, "contact": {"type": "number"}, "fragment": {"type": "number"}, "aromatic": {"type": "number"}, "custom": {"type": "number"}}
+    },
+    "comparison": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_ids", "components", "contact_similarity", "composite_distance", "classification", "category_merge_forbidden", "independent_backend_review_required", "independent_backend_review_reason"],
+      "properties": {
+        "candidate_ids": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/id"}}, "components": {"$ref": "#/$defs/components"},
+        "contact_similarity": {"type": "number"}, "composite_distance": {"type": "number"}, "classification": {"enum": ["duplicate", "highly_similar", "boundary", "independent", "different_category"]},
+        "category_merge_forbidden": {"type": "boolean"}, "independent_backend_review_required": {"type": "boolean"}, "independent_backend_review_reason": {"type": ["string", "null"]}
+      }
+    },
+    "cluster": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cluster_id", "category_id", "member_candidate_ids", "route_ids", "classification", "medoid_candidate_id", "medoid_total_distance", "source_records_preserved", "requires_human_review"],
+      "properties": {
+        "cluster_id": {"$ref": "#/$defs/id"}, "category_id": {"$ref": "#/$defs/id"}, "member_candidate_ids": {"$ref": "#/$defs/idArray"}, "route_ids": {"$ref": "#/$defs/idArray"},
+        "classification": {"enum": ["consensus_optimal", "single_route_secondary"]}, "medoid_candidate_id": {"$ref": "#/$defs/id"}, "medoid_total_distance": {"type": "number"},
+        "source_records_preserved": {"const": true}, "requires_human_review": {"const": true}
+      }
+    },
+    "quota": {
+      "type": "object", "additionalProperties": false,
+      "required": ["category_id", "route_id", "required_independent", "observed_independent", "fulfilled"],
+      "properties": {"category_id": {"$ref": "#/$defs/id"}, "route_id": {"enum": ["route_a", "route_b"]}, "required_independent": {"type": "integer", "minimum": 0}, "observed_independent": {"type": "integer", "minimum": 0}, "fulfilled": {"type": "boolean"}}
+    }
+  }
+}
