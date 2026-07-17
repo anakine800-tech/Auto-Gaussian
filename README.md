@@ -288,6 +288,13 @@ Repository-wide operational rules are in `AGENTS.md`.
   by default and applies it only with `--apply --confirmed --plan-sha256
   <REVIEWED_HASH>`; it refuses symlinks, path escape and implicit deletion of
   unexpected installed files.
+- Every repository Skill directory is deployable by that synchronizer. An
+  optional `deployment-package.json` is required only when the installed Skill
+  must also receive authoritative files outside its own directory; its absence
+  does not authorize ad-hoc copying or imply that the Skill is undeployable.
+- Cross-Skill changes must be dry-run and smoke-tested as one reviewed set.
+  Deploy owner Skills before consumers, retain every per-Skill plan hash, and
+  stop on the first mismatch instead of widening the deployment scope.
 - `templates/g16_job.pbs.template` preserves the SDL-only work/scratch guard for review and testing.
 
 ## License

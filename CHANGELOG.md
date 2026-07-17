@@ -29,6 +29,12 @@ All notable public release changes are recorded here. The project follows
 
 ### Changed
 
+- Extended the named-Skill packaging regression smoke for the scientific
+  maturity slice. A temporary installed root now proves that the deployed
+  reaction-workflow owner CLI and schema are present and that deployed
+  `auto-g16-ts-irc` and `auto-g16-rtwin-pbs` consumers load that exact owner
+  validator. Documentation now distinguishes ordinary self-contained Skill
+  deployment from optional external-file deployment manifests.
 - Formal TS input and submission now fail closed unless both exact endpoint
   structures are accepted Gaussian minima with normal termination, converged
   Opt, complete Freq, zero imaginary frequencies, identity/mapping review and
