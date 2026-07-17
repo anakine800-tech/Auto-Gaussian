@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/scientific-maturity-gate.schema.json",
+  "title": "Auto-G16 scientific maturity gate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "study_id", "review_id", "calculation_plan", "review_source", "scientific_approval_summary", "minimum_gates", "edge_gates", "dag_node_gates", "stop_conditions", "offline_screening_energy_policy", "failure_policy", "blockers", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-scientific-maturity-gate/1"},
+    "study_id": {"$ref": "#/$defs/id"}, "review_id": {"$ref": "#/$defs/id"},
+    "calculation_plan": {"$ref": "#/$defs/binding"}, "review_source": {"$ref": "#/$defs/binding"},
+    "scientific_approval_summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["maturity", "evidence", "endpoints", "blockers", "route", "resources", "input_hash"],
+      "properties": {"maturity": {"enum": ["reviewed", "blocked"]}, "evidence": {"type": "object"}, "endpoints": {"type": "object"}, "blockers": {"type": "array", "items": {"type": "string"}}, "route": {"type": "string"}, "resources": {"type": "object"}, "input_hash": {"type": "string"}}
+    },
+    "minimum_gates": {"type": "array", "items": {"type": "object"}},
+    "edge_gates": {"type": "array", "items": {"type": "object"}},
+    "dag_node_gates": {"type": "array", "items": {"type": "object"}},
+    "stop_conditions": {"type": "array", "items": {"type": "string"}},
+    "offline_screening_energy_policy": {"const": "ff_xtb_offline_results_are_screening_only_not_formal_barriers"},
+    "failure_policy": {"const": "return_to_previous_scientific_stage_without_automatic_candidate_expansion_retry_or_chemistry_change"},
+    "blockers": {"type": "array", "items": {"type": "object"}},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string"}, "payload_sha256": {"$ref": "#/$defs/sha"}}}
+  }
+}

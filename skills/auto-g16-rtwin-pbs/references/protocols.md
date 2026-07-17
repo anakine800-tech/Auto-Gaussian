@@ -43,6 +43,16 @@ Resource tiers are orthogonal to protocol rigor. Do not map `loose` to
 execution demand determine resources after the scientific protocol candidate
 has been reviewed.
 
+A reaction-workflow TS pilot is a narrower prospective rule: use `simple`, one
+primary candidate per edge and at most one competing candidate. General or
+complex TS work requires the exact maturity gate's successful-pilot evidence
+and reviewed scale/memory/cost rationale; job type alone never upgrades it.
+Every protected TS, relaxed-scan or IRC route also requires an explicit
+`--work-kind`; inference from only QST/`Opt=TS` is insufficient. A protected
+submission must bind the exact input/project/node and requested
+task/core-hour/concurrency budget in a reconstructed offline scientific action
+authorization before the separate live approval is considered.
+
 ## Approval rules
 
 If any scientific field needed by a candidate is unresolved, mark that

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import re
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "gaussian-ts-irc-workflow/1"
+SCHEMA_V2 = "gaussian-ts-irc-workflow/2"
 TERMINAL_TEMPLATE_SCHEMA = "gaussian-terminal-intake-template/1"
 TERMINAL_INTAKE_SCHEMA = "gaussian-terminal-intake/1"
 PROJECT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,14}$")
@@ -37,12 +39,169 @@ COVALENT_RADII_ANGSTROM = {
 }
 
 
+def _load_scientific_maturity() -> Any:
+    skills_root = Path(__file__).resolve().parents[2]
+    path = skills_root / "auto-g16-reaction-workflow" / "scripts" / "scientific_maturity.py"
+    if not path.is_file():
+        raise ValueError("scientific-maturity owner validator is unavailable")
+    spec = importlib.util.spec_from_file_location("auto_g16_ts_scientific_maturity", path)
+    if spec is None or spec.loader is None:
+        raise ValueError("scientific-maturity owner validator cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _path_acceptance_payload_sha256(value: dict[str, Any]) -> str:
+    payload = dict(value)
+    payload.pop("payload_sha256", None)
+    encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _local_ref(path: Path, root: Path) -> dict[str, Any]:
+    resolved = path.resolve()
+    if not resolved.is_file() or resolved.is_symlink():
+        raise ValueError(f"path-acceptance source must be an existing non-symlink file: {path}")
+    try:
+        relative = resolved.relative_to(root.resolve())
+    except ValueError:
+        raise ValueError("all path-acceptance sources must share the output artifact root") from None
+    return {"path": relative.as_posix(), "sha256": sha256(resolved), "size_bytes": resolved.stat().st_size}
+
+
+def _resolve_local_ref(ref: Any, owner: Path, label: str) -> Path:
+    if not isinstance(ref, dict) or set(ref) != {"path", "sha256", "size_bytes"}:
+        raise ValueError(f"{label} reference fields are invalid")
+    relative = Path(str(ref["path"]))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"{label} reference must be portable and relative")
+    path = owner.parent / relative
+    if not path.is_file() or path.is_symlink() or sha256(path) != ref["sha256"] or path.stat().st_size != ref["size_bytes"]:
+        raise ValueError(f"{label} reference changed")
+    return path
+
+
+def _validate_endpoint_bundle(bundle: Any, owner: Path, direction: str) -> dict[str, Any]:
+    fields = {"audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint"}
+    if not isinstance(bundle, dict) or set(bundle) != fields:
+        raise ValueError(f"{direction} endpoint bundle fields are invalid")
+    paths = {key: _resolve_local_ref(bundle[key], owner, f"{direction} {key}") for key in fields}
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    if audit.get("schema") != "gaussian-irc-endpoint-audit/1" or audit.get("direction") != direction:
+        raise ValueError(f"{direction} endpoint audit schema/direction differs")
+    pairs = [tuple(item["pair"]) for item in audit.get("reviewed_forming_bond_distances", [])]
+    replay = audit_irc_endpoint_provenance(
+        paths["irc_input"], paths["irc_log"], paths["irc_result"], paths["job"], paths["checkpoint"],
+        direction, audit.get("chemical_side"), audit.get("completed_point"), pairs,
+    )
+    if replay != audit:
+        raise ValueError(f"{direction} endpoint audit differs from owner reconstruction")
+    return audit
+
+
+def _revalidate_family_scientific_binding(family_path: Path, family: dict[str, Any]) -> dict[str, Any]:
+    if family.get("schema") != SCHEMA_V2 or family.get("pilot") is not False:
+        raise ValueError("formal downstream work requires a non-pilot TS-family /2")
+    binding = family.get("scientific_maturity", {})
+    relative = Path(str(binding.get("path", "")))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError("TS-family maturity binding must be portable and relative")
+    maturity_path = family_path.parent / relative
+    if not maturity_path.is_file() or maturity_path.is_symlink() or sha256(maturity_path) != binding.get("sha256") or maturity_path.stat().st_size != binding.get("size_bytes"):
+        raise ValueError("TS-family scientific-maturity binding changed")
+    maturity = _load_scientific_maturity()
+    maturity_document = maturity.validate_gate(maturity_path)
+    if maturity_document.get("payload_sha256") != binding.get("payload_sha256"):
+        raise ValueError("TS-family scientific-maturity payload changed")
+    fresh_check = maturity.assert_action(
+        maturity_path, family.get("mechanism_edge_id"), "ts_input", pilot=False,
+        resource_tier=family.get("protocol", {}).get("resource_tiers", {}).get("ts_freq", "simple"),
+        node_id=family.get("dag_node_id"),
+    )
+    if fresh_check != family.get("scientific_input_gate"):
+        raise ValueError("TS-family scientific input gate no longer matches owner reconstruction")
+    return fresh_check
+
+
+def validate_path_acceptance_artifact(path: Path) -> dict[str, Any]:
+    artifact = json.loads(path.read_text(encoding="utf-8"))
+    required = {"schema", "edge_id", "family", "ts_result", "mode_review", "mode_decision", "forward", "reverse", "accepted", "limitations", "payload_sha256"}
+    if not isinstance(artifact, dict) or set(artifact) != required or artifact.get("schema") != "gaussian-ts-irc-path-acceptance/1":
+        raise ValueError("TS/IRC path-acceptance artifact fields or schema are invalid")
+    if artifact.get("payload_sha256") != _path_acceptance_payload_sha256(artifact):
+        raise ValueError("TS/IRC path-acceptance payload hash is invalid")
+    family_path = _resolve_local_ref(artifact["family"], path, "TS family")
+    result_path = _resolve_local_ref(artifact["ts_result"], path, "TS result")
+    review_path = _resolve_local_ref(artifact["mode_review"], path, "TS mode review")
+    decision_path = _resolve_local_ref(artifact["mode_decision"], path, "TS mode decision")
+    family = json.loads(family_path.read_text(encoding="utf-8"))
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    if family.get("schema") != SCHEMA_V2 or family.get("pilot") is not False or family.get("mechanism_edge_id") != artifact["edge_id"]:
+        raise ValueError("path acceptance requires one formal TS-family /2 bound to the same edge")
+    _revalidate_family_scientific_binding(family_path, family)
+    facts = classify_ts_freq_result_facts(result)
+    if not facts["first_order_saddle_candidate"] or facts["mode_review_status"] != "pending":
+        raise ValueError("path acceptance requires an owner-classified first-order TS candidate")
+    if review.get("schema") != "gaussian-ts-mode-review/1" or review.get("ts_result_sha256") != sha256(result_path):
+        raise ValueError("mode review is not bound to the exact TS result")
+    validate_mode_review_geometry(result, review)
+    if decision.get("schema") != "gaussian-ts-mode-decision/1" or decision.get("decision") != "accepted" or decision.get("confirmed") is not True:
+        raise ValueError("path acceptance requires an explicitly accepted TS mode decision")
+    if decision.get("ts_result_sha256") != sha256(result_path) or decision.get("mode_review_sha256") != sha256(review_path):
+        raise ValueError("TS mode decision source hashes differ")
+    forward = _validate_endpoint_bundle(artifact["forward"], path, "forward")
+    reverse = _validate_endpoint_bundle(artifact["reverse"], path, "reverse")
+    if {forward["chemical_side"], reverse["chemical_side"]} != {"reactant", "product"}:
+        raise ValueError("bidirectional IRC endpoints must identify one reactant and one product side")
+    if forward["charge"] != reverse["charge"] or forward["multiplicity"] != reverse["multiplicity"] or forward["atom_order"] != reverse["atom_order"]:
+        raise ValueError("bidirectional IRC endpoint composition, spin, or atom order differs")
+    if artifact.get("accepted") is not True:
+        raise ValueError("TS/IRC path acceptance must be explicitly accepted")
+    if not isinstance(artifact.get("limitations"), list) or not artifact["limitations"]:
+        raise ValueError("TS/IRC path acceptance must retain limitations")
+    return artifact
+
+
+def build_path_acceptance_artifact(
+    family: Path, ts_result: Path, mode_review: Path, mode_decision: Path,
+    forward_sources: dict[str, Path], reverse_sources: dict[str, Path], output: Path,
+) -> dict[str, Any]:
+    if output.exists():
+        raise ValueError("refusing to overwrite an existing TS/IRC path-acceptance artifact")
+    root = output.parent.resolve()
+    family_document = json.loads(family.read_text(encoding="utf-8"))
+    artifact = {
+        "schema": "gaussian-ts-irc-path-acceptance/1",
+        "edge_id": family_document.get("mechanism_edge_id"),
+        "family": _local_ref(family, root), "ts_result": _local_ref(ts_result, root),
+        "mode_review": _local_ref(mode_review, root), "mode_decision": _local_ref(mode_decision, root),
+        "forward": {key: _local_ref(value, root) for key, value in forward_sources.items()},
+        "reverse": {key: _local_ref(value, root) for key, value in reverse_sources.items()},
+        "accepted": True,
+        "limitations": [
+            "This artifact proves the accepted TS mode and two reconstructed IRC endpoint audits.",
+            "Endpoint minimum status still requires separate Gaussian re-Opt/Freq acceptance in the scientific-maturity owner.",
+            "This artifact grants no input, submission, retry, cancellation, cleanup, or live authority.",
+        ],
+    }
+    artifact["payload_sha256"] = _path_acceptance_payload_sha256(artifact)
+    output.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        return validate_path_acceptance_artifact(output)
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
 
 
 def _float(value: str) -> float:
@@ -909,7 +1068,16 @@ def validate_input_family(mode: str, structures: dict[str, dict[str, Any]], atom
     return {"schema": SCHEMA, "entry_mode": mode, "valid": not mismatches, "atom_count": len(base_elements), "atom_map": atom_map, "structures": structures, "diagnostics": mismatches}
 
 
-def create_family_manifest(audit: dict[str, Any], protocol: dict[str, Any]) -> dict[str, Any]:
+def create_family_manifest(
+    audit: dict[str, Any],
+    protocol: dict[str, Any],
+    *,
+    maturity_check: dict[str, Any] | None = None,
+    maturity_binding: dict[str, Any] | None = None,
+    edge_id: str | None = None,
+    node_id: str | None = None,
+    pilot: bool = False,
+) -> dict[str, Any]:
     """Bind a reviewed input audit to explicit user-supplied protocol values."""
     if audit.get("schema") != SCHEMA or not audit.get("valid"):
         raise ValueError("family creation requires a valid input audit")
@@ -932,7 +1100,22 @@ def create_family_manifest(audit: dict[str, Any], protocol: dict[str, Any]) -> d
     tier_keys = ("ts_freq", "irc", "endpoint")
     if not isinstance(tiers, dict) or any(tiers.get(key) not in {"simple", "general", "complex"} for key in tier_keys):
         raise ValueError("resource_tiers must declare ts_freq, irc, endpoint as simple/general/complex")
-    return {"schema": SCHEMA, "workflow_id": protocol["workflow_id"], "project_prefix": prefix, "input_audit": audit, "protocol": protocol, "review_states": {"G0": "pending", "G1": "passed", "G2": "pending", "G3": "pending", "G4": "pending"}, "status": "prepared_not_submitted", "safety": {"server_root": "/home/user100/SDL", "transport_skill": "auto-g16-rtwin-pbs", "no_submission_authorization": True}}
+    manifest = {"schema": SCHEMA, "workflow_id": protocol["workflow_id"], "project_prefix": prefix, "input_audit": audit, "protocol": protocol, "review_states": {"G0": "pending", "G1": "passed", "G2": "pending", "G3": "pending", "G4": "pending"}, "status": "prepared_not_submitted", "safety": {"server_root": "/home/user100/SDL", "transport_skill": "auto-g16-rtwin-pbs", "no_submission_authorization": True}}
+    if maturity_check is None and maturity_binding is None and edge_id is None:
+        # Preserve replay/validation of historical /1 artifacts.  The
+        # prospective CLI always supplies the maturity gate and emits /2.
+        return manifest
+    if not isinstance(maturity_check, dict) or maturity_check.get("scientific_gate_passed") is not True:
+        raise ValueError("TS family /2 requires a passed scientific-maturity action check")
+    if not isinstance(maturity_binding, dict) or not isinstance(edge_id, str) or not isinstance(node_id, str):
+        raise ValueError("TS family /2 requires an exact maturity binding, mechanism edge, and DAG node")
+    manifest["schema"] = SCHEMA_V2
+    manifest["scientific_maturity"] = maturity_binding
+    manifest["mechanism_edge_id"] = edge_id
+    manifest["dag_node_id"] = node_id
+    manifest["pilot"] = pilot
+    manifest["scientific_input_gate"] = maturity_check
+    return manifest
 
 
 def _last_orientation(text: str) -> list[dict[str, Any]]:
@@ -1493,11 +1676,20 @@ def _validate_directional_irc_route(route: str, direction: str) -> None:
         raise ValueError(f"{direction} route must be a complete IRC route containing only its explicit direction keyword")
 
 
-def build_irc_plan(family: dict[str, Any], ts_path: Path, checkpoint: Path, review_path: Path, decision_path: Path, g16_revision: str, forward_route: str, reverse_route: str, forward_project: str, reverse_project: str) -> dict[str, Any]:
+def build_irc_plan(family: dict[str, Any], ts_path: Path, checkpoint: Path, review_path: Path, decision_path: Path, g16_revision: str, forward_route: str, reverse_route: str, forward_project: str, reverse_project: str, *, allow_historical_replay: bool = False) -> dict[str, Any]:
     result = json.loads(ts_path.read_text(encoding="utf-8"))
     decision = json.loads(decision_path.read_text(encoding="utf-8"))
-    if family.get("schema") != SCHEMA:
+    if family.get("schema") not in {SCHEMA, SCHEMA_V2}:
         raise ValueError("unrecognized family manifest schema")
+    if family.get("schema") == SCHEMA and not allow_historical_replay:
+        raise ValueError("historical TS-family /1 is replay-only and cannot authorize a new IRC plan")
+    if family.get("schema") == SCHEMA_V2:
+        if family.get("pilot") is not False:
+            raise ValueError("a one-candidate TS pilot cannot be promoted directly to IRC")
+        if not isinstance(family.get("scientific_maturity"), dict) or not isinstance(family.get("mechanism_edge_id"), str):
+            raise ValueError("TS-family /2 lacks its exact scientific-maturity and mechanism-edge binding")
+        if family.get("scientific_input_gate", {}).get("scientific_gate_passed") is not True:
+            raise ValueError("TS-family /2 lacks its passed scientific input gate")
     if not result.get("first_order_saddle_candidate"):
         raise ValueError("IRC planning requires an eligible TS result")
     if decision.get("schema") != "gaussian-ts-mode-decision/1" or decision.get("decision") != "accepted" or decision.get("confirmed") is not True:
@@ -1516,14 +1708,19 @@ def build_irc_plan(family: dict[str, Any], ts_path: Path, checkpoint: Path, revi
         raise ValueError("IRC projects must be distinct 1–15 character PBS-safe names")
     _validate_directional_irc_route(forward_route, "forward")
     _validate_directional_irc_route(reverse_route, "reverse")
-    return {"schema": "gaussian-irc-plan/1", "workflow_id": family.get("workflow_id"), "g16_revision": g16_revision.strip(), "ts_result_sha256": sha256(ts_path), "mode_decision_sha256": sha256(decision_path), "checkpoint_sha256": sha256(checkpoint), "directions": [{"direction": "forward", "project": forward_project, "route": forward_route}, {"direction": "reverse", "project": reverse_project, "route": reverse_route}], "submission_status": "planned_not_submitted", "notes": ["Use auto-g16-rtwin-pbs only after exact G3 approval.", "This plan does not grant submission, cancellation, overwrite, or deletion permission."]}
+    plan = {"schema": "gaussian-irc-plan/1", "workflow_id": family.get("workflow_id"), "g16_revision": g16_revision.strip(), "ts_result_sha256": sha256(ts_path), "mode_decision_sha256": sha256(decision_path), "checkpoint_sha256": sha256(checkpoint), "directions": [{"direction": "forward", "project": forward_project, "route": forward_route}, {"direction": "reverse", "project": reverse_project, "route": reverse_route}], "submission_status": "planned_not_submitted", "notes": ["Use auto-g16-rtwin-pbs only after exact G3 approval.", "This plan does not grant submission, cancellation, overwrite, or deletion permission."]}
+    if family.get("schema") == SCHEMA_V2:
+        plan["scientific_maturity"] = family["scientific_maturity"]
+        plan["mechanism_edge_id"] = family["mechanism_edge_id"]
+        plan["scientific_input_gate"] = family["scientific_input_gate"]
+    return plan
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("validate-inputs"); check.add_argument("--mode", choices=["single_guess", "qst2", "qst3"], required=True); check.add_argument("--ts"); check.add_argument("--reactant"); check.add_argument("--product"); check.add_argument("--atom-map", required=True); check.add_argument("--output")
-    family = sub.add_parser("create-family"); family.add_argument("--input-audit", required=True); family.add_argument("--protocol", required=True); family.add_argument("--output", required=True)
+    family = sub.add_parser("create-family"); family.add_argument("--input-audit", required=True); family.add_argument("--protocol", required=True); family.add_argument("--scientific-maturity", required=True); family.add_argument("--edge-id", required=True); family.add_argument("--node-id", required=True); family.add_argument("--pilot", action="store_true"); family.add_argument("--output", required=True)
     analyze = sub.add_parser("analyze-ts"); analyze.add_argument("log"); analyze.add_argument("--output", required=True)
     review = sub.add_parser("mode-review"); review.add_argument("result"); review.add_argument("--output-dir", required=True); review.add_argument("--forming", action="append", default=[]); review.add_argument("--breaking", action="append", default=[]); review.add_argument("--amplitude", type=float, default=0.1)
     decide = sub.add_parser("record-mode-decision"); decide.add_argument("mode_review"); decide.add_argument("--decision", choices=["accepted", "rejected", "unclear"], required=True); decide.add_argument("--output", required=True); decide.add_argument("--confirmed", action="store_true")
@@ -1535,6 +1732,8 @@ def main() -> int:
     components = sub.add_parser("propose-endpoint-components"); components.add_argument("--endpoint-audit", required=True); components.add_argument("--irc-result", required=True); components.add_argument("--bond-scale", type=float, default=1.25); components.add_argument("--output", required=True)
     fragment_build = sub.add_parser("build-fragment-endpoints"); fragment_build.add_argument("--component-proposal", required=True); fragment_build.add_argument("--component-review", required=True); fragment_build.add_argument("--output-dir", required=True); fragment_build.add_argument("--route", required=True); fragment_build.add_argument("--memory", required=True); fragment_build.add_argument("--nprocshared", type=int, required=True)
     fragment_audit = sub.add_parser("audit-fragment-endpoints"); fragment_audit.add_argument("--plan", required=True); fragment_audit.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit.add_argument("--output", required=True)
+    path_accept = sub.add_parser("build-path-acceptance"); path_accept.add_argument("--family", required=True); path_accept.add_argument("--ts-result", required=True); path_accept.add_argument("--mode-review", required=True); path_accept.add_argument("--mode-decision", required=True); path_accept.add_argument("--forward-audit", required=True); path_accept.add_argument("--forward-input", required=True); path_accept.add_argument("--forward-log", required=True); path_accept.add_argument("--forward-result", required=True); path_accept.add_argument("--forward-job", required=True); path_accept.add_argument("--forward-checkpoint", required=True); path_accept.add_argument("--reverse-audit", required=True); path_accept.add_argument("--reverse-input", required=True); path_accept.add_argument("--reverse-log", required=True); path_accept.add_argument("--reverse-result", required=True); path_accept.add_argument("--reverse-job", required=True); path_accept.add_argument("--reverse-checkpoint", required=True); path_accept.add_argument("--output", required=True)
+    path_validate = sub.add_parser("validate-path-acceptance"); path_validate.add_argument("artifact")
     terminal = sub.add_parser("ingest-terminal"); terminal.add_argument("--template", required=True); terminal.add_argument("--input", required=True); terminal.add_argument("--job", required=True); terminal.add_argument("--log", required=True); terminal.add_argument("--output", required=True)
     args = parser.parse_args()
     try:
@@ -1548,7 +1747,38 @@ def main() -> int:
         elif args.command == "create-family":
             output_path = Path(args.output)
             if output_path.exists(): raise ValueError("refusing to overwrite an existing family manifest")
-            result = create_family_manifest(json.loads(Path(args.input_audit).read_text(encoding="utf-8")), json.loads(Path(args.protocol).read_text(encoding="utf-8")))
+            protocol = json.loads(Path(args.protocol).read_text(encoding="utf-8"))
+            maturity_path = Path(args.scientific_maturity).resolve()
+            maturity = _load_scientific_maturity()
+            maturity_check = maturity.assert_action(
+                maturity_path,
+                args.edge_id,
+                "ts_input",
+                pilot=args.pilot,
+                resource_tier=protocol.get("resource_tiers", {}).get("ts_freq", "simple"),
+                node_id=args.node_id,
+            )
+            maturity_document = maturity.validate_gate(maturity_path)
+            try:
+                maturity_relative = maturity_path.relative_to(output_path.parent.resolve()).as_posix()
+            except ValueError:
+                raise ValueError("scientific-maturity gate must share the TS family artifact root") from None
+            maturity_binding = {
+                "path": maturity_relative,
+                "sha256": sha256(maturity_path),
+                "size_bytes": maturity_path.stat().st_size,
+                "schema": maturity_document["schema"],
+                "payload_sha256": maturity_document["payload_sha256"],
+            }
+            result = create_family_manifest(
+                json.loads(Path(args.input_audit).read_text(encoding="utf-8")),
+                protocol,
+                maturity_check=maturity_check,
+                maturity_binding=maturity_binding,
+                edge_id=args.edge_id,
+                node_id=args.node_id,
+                pilot=args.pilot,
+            )
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "analyze-ts":
             result = analyze_ts_log_text(Path(args.log).read_text(encoding="utf-8", errors="replace")); result["log_sha256"] = sha256(Path(args.log)); Path(args.output).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
@@ -1563,7 +1793,32 @@ def main() -> int:
             if not args.confirmed: raise ValueError("IRC planning requires --confirmed after exact G3 approval")
             output_path = Path(args.output)
             if output_path.exists(): raise ValueError("refusing to overwrite an existing IRC plan")
-            result = build_irc_plan(json.loads(Path(args.family).read_text(encoding="utf-8")), Path(args.ts_result), Path(args.checkpoint), Path(args.mode_review), Path(args.mode_decision), args.g16_revision, args.forward_route, args.reverse_route, args.forward_project, args.reverse_project)
+            family_path = Path(args.family).resolve()
+            family_document = json.loads(family_path.read_text(encoding="utf-8"))
+            if family_document.get("schema") != SCHEMA_V2:
+                raise ValueError("new IRC planning requires gaussian-ts-irc-workflow/2; historical /1 is replay-only")
+            maturity_binding = family_document.get("scientific_maturity", {})
+            maturity_relative = Path(str(maturity_binding.get("path", "")))
+            if maturity_relative.is_absolute() or ".." in maturity_relative.parts:
+                raise ValueError("TS-family maturity binding must be portable and relative")
+            maturity_path = family_path.parent / maturity_relative
+            if not maturity_path.is_file() or sha256(maturity_path) != maturity_binding.get("sha256") or maturity_path.stat().st_size != maturity_binding.get("size_bytes"):
+                raise ValueError("TS-family scientific-maturity binding changed")
+            maturity = _load_scientific_maturity()
+            maturity_document = maturity.validate_gate(maturity_path)
+            if maturity_document.get("payload_sha256") != maturity_binding.get("payload_sha256"):
+                raise ValueError("TS-family scientific-maturity payload changed")
+            fresh_check = maturity.assert_action(
+                maturity_path,
+                family_document.get("mechanism_edge_id"),
+                "ts_input",
+                pilot=False,
+                resource_tier=family_document.get("protocol", {}).get("resource_tiers", {}).get("ts_freq", "simple"),
+                node_id=family_document.get("dag_node_id"),
+            )
+            if fresh_check != family_document.get("scientific_input_gate"):
+                raise ValueError("TS-family scientific input gate no longer matches owner reconstruction")
+            result = build_irc_plan(family_document, Path(args.ts_result), Path(args.checkpoint), Path(args.mode_review), Path(args.mode_decision), args.g16_revision, args.forward_route, args.reverse_route, args.forward_project, args.reverse_project)
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "audit-checkpoint":
             output_path = Path(args.output)
@@ -1602,6 +1857,14 @@ def main() -> int:
                 assignments[label] = parsed
             result = audit_fragment_endpoint_results(Path(args.plan), assignments["result"], assignments["job"])
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        elif args.command == "build-path-acceptance":
+            forward = {"audit": Path(args.forward_audit), "irc_input": Path(args.forward_input), "irc_log": Path(args.forward_log), "irc_result": Path(args.forward_result), "job": Path(args.forward_job), "checkpoint": Path(args.forward_checkpoint)}
+            reverse = {"audit": Path(args.reverse_audit), "irc_input": Path(args.reverse_input), "irc_log": Path(args.reverse_log), "irc_result": Path(args.reverse_result), "job": Path(args.reverse_job), "checkpoint": Path(args.reverse_checkpoint)}
+            result = build_path_acceptance_artifact(Path(args.family), Path(args.ts_result), Path(args.mode_review), Path(args.mode_decision), forward, reverse, Path(args.output))
+            print(json.dumps({"schema": "gaussian-ts-irc-path-acceptance-build/1", "edge_id": result["edge_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
+        elif args.command == "validate-path-acceptance":
+            result = validate_path_acceptance_artifact(Path(args.artifact))
+            print(json.dumps({"schema": "gaussian-ts-irc-path-acceptance-validation/1", "edge_id": result["edge_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
         else:
             output_path = Path(args.output)
             if output_path.exists(): raise ValueError("refusing to overwrite an existing terminal-intake result")

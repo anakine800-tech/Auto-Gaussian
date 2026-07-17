@@ -8,6 +8,18 @@ This repository is the version-controlled source of truth. Installed copies
 under `~/.codex/skills` are deployment targets and must not be edited
 independently.
 
+The current unreleased feature slice adds a prospective scientific-maturity
+overlay and minima-first TS hard gate. It preserves all historical `/1`
+records, requires two accepted Gaussian Opt/Freq zero-imaginary minima before
+formal TS input or submission, limits no-direct-precedent work to one reviewed
+`simple` pilot, and keeps scientific maturity, input review, and live approval
+as three independent gates. Minimum acceptance replays the exact raw log
+through the existing Gaussian owner parser; protected submissions additionally
+require an offline exact-scope binding for the DAG node, input hash, project,
+resource tier and task/core-hour/concurrency budget. That binding explicitly is
+not live approval. This checkout has not deployed or exercised that
+gate against SSH, PBS, Gaussian, or any live job.
+
 ## 2.3.0 release candidate
 
 Auto-Gaussian 2.3.0 release metadata was prepared on 2026-07-16 from reviewed
@@ -66,7 +78,10 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
 - `skills/auto-g16-conformer-search`: offline, hash-bound A/A1/A2 and B/B1/B2 conformer/complex discovery planning, supplied-candidate legality auditing, composite structural cross-validation, negative-evidence preservation, clustering, medoids, and candidate-only handoff. It never executes xTB, CREST, Gaussian, PBS, or SSH.
 - `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
-- `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks, imaginary-mode review artifacts, explicit mode promotion, and hash-bound forward/reverse IRC plans. It intentionally performs no network, PBS, or G16 execution.
+- `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks,
+  minima-gated prospective `/2` family creation, imaginary-mode review
+  artifacts, explicit mode promotion, and hash-bound forward/reverse IRC
+  plans. It intentionally performs no network, PBS, or G16 execution.
 - `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
   species registry, balance review, condition-to-model decisions, reviewed
   mechanism-network hypotheses, edge/channel mechanism-support classification,
@@ -82,7 +97,10 @@ retain their existing names for compatibility and provenance.
   handoffs; it does not own DAG node identities. A separate DAG-owned reviewed
   mapping can attach one exact external target to one `ts_candidate` through
   an append-only, non-promoting node update. Every calculation node remains
-  non-executable; these artifacts grant no calculation or live authorization.
+  non-executable. The scientific-maturity overlay adds explicit literature,
+  edge/channel, accepted-minimum, pilot/budget, TS/IRC, common-reference and
+  stop-condition gates and projects their blockers onto the exact DAG without
+  mutating it; these artifacts grant no calculation or live authorization.
 - `skills/auto-g16-reaction-literature`: offline-first query planning,
   Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
   screening, evidence templates and fail-closed source-review validation. It

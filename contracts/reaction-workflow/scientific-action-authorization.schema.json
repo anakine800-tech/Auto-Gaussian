@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/scientific-action-authorization.schema.json",
+  "title": "Auto-G16 exact offline scientific action authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "study_id", "scientific_maturity", "input", "scope", "scientific_action_check", "single_exact_scope_only", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-scientific-action-authorization/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "scientific_maturity": {"$ref": "#/$defs/jsonBinding"},
+    "input": {"$ref": "#/$defs/blobBinding"},
+    "scope": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "node_id", "action", "pilot", "project", "work_kind", "resource_tier", "task_count", "estimated_core_hours", "planned_concurrency"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"}, "node_id": {"$ref": "#/$defs/id"},
+        "action": {"const": "ts_submission"}, "pilot": {"type": "boolean"},
+        "project": {"type": "string", "pattern": "^[A-Za-z0-9_]{1,15}$"},
+        "work_kind": {"enum": ["ts_pilot", "formal_ts", "ts_scan"]},
+        "resource_tier": {"enum": ["simple", "general", "complex"]},
+        "task_count": {"type": "integer", "minimum": 1},
+        "estimated_core_hours": {"type": "integer", "minimum": 1},
+        "planned_concurrency": {"type": "integer", "minimum": 1}
+      }
+    },
+    "scientific_action_check": {"type": "object"},
+    "single_exact_scope_only": {"const": true},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "blobBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "jsonBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-scientific-maturity-gate/1"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    }
+  }
+}

@@ -17,6 +17,12 @@ Use this Skill for the scientific layer only. Use `auto-g16-rtwin-pbs` for the R
   require a separate hash-bound `gaussian-protocol-selection/1`. A
   selection is scoped to the exact stage and authorizes only its offline input
   draft; it does not authorize submission or another direction/stage.
+- Before prospective TS/Freq family creation, require one exact
+  `gaussian-scientific-maturity-gate/1` and mechanism edge. It must prove two
+  accepted, composition-compatible Gaussian minima. Missing or non-minimum
+  endpoints block both input creation and later submission. Historical
+  `gaussian-ts-irc-workflow/1` artifacts remain replayable; new CLI creation
+  emits `/2` with the exact maturity binding.
 - Treat protocol rigor as independent from the `simple`, `general` and
   `complex` resource tiers. `strict` is not an accuracy guarantee. Mark
   unsupported or scientifically unresolved candidates `blocked` rather than
@@ -34,7 +40,9 @@ Use this Skill for the scientific layer only. Use `auto-g16-rtwin-pbs` for the R
 
 1. Require reviewed structures, an explicit atom map and intended forming/breaking/transferring pairs. Read [references/protocol-contract.md](references/protocol-contract.md), create the three-candidate protocol proposal, obtain the exact stage-scoped selection, and choose resources separately before any input is written.
 2. Run `validate-inputs` for `single_guess`, `qst2`, or `qst3`. QST inputs must have exactly matching element order, charge, multiplicity, and declared atom map. This checks endpoints only; it does not certify raw G16 multi-structure text syntax.
-3. Create an immutable local family manifest. Bind its routes to the selected
+3. Create an immutable local family manifest with `--scientific-maturity`,
+   `--edge-id` and the exact reviewed `--node-id` (plus `--pilot` only for the reviewed one-candidate simple
+   pilot). Bind its routes to the selected
    protocol candidate and preserve the proposal/selection hashes. It neither
    submits nor writes to the server.
 4. After the user approves the exact TS project, use `auto-g16-rtwin-pbs` to stage and run the separately prepared TS/Freq input. Fetch the log and checkpoint before proceeding.
@@ -52,9 +60,15 @@ Use this Skill for the scientific layer only. Use `auto-g16-rtwin-pbs` for the R
    explicit direction, a passed checkpoint audit, and no
    title/charge/coordinates after the route. The builder refuses
    `ReCorrect=Never`.
-10. Only after exact IRC approval, use `plan-irc` to create two new, hash-bound PBS submission plans for a normal bidirectional family. Supply the verified installed G16 revision plus complete, verified routes containing explicit and non-swapped `Forward`/`Reverse` direction keywords—this Skill does not manufacture Gaussian IRC keywords. A one-direction diagnostic retry remains a fresh, separately approved project and does not replace two-direction validation.
+10. Only after exact IRC approval, use `plan-irc` to create two new, hash-bound PBS submission plans for a normal bidirectional family. New planning accepts only `gaussian-ts-irc-workflow/2`, revalidates its exact maturity binding and formal scientific input check, and propagates that binding into the IRC plan. Historical `/1` is validation/replay-only. Supply the verified installed G16 revision plus complete, verified routes containing explicit and non-swapped `Forward`/`Reverse` direction keywords—this Skill does not manufacture Gaussian IRC keywords. A one-direction diagnostic retry remains a fresh, separately approved project and does not replace two-direction validation.
 11. Submit each approved direction through `auto-g16-rtwin-pbs` into a fresh project, fetch results, then run `ingest-terminal` separately for each direction. `ready_for_endpoint_structure_review` means only that the numerical path reached a clean, direction-specific final point with the declared corrector evidence; it does not label the endpoint or validate the path. Never submit a replacement automatically.
 12. After both IRC directions complete and their structures are reviewed, run `audit-irc-endpoint` separately on each final point. Require direction-specific path completion, every expected point's corrector convergence, normal termination, matching log/result atom order and coordinates, a fetched job record, and an exact final IRC checkpoint hash. Chemical-side labels must come from reviewed structural evidence.
+    Then run `build-path-acceptance` to bind the formal family, TS result,
+    mode review/decision and both complete endpoint source bundles. Its owner
+    validator reconstructs both endpoint audits and requires one reactant and
+    one product side with identical composition/spin/atom order. This opens
+    only the next endpoint-minimum gate; it is not endpoint Opt/Freq or barrier
+    acceptance.
 13. For a connected endpoint, build the job with `build-allcheck-endpoint`. Require a separately approved route containing `Opt Freq Geom=AllCheck Guess=Read`, a fresh project, and an exact audited IRC checkpoint.
 14. For a disconnected endpoint, run `propose-endpoint-components`. Treat its covalent-radius connectivity as a review proposal only. Require a hash-bound `gaussian-irc-component-review/1` that explicitly accepts every atom partition and supplies each identity, fresh project, charge, multiplicity, and a spin-coupling note. Then run `build-fragment-endpoints`; it emits explicit Cartesian inputs and no submission authorization.
 15. Submit each fragment only after exact per-project approval. Run `audit-fragment-endpoints` on fetched results and require every fragment to optimize normally with a complete frequency calculation and zero imaginary frequencies. Report the electronic-energy sum only as an isolated-fragment electronic energy, never as a reaction Gibbs energy.
@@ -67,7 +81,8 @@ TOOL="$HOME/.codex/skills/auto-g16-ts-irc/scripts/ts_irc.py"
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" validate-inputs --mode qst2 \
   --reactant reactant.gjf --product product.gjf --atom-map atom_map.json
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" create-family --input-audit input_audit.json \
-  --protocol approved_protocol.json --output family.json
+  --protocol approved_protocol.json --scientific-maturity maturity-gate.json \
+  --edge-id reviewed_edge --node-id reviewed_pilot_node --pilot --output family.json
 
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" ingest-terminal \
   --template terminal-intake-template.json --input exact_input.gjf \
@@ -154,4 +169,8 @@ Do not label forward/reverse chemically until endpoint identity comparison. If a
 - `scripts/ts_irc.py`: deterministic offline validators, terminal-evidence intake, TS/Freq parser, displacement review artifacts, decision recording, checkpoint provenance/atom-order audits, coordinate-free AllCheck IRC and endpoint builders, endpoint evidence, and IRC plans.
 - `references/protocol-contract.md`: required manifest fields, result schemas, stages, and non-default decisions.
 
-For this repository's subsequent explicitly approved live development tests, propose the user-selected `general` tier (50 GB/22 cores). Still display the exact resources and obtain submission approval for every fresh project; unit tests remain offline.
+For any later explicitly approved TS pilot, propose `simple` (12 GB/8 cores)
+unless the maturity review binds successful-pilot evidence and a specific
+`general` (50 GB/22 cores) or `complex` (120 GB/44 cores) scale, memory and
+cost rationale. Still display the exact resources and obtain submission
+approval for every fresh project; unit tests remain offline.

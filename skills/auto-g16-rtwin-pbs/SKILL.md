@@ -13,6 +13,13 @@ unattended.
 
 ## Input-before protocol gate
 
+For a TS/QST route, first display and validate the reaction-workflow
+`gaussian-scientific-maturity-gate/1`. It shows maturity, evidence, accepted
+endpoint minima and blockers before route/resources/hash. Protocol selection
+cannot begin formal TS input review while this gate is blocked. A no-direct-
+precedent exception is limited to one reviewed simple-tier pilot after two
+accepted minima; it never establishes literature support.
+
 For every new calculation need, read
 [`references/protocol-rigor.md`](references/protocol-rigor.md) before writing a
 Gaussian input. First present exactly three reviewed protocol candidates named
@@ -70,7 +77,7 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 1. Resolve structure, stereochemistry, charge, multiplicity and scientific scope. For CDX/CDXML, rely on the corrected explicit-H/CFG importer in `auto-g16-view-rt-win`.
 2. Create the three-candidate protocol proposal, show every candidate and blocked reason, and record the user's hash-bound selection. Select the resource tier separately; use `general` when execution complexity is not clearly simple or complex.
 3. Only after selection, render or audit the offline input draft. Show source hash, identity, warnings, exact route, charge/multiplicity, atom count, cores, memory and remote directory. `gaussian_auto.py` refuses raw structures and SMILES so it cannot bypass this gate.
-4. After separate exact approval of the rendered input and job, record an `auto-g16-live-submission-approval/1` artifact binding every displayed field, then run the approved execution path. It submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
+4. After separate exact approval of the rendered input and job, record an `auto-g16-live-submission-approval/1` artifact for non-TS work or `/2` for TS work. `/2` also binds the exact maturity file/payload hashes, mechanism edge and pilot flag. It submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
 5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate. After terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
 6. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and create a new proposal and selection for any changed restart.
 
@@ -84,6 +91,9 @@ AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
 # Approved unattended run
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" auto /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example \
+  --scientific-maturity /path/to/maturity-gate.json --edge-id reviewed_edge \
+  --node-id reviewed_pilot_node --pilot --work-kind ts_pilot \
+  --scientific-action-authorization /path/to/scientific-action-authorization.json \
   --approval-record /path/to/live-submission-approval.json \
   --confirmed --watch
 ```
@@ -144,7 +154,9 @@ When the first route uses `Geom=AllCheck`, require a same-stem `gaussian-allchec
 ```bash
 HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 
-"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" preflight /path/to/job.gjf --project example
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" preflight /path/to/job.gjf --project example \
+  --scientific-maturity /path/to/maturity-gate.json --edge-id reviewed_edge \
+  --node-id reviewed_pilot_node --pilot --work-kind ts_pilot
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" submit /path/to/job.gjf --project example \
   --local-dir /path/to/bundle --confirmed
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" inspect --project example --job-id 563.master \

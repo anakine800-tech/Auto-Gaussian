@@ -5,6 +5,56 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- Added closed `gaussian-scientific-maturity-review/1` and
+  `gaussian-scientific-maturity-gate/1` contracts plus a standard-library-only
+  builder, validator, action check and deterministic DAG-node maturity
+  projection over an exact validated calculation plan.
+- Added auditable user literature/mechanism intake, ten-lane search saturation,
+  exact edge/channel evidence classes, two-endpoint minimum acceptance,
+  one-candidate pilot and task/core-hour/concurrency budgets, resource-upgrade
+  evidence, TS/IRC/endpoint validation state, common-reference thermochemistry
+  and the closed stop-condition set.
+- Added prospective `gaussian-ts-irc-workflow/2` creation and
+  `auto-g16-live-submission-approval/2` scope. TS family creation and PBS
+  preflight/submission reuse the reaction-workflow maturity owner validator.
+- Added `gaussian-scientific-action-authorization/1`, an offline-only exact
+  binding of one passed scientific gate to one DAG node, Gaussian input hash,
+  project, work kind, resource tier and task/core-hour/concurrency request.
+- Added owner-built `gaussian-ts-irc-path-acceptance/1`, which reconstructs
+  the accepted TS mode and both direction-specific IRC endpoint audits from
+  their exact input/log/result/job/checkpoint sources. Endpoint minimum and
+  thermochemistry acceptance remain later independent gates.
+
+### Changed
+
+- Formal TS input and submission now fail closed unless both exact endpoint
+  structures are accepted Gaussian minima with normal termination, converged
+  Opt, complete Freq, zero imaginary frequencies, identity/mapping review and
+  retained checkpoint/coordinates. Historical `/1` records remain immutable
+  and replayable.
+- Missing direct precedent may open only one explicitly reviewed `simple`
+  pilot after the endpoint gate; it does not replace mechanism-support or
+  TS-precedent owner validation and cannot support a formal mechanism claim.
+- Scientific approval summaries now lead with maturity, evidence, endpoints
+  and blockers before route, resources and input hash.
+- Minimum acceptance now replays exact bound raw logs through the existing
+  Gaussian parser and compares the parsed result, XYZ, element order and
+  mechanism-owner atom mapping. Hand-written or merely rehashed success facts
+  cannot open the TS gate. Historical TS-family `/1` artifacts are replay-only
+  for new IRC planning, and protected TS/scan/IRC routes require an explicit
+  work classification.
+
+### Safety
+
+- The implementation and validation path is offline. It adds no deployment,
+  SSH, PBS, Gaussian, submission, retry, cancellation, cleanup or remote-data
+  action, and every maturity artifact retains `calculation_ready: false` and
+  `no_submission_authorization: true`.
+- Exact scientific action authorization remains offline evidence only and
+  cannot replace the separately hash-bound live submission approval.
+
 ## [2.3.0] - 2026-07-16
 
 ### Changed

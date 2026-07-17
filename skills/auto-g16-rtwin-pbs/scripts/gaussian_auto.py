@@ -79,6 +79,25 @@ def prepare_source(args) -> dict[str, Any]:
         "purpose": "Existing audited Gaussian input",
     }
     audit = transport.parse_gaussian(gjf)
+    maturity = transport.audit_scientific_maturity(args, audit, "ts_input")
+    if maturity is not None and args.scientific_action_authorization:
+        owner = transport._load_scientific_maturity()
+        tier = transport._resource_tier(audit["mem"], audit["nprocshared"])
+        authorization_path = Path(args.scientific_action_authorization).expanduser().resolve()
+        authorization = owner.validate_action_authorization(
+            authorization_path,
+            gate_path=Path(args.scientific_maturity).expanduser().resolve(),
+            input_sha256=audit["input_sha256"], edge_id=args.edge_id, node_id=args.node_id,
+            project=project, work_kind=args.work_kind, resource_tier=tier,
+        )
+        maturity["exact_action_authorization"] = {
+            "sha256": transport.sha256(authorization_path),
+            "payload_sha256": authorization["payload_sha256"],
+            "node_id": authorization["scope"]["node_id"],
+            "project": authorization["scope"]["project"],
+            "input_sha256": authorization["input"]["sha256"],
+            "no_submission_authorization": True,
+        }
     summary = {
         "schema": "gaussian-auto-preflight/1",
         "project": project,
@@ -95,6 +114,10 @@ def prepare_source(args) -> dict[str, Any]:
         "warnings": [] if report is None else report.get("warnings", []),
         "automatic_retry_policy": "disabled; diagnose and require explicit approval",
     }
+    if maturity is not None:
+        # Approval material deliberately leads with scientific maturity,
+        # evidence/endpoints/blockers before protocol/resources/input hash.
+        summary = {"scientific_maturity": maturity, **summary}
     if workflow is not None:
         summary["workflow"] = workflow
     transport.atomic_json(local_dir / "automation_preflight.json", summary)
@@ -116,7 +139,19 @@ def validate_live_approval(path: Path, summary: dict[str, Any]) -> dict[str, Any
         "charge": summary["charge"],
         "multiplicity": summary["multiplicity"],
     }
-    if approval.get("schema") != "auto-g16-live-submission-approval/1":
+    expected_schema = "auto-g16-live-submission-approval/2" if "scientific_maturity" in summary else "auto-g16-live-submission-approval/1"
+    if "scientific_maturity" in summary:
+        maturity = summary["scientific_maturity"]
+        expected["scientific_maturity"] = {
+            "edge_id": maturity["edge_id"],
+            "pilot": maturity["pilot"],
+            "maturity_gate_sha256": maturity["maturity_gate_sha256"],
+            "maturity_gate_payload_sha256": maturity["maturity_gate_payload_sha256"],
+            "node_id": maturity["node_id"],
+            "scientific_action_authorization_sha256": maturity["exact_action_authorization"]["sha256"],
+            "scientific_action_authorization_payload_sha256": maturity["exact_action_authorization"]["payload_sha256"],
+        }
+    if approval.get("schema") != expected_schema:
         fail("live approval record has the wrong schema")
     if approval.get("decision") != "approved" or approval.get("explicit_confirmation") is not True:
         fail("live approval record lacks an explicit approved decision")
@@ -151,6 +186,8 @@ def command_auto(args) -> None:
     if not args.confirmed:
         fail("auto requires --confirmed after exact live approval")
     summary = prepare_source(args)
+    if "scientific_maturity" in summary and "exact_action_authorization" not in summary["scientific_maturity"]:
+        fail("protected auto submission requires an exact offline scientific action authorization before live approval")
     if not args.dry_run:
         if not args.approval_record:
             fail("a hash-bound --approval-record is required for live submission")
@@ -163,6 +200,14 @@ def command_auto(args) -> None:
         "--project", args.project, "--local-dir", args.local_dir, "--confirmed",
         *connection_arguments(args),
     ]
+    if args.scientific_maturity:
+        submit_command.extend(["--scientific-maturity", args.scientific_maturity, "--edge-id", args.edge_id, "--node-id", args.node_id])
+    if args.pilot:
+        submit_command.append("--pilot")
+    if args.work_kind:
+        submit_command.extend(["--work-kind", args.work_kind])
+    if args.scientific_action_authorization:
+        submit_command.extend(["--scientific-action-authorization", args.scientific_action_authorization])
     if args.dry_run:
         submit_command.append("--dry-run")
     submitted = subprocess.run(submit_command)
@@ -192,6 +237,7 @@ def add_prepare_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source", help="existing reviewed .gjf/.com input")
     parser.add_argument("--project", required=True)
     parser.add_argument("--local-dir", required=True)
+    transport.add_scientific_maturity_options(parser)
 
 
 def build_parser() -> argparse.ArgumentParser:

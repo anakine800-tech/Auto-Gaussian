@@ -279,7 +279,9 @@ class TsIrcTests(unittest.TestCase):
             TS.record_mode_decision(root / "review" / "mode_review.json", "accepted", decision_path)
             self.assertEqual(json.loads(result_path.read_text())["mode_review_status"], "pending")
             checkpoint = root / "ts.chk"; checkpoint.write_bytes(b"checkpoint")
-            plan = TS.build_irc_plan({"schema": TS.SCHEMA, "workflow_id": "test"}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir")
+            with self.assertRaisesRegex(ValueError, "replay-only"):
+                TS.build_irc_plan({"schema": TS.SCHEMA, "workflow_id": "test"}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir")
+            plan = TS.build_irc_plan({"schema": TS.SCHEMA, "workflow_id": "test"}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir", allow_historical_replay=True)
             self.assertEqual(plan["submission_status"], "planned_not_submitted")
             self.assertEqual(plan["g16_revision"], "A.03")
 
@@ -292,16 +294,16 @@ class TsIrcTests(unittest.TestCase):
             TS.record_mode_decision(root / "review" / "mode_review.json", "accepted", decision_path)
             checkpoint = root / "ts.chk"; checkpoint.write_bytes(b"checkpoint")
             with self.assertRaises(ValueError):
-                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Reverse)", "#p IRC=(Forward)", "abc_if", "abc_ir")
+                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Reverse)", "#p IRC=(Forward)", "abc_if", "abc_ir", allow_historical_replay=True)
             review_path = root / "review" / "mode_review.json"
             review = json.loads(review_path.read_text())
             review_path.write_text(json.dumps({**review, "amplitude": 0.2}))
             with self.assertRaises(ValueError):
-                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, review_path, decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir")
+                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, review_path, decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir", allow_historical_replay=True)
             review_path.write_text(json.dumps(review, indent=2) + "\n")
             result_path.write_text(json.dumps({**result, "diagnostics": ["changed"]}))
             with self.assertRaises(ValueError):
-                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir")
+                TS.build_irc_plan({"schema": TS.SCHEMA}, result_path, checkpoint, root / "review" / "mode_review.json", decision_path, "A.03", "#p IRC=(Forward)", "#p IRC=(Reverse)", "abc_if", "abc_ir", allow_historical_replay=True)
 
     def test_family_manifest_requires_explicit_routes_and_tiers(self) -> None:
         audit = {"schema": TS.SCHEMA, "valid": True}

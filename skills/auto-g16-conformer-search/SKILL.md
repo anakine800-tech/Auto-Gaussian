@@ -37,6 +37,11 @@ search or calculation.
 8. Run `handoff` only after human review of selected medoids. The handoff stays
    `candidate_only: true`, `calculation_ready: false`, and
    `no_submission_authorization: true`.
+9. Treat the first downstream purpose as minimum discovery. Gaussian Opt/Freq
+   must accept the relevant reactant and product minima before any formal TS
+   family consumes conformer evidence. A TS conformer may be derived only from
+   an accepted reactant-minimum lineage recorded by the reaction-workflow
+   scientific-maturity gate.
 
 ## Commands
 
@@ -58,6 +63,8 @@ All writers refuse overwrite. Use new output paths and an explicit
   constraint semantics.
 - Do not mix force-field, xTB, annealing, or route-weight values into final
   thermodynamic ranking.
+- Never report FF/xTB energies as formal barriers or use geometry-only face,
+  angle or distance enumeration to promote a mechanism edge or formal TS.
 - Do not execute argv templates or version probes from this Skill.
 - Use `auto-g16-view-rt-win` for R08 preparation and visual review.
 - Use specialist workflows for unsupported electronic-structure cases.

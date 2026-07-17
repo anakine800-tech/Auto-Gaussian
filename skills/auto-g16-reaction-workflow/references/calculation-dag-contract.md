@@ -243,6 +243,13 @@ always has `read_only: true`, `calculation_ready: false`, and
 
 ## Specialist ownership
 
+The prospective `gaussian-scientific-maturity-gate/1` is an immutable overlay
+on one exact validated calculation plan. It does not mutate `/1` node readiness;
+it deterministically projects additional minima-first blockers as
+`dag_node_gates`. TS and PBS owners must consume that projection before formal
+input or submission. Missing endpoint minima therefore remain programmatically
+blocked even when another DAG availability blocker is later resolved.
+
 This orchestration slice preserves existing ownership boundaries:
 
 - reaction-literature owns literature evidence; the origin evidence-gate

@@ -2,6 +2,15 @@
 
 ## Input-before protocol proposal
 
+Prospectively, a TS/Freq family first requires the exact owner-validated
+`gaussian-scientific-maturity-gate/1` and mechanism edge. The gate must bind two
+accepted, composition-compatible Gaussian minima and pass `ts_input` (or the
+explicit one-candidate `simple` pilot check). Protocol selection cannot repair
+or bypass a missing minimum. New family creation emits
+`gaussian-ts-irc-workflow/2` with that binding plus the exact reviewed pilot or
+formal DAG node; historical `/1` artifacts remain
+immutable and replayable.
+
 Before any TS/Freq, IRC, endpoint or fragment Gaussian input is written, use
 the core `auto-g16-rtwin-pbs` protocol-rigor contract. Create an immutable
 `gaussian-protocol-options/1` proposal containing exactly `loose`, `standard`
@@ -77,6 +86,12 @@ For a same-input `Opt ... Freq` calculation, parse only a post-terminal fetch. T
 
 `gaussian-irc-plan/1` is a local submission plan, not a job. It records the verified G16 revision, direction, reviewed TS-result hash, accepted mode-decision hash, checkpoint hash, supplied route, resource tier, and fresh project. It must be handed to the PBS layer only after G3 approval.
 
+Prospective `plan-irc` creation accepts only `gaussian-ts-irc-workflow/2`,
+revalidates the exact bound maturity gate and its formal, non-pilot TS-input
+action check, and carries that binding into the IRC plan. Historical family
+`/1` remains readable only through the explicit replay path and cannot
+authorize a new plan.
+
 The protocol-selection hash and selected stage payload must also remain bound
 to the input/plan lineage. A changed proposal, selection, route, resource value
 or source hash invalidates the draft and requires a new selection.
@@ -86,6 +101,14 @@ or source hash invalidates the draft and requires a new selection.
 `gaussian-allcheck-input-manifest/1` accompanies a coordinate-free continuation input of the same stem. Require `%oldchk` to match the audited checkpoint basename and hash, `%chk` to be distinct, and the route to contain the approved direction plus `RCFC Geom=AllCheck Guess=Read`. Put no title, charge/multiplicity line, or coordinates after the route. Reject changed input/checkpoint hashes, `ReCorrect=Never`, unresolved warnings, and atom-order records that are not contiguous and one-based.
 
 `gaussian-irc-endpoint-audit/1` binds one direction's final completed point to the fetched IRC checkpoint, input, log, parsed result, and local job record. Require the declared final point, direction-specific completion, corrector convergence evidence for every expected point, normal termination, matching final log/result atom order and coordinates, and reviewed forming-bond distances. A reactant/product label is review evidence, not proof of a minimum.
+
+`gaussian-ts-irc-path-acceptance/1` is the next immutable owner artifact. It
+binds a formal non-pilot TS-family `/2`, TS result, accepted mode review and
+decision, plus both directions' exact audit/input/log/result/job/checkpoint
+bundles. Validation rechecks the family maturity binding, specialist TS mode
+arithmetic and both endpoint audits from their raw sources; it requires one
+reactant and one product side with equal charge, multiplicity and atom order.
+It does not prove either endpoint is a minimum and grants no live authority.
 
 For an endpoint continuation, reuse `gaussian-allcheck-input-manifest/1` with `continuation_kind: endpoint_opt_freq`. Require an approved route containing `Opt Freq Geom=AllCheck Guess=Read` and forbid IRC or TS optimization keywords. The `%oldchk` hash must match the endpoint audit and the input must contain no explicit molecule specification.
 

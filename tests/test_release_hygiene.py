@@ -47,7 +47,9 @@ class ReleaseHygieneTests(unittest.TestCase):
         changelog = (ROOT / "CHANGELOG.md").read_text()
         pyproject = (ROOT / "pyproject.toml").read_text()
         self.assertRegex(pyproject, r'(?m)^version = "2\.3\.0"$')
-        self.assertIn("## [Unreleased]\n\n## [2.3.0] - 2026-07-16", changelog)
+        unreleased = changelog.index("## [Unreleased]\n")
+        current_release = changelog.index("## [2.3.0] - 2026-07-16")
+        self.assertLess(unreleased, current_release)
         self.assertIn(
             "[Unreleased]: https://github.com/anakine800-tech/"
             "Auto-Gaussian/compare/v2.3.0...HEAD",

@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/scientific-maturity-review.schema.json",
+  "title": "Auto-G16 scientific maturity review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "review_id", "study_id", "calculation_plan_payload_sha256",
+    "literature_and_user_intake", "edge_reviews", "minimum_records",
+    "pilot_and_budget", "path_validation", "reference_thermochemistry",
+    "stop_conditions", "review_decision", "reviewer", "reviewed_at",
+    "review_notes", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-scientific-maturity-review/1"},
+    "review_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "calculation_plan_payload_sha256": {"$ref": "#/$defs/sha"},
+    "literature_and_user_intake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_seeds", "active_species_hypotheses", "elementary_step_hypotheses", "experimental_intermediate_evidence", "coverage_lanes", "search_saturation", "key_literature_no_obvious_omissions_confirmed"],
+      "properties": {
+        "user_seeds": {"type": "array", "items": {"$ref": "#/$defs/userSeed"}},
+        "active_species_hypotheses": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hypothesis"}},
+        "elementary_step_hypotheses": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "experimental_intermediate_evidence": {"type": "array", "items": {"type": "object"}},
+        "coverage_lanes": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"$ref": "#/$defs/coverageLane"}},
+        "search_saturation": {"$ref": "#/$defs/searchSaturation"},
+        "key_literature_no_obvious_omissions_confirmed": {"type": "boolean"}
+      }
+    },
+    "edge_reviews": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/edgeReview"}},
+    "minimum_records": {"type": "array", "items": {"$ref": "#/$defs/minimum"}},
+    "pilot_and_budget": {"$ref": "#/$defs/pilotAndBudget"},
+    "path_validation": {"type": "array", "items": {"$ref": "#/$defs/pathValidation"}},
+    "reference_thermochemistry": {"$ref": "#/$defs/referenceThermochemistry"},
+    "stop_conditions": {
+      "type": "array", "minItems": 8, "maxItems": 8, "uniqueItems": true,
+      "items": {"enum": ["key_literature_unverified", "active_state_unresolved", "endpoint_not_minimum", "low_cost_scan_unsupported", "pilot_wrong_imaginary_mode", "xtb_or_dft_state_collapse", "composition_or_mapping_mismatch", "budget_exceeded_without_new_information"]}
+    },
+    "review_decision": {"enum": ["accepted", "accepted_with_blockers", "blocked"]},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "minLength": 1},
+    "review_notes": {"type": "array", "items": {"type": "string"}},
+    "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "pair": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/id"}},
+    "blobBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "observationBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema"],
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-opt-freq-sp-result/1"}}
+    },
+    "userSeed": {
+      "type": "object", "additionalProperties": false,
+      "required": ["seed_id", "kind", "value", "authority", "verification_status"],
+      "properties": {
+        "seed_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["paper", "author", "research_group", "doi", "title", "screenshot", "supporting_information"]},
+        "value": {"type": "string", "minLength": 1}, "authority": {"enum": ["user_hypothesis", "verifiable_seed"]},
+        "verification_status": {"enum": ["unverified", "verified", "not_verifiable"]}
+      }
+    },
+    "hypothesis": {
+      "type": "object", "additionalProperties": false,
+      "required": ["hypothesis_id", "description", "authority", "status"],
+      "properties": {"hypothesis_id": {"$ref": "#/$defs/id"}, "description": {"type": "string", "minLength": 1}, "authority": {"enum": ["user_hypothesis", "verifiable_seed"]}, "status": {"enum": ["unresolved", "reviewed_hypothesis", "rejected"]}}
+    },
+    "coverageLane": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lane_id", "status", "scope_or_queries", "evidence_refs", "limitations"],
+      "properties": {
+        "lane_id": {"enum": ["exact_system", "same_catalyst_reaction", "same_substrate_class", "bph3_hbpin_activation", "pyridine_regioselectivity", "active_state_ion_pair_lewis_adduct", "computational_mechanism_ts_irc_selectivity", "backward_citation_chain", "forward_citation_chain", "fulltext_si_coordinates"]},
+        "status": {"enum": ["searched", "not_applicable", "blocked"]},
+        "scope_or_queries": {"type": "array", "items": {"type": "string"}}, "evidence_refs": {"type": "array", "items": {"type": "string"}}, "limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "edgeReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "stereochemical_channel", "path_role", "path_confirmed_by_user", "evidence_class", "evidence_refs", "start_minimum_id", "end_minimum_id", "active_species_hypothesis_id", "active_species", "step_type", "forming_bonds", "breaking_bonds", "transferred_atom_ids", "expected_reaction_coordinate", "ts_strategy", "pilot_node_ids", "formal_ts_node_ids", "low_cost_scan_support", "blockers"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"type": ["string", "null"]}, "path_role": {"enum": ["primary", "competing"]}, "path_confirmed_by_user": {"type": "boolean"},
+        "evidence_class": {"enum": ["direct_literature", "analogous_literature", "user_hypothesis", "internal_exploratory_hypothesis", "missing_precedent"]},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}}, "start_minimum_id": {"$ref": "#/$defs/id"}, "end_minimum_id": {"$ref": "#/$defs/id"},
+        "active_species_hypothesis_id": {"$ref": "#/$defs/id"}, "active_species": {"type": "string", "minLength": 1}, "step_type": {"type": "string", "minLength": 1},
+        "forming_bonds": {"type": "array", "items": {"$ref": "#/$defs/pair"}}, "breaking_bonds": {"type": "array", "items": {"$ref": "#/$defs/pair"}}, "transferred_atom_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+        "expected_reaction_coordinate": {"type": "string", "minLength": 1}, "ts_strategy": {"$ref": "#/$defs/tsStrategy"},
+        "pilot_node_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}}, "formal_ts_node_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+        "low_cost_scan_support": {"enum": ["supported", "not_run", "unsupported"]}, "blockers": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "minimum": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum_id", "state_id", "composition_signature", "formal_charge", "multiplicity", "atom_order", "conformer_origin", "source_log", "workflow_settings", "result", "checkpoint", "optimized_coordinates", "acceptance_facts", "decision", "reviewer", "notes"],
+      "properties": {
+        "minimum_id": {"$ref": "#/$defs/id"}, "state_id": {"$ref": "#/$defs/id"}, "composition_signature": {"type": "string", "minLength": 1},
+        "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1}, "atom_order": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}},
+        "conformer_origin": {"$ref": "#/$defs/conformerOrigin"}, "source_log": {"$ref": "#/$defs/blobBinding"},
+        "workflow_settings": {
+          "type": "object", "additionalProperties": false,
+          "required": ["temperature_k", "standard_state", "expected_stages"],
+          "properties": {"temperature_k": {"type": "number", "exclusiveMinimum": 0}, "standard_state": {"enum": ["1atm", "1M"]}, "expected_stages": {"type": "integer", "minimum": 2}}
+        },
+        "result": {"$ref": "#/$defs/observationBinding"}, "checkpoint": {"$ref": "#/$defs/blobBinding"}, "optimized_coordinates": {"$ref": "#/$defs/blobBinding"},
+        "acceptance_facts": {"$ref": "#/$defs/minimumAcceptanceFacts"}, "decision": {"enum": ["accepted", "rejected", "pending"]}, "reviewer": {"type": "string", "minLength": 1}, "notes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "pathValidation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "ts_exactly_one_imaginary", "mode_confirmed_along_coordinate", "irc_forward_terminated", "irc_reverse_terminated", "irc_endpoints_identified", "endpoint_reopt_freq_zero_imaginary", "endpoint_matches_expected_minima", "evidence_refs", "ts_mode_evidence", "irc_path_evidence", "energy_lineage", "endpoint_reopt_minimum_ids", "status", "blockers"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"},
+        "ts_exactly_one_imaginary": {"type": "boolean"}, "mode_confirmed_along_coordinate": {"type": "boolean"},
+        "irc_forward_terminated": {"type": "boolean"}, "irc_reverse_terminated": {"type": "boolean"}, "irc_endpoints_identified": {"type": "boolean"},
+        "endpoint_reopt_freq_zero_imaginary": {"type": "boolean"}, "endpoint_matches_expected_minima": {"type": "boolean"},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "ts_mode_evidence": {"anyOf": [{"$ref": "#/$defs/attemptLinkBinding"}, {"type": "null"}]},
+        "irc_path_evidence": {"anyOf": [{"$ref": "#/$defs/pathAcceptanceBinding"}, {"type": "null"}]},
+        "energy_lineage": {"anyOf": [{"$ref": "#/$defs/energyLineageBinding"}, {"type": "null"}]},
+        "endpoint_reopt_minimum_ids": {"type": "array", "minItems": 0, "maxItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "status": {"enum": ["not_started", "incomplete", "accepted", "rejected"]},
+        "blockers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "pathAcceptanceBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-ts-irc-path-acceptance/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "attemptLinkBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-calculation-attempt-link/1"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "energyLineageBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-energy-lineage/1"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "searchSaturation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["direct", "analogous", "fulltext_or_si_missing", "user_provided_unverified", "unresolved_questions", "decision", "rationale"],
+      "properties": {
+        "direct": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "analogous": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "fulltext_or_si_missing": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "user_provided_unverified": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "unresolved_questions": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "decision": {"enum": ["saturated_for_current_scope", "gaps_remain", "blocked"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "tsStrategy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "basis", "approved", "reviewer", "rationale"],
+      "properties": {"kind": {"enum": ["qst2", "qst3", "relaxed_scan", "single_guess"]}, "basis": {"enum": ["literature_precedent", "human_approved"]}, "approved": {"type": "boolean"}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}}
+    },
+    "conformerOrigin": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scope", "source_id", "ts_derivation_allowed"],
+      "properties": {"scope": {"const": "minimum_search"}, "source_id": {"$ref": "#/$defs/id"}, "ts_derivation_allowed": {"type": "boolean"}}
+    },
+    "minimumAcceptanceFacts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["normal_termination", "optimization_converged", "frequency_complete", "imaginary_frequency_count", "connectivity_identity_reviewed", "composition_reviewed", "charge_multiplicity_reviewed", "atom_order_mapping_reviewed", "duplicate_reviewed", "weak_binding_intact_or_not_applicable", "low_frequency_flagged", "checkpoint_retained", "optimized_coordinates_retained"],
+      "properties": {
+        "normal_termination": {"type": "boolean"}, "optimization_converged": {"type": "boolean"}, "frequency_complete": {"type": "boolean"}, "imaginary_frequency_count": {"type": "integer", "minimum": 0},
+        "connectivity_identity_reviewed": {"type": "boolean"}, "composition_reviewed": {"type": "boolean"}, "charge_multiplicity_reviewed": {"type": "boolean"}, "atom_order_mapping_reviewed": {"type": "boolean"},
+        "duplicate_reviewed": {"type": "boolean"}, "weak_binding_intact_or_not_applicable": {"type": "boolean"}, "low_frequency_flagged": {"type": "boolean"}, "checkpoint_retained": {"type": "boolean"}, "optimized_coordinates_retained": {"type": "boolean"}
+      }
+    },
+    "pilotAndBudget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["default_resource_tier", "primary_candidates_per_edge", "competing_candidates_per_edge", "no_automatic_expansion", "no_automatic_retry_or_chemistry_change", "task_budget", "resource_upgrades"],
+      "properties": {
+        "default_resource_tier": {"const": "simple"}, "primary_candidates_per_edge": {"const": 1}, "competing_candidates_per_edge": {"enum": [0, 1]},
+        "no_automatic_expansion": {"const": true}, "no_automatic_retry_or_chemistry_change": {"const": true},
+        "task_budget": {"type": "object", "additionalProperties": false, "required": ["max_tasks", "max_core_hours", "max_concurrent", "status"], "properties": {"max_tasks": {"type": "integer", "minimum": 1}, "max_core_hours": {"type": "integer", "minimum": 1}, "max_concurrent": {"type": "integer", "minimum": 1}, "status": {"enum": ["within_budget", "exceeded", "not_assessed"]}}},
+        "resource_upgrades": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "referenceThermochemistry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["common_reference_inventory", "same_composition", "standard_state", "temperature_k", "solvent_model_identity", "catalyst_regeneration_relation", "local_and_apparent_barriers_distinguished", "minima_and_ts_conformer_coverage", "weak_complex_low_frequency_flags", "low_frequency_policy_status", "energies_retained", "sensitivity_scope"],
+      "properties": {
+        "common_reference_inventory": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true}, "same_composition": {"const": true}, "standard_state": {"const": "1M"}, "temperature_k": {"type": "number", "exclusiveMinimum": 0},
+        "solvent_model_identity": {"type": "string", "minLength": 1}, "catalyst_regeneration_relation": {"type": "string", "minLength": 1}, "local_and_apparent_barriers_distinguished": {"const": true}, "minima_and_ts_conformer_coverage": {"const": true}, "weak_complex_low_frequency_flags": {"const": true},
+        "low_frequency_policy_status": {"const": "approved_before_thermochemistry"}, "energies_retained": {"type": "object", "additionalProperties": false, "required": ["electronic", "enthalpy", "raw_gibbs", "treated_gibbs"], "properties": {"electronic": {"const": true}, "enthalpy": {"const": true}, "raw_gibbs": {"const": true}, "treated_gibbs": {"const": true}}}, "sensitivity_scope": {"const": "few_optimized_representatives_only"}
+      }
+    }
+  }
+}
