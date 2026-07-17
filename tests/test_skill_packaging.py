@@ -40,6 +40,7 @@ class SkillPackagingTests(unittest.TestCase):
         open_shell = package.package_files(ROOT, "auto-g16-main-group-open-shell")
         conformer = package.package_files(ROOT, "auto-g16-conformer-search")
         rtwin = package.package_files(ROOT, "auto-g16-rtwin-pbs")
+        ts_irc = package.package_files(ROOT, "auto-g16-ts-irc")
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/candidate-target-import.schema.json")],
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
@@ -99,6 +100,14 @@ class SkillPackagingTests(unittest.TestCase):
         self.assertEqual(
             rtwin[Path("contracts/rtwin-pbs/input-approval-receipt.schema.json")],
             ROOT / "contracts/rtwin-pbs/input-approval-receipt.schema.json",
+        )
+        self.assertEqual(
+            ts_irc[Path("contracts/qst-raw-input-syntax-audit.schema.json")],
+            ROOT / "skills/auto-g16-ts-irc/contracts/qst-raw-input-syntax-audit.schema.json",
+        )
+        self.assertEqual(
+            ts_irc[Path("contracts/installed-g16-qst-syntax-evidence.schema.json")],
+            ROOT / "skills/auto-g16-ts-irc/contracts/installed-g16-qst-syntax-evidence.schema.json",
         )
         self.assertFalse(
             (ROOT / "skills/auto-g16-reaction-workflow/contracts").exists(),
@@ -290,6 +299,12 @@ class SkillPackagingTests(unittest.TestCase):
             self.assertIn("build-receipt", manual_help.stdout)
             self.assertTrue(
                 (installed / "auto-g16-knowledge-base/contracts/knowledge-base/manual-evidence-receipt.schema.json").is_file()
+            )
+            self.assertTrue(
+                (installed / "auto-g16-ts-irc/contracts/qst-raw-input-syntax-audit.schema.json").is_file()
+            )
+            self.assertTrue(
+                (installed / "auto-g16-ts-irc/contracts/installed-g16-qst-syntax-evidence.schema.json").is_file()
             )
             owner_loader_smoke = "\n".join(
                 (
