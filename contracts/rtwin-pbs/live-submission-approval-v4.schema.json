@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/live-submission-approval-v4.schema.json",
+  "title": "Auto-G16 main-group open-shell minimum live-submission approval v4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "decision", "explicit_confirmation", "scope", "authorizations"],
+  "properties": {
+    "schema": {"const": "auto-g16-live-submission-approval/4"},
+    "decision": {"const": "approved"},
+    "explicit_confirmation": {"const": true},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "remote_workdir", "input_sha256", "route", "mem", "nprocshared", "charge", "multiplicity", "work_kind", "input_approval", "open_shell_owner"],
+      "properties": {
+        "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "remote_workdir": {"type": "string", "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "route": {"type": "string", "pattern": "^#"},
+        "mem": {"type": "string", "minLength": 1},
+        "nprocshared": {"type": "integer", "minimum": 1, "maximum": 44},
+        "charge": {"type": "integer"},
+        "multiplicity": {"enum": [2, 3]},
+        "work_kind": {"const": "minimum"},
+        "input_approval": {"$ref": "#/$defs/inputApproval"},
+        "open_shell_owner": {"$ref": "#/$defs/openShellOwner"}
+      }
+    },
+    "authorizations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["create_server_directory", "submit", "retry", "cancel", "cleanup", "delete_server_data"],
+      "properties": {
+        "create_server_directory": {"const": true},
+        "submit": {"const": true},
+        "retry": {"const": false},
+        "cancel": {"const": false},
+        "cleanup": {"const": false},
+        "delete_server_data": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "inputApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "sha256", "payload_sha256", "input_sha256", "work_kind"],
+      "properties": {
+        "schema": {"const": "gaussian-input-approval-receipt/2"},
+        "sha256": {"$ref": "#/$defs/sha"},
+        "payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "work_kind": {"const": "minimum"}
+      }
+    },
+    "openShellOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "workflow", "electronic_state_review_payload_sha256", "input_handoff_payload_sha256", "input_audit_payload_sha256", "selected_option_payload_sha256", "input_sha256", "exact_route", "charge", "multiplicity", "reference_family", "resources", "owner_replay_passed"],
+      "properties": {
+        "owner": {"const": "auto-g16-main-group-open-shell"},
+        "workflow": {"const": "main_group_open_shell_minimum_opt_freq_v1"},
+        "electronic_state_review_payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_handoff_payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_audit_payload_sha256": {"$ref": "#/$defs/sha"},
+        "selected_option_payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "exact_route": {"type": "string", "pattern": "^#"},
+        "charge": {"type": "integer"},
+        "multiplicity": {"enum": [2, 3]},
+        "reference_family": {"enum": ["U", "RO"]},
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["resource_tier", "mem_gb", "cores"],
+          "properties": {
+            "resource_tier": {"type": "string", "minLength": 1},
+            "mem_gb": {"type": "integer", "minimum": 1},
+            "cores": {"type": "integer", "minimum": 1, "maximum": 44}
+          }
+        },
+        "owner_replay_passed": {"const": true}
+      }
+    }
+  }
+}

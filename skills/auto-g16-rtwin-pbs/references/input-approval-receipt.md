@@ -85,10 +85,13 @@ keywords. Link1, repeated top-level optimization keywords, QST2/QST3, IRC,
 scan, FOpt/POpt, and checkpoint-derived inputs remain blocked.
 
 Receipt `/2` is offline input approval only. It retains
-`calculation_ready: false` and `no_submission_authorization: true`; the current
-live-submission approval `/3` accepts only generic receipt `/1`, so `/2` cannot
-be used for live submission without a future separately reviewed live-contract
-extension. No `/1` artifact requires migration.
+`calculation_ready: false` and `no_submission_authorization: true`.
+Live-submission `/3` continues to accept only generic receipt `/1`. A separate
+closed live-submission `/4` may accept `/2` only after the receipt has fully
+replayed all owners and only for the same exact main-group open-shell minimum.
+The `/4` decision remains a separate human-created approval; receipt building,
+validation, prepare and dry-run never manufacture it. No `/1` artifact requires
+migration.
 
 ## Offline commands
 
@@ -131,7 +134,8 @@ no-clobber publication. An existing or concurrently created destination fails;
 immutable review/receipt files are never replaced in place.
 
 For `submit`, transport first captures one unique durable non-symlink snapshot
-of the source input. Input approval, scientific authorization and live `/3`
+of the source input. Input approval, scientific authorization and live `/3` or
+`/4`
 are replayed against that snapshot; staging copies only those captured bytes.
 The staged input facts and every upload-file hash are rechecked before the
 first network action and again before transfer. Approval receipt file hashes

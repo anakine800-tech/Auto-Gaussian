@@ -92,6 +92,8 @@ def prepare_source(args, *, maturity_action: str = "ts_input") -> dict[str, Any]
     summary = transport.live_approval_summary(
         project, audit, maturity, requested_work_kind, input_approval
     )
+    if input_approval["status"] == "validated_exact_input_approval":
+        summary["live_approval_requirement"] = transport.live_approval_scope_proposal(summary)
     summary = {**summary, **detail}
     if workflow is not None:
         summary["workflow"] = workflow
@@ -182,7 +184,13 @@ def add_prepare_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source", help="existing reviewed .gjf/.com input")
     parser.add_argument("--project", required=True)
     parser.add_argument("--local-dir", required=True)
-    parser.add_argument("--input-approval-record", help=f"owner-validated {transport.INPUT_APPROVAL_SCHEMA} required for live submission")
+    parser.add_argument(
+        "--input-approval-record",
+        help=(
+            f"owner-validated {transport.INPUT_APPROVAL_SCHEMA} for ordinary/closed-shell minimum, "
+            f"or fully replayed {transport.OPEN_SHELL_INPUT_APPROVAL_SCHEMA} for main-group open-shell minimum"
+        ),
+    )
     transport.add_scientific_maturity_options(parser)
 
 
@@ -195,7 +203,10 @@ def build_parser() -> argparse.ArgumentParser:
     auto = sub.add_parser("auto", help="prepare, submit once, watch, fetch, and analyze")
     add_prepare_options(auto)
     auto.add_argument("--confirmed", action="store_true")
-    auto.add_argument("--approval-record")
+    auto.add_argument(
+        "--approval-record",
+        help="exact live-submission approval /3 for receipt /1 or /4 for owner-replayed open-shell receipt /2",
+    )
     auto.add_argument("--watch", action="store_true")
     auto.add_argument("--dry-run", action="store_true")
     auto.add_argument("--output-dir")

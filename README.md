@@ -15,8 +15,12 @@ state, exact minimum Opt/Freq handoff and passed input audit in addition to the
 selected protocol, mapping, resources and exact input SHA-256. It recognizes
 `optimization`/`frequency` with composite `opt_freq` owner stages, counts only
 top-level Gaussian route keywords (so `Stable=Opt` is not a duplicate Opt),
-and retains all specialist syntax blockers. It grants no live authority and is
-not accepted by the current live-submission `/3` contract.
+and retains all specialist syntax blockers. It grants no live authority. A
+separate closed `auto-g16-live-submission-approval/4` can now bind a fully
+owner-replayed `/2` receipt for one exact main-group open-shell minimum only;
+`/3` remains restricted to receipt `/1` and is unchanged. Direct and wrapper
+dry runs emit only the required schema and exact scope proposal, never an
+approved live record. This bridge has been implemented and tested offline only.
 
 The current unreleased feature slice adds a prospective scientific-maturity
 overlay and minima-first TS hard gate. It preserves all historical `/1`

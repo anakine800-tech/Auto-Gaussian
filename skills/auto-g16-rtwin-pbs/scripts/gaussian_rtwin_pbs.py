@@ -57,6 +57,10 @@ SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 INPUT_REVIEW_SCHEMA = "gaussian-input-draft-review/2"
 INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/1"
 OPEN_SHELL_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/2"
+LIVE_APPROVAL_V1_SCHEMA = "auto-g16-live-submission-approval/1"
+LIVE_APPROVAL_V2_SCHEMA = "auto-g16-live-submission-approval/2"
+LIVE_APPROVAL_V3_SCHEMA = "auto-g16-live-submission-approval/3"
+OPEN_SHELL_LIVE_APPROVAL_SCHEMA = "auto-g16-live-submission-approval/4"
 INPUT_APPROVAL_WORK_KINDS = {"ordinary", "minimum", "ts_pilot", "formal_ts"}
 SPECIALIST_INPUT_WORK_KINDS = {"ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"}
 ALL_WORK_KINDS = INPUT_APPROVAL_WORK_KINDS | SPECIALIST_INPUT_WORK_KINDS
@@ -1339,7 +1343,7 @@ def validate_input_approval(
             resolved_approval, input_path=input_path, report=report, work_kind=work_kind,
             _document=loaded_document, _resolved_path=resolved_approval,
         )
-        return {
+        result = {
             "status": "validated_exact_input_approval",
             "schema": document["schema"],
             "sha256": approval_digest,
@@ -1351,6 +1355,11 @@ def validate_input_approval(
             "input_review_schema": document["sources"]["input_review"]["schema"],
             "no_submission_authorization": True,
         }
+        if document["schema"] == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
+            result["specialist_owner_binding"] = copy.deepcopy(
+                document["specialist_owner_binding"]
+            )
+        return result
     except SystemExit:
         raise
     except Exception as exc:
@@ -1403,14 +1412,13 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
             fail("live approval /3 requires both work_kind and exact input-approval receipt binding")
         input_approval = summary["input_approval"]
         if not isinstance(input_approval, dict) or input_approval.get("status") not in {None, "validated_exact_input_approval"}:
-            fail("live approval /3 requires a validated exact input-approval receipt")
+            fail("prospective live approval requires a validated exact input-approval receipt")
         exact_input_approval = {
             key: input_approval.get(key)
             for key in ("schema", "sha256", "payload_sha256", "input_sha256", "work_kind")
         }
         if (
-            exact_input_approval["schema"] != INPUT_APPROVAL_SCHEMA
-            or exact_input_approval["input_sha256"] != summary["input_sha256"]
+            exact_input_approval["input_sha256"] != summary["input_sha256"]
             or exact_input_approval["work_kind"] != summary["work_kind"]
             or summary["work_kind"] not in ALL_WORK_KINDS
             or any(
@@ -1419,20 +1427,74 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
                 for key in ("sha256", "payload_sha256", "input_sha256")
             )
         ):
-            fail("live approval /3 input-approval binding differs from the current exact input/work_kind")
+            fail("prospective live input-approval binding differs from the current exact input/work_kind")
         expected["work_kind"] = summary["work_kind"]
         expected["input_approval"] = exact_input_approval
         if maturity is not None:
             fail(
                 "mixed approval generations are forbidden: protected maturity evidence cannot be "
-                "combined with generic input receipt + live approval /3"
+                "combined with a prospective input receipt + live approval"
             )
-        expected_schema = "auto-g16-live-submission-approval/3"
+        if exact_input_approval["schema"] == INPUT_APPROVAL_SCHEMA:
+            if summary["work_kind"] == "minimum" and summary["multiplicity"] != 1:
+                fail("generic receipt /1 cannot authorize a non-singlet minimum")
+            expected_schema = LIVE_APPROVAL_V3_SCHEMA
+        elif exact_input_approval["schema"] == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
+            if input_approval.get("status") != "validated_exact_input_approval":
+                fail("live approval /4 requires a fully replayed open-shell input receipt /2")
+            if summary["work_kind"] != "minimum":
+                fail("live approval /4 is restricted to work_kind minimum")
+            owner = _exact_fields(
+                input_approval.get("specialist_owner_binding"),
+                {
+                    "owner", "workflow", "electronic_state_review_payload_sha256",
+                    "input_handoff_payload_sha256", "input_audit_payload_sha256",
+                    "selected_option_payload_sha256", "input_sha256", "exact_route",
+                    "charge", "multiplicity", "reference_family", "resources",
+                    "owner_replay_passed",
+                },
+                "live approval /4 open-shell owner binding",
+            )
+            resources = _exact_fields(
+                owner["resources"], {"resource_tier", "mem_gb", "cores"},
+                "live approval /4 open-shell resources",
+            )
+            owner_hashes = (
+                "electronic_state_review_payload_sha256", "input_handoff_payload_sha256",
+                "input_audit_payload_sha256", "selected_option_payload_sha256",
+            )
+            if (
+                owner["owner"] != "auto-g16-main-group-open-shell"
+                or owner["workflow"] != "main_group_open_shell_minimum_opt_freq_v1"
+                or owner["input_sha256"] != summary["input_sha256"]
+                or owner["exact_route"] != summary["protocol"]["route"]
+                or owner["charge"] != summary["charge"]
+                or owner["multiplicity"] != summary["multiplicity"]
+                or owner["multiplicity"] not in {2, 3}
+                or owner["reference_family"] not in {"U", "RO"}
+                or owner["owner_replay_passed"] is not True
+                or resources["cores"] != summary["protocol"]["nproc"]
+                or not isinstance(resources["resource_tier"], str)
+                or not resources["resource_tier"]
+                or not isinstance(resources["mem_gb"], int)
+                or isinstance(resources["mem_gb"], bool)
+                or resources["mem_gb"] < 1
+                or parse_memory(summary["protocol"]["mem"]) != resources["mem_gb"] * 1024**3
+                or any(
+                    not isinstance(owner[key], str) or SHA256_RE.fullmatch(owner[key]) is None
+                    for key in owner_hashes
+                )
+            ):
+                fail("live approval /4 open-shell owner binding differs from the current exact preflight")
+            expected["open_shell_owner"] = copy.deepcopy(owner)
+            expected_schema = OPEN_SHELL_LIVE_APPROVAL_SCHEMA
+        else:
+            fail("prospective live approval supports only input receipt /1 or /2")
     else:
         if maturity is None:
-            expected_schema = "auto-g16-live-submission-approval/1"
+            expected_schema = LIVE_APPROVAL_V1_SCHEMA
         elif maturity_schema == MATURITY_ACTION_V1_SCHEMA:
-            expected_schema = "auto-g16-live-submission-approval/2"
+            expected_schema = LIVE_APPROVAL_V2_SCHEMA
         elif maturity_schema == MATURITY_ACTION_V2_SCHEMA:
             fail(
                 "maturity action /2 live replay is not integrated; future protected live requires "
@@ -1458,6 +1520,15 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
 
 def _validate_live_approval_document(approval: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
     expected_schema, expected = expected_live_approval_scope(summary)
+    if expected_schema == OPEN_SHELL_LIVE_APPROVAL_SCHEMA:
+        try:
+            _exact_fields(
+                approval,
+                {"schema", "decision", "explicit_confirmation", "scope", "authorizations"},
+                "live approval /4",
+            )
+        except ValueError as exc:
+            fail(str(exc))
     if approval.get("schema") != expected_schema:
         fail("live approval record has the wrong schema")
     if approval.get("decision") != "approved" or approval.get("explicit_confirmation") is not True:
@@ -1474,6 +1545,18 @@ def _validate_live_approval_document(approval: dict[str, Any], summary: dict[str
     }:
         fail("live approval authorization boundary changed")
     return approval
+
+
+def live_approval_scope_proposal(summary: dict[str, Any]) -> dict[str, Any]:
+    """Return an offline proposal only; never manufacture an approved record."""
+
+    required_schema, scope = expected_live_approval_scope(summary)
+    return {
+        "required_schema": required_schema,
+        "scope_proposal": scope,
+        "proposal_only": True,
+        "no_submission_authorization": True,
+    }
 
 
 def validate_live_approval_binding(path: Path, summary: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -2387,11 +2470,13 @@ def command_submit(args) -> None:
             "no_submission_authorization": True,
         }
     approval_summary = None
+    live_requirement = None
     if input_approval["status"] == "validated_exact_input_approval":
         assert requested_work_kind is not None
         approval_summary = live_approval_summary(
             project, input_report, maturity, requested_work_kind, input_approval
         )
+        live_requirement = live_approval_scope_proposal(approval_summary)
     live_approval: dict[str, Any]
     if args.approval_record and approval_summary is not None:
         validated_live, live_approval_digest = validate_live_approval_binding(
@@ -2405,13 +2490,18 @@ def command_submit(args) -> None:
     elif args.approval_record:
         live_approval = {
             "status": "not_evaluated_missing_exact_input_approval",
-            "required_schema": "auto-g16-live-submission-approval/3",
+            "required_schema": LIVE_APPROVAL_V3_SCHEMA,
         }
     else:
         live_approval = {
             "status": "omitted_for_dry_run" if args.dry_run else "missing_required_for_live_submission",
-            "required_schema": "auto-g16-live-submission-approval/3",
+            "required_schema": (
+                live_requirement["required_schema"] if live_requirement is not None
+                else LIVE_APPROVAL_V3_SCHEMA
+            ),
         }
+        if live_requirement is not None:
+            live_approval.update(live_requirement)
     live_submission_ready = (
         input_approval["status"] == "validated_exact_input_approval"
         and live_approval["status"] == "validated_exact_live_approval"
@@ -2862,9 +2952,18 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--dry-run", action="store_true")
     submit.add_argument(
         "--approval-record",
-        help="exact live /3 receipt required for new submissions; /1-/2 are historical replay-only",
+        help=(
+            "exact live-submission approval /3 for receipt /1 or /4 for "
+            "owner-replayed open-shell receipt /2; required unless --dry-run"
+        ),
     )
-    submit.add_argument("--input-approval-record", help=f"owner-validated {INPUT_APPROVAL_SCHEMA} required for every live submission")
+    submit.add_argument(
+        "--input-approval-record",
+        help=(
+            f"owner-validated {INPUT_APPROVAL_SCHEMA} for ordinary/closed-shell minimum, "
+            f"or fully replayed {OPEN_SHELL_INPUT_APPROVAL_SCHEMA} for main-group open-shell minimum"
+        ),
+    )
     add_scientific_maturity_options(submit)
     add_connection_options(submit)
     submit.set_defaults(func=command_submit)

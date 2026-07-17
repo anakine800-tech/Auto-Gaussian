@@ -102,6 +102,10 @@ class SkillPackagingTests(unittest.TestCase):
             ROOT / "contracts/rtwin-pbs/input-approval-receipt.schema.json",
         )
         self.assertEqual(
+            rtwin[Path("contracts/rtwin-pbs/live-submission-approval-v4.schema.json")],
+            ROOT / "contracts/rtwin-pbs/live-submission-approval-v4.schema.json",
+        )
+        self.assertEqual(
             ts_irc[Path("contracts/qst-raw-input-syntax-audit.schema.json")],
             ROOT / "skills/auto-g16-ts-irc/contracts/qst-raw-input-syntax-audit.schema.json",
         )
@@ -342,7 +346,11 @@ class SkillPackagingTests(unittest.TestCase):
             self.assertIn("finalize-input-review", rtwin_help.stdout)
             self.assertIn("build-input-approval", rtwin_help.stdout)
             self.assertIn("validate-input-approval", rtwin_help.stdout)
-            for name in ("input-draft-review-v2.schema.json", "input-approval-receipt.schema.json"):
+            for name in (
+                "input-draft-review-v2.schema.json",
+                "input-approval-receipt.schema.json",
+                "live-submission-approval-v4.schema.json",
+            ):
                 deployed_schema = installed / "auto-g16-rtwin-pbs/contracts/rtwin-pbs" / name
                 source_schema = ROOT / "contracts/rtwin-pbs" / name
                 self.assertTrue(deployed_schema.is_file())
