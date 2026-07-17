@@ -5,8 +5,32 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-07-18
+
 ### Added
 
+- Added transition-metal P0–P5 offline readiness contracts, candidate-bound
+  M1/input/result review closure, replacement-candidate decisions, and a
+  source-audited Pd(PHOX) TS20 case. R33 is explicitly rejected and the
+  replacement remains blocked before P2/P5 and every live action.
+- Added the offline dual-route conformer-search workflow: exact reviewed R08
+  intake, freedom analysis, preregistered A/B route quotas, dependency
+  diagnostics, candidate legality ledgers, cross-route clustering/medoids,
+  negative-evidence retention, and candidate-only reviewed handoff.
+- Added candidate-bound main-group open-shell electronic-state review,
+  Cartesian/input/result lineage, minimum Opt/Freq handoff and acceptance for
+  reviewed single-reference doublets and high-spin triplets. Open-shell
+  singlets, multireference states, metals, unsupported references and inferred
+  ground states remain refused.
+- Added multiplicity-family planning, per-member protocol/input/result lineage,
+  comparison audit, and explicit cross-state non-ranking rules; each member is
+  reviewed and accepted independently and no family infers a ground state.
+- Added same-spin-surface main-group open-shell TS/Freq/IRC contracts with
+  exact state, candidate, route, mode and endpoint bindings. They grant no
+  submission authority and cannot reuse ordinary closed-shell evidence.
+- Added reviewed open-shell reaction-network contracts and immutable
+  recalculation decisions that bind exact state, attempt, input, protocol,
+  result and terminal evidence without authorizing an automatic retry.
 - Added closed `gaussian-scientific-maturity-review/1` and
   `gaussian-scientific-maturity-gate/1` contracts plus a standard-library-only
   builder, validator, action check and deterministic DAG-node maturity
@@ -26,6 +50,23 @@ All notable public release changes are recorded here. The project follows
   the accepted TS mode and both direction-specific IRC endpoint audits from
   their exact input/log/result/job/checkpoint sources. Endpoint minimum and
   thermochemistry acceptance remain later independent gates.
+- Added the compatibility-preserving scientific-maturity owner-evidence `/2`
+  overlay, manual scientific-evidence receipts/reviews, immutable
+  recalculation decisions, and thermochemistry-readiness audits. The overlay
+  replays the calculation-plan, mechanism-support, TS-precedent, conformer,
+  open-shell and manual-evidence owners and records unresolved lineage instead
+  of treating artifact presence as readiness.
+- Added raw QST2/QST3 input syntax auditing against exact installed-revision
+  evidence. Unsupported syntax, atom-map drift, absent evidence and hand-filled
+  success facts fail closed and grant no input-rendering or live authority.
+- Added compatibility-preserving open-shell input receipt paths. Generic
+  `gaussian-input-approval-receipt/1` remains unchanged; `/2` binds one exact
+  reviewed open-shell minimum Opt/Freq handoff and audit, while `/3` binds each
+  stage of the separate two-stage Opt/Freq then `Stable=Opt` family.
+- Added prospective live approval `/4` for one exact single-stage open-shell
+  minimum receipt `/2`, and `/5` for one exact stage receipt `/3`. The `/5`
+  family requires separate stage-1 and stage-2 approvals and only permits
+  stage 2 after accepted stage-1 checkpoint continuity.
 
 ### Changed
 
@@ -51,6 +92,14 @@ All notable public release changes are recorded here. The project follows
   cannot open the TS gate. Historical TS-family `/1` artifacts are replay-only
   for new IRC planning, and protected TS/scan/IRC routes require an explicit
   work classification.
+- Input review and live approval remain separate: `/2` and `/3` receipts are
+  offline, non-authorizing records; `/4` and `/5` are closed exact-scope live
+  records and do not alter historical receipt `/1` or live approval `/1`–`/3`
+  semantics. The single-stage `/4` and two-stage `/5` paths are not
+  interchangeable.
+- The two-stage open-shell minimum family forbids `Opt` and `Stable` in one
+  Gaussian input. Stage 1 performs Opt/Freq; only its accepted final checkpoint
+  may feed coordinate-free `Stable=Opt Geom=AllCheck Guess=Read` stage 2.
 
 ### Safety
 
@@ -60,6 +109,11 @@ All notable public release changes are recorded here. The project follows
   `no_submission_authorization: true`.
 - Exact scientific action authorization remains offline evidence only and
   cannot replace the separately hash-bound live submission approval.
+- All metal, conformer, open-shell, multiplicity, reaction-network, maturity,
+  receipt, and prospective live-approval work in this release was implemented
+  and validated offline. No SSH, PBS, Gaussian, deployment, submission, retry,
+  cancellation, cleanup, remote-root override, or server-data deletion is
+  authorized by the release metadata.
 
 ## [2.3.0] - 2026-07-16
 
@@ -272,7 +326,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.0.1...v2.1.0

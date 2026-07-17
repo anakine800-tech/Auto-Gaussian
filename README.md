@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.3.0
+# Auto-G16 — Auto-Gaussian 2.4.0
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -8,7 +8,7 @@ This repository is the version-controlled source of truth. Installed copies
 under `~/.codex/skills` are deployment targets and must not be edited
 independently.
 
-The current open-shell input-receipt bridge preserves generic receipt `/1`
+The 2.4.0 open-shell input-receipt bridge preserves generic receipt `/1`
 unchanged and adds offline-only `gaussian-input-approval-receipt/2` for a
 reviewed main-group open-shell minimum. `/2` replays the accepted electronic
 state, exact minimum Opt/Freq handoff and passed input audit in addition to the
@@ -30,7 +30,7 @@ its own non-authorizing receipt `/3` and prospective live approval `/5`.
 Receipt `/2` and live `/4` retain their single-input meaning. See
 `docs/main-group-open-shell-minimum-two-stage-family.md`.
 
-The current unreleased feature slice adds a prospective scientific-maturity
+The 2.4.0 release also adds a prospective scientific-maturity
 overlay and minima-first TS hard gate. It preserves all historical `/1`
 records, requires two accepted Gaussian Opt/Freq zero-imaginary minima before
 formal TS input or submission, limits no-direct-precedent work to one reviewed
@@ -57,6 +57,23 @@ fixed fail-closed until exact owner TS-mode and complete thermochemistry/energy
 artifacts are added. Complete owner-chain relocation is also unsupported because
 historical conformer paths may be absolute and open-shell paths may be
 working-directory-relative.
+
+## 2.4.0 release preparation
+
+Auto-Gaussian 2.4.0 release metadata was prepared on 2026-07-18 from confirmed
+`origin/main` commit `69222eb40fc4485392c753b240989719fcec56a4`. The immutable
+2.3.0 release history is preserved. An annotated `v2.4.0` tag, GitHub Release,
+Skill deployment, and live smoke are separate actions and are not authorized
+or performed by this release-preparation change.
+
+The 2.4.0 source adds offline transition-metal P0–P5 readiness and candidate
+closure, dual-route conformer discovery and cross-validation, reviewed
+main-group open-shell state/minimum/result contracts, multiplicity families,
+same-spin open-shell TS/Freq/IRC contracts, open-shell reaction networks, and
+scientific-maturity owner gates. It also adds compatibility-preserving input
+receipts `/2` and `/3` and distinct prospective live approvals `/4` and `/5`
+for single-stage and two-stage open-shell minimum paths. All remain fail-closed
+and preserve separate scientific, input-review, and live-action authority.
 
 ## 2.3.0 release candidate
 

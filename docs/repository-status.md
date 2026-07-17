@@ -2,33 +2,33 @@
 
 ## Current mainline state
 
-Status date: 2026-07-16
+Status date: 2026-07-18
 
-Auto-Gaussian 2.3.0 release metadata is based on reviewed `main` commit
-`1d730218048c52a395b379cbe4653c9e2b8def97`. That content baseline is 36
-commits and 106 changed files after immutable release tag `v2.2.0`. The
-annotated `v2.3.0` tag and GitHub Release are not part of release preparation
-and remain uncreated pending separate explicit authorization.
+Auto-Gaussian 2.4.0 release preparation is based on confirmed `origin/main`
+commit `69222eb40fc4485392c753b240989719fcec56a4`. That content baseline is
+58 commits and 235 changed files after immutable release tag `v2.3.0`. The
+annotated `v2.4.0` tag and GitHub Release are separate publication actions and
+are not authorized or created by this preparation.
 
-The 2.3.0 candidate contains ten repository-owned `auto-g16-*` Skills. It
-includes W1 reaction intake and literature foundations, W2 immutable knowledge
-records and reviewed store/import/export foundations, W3 mechanism network and
-mechanism-support contracts, the separate downstream support matrix,
-TS-precedent/de novo planning, a deterministic non-executable calculation DAG
-and read-only study index, reviewed candidate-target mapping, and narrow
-immutable calculation-artifact adapters. It also includes the self-contained
-Gaussian learning library, public-repository confidentiality guardrails,
-named-Skill packaging, and deterministic Python environment management.
+The 2.4.0 source retains the complete 2.3.0 foundation and adds metal TS P0–P5
+readiness and candidate closure, offline dual-route conformer discovery,
+main-group open-shell state/minimum/result contracts, multiplicity families,
+same-spin open-shell TS/Freq/IRC, open-shell reaction networks, and
+scientific-maturity owner gates. Compatibility-preserving input receipts `/2`
+and `/3` remain non-authorizing; prospective live approvals `/4` and `/5`
+define separate single-stage and two-stage exact-scope paths.
 
 Repository source under `skills/` is authoritative. A checkout alone says
 nothing about `~/.codex/skills`. Machine-local deployment status is an
-external fact outside this checkout. The read-only 2026-07-16 comparison
-reported all ten named packages synchronized, but this does not authorize
-deployment or predict the state of another machine or later checkout.
+external fact outside this checkout. Read-only 2026-07-18 named-Skill dry runs
+found one changed packaged file for `auto-g16-chemdraw-pipeline` and two for
+`auto-g16-view-rt-win`; no missing or extra files were reported. No deployment
+was authorized or performed.
 
-All candidate planning and adapter artifacts remain non-authorizing. They do
-not select scientific methods, make calculation nodes executable, accept a TS,
-or grant deployment, SSH, PBS, Gaussian, submission, retry, cancellation,
+All candidate planning, review, receipt, and adapter artifacts remain
+non-authorizing unless the distinct exact live gate is satisfied. They do not
+select scientific methods, make calculation nodes executable, accept a TS, or
+grant deployment, SSH, PBS, Gaussian, submission, retry, cancellation,
 cleanup, or live-smoke authority.
 
 ## Current capability and limits
@@ -50,29 +50,45 @@ cleanup, or live-smoke authority.
 - The calculation-artifact adapter binds reviewed handoffs and result evidence
   without owning or mutating DAG node identity and without granting staging or
   submission authority.
-- Transition-metal M1/M2 artifacts remain observation and review contracts.
-  Runtime support and scientific acceptance are refused pending a separately
-  reviewed extension.
+- Transition-metal P0–P5 artifacts define offline readiness, input/result
+  acceptance, promotion and first-smoke decision boundaries. The reviewed
+  candidates remain blocked and no metal input, runtime, or live authority is
+  granted.
+- Dual-route conformer search is an offline plan/audit layer over supplied
+  candidates. It does not execute xTB, CREST, Gaussian, PBS, or SSH and does
+  not promote a candidate without a separate exact review.
+- Main-group open-shell support is limited to explicitly reviewed
+  single-reference doublet/high-spin-triplet states. Multiplicity members,
+  minimum families, TS/IRC paths, and reaction-network nodes remain
+  state-bound; no cross-state ranking or ground-state inference is permitted.
+- Single-stage receipt `/2` can only feed a separately approved `/4`. Each
+  two-stage receipt `/3` can only feed a stage-specific `/5`; stage 2 remains
+  blocked until accepted stage-1 checkpoint continuity is reviewed.
 - W2 still lacks authentication, signatures, durable audit logging, chemical
   search, and multi-user enforcement. Declared offline principals are not an
   operating-system security boundary.
 - Historical BF3 and asymmetric-catalysis records are evidence only. They do
   not authorize retries, IRC, endpoint claims, deployment, or new live work.
 
-## Current release-candidate evidence
+## Current release-preparation evidence
 
-- Local candidate validation on 2026-07-16 passed all 288 core offline tests,
-  Python compilation, tracked shell syntax checks, `git diff --check`, and the
-  same 288-test suite from a `git archive` extracted without `.git` metadata.
-- The read-only environment check matched both pinned Python profiles and all
-  locked chemistry packages. The same check found all ten repository/deployed
-  named-Skill packages synchronized.
-- A fresh fetch before release-metadata work confirmed `origin/main` at the
-  exact candidate content baseline. Offline tests, CodeQL, and Dependency Graph
-  succeeded for that remote commit. Open pull requests and open Dependabot,
-  Code Scanning, and Secret Scanning alerts were zero at that observation.
-- This candidate validation performed no deployment, live smoke, SSH, PBS,
-  Gaussian, submission, retry, cancellation, cleanup, tag, or GitHub Release.
+- Before branch creation, local `HEAD` and `origin/main` were both confirmed as
+  exact commit `69222eb40fc4485392c753b240989719fcec56a4` in a clean detached
+  worktree. The unique `codex/release-2.4.0-prep` branch was created from that
+  commit without switching or modifying the original checkout's local `main`.
+- Complete offline validation passed: 522 worktree tests and the same 522 tests
+  from a source archive without `.git`, plus compilation, shell syntax,
+  release hygiene, diff checks, and both pinned environment checks. Exact
+  evidence is recorded in `docs/release-2.4.0-checklist.md`.
+- Named-Skill drift evidence is a no-write dry-run plan only. Exact public plan
+  hashes and sanitized repository-relative summaries are recorded in the 2.4.0
+  checklist; `--apply` was not used.
+- Live smoke remains blocked and not authorized. The `/4` single-stage path and
+  both `/5` two-stage stages require their own exact inputs, hashes, scope and
+  explicit approvals.
+- This release preparation performs no push, pull request, merge, tag, GitHub
+  Release, deployment, live smoke, SSH, PBS, Gaussian, submission, retry,
+  cancellation, or cleanup.
 
 ## Historical evidence
 
@@ -114,10 +130,15 @@ corrects the DOI identity, preserves original SI SHA-256 and coordinate-block
 lineage, and records a strict gap ledger. Its status is
 `blocked_source_incomplete_no_real_m1`; P5 and all live actions remain blocked.
 
-- Merge release preparation only after its pull-request checks pass and the PR
-  is safely mergeable; then verify final `main`, `origin/main`, PR state, and CI.
+- Review and commit the 2.4.0 release preparation locally only after every
+  offline check and sensitive-string review passes. Push, pull request, merge,
+  and CI observation remain separate actions requiring authorization.
 - Obtain separate explicit authorization before creating annotated tag
-  `v2.3.0` or its GitHub Release.
+  `v2.4.0` or its GitHub Release.
+- Review a fresh exact named-Skill dry-run plan and obtain separate deployment
+  authorization before synchronizing either drifted Skill.
+- Supply exact inputs, hashes, projects, resources, and separate approvals for
+  the `/4` single-stage path or each `/5` two-stage stage before any live smoke.
 - Continue W2 authentication, audit logging, chemical search, and service-
   boundary work only through a separately reviewed feature.
 - Review one concrete transition-metal M1 case before any M3 runtime or
