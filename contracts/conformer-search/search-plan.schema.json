@@ -6,12 +6,13 @@
   "additionalProperties": false,
   "required": ["schema", "plan_id", "revision", "request", "r08_handoff", "state_signature", "freedom_analysis", "locked_route_weights", "locked_subroute_weights", "category_quotas", "category_contracts", "quota_credit_definition", "shared_xtb_protocol", "adapters", "similarity", "dry_run", "execution_allowed", "external_execution_performed", "calculation_ready", "no_submission_authorization", "blockers", "payload_sha256"],
   "properties": {
-    "schema": {"const": "gaussian-conformer-search-plan/1"},
+    "schema": {"enum": ["gaussian-conformer-search-plan/1", "gaussian-conformer-search-plan/2"]},
     "plan_id": {"$ref": "#/$defs/id"},
     "revision": {"$ref": "#/$defs/revision"},
     "request": {"$ref": "#/$defs/requestBinding"},
     "r08_handoff": {"$ref": "#/$defs/r08"},
     "state_signature": {"$ref": "#/$defs/stateSignature"},
+    "open_shell_state_binding": {"$ref": "#/$defs/openShellBinding"},
     "freedom_analysis": {"$ref": "#/$defs/freedomAnalysis"},
     "locked_route_weights": {"$ref": "#/$defs/numberMap"},
     "locked_subroute_weights": {"$ref": "#/$defs/numberMap"},
@@ -40,7 +41,7 @@
     "requestBinding": {
       "type": "object", "additionalProperties": false,
       "required": ["path", "sha256", "size_bytes", "schema"],
-      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-conformer-search-request/1"}}
+      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"enum": ["gaussian-conformer-search-request/1", "gaussian-conformer-search-request/2"]}}
     },
     "previous": {
       "type": "object", "additionalProperties": false,
@@ -57,6 +58,8 @@
       "required": ["path", "sha256", "schema", "immutable", "reviewed"],
       "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "schema": {"type": "string", "minLength": 1}, "immutable": {"const": true}, "reviewed": {"const": true}}
     },
+    "payloadBinding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "auto-g16-main-group-open-shell-review/1"}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "openShellBinding": {"type": "object", "additionalProperties": false, "required": ["structure_graph_sha256", "atom_order_sha256", "formal_charge", "multiplicity", "state_family", "accepted_state_review", "fragment_spin_coupling", "cross_state_policy"], "properties": {"structure_graph_sha256": {"$ref": "#/$defs/sha"}, "atom_order_sha256": {"$ref": "#/$defs/sha"}, "formal_charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "state_family": {"type": "string"}, "accepted_state_review": {"$ref": "#/$defs/payloadBinding"}, "fragment_spin_coupling": {"type": "object", "additionalProperties": false, "required": ["status", "review_evidence"], "properties": {"status": {"enum": ["resolved", "not_applicable", "unresolved"]}, "review_evidence": {"type": "string"}}}, "cross_state_policy": {"type": "object", "additionalProperties": false, "required": ["ranking_allowed", "boltzmann_merge_allowed", "ground_state_inference_allowed"], "properties": {"ranking_allowed": {"const": false}, "boltzmann_merge_allowed": {"const": false}, "ground_state_inference_allowed": {"const": false}}}}},
     "stateSignature": {
       "type": "object", "additionalProperties": false,
       "required": ["state_id", "identity", "atom_order", "elements", "fragment_ids", "explicit_hydrogens", "bonds", "formal_charge", "multiplicity", "component_count", "stereochemistry", "state_labels"],
@@ -92,7 +95,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schema", "analysis_id", "request", "vector", "rotatable_bonds", "rotatable_exclusions", "mechanism_category_count", "flexibility_class", "complexity_score", "suggested_total_candidates", "recommended_route_weights", "recommended_subroute_weights", "minimum_category_coverage", "basis", "limitations", "blockers", "supported", "calculation_ready", "no_submission_authorization", "payload_sha256"],
       "properties": {
-        "schema": {"const": "gaussian-conformer-freedom-analysis/1"}, "analysis_id": {"$ref": "#/$defs/id"}, "request": {"$ref": "#/$defs/requestBinding"},
+        "schema": {"enum": ["gaussian-conformer-freedom-analysis/1", "gaussian-conformer-freedom-analysis/2"]}, "analysis_id": {"$ref": "#/$defs/id"}, "request": {"$ref": "#/$defs/requestBinding"},
         "vector": {"$ref": "#/$defs/vector"}, "rotatable_bonds": {"type": "array", "items": {"$ref": "#/$defs/bondRecord"}}, "rotatable_exclusions": {"type": "array", "items": {"$ref": "#/$defs/bondExclusion"}},
         "mechanism_category_count": {"type": "integer", "minimum": 1}, "flexibility_class": {"enum": ["low", "moderate", "high", "very_high"]}, "complexity_score": {"type": "integer", "minimum": 0}, "suggested_total_candidates": {"type": "integer", "minimum": 1},
         "recommended_route_weights": {"$ref": "#/$defs/numberMap"}, "recommended_subroute_weights": {"$ref": "#/$defs/numberMap"}, "minimum_category_coverage": {"type": "array", "items": {"$ref": "#/$defs/coverage"}},
