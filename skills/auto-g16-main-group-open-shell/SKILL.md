@@ -28,6 +28,11 @@ live smoke test through this Skill.
    any missing or inconsistent diagnostic or lineage hash.
 8. Use `validate` to re-check canonical JSON, hashes, source bindings, and the
    authority boundary.
+
+For Gaussian 16 A.03 minimum work needing Opt/Freq plus `Stable=Opt`, use
+`scripts/open_shell_minimum_family.py`. It keeps the operations as independently
+approved stages under `main_group_open_shell_minimum_two_stage_v1`; never add
+`Stable=Opt` to the Opt/Freq route or treat family artifacts as live authority.
 9. For a reviewed multiplicity/state family, read
    [references/multiplicity-family-contract.md](references/multiplicity-family-contract.md),
    then use `scripts/multiplicity_family.py` to build the independent-member

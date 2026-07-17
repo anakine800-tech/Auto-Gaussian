@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/live-submission-approval-v5.schema.json",
+  "title": "Auto-G16 open-shell two-stage family live approval v5",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "decision", "explicit_confirmation", "scope", "authorizations"],
+  "properties": {
+    "schema": {"const": "auto-g16-live-submission-approval/5"},
+    "decision": {"const": "approved"}, "explicit_confirmation": {"const": true},
+    "scope": {"type": "object", "additionalProperties": false,
+      "required": ["project", "remote_workdir", "input_sha256", "route", "mem", "nprocshared", "charge", "multiplicity", "work_kind", "input_approval", "open_shell_family"],
+      "properties": {
+        "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "remote_workdir": {"type": "string", "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "input_sha256": {"$ref": "#/$defs/sha"}, "route": {"type": "string", "pattern": "^#"}, "mem": {"type": "string", "minLength": 1},
+        "nprocshared": {"type": "integer", "minimum": 1, "maximum": 44}, "charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "work_kind": {"const": "minimum"},
+        "input_approval": {"type": "object", "additionalProperties": false, "required": ["schema", "sha256", "payload_sha256", "input_sha256", "work_kind"], "properties": {"schema": {"const": "gaussian-input-approval-receipt/3"}, "sha256": {"$ref": "#/$defs/sha"}, "payload_sha256": {"$ref": "#/$defs/sha"}, "input_sha256": {"$ref": "#/$defs/sha"}, "work_kind": {"const": "minimum"}}},
+        "open_shell_family": {"$ref": "#/$defs/owner"}
+      }
+    },
+    "authorizations": {"type": "object", "additionalProperties": false, "required": ["create_server_directory", "submit", "retry", "cancel", "cleanup", "delete_server_data"], "properties": {"create_server_directory": {"const": true}, "submit": {"const": true}, "retry": {"const": false}, "cancel": {"const": false}, "cleanup": {"const": false}, "delete_server_data": {"const": false}}}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "owner": {"type": "object", "additionalProperties": false, "required": ["owner", "workflow", "family_payload_sha256", "stage", "input_sha256", "route", "charge", "multiplicity", "reference_family", "method", "basis", "resources", "checkpoint_sha256", "owner_replay_passed"], "properties": {
+      "owner": {"const": "auto-g16-main-group-open-shell"}, "workflow": {"const": "main_group_open_shell_minimum_two_stage_v1"}, "family_payload_sha256": {"$ref": "#/$defs/sha"}, "stage": {"enum": ["opt_freq", "stability"]}, "input_sha256": {"$ref": "#/$defs/sha"}, "route": {"type": "string", "pattern": "^#"}, "charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "reference_family": {"enum": ["U", "RO"]}, "method": {"type": "string", "minLength": 1}, "basis": {"type": "string", "minLength": 1},
+      "resources": {"type": "object", "additionalProperties": false, "required": ["resource_tier", "mem_gb", "cores"], "properties": {"resource_tier": {"enum": ["simple", "general", "complex"]}, "mem_gb": {"type": "integer", "minimum": 1}, "cores": {"type": "integer", "minimum": 1, "maximum": 44}}},
+      "checkpoint_sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}, "owner_replay_passed": {"const": true}
+    }}
+  }
+}

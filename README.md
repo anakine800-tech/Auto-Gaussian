@@ -22,6 +22,14 @@ owner-replayed `/2` receipt for one exact main-group open-shell minimum only;
 dry runs emit only the required schema and exact scope proposal, never an
 approved live record. This bridge has been implemented and tested offline only.
 
+Gaussian 16 A.03 open-shell minima that need both Opt/Freq and wavefunction
+stability now use a separate versioned two-stage family. Stage 1 contains
+Opt/Freq but no `Stable`; only its accepted final checkpoint may feed a
+coordinate-free `Stable=Opt Geom=AllCheck Guess=Read` stage 2. Each stage has
+its own non-authorizing receipt `/3` and prospective live approval `/5`.
+Receipt `/2` and live `/4` retain their single-input meaning. See
+`docs/main-group-open-shell-minimum-two-stage-family.md`.
+
 The current unreleased feature slice adds a prospective scientific-maturity
 overlay and minima-first TS hard gate. It preserves all historical `/1`
 records, requires two accepted Gaussian Opt/Freq zero-imaginary minima before
