@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/ts-irc-contracts/1",
+  "title": "Auto-G16 Main-Group Open-Shell TS/Freq/IRC Contracts V1",
+  "oneOf": [
+    {"$ref": "#/$defs/tsCandidate"},
+    {"$ref": "#/$defs/protocolSource"},
+    {"$ref": "#/$defs/inputAuditSource"},
+    {"$ref": "#/$defs/modeDecision"},
+    {"$ref": "#/$defs/endpointSource"},
+    {"$ref": "#/$defs/workflow"},
+    {"$ref": "#/$defs/inputAudit"},
+    {"$ref": "#/$defs/tsAcceptance"},
+    {"$ref": "#/$defs/ircPlan"},
+    {"$ref": "#/$defs/ircAcceptance"}
+  ],
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "atom": {"type": "object", "additionalProperties": false, "required": ["index", "element"], "properties": {"index": {"type": "integer", "minimum": 1}, "element": {"type": "string", "minLength": 1}}},
+    "sourceReview": {"type": "object", "additionalProperties": false, "required": ["decision", "reviewer", "confirmed"], "properties": {"decision": {"type": "string", "minLength": 1}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}, "confirmed": {"const": true}}},
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "authority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["render_input", "gaussian", "ssh", "pbs", "submit", "retry", "cancel", "cleanup", "deploy"],
+      "properties": {"render_input": {"const": false}, "gaussian": {"const": false}, "ssh": {"const": false}, "pbs": {"const": false}, "submit": {"const": false}, "retry": {"const": false}, "cancel": {"const": false}, "cleanup": {"const": false}, "deploy": {"const": false}}
+    },
+    "lineage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "structure_sha256", "charge", "multiplicity", "state_family", "wavefunction_reference", "target_s2", "max_abs_post_annihilation_s2_deviation", "expected_frequency_count", "atom_elements"],
+      "properties": {"candidate_id": {"$ref": "#/$defs/id"}, "structure_sha256": {"$ref": "#/$defs/sha"}, "charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "state_family": {"enum": ["doublet_ground_state", "high_spin_triplet", "triplet_carbene"]}, "wavefunction_reference": {"enum": ["U", "RO"]}, "target_s2": {"type": "number", "minimum": 0}, "max_abs_post_annihilation_s2_deviation": {"type": "number", "minimum": 0}, "expected_frequency_count": {"type": "integer", "minimum": 1}, "atom_elements": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}
+    },
+    "input": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "route", "atom_elements"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "route": {"type": "string", "minLength": 1}, "atom_elements": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}
+    },
+    "check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["check", "status"],
+      "properties": {"check": {"type": "string", "minLength": 1}, "status": {"enum": ["pass", "block"]}}
+    },
+    "tsCandidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "candidate_id", "structure_sha256", "atoms", "charge", "multiplicity", "state_family", "electronic_scope", "structure_role", "workflow_scope", "exclusions", "calculation_ready", "no_submission_authorization"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-ts-candidate/1"}, "candidate_id": {"$ref": "#/$defs/id"}, "structure_sha256": {"$ref": "#/$defs/sha"}, "atoms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atom"}}, "charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "state_family": {"enum": ["doublet_ground_state", "high_spin_triplet", "triplet_carbene"]}, "electronic_scope": {"const": "single_reference_ground_state"}, "structure_role": {"const": "transition_state_candidate"}, "workflow_scope": {"const": "same_spin_surface_ts_freq_irc"}, "exclusions": {"type": "object", "additionalProperties": false, "required": ["transition_metal", "spin_crossing_or_mecp", "open_shell_singlet", "multireference", "different_multiplicity_endpoints"], "properties": {"transition_metal": {"const": false}, "spin_crossing_or_mecp": {"const": false}, "open_shell_singlet": {"const": false}, "multireference": {"const": false}, "different_multiplicity_endpoints": {"const": false}}}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}}
+    },
+    "protocolStage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["route", "method", "basis", "solvent", "resources", "settings", "protocol_selection_payload_sha256"],
+      "properties": {"route": {"type": "string", "minLength": 1}, "method": {"type": "string", "minLength": 1}, "basis": {"type": "string", "minLength": 1}, "solvent": {"type": "string", "minLength": 1}, "resources": {"type": "string", "minLength": 1}, "settings": {"type": "string", "minLength": 1}, "protocol_selection_payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "protocolSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "protocol_id", "workflow_kind", "candidate_id", "structure_sha256", "charge", "multiplicity", "state_family", "wavefunction_reference", "same_spin_surface", "single_reference", "stages", "spin_policy", "endpoint_policy", "review", "calculation_ready", "no_submission_authorization"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-ts-irc-protocol-source/1"}, "protocol_id": {"$ref": "#/$defs/id"}, "workflow_kind": {"const": "main_group_open_shell_single_surface_ts_freq_irc"}, "candidate_id": {"$ref": "#/$defs/id"}, "structure_sha256": {"$ref": "#/$defs/sha"}, "charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "state_family": {"enum": ["doublet_ground_state", "high_spin_triplet", "triplet_carbene"]}, "wavefunction_reference": {"enum": ["U", "RO"]}, "same_spin_surface": {"const": true}, "single_reference": {"const": true}, "stages": {"type": "object", "additionalProperties": false, "required": ["ts_freq", "irc_forward", "irc_reverse"], "properties": {"ts_freq": {"$ref": "#/$defs/protocolStage"}, "irc_forward": {"$ref": "#/$defs/protocolStage"}, "irc_reverse": {"$ref": "#/$defs/protocolStage"}}}, "spin_policy": {"type": "object", "additionalProperties": false, "required": ["target_s2", "max_abs_post_annihilation_s2_deviation", "stability_required", "reference_continuity_required"], "properties": {"target_s2": {"type": "number", "minimum": 0}, "max_abs_post_annihilation_s2_deviation": {"type": "number", "minimum": 0}, "stability_required": {"const": true}, "reference_continuity_required": {"const": true}}}, "endpoint_policy": {"type": "object", "additionalProperties": false, "required": ["require_both_directions", "require_identified_reactant_and_product", "require_same_charge_multiplicity_state_lineage"], "properties": {"require_both_directions": {"const": true}, "require_identified_reactant_and_product": {"const": true}, "require_same_charge_multiplicity_state_lineage": {"const": true}}}, "review": {"$ref": "#/$defs/sourceReview"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}}
+    },
+    "inputAuditSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "audit_id", "stage", "workflow_payload_sha256", "state_review_payload_sha256", "candidate_sha256", "protocol_file_sha256", "protocol_selection_payload_sha256", "input", "charge", "multiplicity", "state_family", "wavefunction_reference", "same_spin_surface", "settings_reviewed", "review", "calculation_ready", "no_submission_authorization"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-ts-irc-input-audit-source/1"}, "audit_id": {"$ref": "#/$defs/id"}, "stage": {"enum": ["ts_freq", "irc_forward", "irc_reverse"]}, "workflow_payload_sha256": {"$ref": "#/$defs/sha"}, "state_review_payload_sha256": {"$ref": "#/$defs/sha"}, "candidate_sha256": {"$ref": "#/$defs/sha"}, "protocol_file_sha256": {"$ref": "#/$defs/sha"}, "protocol_selection_payload_sha256": {"$ref": "#/$defs/sha"}, "input": {"$ref": "#/$defs/input"}, "charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "state_family": {"enum": ["doublet_ground_state", "high_spin_triplet", "triplet_carbene"]}, "wavefunction_reference": {"enum": ["U", "RO"]}, "same_spin_surface": {"const": true}, "settings_reviewed": {"const": true}, "review": {"$ref": "#/$defs/sourceReview"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}}
+    },
+    "modeDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "decision_id", "workflow_payload_sha256", "input_audit_payload_sha256", "observation_payload_sha256", "imaginary_mode_index", "intended_reaction_coordinate_confirmed", "reviewer", "rationale", "decision", "confirmed", "calculation_ready", "no_submission_authorization"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-ts-mode-decision/1"}, "decision_id": {"$ref": "#/$defs/id"}, "workflow_payload_sha256": {"$ref": "#/$defs/sha"}, "input_audit_payload_sha256": {"$ref": "#/$defs/sha"}, "observation_payload_sha256": {"$ref": "#/$defs/sha"}, "imaginary_mode_index": {"type": "integer", "minimum": 0}, "intended_reaction_coordinate_confirmed": {"const": true}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}, "decision": {"const": "accepted"}, "confirmed": {"const": true}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}}
+    },
+    "endpointSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "endpoint_id", "direction", "plan_payload_sha256", "input_audit_payload_sha256", "normal_termination", "path_complete", "endpoint_identity", "structure_sha256", "charge", "multiplicity", "state_family", "wavefunction_reference", "s2_before_annihilation", "s2_after_annihilation", "stability", "state_lineage_payload_sha256", "review", "calculation_ready", "no_submission_authorization"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-irc-endpoint-source/1"}, "endpoint_id": {"$ref": "#/$defs/id"}, "direction": {"enum": ["forward", "reverse"]}, "plan_payload_sha256": {"$ref": "#/$defs/sha"}, "input_audit_payload_sha256": {"$ref": "#/$defs/sha"}, "normal_termination": {"type": "boolean"}, "path_complete": {"type": "boolean"}, "endpoint_identity": {"enum": ["reactant", "product"]}, "structure_sha256": {"$ref": "#/$defs/sha"}, "charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "state_family": {"enum": ["doublet_ground_state", "high_spin_triplet", "triplet_carbene"]}, "wavefunction_reference": {"enum": ["U", "RO"]}, "s2_before_annihilation": {"type": "number", "minimum": 0}, "s2_after_annihilation": {"type": "number", "minimum": 0}, "stability": {"enum": ["stable", "unstable", "missing"]}, "state_lineage_payload_sha256": {"$ref": "#/$defs/sha"}, "review": {"$ref": "#/$defs/sourceReview"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}}
+    },
+    "workflow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "workflow_id", "workflow_kind", "status", "state_review", "candidate", "protocol", "state_lineage", "blocked_scope", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-ts-irc-workflow/1"}, "workflow_id": {"$ref": "#/$defs/id"}, "workflow_kind": {"const": "main_group_open_shell_single_surface_ts_freq_irc"}, "status": {"const": "planned_offline"}, "state_review": {"$ref": "#/$defs/binding"}, "candidate": {"$ref": "#/$defs/binding"}, "protocol": {"$ref": "#/$defs/binding"}, "state_lineage": {"$ref": "#/$defs/lineage"}, "blocked_scope": {"type": "array", "const": ["spin_crossing_or_mecp", "open_shell_singlet", "multireference", "different_multiplicity_endpoints", "transition_metal", "execution"]}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "authorizations": {"$ref": "#/$defs/authority"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "inputAudit": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "audit_id", "stage", "status", "workflow", "source", "input", "state_lineage", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-ts-irc-input-audit/1"}, "audit_id": {"$ref": "#/$defs/id"}, "stage": {"enum": ["ts_freq", "irc_forward", "irc_reverse"]}, "status": {"const": "accepted_offline_input_audit"}, "workflow": {"$ref": "#/$defs/binding"}, "source": {"$ref": "#/$defs/binding"}, "input": {"$ref": "#/$defs/input"}, "state_lineage": {"$ref": "#/$defs/lineage"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "authorizations": {"$ref": "#/$defs/authority"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "tsAcceptance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "acceptance_id", "status", "workflow", "input_audit", "observation", "mode_decision", "checks", "state_lineage", "decision", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-ts-acceptance/1"}, "acceptance_id": {"$ref": "#/$defs/id"}, "status": {"enum": ["accepted", "blocked"]}, "workflow": {"$ref": "#/$defs/binding"}, "input_audit": {"$ref": "#/$defs/binding"}, "observation": {"$ref": "#/$defs/binding"}, "mode_decision": {"$ref": "#/$defs/binding"}, "checks": {"type": "array", "minItems": 8, "items": {"$ref": "#/$defs/check"}}, "state_lineage": {"$ref": "#/$defs/lineage"}, "decision": {"enum": ["accepted_same_surface_first_order_saddle", "blocked"]}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "authorizations": {"$ref": "#/$defs/authority"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "ircPlan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "plan_id", "status", "workflow", "ts_acceptance", "direction_input_audits", "state_lineage", "required_result_evidence", "irc_validated", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-irc-plan/1"}, "plan_id": {"$ref": "#/$defs/id"}, "status": {"const": "planned_offline_only"}, "workflow": {"$ref": "#/$defs/binding"}, "ts_acceptance": {"$ref": "#/$defs/binding"}, "direction_input_audits": {"type": "object", "additionalProperties": false, "required": ["forward", "reverse"], "properties": {"forward": {"$ref": "#/$defs/binding"}, "reverse": {"$ref": "#/$defs/binding"}}}, "state_lineage": {"$ref": "#/$defs/lineage"}, "required_result_evidence": {"type": "array", "minItems": 8, "items": {"type": "string", "minLength": 1}}, "irc_validated": {"const": false}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "authorizations": {"$ref": "#/$defs/authority"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "ircAcceptance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "acceptance_id", "status", "plan", "endpoints", "checks", "state_lineage", "irc_validated", "limitations", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"],
+      "properties": {"schema": {"const": "auto-g16-main-group-open-shell-irc-path-acceptance/1"}, "acceptance_id": {"$ref": "#/$defs/id"}, "status": {"enum": ["irc_validated", "blocked"]}, "plan": {"$ref": "#/$defs/binding"}, "endpoints": {"type": "object", "additionalProperties": false, "required": ["forward", "reverse"], "properties": {"forward": {"$ref": "#/$defs/binding"}, "reverse": {"$ref": "#/$defs/binding"}}}, "checks": {"type": "array", "minItems": 8, "items": {"$ref": "#/$defs/check"}}, "state_lineage": {"$ref": "#/$defs/lineage"}, "irc_validated": {"type": "boolean"}, "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "authorizations": {"$ref": "#/$defs/authority"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    }
+  }
+}

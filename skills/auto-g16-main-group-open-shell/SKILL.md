@@ -1,6 +1,6 @@
 ---
 name: auto-g16-main-group-open-shell
-description: Offline, fail-closed review and result acceptance for candidate-bound main-group open-shell electronic states. Use when Codex must audit electron count, multiplicity, wavefunction reference, SCF stability, spin contamination, alternatives, or Gaussian Opt/Freq evidence for reviewed single-reference doublet or high-spin triplet minima without authorizing calculation.
+description: Offline, fail-closed review and result acceptance for candidate-bound main-group open-shell electronic states and the separate same-spin-surface TS/Freq/IRC adapter. Use when Codex must audit electron count, multiplicity, wavefunction reference, SCF stability, spin contamination, alternatives, minimum evidence, or explicitly reviewed single-reference doublet/high-spin-triplet TS/IRC continuity without authorizing calculation.
 ---
 
 # Auto-G16 Main-Group Open-Shell
@@ -21,15 +21,22 @@ live smoke test through this Skill.
 6. Use `validate` to re-check canonical JSON, hashes, source bindings, and the
    authority boundary.
 
+For the separate same-spin-surface TS/Freq/IRC workflow, read
+[references/open-shell-ts-irc-contract.md](references/open-shell-ts-irc-contract.md)
+and use `scripts/open_shell_ts_irc.py`. It consumes an exact accepted state
+review but does not change the V1 minimum acceptance rules above.
+
 Run `scripts/open_shell_state.py --help` for the offline CLI. Store the closed,
 versioned JSON Schemas under the repository `contracts/main-group-open-shell/`
 directory; do not copy them into this Skill.
 
 ## Boundaries
 
-Reject closed-shell singlets into the existing closed-shell path. Block
-open-shell singlets, broken symmetry, unresolved multireference character,
-excited states, metals, TS/IRC, MECP/spin crossing, and any state drift.
+Reject closed-shell singlets into the existing closed-shell path. The original
+`open_shell_state.py` minimum workflow continues to block TS/IRC. The separate
+TS/IRC adapter blocks open-shell singlets, broken symmetry, unresolved
+multireference character, excited states, metals, MECP/spin crossing,
+different-multiplicity endpoints, and any state or hash drift.
 Classify carbenes by reviewed electronic state: a supported triplet carbene may
 enter V1, while singlet or multireference carbene cases remain outside it.
 

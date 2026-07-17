@@ -67,7 +67,7 @@ class MainGroupOpenShellTests(unittest.TestCase):
         contract_dir = ROOT / "contracts" / "main-group-open-shell"
         self.assertEqual(
             {path.name for path in contract_dir.glob("*.schema.json")},
-            {"electronic-state-review.schema.json", "gaussian-result-observation.schema.json", "result-acceptance.schema.json"},
+            {"electronic-state-review.schema.json", "gaussian-result-observation.schema.json", "result-acceptance.schema.json", "ts-irc-contracts.schema.json"},
         )
         for path in contract_dir.glob("*.schema.json"):
             schema = load(path)

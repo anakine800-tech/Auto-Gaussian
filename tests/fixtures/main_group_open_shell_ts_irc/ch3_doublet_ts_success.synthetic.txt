@@ -1,0 +1,11 @@
+ Gaussian 16 synthetic offline fixture; not a raw calculation output.
+ Charge = 0 Multiplicity = 2
+ Optimization completed.
+ -- Stationary point found.
+ SCF Done:  E(UFixture) =  -39.000000 A.U.
+ Annihilation of the first spin contaminant:
+ S**2 before annihilation 0.7600, after 0.7505
+ The wavefunction is stable under the perturbations considered.
+ Frequencies -- -450.0 120.0 350.0
+ Frequencies -- 700.0 1100.0 3000.0
+ Normal termination of Gaussian 16
