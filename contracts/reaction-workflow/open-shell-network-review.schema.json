@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/open-shell-network-review.schema.json",
+  "title": "Auto-G16 reviewed main-group open-shell reaction-network input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "study_id", "network_id", "surface_review", "protocol_lineages", "states", "edges", "nodes", "review_decision", "reviewer", "reviewed_at", "review_notes", "calculation_ready", "no_submission_authorization"],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-open-shell-network-review/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "network_id": {"$ref": "#/$defs/id"},
+    "surface_review": {"$ref": "#/$defs/surfaceReview"},
+    "protocol_lineages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/protocolLineage"}},
+    "states": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/state"}},
+    "edges": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/edge"}},
+    "nodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/node"}},
+    "review_decision": {"const": "accepted"},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "minLength": 1},
+    "review_notes": {"type": "array", "items": {"type": "string"}},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 1}, "schema": {"type": "string", "minLength": 1}, "payload_sha256": {"$ref": "#/$defs/sha256"}}},
+    "surfaceReview": {"type": "object", "additionalProperties": false, "required": ["multiplicity", "state_family", "electronic_scope", "crossing_excluded", "reviewer", "rationale"], "properties": {"multiplicity": {"enum": [2, 3]}, "state_family": {"enum": ["doublet_ground_state", "high_spin_triplet_ground_state", "triplet_carbene"]}, "electronic_scope": {"const": "single_reference_ground_state"}, "crossing_excluded": {"const": true}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}}},
+    "protocolLineage": {"type": "object", "additionalProperties": false, "required": ["lineage_id", "protocol_selection", "candidate_id", "state_review_payload_sha256", "status", "reviewer", "rationale"], "properties": {"lineage_id": {"$ref": "#/$defs/id"}, "protocol_selection": {"oneOf": [{"$ref": "#/$defs/binding"}, {"type": "null"}]}, "candidate_id": {"$ref": "#/$defs/id"}, "state_review_payload_sha256": {"$ref": "#/$defs/sha256"}, "status": {"enum": ["reviewed", "unresolved"]}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}}},
+    "structure": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "fragment": {"type": "object", "additionalProperties": false, "required": ["fragment_id", "atom_ids", "multiplicity"], "properties": {"fragment_id": {"$ref": "#/$defs/id"}, "atom_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}, "uniqueItems": true}, "multiplicity": {"type": "integer", "minimum": 1}}},
+    "coupling": {"type": "object", "additionalProperties": false, "required": ["status", "total_multiplicity", "fragments", "coupling_model", "reviewer", "rationale"], "properties": {"status": {"enum": ["reviewed", "unresolved"]}, "total_multiplicity": {"type": "integer", "minimum": 1}, "fragments": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fragment"}}, "coupling_model": {"type": "string", "minLength": 1}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}}},
+    "state": {"type": "object", "additionalProperties": false, "required": ["state_id", "structure", "candidate", "state_review", "atom_ids", "fragment_spin_coupling", "protocol_lineage_id"], "properties": {"state_id": {"$ref": "#/$defs/id"}, "structure": {"$ref": "#/$defs/structure"}, "candidate": {"$ref": "#/$defs/binding"}, "state_review": {"$ref": "#/$defs/binding"}, "atom_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "fragment_spin_coupling": {"$ref": "#/$defs/coupling"}, "protocol_lineage_id": {"$ref": "#/$defs/id"}}},
+    "atomMap": {"type": "object", "additionalProperties": false, "required": ["from_atom_id", "to_atom_id"], "properties": {"from_atom_id": {"$ref": "#/$defs/id"}, "to_atom_id": {"$ref": "#/$defs/id"}}},
+    "totalReview": {"type": "object", "additionalProperties": false, "required": ["status", "multiplicity", "reviewer", "rationale"], "properties": {"status": {"enum": ["reviewed", "unresolved"]}, "multiplicity": {"type": "integer", "minimum": 1}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}}},
+    "edgeCoupling": {"type": "object", "additionalProperties": false, "required": ["status", "reviewer", "rationale"], "properties": {"status": {"enum": ["reviewed", "unresolved"]}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}}},
+    "candidateLineage": {"type": "object", "additionalProperties": false, "required": ["from_candidate_id", "to_candidate_id"], "properties": {"from_candidate_id": {"$ref": "#/$defs/id"}, "to_candidate_id": {"$ref": "#/$defs/id"}}},
+    "edge": {"type": "object", "additionalProperties": false, "required": ["edge_id", "from_state_id", "to_state_id", "atom_mapping", "total_multiplicity_review", "fragment_spin_coupling_review", "candidate_lineage", "protocol_lineage_ids"], "properties": {"edge_id": {"$ref": "#/$defs/id"}, "from_state_id": {"$ref": "#/$defs/id"}, "to_state_id": {"$ref": "#/$defs/id"}, "atom_mapping": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atomMap"}}, "total_multiplicity_review": {"$ref": "#/$defs/totalReview"}, "fragment_spin_coupling_review": {"$ref": "#/$defs/edgeCoupling"}, "candidate_lineage": {"$ref": "#/$defs/candidateLineage"}, "protocol_lineage_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}}},
+    "node": {"type": "object", "additionalProperties": false, "required": ["node_id", "node_kind", "state_ids", "edge_ids", "candidate_bindings", "state_review_bindings", "protocol_lineage_ids", "depends_on", "executable"], "properties": {"node_id": {"$ref": "#/$defs/id"}, "node_kind": {"enum": ["minimum", "complex", "ts_candidate", "ts_freq", "irc_forward", "irc_reverse", "endpoint", "single_point", "thermochemistry", "sensitivity"]}, "state_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "edge_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "candidate_bindings": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "state_review_bindings": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}}, "protocol_lineage_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "depends_on": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "executable": {"const": false}}}
+  }
+}
