@@ -99,7 +99,9 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
    minimum instead requires one exact
    `gaussian-input-approval-receipt/3` and one closed live approval `/5` per
    stage. The stability receipt additionally binds the accepted Opt/Freq final
-   checkpoint and owner manifest. This does not extend receipt `/2` or live `/4`.
+   checkpoint and owner manifest. A prior failed combined input uses family
+   handoff `/1`; a fresh prospective family uses `/2` and explicitly carries no
+   prior-failure hash. This does not extend receipt `/2` or live `/4`.
    Protected TS/scan/IRC prospective live work is currently
    fail-closed: maturity gate `/1` is replay-only, while current `/2` has no
    positive action because minimum lineage and specialist owners remain open.

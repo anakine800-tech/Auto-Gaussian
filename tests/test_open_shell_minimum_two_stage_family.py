@@ -33,7 +33,7 @@ AUTHORIZATIONS = {"create_server_directory": True, "submit": True, "retry": Fals
 
 
 class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
-    def build_chain(self, root: Path, *, expected_frequency_count: int = 3, opt_log_text: str | None = None) -> dict:
+    def build_chain(self, root: Path, *, expected_frequency_count: int = 3, opt_log_text: str | None = None, prospective: bool = False) -> dict:
         spec = {
             "family_id": "oh_retry_family", "title": "offline OH retry candidate", "charge": 0, "multiplicity": 2,
             "state_family": "doublet_ground_state", "reference_family": "U", "target_s2": 0.75, "max_abs_s2_deviation": 0.1,
@@ -48,8 +48,11 @@ class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
             "opt_checkpoint": "oh_opt.chk", "stability_checkpoint": "oh_stable.chk", "expected_frequency_count": expected_frequency_count,
             "resources": {"resource_tier": "simple", "mem_gb": 12, "cores": 8},
             "selection_payload_sha256": "2" * 64, "selected_option_payload_sha256": "3" * 64,
-            "superseded_input_sha256": "43ad5e2e" + "0" * 56,
         }
+        if prospective:
+            spec["family_origin"] = "prospective_two_stage_minimum"
+        else:
+            spec["superseded_input_sha256"] = "43ad5e2e" + "0" * 56
         spec["structure_sha256"] = FAMILY.hashlib.sha256(FAMILY.canonical_bytes({"atoms": spec["atoms"], "charge": spec["charge"], "multiplicity": spec["multiplicity"]})).hexdigest()
         spec_path = root / "spec.json"; spec_path.write_text(json.dumps(spec), encoding="utf-8")
         handoff_path, opt_input, stable_input = root / "family.json", root / "oh_opt.gjf", root / "oh_stable.gjf"
@@ -122,6 +125,39 @@ class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
         self.assertEqual(evidence["actual_frequency_count"], 1)
         self.assertEqual(evidence["imaginary_frequency_count"], 0)
         self.assertEqual(chain["checkpoint"]["status"], "accepted_final_optimized_checkpoint")
+
+    def test_B_prospective_family_has_no_fabricated_failure_lineage(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+            root = Path(temp).resolve(); chain = self.build_chain(root, prospective=True)
+            handoff = chain["handoff"]
+            self.assertEqual(handoff["schema"], FAMILY.PROSPECTIVE_HANDOFF_SCHEMA)
+            self.assertNotIn("failure_lineage", handoff)
+            self.assertEqual(handoff["prospective_lineage"], {
+                "classification": "prospective_two_stage_minimum",
+                "prior_failed_input_sha256": None,
+                "combined_route_forbidden": True,
+            })
+            schema = json.loads((ROOT / "contracts/main-group-open-shell/minimum-two-stage-family-contracts.schema.json").read_text())
+            for artifact in (handoff, chain["checkpoint"], chain["manifest"], chain["opt_receipt"], chain["stable_receipt"]):
+                SCHEMA._validate_schema_instance(artifact, schema, schema)
+            report = TRANSPORT.parse_gaussian(chain["stable_input"])
+            receipt = TRANSPORT.validate_input_approval(chain["stable_receipt_path"], chain["stable_input"], report, "minimum")
+            schema_name, _scope = TRANSPORT.expected_live_approval_scope(
+                TRANSPORT.live_approval_summary("prospective", report, None, "minimum", receipt)
+            )
+            self.assertEqual(schema_name, TRANSPORT.OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA)
+
+            forged = copy.deepcopy(handoff)
+            forged["prospective_lineage"]["prior_failed_input_sha256"] = "0" * 64
+            forged["payload_sha256"] = FAMILY.payload_sha256(forged)
+            with self.assertRaises(FAMILY.ContractError):
+                FAMILY.validate_handoff(forged)
+
+            spec = json.loads(chain["spec_path"].read_text())
+            spec["superseded_input_sha256"] = "1" * 64
+            mixed = root / "mixed-spec.json"; mixed.write_text(json.dumps(spec), encoding="utf-8")
+            with self.assertRaises(FAMILY.ContractError):
+                FAMILY.build_family(mixed, root / "mixed-family.json", root / "mixed-opt.gjf", root / "mixed-stable.gjf")
 
     def test_C_receipt_v3_live_v5_direct_and_wrapper_dry_run_no_network(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as temp:

@@ -31,6 +31,8 @@ state = _module("open_shell_minimum_family_state", STATE_PATH)
 
 WORKFLOW = "main_group_open_shell_minimum_two_stage_v1"
 HANDOFF_SCHEMA = "auto-g16-main-group-open-shell-minimum-family-handoff/1"
+PROSPECTIVE_HANDOFF_SCHEMA = "auto-g16-main-group-open-shell-minimum-family-handoff/2"
+HANDOFF_SCHEMAS = {HANDOFF_SCHEMA, PROSPECTIVE_HANDOFF_SCHEMA}
 CHECKPOINT_SCHEMA = "auto-g16-main-group-open-shell-minimum-checkpoint-binding/1"
 MANIFEST_SCHEMA = "auto-g16-main-group-open-shell-minimum-stability-input-manifest/1"
 RECEIPT_SCHEMA = "gaussian-input-approval-receipt/3"
@@ -117,6 +119,11 @@ def _validate_binding(value: Any, label: str, schema: str | None = None) -> None
         require(item["schema"] == schema, f"{label} schema mismatch")
 
 
+def _validate_family_binding(value: Any, label: str) -> None:
+    _validate_binding(value, label)
+    require(value["schema"] in HANDOFF_SCHEMAS, f"{label} schema mismatch")
+
+
 def _route_tokens(route: str) -> list[str]:
     tokens: list[str] = []
     current: list[str] = []
@@ -164,8 +171,11 @@ def _validate_routes(opt_route: str, stability_route: str) -> tuple[str, str, st
 
 
 def validate_handoff(document: dict[str, Any]) -> None:
-    _exact(document, {"schema", "family_id", "workflow", "status", "state", "structure", "method_basis", "resources", "selection_binding", "failure_lineage", "stages", "family_requirements", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"}, "family handoff")
-    require(document["schema"] == HANDOFF_SCHEMA and document["workflow"] == WORKFLOW and document["status"] == "offline_candidates_ready_for_independent_approval", "family handoff identity/status mismatch")
+    common_fields = {"schema", "family_id", "workflow", "status", "state", "structure", "method_basis", "resources", "selection_binding", "stages", "family_requirements", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"}
+    require(document.get("schema") in HANDOFF_SCHEMAS, "family handoff schema mismatch")
+    lineage_field = "failure_lineage" if document["schema"] == HANDOFF_SCHEMA else "prospective_lineage"
+    _exact(document, common_fields | {lineage_field}, "family handoff")
+    require(document["workflow"] == WORKFLOW and document["status"] == "offline_candidates_ready_for_independent_approval", "family handoff identity/status mismatch")
     _id(document["family_id"], "family_id")
     state_value = _exact(document["state"], {"charge", "multiplicity", "state_family", "reference_family", "target_s2", "max_abs_s2_deviation"}, "family state")
     require(isinstance(state_value["charge"], int) and state_value["multiplicity"] in {2, 3}, "only reviewed doublet/high-spin triplet minima are supported")
@@ -186,9 +196,13 @@ def validate_handoff(document: dict[str, Any]) -> None:
     require((resources["mem_gb"], resources["cores"]) == RESOURCE_TIERS[resources["resource_tier"]], "resource tier/memory/core mapping changed")
     selection = _exact(document["selection_binding"], {"selection_payload_sha256", "selected_option_payload_sha256"}, "selection binding")
     _sha(selection["selection_payload_sha256"], "selection payload hash"); _sha(selection["selected_option_payload_sha256"], "selected option payload hash")
-    failure = _exact(document["failure_lineage"], {"superseded_input_sha256", "classification", "resubmit_same_input"}, "failure lineage")
-    _sha(failure["superseded_input_sha256"], "superseded input hash")
-    require(failure["classification"] == "gaussian_link1_combined_opt_freq_stable_parse_failure" and failure["resubmit_same_input"] is False, "failure lineage must block same-input retry")
+    if document["schema"] == HANDOFF_SCHEMA:
+        failure = _exact(document["failure_lineage"], {"superseded_input_sha256", "classification", "resubmit_same_input"}, "failure lineage")
+        _sha(failure["superseded_input_sha256"], "superseded input hash")
+        require(failure["classification"] == "gaussian_link1_combined_opt_freq_stable_parse_failure" and failure["resubmit_same_input"] is False, "failure lineage must block same-input retry")
+    else:
+        prospective = _exact(document["prospective_lineage"], {"classification", "prior_failed_input_sha256", "combined_route_forbidden"}, "prospective lineage")
+        require(prospective == {"classification": "prospective_two_stage_minimum", "prior_failed_input_sha256": None, "combined_route_forbidden": True}, "prospective lineage must not claim a prior failed input")
     stages = _exact(document["stages"], {"opt_freq", "stability"}, "family stages")
     opt = _exact(stages["opt_freq"], {"stage_id", "route", "checkpoint", "input_text", "input_sha256", "expected_frequency_count"}, "opt_freq stage")
     stable = _exact(stages["stability"], {"stage_id", "route", "oldcheckpoint", "checkpoint", "input_text", "input_sha256", "requires_checkpoint_binding"}, "stability stage")
@@ -210,7 +224,7 @@ def validate_handoff(document: dict[str, Any]) -> None:
 def validate_checkpoint_binding(document: dict[str, Any]) -> None:
     _exact(document, {"schema", "binding_id", "family", "stage", "result", "checkpoint", "state_method_continuity", "opt_freq_evidence", "status", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"}, "checkpoint binding")
     require(document["schema"] == CHECKPOINT_SCHEMA and document["stage"] == "opt_freq", "checkpoint binding identity mismatch")
-    _id(document["binding_id"], "binding_id"); _validate_binding(document["family"], "checkpoint family", HANDOFF_SCHEMA)
+    _id(document["binding_id"], "binding_id"); _validate_family_binding(document["family"], "checkpoint family")
     result = _exact(document["result"], {"path", "sha256", "input_sha256"}, "checkpoint result")
     require(isinstance(result["path"], str) and result["path"], "result path missing"); _sha(result["sha256"], "result hash"); _sha(result["input_sha256"], "result input hash")
     checkpoint = _exact(document["checkpoint"], {"file", "sha256"}, "checkpoint")
@@ -250,7 +264,7 @@ def validate_checkpoint_binding(document: dict[str, Any]) -> None:
 def validate_stability_manifest(document: dict[str, Any], *, input_path: Path | None = None) -> None:
     _exact(document, {"schema", "family", "checkpoint_binding", "stage", "geometry_source", "no_explicit_molecule_specification", "input_sha256", "checkpoint_file", "checkpoint_sha256", "charge", "multiplicity", "atom_count", "atom_order", "method", "basis", "reference_family", "warnings", "candidate_only", "calculation_ready", "no_submission_authorization", "payload_sha256"}, "stability manifest")
     require(document["schema"] == MANIFEST_SCHEMA and document["stage"] == "stability", "stability manifest identity mismatch")
-    _validate_binding(document["family"], "manifest family", HANDOFF_SCHEMA); _validate_binding(document["checkpoint_binding"], "manifest checkpoint binding", CHECKPOINT_SCHEMA)
+    _validate_family_binding(document["family"], "manifest family"); _validate_binding(document["checkpoint_binding"], "manifest checkpoint binding", CHECKPOINT_SCHEMA)
     require(document["geometry_source"] == "geom_allcheck_from_reviewed_checkpoint" and document["no_explicit_molecule_specification"] is True, "stability manifest geometry source changed")
     _sha(document["input_sha256"], "manifest input hash"); _sha(document["checkpoint_sha256"], "manifest checkpoint hash")
     require(CHK_RE.fullmatch(document["checkpoint_file"]) is not None and document["multiplicity"] in {2, 3} and document["reference_family"] in {"U", "RO"}, "manifest checkpoint/state invalid")
@@ -265,7 +279,7 @@ def validate_stage_receipt(document: dict[str, Any]) -> None:
     _exact(document, {"schema", "receipt_id", "work_kind", "family", "stage", "input", "checkpoint_binding", "stability_manifest", "owner_binding", "decision", "single_exact_input_only", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"}, "family stage receipt")
     require(document["schema"] == RECEIPT_SCHEMA, "family receipt schema mismatch"); _id(document["receipt_id"], "receipt_id")
     require(document["work_kind"] == "minimum", "family receipt work_kind changed")
-    _validate_binding(document["family"], "receipt family", HANDOFF_SCHEMA)
+    _validate_family_binding(document["family"], "receipt family")
     require(document["stage"] in {"opt_freq", "stability"}, "unknown family stage")
     input_value = _exact(document["input"], {"path", "sha256", "size_bytes"}, "receipt input")
     require(isinstance(input_value["path"], str) and input_value["path"] and isinstance(input_value["size_bytes"], int) and input_value["size_bytes"] > 0, "receipt input invalid"); _sha(input_value["sha256"], "receipt input hash")
@@ -374,7 +388,7 @@ def build_acceptance(handoff_path: Path, checkpoint_binding_path: Path, opt_resu
 def validate_acceptance(document: dict[str, Any]) -> None:
     _exact(document, {"schema", "acceptance_id", "workflow", "status", "family", "checkpoint_binding", "results", "checks", "decision", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"}, "family acceptance")
     require(document["schema"] == ACCEPTANCE_SCHEMA and document["workflow"] == WORKFLOW, "family acceptance identity mismatch"); _id(document["acceptance_id"], "acceptance_id")
-    _validate_binding(document["family"], "acceptance family", HANDOFF_SCHEMA); _validate_binding(document["checkpoint_binding"], "acceptance checkpoint", CHECKPOINT_SCHEMA)
+    _validate_family_binding(document["family"], "acceptance family"); _validate_binding(document["checkpoint_binding"], "acceptance checkpoint", CHECKPOINT_SCHEMA)
     results = _exact(document["results"], {"opt_freq", "stability"}, "acceptance results")
     for name in results:
         _exact(results[name], {"path", "sha256"}, f"{name} result"); _sha(results[name]["sha256"], f"{name} result hash")
@@ -403,13 +417,23 @@ def _render_stability(spec: dict[str, Any]) -> str:
 
 def build_family(spec_path: Path, output: Path, opt_input: Path, stability_input: Path) -> dict[str, Any]:
     spec = _load(spec_path, "family build specification")
-    fields = {"family_id", "title", "charge", "multiplicity", "state_family", "reference_family", "target_s2", "max_abs_s2_deviation", "atoms", "structure_sha256", "opt_route", "stability_route", "opt_checkpoint", "stability_checkpoint", "expected_frequency_count", "resources", "selection_payload_sha256", "selected_option_payload_sha256", "superseded_input_sha256"}
-    _exact(spec, fields, "family build specification")
+    common_fields = {"family_id", "title", "charge", "multiplicity", "state_family", "reference_family", "target_s2", "max_abs_s2_deviation", "atoms", "structure_sha256", "opt_route", "stability_route", "opt_checkpoint", "stability_checkpoint", "expected_frequency_count", "resources", "selection_payload_sha256", "selected_option_payload_sha256"}
+    is_retry = "superseded_input_sha256" in spec
+    lineage_field = "superseded_input_sha256" if is_retry else "family_origin"
+    _exact(spec, common_fields | {lineage_field}, "family build specification")
+    if is_retry:
+        _sha(spec["superseded_input_sha256"], "superseded input hash")
+        handoff_schema = HANDOFF_SCHEMA
+        lineage = {"failure_lineage": {"superseded_input_sha256": spec["superseded_input_sha256"], "classification": "gaussian_link1_combined_opt_freq_stable_parse_failure", "resubmit_same_input": False}}
+    else:
+        require(spec["family_origin"] == "prospective_two_stage_minimum", "unsupported prospective family origin")
+        handoff_schema = PROSPECTIVE_HANDOFF_SCHEMA
+        lineage = {"prospective_lineage": {"classification": "prospective_two_stage_minimum", "prior_failed_input_sha256": None, "combined_route_forbidden": True}}
     opt_text, stable_text = _render_explicit(spec), _render_stability(spec)
     method, basis, reference = _validate_routes(spec["opt_route"], spec["stability_route"])
     require(reference == spec["reference_family"], "build specification reference mismatch")
     require(not output.exists() and not opt_input.exists() and not stability_input.exists(), "refusing to overwrite family outputs")
-    document = {"schema": HANDOFF_SCHEMA, "family_id": spec["family_id"], "workflow": WORKFLOW, "status": "offline_candidates_ready_for_independent_approval", "state": {key: spec[key] for key in ("charge", "multiplicity", "state_family", "reference_family", "target_s2", "max_abs_s2_deviation")}, "structure": {"atoms": spec["atoms"], "structure_sha256": spec["structure_sha256"]}, "method_basis": {"method": method, "basis": basis}, "resources": spec["resources"], "selection_binding": {"selection_payload_sha256": spec["selection_payload_sha256"], "selected_option_payload_sha256": spec["selected_option_payload_sha256"]}, "failure_lineage": {"superseded_input_sha256": spec["superseded_input_sha256"], "classification": "gaussian_link1_combined_opt_freq_stable_parse_failure", "resubmit_same_input": False}, "stages": {"opt_freq": {"stage_id": "opt_freq", "route": spec["opt_route"], "checkpoint": spec["opt_checkpoint"], "input_text": opt_text, "input_sha256": hashlib.sha256(opt_text.encode()).hexdigest(), "expected_frequency_count": spec["expected_frequency_count"]}, "stability": {"stage_id": "stability", "route": spec["stability_route"], "oldcheckpoint": spec["opt_checkpoint"], "checkpoint": spec["stability_checkpoint"], "input_text": stable_text, "input_sha256": hashlib.sha256(stable_text.encode()).hexdigest(), "requires_checkpoint_binding": True}}, "family_requirements": {"independent_stage_receipts": True, "independent_live_approvals": True, "link1_forbidden": True, "mixed_checkpoint_generation_forbidden": True}, **AUTHORITY, "authorizations": copy.deepcopy(NO_ACTIONS), "payload_sha256": None}
+    document = {"schema": handoff_schema, "family_id": spec["family_id"], "workflow": WORKFLOW, "status": "offline_candidates_ready_for_independent_approval", "state": {key: spec[key] for key in ("charge", "multiplicity", "state_family", "reference_family", "target_s2", "max_abs_s2_deviation")}, "structure": {"atoms": spec["atoms"], "structure_sha256": spec["structure_sha256"]}, "method_basis": {"method": method, "basis": basis}, "resources": spec["resources"], "selection_binding": {"selection_payload_sha256": spec["selection_payload_sha256"], "selected_option_payload_sha256": spec["selected_option_payload_sha256"]}, **lineage, "stages": {"opt_freq": {"stage_id": "opt_freq", "route": spec["opt_route"], "checkpoint": spec["opt_checkpoint"], "input_text": opt_text, "input_sha256": hashlib.sha256(opt_text.encode()).hexdigest(), "expected_frequency_count": spec["expected_frequency_count"]}, "stability": {"stage_id": "stability", "route": spec["stability_route"], "oldcheckpoint": spec["opt_checkpoint"], "checkpoint": spec["stability_checkpoint"], "input_text": stable_text, "input_sha256": hashlib.sha256(stable_text.encode()).hexdigest(), "requires_checkpoint_binding": True}}, "family_requirements": {"independent_stage_receipts": True, "independent_live_approvals": True, "link1_forbidden": True, "mixed_checkpoint_generation_forbidden": True}, **AUTHORITY, "authorizations": copy.deepcopy(NO_ACTIONS), "payload_sha256": None}
     document["payload_sha256"] = payload_sha256(document); validate_handoff(document)
     opt_input.write_text(opt_text, encoding="utf-8"); stability_input.write_text(stable_text, encoding="utf-8")
     output.write_bytes(canonical_bytes(document)); return document
