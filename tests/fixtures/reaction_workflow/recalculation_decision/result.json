@@ -1,0 +1,10 @@
+{
+  "schema": "gaussian-ts-freq-result/1",
+  "normal_termination_count": 1,
+  "error_termination_count": 0,
+  "optimization_completed": false,
+  "stationary_point_found": false,
+  "diagnostics": [
+    "optimization_cycle_limit"
+  ]
+}

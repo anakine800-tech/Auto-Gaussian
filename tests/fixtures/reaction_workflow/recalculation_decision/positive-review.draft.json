@@ -1,0 +1,86 @@
+{
+  "schema": "gaussian-recalculation-decision-draft/1",
+  "decision_id": "synthetic_recalculation_decision_001",
+  "failure_classification": {
+    "category": "geometry_optimization",
+    "summary": "The reviewed evidence shows that the requested optimization did not complete within the recorded cycle limit.",
+    "evidence": [
+      {
+        "source": "result",
+        "json_pointer": "/optimization_completed",
+        "interpretation": "The specialist result records an incomplete optimization."
+      },
+      {
+        "source": "terminal_evidence",
+        "json_pointer": "/outcome",
+        "interpretation": "The separately retained terminal evidence classifies the attempt as failed."
+      }
+    ],
+    "human_classified": true
+  },
+  "preserved_original_calculation": {
+    "method": {
+      "source": "protocol",
+      "json_pointer": "/method"
+    },
+    "route": {
+      "source": "input",
+      "json_pointer": "/route"
+    },
+    "resources": {
+      "source": "protocol",
+      "json_pointer": "/resources"
+    },
+    "structure_hashes": [
+      {
+        "role": "reactant_complex",
+        "source": "input",
+        "json_pointer": "/structure_hashes/reactant_complex"
+      }
+    ]
+  },
+  "candidate_actions": [
+    {
+      "proposal_id": "increase_optimization_cycle_limit",
+      "status": "selected_for_separate_gate",
+      "proposed_exact_delta": [
+        {
+          "target": "numerical_controls",
+          "target_locator": "protocol.resources.optimization_max_cycles",
+          "source": "protocol",
+          "json_pointer": "/resources/optimization_max_cycles",
+          "to_canonical_json": "100",
+          "change_origin": "human_authored"
+        }
+      ],
+      "rationale": {
+        "scientific": "The molecular identity, charge, multiplicity, method, solvent model, and target stationary-point hypothesis would remain unchanged for later review.",
+        "numerical": "The retained result stopped before the reviewed optimization completed, so a larger explicit cycle ceiling is a bounded numerical proposal for a separate gate."
+      },
+      "impact_scope": [
+        "Only the optimization cycle ceiling of one future input proposal would change."
+      ],
+      "risks": [
+        "Additional cycles may consume more resources without reaching the intended stationary point.",
+        "The proposal does not establish that the original geometry or method is scientifically adequate."
+      ],
+      "required_new_reviews": {
+        "protocol": true,
+        "scientific_maturity": true,
+        "input": true,
+        "live_approval": true
+      }
+    }
+  ],
+  "review": {
+    "decision": "approve_one_exact_recalculation_proposal",
+    "reviewer": "synthetic_reviewer",
+    "reviewed_at": "2026-07-17T10:30:00+08:00",
+    "notes": [
+      "Approval means only that this one exact proposal may enter fresh independent review gates."
+    ],
+    "uncertainties": [
+      "The retained evidence does not prove that increasing the cycle ceiling will converge or locate the intended stationary point."
+    ]
+  }
+}
