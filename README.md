@@ -8,6 +8,28 @@ This repository is the version-controlled source of truth. Installed copies
 under `~/.codex/skills` are deployment targets and must not be edited
 independently.
 
+The current open-shell input-receipt bridge preserves generic receipt `/1`
+unchanged and adds offline-only `gaussian-input-approval-receipt/2` for a
+reviewed main-group open-shell minimum. `/2` replays the accepted electronic
+state, exact minimum Opt/Freq handoff and passed input audit in addition to the
+selected protocol, mapping, resources and exact input SHA-256. It recognizes
+`optimization`/`frequency` with composite `opt_freq` owner stages, counts only
+top-level Gaussian route keywords (so `Stable=Opt` is not a duplicate Opt),
+and retains all specialist syntax blockers. It grants no live authority. A
+separate closed `auto-g16-live-submission-approval/4` can now bind a fully
+owner-replayed `/2` receipt for one exact main-group open-shell minimum only;
+`/3` remains restricted to receipt `/1` and is unchanged. Direct and wrapper
+dry runs emit only the required schema and exact scope proposal, never an
+approved live record. This bridge has been implemented and tested offline only.
+
+Gaussian 16 A.03 open-shell minima that need both Opt/Freq and wavefunction
+stability now use a separate versioned two-stage family. Stage 1 contains
+Opt/Freq but no `Stable`; only its accepted final checkpoint may feed a
+coordinate-free `Stable=Opt Geom=AllCheck Guess=Read` stage 2. Each stage has
+its own non-authorizing receipt `/3` and prospective live approval `/5`.
+Receipt `/2` and live `/4` retain their single-input meaning. See
+`docs/main-group-open-shell-minimum-two-stage-family.md`.
+
 The current unreleased feature slice adds a prospective scientific-maturity
 overlay and minima-first TS hard gate. It preserves all historical `/1`
 records, requires two accepted Gaussian Opt/Freq zero-imaginary minima before
@@ -93,8 +115,10 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-chemdraw-pipeline`: audited ChemDraw-to-Cartesian conversion.
 - `skills/auto-g16-main-group-open-shell`: offline, hash-bound electronic-state
   review and result acceptance for explicitly reviewed single-reference
-  main-group doublet and high-spin triplet minima. It blocks open-shell
-  singlets, multireference states, metals, TS/IRC, and all live actions.
+  main-group doublet and high-spin triplet minima, plus the immutable
+  `main_group_open_shell_minimum_opt_freq_v1` input-handoff, input-audit, and
+  result-continuity closure. It blocks open-shell singlets, multireference
+  states, metals, TS/IRC, server-directory creation, and all live actions.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
 - `skills/auto-g16-conformer-search`: offline, hash-bound A/A1/A2 and B/B1/B2 conformer/complex discovery planning, supplied-candidate legality auditing, composite structural cross-validation, negative-evidence preservation, clustering, medoids, and candidate-only handoff. It never executes xTB, CREST, Gaussian, PBS, or SSH.
 - `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.

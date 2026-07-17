@@ -73,17 +73,17 @@ def prepare_source(args, *, maturity_action: str = "ts_input") -> dict[str, Any]
     input_approval_record = getattr(args, "input_approval_record", None)
     requested_work_kind = getattr(args, "work_kind", None)
     compatibility = transport.input_approval_compatibility(audit, requested_work_kind)
-    if compatibility["status"] != "supported_generic_v1":
-        input_approval = {**compatibility, "no_submission_authorization": True}
-    elif input_approval_record:
+    if input_approval_record:
         assert requested_work_kind is not None
         input_approval = transport.validate_input_approval(
             Path(input_approval_record), gjf, audit, requested_work_kind
         )
+    elif compatibility["status"] != "supported_generic_v1":
+        input_approval = {**compatibility, "no_submission_authorization": True}
     else:
         input_approval = {
             "status": "missing_required_for_live_submission",
-            "required_schema": transport.INPUT_APPROVAL_SCHEMA,
+            "required_schema": compatibility.get("required_schema", transport.INPUT_APPROVAL_SCHEMA),
             "work_kind": requested_work_kind,
             "no_submission_authorization": True,
         }
@@ -92,6 +92,8 @@ def prepare_source(args, *, maturity_action: str = "ts_input") -> dict[str, Any]
     summary = transport.live_approval_summary(
         project, audit, maturity, requested_work_kind, input_approval
     )
+    if input_approval["status"] == "validated_exact_input_approval":
+        summary["live_approval_requirement"] = transport.live_approval_scope_proposal(summary)
     summary = {**summary, **detail}
     if workflow is not None:
         summary["workflow"] = workflow
@@ -182,7 +184,14 @@ def add_prepare_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source", help="existing reviewed .gjf/.com input")
     parser.add_argument("--project", required=True)
     parser.add_argument("--local-dir", required=True)
-    parser.add_argument("--input-approval-record", help=f"owner-validated {transport.INPUT_APPROVAL_SCHEMA} required for live submission")
+    parser.add_argument(
+        "--input-approval-record",
+        help=(
+            f"owner-validated {transport.INPUT_APPROVAL_SCHEMA} for ordinary/closed-shell minimum, "
+            f"or fully replayed {transport.OPEN_SHELL_INPUT_APPROVAL_SCHEMA} for legacy open-shell minimum, "
+            f"or {transport.OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA} for one two-stage family member"
+        ),
+    )
     transport.add_scientific_maturity_options(parser)
 
 
@@ -195,7 +204,10 @@ def build_parser() -> argparse.ArgumentParser:
     auto = sub.add_parser("auto", help="prepare, submit once, watch, fetch, and analyze")
     add_prepare_options(auto)
     auto.add_argument("--confirmed", action="store_true")
-    auto.add_argument("--approval-record")
+    auto.add_argument(
+        "--approval-record",
+        help="exact live approval /3 for receipt /1, /4 for receipt /2, or /5 for one family-stage receipt /3",
+    )
     auto.add_argument("--watch", action="store_true")
     auto.add_argument("--dry-run", action="store_true")
     auto.add_argument("--output-dir")

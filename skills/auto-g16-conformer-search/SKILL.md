@@ -1,6 +1,6 @@
 ---
 name: auto-g16-conformer-search
-description: Plan and audit offline, dual-route conformer and noncovalent-complex candidate discovery from an exact reviewed R08 handoff. Use when Codex must analyze graph, ring, fragment, interaction-face, and symmetry freedoms; preregister route A annealing/xTB and route B force-field/directed-generation quotas; diagnose missing RDKit, xTB, CREST, spyrmsd, or numerical dependencies without installing or executing them; audit supplied candidate legality; cross-match routes with configurable composite structural distances; cluster consensus, route-unique, and invalid candidates; or create immutable candidate-only handoffs. It does not infer chemistry, select a Gaussian method, execute xTB/CREST/Gaussian/PBS/SSH, or authorize calculation.
+description: Plan and audit offline, dual-route conformer and noncovalent-complex candidate discovery from an exact reviewed R08 handoff, including explicitly state-bound main-group single-reference doublet or high-spin triplet V2 cases. Use for freedom analysis, preregistered Route A/B quotas, dependency diagnosis without execution, candidate legality audits, cross-matching, clustering, or immutable candidate-only handoffs. It does not infer chemistry or electronic state, select a reference or Gaussian method, execute external software, or authorize calculation.
 ---
 
 # Auto-G16 Conformer Search
@@ -15,8 +15,11 @@ search or calculation.
    interpreting a cross-validation result.
 2. Confirm identity, atom map/order, connectivity, explicit hydrogens, charge,
    multiplicity, fragments, stereochemistry, state labels, and user-defined
-   categories. Refuse unsupported transition-metal, open-shell, excited-state,
-   multireference, unknown-coordination, or connectivity-changing cases.
+   categories. V1 remains closed-shell-only. V2 may consume only an exact
+   accepted main-group open-shell review for a single-reference doublet or
+   high-spin triplet. Reject every other open-shell class, transition metal,
+   excited state, multireference case, unknown coordination, or connectivity
+   change.
 3. Run `diagnose` to record dependency paths without executing or installing
    xTB, CREST, RDKit, spyrmsd, NumPy, SciPy, scikit-learn, MDAnalysis, or
    MDTraj. Missing capabilities remain blockers.
@@ -37,7 +40,13 @@ search or calculation.
 8. Run `handoff` only after human review of selected medoids. The handoff stays
    `candidate_only: true`, `calculation_ready: false`, and
    `no_submission_authorization: true`.
-9. Treat the first downstream purpose as minimum discovery. Gaussian Opt/Freq
+9. For V2, preserve one identical structure-graph hash, atom-order hash,
+   charge, multiplicity, state family, and accepted-review payload binding
+   through R08, request, plan, every candidate member, ledger, ensemble, and
+   handoff. Reject mixed states. Never rank across states, combine Boltzmann
+   populations, or infer a ground state. Block unresolved fragment spin
+   coupling.
+10. Treat the first downstream purpose as minimum discovery. Gaussian Opt/Freq
    must accept the relevant reactant and product minima before any formal TS
    family consumes conformer evidence. A TS conformer may be derived only from
    an accepted reactant-minimum lineage recorded by the reaction-workflow
@@ -61,6 +70,8 @@ All writers refuse overwrite. Use new output paths and an explicit
 
 - Do not guess missing chemistry, methods, atom mappings, category labels, or
   constraint semantics.
+- Do not infer multiplicity, state family, wavefunction reference, protocol,
+  fragment spin coupling, or cross-state ordering.
 - Do not mix force-field, xTB, annealing, or route-weight values into final
   thermodynamic ranking.
 - Never report FF/xTB energies as formal barriers or use geometry-only face,

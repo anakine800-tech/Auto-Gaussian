@@ -1,4 +1,4 @@
-# Auto-G16 generic exact input approval
+# Auto-G16 exact input approval
 
 `gaussian-input-draft-review/2` and
 `gaussian-input-approval-receipt/1` are immutable, non-authorizing offline
@@ -66,6 +66,33 @@ hash. It has `single_exact_input_only: true`,
 `protocol_family_completion: false`, `calculation_ready: false`, and
 `no_submission_authorization: true`.
 
+## Main-group open-shell minimum bridge and compatibility
+
+Historical generic `gaussian-input-approval-receipt/1` artifacts retain their
+closed schema and replay behavior. A protocol request whose `system_class` is
+`main_group_open_shell` and whose work kind is `minimum` cannot create `/1`.
+It must additionally supply the accepted electronic-state review, the
+`main_group_open_shell_minimum_opt_freq_v1` input handoff, and its passed input
+audit. The builder calls the open-shell owner's public validators, requires the
+handoff bytes to equal the supplied input byte-for-byte, and records those
+bindings in `gaussian-input-approval-receipt/2`.
+
+The `/2` extension accepts the owner vocabulary `protocol_task_types:
+["optimization", "frequency"]` and composite stages `opt_freq` or
+`opt_freq_with_stability` only when the exact route has one top-level minimum
+`Opt` plus `Freq`. Option values such as `Stable=Opt` are not top-level route
+keywords. Link1, repeated top-level optimization keywords, QST2/QST3, IRC,
+scan, FOpt/POpt, and checkpoint-derived inputs remain blocked.
+
+Receipt `/2` is offline input approval only. It retains
+`calculation_ready: false` and `no_submission_authorization: true`.
+Live-submission `/3` continues to accept only generic receipt `/1`. A separate
+closed live-submission `/4` may accept `/2` only after the receipt has fully
+replayed all owners and only for the same exact main-group open-shell minimum.
+The `/4` decision remains a separate human-created approval; receipt building,
+validation, prepare and dry-run never manufacture it. No `/1` artifact requires
+migration.
+
 ## Offline commands
 
 Prepare the human-reviewed JSON draft with `payload_sha256: null`, then publish
@@ -88,12 +115,27 @@ python3 scripts/gaussian_rtwin_pbs.py build-input-approval job.gjf \
 python3 scripts/gaussian_rtwin_pbs.py validate-input-approval input-approval.json
 ```
 
+For a main-group open-shell minimum, add all three owner artifacts:
+
+```bash
+python3 scripts/gaussian_rtwin_pbs.py build-input-approval job.gjf \
+  --protocol-options options.json \
+  --protocol-selection selection.json \
+  --input-review input-review.json \
+  --open-shell-state-review electronic-state-review.json \
+  --open-shell-input-handoff input-handoff.json \
+  --open-shell-input-audit input-audit.json \
+  --receipt-id reviewed_open_shell_minimum_input_v2 \
+  --output input-approval-v2.json
+```
+
 Finalization uses same-directory durable temporary output and atomic
 no-clobber publication. An existing or concurrently created destination fails;
 immutable review/receipt files are never replaced in place.
 
 For `submit`, transport first captures one unique durable non-symlink snapshot
-of the source input. Input approval, scientific authorization and live `/3`
+of the source input. Input approval, scientific authorization and live `/3` or
+`/4`
 are replayed against that snapshot; staging copies only those captured bytes.
 The staged input facts and every upload-file hash are rechecked before the
 first network action and again before transfer. Approval receipt file hashes

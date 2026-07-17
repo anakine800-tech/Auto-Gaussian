@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/multiplicity-member-result-lineage/1",
+  "title": "Auto-G16 Main-Group Multiplicity Member Result Lineage V1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "lineage_id", "family_id", "member_id", "status", "source", "plan", "common_comparison_protocol", "member_protocol", "member_input_lineage", "input_artifact_sha256", "acceptance", "observation", "observation_source", "result_facts", "association_review", "provenance", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-multiplicity-member-result-lineage/1"}, "lineage_id": {"$ref": "#/$defs/id"}, "family_id": {"$ref": "#/$defs/id"}, "member_id": {"$ref": "#/$defs/id"}, "status": {"const": "bound_offline_result_lineage"},
+    "source": {"$ref": "#/$defs/binding"}, "plan": {"$ref": "#/$defs/binding"}, "common_comparison_protocol": {"$ref": "#/$defs/binding"}, "member_protocol": {"$ref": "#/$defs/binding"}, "member_input_lineage": {"$ref": "#/$defs/binding"}, "input_artifact_sha256": {"$ref": "#/$defs/sha"}, "acceptance": {"$ref": "#/$defs/binding"}, "observation": {"$ref": "#/$defs/binding"},
+    "observation_source": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"$ref": "#/$defs/text"}, "sha256": {"$ref": "#/$defs/sha"}}},
+    "result_facts": {"type": "object", "additionalProperties": false, "required": ["electronic_energy_hartree"], "properties": {"electronic_energy_hartree": {"type": "number"}}},
+    "association_review": {"$ref": "#/$defs/association"}, "provenance": {"$ref": "#/$defs/provenance"},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "text": {"type": "string", "minLength": 1}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "schema", "payload_sha256"], "properties": {"path": {"$ref": "#/$defs/text"}, "sha256": {"$ref": "#/$defs/sha"}, "schema": {"$ref": "#/$defs/text"}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "association": {"type": "object", "additionalProperties": false, "required": ["decision", "reviewer", "rationale", "confirmed"], "properties": {"decision": {"const": "confirmed_supplied_offline_input_result_binding"}, "reviewer": {"$ref": "#/$defs/text"}, "rationale": {"$ref": "#/$defs/text"}, "confirmed": {"const": true}}},
+    "provenance": {"type": "object", "additionalProperties": false, "required": ["kind", "statement", "transport_provenance_claimed", "live_execution_provenance_claimed"], "properties": {"kind": {"const": "supplied_offline_binding"}, "statement": {"$ref": "#/$defs/text"}, "transport_provenance_claimed": {"const": false}, "live_execution_provenance_claimed": {"const": false}}}
+  }
+}

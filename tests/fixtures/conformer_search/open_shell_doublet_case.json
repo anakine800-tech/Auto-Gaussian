@@ -1,0 +1,19 @@
+{
+  "case_id": "methyl_doublet_conformer",
+  "state_family": "doublet_ground_state",
+  "identity": "synthetic main-group methyl doublet conformer fixture",
+  "atoms": [
+    {"atom_id": "atom_c0", "map_id": "map_c0", "atom_index": 0, "element": "C", "fragment_id": "frag_radical", "explicit_hydrogen": false},
+    {"atom_id": "atom_h1", "map_id": "map_h1", "atom_index": 1, "element": "H", "fragment_id": "frag_radical", "explicit_hydrogen": true},
+    {"atom_id": "atom_h2", "map_id": "map_h2", "atom_index": 2, "element": "H", "fragment_id": "frag_radical", "explicit_hydrogen": true},
+    {"atom_id": "atom_h3", "map_id": "map_h3", "atom_index": 3, "element": "H", "fragment_id": "frag_radical", "explicit_hydrogen": true}
+  ],
+  "bonds": [
+    {"atoms": [0, 1], "order": 1, "in_ring": false},
+    {"atoms": [0, 2], "order": 1, "in_ring": false},
+    {"atoms": [0, 3], "order": 1, "in_ring": false}
+  ],
+  "formal_charge": 0,
+  "multiplicity": 2,
+  "fragment_spin_coupling": {"status": "not_applicable", "review_evidence": "Single-fragment synthetic doublet fixture."}
+}

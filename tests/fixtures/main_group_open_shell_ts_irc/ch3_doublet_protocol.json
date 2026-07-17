@@ -1,0 +1,23 @@
+{
+  "schema": "auto-g16-main-group-open-shell-ts-irc-protocol-source/1",
+  "protocol_id": "ch3_doublet_ts_irc_protocol",
+  "workflow_kind": "main_group_open_shell_single_surface_ts_freq_irc",
+  "candidate_id": "ch3_doublet_ts",
+  "structure_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "charge": 0,
+  "multiplicity": 2,
+  "state_family": "doublet_ground_state",
+  "wavefunction_reference": "U",
+  "same_spin_surface": true,
+  "single_reference": true,
+  "stages": {
+    "ts_freq": {"route": "#p UFixture/FixtureBasis Opt=(TS,CalcFC) Freq Stable=Opt", "method": "UFixture", "basis": "FixtureBasis", "solvent": "explicitly reviewed synthetic gas-phase fixture", "resources": "explicitly reviewed synthetic offline resource statement", "settings": "explicit synthetic TS/Freq settings; not executable", "protocol_selection_payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "irc_forward": {"route": "#p UFixture/FixtureBasis IRC=(Forward,RCFC) Stable=Opt", "method": "UFixture", "basis": "FixtureBasis", "solvent": "explicitly reviewed synthetic gas-phase fixture", "resources": "explicitly reviewed synthetic offline resource statement", "settings": "explicit synthetic forward IRC settings; not executable", "protocol_selection_payload_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+    "irc_reverse": {"route": "#p UFixture/FixtureBasis IRC=(Reverse,RCFC) Stable=Opt", "method": "UFixture", "basis": "FixtureBasis", "solvent": "explicitly reviewed synthetic gas-phase fixture", "resources": "explicitly reviewed synthetic offline resource statement", "settings": "explicit synthetic reverse IRC settings; not executable", "protocol_selection_payload_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+  },
+  "spin_policy": {"target_s2": 0.75, "max_abs_post_annihilation_s2_deviation": 0.05, "stability_required": true, "reference_continuity_required": true},
+  "endpoint_policy": {"require_both_directions": true, "require_identified_reactant_and_product": true, "require_same_charge_multiplicity_state_lineage": true},
+  "review": {"decision": "accepted_for_offline_contract", "reviewer": "synthetic_fixture_reviewer", "rationale": "Synthetic fixture values are explicit and exercise only the offline contract.", "confirmed": true},
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}

@@ -1,0 +1,11 @@
+{
+  "cases": [
+    {"case_id": "graph_hash_drift", "mutation": "structure_graph_sha256", "expected": "structure graph hash differs"},
+    {"case_id": "atom_order_hash_drift", "mutation": "atom_order_sha256", "expected": "atom-order hash differs"},
+    {"case_id": "charge_drift", "mutation": "formal_charge", "expected": "state-binding charge differs"},
+    {"case_id": "multiplicity_drift", "mutation": "multiplicity", "expected": "state-binding multiplicity differs"},
+    {"case_id": "review_hash_drift", "mutation": "review_payload_sha256", "expected": "payload binding differs"},
+    {"case_id": "unresolved_spin_coupling", "mutation": "unresolved_multifragment", "expected": "spin coupling is unresolved"},
+    {"case_id": "transition_metal", "mutation": "transition_metal", "expected": "transition metals are outside"}
+  ]
+}

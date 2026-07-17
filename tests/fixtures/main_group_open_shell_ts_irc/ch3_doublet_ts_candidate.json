@@ -1,0 +1,15 @@
+{
+  "schema": "auto-g16-main-group-open-shell-ts-candidate/1",
+  "candidate_id": "ch3_doublet_ts",
+  "structure_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "atoms": [{"index": 1, "element": "C"}, {"index": 2, "element": "H"}, {"index": 3, "element": "H"}, {"index": 4, "element": "H"}],
+  "charge": 0,
+  "multiplicity": 2,
+  "state_family": "doublet_ground_state",
+  "electronic_scope": "single_reference_ground_state",
+  "structure_role": "transition_state_candidate",
+  "workflow_scope": "same_spin_surface_ts_freq_irc",
+  "exclusions": {"transition_metal": false, "spin_crossing_or_mecp": false, "open_shell_singlet": false, "multireference": false, "different_multiplicity_endpoints": false},
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}

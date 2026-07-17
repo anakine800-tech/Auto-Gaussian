@@ -1,0 +1,15 @@
+{
+  "schema": "gaussian-reaction-open-shell-network-negative-fixtures/1",
+  "cases": [
+    {"case_id": "incomplete_atom_mapping", "mutation": "drop_atom_mapping", "expected": "mapping"},
+    {"case_id": "charge_and_electron_nonconservation", "mutation": "target_charge_drift", "expected": "charge|electron"},
+    {"case_id": "state_hash_drift", "mutation": "state_review_hash_drift", "expected": "hash.*drift|binding.*drift"},
+    {"case_id": "multiplicity_drift", "mutation": "multiplicity_drift", "expected": "surface|multiplicity"},
+    {"case_id": "unresolved_coupling", "mutation": "unresolved_coupling", "expected": "coupling.*unresolved"},
+    {"case_id": "edge_total_multiplicity_unreviewed", "mutation": "unreviewed_edge_multiplicity", "expected": "total multiplicity"},
+    {"case_id": "candidate_lineage_drift", "mutation": "candidate_lineage_drift", "expected": "candidate lineage drift"},
+    {"case_id": "protocol_lineage_drift", "mutation": "protocol_lineage_drift", "expected": "protocol lineage drift"},
+    {"case_id": "node_state_review_drift", "mutation": "node_state_review_drift", "expected": "state review bindings drift"},
+    {"case_id": "metal_candidate", "mutation": "metal_candidate", "expected": "metal|non-main-group"}
+  ]
+}

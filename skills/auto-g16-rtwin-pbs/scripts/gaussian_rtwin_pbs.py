@@ -56,6 +56,13 @@ JOB_ID_RE = re.compile(r"^[0-9]+(?:\.[A-Za-z0-9_.-]+)?$")
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 INPUT_REVIEW_SCHEMA = "gaussian-input-draft-review/2"
 INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/1"
+OPEN_SHELL_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/2"
+OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/3"
+LIVE_APPROVAL_V1_SCHEMA = "auto-g16-live-submission-approval/1"
+LIVE_APPROVAL_V2_SCHEMA = "auto-g16-live-submission-approval/2"
+LIVE_APPROVAL_V3_SCHEMA = "auto-g16-live-submission-approval/3"
+OPEN_SHELL_LIVE_APPROVAL_SCHEMA = "auto-g16-live-submission-approval/4"
+OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA = "auto-g16-live-submission-approval/5"
 INPUT_APPROVAL_WORK_KINDS = {"ordinary", "minimum", "ts_pilot", "formal_ts"}
 SPECIALIST_INPUT_WORK_KINDS = {"ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"}
 ALL_WORK_KINDS = INPUT_APPROVAL_WORK_KINDS | SPECIALIST_INPUT_WORK_KINDS
@@ -206,6 +213,32 @@ def capture_submission_snapshot(source: Path, local_dir: Path) -> tuple[Path, st
     _, captured, captured_digest = read_stable_bytes(snapshot, "Gaussian submission snapshot")
     if captured != data or captured_digest != digest:
         raise ValueError("Gaussian submission snapshot differs from the captured source bytes")
+    # A checkpoint-derived input is not self-contained. Freeze its exact companion
+    # manifest and reviewed %oldchk beside the input before replaying any approval.
+    companion_sources: list[Path] = []
+    manifest_source = resolved.with_suffix(".json")
+    if manifest_source.is_file() or manifest_source.is_symlink():
+        companion_sources.append(manifest_source)
+    oldchk_match = re.search(r"(?im)^\s*%oldchk\s*=\s*([^\r\n]+)\s*$", decode(data))
+    if oldchk_match:
+        oldchk_name = oldchk_match.group(1).strip()
+        if Path(oldchk_name).name != oldchk_name or "/" in oldchk_name or "\\" in oldchk_name:
+            raise ValueError("%oldchk must be a local basename inside the snapshot")
+        companion_sources.append(resolved.parent / oldchk_name)
+    for companion_source in companion_sources:
+        companion_resolved, companion_data, companion_digest = read_stable_bytes(
+            companion_source, f"submission companion {companion_source.name}"
+        )
+        companion_snapshot = snapshot_dir / companion_resolved.name
+        companion_descriptor = os.open(
+            companion_snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400
+        )
+        with os.fdopen(companion_descriptor, "wb") as handle:
+            handle.write(companion_data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if read_stable_bytes(companion_snapshot, "submission companion snapshot")[2] != companion_digest:
+            raise ValueError("submission companion snapshot hash mismatch")
     return snapshot, digest
 
 
@@ -344,19 +377,48 @@ def normalize_route(route: str) -> str:
     return re.sub(r"\s*\)", ")", lowered)
 
 
+def route_top_level_tokens(route: str) -> list[str]:
+    """Return route tokens split only at top-level whitespace.
+
+    Gaussian option values are not route keywords.  In particular, the
+    ``opt`` in ``Stable=Opt`` must not be counted as a second top-level Opt.
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for character in normalize_route(route):
+        if character.isspace() and depth == 0:
+            if current:
+                tokens.append("".join(current))
+                current = []
+            continue
+        current.append(character)
+        if character == "(":
+            depth += 1
+        elif character == ")" and depth > 0:
+            depth -= 1
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
 def route_has_keyword(route: str, keyword: str) -> bool:
-    return re.search(rf"\b{re.escape(keyword.lower())}(?=$|[=(\s])", normalize_route(route)) is not None
+    pattern = re.compile(rf"^{re.escape(keyword.lower())}(?=$|[=(])")
+    return any(pattern.match(token) is not None for token in route_top_level_tokens(route))
 
 
 def route_keyword_count(route: str, keyword: str) -> int:
-    return len(re.findall(rf"\b{re.escape(keyword.lower())}(?=$|[=(\s])", normalize_route(route)))
+    pattern = re.compile(rf"^{re.escape(keyword.lower())}(?=$|[=(])")
+    return sum(pattern.match(token) is not None for token in route_top_level_tokens(route))
 
 
 def route_option_values(route: str, keyword: str) -> list[str]:
-    normalized = normalize_route(route)
-    keyword = re.escape(keyword.lower())
     result: list[str] = []
-    for match in re.finditer(rf"\b{keyword}\s*(?:=([^\s]+)|\(([^)]*)\))", normalized):
+    pattern = re.compile(rf"^{re.escape(keyword.lower())}(?:=([^\s]+)|\(([^)]*)\))$")
+    for token in route_top_level_tokens(route):
+        match = pattern.fullmatch(token)
+        if match is None:
+            continue
         values = (match.group(1) or match.group(2) or "").strip("()")
         result.extend(value for value in values.split(",") if value)
     return result
@@ -484,6 +546,30 @@ def _load_scientific_maturity(version: int = 1) -> Any:
     return module
 
 
+def _load_open_shell_minimum_owner() -> Any:
+    path = Path(__file__).resolve().parents[2] / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_minimum.py"
+    if not path.is_file():
+        raise ValueError("main-group open-shell minimum owner validator is unavailable")
+    spec = importlib.util.spec_from_file_location("auto_g16_pbs_open_shell_minimum", path)
+    if spec is None or spec.loader is None:
+        raise ValueError("main-group open-shell minimum owner validator cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_open_shell_minimum_family_owner() -> Any:
+    path = Path(__file__).resolve().parents[2] / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_minimum_family.py"
+    if not path.is_file():
+        raise ValueError("main-group open-shell minimum family owner validator is unavailable")
+    spec = importlib.util.spec_from_file_location("auto_g16_pbs_open_shell_minimum_family", path)
+    if spec is None or spec.loader is None:
+        raise ValueError("main-group open-shell minimum family owner validator cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _maturity_owner_for_gate(path: Path) -> tuple[str, Any, Path]:
     """Select the owner and freeze the identity read for schema dispatch."""
     expanded = path.expanduser()
@@ -593,6 +679,44 @@ def input_approval_compatibility(report: dict[str, Any], work_kind: str | None) 
         return {"status": "unsupported_work_kind", "work_kind": work_kind}
 
     route = str(report.get("route", ""))
+    route_tokens = set(normalize_route(route).split())
+    if (
+        work_kind == "minimum"
+        and report.get("multiplicity") in {2, 3}
+        and route_has_optimization_keyword(route)
+        and route_has_frequency(route)
+        and route_has_keyword(route, "stable")
+        and any(token == "stable=opt" or token == "stable=(opt)" for token in route_tokens)
+        and any(token == "opt=tight" or token == "opt=(tight)" for token in route_tokens)
+    ):
+        return {
+            "status": "blocked_combined_open_shell_minimum_stability_parse_risk",
+            "work_kind": work_kind,
+            "required_schema": OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA,
+            "failure_classification": "gaussian_link1_combined_opt_freq_stable_parse_failure",
+            "reason": "Gaussian 16 A.03 must receive Opt/Freq and Stable=Opt as independently approved checkpoint-bound stages",
+        }
+    open_shell_family_stage = (
+        work_kind == "minimum"
+        and report.get("multiplicity") in {2, 3}
+        and (
+            (route_has_optimization_keyword(route) and route_has_frequency(route) and not route_has_keyword(route, "stable"))
+            or (
+                route_has_keyword(route, "stable")
+                and route_has_option(route, "geom", "allcheck")
+                and route_has_option(route, "guess", "read")
+                and not route_has_optimization_keyword(route)
+                and not route_has_frequency(route)
+            )
+        )
+    )
+    if open_shell_family_stage:
+        return {
+            "status": "blocked_missing_open_shell_family_stage_approval",
+            "work_kind": work_kind,
+            "required_schema": OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA,
+            "reason": "this open-shell minimum stage requires exact two-stage family owner replay",
+        }
     specialist_syntax = (
         report.get("link1_count", 0) != 0
         or report.get("route_section_count", 1) != 1
@@ -950,6 +1074,12 @@ def _assert_consumed_tasks_match_route(
         if stage == "single_guess_ts_opt_freq":
             expected = {"opt_ts", "frequency"}
             valid = route_has_ts_optimization(route) and route_has_frequency(route)
+        elif stage in {"opt_freq", "opt_freq_with_stability"}:
+            expected = {"minimum_opt", "frequency"}
+            valid = (
+                route_has_optimization_keyword(route) and route_has_frequency(route)
+                and not route_has_ts_optimization(route) and not route_has_scan(route)
+            )
         elif "transition_state" in stage:
             expected = {"opt_ts"}
             valid = route_has_ts_optimization(route)
@@ -1001,6 +1131,52 @@ def _assert_protocol_structure_scope(request_structure: Any, report: dict[str, A
         raise ValueError("protocol request charge/multiplicity/complete element counts differ from the exact input")
 
 
+def _is_main_group_open_shell_minimum(options: dict[str, Any], review: dict[str, Any]) -> bool:
+    request = options.get("request_snapshot", {})
+    return review["work_kind"] == "minimum" and request.get("system_class") == "main_group_open_shell"
+
+
+def _replay_open_shell_minimum_owner(
+    state_review_path: Path,
+    handoff_path: Path,
+    audit_path: Path,
+    options_path: Path,
+    selection_path: Path,
+    input_path: Path,
+    report: dict[str, Any],
+) -> tuple[Any, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    def same_bound_payload(left: dict[str, Any], right: dict[str, Any]) -> bool:
+        keys = {"schema", "sha256", "payload_sha256"}
+        return all(left.get(key) == right.get(key) for key in keys)
+
+    owner = _load_open_shell_minimum_owner()
+    state_review_file, state_review = owner.state.load_validated_review(state_review_path)
+    handoff_file, handoff = owner.load_handoff(handoff_path)
+    audit_file, audit = owner.load(audit_path, "input audit", canonical=True)
+    owner.validate_input_audit(audit, check_sources=True)
+    if audit["status"] != "passed":
+        raise ValueError("main-group open-shell input audit is not passed")
+    if not same_bound_payload(audit["handoff"], owner.binding(handoff_file, handoff)):
+        raise ValueError("main-group open-shell audit/handoff binding drift")
+    if not same_bound_payload(handoff["electronic_state_review"], owner.binding(state_review_file, state_review)):
+        raise ValueError("main-group open-shell handoff/state-review binding drift")
+    if handoff["protocol_options"]["sha256"] != sha256(options_path) or handoff["protocol_selection"]["sha256"] != sha256(selection_path):
+        raise ValueError("main-group open-shell handoff protocol source binding drift")
+    _, input_bytes, input_digest = read_stable_bytes(input_path, "open-shell exact Gaussian input")
+    rendered = handoff["input_text"].encode("utf-8")
+    if input_bytes != rendered or input_digest != handoff["input_sha256"] or audit["input_sha256"] != input_digest:
+        raise ValueError("main-group open-shell owner artifacts do not bind the exact input bytes")
+    if handoff["route"] != report["route"]:
+        raise ValueError("main-group open-shell handoff route differs from the exact input")
+    state = handoff["state"]
+    if state["charge"] != report["charge"] or state["multiplicity"] != report["multiplicity"]:
+        raise ValueError("main-group open-shell owner charge/multiplicity drift")
+    resources = handoff["resources"]
+    if resources["cores"] != report["nprocshared"] or parse_memory(report["mem"]) != int(resources["mem_gb"] * 1024**3):
+        raise ValueError("main-group open-shell owner resource binding drift")
+    return owner, state_review, handoff, audit
+
+
 def _make_input_approval_receipt(
     options_path: Path,
     selection_path: Path,
@@ -1008,6 +1184,9 @@ def _make_input_approval_receipt(
     input_path: Path,
     output: Path,
     receipt_id: str,
+    open_shell_state_review_path: Path | None = None,
+    open_shell_handoff_path: Path | None = None,
+    open_shell_audit_path: Path | None = None,
 ) -> dict[str, Any]:
     selection, options, selected = protocol_selection.load_validated_selection(selection_path, options_path)
     review = validate_input_review(review_path)
@@ -1027,8 +1206,8 @@ def _make_input_approval_receipt(
         "transition_state_optimization", "harmonic_frequency"
     ]:
         raise ValueError("generic single-guess TS approval requires the exact TS optimization + frequency task family")
-    if review["work_kind"] == "minimum" and "geometry_optimization" not in review["protocol_task_types"]:
-        raise ValueError("minimum approval requires a selected geometry_optimization task")
+    if review["work_kind"] == "minimum" and not {"geometry_optimization", "optimization"}.intersection(review["protocol_task_types"]):
+        raise ValueError("minimum approval requires a selected geometry_optimization or optimization task")
     resources = selected.get("resources", {})
     if resources.get("cores") != report["nprocshared"]:
         raise ValueError("selected protocol cores differ from the exact input")
@@ -1038,8 +1217,21 @@ def _make_input_approval_receipt(
     if not isinstance(receipt_id, str) or not receipt_id.strip():
         raise ValueError("input approval receipt_id is missing")
     root = output.parent.resolve()
+    owner_paths = (open_shell_state_review_path, open_shell_handoff_path, open_shell_audit_path)
+    open_shell_required = _is_main_group_open_shell_minimum(options, review)
+    if open_shell_required and any(path is None for path in owner_paths):
+        raise ValueError("main-group open-shell minimum approval requires electronic-state review, input handoff, and passed input audit")
+    if not open_shell_required and any(path is not None for path in owner_paths):
+        raise ValueError("main-group open-shell owner artifacts are valid only for a main-group open-shell minimum")
+    owner_replay = None
+    if open_shell_required:
+        assert all(path is not None for path in owner_paths)
+        owner_replay = _replay_open_shell_minimum_owner(
+            open_shell_state_review_path, open_shell_handoff_path, open_shell_audit_path,
+            options_path, selection_path, input_path, report,
+        )
     document = {
-        "schema": INPUT_APPROVAL_SCHEMA,
+        "schema": OPEN_SHELL_INPUT_APPROVAL_SCHEMA if open_shell_required else INPUT_APPROVAL_SCHEMA,
         "receipt_id": receipt_id,
         "work_kind": review["work_kind"],
         "protocol_task_types": review["protocol_task_types"],
@@ -1067,6 +1259,28 @@ def _make_input_approval_receipt(
         "calculation_ready": False,
         "no_submission_authorization": True,
     }
+    if owner_replay is not None:
+        owner, state_review, handoff, audit = owner_replay
+        document["sources"].update({
+            "electronic_state_review": _artifact_binding(open_shell_state_review_path, root, owner.state.SCHEMA_REVIEW, state_review["payload_sha256"]),
+            "open_shell_input_handoff": _artifact_binding(open_shell_handoff_path, root, owner.SCHEMA_HANDOFF, handoff["payload_sha256"]),
+            "open_shell_input_audit": _artifact_binding(open_shell_audit_path, root, owner.SCHEMA_AUDIT, audit["payload_sha256"]),
+        })
+        document["specialist_owner_binding"] = {
+            "owner": "auto-g16-main-group-open-shell",
+            "workflow": owner.WORKFLOW,
+            "electronic_state_review_payload_sha256": state_review["payload_sha256"],
+            "input_handoff_payload_sha256": handoff["payload_sha256"],
+            "input_audit_payload_sha256": audit["payload_sha256"],
+            "selected_option_payload_sha256": review["protocol_binding"]["selected_option"]["option_payload_sha256"],
+            "input_sha256": handoff["input_sha256"],
+            "exact_route": handoff["route"],
+            "charge": handoff["state"]["charge"],
+            "multiplicity": handoff["state"]["multiplicity"],
+            "reference_family": handoff["state"]["reference_family"],
+            "resources": copy.deepcopy(handoff["resources"]),
+            "owner_replay_passed": True,
+        }
     document["payload_sha256"] = contract_payload_sha256(document)
     return document
 
@@ -1078,8 +1292,14 @@ def build_input_approval_receipt(
     input_path: Path,
     output: Path,
     receipt_id: str,
+    open_shell_state_review_path: Path | None = None,
+    open_shell_handoff_path: Path | None = None,
+    open_shell_audit_path: Path | None = None,
 ) -> dict[str, Any]:
-    raw_sources = (options_path, selection_path, review_path, input_path)
+    raw_sources = tuple(path for path in (
+        options_path, selection_path, review_path, input_path,
+        open_shell_state_review_path, open_shell_handoff_path, open_shell_audit_path,
+    ) if path is not None)
     if any(path.expanduser().is_symlink() for path in raw_sources):
         raise ValueError("input-approval source artifacts must not be symlinks")
     expanded_output = output.expanduser()
@@ -1089,6 +1309,9 @@ def build_input_approval_receipt(
     document = _make_input_approval_receipt(
         options_path.expanduser().resolve(), selection_path.expanduser().resolve(),
         review_path.expanduser().resolve(), input_path.expanduser().resolve(), output, receipt_id,
+        *(path.expanduser().resolve() if path is not None else None for path in (
+            open_shell_state_review_path, open_shell_handoff_path, open_shell_audit_path,
+        )),
     )
     publish_new_json(output, document, validate_input_approval_receipt)
     return document
@@ -1115,17 +1338,19 @@ def validate_input_approval_receipt(
             raise ValueError("internal input-approval path binding is missing")
         receipt_path = _resolved_path
         document = _document
+    common_fields = {
+        "schema", "receipt_id", "work_kind", "protocol_task_types", "sources", "input",
+        "protocol_review_binding", "protocol_family_completion", "approved_input", "decision", "single_exact_input_only",
+        "calculation_ready", "no_submission_authorization", "payload_sha256",
+    }
+    schema = document.get("schema")
+    if schema not in {INPUT_APPROVAL_SCHEMA, OPEN_SHELL_INPUT_APPROVAL_SCHEMA}:
+        raise ValueError("unsupported input approval receipt schema")
     _exact_fields(
         document,
-        {
-            "schema", "receipt_id", "work_kind", "protocol_task_types", "sources", "input",
-            "protocol_review_binding", "protocol_family_completion", "approved_input", "decision", "single_exact_input_only",
-            "calculation_ready", "no_submission_authorization", "payload_sha256",
-        },
+        common_fields | ({"specialist_owner_binding"} if schema == OPEN_SHELL_INPUT_APPROVAL_SCHEMA else set()),
         "input-approval receipt",
     )
-    if document["schema"] != INPUT_APPROVAL_SCHEMA:
-        raise ValueError(f"input approval schema must be {INPUT_APPROVAL_SCHEMA}")
     if document["payload_sha256"] != contract_payload_sha256(document):
         raise ValueError("input approval receipt payload SHA-256 is invalid")
     if document["single_exact_input_only"] is not True or document["calculation_ready"] is not False or document["no_submission_authorization"] is not True:
@@ -1134,10 +1359,27 @@ def validate_input_approval_receipt(
         raise ValueError("one input-approval receipt must not claim whole protocol-family completion")
     if document["decision"] != {"status": "approved_exact_input", "explicit_confirmation": True}:
         raise ValueError("input approval receipt decision changed")
-    sources = _exact_fields(document["sources"], {"protocol_options", "protocol_selection", "input_review"}, "input-approval sources")
+    source_fields = {"protocol_options", "protocol_selection", "input_review"}
+    if schema == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
+        source_fields |= {"electronic_state_review", "open_shell_input_handoff", "open_shell_input_audit"}
+    sources = _exact_fields(document["sources"], source_fields, "input-approval sources")
     options_path, options = _resolve_artifact_binding(sources["protocol_options"], receipt_path, "gaussian-protocol-options/1")
     selection_path, selection = _resolve_artifact_binding(sources["protocol_selection"], receipt_path, "gaussian-protocol-selection/1")
     review_path, review = _resolve_artifact_binding(sources["input_review"], receipt_path, INPUT_REVIEW_SCHEMA)
+    open_shell_paths: tuple[Path | None, Path | None, Path | None] = (None, None, None)
+    if schema == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
+        state_review_path, _ = _resolve_artifact_binding(
+            sources["electronic_state_review"], receipt_path, "auto-g16-main-group-open-shell-review/1"
+        )
+        handoff_path, _ = _resolve_artifact_binding(
+            sources["open_shell_input_handoff"], receipt_path,
+            "auto-g16-main-group-open-shell-minimum-opt-freq-input-handoff/1",
+        )
+        audit_path, _ = _resolve_artifact_binding(
+            sources["open_shell_input_audit"], receipt_path,
+            "auto-g16-main-group-open-shell-minimum-opt-freq-input-audit/1",
+        )
+        open_shell_paths = (state_review_path, handoff_path, audit_path)
     if options.get("proposal_payload_sha256") != sources["protocol_options"]["payload_sha256"]:
         raise ValueError("input approval protocol-options payload changed")
     if selection.get("selection_payload_sha256") != sources["protocol_selection"]["payload_sha256"]:
@@ -1146,7 +1388,8 @@ def validate_input_approval_receipt(
         raise ValueError("input approval review payload changed")
     bound_input = _resolve_input_blob(document["input"], receipt_path)
     expected = _make_input_approval_receipt(
-        options_path, selection_path, review_path, bound_input, receipt_path, document["receipt_id"]
+        options_path, selection_path, review_path, bound_input, receipt_path, document["receipt_id"],
+        *open_shell_paths,
     )
     if expected != document:
         raise ValueError("input approval receipt differs from owner reconstruction")
@@ -1174,22 +1417,46 @@ def validate_input_approval(
         resolved_approval, loaded_document, approval_digest, _ = load_strict_json_with_hash(
             expanded_approval, "input-approval receipt"
         )
-        document = validate_input_approval_receipt(
-            resolved_approval, input_path=input_path, report=report, work_kind=work_kind,
-            _document=loaded_document, _resolved_path=resolved_approval,
-        )
-        return {
+        if loaded_document.get("schema") == OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA:
+            owner = _load_open_shell_minimum_family_owner()
+            document = owner.validate_stage_receipt_file(
+                resolved_approval, input_path, report, work_kind,
+                _document=loaded_document,
+            )
+        else:
+            compatibility = input_approval_compatibility(report, work_kind)
+            if compatibility["status"] == "blocked_combined_open_shell_minimum_stability_parse_risk":
+                raise ValueError(
+                    "blocked_combined_open_shell_minimum_stability_parse_risk: receipt /1 or /2 "
+                    "cannot make the failed same-route Opt/Freq+Stable=Opt input live"
+                )
+            document = validate_input_approval_receipt(
+                resolved_approval, input_path=input_path, report=report, work_kind=work_kind,
+                _document=loaded_document, _resolved_path=resolved_approval,
+            )
+        result = {
             "status": "validated_exact_input_approval",
             "schema": document["schema"],
             "sha256": approval_digest,
             "payload_sha256": document["payload_sha256"],
             "input_sha256": report["input_sha256"],
             "work_kind": document["work_kind"],
-            "protocol_options_schema": document["sources"]["protocol_options"]["schema"],
-            "protocol_selection_schema": document["sources"]["protocol_selection"]["schema"],
-            "input_review_schema": document["sources"]["input_review"]["schema"],
             "no_submission_authorization": True,
         }
+        if document["schema"] != OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA:
+            result.update({
+                "protocol_options_schema": document["sources"]["protocol_options"]["schema"],
+                "protocol_selection_schema": document["sources"]["protocol_selection"]["schema"],
+                "input_review_schema": document["sources"]["input_review"]["schema"],
+            })
+        if document["schema"] == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
+            result["specialist_owner_binding"] = copy.deepcopy(
+                document["specialist_owner_binding"]
+            )
+        elif document["schema"] == OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA:
+            result["specialist_family_binding"] = copy.deepcopy(document["owner_binding"])
+            result["family_stage"] = document["stage"]
+        return result
     except SystemExit:
         raise
     except Exception as exc:
@@ -1242,14 +1509,13 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
             fail("live approval /3 requires both work_kind and exact input-approval receipt binding")
         input_approval = summary["input_approval"]
         if not isinstance(input_approval, dict) or input_approval.get("status") not in {None, "validated_exact_input_approval"}:
-            fail("live approval /3 requires a validated exact input-approval receipt")
+            fail("prospective live approval requires a validated exact input-approval receipt")
         exact_input_approval = {
             key: input_approval.get(key)
             for key in ("schema", "sha256", "payload_sha256", "input_sha256", "work_kind")
         }
         if (
-            exact_input_approval["schema"] != INPUT_APPROVAL_SCHEMA
-            or exact_input_approval["input_sha256"] != summary["input_sha256"]
+            exact_input_approval["input_sha256"] != summary["input_sha256"]
             or exact_input_approval["work_kind"] != summary["work_kind"]
             or summary["work_kind"] not in ALL_WORK_KINDS
             or any(
@@ -1258,20 +1524,111 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
                 for key in ("sha256", "payload_sha256", "input_sha256")
             )
         ):
-            fail("live approval /3 input-approval binding differs from the current exact input/work_kind")
+            fail("prospective live input-approval binding differs from the current exact input/work_kind")
         expected["work_kind"] = summary["work_kind"]
         expected["input_approval"] = exact_input_approval
         if maturity is not None:
             fail(
                 "mixed approval generations are forbidden: protected maturity evidence cannot be "
-                "combined with generic input receipt + live approval /3"
+                "combined with a prospective input receipt + live approval"
             )
-        expected_schema = "auto-g16-live-submission-approval/3"
+        if exact_input_approval["schema"] == INPUT_APPROVAL_SCHEMA:
+            if summary["work_kind"] == "minimum" and summary["multiplicity"] != 1:
+                fail("generic receipt /1 cannot authorize a non-singlet minimum")
+            expected_schema = LIVE_APPROVAL_V3_SCHEMA
+        elif exact_input_approval["schema"] == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
+            if input_approval.get("status") != "validated_exact_input_approval":
+                fail("live approval /4 requires a fully replayed open-shell input receipt /2")
+            if summary["work_kind"] != "minimum":
+                fail("live approval /4 is restricted to work_kind minimum")
+            owner = _exact_fields(
+                input_approval.get("specialist_owner_binding"),
+                {
+                    "owner", "workflow", "electronic_state_review_payload_sha256",
+                    "input_handoff_payload_sha256", "input_audit_payload_sha256",
+                    "selected_option_payload_sha256", "input_sha256", "exact_route",
+                    "charge", "multiplicity", "reference_family", "resources",
+                    "owner_replay_passed",
+                },
+                "live approval /4 open-shell owner binding",
+            )
+            resources = _exact_fields(
+                owner["resources"], {"resource_tier", "mem_gb", "cores"},
+                "live approval /4 open-shell resources",
+            )
+            owner_hashes = (
+                "electronic_state_review_payload_sha256", "input_handoff_payload_sha256",
+                "input_audit_payload_sha256", "selected_option_payload_sha256",
+            )
+            if (
+                owner["owner"] != "auto-g16-main-group-open-shell"
+                or owner["workflow"] != "main_group_open_shell_minimum_opt_freq_v1"
+                or owner["input_sha256"] != summary["input_sha256"]
+                or owner["exact_route"] != summary["protocol"]["route"]
+                or owner["charge"] != summary["charge"]
+                or owner["multiplicity"] != summary["multiplicity"]
+                or owner["multiplicity"] not in {2, 3}
+                or owner["reference_family"] not in {"U", "RO"}
+                or owner["owner_replay_passed"] is not True
+                or resources["cores"] != summary["protocol"]["nproc"]
+                or not isinstance(resources["resource_tier"], str)
+                or not resources["resource_tier"]
+                or not isinstance(resources["mem_gb"], int)
+                or isinstance(resources["mem_gb"], bool)
+                or resources["mem_gb"] < 1
+                or parse_memory(summary["protocol"]["mem"]) != resources["mem_gb"] * 1024**3
+                or any(
+                    not isinstance(owner[key], str) or SHA256_RE.fullmatch(owner[key]) is None
+                    for key in owner_hashes
+                )
+            ):
+                fail("live approval /4 open-shell owner binding differs from the current exact preflight")
+            expected["open_shell_owner"] = copy.deepcopy(owner)
+            expected_schema = OPEN_SHELL_LIVE_APPROVAL_SCHEMA
+        elif exact_input_approval["schema"] == OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA:
+            if input_approval.get("status") != "validated_exact_input_approval":
+                fail("live approval /5 requires a fully replayed open-shell family receipt /3")
+            if summary["work_kind"] != "minimum":
+                fail("live approval /5 is restricted to work_kind minimum")
+            owner = _exact_fields(
+                input_approval.get("specialist_family_binding"),
+                {
+                    "owner", "workflow", "family_payload_sha256", "stage", "input_sha256",
+                    "route", "charge", "multiplicity", "reference_family", "method", "basis",
+                    "resources", "checkpoint_sha256", "owner_replay_passed",
+                },
+                "live approval /5 open-shell family binding",
+            )
+            resources = _exact_fields(owner["resources"], {"resource_tier", "mem_gb", "cores"}, "live approval /5 resources")
+            if (
+                owner["owner"] != "auto-g16-main-group-open-shell"
+                or owner["workflow"] != "main_group_open_shell_minimum_two_stage_v1"
+                or owner["stage"] not in {"opt_freq", "stability"}
+                or owner["input_sha256"] != summary["input_sha256"]
+                or owner["route"] != summary["protocol"]["route"]
+                or owner["charge"] != summary["charge"]
+                or owner["multiplicity"] != summary["multiplicity"]
+                or owner["multiplicity"] not in {2, 3}
+                or owner["reference_family"] not in {"U", "RO"}
+                or owner["owner_replay_passed"] is not True
+                or resources["cores"] != summary["protocol"]["nproc"]
+                or parse_memory(summary["protocol"]["mem"]) != resources["mem_gb"] * 1024**3
+                or not isinstance(owner["method"], str) or not owner["method"]
+                or not isinstance(owner["basis"], str) or not owner["basis"]
+                or any(not isinstance(owner[key], str) or SHA256_RE.fullmatch(owner[key]) is None for key in ("family_payload_sha256", "input_sha256"))
+                or (owner["stage"] == "opt_freq" and owner["checkpoint_sha256"] is not None)
+                or (owner["stage"] == "stability" and (not isinstance(owner["checkpoint_sha256"], str) or SHA256_RE.fullmatch(owner["checkpoint_sha256"]) is None))
+            ):
+                fail("live approval /5 open-shell family binding differs from the current exact preflight")
+            expected["open_shell_family"] = copy.deepcopy(owner)
+            expected_schema = OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA
+        else:
+            fail("prospective live approval supports only input receipt /1, /2, or /3")
     else:
         if maturity is None:
-            expected_schema = "auto-g16-live-submission-approval/1"
+            expected_schema = LIVE_APPROVAL_V1_SCHEMA
         elif maturity_schema == MATURITY_ACTION_V1_SCHEMA:
-            expected_schema = "auto-g16-live-submission-approval/2"
+            expected_schema = LIVE_APPROVAL_V2_SCHEMA
         elif maturity_schema == MATURITY_ACTION_V2_SCHEMA:
             fail(
                 "maturity action /2 live replay is not integrated; future protected live requires "
@@ -1297,6 +1654,15 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
 
 def _validate_live_approval_document(approval: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
     expected_schema, expected = expected_live_approval_scope(summary)
+    if expected_schema in {OPEN_SHELL_LIVE_APPROVAL_SCHEMA, OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA}:
+        try:
+            _exact_fields(
+                approval,
+                {"schema", "decision", "explicit_confirmation", "scope", "authorizations"},
+                "open-shell live approval",
+            )
+        except ValueError as exc:
+            fail(str(exc))
     if approval.get("schema") != expected_schema:
         fail("live approval record has the wrong schema")
     if approval.get("decision") != "approved" or approval.get("explicit_confirmation") is not True:
@@ -1313,6 +1679,18 @@ def _validate_live_approval_document(approval: dict[str, Any], summary: dict[str
     }:
         fail("live approval authorization boundary changed")
     return approval
+
+
+def live_approval_scope_proposal(summary: dict[str, Any]) -> dict[str, Any]:
+    """Return an offline proposal only; never manufacture an approved record."""
+
+    required_schema, scope = expected_live_approval_scope(summary)
+    return {
+        "required_schema": required_schema,
+        "scope_proposal": scope,
+        "proposal_only": True,
+        "no_submission_authorization": True,
+    }
 
 
 def validate_live_approval_binding(path: Path, summary: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -1473,8 +1851,8 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
     manifest: dict[str, Any] | None = None
     if manifest_path.is_file():
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            manifest = load_strict_json(manifest_path)
+        except (OSError, ValueError) as exc:
             fail(f"could not read Gaussian companion manifest: {exc}")
 
     while i < len(lines) and not lines[i].strip():
@@ -1488,8 +1866,19 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
             fail("Geom=AllCheck input must omit title, charge/multiplicity, and explicit coordinates")
         if not oldcheckpoint:
             fail("Geom=AllCheck input requires an explicit %oldchk reviewed checkpoint")
-        if not manifest or manifest.get("schema") != "gaussian-allcheck-input-manifest/1":
-            fail("Geom=AllCheck input requires a gaussian-allcheck-input-manifest/1 companion")
+        allowed_allcheck_manifests = {
+            "gaussian-allcheck-input-manifest/1",
+            "auto-g16-main-group-open-shell-minimum-stability-input-manifest/1",
+        }
+        if not manifest or manifest.get("schema") not in allowed_allcheck_manifests:
+            fail("Geom=AllCheck input requires a recognized closed checkpoint companion manifest")
+        if manifest.get("schema") == "auto-g16-main-group-open-shell-minimum-stability-input-manifest/1":
+            try:
+                _load_open_shell_minimum_family_owner().validate_stability_manifest(
+                    manifest, input_path=path
+                )
+            except Exception as exc:
+                fail(f"open-shell stability manifest owner gate failed: {exc}")
         if manifest.get("geometry_source") != "geom_allcheck_from_reviewed_checkpoint" or manifest.get("no_explicit_molecule_specification") is not True:
             fail("AllCheck companion manifest does not certify coordinate-free checkpoint geometry")
         if manifest.get("input_sha256") != sha256(path):
@@ -1607,7 +1996,8 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
             fail("companion manifest warnings must be a list")
         if warnings:
             fail("companion manifest contains unresolved warnings: " + "; ".join(map(str, warnings)))
-        if manifest.get("candidate_only") is True or manifest.get("calculation_ready") is False:
+        owner_nonauthorizing_manifest = manifest.get("schema") == "auto-g16-main-group-open-shell-minimum-stability-input-manifest/1"
+        if not owner_nonauthorizing_manifest and (manifest.get("candidate_only") is True or manifest.get("calculation_ready") is False):
             fail("companion manifest marks this as an unselected conformer candidate; review and select it first")
         centers = manifest.get("chiral_centers", [])
         if any(isinstance(center, dict) and center.get("cip") == "?" for center in centers):
@@ -2153,6 +2543,9 @@ def command_build_input_approval(args) -> None:
         document = build_input_approval_receipt(
             Path(args.protocol_options), Path(args.protocol_selection), Path(args.input_review),
             Path(args.input), Path(args.output), args.receipt_id,
+            Path(args.open_shell_state_review) if args.open_shell_state_review else None,
+            Path(args.open_shell_input_handoff) if args.open_shell_input_handoff else None,
+            Path(args.open_shell_input_audit) if args.open_shell_input_audit else None,
         )
     except (OSError, ValueError, protocol_selection.ContractError) as exc:
         fail(f"input-approval build failed: {exc}")
@@ -2161,7 +2554,13 @@ def command_build_input_approval(args) -> None:
 
 def command_validate_input_approval(args) -> None:
     try:
-        document = validate_input_approval_receipt(Path(args.receipt))
+        receipt_path = Path(args.receipt).expanduser()
+        loaded = load_strict_json(receipt_path)
+        if loaded.get("schema") == OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA:
+            _load_open_shell_minimum_family_owner().validate_stage_receipt(loaded)
+            document = loaded
+        else:
+            document = validate_input_approval_receipt(receipt_path)
     except (OSError, ValueError, protocol_selection.ContractError) as exc:
         fail(f"input-approval validation failed: {exc}")
     print(json.dumps({"schema": document["schema"], "payload_sha256": document["payload_sha256"], "live_actions": False}, ensure_ascii=False, indent=2))
@@ -2208,26 +2607,28 @@ def command_submit(args) -> None:
     maturity = audit_scientific_maturity(args, input_report, "ts_submission")
     compatibility = input_approval_compatibility(input_report, requested_work_kind)
     input_approval: dict[str, Any]
-    if compatibility["status"] != "supported_generic_v1":
-        input_approval = {**compatibility, "no_submission_authorization": True}
-    elif args.input_approval_record:
+    if args.input_approval_record:
         assert requested_work_kind is not None
         input_approval = validate_input_approval(
             Path(args.input_approval_record), input_path, input_report, requested_work_kind
         )
+    elif compatibility["status"] != "supported_generic_v1":
+        input_approval = {**compatibility, "no_submission_authorization": True}
     else:
         input_approval = {
             "status": "missing_required_for_live_submission",
-            "required_schema": INPUT_APPROVAL_SCHEMA,
+            "required_schema": compatibility.get("required_schema", INPUT_APPROVAL_SCHEMA),
             "work_kind": requested_work_kind,
             "no_submission_authorization": True,
         }
     approval_summary = None
+    live_requirement = None
     if input_approval["status"] == "validated_exact_input_approval":
         assert requested_work_kind is not None
         approval_summary = live_approval_summary(
             project, input_report, maturity, requested_work_kind, input_approval
         )
+        live_requirement = live_approval_scope_proposal(approval_summary)
     live_approval: dict[str, Any]
     if args.approval_record and approval_summary is not None:
         validated_live, live_approval_digest = validate_live_approval_binding(
@@ -2241,23 +2642,28 @@ def command_submit(args) -> None:
     elif args.approval_record:
         live_approval = {
             "status": "not_evaluated_missing_exact_input_approval",
-            "required_schema": "auto-g16-live-submission-approval/3",
+            "required_schema": LIVE_APPROVAL_V3_SCHEMA,
         }
     else:
         live_approval = {
             "status": "omitted_for_dry_run" if args.dry_run else "missing_required_for_live_submission",
-            "required_schema": "auto-g16-live-submission-approval/3",
+            "required_schema": (
+                live_requirement["required_schema"] if live_requirement is not None
+                else LIVE_APPROVAL_V3_SCHEMA
+            ),
         }
+        if live_requirement is not None:
+            live_approval.update(live_requirement)
     live_submission_ready = (
         input_approval["status"] == "validated_exact_input_approval"
         and live_approval["status"] == "validated_exact_live_approval"
     )
     if not args.dry_run:
         if input_approval["status"] != "validated_exact_input_approval":
-            if input_approval["status"] == "blocked_missing_specialist_input_approval":
+            if input_approval["status"] in {"blocked_missing_specialist_input_approval", "blocked_combined_open_shell_minimum_stability_parse_risk"}:
                 fail(
-                    "blocked_missing_specialist_input_approval: this input family requires its "
-                    "specialist owner manifest and exact raw-syntax/checkpoint approval"
+                    f"{input_approval['status']}: this input family requires its specialist "
+                    "owner manifest and independently approved exact stage"
                 )
             fail(
                 "live submission requires --input-approval-record with exact "
@@ -2667,6 +3073,9 @@ def build_parser() -> argparse.ArgumentParser:
     build_approval.add_argument("--protocol-options", required=True)
     build_approval.add_argument("--protocol-selection", required=True)
     build_approval.add_argument("--input-review", required=True)
+    build_approval.add_argument("--open-shell-state-review", help="accepted main-group open-shell electronic-state review")
+    build_approval.add_argument("--open-shell-input-handoff", help="owner-validated minimum Opt/Freq input handoff")
+    build_approval.add_argument("--open-shell-input-audit", help="passed owner input audit for the exact handoff bytes")
     build_approval.add_argument("--receipt-id", required=True)
     build_approval.add_argument("--output", required=True)
     build_approval.set_defaults(func=command_build_input_approval)
@@ -2695,9 +3104,19 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--dry-run", action="store_true")
     submit.add_argument(
         "--approval-record",
-        help="exact live /3 receipt required for new submissions; /1-/2 are historical replay-only",
+        help=(
+            "exact live-submission approval /3 for receipt /1, /4 for owner-replayed "
+            "open-shell receipt /2, or /5 for one family-stage receipt /3; required unless --dry-run"
+        ),
     )
-    submit.add_argument("--input-approval-record", help=f"owner-validated {INPUT_APPROVAL_SCHEMA} required for every live submission")
+    submit.add_argument(
+        "--input-approval-record",
+        help=(
+            f"owner-validated {INPUT_APPROVAL_SCHEMA} for ordinary/closed-shell minimum, "
+            f"or fully replayed {OPEN_SHELL_INPUT_APPROVAL_SCHEMA} for legacy open-shell minimum, "
+            f"or {OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA} for one two-stage family member"
+        ),
+    )
     add_scientific_maturity_options(submit)
     add_connection_options(submit)
     submit.set_defaults(func=command_submit)

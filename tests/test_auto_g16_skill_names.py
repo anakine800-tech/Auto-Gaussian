@@ -63,7 +63,7 @@ class AutoG16SkillNameTests(unittest.TestCase):
         transport_tool = (
             SKILLS / "auto-g16-rtwin-pbs" / "scripts" / "gaussian_rtwin_pbs.py"
         ).read_text(encoding="utf-8")
-        for version in (1, 2, 3):
+        for version in (1, 2, 3, 4):
             self.assertIn(f"auto-g16-live-submission-approval/{version}", transport_tool)
 
         for script in ("prepare_preview.py", "prepare_conformers.py"):

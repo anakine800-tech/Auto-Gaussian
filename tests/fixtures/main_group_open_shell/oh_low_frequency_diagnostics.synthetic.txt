@@ -1,0 +1,8 @@
+ Charge = 0 Multiplicity = 2
+ SCF Done:  E(UB3LYP) =  -75.000000 A.U.
+ S**2 before annihilation 0.7500, after 0.7500
+ Stationary point found.
+ Low frequencies ---   -8.3081  -6.2000  -3.1000  -0.5000  11.3150  3696.3824
+ Frequencies --   3696.3824
+ Normal termination of Gaussian 16
+ Normal termination of Gaussian 16

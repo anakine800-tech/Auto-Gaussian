@@ -79,14 +79,30 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 3. Only after selection, render or audit the offline input draft. Show source hash, identity, warnings, exact route, charge/multiplicity, atom count, cores, memory and remote directory. `gaussian_auto.py` refuses raw structures and SMILES so it cannot bypass this gate.
 4. After separate exact review of the rendered input, finalize
    `gaussian-input-draft-review/2` and build
-   `gaussian-input-approval-receipt/1`. The receipt replays the exact protocol
+   `gaussian-input-approval-receipt/1`. For a main-group open-shell minimum,
+   the builder additionally requires and replays the electronic-state review,
+   minimum input handoff and passed input audit, and emits the versioned,
+   offline-only `gaussian-input-approval-receipt/2`. The receipt replays the
+   exact protocol
    options and selection, selected option, the non-empty task/profile subset
    consumed by this input, human-confirmed route/method/basis/solvent/SCF
    mapping, resources, identity and input SHA-256. It never claims whole-family
-   completion and grants no live authority. Record a new
-   `auto-g16-live-submission-approval/3` that binds explicit `work_kind` plus
-   the exact input-approval receipt file and payload hashes for ordinary and
-   minimum work. Protected TS/scan/IRC prospective live work is currently
+   completion and grants no live authority. For ordinary or closed-shell
+   minimum work, record a new `auto-g16-live-submission-approval/3` that binds
+   generic receipt `/1`. For one main-group open-shell minimum, only a separate
+   closed `auto-g16-live-submission-approval/4` may bind a fully owner-replayed
+   receipt `/2`, its exact file/payload/input hashes, open-shell owner workflow,
+   state-review/handoff/audit/selected-option payloads, U/RO reference,
+   resource tier and replay result. `/3` semantics are unchanged, and receipt
+   `/2` itself remains `calculation_ready: false` with
+   `no_submission_authorization: true`. A checkpoint-bound two-stage open-shell
+   minimum instead requires one exact
+   `gaussian-input-approval-receipt/3` and one closed live approval `/5` per
+   stage. The stability receipt additionally binds the accepted Opt/Freq final
+   checkpoint and owner manifest. A prior failed combined input uses family
+   handoff `/1`; a fresh prospective family uses `/2` and explicitly carries no
+   prior-failure hash. This does not extend receipt `/2` or live `/4`.
+   Protected TS/scan/IRC prospective live work is currently
    fail-closed: maturity gate `/1` is replay-only, while current `/2` has no
    positive action because minimum lineage and specialist owners remain open.
    A future protected chain must provide an exact maturity action `/2`, action
@@ -111,7 +127,7 @@ AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
   --project example --local-dir /path/to/outputs/example \
   --work-kind minimum \
   --input-approval-record /path/to/exact-input-approval.json \
-  --approval-record /path/to/live-submission-approval-v3.json \
+  --approval-record /path/to/live-submission-approval-v3-or-v4.json \
   --confirmed --watch
 ```
 
@@ -124,7 +140,10 @@ For a local dry run that performs no SSH, PBS or Gaussian action:
 ```
 
 A dry run may omit the input and live receipts for diagnostic use, but then
-reports `live_submission_ready: false` and the exact missing gates. A supplied
+reports `live_submission_ready: false` and the exact missing gates. With a
+validated receipt, prepare/dry-run also reports `required_schema` and a
+non-authorizing `scope_proposal`; it never creates an approved record. A
+supplied
 input receipt is validated; a supplied live receipt is evaluated only after
 the input receipt succeeds. A plain `stage` remains a pure offline packaging
 operation; its `job.json` explicitly
@@ -194,7 +213,7 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
   --node-id reviewed_pilot_node --pilot --work-kind ts_pilot \
   --scientific-action-authorization /path/to/scientific-action-authorization.json \
   --input-approval-record /path/to/exact-input-approval.json \
-  --approval-record /path/to/live-submission-approval-v3.json --confirmed
+  --approval-record /path/to/live-submission-approval-v3-or-v4.json --confirmed
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" inspect --project example --job-id 563.master \
   --input-stem example_cartesian --local-dir /path/to/bundle
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" watch --project example --job-id 563.master \

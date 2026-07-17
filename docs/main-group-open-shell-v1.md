@@ -32,10 +32,62 @@ transition states, IRC, MECP and spin crossing. Singlet carbenes follow their
 reviewed electronic state: ordinary restricted closed-shell cases remain in
 the old path; open-shell or multireference singlets are blocked here.
 
-All three artifacts use closed versioned schemas under
+The `main_group_open_shell_minimum_opt_freq_v1` extension adds a reviewed
+Cartesian candidate, explicit input specification, immutable non-executable
+input handoff, input audit, result-source binding, result observation, and
+result-continuity acceptance. It binds candidate→state review→protocol
+options/selection→input text→result file with exact file, payload, coordinate,
+input-text, and result SHA-256 values. The builder does not infer route,
+method, basis, solvent, resources, multiplicity, U/RO reference, stability
+policy, frequency count, or server location.
+
+The handoff accepts only explicit U/RO minimum Opt/Freq routes with stability
+testing. Its case/spacing-normalized option audit rejects TS/QST/saddle,
+FOpt/POpt, IRC/IRCMax, TD/TDA, scan/specialist Opt, and `guess=mix`. It
+preserves exact atom order and Cartesian coordinates, requires
+protocol-selected resources, keeps the server directory null/not authorized,
+and grants no execution authority.
+The result closure requires normal termination, SCF convergence, a stationary
+minimum, exact state/reference continuity, stable-wavefunction evidence,
+in-policy post-annihilation S2, the reviewed frequency count, and no imaginary
+frequencies. Positive sanitized fixtures cover CH3 doublet and triplet CH2;
+negative tests cover state, hash, reference, stability, S2, frequency, route,
+resource, and structure drift plus closed-shell, metal, open-shell singlet, and
+multireference routing boundaries.
+
+All artifacts use closed versioned schemas under
 `contracts/main-group-open-shell/`, canonical JSON, payload and exact-file
 SHA-256 bindings, duplicate-key/non-finite/unknown-field rejection, symlink
 refusal, and no-overwrite writes. Every artifact retains
 `calculation_ready: false` and `no_submission_authorization: true`. This slice
 has no Gaussian, SSH, PBS, deployment, or live-smoke execution surface and
 does not modify the existing closed-shell single-guess TS/Freq adapter.
+
+## Multiplicity-family extension
+
+The offline multiplicity-family V1 extension records multiple independently
+reviewed multiplicity/state branches under one human-confirmed composition and
+structure relationship. Every member retains its own candidate, state review,
+protocol, input, and result lineage; file hashes may not be reused across
+members.
+
+An accepted result is not comparable merely because it belongs to the same
+candidate. A closed member-result-lineage source and deterministic derived
+artifact must additionally bind the exact member protocol, common protocol and
+settings, input-lineage artifact and input hash, acceptance, observation, and
+raw result-source hash. Missing proof remains structurally blocked. The record
+is supplied offline provenance only and cannot claim transport or live
+execution provenance.
+
+Only independently accepted single-reference doublet or high-spin triplet
+members can remain eligible for a later, separately approved input handoff.
+Quartets, open-shell singlets, and other unsupported states remain visible as
+`blocked_needs_specialist`; they are not silently omitted.
+
+Comparison requires an explicitly approved common electronic-energy protocol,
+exact common reference, settings hash, and comparability statement. The audit
+does not order energies, declare a ground state, mix thermochemistry, infer
+multireference character from energy proximity, model spin crossing or MECP,
+or combine multiplicities in one conformer ensemble. The contracts are under
+`contracts/main-group-open-shell/`; the detailed boundary is in
+`references/multiplicity-family-contract.md` in the Skill.

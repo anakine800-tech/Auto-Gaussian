@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/minimum-opt-freq-result-observation/1",
+  "title": "Auto-G16 Main-Group Open-Shell Minimum Opt/Freq Result Observation V1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "observation_id", "workflow", "observation_status", "result_source_binding", "handoff", "input_sha256", "result_source", "parser", "facts", "scientific_acceptance", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-open-shell-minimum-opt-freq-result-observation/1"}, "observation_id": {"$ref": "#/$defs/id"}, "workflow": {"const": "main_group_open_shell_minimum_opt_freq_v1"}, "observation_status": {"enum": ["complete", "incomplete"]}, "result_source_binding": {"$ref": "#/$defs/binding"}, "handoff": {"$ref": "#/$defs/binding"}, "input_sha256": {"$ref": "#/$defs/sha"}, "result_source": {"$ref": "#/$defs/file"}, "parser": {"const": "auto-g16-main-group-open-shell-minimum-result-observer/1"}, "facts": {"$ref": "#/$defs/facts"}, "scientific_acceptance": {"const": false}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}}},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "schema", "payload_sha256"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "schema": {"type": "string"}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "facts": {"type": "object", "additionalProperties": false, "required": ["state", "scf", "termination", "optimization", "spin", "stability", "frequencies"], "properties": {
+      "state": {"type": "object", "additionalProperties": false, "required": ["charge", "multiplicity"], "properties": {"charge": {"type": ["integer", "null"]}, "multiplicity": {"type": ["integer", "null"], "minimum": 1}}},
+      "scf": {"type": "object", "additionalProperties": false, "required": ["converged", "method", "reference_family", "energy_hartree"], "properties": {"converged": {"type": "boolean"}, "method": {"type": ["string", "null"]}, "reference_family": {"enum": ["U", "RO", "R", "unknown", null]}, "energy_hartree": {"type": ["number", "null"]}}},
+      "termination": {"type": "object", "additionalProperties": false, "required": ["normal_count", "error_count", "normal"], "properties": {"normal_count": {"type": "integer", "minimum": 0}, "error_count": {"type": "integer", "minimum": 0}, "normal": {"type": "boolean"}}},
+      "optimization": {"type": "object", "additionalProperties": false, "required": ["stationary_point_found"], "properties": {"stationary_point_found": {"type": "boolean"}}},
+      "spin": {"type": "object", "additionalProperties": false, "required": ["s2_before_annihilation", "s2_after_annihilation"], "properties": {"s2_before_annihilation": {"type": ["number", "null"], "minimum": 0}, "s2_after_annihilation": {"type": ["number", "null"], "minimum": 0}}},
+      "stability": {"type": "object", "additionalProperties": false, "required": ["performed", "status"], "properties": {"performed": {"type": "boolean"}, "status": {"enum": ["stable", "unstable", "missing"]}}},
+      "frequencies": {"type": "object", "additionalProperties": false, "required": ["performed", "values_cm_minus_1", "count", "imaginary_count"], "properties": {"performed": {"type": "boolean"}, "values_cm_minus_1": {"type": "array", "items": {"type": "number"}}, "count": {"type": "integer", "minimum": 0}, "imaginary_count": {"type": "integer", "minimum": 0}}}
+    }}
+  }
+}

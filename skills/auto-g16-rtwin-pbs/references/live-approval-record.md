@@ -42,8 +42,9 @@ never substitutes for a receipt. A dry run may omit receipts and then reports
 `live_submission_ready: false`. A supplied live receipt is evaluated only after
 the exact input-approval receipt has validated, so an old or unrelated live
 record cannot elevate an unreviewed input.
-The submit path validates `/3` against the unique captured input snapshot and
-uses the same stable receipt read for both JSON validation and receipt SHA-256.
+The submit path validates `/3` or `/4` against the unique captured input
+snapshot and uses the same stable receipt read for both JSON validation and
+receipt SHA-256.
 It rechecks staged bytes and upload-file hashes before any network action.
 
 Historical TS records use `auto-g16-live-submission-approval/2`. Keep every `/1`
@@ -73,7 +74,8 @@ scope consistency and never substitutes for this live approval record.
 
 ## New live approval `/3`
 
-Every new live submission requires `auto-g16-live-submission-approval/3`.
+Every new receipt `/1` live submission requires
+`auto-g16-live-submission-approval/3`.
 Its scope keeps the exact project, server directory, input hash, route,
 resources, charge and multiplicity fields above, and adds:
 
@@ -90,7 +92,8 @@ resources, charge and multiplicity fields above, and adds:
 }
 ```
 
-`/3` is currently prospective-live capable only for ordinary and minimum work.
+`/3` is currently prospective-live capable only for ordinary and closed-shell
+minimum work.
 Protected TS/scan/IRC work must not combine a maturity `/1` action check,
 generic input receipt and live `/3`; that is a mixed-generation chain.
 Maturity gate `/1` and historical live `/2` remain replay-only. Current
@@ -102,3 +105,21 @@ Historical `/1` and `/2` records remain independently replayable by the shared
 validator when checked against their historical summaries; they are not
 silently granted the new input-receipt binding or accepted for a new live
 submission.
+
+## Main-group open-shell minimum live approval `/4`
+
+`auto-g16-live-submission-approval/4` is the only prospective-live contract
+for a fully owner-replayed `gaussian-input-approval-receipt/2`. It is restricted
+to `work_kind: minimum`, multiplicity 2 or 3, and reference family `U` or `RO`.
+Its closed scope binds the exact project and `/home/user100/SDL/<project>`, input
+SHA-256, route, memory, cores, charge, multiplicity, receipt file/payload/input
+hashes, owner workflow, electronic-state-review/input-handoff/input-audit and
+selected-option payload hashes, reference family, resource tier and
+`owner_replay_passed: true`.
+
+`/2` receipt plus `/3`, `/1` receipt plus `/4`, protected maturity evidence,
+TS/IRC/scan/QST/Link1/checkpoint inputs, metals, open-shell singlets, broken
+symmetry and multireference states all fail closed. Authorizations remain
+exactly directory creation and one submission `true`; retry, cancellation,
+cleanup and server-data deletion are `false`. Offline prepare and dry-run emit
+only a scope proposal and required schema. They do not emit an approved `/4`.

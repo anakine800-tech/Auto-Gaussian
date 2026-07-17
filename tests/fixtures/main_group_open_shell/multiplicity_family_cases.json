@@ -1,0 +1,27 @@
+{
+  "schema": "auto-g16-main-group-multiplicity-family-test-cases/1",
+  "positive": [
+    "approved_common_electronic_energy_protocol",
+    "independent_candidate_review_protocol_input_lineages",
+    "doublet_handoff_with_quartet_retained_as_blocked_needs_specialist",
+    "result_audit_without_energy_ordering_or_ground_state_claim"
+  ],
+  "negative": [
+    "family_member_set_drift",
+    "candidate_review_protocol_or_input_hash_reuse",
+    "common_protocol_settings_drift",
+    "result_candidate_lineage_drift",
+    "forbidden_energy_ordering_claim",
+    "unsupported_member_result_bypass",
+    "thermochemistry_mixing",
+    "transition_metal_member",
+    "missing_input_result_association",
+    "cross_member_result_lineage",
+    "common_protocol_or_settings_substitution",
+    "member_protocol_or_input_hash_substitution",
+    "acceptance_observation_or_result_source_substitution",
+    "resealed_derived_result_lineage_forgery",
+    "forbidden_transport_or_live_provenance_claim"
+  ],
+  "closed_shell_regression": "existing closed-shell adapter remains multiplicity-one only"
+}

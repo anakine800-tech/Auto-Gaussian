@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/multiplicity-family-source/1",
+  "title": "Auto-G16 Main-Group Multiplicity-Family Human Source V1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "family_id", "composition_signature", "structure_relationship", "common_protocol_path", "members", "comparison_claims", "review", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-multiplicity-family-source/1"},
+    "family_id": {"$ref": "#/$defs/id"}, "composition_signature": {"$ref": "#/$defs/text"},
+    "structure_relationship": {"type": "object", "additionalProperties": false, "required": ["kind", "statement", "atom_mapping_reviewed", "confirmed"], "properties": {"kind": {"enum": ["same_composition_reviewed_atom_mapping", "same_exact_structure_different_state"]}, "statement": {"$ref": "#/$defs/text"}, "atom_mapping_reviewed": {"const": true}, "confirmed": {"const": true}}},
+    "common_protocol_path": {"$ref": "#/$defs/text"},
+    "members": {"type": "array", "minItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["member_id", "state_label", "multiplicity", "disposition", "candidate_path", "state_review_path", "protocol_path", "input_lineage_path"], "properties": {"member_id": {"$ref": "#/$defs/id"}, "state_label": {"$ref": "#/$defs/text"}, "multiplicity": {"type": "integer", "minimum": 1}, "disposition": {"enum": ["v1_handoff_candidate", "blocked_needs_specialist"]}, "candidate_path": {"$ref": "#/$defs/text"}, "state_review_path": {"$ref": "#/$defs/text"}, "protocol_path": {"$ref": "#/$defs/text"}, "input_lineage_path": {"$ref": "#/$defs/text"}}}},
+    "comparison_claims": {"type": "object", "additionalProperties": false, "required": ["energy_ordering", "ground_state", "thermochemistry"], "properties": {"energy_ordering": {"const": "not_claimed"}, "ground_state": {"const": "not_claimed"}, "thermochemistry": {"const": "not_compared"}}},
+    "review": {"type": "object", "additionalProperties": false, "required": ["reviewer", "rationale", "confirmed"], "properties": {"reviewer": {"$ref": "#/$defs/text"}, "rationale": {"$ref": "#/$defs/text"}, "confirmed": {"const": true}}},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "text": {"type": "string", "minLength": 1}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

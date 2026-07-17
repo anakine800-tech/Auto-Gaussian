@@ -25,6 +25,12 @@ SCHEMA_DIR = ROOT / "contracts" / "conformer-search"
 sys.path.insert(0, str(SCRIPTS))
 import conformer_core as CORE
 
+OPEN_SHELL_PATH = ROOT / "skills" / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_state.py"
+OPEN_SHELL_SPEC = importlib.util.spec_from_file_location("conformer_open_shell_state", OPEN_SHELL_PATH)
+assert OPEN_SHELL_SPEC and OPEN_SHELL_SPEC.loader
+OPEN_SHELL = importlib.util.module_from_spec(OPEN_SHELL_SPEC)
+OPEN_SHELL_SPEC.loader.exec_module(OPEN_SHELL)
+
 VALIDATOR_PATH = ROOT / "scripts" / "validate_asymmetric_contract.py"
 SPEC = importlib.util.spec_from_file_location("conformer_schema_validator", VALIDATOR_PATH)
 assert SPEC and SPEC.loader
@@ -130,6 +136,65 @@ class ConformerSearchTests(unittest.TestCase):
                 candidate["xtb_optimization_status"] = "failed"
             result["candidates"].append(candidate)
         return result
+
+    def open_shell_request(self, root: Path) -> tuple[dict, Path]:
+        root = root.resolve()
+        case = load(FIXTURES / "open_shell_doublet_case.json")
+        request = self.request()
+        request["schema"] = "gaussian-conformer-search-request/2"
+        request["request_id"] = "methyl_doublet_search"
+        request["revision"]["revision_id"] = "methyl_doublet_rev1"
+        request["state"] = {
+            "state_id": "methyl_doublet_state", "identity": case["identity"],
+            "atoms": case["atoms"], "bonds": case["bonds"],
+            "formal_charge": case["formal_charge"], "multiplicity": case["multiplicity"],
+            "component_count": 1, "stereochemistry": {},
+            "state_labels": ["main_group", "reviewed_doublet"],
+            "unsupported_flags": {"transition_metal": False, "open_shell": True, "excited_state": False, "multireference": False, "unknown_coordination": False, "connectivity_change_expected": False},
+        }
+        for category in request["categories"]:
+            category["constraints"]["forbidden_bonds"] = [[1, 2]]
+        request["freedom_inputs"]["symmetry_classes"] = [[1, 2, 3]]
+        request["similarity"]["symmetry_permutations"] = [[0, 2, 3, 1]]
+        request["shared_xtb_protocol"]["multiplicity"] = 2
+
+        hashes = CORE.structure_binding_for_state(request["state"])
+        candidate = {
+            "schema": "auto-g16-main-group-open-shell-candidate/1", "candidate_id": "methyl_doublet",
+            "structure_sha256": hashes["structure_graph_sha256"],
+            "atoms": [{"index": index + 1, "element": atom["element"]} for index, atom in enumerate(case["atoms"])],
+            "charge": 0, "multiplicity": 2, "state_family": case["state_family"],
+            "electronic_scope": "single_reference_ground_state", "structure_role": "minimum",
+            "task_types": ["optimization", "frequency"], "calculation_ready": False,
+            "no_submission_authorization": True,
+        }
+        candidate_path = root / "methyl-candidate.json"; write(candidate_path, candidate)
+        review = OPEN_SHELL.build_review(candidate_path, ROOT / "tests" / "fixtures" / "main_group_open_shell" / "ch3_review_source.json")
+        review_path = root / "methyl-state-review.json"; OPEN_SHELL.write_new_json(review_path, review)
+        state_binding = {
+            **hashes, "formal_charge": 0, "multiplicity": 2, "state_family": case["state_family"],
+            "accepted_state_review": CORE.binding(review_path, CORE.OPEN_SHELL_REVIEW_SCHEMA, payload=review["payload_sha256"]),
+            "fragment_spin_coupling": case["fragment_spin_coupling"],
+            "cross_state_policy": {"ranking_allowed": False, "boltzmann_merge_allowed": False, "ground_state_inference_allowed": False},
+        }
+        request["open_shell_state_binding"] = state_binding
+        r08 = {"schema": "gaussian-conformer-ensemble/2", "fixture_id": "methyl_reviewed_r08", "candidate_only": True, "review_status": "reviewed_for_r09_fixture", "open_shell_state_binding": state_binding}
+        r08_path = root / "methyl-r08.json"; write(r08_path, r08)
+        request["r08_handoff"].update({"path": str(r08_path), "sha256": CORE.file_sha256(r08_path), "schema": r08["schema"]})
+        request_path = root / "methyl-request.json"; write(request_path, request)
+        return request, request_path
+
+    def open_shell_candidate_set(self, plan: dict, plan_path: Path) -> dict:
+        state = plan["state_signature"]
+        template = load(FIXTURES / "candidate_set.template.json")
+        template.update({"schema": "gaussian-conformer-candidate-set/2", "plan_sha256": CORE.file_sha256(plan_path), "category_contracts": copy.deepcopy(plan["category_contracts"]), "open_shell_state_binding": copy.deepcopy(plan["open_shell_state_binding"])})
+        candidates = []
+        for candidate_id, route, subroute in (("doublet_a", "route_a", "a1_crest"), ("doublet_b", "route_b", "b1_etkdg")):
+            candidate = self.base_candidate(candidate_id, route, subroute, "contact_face", [[0, 0, 0], [1.08, 0, 0], [-0.54, 0.94, 0], [-0.54, -0.94, 0]])
+            candidate.update({"atom_order": state["atom_order"], "elements": state["elements"], "fragment_ids": state["fragment_ids"], "explicit_hydrogens": state["explicit_hydrogens"], "observed_bonds": [{"atoms": list(bond[:2]), "order": bond[2], "in_ring": False} for bond in state["bonds"]], "formal_charge": state["formal_charge"], "multiplicity": state["multiplicity"], "component_count": state["component_count"], "stereochemistry": state["stereochemistry"], "state_labels": state["state_labels"], "open_shell_state_binding": copy.deepcopy(plan["open_shell_state_binding"])})
+            candidates.append(candidate)
+        template["candidates"] = candidates
+        return template
 
     def chain(self, root: Path) -> dict[str, object]:
         request = self.request()
@@ -391,6 +456,81 @@ class ConformerSearchTests(unittest.TestCase):
 
             audit(schema)
             self.assertEqual(open_paths, [], f"{schema_path.name} has open object schemas")
+
+    def test_v2_main_group_doublet_chain_is_exactly_state_bound_and_candidate_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            request, request_path = self.open_shell_request(root)
+            validate("request.schema.json", request)
+            plan = CORE.build_plan(request, request_path)
+            self.assertEqual(plan["schema"], "gaussian-conformer-search-plan/2")
+            self.assertNotIn("unsupported state flag: open_shell", plan["blockers"])
+            plan_path = root / "doublet-plan.json"; write(plan_path, plan)
+            candidates = self.open_shell_candidate_set(plan, plan_path)
+            candidates_path = root / "doublet-candidates.json"; write(candidates_path, candidates)
+            ledger = CORE.audit_candidates(plan, plan_path, candidates, candidates_path)
+            self.assertEqual(ledger["counts"]["valid"], 2)
+            ledger_path = root / "doublet-ledger.json"; write(ledger_path, ledger)
+            manifest = CORE.crosscheck(plan, plan_path, candidates, candidates_path, ledger, ledger_path)
+            self.assertEqual(manifest["open_shell_state_binding"], request["open_shell_state_binding"])
+            self.assertEqual(manifest["cross_state_aggregation"], {"ranking_performed": False, "boltzmann_merge_performed": False, "ground_state_inference_performed": False})
+            self.assertFalse(manifest["calculation_ready"])
+            manifest_path = root / "doublet-manifest.json"; write(manifest_path, manifest)
+            selected = manifest["clusters"][0]["medoid_candidate_id"]
+            review = {"schema": "gaussian-conformer-handoff-review/1", "manifest_sha256": CORE.file_sha256(manifest_path), "selected_candidate_ids": [selected], "reviewer": "fixture_reviewer", "decision": "selected_for_downstream_input_review", "confirmed": True}
+            review_path = root / "doublet-handoff-review.json"; write(review_path, review)
+            handoff = CORE.build_handoff(manifest, manifest_path, review, review_path)
+            self.assertTrue(handoff["accepted_state_review_consumed"])
+            self.assertEqual(handoff["open_shell_state_binding"], request["open_shell_state_binding"])
+            self.assertFalse(handoff["gaussian_input_present"])
+            handoff_path = root / "doublet-handoff.json"; write(handoff_path, handoff)
+            self.assertEqual(CORE.validate_handoff(handoff_path), handoff)
+            for schema_name, artifact in (("search-plan.schema.json", plan), ("candidate-set.schema.json", candidates), ("validity-ledger.schema.json", ledger), ("ensemble-manifest.schema.json", manifest), ("candidate-handoff.schema.json", handoff)):
+                validate(schema_name, artifact)
+
+    def test_v2_request_rejects_state_review_and_identity_drift_metal_and_unresolved_coupling(self) -> None:
+        cases = load(FIXTURES / "open_shell_binding_negative_cases.json")["cases"]
+        for case in cases:
+            with self.subTest(case=case["case_id"]), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                request, request_path = self.open_shell_request(root)
+                binding = request["open_shell_state_binding"]
+                mutation = case["mutation"]
+                if mutation in {"structure_graph_sha256", "atom_order_sha256"}:
+                    binding[mutation] = "f" * 64
+                elif mutation == "formal_charge":
+                    binding["formal_charge"] = 1
+                elif mutation == "multiplicity":
+                    binding["multiplicity"] = 3
+                elif mutation == "review_payload_sha256":
+                    binding["accepted_state_review"]["payload_sha256"] = "f" * 64
+                elif mutation == "unresolved_multifragment":
+                    binding["fragment_spin_coupling"]["status"] = "unresolved"
+                elif mutation == "transition_metal":
+                    request["state"]["atoms"][0]["element"] = "Fe"
+                    request["state"]["unsupported_flags"]["transition_metal"] = False
+                r08_path = Path(request["r08_handoff"]["path"])
+                r08 = load(r08_path); r08["open_shell_state_binding"] = copy.deepcopy(binding); write(root / "replacement-r08.json", r08)
+                replacement = root / "replacement-r08.json"
+                request["r08_handoff"].update({"path": str(replacement), "sha256": CORE.file_sha256(replacement)})
+                write(root / "mutated-request.json", request)
+                with self.assertRaisesRegex(CORE.ContractError, case["expected"]):
+                    CORE.validate_request(request, root / "mutated-request.json")
+
+    def test_v2_member_state_drift_and_mixed_state_ensemble_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            request, request_path = self.open_shell_request(root)
+            plan = CORE.build_plan(request, request_path)
+            plan_path = root / "plan.json"; write(plan_path, plan)
+            candidates = self.open_shell_candidate_set(plan, plan_path)
+            candidates["candidates"][1]["open_shell_state_binding"]["state_family"] = "different_doublet_family"
+            candidates_path = root / "mixed-candidates.json"; write(candidates_path, candidates)
+            ledger = CORE.audit_candidates(plan, plan_path, candidates, candidates_path)
+            entry = next(item for item in ledger["entries"] if item["candidate_id"] == "doublet_b")
+            self.assertEqual(entry["status"], "state_changed")
+            self.assertIn("open_shell_state_binding_changed", entry["state_change_evidence"])
+            self.assertFalse(entry["accepted_into_quota"])
 
     def test_all_generated_artifacts_validate_against_versioned_schemas(self) -> None:
         request = self.request()
