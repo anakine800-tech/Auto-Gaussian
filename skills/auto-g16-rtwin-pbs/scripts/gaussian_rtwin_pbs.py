@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -182,6 +183,110 @@ def parse_memory(value: str) -> int:
     number = float(match.group(1))
     power = {"B": 0, "KB": 1, "MB": 2, "GB": 3, "TB": 4}[match.group(2).upper()]
     return int(number * 1024**power)
+
+
+def classify_protected_work(route: str) -> str | None:
+    lowered = " ".join(route.lower().split())
+    if re.search(r"\birc\b", lowered):
+        return "irc"
+    if re.search(r"\bmodredundant\b", lowered) or re.search(r"\bopt\s*=\s*\([^)]*\bscan\b", lowered):
+        return "ts_scan"
+    if (
+        re.search(r"\bqst[23]\b", lowered)
+        or re.search(r"\bopt\s*=\s*ts\b", lowered)
+        or re.search(r"\bopt\s*=\s*\([^)]*\bts\b", lowered)
+    ):
+        return "ts"
+    return None
+
+
+def route_is_ts(route: str) -> bool:
+    return classify_protected_work(route) == "ts"
+
+
+def _resource_tier(mem: str, nproc: int) -> str:
+    tiers = {"simple": ("12GB", 8), "general": ("50GB", 22), "complex": ("120GB", 44)}
+    for name, (expected_mem, expected_nproc) in tiers.items():
+        if parse_memory(mem) == parse_memory(expected_mem) and nproc == expected_nproc:
+            return name
+    return "custom"
+
+
+def _load_scientific_maturity() -> Any:
+    skills_root = Path(__file__).resolve().parents[2]
+    path = skills_root / "auto-g16-reaction-workflow" / "scripts" / "scientific_maturity.py"
+    if not path.is_file():
+        fail("scientific-maturity owner validator is unavailable")
+    spec = importlib.util.spec_from_file_location("auto_g16_pbs_scientific_maturity", path)
+    if spec is None or spec.loader is None:
+        fail("scientific-maturity owner validator cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) -> dict[str, Any] | None:
+    protected = classify_protected_work(report["route"])
+    work_kind = getattr(args, "work_kind", None)
+    if protected is None:
+        if work_kind not in {None, "ordinary", "minimum"}:
+            fail(f"--work-kind {work_kind} does not match an ordinary/minimum route")
+        return None
+    expected_kinds = {
+        "ts": {"ts_pilot", "formal_ts"},
+        "ts_scan": {"ts_scan"},
+        "irc": {"irc_forward", "irc_reverse"},
+    }[protected]
+    if work_kind not in expected_kinds:
+        fail(f"protected {protected} route requires explicit --work-kind in {sorted(expected_kinds)}")
+    pilot = work_kind in {"ts_pilot", "ts_scan"}
+    if bool(getattr(args, "pilot", False)) != pilot:
+        fail(f"--pilot must be {'set' if pilot else 'unset'} for --work-kind {work_kind}")
+    maturity_action = "irc_input" if protected == "irc" else action
+    gate_value = getattr(args, "scientific_maturity", None)
+    edge_id = getattr(args, "edge_id", None)
+    node_id = getattr(args, "node_id", None)
+    if not gate_value or not edge_id or not node_id:
+        fail("protected input/submission requires --scientific-maturity, --edge-id, and exact --node-id with two accepted Gaussian minima")
+    tier = _resource_tier(report["mem"], report["nprocshared"])
+    if tier == "custom":
+        fail("TS maturity gate requires an exact reviewed simple/general/complex resource tier")
+    maturity = _load_scientific_maturity()
+    try:
+        check = maturity.assert_action(
+            Path(gate_value).expanduser().resolve(),
+            edge_id,
+            maturity_action,
+            pilot=pilot,
+            resource_tier=tier,
+            node_id=node_id,
+        )
+        if action == "ts_submission":
+            authorization_value = getattr(args, "scientific_action_authorization", None)
+            if not authorization_value:
+                fail("protected TS/scan submission requires one exact --scientific-action-authorization")
+            authorization = maturity.validate_action_authorization(
+                Path(authorization_value).expanduser().resolve(),
+                gate_path=Path(gate_value).expanduser().resolve(),
+                input_sha256=report["input_sha256"],
+                edge_id=edge_id,
+                node_id=node_id,
+                project=args.project,
+                work_kind=work_kind,
+                resource_tier=tier,
+            )
+            check["exact_action_authorization"] = {
+                "sha256": sha256(Path(authorization_value).expanduser().resolve()),
+                "payload_sha256": authorization["payload_sha256"],
+                "node_id": authorization["scope"]["node_id"],
+                "project": authorization["scope"]["project"],
+                "input_sha256": authorization["input"]["sha256"],
+                "no_submission_authorization": True,
+            }
+        return check
+    except Exception as exc:
+        fail(f"scientific-maturity gate blocked {maturity_action}: {exc}")
+    return None
 
 
 def parse_gaussian(path: Path) -> dict[str, Any]:
@@ -869,8 +974,11 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
 def command_preflight(args) -> None:
     project = validate_project(args.project)
     report = parse_gaussian(Path(args.input).expanduser().resolve())
+    maturity = audit_scientific_maturity(args, report, "ts_input")
     report["project"] = project
     report["remote_workdir"] = remote_project_dir(project)
+    if maturity is not None:
+        report = {"scientific_maturity": maturity, **report}
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
@@ -887,8 +995,11 @@ def command_submit(args) -> None:
     if not args.confirmed:
         fail("submit requires --confirmed after the exact preflight is approved")
     project = validate_project(args.project)
+    input_path = Path(args.input).expanduser().resolve()
+    input_report = parse_gaussian(input_path)
+    maturity = audit_scientific_maturity(args, input_report, "ts_submission")
     local_dir = Path(args.local_dir).expanduser().resolve()
-    job, files = stage(Path(args.input).expanduser().resolve(), project, local_dir)
+    job, files = stage(input_path, project, local_dir)
     windows_dir = f"{args.windows_root}\\{project}"
     remote_dir = remote_project_dir(project)
 
@@ -900,6 +1011,8 @@ def command_submit(args) -> None:
         "files": [path.name for path in files],
         "input_sha256": job["input_sha256"],
     }
+    if maturity is not None:
+        plan = {"scientific_maturity": maturity, **plan}
     if args.dry_run:
         plan["dry_run"] = True
         print(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -1250,6 +1363,15 @@ def add_connection_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--server-alias", default=DEFAULT_SERVER_ALIAS)
 
 
+def add_scientific_maturity_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--scientific-maturity", help="immutable gaussian-scientific-maturity-gate/1 artifact required for TS work")
+    parser.add_argument("--edge-id", help="reviewed mechanism edge bound by the maturity gate")
+    parser.add_argument("--node-id", help="exact reviewed calculation-DAG node for this protected action")
+    parser.add_argument("--pilot", action="store_true", help="limit this TS action to the reviewed one-candidate simple-tier pilot")
+    parser.add_argument("--work-kind", choices=["ordinary", "minimum", "ts_pilot", "formal_ts", "ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"], help="explicit scientific work classification; required for TS, scan, and IRC routes")
+    parser.add_argument("--scientific-action-authorization", help="exact offline input/project/node/budget binding required for protected submission; it is not live approval")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1257,6 +1379,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight = sub.add_parser("preflight", help="audit a local Gaussian input without network access")
     preflight.add_argument("input")
     preflight.add_argument("--project", required=True)
+    add_scientific_maturity_options(preflight)
     preflight.set_defaults(func=command_preflight)
 
     stage_parser = sub.add_parser("stage", help="create a local PBS bundle without network access")
@@ -1271,6 +1394,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--local-dir", required=True)
     submit.add_argument("--confirmed", action="store_true")
     submit.add_argument("--dry-run", action="store_true")
+    add_scientific_maturity_options(submit)
     add_connection_options(submit)
     submit.set_defaults(func=command_submit)
 

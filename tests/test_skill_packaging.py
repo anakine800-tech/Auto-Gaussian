@@ -204,6 +204,43 @@ class SkillPackagingTests(unittest.TestCase):
             self.assertTrue(
                 (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/mechanism-support-matrix-review.schema.json").is_file()
             )
+            maturity = installed / "auto-g16-reaction-workflow/scripts/scientific_maturity.py"
+            maturity_help = subprocess.run(
+                [sys.executable, str(maturity), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(maturity_help.returncode, 0, maturity_help.stdout + maturity_help.stderr)
+            self.assertIn("authorize-action", maturity_help.stdout)
+            self.assertTrue(
+                (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/scientific-maturity-gate.schema.json").is_file()
+            )
+            owner_loader_smoke = "\n".join(
+                (
+                    "import importlib.util, pathlib, sys",
+                    "root = pathlib.Path(sys.argv[1])",
+                    "for name, relative in ((\"ts\", \"auto-g16-ts-irc/scripts/ts_irc.py\"), (\"pbs\", \"auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py\")):",
+                    "    path = root / relative",
+                    "    sys.path.insert(0, str(path.parent))",
+                    "    spec = importlib.util.spec_from_file_location(f\"packaged_{name}\", path)",
+                    "    module = importlib.util.module_from_spec(spec)",
+                    "    spec.loader.exec_module(module)",
+                    "    owner = module._load_scientific_maturity()",
+                    "    assert owner.GATE_SCHEMA == \"gaussian-scientific-maturity-gate/1\"",
+                    "print(\"deployed-owner-loaders-ok\")",
+                )
+            )
+            owner_loaders = subprocess.run(
+                [sys.executable, "-c", owner_loader_smoke, str(installed)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(owner_loaders.returncode, 0, owner_loaders.stdout + owner_loaders.stderr)
+            self.assertIn("deployed-owner-loaders-ok", owner_loaders.stdout)
             observation = ADAPTER._finalize(
                 {
                     "schema": ADAPTER.SANITIZED_JOB_SCHEMA,

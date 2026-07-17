@@ -114,3 +114,10 @@ The manifest and handoff remain candidate-only. Final structures and
 thermodynamics require a separately approved common DFT Opt/Freq/single-point
 workflow. UFF, xTB, annealing, route weights, and mixed software total energies
 cannot replace that comparison.
+
+The first downstream promotion target is an explicitly reviewed minimum. A
+formal TS conformer lineage begins only from a reactant conformer whose Gaussian
+Opt and complete Freq were accepted with zero imaginary frequencies by the
+reaction-workflow scientific-maturity owner. Geometry-only face/angle/distance
+enumeration and FF/xTB energies never promote a formal mechanism edge or
+barrier.

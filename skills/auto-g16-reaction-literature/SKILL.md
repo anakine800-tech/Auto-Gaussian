@@ -172,6 +172,15 @@ it never overwrites the draft.
   validation.
 - Use `auto-g16-rtwin-pbs` only after all existing scientific and exact live
   approval gates; nothing produced here authorizes input drafting or execution.
+- Before formal TS input review, bind finalized literature evidence into the
+  reaction-workflow scientific-maturity overlay. Its audit covers exact-system,
+  catalyst/reaction, substrate-class, relevant BPh3/HBpin and pyridine lanes,
+  active-state/ion-pair/Lewis-adduct coverage, computational TS/IRC/selectivity,
+  both citation directions, and full-text/SI/coordinate coverage. User seeds
+  remain hypotheses or verifiable seeds. Until the user confirms no obvious
+  key-literature omission, formal mechanism support stays blocked. No direct
+  precedent permits only reviewed minima work and at most one separate simple-
+  tier pilot under the owning maturity gate.
 
 ## Required deliverables
 

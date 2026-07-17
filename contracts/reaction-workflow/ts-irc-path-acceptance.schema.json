@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/ts-irc-path-acceptance.schema.json",
+  "title": "Auto-G16 TS and bidirectional IRC path acceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "edge_id", "family", "ts_result", "mode_review", "mode_decision", "forward", "reverse", "accepted", "limitations", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-ts-irc-path-acceptance/1"},
+    "edge_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "family": {"$ref": "#/$defs/ref"}, "ts_result": {"$ref": "#/$defs/ref"},
+    "mode_review": {"$ref": "#/$defs/ref"}, "mode_decision": {"$ref": "#/$defs/ref"},
+    "forward": {"$ref": "#/$defs/endpointBundle"}, "reverse": {"$ref": "#/$defs/endpointBundle"},
+    "accepted": {"const": true},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "payload_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "$defs": {
+    "ref": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "size_bytes": {"type": "integer", "minimum": 0}}
+    },
+    "endpointBundle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint"],
+      "properties": {"audit": {"$ref": "#/$defs/ref"}, "irc_input": {"$ref": "#/$defs/ref"}, "irc_log": {"$ref": "#/$defs/ref"}, "irc_result": {"$ref": "#/$defs/ref"}, "job": {"$ref": "#/$defs/ref"}, "checkpoint": {"$ref": "#/$defs/ref"}}
+    }
+  }
+}

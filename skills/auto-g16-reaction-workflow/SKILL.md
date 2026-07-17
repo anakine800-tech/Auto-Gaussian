@@ -19,6 +19,12 @@ After separate human review, the optional W3 stages may also create:
 5. `gaussian-reaction-calculation-plan/1`; and
 6. `gaussian-reaction-study-index/1`.
 
+Before any prospective formal TS input family, create the separate immutable
+scientific-maturity overlay described in
+[references/scientific-maturity-contract.md](references/scientific-maturity-contract.md).
+It binds the exact calculation plan without rewriting it and projects minima-
+first blockers onto its DAG nodes.
+
 Treat every artifact as an offline scientific review or bookkeeping record.
 Keep `calculation_ready: false` and `no_submission_authorization: true`
 throughout this Skill, and keep every calculation-plan node
@@ -321,6 +327,37 @@ target, energy, and observation artifact keeps `calculation_ready: false` and
 `no_submission_authorization: true`. The adapter has no stage, submit, retry,
 cancel, cleanup, DAG mutation, or resume command.
 
+### 6a. Close scientific maturity before TS input review
+
+Use `scripts/scientific_maturity.py` after the exact calculation plan exists.
+The review requires the complete literature/user-hypothesis intake and search-
+saturation ledger, exact edge/channel decisions, two accepted Gaussian minima
+per TS edge, pilot/resource budget, TS/IRC evidence state, common-reference
+thermochemistry policy and the closed stop-condition set.
+
+```bash
+MATURITY="skills/auto-g16-reaction-workflow/scripts/scientific_maturity.py"
+python3 "$MATURITY" finalize-review maturity-review.draft.json --output maturity-review.json
+python3 "$MATURITY" build calculation-plan.json --review maturity-review.json --output maturity-gate.json
+python3 "$MATURITY" check-action maturity-gate.json --edge-id edge_id --action ts_input --pilot
+python3 "$MATURITY" authorize-action maturity-gate.json --input pilot.gjf \
+  --edge-id edge_id --node-id pilot_node --action ts_submission --pilot \
+  --resource-tier simple --project fresh_project --work-kind ts_pilot \
+  --task-count 1 --estimated-core-hours 8 --planned-concurrency 1 \
+  --output scientific-action-authorization.json
+```
+
+Formal TS input remains blocked unless the exact plan already binds the owner-
+validated mechanism-support and TS-precedent artifacts and the overlay supplies
+the explicit edge/channel mapping. Without direct precedent, only one simple-
+tier pilot may pass after both minima; it remains an internal hypothesis.
+Minimum acceptance binds the raw log and replays it through the RTwin/PBS
+Gaussian parser; a rehashed result JSON cannot substitute for that owner
+evidence. Passing this gate grants neither input approval nor live authority.
+The action-authorization command is also offline-only: it prevents reuse across
+a different input, project, node or budget scope, but still grants no staging
+or submission authority.
+
 ### 7. Preserve the W2 knowledge and literature gates
 
 The second scientific-modeling round must first query a reviewed reusable
@@ -482,6 +519,12 @@ make the mechanism claim literature-supported or validated.
 - `scripts/calculation_dag.py`: standard-library-only deterministic review
   finalizer, calculation-plan builder/validator and study-index
   builder/validator; no input rendering, execution or live path.
+- `scripts/scientific_maturity.py`: standard-library-only immutable maturity
+  review/gate builder, deterministic DAG-node projection and fail-closed action
+  check reused by TS and PBS owners; no route, input or live authority.
+- `references/scientific-maturity-contract.md`: prospective literature,
+  mechanism, minima-first, pilot/budget, TS/IRC, reference-state and migration
+  contract.
 - `scripts/calculation_artifacts.py`: standard-library-only target-import,
   exact input-handoff, blocked/electronic-only energy-lineage and immutable
   attempt-link adapters; no live path.
@@ -490,4 +533,5 @@ make the mechanism claim literature-supported or validated.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry, condition-model, mechanism-network,
   mechanism-support, mechanism-support-matrix review/output, TS-precedent-map,
-  calculation-plan, study-index and the calculation-artifact adapter family.
+  calculation-plan, study-index, scientific-maturity review/gate and the
+  calculation-artifact adapter family.
