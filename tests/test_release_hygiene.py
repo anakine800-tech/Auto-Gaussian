@@ -46,13 +46,18 @@ class ReleaseHygieneTests(unittest.TestCase):
         self.assertIn("MIT License", (ROOT / "LICENSE").read_text())
         changelog = (ROOT / "CHANGELOG.md").read_text()
         pyproject = (ROOT / "pyproject.toml").read_text()
-        self.assertRegex(pyproject, r'(?m)^version = "2\.3\.0"$')
+        self.assertRegex(pyproject, r'(?m)^version = "2\.4\.0"$')
         unreleased = changelog.index("## [Unreleased]\n")
-        current_release = changelog.index("## [2.3.0] - 2026-07-16")
+        current_release = changelog.index("## [2.4.0] - 2026-07-18")
         self.assertLess(unreleased, current_release)
         self.assertIn(
             "[Unreleased]: https://github.com/anakine800-tech/"
-            "Auto-Gaussian/compare/v2.3.0...HEAD",
+            "Auto-Gaussian/compare/v2.4.0...HEAD",
+            changelog,
+        )
+        self.assertIn(
+            "[2.4.0]: https://github.com/anakine800-tech/"
+            "Auto-Gaussian/compare/v2.3.0...v2.4.0",
             changelog,
         )
         self.assertIn(
@@ -60,11 +65,15 @@ class ReleaseHygieneTests(unittest.TestCase):
             "Auto-Gaussian/compare/v2.2.0...v2.3.0",
             changelog,
         )
-        self.assertIn("Auto-Gaussian 2.3.0", (ROOT / "README.md").read_text())
+        self.assertIn("Auto-Gaussian 2.4.0", (ROOT / "README.md").read_text())
+        self.assertTrue((ROOT / "docs" / "release-2.4.0-checklist.md").is_file())
+
+        # Preserve 2.3.0 and all earlier public release history unchanged.
+        self.assertIn("## [2.3.0] - 2026-07-16", changelog)
         self.assertTrue((ROOT / "docs" / "release-2.3.0-checklist.md").is_file())
 
-        # Preserve the prior release entry, compare link, and checklist as
-        # immutable public history rather than rewriting them for 2.3.0.
+        # Preserve older release entries, compare links, and checklists as
+        # immutable public history rather than rewriting them for 2.4.0.
         self.assertIn("## [2.2.0]", changelog)
         self.assertIn("[2.2.0]:", changelog)
         self.assertTrue((ROOT / "docs" / "release-2.2.0-checklist.md").is_file())
