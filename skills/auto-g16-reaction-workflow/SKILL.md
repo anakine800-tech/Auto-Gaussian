@@ -331,6 +331,33 @@ target, energy, and observation artifact keeps `calculation_ready: false` and
 `no_submission_authorization: true`. The adapter has no stage, submit, retry,
 cancel, cleanup, DAG mutation, or resume command.
 
+### Optional immutable recalculation-decision sidecar
+
+Use this only after one failed attempt and its exact input, protocol, result,
+and terminal evidence have already been preserved. Read
+[references/recalculation-decision-contract.md](references/recalculation-decision-contract.md),
+then finalize and validate the human review inside one portable package root:
+
+```bash
+DECISION_TOOL="skills/auto-g16-reaction-workflow/scripts/recalculation_decision.py"
+
+python3 "$DECISION_TOOL" finalize --root decision-package review.draft.json \
+  --attempt evidence/attempt.json --input evidence/input.json \
+  --protocol evidence/protocol.json --result evidence/result.json \
+  --terminal-evidence evidence/terminal-intake.json \
+  --output recalculation-decision.json
+python3 "$DECISION_TOOL" validate --root decision-package \
+  recalculation-decision.json
+```
+
+`gaussian-recalculation-decision/1` is an immutable evidence-only decision
+record. It never changes an input or upstream job/result, creates a proposal,
+retries, submits, cancels or cleans up. Even its single approving decision only
+selects one exact human-authored proposal for later independent protocol,
+scientific-maturity, input and live-approval gates. It fixes
+`calculation_ready: false`, `no_submission_authorization: true` and
+`no_automatic_retry: true`.
+
 ### 6a. Close scientific maturity before TS input review
 
 Use `scripts/scientific_maturity.py` after the exact calculation plan exists.
@@ -553,6 +580,12 @@ make the mechanism claim literature-supported or validated.
   attempt-link adapters; no live path.
 - `references/calculation-artifact-adapter-contract.md`: exact source,
   authority, refusal, energy-lineage and DAG-owned importer boundary.
+- `scripts/recalculation_decision.py`: standard-library-only portable-package
+  finalizer and replay validator for immutable, non-authorizing recalculation
+  decisions; no input mutation or live path.
+- `references/recalculation-decision-contract.md`: evidence-role allowlists,
+  package-root portability, integrity-versus-owner authority, exact proposal,
+  decision-enumeration and atomic-publication contract.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry, condition-model, mechanism-network,
   mechanism-support, mechanism-support-matrix review/output, TS-precedent-map,

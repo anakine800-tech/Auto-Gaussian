@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/recalculation-decision.schema.json",
+  "title": "Immutable human-reviewed Gaussian recalculation decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "decision_id",
+    "evidence_bindings",
+    "failure_classification",
+    "preserved_original_calculation",
+    "candidate_actions",
+    "review",
+    "decision_policy",
+    "immutability",
+    "calculation_ready",
+    "no_submission_authorization",
+    "no_automatic_retry",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-recalculation-decision/1"},
+    "decision_id": {"$ref": "#/$defs/id"},
+    "evidence_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt", "input", "protocol", "result", "terminal_evidence"],
+      "properties": {
+        "attempt": {"$ref": "#/$defs/evidenceBinding"},
+        "input": {"$ref": "#/$defs/evidenceBinding"},
+        "protocol": {"$ref": "#/$defs/evidenceBinding"},
+        "result": {"$ref": "#/$defs/evidenceBinding"},
+        "terminal_evidence": {"$ref": "#/$defs/evidenceBinding"}
+      }
+    },
+    "failure_classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "summary", "evidence", "human_classified"],
+      "properties": {
+        "category": {
+          "enum": [
+            "input_or_configuration",
+            "electronic_structure_convergence",
+            "geometry_optimization",
+            "frequency_or_hessian",
+            "resource_or_scheduler",
+            "runtime_or_environment",
+            "scientific_validation",
+            "incomplete_or_ambiguous",
+            "other_reviewed"
+          ]
+        },
+        "summary": {"$ref": "#/$defs/nonempty"},
+        "evidence": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/classificationEvidence"}
+        },
+        "human_classified": {"const": true}
+      }
+    },
+    "preserved_original_calculation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_sha256", "protocol_sha256", "method", "route", "resources", "structure_hashes"],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "protocol_sha256": {"$ref": "#/$defs/sha256"},
+        "method": {"$ref": "#/$defs/stringAssertion"},
+        "route": {"$ref": "#/$defs/stringAssertion"},
+        "resources": {"$ref": "#/$defs/canonicalAssertion"},
+        "structure_hashes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/structureHash"}
+        }
+      }
+    },
+    "candidate_actions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/candidateAction"}
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "reviewer", "reviewed_at", "notes", "uncertainties"],
+      "properties": {
+        "decision": {
+          "enum": ["no_retry", "defer", "approve_one_exact_recalculation_proposal", "reject_proposal"]
+        },
+        "reviewer": {"$ref": "#/$defs/nonempty"},
+        "reviewed_at": {"type": "string", "minLength": 20},
+        "notes": {"$ref": "#/$defs/nonemptyStrings"},
+        "uncertainties": {"$ref": "#/$defs/nonemptyStrings"}
+      }
+    },
+    "decision_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "human_review_required",
+        "normal_termination_alone_sufficient",
+        "single_error_code_alone_sufficient",
+        "automatic_inference_performed",
+        "approval_requires_independent_future_gates"
+      ],
+      "properties": {
+        "human_review_required": {"const": true},
+        "normal_termination_alone_sufficient": {"const": false},
+        "single_error_code_alone_sufficient": {"const": false},
+        "automatic_inference_performed": {"const": false},
+        "approval_requires_independent_future_gates": {"const": true}
+      }
+    },
+    "immutability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "upstream_failure_records_rewritten",
+        "job_or_result_backwrite",
+        "decision_link_only",
+        "automatic_candidate_expansion",
+        "automatic_input_change",
+        "automatic_chemistry_method_resource_change",
+        "automatic_cleanup",
+        "automatic_cancellation"
+      ],
+      "properties": {
+        "upstream_failure_records_rewritten": {"const": false},
+        "job_or_result_backwrite": {"const": false},
+        "decision_link_only": {"const": true},
+        "automatic_candidate_expansion": {"const": false},
+        "automatic_input_change": {"const": false},
+        "automatic_chemistry_method_resource_change": {"const": false},
+        "automatic_cleanup": {"const": false},
+        "automatic_cancellation": {"const": false}
+      }
+    },
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "no_automatic_retry": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "source": {"enum": ["attempt", "input", "protocol", "result", "terminal_evidence"]},
+    "nonemptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/nonempty"}
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "media_type", "schema", "payload_sha256", "integrity_validation", "owner_validation"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "media_type": {"enum": ["application/json", "chemical/x-gaussian-input", "text/plain", "application/octet-stream"]},
+        "schema": {"type": ["string", "null"]},
+        "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "integrity_validation": {"enum": ["bytes_only", "bytes_and_declared_payload_replayed"]},
+        "owner_validation": {"const": "not_performed_no_semantic_acceptance"}
+      }
+    },
+    "evidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "retention_status", "use"],
+      "properties": {
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "retention_status": {"const": "preserved_immutable"},
+        "use": {"const": "evidence_only"}
+      }
+    },
+    "canonicalAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "json_pointer", "canonical_json", "value_sha256"],
+      "properties": {
+        "source": {"$ref": "#/$defs/source"},
+        "json_pointer": {"type": "string", "pattern": "^/"},
+        "canonical_json": {"$ref": "#/$defs/nonempty"},
+        "value_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "stringAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "json_pointer", "value"],
+      "properties": {
+        "source": {"$ref": "#/$defs/source"},
+        "json_pointer": {"type": "string", "pattern": "^/"},
+        "value": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "classificationEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "json_pointer", "canonical_json", "value_sha256", "interpretation"],
+      "properties": {
+        "source": {"$ref": "#/$defs/source"},
+        "json_pointer": {"type": "string", "pattern": "^/"},
+        "canonical_json": {"$ref": "#/$defs/nonempty"},
+        "value_sha256": {"$ref": "#/$defs/sha256"},
+        "interpretation": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "structureHash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "source", "json_pointer", "sha256"],
+      "properties": {
+        "role": {"$ref": "#/$defs/id"},
+        "source": {"$ref": "#/$defs/source"},
+        "json_pointer": {"type": "string", "pattern": "^/"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "candidateAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposal_id",
+        "status",
+        "proposed_exact_delta",
+        "rationale",
+        "impact_scope",
+        "risks",
+        "required_new_reviews"
+      ],
+      "properties": {
+        "proposal_id": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["selected_for_separate_gate", "deferred", "rejected"]},
+        "proposed_exact_delta": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/exactDelta"}
+        },
+        "rationale": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scientific", "numerical"],
+          "properties": {
+            "scientific": {"$ref": "#/$defs/nonempty"},
+            "numerical": {"$ref": "#/$defs/nonempty"}
+          }
+        },
+        "impact_scope": {"$ref": "#/$defs/nonemptyStrings"},
+        "risks": {"$ref": "#/$defs/nonemptyStrings"},
+        "required_new_reviews": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["protocol", "scientific_maturity", "input", "live_approval"],
+          "properties": {
+            "protocol": {"const": true},
+            "scientific_maturity": {"const": true},
+            "input": {"const": true},
+            "live_approval": {"const": true}
+          }
+        }
+      }
+    },
+    "exactDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "target_locator",
+        "source",
+        "json_pointer",
+        "from_canonical_json",
+        "from_sha256",
+        "to_canonical_json",
+        "to_sha256",
+        "change_origin"
+      ],
+      "properties": {
+        "target": {"enum": ["structure", "method", "route", "resources", "input", "numerical_controls", "protocol", "other_reviewed"]},
+        "target_locator": {"$ref": "#/$defs/nonempty"},
+        "source": {"$ref": "#/$defs/source"},
+        "json_pointer": {"type": "string", "pattern": "^/"},
+        "from_canonical_json": {"$ref": "#/$defs/nonempty"},
+        "from_sha256": {"$ref": "#/$defs/sha256"},
+        "to_canonical_json": {"$ref": "#/$defs/nonempty"},
+        "to_sha256": {"$ref": "#/$defs/sha256"},
+        "change_origin": {"const": "human_authored"}
+      }
+    }
+  }
+}

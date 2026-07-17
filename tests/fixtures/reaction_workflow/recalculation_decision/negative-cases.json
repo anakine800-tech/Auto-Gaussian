@@ -1,0 +1,60 @@
+{
+  "schema": "gaussian-recalculation-decision-negative-fixtures/1",
+  "cases": [
+    {
+      "case_id": "normal_termination_is_not_a_decision",
+      "mutation": "replace classification evidence with only result.normal_termination_count",
+      "expected_refusal": "at least two exact evidence observations"
+    },
+    {
+      "case_id": "single_error_code_is_not_a_decision",
+      "mutation": "make all classification evidence point to terminal_evidence.error_codes",
+      "expected_refusal": "must span at least two bound sources"
+    },
+    {
+      "case_id": "review_uncertainty_required",
+      "mutation": "empty review.uncertainties",
+      "expected_refusal": "review.uncertainties must be a non-empty array"
+    },
+    {
+      "case_id": "approval_is_exactly_one_proposal",
+      "mutation": "duplicate the selected proposal",
+      "expected_refusal": "approval requires exactly one proposal"
+    },
+    {
+      "case_id": "fresh_gates_are_mandatory",
+      "mutation": "set required_new_reviews.live_approval to false",
+      "expected_refusal": "must require fresh protocol, maturity, input, and live approvals"
+    },
+    {
+      "case_id": "evidence_drift_is_refused",
+      "mutation": "change a bound source after finalization",
+      "expected_refusal": "artifact reference drift"
+    },
+    {
+      "case_id": "absolute_reference_is_refused",
+      "mutation": "replace one artifact path with an absolute machine path and rehash the decision",
+      "expected_refusal": "must be package-root relative"
+    },
+    {
+      "case_id": "role_schema_swap_is_refused",
+      "mutation": "supply the result artifact in the protocol role",
+      "expected_refusal": "protocol evidence schema is not allowlisted for this role"
+    },
+    {
+      "case_id": "unknown_schema_cannot_claim_owner_acceptance",
+      "mutation": "supply an unknown JSON schema containing owner_accepted=true",
+      "expected_refusal": "evidence schema is not allowlisted for this role"
+    },
+    {
+      "case_id": "partial_publication_is_removed",
+      "mutation": "inject atomic no-clobber publication failure before link",
+      "expected_refusal": "no output or temp artifact remains"
+    },
+    {
+      "case_id": "concurrent_target_is_never_clobbered",
+      "mutation": "create the target immediately before the no-clobber link",
+      "expected_refusal": "the concurrent target bytes remain unchanged"
+    }
+  ]
+}

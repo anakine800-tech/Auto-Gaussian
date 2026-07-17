@@ -1,0 +1,10 @@
+{
+  "schema": "gaussian-terminal-intake/1",
+  "terminal_state": "finished",
+  "outcome": "failed",
+  "acceptance_status": "not_accepted",
+  "error_codes": [
+    "l9999"
+  ],
+  "evidence_complete": true
+}
