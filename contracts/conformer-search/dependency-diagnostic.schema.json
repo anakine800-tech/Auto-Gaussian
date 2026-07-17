@@ -1,7 +1,137 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://local.invalid/contracts/conformer-search/dependency-diagnostic.schema.json",
-  "title": "Auto-G16 conformer dependency diagnostic", "type": "object", "additionalProperties": false,
-  "required": ["schema", "diagnostic_id", "request", "dependencies", "execution_performed", "installation_performed", "blockers", "no_submission_authorization", "payload_sha256"],
-  "properties": {"schema": {"const": "gaussian-conformer-dependency-diagnostic/1"}, "diagnostic_id": {"$ref": "#/$defs/id"}, "request": {"$ref": "#/$defs/binding"}, "dependencies": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/dependency"}}, "execution_performed": {"const": false}, "installation_performed": {"const": false}, "blockers": {"type": "array", "items": {"type": "string"}}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}},
-  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-conformer-search-request/1"}}}, "dependency": {"type": "object", "additionalProperties": false, "required": ["dependency", "kind", "available", "absolute_path", "version", "capability_probe", "installation_attempted"], "properties": {"dependency": {"type": "string"}, "kind": {"enum": ["executable", "python_module"]}, "available": {"type": "boolean"}, "absolute_path": {"type": ["string", "null"]}, "version": {"type": ["string", "null"]}, "capability_probe": {"enum": ["not_executed_by_policy", "module_spec_only_no_import"]}, "installation_attempted": {"const": false}}}}
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local.invalid/contracts/conformer-search/dependency-diagnostic.schema.json",
+    "title": "Auto-G16 conformer dependency diagnostic",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema",
+        "diagnostic_id",
+        "request",
+        "dependencies",
+        "execution_performed",
+        "installation_performed",
+        "blockers",
+        "no_submission_authorization",
+        "payload_sha256"
+    ],
+    "properties": {
+        "schema": {
+            "enum": ["gaussian-conformer-dependency-diagnostic/1", "gaussian-conformer-dependency-diagnostic/2"]
+        },
+        "diagnostic_id": {
+            "$ref": "#/$defs/id"
+        },
+        "request": {
+            "$ref": "#/$defs/binding"
+        },
+        "dependencies": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "$ref": "#/$defs/dependency"
+            }
+        },
+        "execution_performed": {
+            "const": false
+        },
+        "installation_performed": {
+            "const": false
+        },
+        "blockers": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "no_submission_authorization": {
+            "const": true
+        },
+        "payload_sha256": {
+            "$ref": "#/$defs/sha"
+        }
+    },
+    "$defs": {
+        "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,63}$"
+        },
+        "sha": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+        },
+        "binding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "path",
+                "sha256",
+                "size_bytes",
+                "schema"
+            ],
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "schema": {
+                        "enum": ["gaussian-conformer-search-request/1", "gaussian-conformer-search-request/2"]
+                }
+            }
+        },
+        "dependency": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "dependency",
+                "kind",
+                "available",
+                "absolute_path",
+                "version",
+                "capability_probe",
+                "installation_attempted"
+            ],
+            "properties": {
+                "dependency": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": [
+                        "executable",
+                        "python_module"
+                    ]
+                },
+                "available": {
+                    "type": "boolean"
+                },
+                "absolute_path": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "version": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "capability_probe": {
+                    "enum": [
+                        "not_executed_by_policy",
+                        "module_spec_only_no_import"
+                    ]
+                },
+                "installation_attempted": {
+                    "const": false
+                }
+            }
+        }
+    }
 }

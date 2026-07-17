@@ -25,6 +25,7 @@ SCHEMAS = {
     "manifest": "gaussian-conformer-ensemble-manifest/1",
     "handoff": "gaussian-conformer-candidate-handoff/1",
 }
+SCHEMAS_V2 = {key: value.rsplit("/", 1)[0] + "/2" for key, value in SCHEMAS.items()}
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 ROUTES = {"route_a", "route_b"}
@@ -43,6 +44,12 @@ UNSUPPORTED_FLAGS = (
     "unknown_coordination",
     "connectivity_change_expected",
 )
+OPEN_SHELL_REVIEW_SCHEMA = "auto-g16-main-group-open-shell-review/1"
+TRANSITION_METALS = {
+    "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
+    "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd",
+    "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg",
+}
 
 
 def _resource_path(*parts: str) -> Path:
@@ -69,6 +76,21 @@ def _load_schema_validator() -> Any:
     spec = importlib.util.spec_from_file_location("auto_g16_conformer_schema_validator", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load JSON Schema validator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_open_shell_validator() -> Any:
+    script = Path(__file__).resolve()
+    candidates = (
+        script.parents[3] / "skills" / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_state.py",
+        script.parents[2] / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_state.py",
+    )
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    require(path is not None, "main-group open-shell owner validator is unavailable")
+    spec = importlib.util.spec_from_file_location("auto_g16_conformer_open_shell_owner", path)
+    require(spec is not None and spec.loader is not None, "cannot load main-group open-shell owner validator")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -133,6 +155,16 @@ def payload_sha256(value: dict[str, Any]) -> str:
     payload = copy.deepcopy(value)
     payload.pop("payload_sha256", None)
     return hashlib.sha256(canonical_bytes(payload)).hexdigest()
+
+
+def content_sha256(value: object) -> str:
+    return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+def schemas_for(schema: str) -> dict[str, str]:
+    if schema.endswith("/2"):
+        return SCHEMAS_V2
+    return SCHEMAS
 
 
 def file_sha256(path: Path) -> str:
@@ -221,7 +253,8 @@ def normalize_bond(bond: dict[str, Any]) -> tuple[int, int, float]:
 def validate_request(request: dict[str, Any], request_path: Path) -> None:
     validate_schema(request, "request.schema.json")
     verify_document_matches_path(request, request_path, "conformer-search request")
-    require(request.get("schema") == SCHEMAS["request"], "unsupported request schema")
+    require(request.get("schema") in {SCHEMAS["request"], SCHEMAS_V2["request"]}, "unsupported request schema")
+    schemas = schemas_for(request["schema"])
     _id(request.get("request_id"), "request_id")
     revision = request.get("revision")
     require(isinstance(revision, dict), "revision is required")
@@ -270,6 +303,10 @@ def validate_request(request: dict[str, Any], request_path: Path) -> None:
     flags = state.get("unsupported_flags")
     require(isinstance(flags, dict) and set(flags) == set(UNSUPPORTED_FLAGS), "unsupported_flags must be explicit and closed")
     require(all(isinstance(flags[key], bool) for key in UNSUPPORTED_FLAGS), "unsupported flags must be boolean")
+    if schemas is SCHEMAS:
+        require(request.get("open_shell_state_binding") is None, "V1 request cannot carry an open-shell state binding")
+    else:
+        validate_open_shell_state_binding(request, request_path)
     categories = request.get("categories")
     require(isinstance(categories, list) and categories, "at least one category is required")
     category_ids = []
@@ -360,8 +397,76 @@ def validate_request(request: dict[str, Any], request_path: Path) -> None:
     require(isinstance(reviews, dict) and reviews and all(value is True for value in reviews.values()), "all request review flags must be true")
 
 
+def structure_binding_for_state(state: dict[str, Any]) -> dict[str, Any]:
+    atom_order = [
+        {
+            "atom_index": atom["atom_index"], "map_id": atom["map_id"],
+            "element": atom["element"], "fragment_id": atom["fragment_id"],
+            "explicit_hydrogen": atom["explicit_hydrogen"],
+        }
+        for atom in state["atoms"]
+    ]
+    graph = {
+        "atom_order": atom_order,
+        "bonds": [list(item) for item in sorted(normalize_bond(bond) for bond in state["bonds"])],
+        "stereochemistry": state["stereochemistry"],
+    }
+    return {
+        "structure_graph_sha256": content_sha256(graph),
+        "atom_order_sha256": content_sha256(atom_order),
+    }
+
+
+def validate_open_shell_state_binding(request: dict[str, Any], request_path: Path) -> None:
+    state = request["state"]
+    binding_record = request.get("open_shell_state_binding")
+    require(isinstance(binding_record, dict), "V2 request requires open_shell_state_binding")
+    r08_path = resolve_bound_path(request_path, request["r08_handoff"]["path"], "R08 handoff")
+    r08_document = load_json(r08_path)
+    require(r08_document.get("open_shell_state_binding") == binding_record, "R08 handoff open-shell state binding differs from request")
+    flags = state["unsupported_flags"]
+    require(flags["open_shell"] is True, "V2 state binding requires open_shell=true")
+    require(not any(flags[key] for key in UNSUPPORTED_FLAGS if key != "open_shell"), "open-shell V2 supports no other unsupported state flag")
+    require(state["multiplicity"] in {2, 3}, "open-shell V2 supports only doublet or high-spin triplet")
+    require(not ({atom["element"] for atom in state["atoms"]} & TRANSITION_METALS), "transition metals are outside open-shell conformer V2")
+    hashes = structure_binding_for_state(state)
+    require(binding_record.get("structure_graph_sha256") == hashes["structure_graph_sha256"], "structure graph hash differs from exact request state")
+    require(binding_record.get("atom_order_sha256") == hashes["atom_order_sha256"], "atom-order hash differs from exact request state")
+    require(binding_record.get("formal_charge") == state["formal_charge"], "state-binding charge differs")
+    require(binding_record.get("multiplicity") == state["multiplicity"], "state-binding multiplicity differs")
+    review_binding = binding_record.get("accepted_state_review")
+    require(isinstance(review_binding, dict), "accepted state-review binding is required")
+    review_path = resolve_bound_path(request_path, review_binding.get("path"), "accepted open-shell state review")
+    verify_binding(review_binding, review_path, OPEN_SHELL_REVIEW_SCHEMA)
+    try:
+        review = _load_open_shell_validator().validate_artifact(review_path)
+    except Exception as exc:
+        raise ContractError(f"accepted state review failed owner replay: {exc}") from exc
+    require(review.get("schema") == OPEN_SHELL_REVIEW_SCHEMA, "accepted state-review schema differs")
+    require(review.get("payload_sha256") == payload_sha256(review), "accepted state-review payload hash is invalid")
+    require(review_binding.get("payload_sha256") == review["payload_sha256"], "accepted state-review payload binding differs")
+    require(review.get("status") == "accepted" and review.get("conclusion", {}).get("decision") == "accepted_for_v1_protocol_gate", "open-shell conformer discovery requires an accepted state review")
+    snapshot = review.get("candidate_snapshot", {})
+    require(snapshot.get("structure_sha256") == hashes["structure_graph_sha256"], "state review is not bound to the exact structure graph")
+    require([atom.get("element") for atom in snapshot.get("atoms", [])] == [atom["element"] for atom in state["atoms"]], "state-review atom order or elements differ")
+    require(snapshot.get("charge") == state["formal_charge"], "state-review charge differs")
+    require(snapshot.get("multiplicity") == state["multiplicity"], "state-review multiplicity differs")
+    require(snapshot.get("state_family") == binding_record.get("state_family"), "state-review family differs")
+    require(snapshot.get("electronic_scope") == "single_reference_ground_state", "state review is not single-reference ground-state scope")
+    coupling = binding_record.get("fragment_spin_coupling")
+    require(isinstance(coupling, dict), "fragment spin-coupling review is required")
+    require(coupling.get("status") != "unresolved", "multifragment radical spin coupling is unresolved")
+    if state["component_count"] > 1:
+        require(coupling.get("status") == "resolved", "multifragment radical spin coupling is unresolved")
+    else:
+        require(coupling.get("status") in {"not_applicable", "resolved"}, "fragment spin-coupling status is invalid")
+    policy = binding_record.get("cross_state_policy")
+    require(policy == {"ranking_allowed": False, "boltzmann_merge_allowed": False, "ground_state_inference_allowed": False}, "cross-state comparison policy must fail closed")
+
+
 def analyze_freedom(request: dict[str, Any], request_path: Path) -> dict[str, Any]:
     validate_request(request, request_path)
+    schemas = schemas_for(request["schema"])
     state = request["state"]
     atoms = state["atoms"]
     bonds = state["bonds"]
@@ -410,11 +515,12 @@ def analyze_freedom(request: dict[str, Any], request_path: Path) -> dict[str, An
         sum(category["total_quota"] for category in request["categories"]),
         min(500, 12 + 4 * vector["n_rot"] + 6 * vector["n_ring"] + 3 * vector["d_relative"] + 2 * (vector["n_weak"] + vector["n_face"] + vector["n_symmetry"])),
     )
-    blockers = [f"unsupported state flag: {key}" for key in UNSUPPORTED_FLAGS if state["unsupported_flags"][key]]
+    allowed_flags = {"open_shell"} if schemas is SCHEMAS_V2 else set()
+    blockers = [f"unsupported state flag: {key}" for key in UNSUPPORTED_FLAGS if state["unsupported_flags"][key] and key not in allowed_flags]
     analysis = {
-        "schema": SCHEMAS["freedom"],
+        "schema": schemas["freedom"],
         "analysis_id": request["request_id"] + "_freedom",
-        "request": binding(request_path, SCHEMAS["request"]),
+        "request": binding(request_path, schemas["request"]),
         "vector": vector,
         "rotatable_bonds": rotatable,
         "rotatable_exclusions": exclusions,
@@ -465,6 +571,7 @@ def _amide_like(carbon: int, nitrogen: int, atoms: list[dict[str, Any]], bonds: 
 
 def dependency_diagnostic(request: dict[str, Any], request_path: Path) -> dict[str, Any]:
     validate_request(request, request_path)
+    schemas = schemas_for(request["schema"])
     configured = request.get("dependency_paths", {})
     executable_names = {"xtb": "xtb", "crest": "crest", "openbabel": "obabel"}
     python_modules = {"rdkit": "rdkit", "spyrmsd": "spyrmsd", "numpy": "numpy", "scipy": "scipy", "scikit_learn": "sklearn", "mdanalysis": "MDAnalysis", "mdtraj": "mdtraj"}
@@ -493,9 +600,9 @@ def dependency_diagnostic(request: dict[str, Any], request_path: Path) -> dict[s
             "installation_attempted": False,
         })
     diagnostic = {
-        "schema": SCHEMAS["dependencies"],
+        "schema": schemas["dependencies"],
         "diagnostic_id": request["request_id"] + "_dependencies",
-        "request": binding(request_path, SCHEMAS["request"]),
+        "request": binding(request_path, schemas["request"]),
         "dependencies": records,
         "execution_performed": False,
         "installation_performed": False,
@@ -518,6 +625,7 @@ def allocate_weighted(total: int, weights: dict[str, float], *, minimum: int = 1
 
 
 def build_plan(request: dict[str, Any], request_path: Path) -> dict[str, Any]:
+    schemas = schemas_for(request["schema"])
     verify_supersedes(request["revision"], request_path)
     freedom = analyze_freedom(request, request_path)
     policy = request["quota_policy"]
@@ -544,10 +652,10 @@ def build_plan(request: dict[str, Any], request_path: Path) -> dict[str, Any]:
             "command_review_status": "inert_reviewed_template",
         })
     plan = {
-        "schema": SCHEMAS["plan"],
+        "schema": schemas["plan"],
         "plan_id": request["request_id"] + "_plan",
         "revision": copy.deepcopy(request["revision"]),
-        "request": binding(request_path, SCHEMAS["request"]),
+        "request": binding(request_path, schemas["request"]),
         "r08_handoff": copy.deepcopy(request["r08_handoff"]),
         "state_signature": state_signature(request["state"]),
         "freedom_analysis": freedom,
@@ -573,6 +681,8 @@ def build_plan(request: dict[str, Any], request_path: Path) -> dict[str, Any]:
             "external adapter execution requires a separate future authorization and implementation",
         ],
     }
+    if schemas is SCHEMAS_V2:
+        plan["open_shell_state_binding"] = copy.deepcopy(request["open_shell_state_binding"])
     plan["payload_sha256"] = payload_sha256(plan)
     return plan
 
@@ -611,14 +721,15 @@ def state_signature(state: dict[str, Any]) -> dict[str, Any]:
 def validate_plan(plan: dict[str, Any], plan_path: Path) -> None:
     validate_schema(plan, "search-plan.schema.json")
     verify_document_matches_path(plan, plan_path, "conformer-search plan")
-    require(plan.get("schema") == SCHEMAS["plan"], "unsupported plan schema")
+    require(plan.get("schema") in {SCHEMAS["plan"], SCHEMAS_V2["plan"]}, "unsupported plan schema")
+    schemas = schemas_for(plan["schema"])
     require(plan.get("payload_sha256") == payload_sha256(plan), "plan payload hash is invalid")
     require(plan.get("dry_run") is True and plan.get("execution_allowed") is False, "plan execution boundary is invalid")
     require(plan.get("calculation_ready") is False and plan.get("no_submission_authorization") is True, "plan authority boundary is invalid")
     request_record = plan.get("request")
     require(isinstance(request_record, dict), "plan request binding is required")
     request_path = resolve_bound_path(plan_path, request_record.get("path"), "bound conformer-search request")
-    verify_binding(request_record, request_path, SCHEMAS["request"])
+    verify_binding(request_record, request_path, schemas["request"])
     request = load_json(request_path)
     validate_request(request, request_path)
     require(plan == build_plan(request, request_path), "plan does not match a fresh semantic rebuild from its bound request")
@@ -628,11 +739,14 @@ def audit_candidates(plan: dict[str, Any], plan_path: Path, candidates: dict[str
     validate_plan(plan, plan_path)
     validate_schema(candidates, "candidate-set.schema.json")
     verify_document_matches_path(candidates, candidates_path, "conformer candidate set")
-    require(candidates.get("schema") == SCHEMAS["candidates"], "unsupported candidate-set schema")
+    schemas = schemas_for(plan["schema"])
+    require(candidates.get("schema") == schemas["candidates"], "unsupported candidate-set schema")
     require(candidates.get("plan_sha256") == file_sha256(plan_path), "candidate set is not bound to exact plan")
     expected = plan["state_signature"]
     quota_categories = {item["category_id"] for item in plan["category_quotas"]}
     require(candidates.get("category_contracts") == plan["category_contracts"], "candidate-set category contracts differ from the plan")
+    if schemas is SCHEMAS_V2:
+        require(candidates.get("open_shell_state_binding") == plan.get("open_shell_state_binding"), "candidate-set open-shell state binding differs from plan")
     entries = []
     seen_ids: set[str] = set()
     for candidate in candidates.get("candidates", []):
@@ -641,6 +755,8 @@ def audit_candidates(plan: dict[str, Any], plan_path: Path, candidates: dict[str
         seen_ids.add(candidate_id)
         reasons: list[str] = []
         state_change: list[str] = []
+        if schemas is SCHEMAS_V2 and candidate.get("open_shell_state_binding") != plan.get("open_shell_state_binding"):
+            state_change.append("open_shell_state_binding_changed")
         route_id, subroute_id = candidate.get("route_id"), candidate.get("subroute_id")
         require(route_id in ROUTES and subroute_id in SUBROUTES and SUBROUTE_ROUTE[subroute_id] == route_id, "candidate route/subroute is invalid")
         category_id = candidate.get("category_id")
@@ -734,10 +850,10 @@ def audit_candidates(plan: dict[str, Any], plan_path: Path, candidates: dict[str
         })
     require(entries, "candidate set must not be empty")
     ledger = {
-        "schema": SCHEMAS["ledger"],
+        "schema": schemas["ledger"],
         "ledger_id": plan["plan_id"] + "_validity",
-        "plan": binding(plan_path, SCHEMAS["plan"], payload=plan["payload_sha256"]),
-        "candidate_set": binding(candidates_path, SCHEMAS["candidates"]),
+        "plan": binding(plan_path, schemas["plan"], payload=plan["payload_sha256"]),
+        "candidate_set": binding(candidates_path, schemas["candidates"]),
         "entries": entries,
         "counts": {
             "observed": len(entries),
@@ -750,6 +866,8 @@ def audit_candidates(plan: dict[str, Any], plan_path: Path, candidates: dict[str
         "calculation_ready": False,
         "no_submission_authorization": True,
     }
+    if schemas is SCHEMAS_V2:
+        ledger["open_shell_state_binding"] = copy.deepcopy(plan["open_shell_state_binding"])
     ledger["payload_sha256"] = payload_sha256(ledger)
     return ledger
 
@@ -910,9 +1028,10 @@ def crosscheck(plan: dict[str, Any], plan_path: Path, candidates: dict[str, Any]
     validate_plan(plan, plan_path)
     validate_schema(ledger, "validity-ledger.schema.json")
     verify_document_matches_path(ledger, ledger_path, "conformer validity ledger")
-    require(ledger.get("schema") == SCHEMAS["ledger"] and ledger.get("payload_sha256") == payload_sha256(ledger), "validity ledger is invalid")
-    verify_binding(ledger["plan"], plan_path, SCHEMAS["plan"])
-    verify_binding(ledger["candidate_set"], candidates_path, SCHEMAS["candidates"])
+    schemas = schemas_for(plan["schema"])
+    require(ledger.get("schema") == schemas["ledger"] and ledger.get("payload_sha256") == payload_sha256(ledger), "validity ledger is invalid")
+    verify_binding(ledger["plan"], plan_path, schemas["plan"])
+    verify_binding(ledger["candidate_set"], candidates_path, schemas["candidates"])
     require(ledger == audit_candidates(plan, plan_path, candidates, candidates_path), "validity ledger does not match a fresh semantic audit")
     require(candidates.get("plan_sha256") == file_sha256(plan_path), "candidate set plan binding differs")
     valid_ids = {item["candidate_id"] for item in ledger["entries"] if item["status"] == "valid"}
@@ -980,12 +1099,12 @@ def crosscheck(plan: dict[str, Any], plan_path: Path, candidates: dict[str, Any]
         "no Gaussian method, input, resource, server path, or live approval is present",
     ])
     manifest = {
-        "schema": SCHEMAS["manifest"],
+        "schema": schemas["manifest"],
         "manifest_id": plan["plan_id"] + "_ensemble",
         "revision": copy.deepcopy(plan["revision"]),
-        "plan": binding(plan_path, SCHEMAS["plan"], payload=plan["payload_sha256"]),
-        "candidate_set": binding(candidates_path, SCHEMAS["candidates"]),
-        "validity_ledger": binding(ledger_path, SCHEMAS["ledger"], payload=ledger["payload_sha256"]),
+        "plan": binding(plan_path, schemas["plan"], payload=plan["payload_sha256"]),
+        "candidate_set": binding(candidates_path, schemas["candidates"]),
+        "validity_ledger": binding(ledger_path, schemas["ledger"], payload=ledger["payload_sha256"]),
         "state_signature": copy.deepcopy(plan["state_signature"]),
         "locked_route_weights": copy.deepcopy(plan["locked_route_weights"]),
         "locked_subroute_weights": copy.deepcopy(plan["locked_subroute_weights"]),
@@ -1012,6 +1131,13 @@ def crosscheck(plan: dict[str, Any], plan_path: Path, candidates: dict[str, Any]
         "external_execution_performed": False,
         "blockers": blockers,
     }
+    if schemas is SCHEMAS_V2:
+        manifest["open_shell_state_binding"] = copy.deepcopy(plan["open_shell_state_binding"])
+        manifest["cross_state_aggregation"] = {
+            "ranking_performed": False,
+            "boltzmann_merge_performed": False,
+            "ground_state_inference_performed": False,
+        }
     manifest["payload_sha256"] = payload_sha256(manifest)
     return manifest
 
@@ -1021,7 +1147,8 @@ def build_handoff(manifest: dict[str, Any], manifest_path: Path, review: dict[st
     verify_document_matches_path(manifest, manifest_path, "conformer ensemble manifest")
     validate_schema(review, "handoff-review.schema.json")
     verify_document_matches_path(review, review_path, "conformer handoff review")
-    require(manifest.get("schema") == SCHEMAS["manifest"] and manifest.get("payload_sha256") == payload_sha256(manifest), "manifest is invalid")
+    require(manifest.get("schema") in {SCHEMAS["manifest"], SCHEMAS_V2["manifest"]} and manifest.get("payload_sha256") == payload_sha256(manifest), "manifest is invalid")
+    schemas = schemas_for(manifest["schema"])
     require(review.get("schema") == "gaussian-conformer-handoff-review/1", "handoff review schema is invalid")
     require(review.get("manifest_sha256") == file_sha256(manifest_path), "handoff review does not bind exact manifest")
     require(review.get("confirmed") is True and review.get("decision") == "selected_for_downstream_input_review", "handoff review is not confirmed")
@@ -1029,9 +1156,9 @@ def build_handoff(manifest: dict[str, Any], manifest_path: Path, review: dict[st
     selected = review.get("selected_candidate_ids")
     require(isinstance(selected, list) and selected and set(selected) <= medoids, "handoff may select only reviewed manifest medoids")
     handoff = {
-        "schema": SCHEMAS["handoff"],
+        "schema": schemas["handoff"],
         "handoff_id": manifest["manifest_id"] + "_handoff",
-        "manifest": binding(manifest_path, SCHEMAS["manifest"], payload=manifest["payload_sha256"]),
+        "manifest": binding(manifest_path, schemas["manifest"], payload=manifest["payload_sha256"]),
         "review": binding(review_path, "gaussian-conformer-handoff-review/1"),
         "state_signature": copy.deepcopy(manifest["state_signature"]),
         "selected_candidate_ids": selected,
@@ -1044,6 +1171,9 @@ def build_handoff(manifest: dict[str, Any], manifest_path: Path, review: dict[st
         "server_or_resource_authorization_present": False,
         "required_next_review": "exact Gaussian structure/protocol/resource/input-hash approval",
     }
+    if schemas is SCHEMAS_V2:
+        handoff["open_shell_state_binding"] = copy.deepcopy(manifest["open_shell_state_binding"])
+        handoff["accepted_state_review_consumed"] = True
     handoff["payload_sha256"] = payload_sha256(handoff)
     return handoff
 
@@ -1055,7 +1185,8 @@ def validate_manifest(path: str | Path) -> dict[str, Any]:
     manifest = load_json(manifest_path)
     validate_schema(manifest, "ensemble-manifest.schema.json")
     verify_document_matches_path(manifest, manifest_path, "conformer ensemble manifest")
-    require(manifest.get("schema") == SCHEMAS["manifest"], "unsupported ensemble-manifest schema")
+    require(manifest.get("schema") in {SCHEMAS["manifest"], SCHEMAS_V2["manifest"]}, "unsupported ensemble-manifest schema")
+    schemas = schemas_for(manifest["schema"])
     require(manifest.get("payload_sha256") == payload_sha256(manifest), "ensemble-manifest payload hash is invalid")
     require(
         manifest.get("candidate_only") is True
@@ -1067,9 +1198,9 @@ def validate_manifest(path: str | Path) -> dict[str, Any]:
     plan_path = resolve_bound_path(manifest_path, manifest["plan"].get("path"), "bound conformer-search plan")
     candidates_path = resolve_bound_path(manifest_path, manifest["candidate_set"].get("path"), "bound conformer candidate set")
     ledger_path = resolve_bound_path(manifest_path, manifest["validity_ledger"].get("path"), "bound conformer validity ledger")
-    verify_binding(manifest["plan"], plan_path, SCHEMAS["plan"])
-    verify_binding(manifest["candidate_set"], candidates_path, SCHEMAS["candidates"])
-    verify_binding(manifest["validity_ledger"], ledger_path, SCHEMAS["ledger"])
+    verify_binding(manifest["plan"], plan_path, schemas["plan"])
+    verify_binding(manifest["candidate_set"], candidates_path, schemas["candidates"])
+    verify_binding(manifest["validity_ledger"], ledger_path, schemas["ledger"])
     require(manifest["plan"].get("payload_sha256") == load_json(plan_path).get("payload_sha256"), "manifest plan payload binding differs")
     require(manifest["validity_ledger"].get("payload_sha256") == load_json(ledger_path).get("payload_sha256"), "manifest ledger payload binding differs")
     expected = crosscheck(
@@ -1088,7 +1219,8 @@ def validate_handoff(path: str | Path) -> dict[str, Any]:
     handoff = load_json(handoff_path)
     validate_schema(handoff, "candidate-handoff.schema.json")
     verify_document_matches_path(handoff, handoff_path, "conformer candidate handoff")
-    require(handoff.get("schema") == SCHEMAS["handoff"], "unsupported conformer handoff schema")
+    require(handoff.get("schema") in {SCHEMAS["handoff"], SCHEMAS_V2["handoff"]}, "unsupported conformer handoff schema")
+    schemas = schemas_for(handoff["schema"])
     require(handoff.get("payload_sha256") == payload_sha256(handoff), "conformer handoff payload hash is invalid")
     require(
         handoff.get("candidate_only") is True
@@ -1099,7 +1231,7 @@ def validate_handoff(path: str | Path) -> dict[str, Any]:
 
     manifest_path = resolve_bound_path(handoff_path, handoff["manifest"].get("path"), "bound conformer ensemble manifest")
     review_path = resolve_bound_path(handoff_path, handoff["review"].get("path"), "bound conformer handoff review")
-    verify_binding(handoff["manifest"], manifest_path, SCHEMAS["manifest"])
+    verify_binding(handoff["manifest"], manifest_path, schemas["manifest"])
     verify_binding(handoff["review"], review_path, "gaussian-conformer-handoff-review/1")
     manifest = validate_manifest(manifest_path)
     require(handoff["manifest"].get("payload_sha256") == manifest.get("payload_sha256"), "handoff manifest payload binding differs")

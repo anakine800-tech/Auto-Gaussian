@@ -1,52 +1,239 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://local.invalid/contracts/conformer-search/candidate-handoff.schema.json",
-  "title": "Auto-G16 candidate-only conformer handoff",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schema", "handoff_id", "manifest", "review", "state_signature", "selected_candidate_ids", "selection_scope", "candidate_only", "calculation_ready", "no_submission_authorization", "gaussian_input_present", "gaussian_protocol_present", "server_or_resource_authorization_present", "required_next_review", "payload_sha256"],
-  "properties": {
-    "schema": {"const": "gaussian-conformer-candidate-handoff/1"},
-    "handoff_id": {"$ref": "#/$defs/id"},
-    "manifest": {"$ref": "#/$defs/payloadBinding"},
-    "review": {"$ref": "#/$defs/binding"},
-    "state_signature": {"$ref": "#/$defs/stateSignature"},
-    "selected_candidate_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-    "selection_scope": {"const": "structure_candidates_only"},
-    "candidate_only": {"const": true},
-    "calculation_ready": {"const": false},
-    "no_submission_authorization": {"const": true},
-    "gaussian_input_present": {"const": false},
-    "gaussian_protocol_present": {"const": false},
-    "server_or_resource_authorization_present": {"const": false},
-    "required_next_review": {"const": "exact Gaussian structure/protocol/resource/input-hash approval"},
-    "payload_sha256": {"$ref": "#/$defs/sha"}
-  },
-  "$defs": {
-    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
-    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "binding": {
-      "type": "object", "additionalProperties": false,
-      "required": ["path", "sha256", "size_bytes", "schema"],
-      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string"}}
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://local.invalid/contracts/conformer-search/candidate-handoff.schema.json",
+    "title": "Auto-G16 candidate-only conformer handoff",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema",
+        "handoff_id",
+        "manifest",
+        "review",
+        "state_signature",
+        "selected_candidate_ids",
+        "selection_scope",
+        "candidate_only",
+        "calculation_ready",
+        "no_submission_authorization",
+        "gaussian_input_present",
+        "gaussian_protocol_present",
+        "server_or_resource_authorization_present",
+        "required_next_review",
+        "payload_sha256"
+    ],
+    "properties": {
+        "schema": {
+            "enum": ["gaussian-conformer-candidate-handoff/1", "gaussian-conformer-candidate-handoff/2"]
+        },
+        "handoff_id": {
+            "$ref": "#/$defs/id"
+        },
+        "manifest": {
+            "$ref": "#/$defs/payloadBinding"
+        },
+        "review": {
+            "$ref": "#/$defs/binding"
+        },
+        "state_signature": {
+            "$ref": "#/$defs/stateSignature"
+        },
+        "open_shell_state_binding": {"$ref": "#/$defs/openShellBinding"},
+        "accepted_state_review_consumed": {"const": true},
+        "selected_candidate_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+                "$ref": "#/$defs/id"
+            }
+        },
+        "selection_scope": {
+            "const": "structure_candidates_only"
+        },
+        "candidate_only": {
+            "const": true
+        },
+        "calculation_ready": {
+            "const": false
+        },
+        "no_submission_authorization": {
+            "const": true
+        },
+        "gaussian_input_present": {
+            "const": false
+        },
+        "gaussian_protocol_present": {
+            "const": false
+        },
+        "server_or_resource_authorization_present": {
+            "const": false
+        },
+        "required_next_review": {
+            "const": "exact Gaussian structure/protocol/resource/input-hash approval"
+        },
+        "payload_sha256": {
+            "$ref": "#/$defs/sha"
+        }
     },
-    "payloadBinding": {
-      "type": "object", "additionalProperties": false,
-      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
-      "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
-    },
-    "stringMap": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"type": "string"}},
-    "stateSignature": {
-      "type": "object", "additionalProperties": false,
-      "required": ["state_id", "identity", "atom_order", "elements", "fragment_ids", "explicit_hydrogens", "bonds", "formal_charge", "multiplicity", "component_count", "stereochemistry", "state_labels"],
-      "properties": {
-        "state_id": {"$ref": "#/$defs/id"}, "identity": {"type": "string", "minLength": 1},
-        "atom_order": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/id"}}, "elements": {"type": "array", "minItems": 2, "items": {"type": "string"}},
-        "fragment_ids": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/id"}}, "explicit_hydrogens": {"type": "array", "minItems": 2, "items": {"type": "boolean"}},
-        "bonds": {"type": "array", "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}},
-        "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1}, "component_count": {"type": "integer", "minimum": 1},
-        "stereochemistry": {"$ref": "#/$defs/stringMap"}, "state_labels": {"type": "array", "items": {"type": "string"}}
-      }
+    "$defs": {
+        "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,63}$"
+        },
+        "sha": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+        },
+        "reviewBinding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer"}, "schema": {"const": "auto-g16-main-group-open-shell-review/1"}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+        "openShellBinding": {"type": "object", "additionalProperties": false, "required": ["structure_graph_sha256", "atom_order_sha256", "formal_charge", "multiplicity", "state_family", "accepted_state_review", "fragment_spin_coupling", "cross_state_policy"], "properties": {"structure_graph_sha256": {"$ref": "#/$defs/sha"}, "atom_order_sha256": {"$ref": "#/$defs/sha"}, "formal_charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "state_family": {"type": "string"}, "accepted_state_review": {"$ref": "#/$defs/reviewBinding"}, "fragment_spin_coupling": {"type": "object", "additionalProperties": false, "required": ["status", "review_evidence"], "properties": {"status": {"enum": ["resolved", "not_applicable", "unresolved"]}, "review_evidence": {"type": "string"}}}, "cross_state_policy": {"type": "object", "additionalProperties": false, "required": ["ranking_allowed", "boltzmann_merge_allowed", "ground_state_inference_allowed"], "properties": {"ranking_allowed": {"const": false}, "boltzmann_merge_allowed": {"const": false}, "ground_state_inference_allowed": {"const": false}}}}},
+        "binding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "path",
+                "sha256",
+                "size_bytes",
+                "schema"
+            ],
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "schema": {
+                    "type": "string"
+                }
+            }
+        },
+        "payloadBinding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "path",
+                "sha256",
+                "size_bytes",
+                "schema",
+                "payload_sha256"
+            ],
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "sha256": {
+                    "$ref": "#/$defs/sha"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "schema": {
+                    "type": "string"
+                },
+                "payload_sha256": {
+                    "$ref": "#/$defs/sha"
+                }
+            }
+        },
+        "stringMap": {
+            "type": "object",
+            "propertyNames": {
+                "$ref": "#/$defs/id"
+            },
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
+        "stateSignature": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "state_id",
+                "identity",
+                "atom_order",
+                "elements",
+                "fragment_ids",
+                "explicit_hydrogens",
+                "bonds",
+                "formal_charge",
+                "multiplicity",
+                "component_count",
+                "stereochemistry",
+                "state_labels"
+            ],
+            "properties": {
+                "state_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "identity": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "atom_order": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                        "$ref": "#/$defs/id"
+                    }
+                },
+                "elements": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "fragment_ids": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                        "$ref": "#/$defs/id"
+                    }
+                },
+                "explicit_hydrogens": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                        "type": "boolean"
+                    }
+                },
+                "bonds": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "items": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "formal_charge": {
+                    "type": "integer"
+                },
+                "multiplicity": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "component_count": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "stereochemistry": {
+                    "$ref": "#/$defs/stringMap"
+                },
+                "state_labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        }
     }
-  }
 }

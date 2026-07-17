@@ -16,9 +16,18 @@ that artifact, infer an active state, invent a mechanism, decide whether a
 structure is a transition state, choose a production electronic-structure
 method, or execute external software.
 
-Transition metals, open shells, excited states, multireference cases, unknown
-coordination, and intended connectivity changes are unsupported. Record a
-blocker and delegate them to an appropriate specialist workflow.
+V1 remains closed-shell-only. V2 accepts only a candidate-bound, accepted
+`auto-g16-main-group-open-shell-review/1` for a main-group single-reference
+doublet or high-spin triplet. Transition metals, every other open-shell class,
+excited states, multireference cases, unknown coordination, and intended
+connectivity changes remain unsupported.
+
+The V2 binding seals the exact structure graph, atom order, charge,
+multiplicity, state family, and accepted-review payload. It must be identical
+in the reviewed R08 artifact, request, plan, candidate set, every member,
+validity ledger, ensemble manifest, and candidate handoff. A multifragment
+radical requires explicitly resolved fragment spin coupling. Discovery never
+chooses or changes the electronic state.
 
 ## 2. Route model
 
@@ -76,6 +85,11 @@ Before quota credit, compare the candidate with the exact reviewed state:
 Graph/state changes become `state_changed` or `new_hypothesis_candidate`.
 Never silently relabel the original state or edit a mechanism network. Preserve
 every rejection in the negative-evidence ledger.
+
+One ensemble contains exactly one multiplicity and one state family. Reject a
+member whose state binding differs even when its geometry is otherwise legal.
+Never rank across state families, combine their Boltzmann populations, or
+label one as the ground state.
 
 ## 5. Similarity and clustering
 
