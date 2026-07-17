@@ -2,9 +2,11 @@
 
 Status: release metadata preparation, local commits, exact synchronization of
 `auto-g16-chemdraw-pipeline` and `auto-g16-view-rt-win`, branch push, and Draft
-PR creation were explicitly authorized on 2026-07-18. Merge, tag `v2.4.0`,
-GitHub Release, any other Skill deployment, live smoke, SSH/PBS/Gaussian work,
-retry, cancellation, and server cleanup are not authorized.
+PR creation were explicitly authorized on 2026-07-18. The user subsequently
+authorized converting PR #38 to Ready and merging it into `main` while `/4`
+and `/5` remain blocked/not authorized. Tag `v2.4.0`, GitHub Release, any other
+Skill deployment, live smoke, SSH/PBS/Gaussian work, retry, cancellation, and
+server cleanup are not authorized.
 
 ## Candidate scope
 
@@ -38,6 +40,19 @@ retry, cancellation, and server cleanup are not authorized.
 - [x] The fixed `/home/user100/SDL` server boundary, fresh-project and
       non-overwrite rules, exact job-ID cancellation gate, and no-deletion
       policy are unchanged.
+
+## Merge authorization boundary
+
+- [x] The user explicitly authorized Ready conversion and merge of PR #38 on
+      2026-07-18 with `/4` and `/5` still blocked/not authorized.
+- [x] This is a release-integration decision for the exact six-file 2.4.0
+      preparation scope. It does not treat a blocked live-smoke path as passed,
+      remove a scientific/input/live gate, or authorize a future calculation.
+- [x] Final merge still requires the updated PR head to pass the repository's
+      required GitHub checks and remain mergeable against `main`.
+- [x] Merge authorization is not tag, GitHub Release, deployment, SSH, PBS,
+      Gaussian, submission, retry, cancellation, cleanup, `/4`, or `/5`
+      authorization.
 
 ## Named-Skill synchronization evidence
 
@@ -78,7 +93,8 @@ authorized applying only these two named Skills with the synchronizer's exact
 Overall status: **blocked / not authorized**. This release preparation supplies
 no live input, project, server directory, resource request, or exact user
 approval. It performed no SSH, PBS, Gaussian, submission, retry, cancellation,
-or cleanup action.
+or cleanup action. The separately authorized PR merge does not change this
+status and cannot be replayed as live authority.
 
 ### Single-stage open-shell minimum — `/4`
 
@@ -129,8 +145,11 @@ or cleanup action.
       hygiene tests, `git diff --check`, and the sensitive-string/private-key
       scan before its separate follow-up commit.
 
-## Withheld publication and operations
+## Authorized PR integration and withheld publication
 
-After this checklist is complete, stop after the authorized local commit. A
-push, pull request, merge, tag, GitHub Release, deployment, or live operation
-requires a separate explicit request and retains every project approval gate.
+After the updated PR head passes all required checks, PR #38 may be converted
+to Ready and merged into protected `main` under the explicit 2026-07-18
+authorization. Stop after verifying the merge and synchronizing local `main`.
+Do not create tag `v2.4.0`, a GitHub Release, another deployment, or any live
+operation without a separate explicit request; every scientific and server
+approval gate remains in force.
