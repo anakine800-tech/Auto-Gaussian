@@ -8,11 +8,13 @@ validators for supplied artifacts and reports which owner contracts are still
 missing. It performs no energy arithmetic and has no formal barrier success
 state.
 
-Current minimum evidence is deliberately limited to
-`gaussian-scientific-maturity-gate/1`, which always produces the structured
-blocker `minimum_owner_evidence_v2_required` after successful owner replay. A
-future integration may recognize owner-evidence maturity `/2`; `/1` must never
-be treated as sufficient merely because `/2` exists.
+Minimum evidence explicitly dispatches by schema to
+`gaussian-scientific-maturity-gate/1` or `/2`. Successful `/1` replay always
+produces `minimum_owner_evidence_v2_required`. Successful `/2` replay always
+produces `minimum_candidate_input_result_lineage_unavailable_v2` because the
+current owner chain still does not bind the selected candidate through exact
+input approval to the accepted minimum result/log. Neither version grants
+comparison or submission authority.
 
 The TS readiness slice requires both a validated
 `gaussian-calculation-attempt-link/1` and a validated

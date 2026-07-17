@@ -13,12 +13,18 @@ PBS, Gaussian, retry, cancellation or cleanup.
 | Self-contained single-structure Cartesian SP or other non-Opt/non-Freq non-specialist job | `ordinary` | Supported |
 | Self-contained Cartesian minimum optimization | `minimum` | Supported |
 | Self-contained Cartesian single-guess TS Opt/Freq | `ts_pilot` or `formal_ts` | Supported; scientific maturity and exact action authorization remain separate |
+| `Opt(Saddle=N)` with `N>=1` | TS kind | Protected TS; cannot be downgraded to `minimum` |
 | QST2/QST3 multi-structure raw syntax | TS kind | Blocked pending specialist raw-syntax owner audit |
-| ModRedundant/scan input | `ts_scan` | `blocked_missing_specialist_input_approval` |
+| Any `FOpt`/`POpt` input, including QST/Saddle forms | any | `blocked_missing_specialist_input_approval` |
+| Conical/Avoided optimization | specialist | Blocked pending a dedicated crossing-search owner; not ordinary TS maturity |
+| ModRedundant/AddRedundant relaxed scan input | `ts_scan` | `blocked_missing_specialist_input_approval` |
+| `Opt/Geom=GIC`, `AddGIC` or `ReadAllGIC` without step directives | specialist optimization | Blocked; GIC coordinates are not by themselves a scan |
+| GIC input with both `NSteps` and `StepSize` | `ts_scan` | `blocked_missing_specialist_input_approval` |
 | IRC input | `irc_forward` or `irc_reverse` | `blocked_missing_specialist_input_approval` |
+| IRCMax or standalone Scan | specialist | Blocked pending a dedicated path owner; not ordinary IRC authority |
 | `Geom=AllCheck`, `Geom=Check`, `Guess=Read`, `%oldchk` or other checkpoint-derived input | specialist kind | `blocked_missing_specialist_input_approval` |
 | Endpoint reoptimization owned by a TS/IRC family | `endpoint_reopt` | `blocked_missing_specialist_input_approval` |
-| Any `--Link1--`, multiple route sections, or repeated `Opt`/`Geom`/`Guess` keyword | any | Blocked pending a complete multi-route owner review |
+| Any `--Link1--`, multiple route sections, or repeated `Opt`/`FOpt`/`POpt`/`Geom`/`Guess` keyword | any | Blocked pending a complete multi-route owner review |
 
 Do not use `gaussian-candidate-input-handoff/1` as a universal approval. That
 artifact belongs only to the reaction-workflow adapter's restricted
@@ -34,10 +40,16 @@ The reviewer explicitly confirms how the exact route maps to the selected
 method, basis, solvent, SCF and task evidence. The review also binds the exact
 route, resources, charge, multiplicity, atom inventory and input SHA-256.
 Task evidence uses deterministic predicates rather than reviewer-chosen route
-substrings: single-guess TS requires both `Opt(TS...)` and `Freq`; minimum
-requires a non-TS/non-scan `Opt`; ordinary rejects both optimization and
-frequency families. Both `Keyword=Value` and `Keyword(Value,...)` spellings are
-recognized. The protocol formula is parsed to complete element counts and must
+substrings: single-guess TS requires both a recognized TS optimization and
+`Freq`; minimum requires a non-TS/non-scan `Opt`; ordinary rejects the complete
+`Opt`/`FOpt`/`POpt` optimization family and frequency families. Saddle,
+crossing-search, scan and path aliases are classified before work-kind review.
+Both `Keyword=Value` and `Keyword(Value,...)` spellings are recognized. A
+trailing `S nsteps stepsize` token is interpreted as scan syntax only in a
+reviewed ModRedundant/AddRedundant route context; GIC is called a scan only
+when its tail contains both `NSteps` and `StepSize`. Thus a `/Gen` or `/GenECP`
+S-shell basis block is not misclassified. The protocol formula is parsed to
+complete element counts and must
 match the input inventory. This is not an automated constitutional-isomer or
 stereochemical identity proof; exact human input review and the exact input
 hash remain the identity boundary.

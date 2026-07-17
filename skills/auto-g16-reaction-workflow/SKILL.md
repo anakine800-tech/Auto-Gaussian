@@ -524,8 +524,10 @@ It replays supplied public owner validators, requires all direct and transitive
 bindings to be relative to the explicit readiness package root, and emits only
 structured blockers. Historical artifacts using another path convention need
 a separately reviewed owner rebuild/repackage; the audit does not rewrite or
-promote them. Maturity `/1` remains insufficient and is always blocked pending
-an owner-evidence `/2`. No barrier arithmetic or live action is available.
+promote them. Maturity `/1` remains insufficient. Maturity `/2` now replays
+through its public owner validator but retains the exact minimum candidate-to-
+input-to-result lineage blocker, along with TS/IRC and formal thermochemistry
+blockers. No comparison, barrier arithmetic or live action is available.
 
 ## Scientific boundaries
 

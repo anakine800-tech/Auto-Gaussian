@@ -352,15 +352,33 @@ def route_keyword_count(route: str, keyword: str) -> int:
     return len(re.findall(rf"\b{re.escape(keyword.lower())}(?=$|[=(\s])", normalize_route(route)))
 
 
-def route_has_option(route: str, keyword: str, option: str) -> bool:
+def route_option_values(route: str, keyword: str) -> list[str]:
     normalized = normalize_route(route)
     keyword = re.escape(keyword.lower())
-    option = re.escape(option.lower())
+    result: list[str] = []
     for match in re.finditer(rf"\b{keyword}\s*(?:=([^\s]+)|\(([^)]*)\))", normalized):
         values = (match.group(1) or match.group(2) or "").strip("()")
-        if re.search(rf"(?:^|,){option}(?:,|$)", values) is not None:
-            return True
-    return False
+        result.extend(value for value in values.split(",") if value)
+    return result
+
+
+def route_has_option(route: str, keyword: str, option: str) -> bool:
+    return option.lower() in route_option_values(route, keyword)
+
+
+OPTIMIZATION_KEYWORDS = ("opt", "fopt", "popt")
+
+
+def optimization_option_values(route: str) -> list[str]:
+    return [value for keyword in OPTIMIZATION_KEYWORDS for value in route_option_values(route, keyword)]
+
+
+def route_has_optimization_keyword(route: str) -> bool:
+    return any(route_has_keyword(route, keyword) for keyword in OPTIMIZATION_KEYWORDS)
+
+
+def route_optimization_keyword_count(route: str) -> int:
+    return sum(route_keyword_count(route, keyword) for keyword in OPTIMIZATION_KEYWORDS)
 
 
 def route_has_frequency(route: str) -> bool:
@@ -368,11 +386,50 @@ def route_has_frequency(route: str) -> bool:
 
 
 def route_has_ts_optimization(route: str) -> bool:
-    return any(route_has_option(route, "opt", value) for value in ("ts", "qst2", "qst3"))
+    for value in optimization_option_values(route):
+        if value in {"ts", "qst2", "qst3"}:
+            return True
+        saddle = re.fullmatch(r"saddle=([0-9]+)", value)
+        if saddle is not None and int(saddle.group(1)) >= 1:
+            return True
+    return False
+
+
+def route_has_specialist_optimization(route: str) -> bool:
+    """Optimization families that need a dedicated owner, not TS maturity."""
+    return (
+        any(value in {"conical", "avoided"} for value in optimization_option_values(route))
+        or route_has_gic_optimization(route)
+    )
+
+
+def route_has_gic_optimization(route: str) -> bool:
+    gic_values = {"gic", "addgic", "readallgic"}
+    return bool(
+        set(optimization_option_values(route)) & gic_values
+        or set(route_option_values(route, "geom")) & gic_values
+    )
 
 
 def route_has_scan(route: str) -> bool:
-    return route_has_keyword(route, "modredundant") or route_has_option(route, "opt", "scan") or route_has_option(route, "opt", "modredundant")
+    return (
+        route_has_keyword(route, "modredundant")
+        or any(value in {"scan", "modredundant", "addredundant"} for value in optimization_option_values(route))
+    )
+
+
+def route_has_relaxed_scan_context(route: str) -> bool:
+    values = set(optimization_option_values(route))
+    return route_has_keyword(route, "modredundant") or bool(
+        values & {"modredundant", "addredundant"}
+    )
+
+
+def route_has_specialist_path(route: str) -> bool:
+    return route_has_keyword(route, "ircmax") or (
+        route_has_keyword(route, "scan")
+        and "scan" not in optimization_option_values(route)
+    )
 
 
 def classify_protected_work(route: str) -> str | None:
@@ -380,9 +437,19 @@ def classify_protected_work(route: str) -> str | None:
         return "irc"
     if route_has_scan(route):
         return "ts_scan"
+    if route_has_specialist_path(route):
+        return "specialist_path"
+    if route_has_specialist_optimization(route):
+        return "specialist_opt"
     if route_has_ts_optimization(route):
         return "ts"
     return None
+
+
+def classify_protected_input(report: dict[str, Any]) -> str | None:
+    if report.get("has_relaxed_scan_directive") is True:
+        return "ts_scan"
+    return classify_protected_work(str(report.get("route", "")))
 
 
 def route_is_ts(route: str) -> bool:
@@ -397,17 +464,43 @@ def _resource_tier(mem: str, nproc: int) -> str:
     return "custom"
 
 
-def _load_scientific_maturity() -> Any:
+MATURITY_GATE_V1_SCHEMA = "gaussian-scientific-maturity-gate/1"
+MATURITY_GATE_V2_SCHEMA = "gaussian-scientific-maturity-gate/2"
+MATURITY_ACTION_V1_SCHEMA = "gaussian-scientific-maturity-action-check/1"
+MATURITY_ACTION_V2_SCHEMA = "gaussian-scientific-maturity-action/2"
+
+
+def _load_scientific_maturity(version: int = 1) -> Any:
     skills_root = Path(__file__).resolve().parents[2]
-    path = skills_root / "auto-g16-reaction-workflow" / "scripts" / "scientific_maturity.py"
+    filename = "scientific_maturity.py" if version == 1 else "scientific_maturity_v2.py"
+    path = skills_root / "auto-g16-reaction-workflow" / "scripts" / filename
     if not path.is_file():
         fail("scientific-maturity owner validator is unavailable")
-    spec = importlib.util.spec_from_file_location("auto_g16_pbs_scientific_maturity", path)
+    spec = importlib.util.spec_from_file_location(f"auto_g16_pbs_scientific_maturity_v{version}", path)
     if spec is None or spec.loader is None:
         fail("scientific-maturity owner validator cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _maturity_owner_for_gate(path: Path) -> tuple[str, Any, Path]:
+    """Select the owner and freeze the identity read for schema dispatch."""
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        fail("scientific-maturity gate must not be a symlink")
+    try:
+        resolved, document, _, _ = load_strict_json_with_hash(expanded, "scientific-maturity gate")
+    except ValueError as exc:
+        fail(f"cannot read scientific-maturity gate: {exc}")
+    schema = document.get("schema")
+    owners = {
+        MATURITY_GATE_V1_SCHEMA: lambda: _load_scientific_maturity(1),
+        MATURITY_GATE_V2_SCHEMA: lambda: _load_scientific_maturity(2),
+    }
+    if schema not in owners:
+        fail(f"unsupported scientific-maturity gate schema: {schema!r}")
+    return schema, owners[schema](), resolved
 
 
 def _reject_json_constant(value: str) -> None:
@@ -503,11 +596,16 @@ def input_approval_compatibility(report: dict[str, Any], work_kind: str | None) 
     specialist_syntax = (
         report.get("link1_count", 0) != 0
         or report.get("route_section_count", 1) != 1
-        or any(route_keyword_count(route, keyword) > 1 for keyword in ("opt", "geom", "guess"))
-        or route_has_option(route, "opt", "qst2")
-        or route_has_option(route, "opt", "qst3")
+        or route_optimization_keyword_count(route) > 1
+        or any(route_keyword_count(route, keyword) > 1 for keyword in ("geom", "guess"))
+        or route_has_keyword(route, "fopt")
+        or route_has_keyword(route, "popt")
+        or any(value in {"qst2", "qst3"} for value in optimization_option_values(route))
         or route_has_keyword(route, "irc")
         or route_has_scan(route)
+        or route_has_specialist_optimization(route)
+        or route_has_specialist_path(route)
+        or report.get("has_relaxed_scan_directive") is True
         or route_has_option(route, "geom", "allcheck")
         or route_has_option(route, "geom", "check")
         or route_has_option(route, "guess", "read")
@@ -521,15 +619,15 @@ def input_approval_compatibility(report: dict[str, Any], work_kind: str | None) 
             "reason": "generic /1 covers only one self-contained Cartesian structure and no checkpoint-derived syntax",
         }
 
-    protected = classify_protected_work(route)
+    protected = classify_protected_input(report)
     if work_kind in {"ts_pilot", "formal_ts"}:
         if protected != "ts" or not route_has_frequency(route):
             return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
     elif protected is not None:
         return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
-    if work_kind == "minimum" and not route_has_keyword(route, "opt"):
+    if work_kind == "minimum" and not route_has_optimization_keyword(route):
         return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
-    if work_kind == "ordinary" and (route_has_keyword(route, "opt") or route_has_frequency(route)):
+    if work_kind == "ordinary" and (route_has_optimization_keyword(route) or route_has_frequency(route)):
         return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
     return {"status": "supported_generic_v1", "work_kind": work_kind}
 
@@ -860,10 +958,13 @@ def _assert_consumed_tasks_match_route(
             valid = route_has_frequency(route)
         elif "minimum" in stage or "geometry_optimization" in stage or stage in {"optimization", "opt"}:
             expected = {"minimum_opt"}
-            valid = route_has_keyword(route, "opt") and not route_has_ts_optimization(route) and not route_has_scan(route)
+            valid = route_has_optimization_keyword(route) and not route_has_ts_optimization(route) and not route_has_scan(route)
         elif "single_point" in stage:
             expected = {"single_point"}
-            valid = not any((route_has_keyword(route, "opt"), route_has_frequency(route), route_has_keyword(route, "irc")))
+            valid = not any((
+                route_has_optimization_keyword(route), route_has_frequency(route),
+                route_has_keyword(route, "irc"), route_has_specialist_path(route),
+            ))
         else:
             raise ValueError(f"selected task stage_type has no generic /1 route predicate: {stage}")
         if not valid or set(mapping["route_evidence"]) != expected:
@@ -1133,6 +1234,8 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
         "charge": summary["charge"],
         "multiplicity": summary["multiplicity"],
     }
+    maturity = summary.get("scientific_maturity")
+    maturity_schema = maturity.get("schema") if isinstance(maturity, dict) else None
     has_new_binding = "work_kind" in summary or "input_approval" in summary
     if has_new_binding:
         if "work_kind" not in summary or "input_approval" not in summary:
@@ -1158,15 +1261,25 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
             fail("live approval /3 input-approval binding differs from the current exact input/work_kind")
         expected["work_kind"] = summary["work_kind"]
         expected["input_approval"] = exact_input_approval
+        if maturity is not None:
+            fail(
+                "mixed approval generations are forbidden: protected maturity evidence cannot be "
+                "combined with generic input receipt + live approval /3"
+            )
         expected_schema = "auto-g16-live-submission-approval/3"
     else:
-        expected_schema = (
-            "auto-g16-live-submission-approval/2"
-            if "scientific_maturity" in summary
-            else "auto-g16-live-submission-approval/1"
-        )
-    if "scientific_maturity" in summary:
-        maturity = summary["scientific_maturity"]
+        if maturity is None:
+            expected_schema = "auto-g16-live-submission-approval/1"
+        elif maturity_schema == MATURITY_ACTION_V1_SCHEMA:
+            expected_schema = "auto-g16-live-submission-approval/2"
+        elif maturity_schema == MATURITY_ACTION_V2_SCHEMA:
+            fail(
+                "maturity action /2 live replay is not integrated; future protected live requires "
+                "an exact maturity action /2, action authorization /2, and specialist input receipt"
+            )
+        else:
+            fail(f"unsupported scientific-maturity action schema: {maturity_schema!r}")
+    if maturity_schema == MATURITY_ACTION_V1_SCHEMA:
         exact_authorization = maturity.get("exact_action_authorization")
         if not isinstance(exact_authorization, dict):
             fail("TS live approval requires an exact scientific action authorization")
@@ -1218,12 +1331,16 @@ def validate_live_approval(path: Path, summary: dict[str, Any]) -> dict[str, Any
 
 
 def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) -> dict[str, Any] | None:
-    protected = classify_protected_work(report["route"])
+    protected = classify_protected_input(report)
     work_kind = getattr(args, "work_kind", None)
     if protected is None:
         if work_kind not in {None, "ordinary", "minimum"}:
             fail(f"--work-kind {work_kind} does not match an ordinary/minimum route")
         return None
+    if protected == "specialist_opt":
+        fail("Conical/Avoided optimization requires a dedicated specialist input owner and cannot use ordinary TS maturity")
+    if protected == "specialist_path":
+        fail("IRCMax/standalone Scan requires a dedicated specialist path owner and cannot use ordinary IRC or TS authority")
     expected_kinds = {
         "ts": {"ts_pilot", "formal_ts"},
         "ts_scan": {"ts_scan"},
@@ -1243,23 +1360,38 @@ def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) ->
     tier = _resource_tier(report["mem"], report["nprocshared"])
     if tier == "custom":
         fail("TS maturity gate requires an exact reviewed simple/general/complex resource tier")
-    maturity = _load_scientific_maturity()
-    try:
-        check = maturity.assert_action(
-            Path(gate_value).expanduser().resolve(),
-            edge_id,
-            maturity_action,
-            pilot=pilot,
-            resource_tier=tier,
-            node_id=node_id,
+    raw_gate_path = Path(gate_value).expanduser()
+    gate_schema, maturity, gate_path = _maturity_owner_for_gate(raw_gate_path)
+    prospective_live = bool(getattr(args, "_prospective_live", False))
+    if prospective_live and gate_schema == MATURITY_GATE_V1_SCHEMA:
+        fail(
+            "scientific-maturity gate /1 is historical replay-only for protected work; future "
+            "protected live requires an exact maturity action /2, action authorization /2, "
+            "and specialist input receipt"
         )
-        if action == "ts_submission":
+    try:
+        if gate_schema == MATURITY_GATE_V1_SCHEMA:
+            check = maturity.assert_action(
+                gate_path, edge_id, maturity_action, pilot=pilot,
+                resource_tier=tier, node_id=node_id,
+            )
+        else:
+            check = maturity.assert_action(
+                gate_path, edge_id, node_id, maturity_action, pilot=pilot,
+            )
+        if prospective_live and gate_schema == MATURITY_GATE_V2_SCHEMA:
+            fail(
+                "protected live integration remains unavailable after maturity /2 replay; future "
+                "protected live requires an exact maturity action /2, action authorization /2, "
+                "and specialist input receipt"
+            )
+        if action == "ts_submission" and gate_schema == MATURITY_GATE_V1_SCHEMA:
             authorization_value = getattr(args, "scientific_action_authorization", None)
             if not authorization_value:
                 fail("protected TS/scan submission requires one exact --scientific-action-authorization")
             authorization = maturity.validate_action_authorization(
                 Path(authorization_value).expanduser().resolve(),
-                gate_path=Path(gate_value).expanduser().resolve(),
+                gate_path=gate_path,
                 input_sha256=report["input_sha256"],
                 edge_id=edge_id,
                 node_id=node_id,
@@ -1277,7 +1409,12 @@ def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) ->
             }
         return check
     except Exception as exc:
-        fail(f"scientific-maturity gate blocked {maturity_action}: {exc}")
+        future = (
+            "; future protected live requires an exact maturity action /2, action authorization /2, "
+            "and specialist input receipt"
+            if prospective_live else ""
+        )
+        fail(f"scientific-maturity gate blocked {maturity_action}: {exc}{future}")
     return None
 
 
@@ -1345,6 +1482,7 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
     elements: Counter[str] = Counter()
     atom_order: list[dict[str, Any]] | None = None
     oldcheckpoint_sha256: str | None = None
+    trailing_section_lines: list[str] = []
     if geom_allcheck:
         if any(line.strip() for line in lines[i:]):
             fail("Geom=AllCheck input must omit title, charge/multiplicity, and explicit coordinates")
@@ -1420,6 +1558,24 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
             i += 1
         if coordinate_count == 0:
             fail("no Cartesian coordinates found")
+        trailing_section_lines = [line.strip() for line in lines[i:] if line.strip()]
+
+    relaxed_scan_re = re.compile(
+        r"(?:^|\s)S\s+[0-9]+\s+[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[Ee][+-]?[0-9]+)?(?:\s|$)",
+        re.I,
+    )
+    legacy_relaxed_scan = route_has_relaxed_scan_context(route) and any(
+        relaxed_scan_re.search(line) for line in trailing_section_lines
+    )
+    gic_tail = " ".join(trailing_section_lines)
+    gic_relaxed_scan = route_has_gic_optimization(route) and bool(
+        re.search(r"\bNSteps\s*=\s*[0-9]+\b", gic_tail, re.I)
+        and re.search(
+            r"\bStepSize\s*=\s*[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[Ee][+-]?[0-9]+)?\b",
+            gic_tail, re.I,
+        )
+    )
+    has_relaxed_scan_directive = legacy_relaxed_scan or gic_relaxed_scan
 
     report = {
         "input": str(path.resolve()),
@@ -1439,6 +1595,8 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         "geometry_source": "geom_allcheck_from_reviewed_checkpoint" if geom_allcheck else "explicit_cartesian",
         "link1_count": link1_count,
         "route_section_count": route_section_count,
+        "trailing_section_line_count": len(trailing_section_lines),
+        "has_relaxed_scan_directive": has_relaxed_scan_directive,
         "trailing_blank_line": True,
     }
     report["manifest"] = None
@@ -2046,6 +2204,7 @@ def command_submit(args) -> None:
     requested_work_kind = args.work_kind
     if not args.dry_run and requested_work_kind is None:
         fail("live submission requires an explicit --work-kind; it must not default to ordinary")
+    args._prospective_live = not args.dry_run
     maturity = audit_scientific_maturity(args, input_report, "ts_submission")
     compatibility = input_approval_compatibility(input_report, requested_work_kind)
     input_approval: dict[str, Any]
@@ -2486,7 +2645,7 @@ def add_connection_options(parser: argparse.ArgumentParser) -> None:
 
 
 def add_scientific_maturity_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--scientific-maturity", help="immutable gaussian-scientific-maturity-gate/1 artifact required for TS work")
+    parser.add_argument("--scientific-maturity", help="immutable maturity gate /1 or /2; /1 is historical replay-only for protected live work")
     parser.add_argument("--edge-id", help="reviewed mechanism edge bound by the maturity gate")
     parser.add_argument("--node-id", help="exact reviewed calculation-DAG node for this protected action")
     parser.add_argument("--pilot", action="store_true", help="limit this TS action to the reviewed one-candidate simple-tier pilot")

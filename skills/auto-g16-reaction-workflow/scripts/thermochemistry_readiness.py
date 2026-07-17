@@ -25,13 +25,17 @@ REQUEST_SCHEMA = "gaussian-reaction-thermochemistry-readiness-request/1"
 AUDIT_SCHEMA = "gaussian-reaction-thermochemistry-readiness-audit/1"
 
 ROLE_SCHEMAS = {
-    "minimum_evidence": "gaussian-scientific-maturity-gate/1",
-    "ts_attempt": "gaussian-calculation-attempt-link/1",
-    "ts_path_acceptance": "gaussian-ts-irc-path-acceptance/1",
-    "energy_lineage": "gaussian-energy-lineage/1",
+    "minimum_evidence": {
+        "gaussian-scientific-maturity-gate/1",
+        "gaussian-scientific-maturity-gate/2",
+    },
+    "ts_attempt": {"gaussian-calculation-attempt-link/1"},
+    "ts_path_acceptance": {"gaussian-ts-irc-path-acceptance/1"},
+    "energy_lineage": {"gaussian-energy-lineage/1"},
 }
 VALIDATOR_IMPLEMENTATIONS = {
     "gaussian-scientific-maturity-gate/1": "scientific_maturity.validate_gate",
+    "gaussian-scientific-maturity-gate/2": "scientific_maturity_v2.validate_gate",
     "gaussian-calculation-attempt-link/1": "calculation_artifacts.validate_artifact",
     "gaussian-ts-irc-path-acceptance/1": "ts_irc.validate_path_acceptance_artifact",
     "gaussian-energy-lineage/1": "calculation_artifacts.validate_artifact",
@@ -147,6 +151,9 @@ def _owner_validate(path: Path, schema: str) -> dict[str, Any]:
     if schema == "gaussian-scientific-maturity-gate/1":
         import scientific_maturity
         return scientific_maturity.validate_gate(path)
+    if schema == "gaussian-scientific-maturity-gate/2":
+        import scientific_maturity_v2
+        return scientific_maturity_v2.validate_gate(path)
     if schema in {"gaussian-calculation-attempt-link/1", "gaussian-energy-lineage/1"}:
         import calculation_artifacts
         calculation_artifacts.validate_artifact(path)
@@ -245,8 +252,9 @@ def _derive(root: Path, request_path: Path, request: dict[str, Any]) -> dict[str
         rw.require(role in ROLE_SCHEMAS, f"unknown owner role: {role}")
         rw.require(source_id not in sources and role not in roles, f"duplicate source_id or owner role: {source_id}/{role}")
         path, document, artifact_ref = _load_top_ref(root, item["artifact"], f"owner artifact {source_id}")
-        expected_schema = ROLE_SCHEMAS[role]
-        rw.require(document["schema"] == expected_schema, f"role {role} cannot consume owner schema {document['schema']}")
+        allowed_schemas = ROLE_SCHEMAS[role]
+        rw.require(document["schema"] in allowed_schemas, f"role {role} cannot consume owner schema {document['schema']}")
+        expected_schema = document["schema"]
         _audit_transitive_refs(root, path, document, visited={path})
         validated = _owner_validate(path, expected_schema)
         source = {"source_id": source_id, "role": role, "path": path, "document": validated, "artifact": artifact_ref}
@@ -265,8 +273,15 @@ def _derive(root: Path, request_path: Path, request: dict[str, Any]) -> dict[str
     blockers: list[dict[str, Any]] = []
     if "minimum_evidence" not in roles:
         blockers.append(_blocker("minimum_owner_evidence_missing", "minimum_evidence", [], "No owner-validated minimum evidence was supplied.", "owner-evidence scientific-maturity gate /2"))
-    else:
+    elif roles["minimum_evidence"]["document"]["schema"] == "gaussian-scientific-maturity-gate/1":
         blockers.append(_blocker("minimum_owner_evidence_v2_required", "minimum_evidence", [roles["minimum_evidence"]["source_id"]], "Scientific-maturity gate /1 does not close conformer and electronic-state ownership for formal thermochemistry.", "owner-evidence scientific-maturity gate /2"))
+    else:
+        blockers.append(_blocker(
+            "minimum_candidate_input_result_lineage_unavailable_v2", "minimum_evidence",
+            [roles["minimum_evidence"]["source_id"]],
+            "Scientific-maturity gate /2 replays, but its current minimum chain does not bind the selected candidate through exact input approval to the accepted minimum result/log.",
+            "owner-validated minimum candidate/input/result lineage",
+        ))
 
     blockers.extend(_ts_readiness_blockers(root, roles))
 

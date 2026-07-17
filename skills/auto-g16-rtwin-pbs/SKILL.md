@@ -13,8 +13,8 @@ unattended.
 
 ## Input-before protocol gate
 
-For a TS/QST route, first display and validate the reaction-workflow
-`gaussian-scientific-maturity-gate/1`. It shows maturity, evidence, accepted
+For a TS/QST route, first display and validate the reaction-workflow maturity
+gate under its declared `/1` or `/2` schema. It shows maturity, evidence, accepted
 endpoint minima and blockers before route/resources/hash. Protocol selection
 cannot begin formal TS input review while this gate is blocked. A no-direct-
 precedent exception is limited to one reviewed simple-tier pilot after two
@@ -85,10 +85,15 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
    mapping, resources, identity and input SHA-256. It never claims whole-family
    completion and grants no live authority. Record a new
    `auto-g16-live-submission-approval/3` that binds explicit `work_kind` plus
-   the exact input-approval receipt file and payload hashes. TS `/3` scopes also
-   bind the exact maturity and scientific-action authorization. Historical live
-   `/1` and `/2` records remain replayable under their original contracts but
-   do not satisfy the new submission chain. The low-level `submit` command
+   the exact input-approval receipt file and payload hashes for ordinary and
+   minimum work. Protected TS/scan/IRC prospective live work is currently
+   fail-closed: maturity gate `/1` is replay-only, while current `/2` has no
+   positive action because minimum lineage and specialist owners remain open.
+   A future protected chain must provide an exact maturity action `/2`, action
+   authorization `/2`, and specialist input receipt; generic input receipt plus
+   live `/3` cannot substitute. Historical live `/1` and `/2` records remain
+   replayable under their original contracts but do not satisfy a new
+   submission chain. The low-level `submit` command
    independently validates the same shared receipt; `--confirmed` is only an
    additional command confirmation.
 5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate. After terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
@@ -101,12 +106,10 @@ AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" prepare /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example
 
-# Approved unattended run
+# Approved ordinary/minimum unattended run
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" auto /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example \
-  --scientific-maturity /path/to/maturity-gate.json --edge-id reviewed_edge \
-  --node-id reviewed_pilot_node --pilot --work-kind ts_pilot \
-  --scientific-action-authorization /path/to/scientific-action-authorization.json \
+  --work-kind minimum \
   --input-approval-record /path/to/exact-input-approval.json \
   --approval-record /path/to/live-submission-approval-v3.json \
   --confirmed --watch

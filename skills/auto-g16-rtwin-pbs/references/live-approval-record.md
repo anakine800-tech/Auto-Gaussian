@@ -90,9 +90,14 @@ resources, charge and multiplicity fields above, and adds:
 }
 ```
 
-For protected TS work, `/3` also includes the exact `scientific_maturity`
-object from `/2`. The CLI `--work-kind`, input receipt work kind and live scope
-work kind must be identical. Missing work kind never defaults to `ordinary`.
+`/3` is currently prospective-live capable only for ordinary and minimum work.
+Protected TS/scan/IRC work must not combine a maturity `/1` action check,
+generic input receipt and live `/3`; that is a mixed-generation chain.
+Maturity gate `/1` and historical live `/2` remain replay-only. Current
+maturity `/2` remains blocker-only, so a protected prospective-live chain is
+not yet reachable. Future integration requires an exact maturity action `/2`,
+action authorization `/2`, and specialist input receipt before a matching live
+contract can be introduced. Missing work kind never defaults to `ordinary`.
 Historical `/1` and `/2` records remain independently replayable by the shared
 validator when checked against their historical summaries; they are not
 silently granted the new input-receipt binding or accepted for a new live

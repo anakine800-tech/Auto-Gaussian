@@ -12,11 +12,6 @@ from typing import Any
 
 import gaussian_rtwin_pbs as transport
 TRANSPORT = Path(__file__).with_name("gaussian_rtwin_pbs.py")
-RESOURCE_TIERS = {
-    "simple": {"mem": "12GB", "nproc": 8},
-    "general": {"mem": "50GB", "nproc": 22},
-    "complex": {"mem": "120GB", "nproc": 44},
-}
 PROTECTED_STATES = {"submitted", "queued", "running", "completed", "failed", "interrupted", "submission_uncertain"}
 
 
@@ -39,14 +34,7 @@ def guarded_local_dir(path: Path) -> Path:
     return path
 
 
-def matching_resource_tier(mem: str, nproc: int) -> str:
-    for name, tier in RESOURCE_TIERS.items():
-        if transport.parse_memory(mem) == transport.parse_memory(tier["mem"]) and nproc == tier["nproc"]:
-            return name
-    return "custom"
-
-
-def prepare_source(args) -> dict[str, Any]:
+def prepare_source(args, *, maturity_action: str = "ts_input") -> dict[str, Any]:
     project = transport.validate_project(args.project)
     local_dir = guarded_local_dir(Path(args.local_dir))
     source_path = Path(args.source).expanduser()
@@ -59,7 +47,6 @@ def prepare_source(args) -> dict[str, Any]:
     gjf = source_path.resolve()
     report = None
     workflow = None
-    existing_audit = transport.parse_gaussian(gjf)
     manifest_path = gjf.with_suffix(".json")
     if manifest_path.is_file():
         manifest_value = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -71,71 +58,41 @@ def prepare_source(args) -> dict[str, Any]:
                 "standard_state": manifest_value.get("standard_state"),
                 "quasi_harmonic_correction": manifest_value.get("quasi_harmonic_correction"),
             }
-    protocol = {
-        "route": existing_audit["route"],
-        "mem": existing_audit["mem"],
-        "nproc": existing_audit["nprocshared"],
-        "resource_tier": matching_resource_tier(existing_audit["mem"], existing_audit["nprocshared"]),
-        "purpose": "Existing audited Gaussian input",
-    }
     audit = transport.parse_gaussian(gjf)
-    maturity = transport.audit_scientific_maturity(args, audit, "ts_input")
-    if maturity is not None and args.scientific_action_authorization:
-        owner = transport._load_scientific_maturity()
-        tier = transport._resource_tier(audit["mem"], audit["nprocshared"])
-        authorization_path = Path(args.scientific_action_authorization).expanduser().resolve()
-        authorization = owner.validate_action_authorization(
-            authorization_path,
-            gate_path=Path(args.scientific_maturity).expanduser().resolve(),
-            input_sha256=audit["input_sha256"], edge_id=args.edge_id, node_id=args.node_id,
-            project=project, work_kind=args.work_kind, resource_tier=tier,
-        )
-        maturity["exact_action_authorization"] = {
-            "sha256": transport.sha256(authorization_path),
-            "payload_sha256": authorization["payload_sha256"],
-            "node_id": authorization["scope"]["node_id"],
-            "project": authorization["scope"]["project"],
-            "input_sha256": authorization["input"]["sha256"],
-            "no_submission_authorization": True,
-        }
-    summary = {
+    maturity = transport.audit_scientific_maturity(args, audit, maturity_action)
+    detail = {
         "schema": "gaussian-auto-preflight/1",
-        "project": project,
         "source": str(source_path.resolve()) if source_path.is_file() else args.source,
         "local_dir": str(local_dir),
         "gaussian_input": str(gjf),
-        "protocol": protocol,
-        "charge": audit["charge"],
-        "multiplicity": audit["multiplicity"],
         "atom_count": audit["atom_count"],
         "elements": audit["elements"],
-        "input_sha256": audit["input_sha256"],
-        "remote_workdir": transport.remote_project_dir(project),
         "warnings": [] if report is None else report.get("warnings", []),
         "automatic_retry_policy": "disabled; diagnose and require explicit approval",
     }
-    if maturity is not None:
-        # Approval material deliberately leads with scientific maturity,
-        # evidence/endpoints/blockers before protocol/resources/input hash.
-        summary = {"scientific_maturity": maturity, **summary}
     input_approval_record = getattr(args, "input_approval_record", None)
     requested_work_kind = getattr(args, "work_kind", None)
-    summary["work_kind"] = requested_work_kind
     compatibility = transport.input_approval_compatibility(audit, requested_work_kind)
     if compatibility["status"] != "supported_generic_v1":
-        summary["input_approval"] = {**compatibility, "no_submission_authorization": True}
+        input_approval = {**compatibility, "no_submission_authorization": True}
     elif input_approval_record:
         assert requested_work_kind is not None
-        summary["input_approval"] = transport.validate_input_approval(
+        input_approval = transport.validate_input_approval(
             Path(input_approval_record), gjf, audit, requested_work_kind
         )
     else:
-        summary["input_approval"] = {
+        input_approval = {
             "status": "missing_required_for_live_submission",
             "required_schema": transport.INPUT_APPROVAL_SCHEMA,
             "work_kind": requested_work_kind,
             "no_submission_authorization": True,
         }
+    # Reuse the direct submitter's canonical authority summary instead of
+    # reconstructing a legacy wrapper-only approval scope.
+    summary = transport.live_approval_summary(
+        project, audit, maturity, requested_work_kind, input_approval
+    )
+    summary = {**summary, **detail}
     if workflow is not None:
         summary["workflow"] = workflow
     transport.atomic_json(local_dir / "automation_preflight.json", summary)
@@ -164,7 +121,8 @@ def command_auto(args) -> None:
         fail("auto requires --confirmed after exact live approval")
     if not args.dry_run and not args.work_kind:
         fail("live auto submission requires an explicit --work-kind; it must not default to ordinary")
-    summary = prepare_source(args)
+    args._prospective_live = not args.dry_run
+    summary = prepare_source(args, maturity_action="ts_submission")
     if "scientific_maturity" in summary and "exact_action_authorization" not in summary["scientific_maturity"]:
         fail("protected auto submission requires an exact offline scientific action authorization before live approval")
     if not args.dry_run and summary["input_approval"]["status"] != "validated_exact_input_approval":

@@ -28,7 +28,7 @@ REVIEW_SCHEMA = "auto-g16-manual-evidence-review/1"
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 PARAM_RE = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
-MACHINE_PATH_RE = re.compile(r"(?:^|[\s'\"])(?:/Users/|/home/|[A-Za-z]:[\\/])")
+MACHINE_PATH_RE = re.compile(r"(?:^|[\s'\"])(?:/" r"Users/|/home/|[A-Za-z]:[\\/])")
 TEXT_QUALITIES = {
     "embedded_text",
     "embedded_ocr_unreviewed",

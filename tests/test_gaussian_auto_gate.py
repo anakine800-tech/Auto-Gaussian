@@ -229,6 +229,7 @@ class GaussianAutoGateTests(unittest.TestCase):
 
             ts_summary = {
                 "scientific_maturity": {
+                    "schema": AUTO.transport.MATURITY_ACTION_V1_SCHEMA,
                     "edge_id": "edge_activation", "node_id": "ts_candidate_primary",
                     "pilot": True, "maturity_gate_sha256": "b" * 64,
                     "maturity_gate_payload_sha256": "c" * 64,
@@ -250,6 +251,125 @@ class GaussianAutoGateTests(unittest.TestCase):
             ts_path = root / "ts-approval.json"
             ts_path.write_text(json.dumps(ts), encoding="utf-8")
             self.assertEqual(AUTO.transport.validate_live_approval(ts_path, ts_summary), ts)
+
+    def test_mixed_maturity_input_receipt_and_live_v3_is_rejected_explicitly(self) -> None:
+        summary = self.approval_summary()
+        summary["scientific_maturity"] = {
+            "schema": AUTO.transport.MATURITY_ACTION_V1_SCHEMA,
+            "exact_action_authorization": {"sha256": "d" * 64, "payload_sha256": "e" * 64},
+        }
+        summary["work_kind"] = "ts_pilot"
+        summary["input_approval"] = self.fake_input_approval(summary, "ts_pilot")
+        with self.assertRaises(SystemExit):
+            AUTO.transport.expected_live_approval_scope(summary)
+
+    def test_protected_prospective_live_v1_is_historical_only_in_direct_and_wrapper(self) -> None:
+        maturity_test_path = ROOT / "tests" / "test_scientific_maturity.py"
+        maturity_spec = importlib.util.spec_from_file_location("gaussian_auto_maturity_fixture", maturity_test_path)
+        assert maturity_spec and maturity_spec.loader
+        maturity_fixture = importlib.util.module_from_spec(maturity_spec)
+        maturity_spec.loader.exec_module(maturity_fixture)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            input_path, receipt_path, receipt = self.make_generic_input_approval(root)
+            report = AUTO.transport.parse_gaussian(input_path)
+            _plan, gate_path = maturity_fixture.ScientificMaturityTests(
+                "test_two_accepted_minima_open_low_cost_ts_pilot_but_preserve_owner_gates"
+            ).build_gate(root / "maturity")
+            fake = self.fake_input_approval(report, "ts_pilot")
+            live_path = root / "mixed-live-v3.json"
+            self.write_live_v3(live_path, report, fake, project="protected")
+            common = [
+                str(input_path), "--project", "protected", "--local-dir", str(root / "direct"),
+                "--work-kind", "ts_pilot", "--pilot", "--scientific-maturity", str(gate_path),
+                "--edge-id", "edge_activation", "--node-id", "ts_candidate_primary",
+                "--input-approval-record", str(receipt_path), "--approval-record", str(live_path),
+                "--confirmed",
+            ]
+            args = AUTO.transport.build_parser().parse_args(["submit", *common])
+            with mock.patch.object(AUTO.transport, "run") as remote_run, self.assertRaises(SystemExit):
+                args.func(args)
+            self.assertFalse(remote_run.called)
+
+            wrapper = AUTO.build_parser().parse_args([
+                "auto", *common[:5], *common[5:],
+            ])
+            with mock.patch.object(AUTO.subprocess, "run") as wrapper_run, self.assertRaises(SystemExit):
+                wrapper.func(wrapper)
+            self.assertFalse(wrapper_run.called)
+
+    def test_protected_prospective_live_v2_blocker_is_reported_before_network(self) -> None:
+        class BlockedV2Owner:
+            @staticmethod
+            def assert_action(*_args, **_kwargs):
+                raise ValueError("minimum_candidate_input_result_lineage_unavailable_v2")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            input_path, _, _ = self.make_generic_input_approval(root)
+            gate_path = root / "maturity-v2.json"
+            gate_path.write_text(json.dumps({"schema": AUTO.transport.MATURITY_GATE_V2_SCHEMA}), encoding="utf-8")
+            args = AUTO.transport.build_parser().parse_args([
+                "submit", str(input_path), "--project", "protected", "--local-dir", str(root / "bundle"),
+                "--work-kind", "ts_pilot", "--pilot", "--scientific-maturity", str(gate_path),
+                "--edge-id", "edge_activation", "--node-id", "ts_candidate_primary", "--confirmed",
+            ])
+            real_loader = AUTO.transport._load_scientific_maturity
+            def load_owner(version=1):
+                return BlockedV2Owner if version == 2 else real_loader(version)
+            with mock.patch.object(AUTO.transport, "_load_scientific_maturity", side_effect=load_owner), mock.patch.object(AUTO.transport, "run") as remote_run:
+                with self.assertRaises(SystemExit):
+                    args.func(args)
+            self.assertFalse(remote_run.called)
+
+    def test_maturity_dispatch_returns_first_stable_resolved_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            owner = root / "owner"
+            owner.mkdir()
+            gate = owner / "maturity.json"
+            gate.write_text(
+                json.dumps({"schema": AUTO.transport.MATURITY_GATE_V2_SCHEMA}),
+                encoding="utf-8",
+            )
+            active = root / "active"
+            active.symlink_to(owner, target_is_directory=True)
+            schema, _validator, resolved = AUTO.transport._maturity_owner_for_gate(
+                active / gate.name
+            )
+            self.assertEqual(schema, AUTO.transport.MATURITY_GATE_V2_SCHEMA)
+            self.assertEqual(resolved, gate.resolve())
+            self.assertFalse(resolved.is_symlink())
+
+    def test_maturity_audit_replays_dispatchers_frozen_path(self) -> None:
+        seen: list[Path] = []
+
+        class FrozenOwner:
+            @staticmethod
+            def assert_action(path, *_args, **_kwargs):
+                seen.append(path)
+                return {"schema": AUTO.transport.MATURITY_ACTION_V2_SCHEMA}
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            raw = root / "active" / "maturity.json"
+            frozen = root / "first-owner" / "maturity.json"
+            args = SimpleNamespace(
+                work_kind="ts_pilot", pilot=True, scientific_maturity=str(raw),
+                edge_id="edge_activation", node_id="ts_candidate_primary",
+                _prospective_live=False,
+            )
+            report = {
+                "route": "#p b3lyp/6-31g(d) opt=(ts,calcfc) freq",
+                "mem": "12GB", "nprocshared": 8,
+            }
+            with mock.patch.object(
+                AUTO.transport, "_maturity_owner_for_gate",
+                return_value=(AUTO.transport.MATURITY_GATE_V2_SCHEMA, FrozenOwner, frozen),
+            ):
+                check = AUTO.transport.audit_scientific_maturity(args, report, "ts_input")
+            self.assertEqual(check["schema"], AUTO.transport.MATURITY_ACTION_V2_SCHEMA)
+            self.assertEqual(seen, [frozen])
 
     def test_low_level_ordinary_dry_run_is_explicitly_not_live_ready_without_input_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -283,6 +403,47 @@ class GaussianAutoGateTests(unittest.TestCase):
             self.assertEqual(plan["live_approval"]["status"], "not_evaluated_missing_exact_input_approval")
             self.assertEqual(plan["input_approval"]["status"], "missing_required_for_live_submission")
             self.assertFalse(plan["live_submission_ready"])
+
+    def test_ordinary_and_minimum_exact_input_plus_live_v3_reach_offline_dry_run(self) -> None:
+        for work_kind, route in (
+            ("ordinary", "#p hf/sto-3g"),
+            ("minimum", "#p hf/sto-3g opt freq"),
+        ):
+            with self.subTest(work_kind=work_kind), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve()
+                gjf = root / f"{work_kind}.gjf"
+                gjf.write_text(
+                    f"%chk={work_kind}.chk\n%mem=12GB\n%nprocshared=8\n{route}\n\n"
+                    f"{work_kind}\n\n0 1\nH 0 0 0\nH 0 0 1\n\n",
+                    encoding="utf-8",
+                )
+                report = AUTO.transport.parse_gaussian(gjf)
+                approved_input = self.fake_input_approval(report, work_kind)
+                live = root / "live-v3.json"
+                self.write_live_v3(live, report, approved_input, project=work_kind)
+                direct = AUTO.transport.build_parser().parse_args([
+                    "submit", str(gjf), "--project", work_kind,
+                    "--local-dir", str(root / "direct"), "--confirmed", "--dry-run",
+                    "--work-kind", work_kind, "--input-approval-record", str(root / "receipt.json"),
+                    "--approval-record", str(live),
+                ])
+                stdout = io.StringIO()
+                with mock.patch.object(AUTO.transport, "validate_input_approval", return_value=approved_input), mock.patch.object(AUTO.transport, "run") as remote_run, redirect_stdout(stdout):
+                    direct.func(direct)
+                plan = json.loads(stdout.getvalue())
+                self.assertTrue(plan["live_submission_ready"])
+                self.assertFalse(remote_run.called)
+
+                wrapper = AUTO.build_parser().parse_args([
+                    "auto", str(gjf), "--project", work_kind,
+                    "--local-dir", str(root / "wrapper"), "--confirmed", "--dry-run",
+                    "--work-kind", work_kind, "--input-approval-record", str(root / "receipt.json"),
+                    "--approval-record", str(live),
+                ])
+                with mock.patch.object(AUTO.transport, "validate_input_approval", return_value=approved_input), mock.patch.object(AUTO.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as child:
+                    wrapper.func(wrapper)
+                self.assertTrue(child.called)
+                self.assertIn("--dry-run", child.call_args.args[0])
 
     def test_low_level_live_submit_refuses_missing_exact_approval_before_network(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -423,6 +584,339 @@ class GaussianAutoGateTests(unittest.TestCase):
             with self.subTest(route=route):
                 result = AUTO.transport.input_approval_compatibility({**base, "route": route}, work_kind)
                 self.assertNotEqual(result["status"], "supported_generic_v1")
+
+    def test_opt_saddle_forms_are_protected_but_saddle_zero_is_not(self) -> None:
+        protected = (
+            "#p b3lyp/6-31g(d) opt=(saddle=1,calcfc) freq",
+            "#p b3lyp/6-31g(d) opt=saddle=1 freq",
+            "#P b3lyp/6-31g(d) OPT=(SADDLE=2,CALCFC) FREQ",
+            "#p b3lyp/6-31g(d) opt=loose opt=(saddle=3,calcfc) freq",
+        )
+        for route in protected:
+            with self.subTest(route=route):
+                self.assertTrue(AUTO.transport.route_has_ts_optimization(route))
+                self.assertEqual(AUTO.transport.classify_protected_work(route), "ts")
+                report = {
+                    "route": route, "geometry_source": "explicit_cartesian", "oldcheckpoint": None,
+                    "link1_count": 0, "route_section_count": 1,
+                }
+                self.assertNotEqual(
+                    AUTO.transport.input_approval_compatibility(report, "minimum")["status"],
+                    "supported_generic_v1",
+                )
+        zero = "#p b3lyp/6-31g(d) opt=(saddle=0,calcfc) freq"
+        self.assertFalse(AUTO.transport.route_has_ts_optimization(zero))
+        self.assertIsNone(AUTO.transport.classify_protected_work(zero))
+
+    def test_opt_saddle_minimum_live_bypass_is_blocked_in_direct_and_wrapper_before_network(self) -> None:
+        routes = (
+            "#p b3lyp/6-31g(d) opt=(saddle=1,calcfc) freq",
+            "#p b3lyp/6-31g(d) opt=saddle=1 freq",
+        )
+        for index, route in enumerate(routes):
+            with self.subTest(route=route), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve()
+                gjf = root / "saddle.gjf"
+                gjf.write_text(
+                    f"%chk=saddle.chk\n%mem=12GB\n%nprocshared=8\n{route}\n\n"
+                    "saddle\n\n0 1\nH 0 0 0\nH 0 0 1\n\n",
+                    encoding="utf-8",
+                )
+                direct = AUTO.transport.build_parser().parse_args([
+                    "submit", str(gjf), "--project", f"saddle{index}",
+                    "--local-dir", str(root / "direct"), "--confirmed", "--work-kind", "minimum",
+                    "--input-approval-record", str(root / "receipt.json"),
+                    "--approval-record", str(root / "live-v3.json"),
+                ])
+                with mock.patch.object(AUTO.transport, "run") as remote_run, self.assertRaises(SystemExit):
+                    direct.func(direct)
+                self.assertFalse(remote_run.called)
+
+                wrapper = AUTO.build_parser().parse_args([
+                    "auto", str(gjf), "--project", f"saddle{index}",
+                    "--local-dir", str(root / "wrapper"), "--confirmed", "--work-kind", "minimum",
+                    "--input-approval-record", str(root / "receipt.json"),
+                    "--approval-record", str(root / "live-v3.json"),
+                ])
+                with mock.patch.object(AUTO.subprocess, "run") as wrapper_run, self.assertRaises(SystemExit):
+                    wrapper.func(wrapper)
+                self.assertFalse(wrapper_run.called)
+
+    def assert_generic_receipt_rejected(self, route: str, trailing: str = "", work_kind: str = "minimum") -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            input_path, receipt_path, _ = self.make_generic_input_approval(root)
+            original_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            input_path.write_text(
+                "%chk=fixture.chk\n%mem=12GB\n%nprocshared=8\n"
+                f"{route}\n\n"
+                f"specialist\n\n0 1\nH 0 0 0\nH 0 0 1\n\n{trailing}",
+                encoding="utf-8",
+            )
+            report = AUTO.transport.parse_gaussian(input_path)
+            review_path = root / "generic-input-review.json"
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+            review["work_kind"] = work_kind
+            review["approved_input"] = AUTO.transport._input_approval_facts(report)
+            review["route_profile_mapping"]["exact_route"] = report["route"]
+            review["payload_sha256"] = AUTO.transport.contract_payload_sha256(review)
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "work_kind_route_mismatch|specialist"):
+                AUTO.transport.build_input_approval_receipt(
+                    root / "options.json", root / "selection.json",
+                    review_path, input_path, root / "rejected-receipt.json", "saddle-minimum",
+                )
+
+            forged = original_receipt
+            forged["work_kind"] = work_kind
+            forged["input"] = AUTO.transport._input_blob_binding(input_path, root)
+            forged["approved_input"] = AUTO.transport._input_approval_facts(report)
+            forged["sources"]["input_review"].update({
+                "sha256": AUTO.transport.sha256(review_path),
+                "size_bytes": review_path.stat().st_size,
+                "payload_sha256": review["payload_sha256"],
+            })
+            forged["protocol_review_binding"]["input_review_payload_sha256"] = review["payload_sha256"]
+            forged["protocol_review_binding"]["exact_route"] = report["route"]
+            forged["protocol_review_binding"]["route_profile_mapping_sha256"] = AUTO.transport.canonical_value_sha256(review["route_profile_mapping"])
+            forged["payload_sha256"] = AUTO.transport.contract_payload_sha256(forged)
+            receipt_path.write_text(json.dumps(forged), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "work_kind_route_mismatch|specialist"):
+                AUTO.transport.validate_input_approval_receipt(receipt_path)
+
+    def test_generic_minimum_receipt_build_and_replay_reject_opt_saddle(self) -> None:
+        self.assert_generic_receipt_rejected(
+            "#p b3lyp/6-31g(d) opt=(saddle=1,calcfc) freq"
+        )
+
+    def test_specialist_aliases_and_relaxed_scan_tail_fail_closed(self) -> None:
+        specialist = (
+            "#p b3lyp/6-31g(d) opt=(conical,calcfc) freq",
+            "#p b3lyp/6-31g(d) opt=avoided freq",
+            "#P b3lyp/6-31g(d) OPT=(AVOIDED,CALCFC) FREQ",
+        )
+        for route in specialist:
+            with self.subTest(route=route):
+                self.assertTrue(AUTO.transport.route_has_specialist_optimization(route))
+                self.assertFalse(AUTO.transport.route_has_ts_optimization(route))
+                self.assertEqual(AUTO.transport.classify_protected_work(route), "specialist_opt")
+        scans = (
+            "#p b3lyp/6-31g(d) opt=addredundant freq",
+            "#p b3lyp/6-31g(d) opt=(addredundant,calcfc) freq",
+            "#P b3lyp/6-31g(d) OPT=(ADDREDUNDANT,CALCFC) FREQ",
+        )
+        for route in scans:
+            with self.subTest(route=route):
+                self.assertTrue(AUTO.transport.route_has_scan(route))
+                self.assertEqual(AUTO.transport.classify_protected_work(route), "ts_scan")
+        gic_routes = (
+            "#p b3lyp/6-31g(d) opt=gic freq",
+            "#p b3lyp/6-31g(d) opt=addgic freq",
+            "#p b3lyp/6-31g(d) opt=readallgic freq",
+            "#p b3lyp/6-31g(d) geom=gic opt freq",
+        )
+        for route in gic_routes:
+            with self.subTest(route=route):
+                self.assertTrue(AUTO.transport.route_has_gic_optimization(route))
+                self.assertFalse(AUTO.transport.route_has_scan(route))
+                self.assertEqual(AUTO.transport.classify_protected_work(route), "specialist_opt")
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "tail-scan.gjf"
+            path.write_text(
+                "%chk=scan.chk\n%mem=12GB\n%nprocshared=8\n#p b3lyp/6-31g(d) opt=addredundant freq\n\n"
+                "scan\n\n0 1\nH 0 0 0\nH 0 0 1\n\nB 1 2 S 10 0.10\n\n",
+                encoding="utf-8",
+            )
+            report = AUTO.transport.parse_gaussian(path)
+            self.assertTrue(report["has_relaxed_scan_directive"])
+            self.assertEqual(report["trailing_section_line_count"], 1)
+            self.assertEqual(AUTO.transport.classify_protected_input(report), "ts_scan")
+            self.assertEqual(
+                AUTO.transport.input_approval_compatibility(report, "minimum")["status"],
+                "blocked_missing_specialist_input_approval",
+            )
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "gic-scan.gjf"
+            path.write_text(
+                "%chk=gic.chk\n%mem=12GB\n%nprocshared=8\n#p b3lyp/6-31g(d) opt=gic freq\n\n"
+                "gic scan\n\n0 1\nH 0 0 0\nH 0 0 1\n\n"
+                "F1F2(NSteps=10,StepSize=0.2)\n\n",
+                encoding="utf-8",
+            )
+            report = AUTO.transport.parse_gaussian(path)
+            self.assertTrue(report["has_relaxed_scan_directive"])
+            self.assertEqual(AUTO.transport.classify_protected_input(report), "ts_scan")
+
+    def test_specialist_alias_live_bypasses_stop_direct_and_wrapper_before_network(self) -> None:
+        cases = (
+            ("#p b3lyp/6-31g(d) opt=(conical,calcfc) freq", ""),
+            ("#p b3lyp/6-31g(d) opt=avoided freq", ""),
+            ("#p b3lyp/6-31g(d) opt=addredundant freq", "B 1 2 S 10 0.10\n\n"),
+            ("#p b3lyp/6-31g(d) opt=gic freq", "F1F2(NSteps=10,StepSize=0.2)\n\n"),
+        )
+        for index, (route, trailing) in enumerate(cases):
+            with self.subTest(route=route, trailing=bool(trailing)), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve()
+                gjf = root / "specialist.gjf"
+                gjf.write_text(
+                    f"%chk=specialist.chk\n%mem=12GB\n%nprocshared=8\n{route}\n\n"
+                    f"specialist\n\n0 1\nH 0 0 0\nH 0 0 1\n\n{trailing}",
+                    encoding="utf-8",
+                )
+                common = [
+                    str(gjf), "--project", f"alias{index}", "--local-dir", str(root / "direct"),
+                    "--confirmed", "--work-kind", "minimum", "--input-approval-record", str(root / "receipt.json"),
+                    "--approval-record", str(root / "live-v3.json"),
+                ]
+                direct = AUTO.transport.build_parser().parse_args(["submit", *common])
+                with mock.patch.object(AUTO.transport, "run") as remote_run, self.assertRaises(SystemExit):
+                    direct.func(direct)
+                self.assertFalse(remote_run.called)
+                common[4] = str(root / "wrapper")
+                wrapper = AUTO.build_parser().parse_args(["auto", *common])
+                with mock.patch.object(AUTO.subprocess, "run") as wrapper_run, self.assertRaises(SystemExit):
+                    wrapper.func(wrapper)
+                self.assertFalse(wrapper_run.called)
+
+    def test_specialist_alias_generic_minimum_receipt_build_and_replay_are_blocked(self) -> None:
+        for route, trailing in (
+            ("#p b3lyp/6-31g(d) opt=(conical,calcfc) freq", ""),
+            ("#p b3lyp/6-31g(d) opt=avoided freq", ""),
+            ("#p b3lyp/6-31g(d) opt=addredundant freq", "B 1 2 S 10 0.10\n\n"),
+            ("#p b3lyp/6-31g(d) opt=gic freq", "F1F2(NSteps=10,StepSize=0.2)\n\n"),
+        ):
+            with self.subTest(route=route, trailing=bool(trailing)):
+                self.assert_generic_receipt_rejected(route, trailing)
+
+    def test_gen_basis_s_shell_is_not_misclassified_as_relaxed_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "gen-basis.gjf"
+            path.write_text(
+                "%chk=gen.chk\n%mem=12GB\n%nprocshared=8\n#p b3lyp/gen opt freq\n\n"
+                "gen basis\n\n0 1\nH 0 0 0\nH 0 0 1\n\n"
+                "H 0\nS 3 1.00\n  3.42525091 0.15432897\n  0.62391373 0.53532814\n"
+                "  0.16885540 0.44463454\n****\n\n",
+                encoding="utf-8",
+            )
+            report = AUTO.transport.parse_gaussian(path)
+            self.assertGreater(report["trailing_section_line_count"], 0)
+            self.assertFalse(report["has_relaxed_scan_directive"])
+            self.assertIsNone(AUTO.transport.classify_protected_input(report))
+
+    def test_fopt_popt_are_optimization_family_and_generic_specialist_only(self) -> None:
+        cases = (
+            ("#p b3lyp/6-31g(d) fopt=qst2", "ts"),
+            ("#P b3lyp/6-31g(d) FOPT=(QST2,CALCFC)", "ts"),
+            ("#p b3lyp/6-31g(d) popt(saddle=1)", "ts"),
+            ("#p b3lyp/6-31g(d) fopt=conical", "specialist_opt"),
+            ("#p b3lyp/6-31g(d) popt=addredundant", "ts_scan"),
+        )
+        for route, classification in cases:
+            with self.subTest(route=route):
+                self.assertTrue(AUTO.transport.route_has_optimization_keyword(route))
+                self.assertEqual(AUTO.transport.classify_protected_work(route), classification)
+                report = {
+                    "route": route, "geometry_source": "explicit_cartesian", "oldcheckpoint": None,
+                    "link1_count": 0, "route_section_count": 1,
+                }
+                for work_kind in ("ordinary", "minimum"):
+                    self.assertEqual(
+                        AUTO.transport.input_approval_compatibility(report, work_kind)["status"],
+                        "blocked_missing_specialist_input_approval",
+                    )
+        with self.assertRaises(ValueError):
+            AUTO.transport._assert_consumed_tasks_match_route(
+                "#p b3lyp/6-31g(d) fopt=qst2",
+                [{"task_index": 0, "stage_type": "single_point", "profile_id": "sp"}],
+                [{
+                    "task_index": 0, "stage_type": "single_point", "profile_id": "sp",
+                    "route_evidence": ["single_point"], "human_confirmed": True,
+                }],
+            )
+
+    def test_fopt_qst2_and_popt_saddle_live_and_receipt_bypasses_are_blocked(self) -> None:
+        cases = (
+            ("#p b3lyp/6-31g(d) fopt=qst2", "ordinary"),
+            ("#p b3lyp/6-31g(d) popt(saddle=1)", "minimum"),
+        )
+        for index, (route, work_kind) in enumerate(cases):
+            with self.subTest(route=route), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve()
+                gjf = root / "optimization-family.gjf"
+                gjf.write_text(
+                    f"%chk=family.chk\n%mem=12GB\n%nprocshared=8\n{route}\n\n"
+                    "family\n\n0 1\nH 0 0 0\nH 0 0 1\n\n",
+                    encoding="utf-8",
+                )
+                common = [
+                    str(gjf), "--project", f"family{index}", "--local-dir", str(root / "direct"),
+                    "--confirmed", "--work-kind", work_kind, "--input-approval-record", str(root / "receipt.json"),
+                    "--approval-record", str(root / "live-v3.json"),
+                ]
+                direct = AUTO.transport.build_parser().parse_args(["submit", *common])
+                with mock.patch.object(AUTO.transport, "run") as remote_run, self.assertRaises(SystemExit):
+                    direct.func(direct)
+                self.assertFalse(remote_run.called)
+                common[4] = str(root / "wrapper")
+                wrapper = AUTO.build_parser().parse_args(["auto", *common])
+                with mock.patch.object(AUTO.subprocess, "run") as wrapper_run, self.assertRaises(SystemExit):
+                    wrapper.func(wrapper)
+                self.assertFalse(wrapper_run.called)
+            self.assert_generic_receipt_rejected(route, work_kind=work_kind)
+
+    def test_ircmax_is_specialist_path_and_cannot_be_single_point(self) -> None:
+        route = "#p IRCMax(B3LYP/6-31G(d):HF/3-21G,CalcFC)"
+        self.assertTrue(AUTO.transport.route_has_specialist_path(route))
+        self.assertEqual(AUTO.transport.classify_protected_work(route), "specialist_path")
+        self.assertNotEqual(AUTO.transport.classify_protected_work(route), "irc")
+        report = {
+            "route": route, "geometry_source": "explicit_cartesian", "oldcheckpoint": None,
+            "link1_count": 0, "route_section_count": 1,
+        }
+        self.assertEqual(
+            AUTO.transport.input_approval_compatibility(report, "ordinary")["status"],
+            "blocked_missing_specialist_input_approval",
+        )
+        with self.assertRaises(ValueError):
+            AUTO.transport._assert_consumed_tasks_match_route(
+                route,
+                [{"task_index": 0, "stage_type": "single_point", "profile_id": "sp"}],
+                [{
+                    "task_index": 0, "stage_type": "single_point", "profile_id": "sp",
+                    "route_evidence": ["single_point"], "human_confirmed": True,
+                }],
+            )
+        self.assertEqual(
+            AUTO.transport.classify_protected_work("#p Scan B3LYP/6-31G(d)"),
+            "specialist_path",
+        )
+
+    def test_ircmax_live_and_generic_receipt_bypasses_are_blocked(self) -> None:
+        route = "#p IRCMax(B3LYP/6-31G(d):HF/3-21G,CalcFC)"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            gjf = root / "ircmax.gjf"
+            gjf.write_text(
+                f"%chk=ircmax.chk\n%mem=12GB\n%nprocshared=8\n{route}\n\n"
+                "ircmax\n\n0 1\nH 0 0 0\nH 0 0 1\n\n",
+                encoding="utf-8",
+            )
+            common = [
+                str(gjf), "--project", "ircmax", "--local-dir", str(root / "direct"),
+                "--confirmed", "--work-kind", "ordinary", "--input-approval-record", str(root / "receipt.json"),
+                "--approval-record", str(root / "live-v3.json"),
+            ]
+            direct = AUTO.transport.build_parser().parse_args(["submit", *common])
+            with mock.patch.object(AUTO.transport, "run") as remote_run, self.assertRaises(SystemExit):
+                direct.func(direct)
+            self.assertFalse(remote_run.called)
+            common[4] = str(root / "wrapper")
+            wrapper = AUTO.build_parser().parse_args(["auto", *common])
+            with mock.patch.object(AUTO.subprocess, "run") as wrapper_run, self.assertRaises(SystemExit):
+                wrapper.func(wrapper)
+            self.assertFalse(wrapper_run.called)
+        self.assert_generic_receipt_rejected(route, work_kind="ordinary")
 
     def test_later_protected_option_cannot_be_hidden_by_first_keyword_occurrence(self) -> None:
         route = "#p b3lyp/6-31g(d) opt=loose opt(ts,calcfc) freq"
