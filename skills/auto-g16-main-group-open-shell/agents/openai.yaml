@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 Main-Group Open-Shell"
+  short_description: "Review main-group open-shell electronic states"
+  default_prompt: "Use $auto-g16-main-group-open-shell to review a candidate-bound main-group open-shell electronic state offline."

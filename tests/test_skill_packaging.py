@@ -36,6 +36,7 @@ class SkillPackagingTests(unittest.TestCase):
     def test_package_manifests_map_authoritative_contracts_without_repository_duplicates(self) -> None:
         reaction = package.package_files(ROOT, "auto-g16-reaction-workflow")
         asymmetric = package.package_files(ROOT, "auto-g16-asymmetric-catalysis")
+        open_shell = package.package_files(ROOT, "auto-g16-main-group-open-shell")
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/candidate-target-import.schema.json")],
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
@@ -63,6 +64,10 @@ class SkillPackagingTests(unittest.TestCase):
         self.assertEqual(
             asymmetric[Path("contracts/asymmetric-catalysis/candidate.schema.json")],
             ROOT / "contracts/asymmetric-catalysis/candidate.schema.json",
+        )
+        self.assertEqual(
+            open_shell[Path("contracts/main-group-open-shell/electronic-state-review.schema.json")],
+            ROOT / "contracts/main-group-open-shell/electronic-state-review.schema.json",
         )
         self.assertFalse(
             (ROOT / "skills/auto-g16-reaction-workflow/contracts").exists(),

@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 MODULE = ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts" / "protocol_selection.py"
+OPEN_FIXTURES = ROOT / "tests" / "fixtures" / "main_group_open_shell"
 SPEC = importlib.util.spec_from_file_location("protocol_selection", MODULE)
 assert SPEC and SPEC.loader
 PROTOCOL = importlib.util.module_from_spec(SPEC)
@@ -170,6 +171,55 @@ def profiles_fixture(*, blocked_tier: str | None = None) -> dict:
             "No option or selection authorizes input submission or a retry.",
         ],
     }
+
+
+def open_shell_request_fixture(review_path: Path, review: dict) -> dict:
+    return {
+        "schema": "gaussian-calculation-request/1",
+        "request_id": "ch3_doublet_opt_freq",
+        "goal": "Draft reviewed protocol options for one accepted open-shell state.",
+        "claim_scope": "Minimum Opt/Freq evidence for the exact reviewed CH3 doublet.",
+        "task_types": ["optimization", "frequency"],
+        "structure": {
+            "sha256": "1" * 64, "formula": "CH3", "atom_count": 4,
+            "elements": ["C", "H"], "charge": 0, "multiplicity": 2,
+        },
+        "system_class": "main_group_open_shell",
+        "support_status": "supported",
+        "electronic_state_review": {
+            "path": str(review_path),
+            "sha256": PROTOCOL.sha256_file(review_path),
+            "payload_sha256": review["payload_sha256"],
+        },
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+    }
+
+
+def open_shell_profiles_fixture(review: dict) -> dict:
+    profiles = profiles_fixture()
+    profiles["proposal_id"] = "ch3_open_shell_three_tiers"
+    wf = review["wavefunction_policy"]
+    for option in profiles["options"]:
+        tier = option["tier"]
+        option["option_id"] = f"ch3_open_shell_{tier}"
+        option["applicability"]["system_classes"] = ["main_group_open_shell"]
+        profile = option["method_profiles"][0]
+        profile["basis_stack"][0]["elements"] = ["C", "H"]
+        profile["scf"] = {
+            "reference": wf["reference"],
+            "convergence": f"reviewed_{tier}_convergence",
+            "max_cycles": 128,
+            "stability_check": "required",
+            "broken_symmetry_policy": "forbidden",
+            "s2_policy": {
+                "metric": wf["spin_contamination_policy"]["metric"],
+                "target_s2": wf["target_s2"],
+                "max_abs_deviation": wf["spin_contamination_policy"]["max_abs_deviation"],
+                "missing_diagnostic": "block",
+            },
+        }
+    return profiles
 
 
 class ProtocolSelectionTests(unittest.TestCase):
@@ -397,6 +447,59 @@ class ProtocolSelectionTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 2)
             self.assertIn("requires --confirmed", completed.stderr)
             self.assertFalse(selection_path.exists())
+
+    def test_open_shell_request_requires_exact_accepted_review_and_matching_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            open_shell = PROTOCOL._open_shell_module()
+            review = open_shell.build_review(
+                OPEN_FIXTURES / "ch3_candidate.json", OPEN_FIXTURES / "ch3_review_source.json"
+            )
+            review_path = root / "review.json"
+            open_shell.write_new_json(review_path, review)
+            request = open_shell_request_fixture(review_path, review)
+            request_path, profiles_path = root / "request.json", root / "profiles.json"
+            dump(request_path, request)
+            dump(profiles_path, open_shell_profiles_fixture(review))
+            options = PROTOCOL.build_options(request_path, profiles_path)
+            self.assertEqual(options["status"], "ready_for_selection")
+
+            options_path = root / "options.json"
+            PROTOCOL.write_new_json(options_path, options)
+            approval_path = root / "approval.json"
+            dump(approval_path, {"decision": "selected", "tier": "standard", "explicit_confirmation": True, "decision_reason": "Reviewed open-shell standard tier selected."})
+            selection = PROTOCOL.build_selection(options_path, "standard", approval_path)
+            self.assertEqual(selection["scope_binding"]["electronic_state_review_payload_sha256"], review["payload_sha256"])
+            self.assertFalse(selection["calculation_ready"])
+            self.assertFalse(selection["authorizations"]["submit"])
+
+            missing = copy.deepcopy(request)
+            missing.pop("electronic_state_review")
+            dump(root / "missing.json", missing)
+            with self.assertRaisesRegex(PROTOCOL.ContractError, "exact accepted electronic_state_review"):
+                PROTOCOL.validate_request(missing)
+
+            forged = copy.deepcopy(request)
+            forged["electronic_state_review"]["payload_sha256"] = "f" * 64
+            with self.assertRaisesRegex(PROTOCOL.ContractError, "payload hash mismatch"):
+                PROTOCOL.validate_request(forged)
+
+    def test_open_shell_selectable_profile_requires_reference_stability_and_s2_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            open_shell = PROTOCOL._open_shell_module()
+            review = open_shell.build_review(OPEN_FIXTURES / "ch3_candidate.json", OPEN_FIXTURES / "ch3_review_source.json")
+            review_path = root / "review.json"
+            open_shell.write_new_json(review_path, review)
+            request_path = root / "request.json"
+            dump(request_path, open_shell_request_fixture(review_path, review))
+            for field, expected in (("reference", "reference"), ("stability_check", "stability"), ("s2_policy", "S2 policy")):
+                profiles = open_shell_profiles_fixture(review)
+                profiles["options"][0]["method_profiles"][0]["scf"].pop(field)
+                profiles_path = root / f"profiles-{field}.json"
+                dump(profiles_path, profiles)
+                with self.subTest(field=field), self.assertRaisesRegex(PROTOCOL.ContractError, expected):
+                    PROTOCOL.build_options(request_path, profiles_path)
 
     def test_cli_round_trip_is_offline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
