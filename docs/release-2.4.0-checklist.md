@@ -1,9 +1,10 @@
 # Auto-G16 2.4.0 Release Checklist
 
-Status: release metadata preparation and one local commit are authorized on
-2026-07-18. Push, pull request creation, merge, tag `v2.4.0`, GitHub Release,
-Skill deployment, live smoke, SSH/PBS/Gaussian work, retry, cancellation, and
-server cleanup are not authorized.
+Status: release metadata preparation, local commits, exact synchronization of
+`auto-g16-chemdraw-pipeline` and `auto-g16-view-rt-win`, branch push, and Draft
+PR creation were explicitly authorized on 2026-07-18. Merge, tag `v2.4.0`,
+GitHub Release, any other Skill deployment, live smoke, SSH/PBS/Gaussian work,
+retry, cancellation, and server cleanup are not authorized.
 
 ## Candidate scope
 
@@ -38,12 +39,14 @@ server cleanup are not authorized.
       non-overwrite rules, exact job-ID cancellation gate, and no-deletion
       policy are unchanged.
 
-## Named-Skill deployment drift — dry-run only
+## Named-Skill synchronization evidence
 
 The repository copies were validated through the named-Skill synchronizer's
-read-only plan mode on 2026-07-18. No `--apply` flag was used and no deployed
-copy was modified. The summaries below contain only repository-relative names
-and public SHA-256 evidence.
+read-only plan mode on 2026-07-18. The summaries below contain only
+repository-relative names and public SHA-256 evidence. After both current plans
+exactly matched these reviewed summaries and hashes, the user explicitly
+authorized applying only these two named Skills with the synchronizer's exact
+`--apply --confirmed --plan-sha256` gate.
 
 - `auto-g16-chemdraw-pipeline`: 0 missing, 1 changed, 0 extra. Planned change:
   `scripts/make_gaussian_input.py`, authoritative source SHA-256
@@ -57,9 +60,18 @@ and public SHA-256 evidence.
   `626b3a944b6a387d58c5ae2555b9d99237e22d7f224201665ebda244b049ae3c`).
   Plan SHA-256:
   `034eab0075ba0a91dc650ed85f7c13f94629c52775ce1e52da716d0b3cf7ad45`.
-- [ ] Deployment remains withheld. Any later synchronization requires a fresh
-      dry-run, review of the exact current plan, and separate explicit
-      authorization for `--apply --confirmed --plan-sha256 <exact-hash>`.
+- [x] `auto-g16-chemdraw-pipeline` applied exactly plan SHA-256
+      `0cddc482aae9757b176d267c60b99d3eb9d8fa9cee6a810d2b771efac75d58bd`;
+      the synchronizer's deployment-after-write comparison passed.
+- [x] `auto-g16-view-rt-win` applied exactly plan SHA-256
+      `034eab0075ba0a91dc650ed85f7c13f94629c52775ce1e52da716d0b3cf7ad45`;
+      the synchronizer's deployment-after-write comparison passed.
+- [x] `./scripts/python check --skill-sync` subsequently reported both Python
+      profiles healthy and all 13 repository/deployed named-Skill packages
+      synchronized.
+- [x] No other Skill was synchronized, no extra file was deleted, and no
+      deployed file was copied back into the repository. Any future deployment
+      requires a new reviewed dry-run and separate exact authorization.
 
 ## Live-smoke approval preparation
 
@@ -113,6 +125,9 @@ or cleanup action.
       SHA-256 `2b16f2c8f158e3eca4c36a293e486390c2c862c9a0f49b820691491495628a86`.
       The final six-file staged set passed `git diff --cached --check`, full
       staged-diff review, and the same sensitive-string/private-key scan.
+- [x] The post-synchronization checklist update passed all 9 focused release-
+      hygiene tests, `git diff --check`, and the sensitive-string/private-key
+      scan before its separate follow-up commit.
 
 ## Withheld publication and operations
 
