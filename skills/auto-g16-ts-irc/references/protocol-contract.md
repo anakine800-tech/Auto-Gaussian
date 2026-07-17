@@ -46,6 +46,19 @@ Record the Gaussian revision parsed from the completed TS log in every IRC plan 
 
 For QST2/QST3, validate atom correspondence locally but keep raw multi-structure input generation disabled until a known-good input from the installed G16 revision is available. A local Cartesian parser cannot establish whether a particular separator or repeated charge/multiplicity block will be accepted by Gaussian. On `End of file in ZSymb`, preserve the log and stop; obtain a verified input example rather than using the scheduler as a syntax test loop.
 
+An already complete raw input may be observed through
+`gaussian-qst-raw-input-syntax-audit/1`; this does not enable generation. The
+V1 parser is explicitly limited to plain four-column Cartesian QST blocks.
+Other potentially valid Gaussian representations are
+`blocked_unsupported_syntax`. A runnable-syntax claim requires a same-mode
+known-good sample and exact, replayable installed-revision support binding;
+otherwise the artifact is
+`blocked_pending_installed_revision_verification`. Every result fixes
+`calculation_ready: false`, `no_submission_authorization: true`, and manual
+input review as the only next step. QST3 block three is only a hash-bound
+reviewed guess with no minimum claim. `End of file in ZSymb` remains preserved
+failure evidence and never authorizes rewriting or resubmission.
+
 ## Results
 
 `gaussian-terminal-intake-template/1` is a pre-result, offline-only contract

@@ -1,0 +1,39 @@
+{
+  "schema": "auto-g16-manual-evidence-review/1",
+  "receipt_id": "fixture_g09_to_g16_opt_evidence",
+  "query": "optimization convergence",
+  "selected_result_id": "chunk_g09_opt",
+  "claim_scope": "gaussian_syntax_or_version",
+  "statement_type": "paraphrase",
+  "short_paraphrase": "The selected manual page describes a convergence-control behavior relevant to reviewing an optimization option.",
+  "whole_page_visual_review": {
+    "status": "reviewed",
+    "reviewer": "fixture_manual_reviewer",
+    "reviewed_at": "2026-07-17T03:00:00Z",
+    "notes": ["Synthetic page image was checked against the synthetic OCR chunk."]
+  },
+  "logical_chunk_review": {
+    "status": "not_applicable_no_logical_chunk",
+    "reviewer": null,
+    "reviewed_at": null,
+    "notes": ["The selected evidence is page-located and has no independent logical chunk locator."]
+  },
+  "target_installation": {
+    "program": "Gaussian",
+    "major_version": "G16",
+    "installed_revision": "Gaussian 16 Revision C.02 synthetic target"
+  },
+  "installed_revision_review": {
+    "status": "reviewed",
+    "reviewer": "fixture_revision_reviewer",
+    "reviewed_at": "2026-07-17T03:05:00Z",
+    "evidence_sha256": ["eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"],
+    "notes": ["Synthetic installed-revision evidence was explicitly compared; no method choice was made."]
+  },
+  "applicability_decision": "applicable_with_limits",
+  "applicability_rationale": "The synthetic installed-revision review supports bounded semantic carryover while OCR uncertainty remains.",
+  "uncertainties": ["Synthetic OCR may alter punctuation and must not be treated as a verbatim quotation."],
+  "reviewer": "fixture_manual_reviewer",
+  "reviewed_at": "2026-07-17T03:10:00Z",
+  "downstream_role": "scientific_maturity_supporting_evidence"
+}

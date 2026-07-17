@@ -1,0 +1,7 @@
+{
+  "schema": "gaussian-job-inspection/1",
+  "attempt_id": "synthetic_attempt_001",
+  "status": "failed",
+  "scheduler_state": "finished",
+  "input_recorded": true
+}

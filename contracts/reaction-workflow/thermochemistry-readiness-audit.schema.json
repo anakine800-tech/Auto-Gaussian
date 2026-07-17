@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/thermochemistry-readiness-audit.schema.json",
+  "title": "Auto-G16 reaction thermochemistry readiness audit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "audit_id", "study_id", "request_source", "owner_artifacts", "owner_replays", "blockers", "formal_comparison_ready", "formal_barrier_available", "arithmetic_performed", "scientific_nonclaims", "reviewer", "reviewed_at", "review_notes", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-thermochemistry-readiness-audit/1"},
+    "audit_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "request_source": {"$ref": "#/$defs/requestRef"},
+    "owner_artifacts": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/source"}},
+    "owner_replays": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/replay"}},
+    "blockers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/blocker"}},
+    "formal_comparison_ready": {"const": false},
+    "formal_barrier_available": {"const": false},
+    "arithmetic_performed": {"const": false},
+    "scientific_nonclaims": {"type": "object", "additionalProperties": false, "required": ["method_validated", "path_accepted_by_audit", "scientific_maturity_modified", "submission_authorized"], "properties": {"method_validated": {"const": false}, "path_accepted_by_audit": {"const": false}, "scientific_maturity_modified": {"const": false}, "submission_authorized": {"const": false}}},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "minLength": 1},
+    "review_notes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifactRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"enum": ["gaussian-scientific-maturity-gate/1", "gaussian-scientific-maturity-gate/2", "gaussian-calculation-attempt-link/1", "gaussian-ts-irc-path-acceptance/1", "gaussian-energy-lineage/1"]}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "requestRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-reaction-thermochemistry-readiness-request/1"}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "source": {"type": "object", "additionalProperties": false, "required": ["source_id", "role", "artifact"], "properties": {"source_id": {"$ref": "#/$defs/id"}, "role": {"enum": ["minimum_evidence", "ts_attempt", "ts_path_acceptance", "energy_lineage"]}, "artifact": {"$ref": "#/$defs/artifactRef"}}},
+    "replay": {"type": "object", "additionalProperties": false, "required": ["source_id", "role", "schema", "artifact_sha256", "validator_implementation", "replay_status"], "properties": {"source_id": {"$ref": "#/$defs/id"}, "role": {"enum": ["minimum_evidence", "ts_attempt", "ts_path_acceptance", "energy_lineage"]}, "schema": {"type": "string", "minLength": 1}, "artifact_sha256": {"$ref": "#/$defs/sha"}, "validator_implementation": {"type": "string", "minLength": 1}, "replay_status": {"const": "accepted_by_owner_validator"}}},
+    "blocker": {"type": "object", "additionalProperties": false, "required": ["code", "category", "source_ids", "message", "required_owner_contract"], "properties": {"code": {"$ref": "#/$defs/id"}, "category": {"$ref": "#/$defs/id"}, "source_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "message": {"type": "string", "minLength": 1}, "required_owner_contract": {"type": "string", "minLength": 1}}}
+  }
+}

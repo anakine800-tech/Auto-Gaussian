@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/scientific-maturity-action-v2.schema.json",
+  "title": "Auto-G16 scientific maturity exact action v2",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "study_id", "scientific_maturity", "scope", "scientific_gate_passed", "separate_input_review_still_required", "separate_live_approval_still_required", "reporting_scope_only", "single_exact_scope_only", "calculation_ready", "no_submission_authorization", "no_method_selection_authorization", "no_input_generation_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-scientific-maturity-action/2"}, "study_id": {"$ref": "#/$defs/id"}, "scientific_maturity": {"$ref": "#/$defs/binding"},
+    "scope": {"type": "object", "additionalProperties": false, "required": ["edge_id", "node_id", "node_kind", "action", "pilot"], "properties": {"edge_id": {"$ref": "#/$defs/id"}, "node_id": {"$ref": "#/$defs/id"}, "node_kind": {"enum": ["ts_candidate", "ts_freq", "irc_forward", "irc_reverse", "thermochemistry"]}, "action": {"enum": ["ts_input", "ts_submission", "irc_input", "formal_barrier_reporting"]}, "pilot": {"type": "boolean"}}},
+    "scientific_gate_passed": {"const": true}, "separate_input_review_still_required": {"type": "boolean"}, "separate_live_approval_still_required": {"type": "boolean"}, "reporting_scope_only": {"type": "boolean"},
+    "single_exact_scope_only": {"const": true}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "no_method_selection_authorization": {"const": true}, "no_input_generation_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"}, "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-scientific-maturity-gate/2"}, "payload_sha256": {"$ref": "#/$defs/sha"}}}}
+}

@@ -71,6 +71,17 @@ def command_handoff(args: argparse.Namespace) -> None:
     emit(result)
 
 
+def command_validate_handoff(args: argparse.Namespace) -> None:
+    result = core.validate_handoff(args.handoff)
+    emit({
+        "schema": "gaussian-conformer-candidate-handoff-validation/1",
+        "artifact_schema": result["schema"],
+        "handoff_id": result["handoff_id"],
+        "payload_sha256": result["payload_sha256"],
+        "live_actions": False,
+    })
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -99,6 +110,9 @@ def build_parser() -> argparse.ArgumentParser:
     handoff.add_argument("--review", required=True)
     handoff.add_argument("--output", required=True)
     handoff.set_defaults(func=command_handoff)
+    validate_handoff = sub.add_parser("validate-handoff", help="replay one exact candidate handoff through its complete owner chain")
+    validate_handoff.add_argument("handoff")
+    validate_handoff.set_defaults(func=command_validate_handoff)
     return parser
 
 

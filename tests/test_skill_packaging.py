@@ -35,11 +35,19 @@ ADAPTER = load_adapter()
 class SkillPackagingTests(unittest.TestCase):
     def test_package_manifests_map_authoritative_contracts_without_repository_duplicates(self) -> None:
         reaction = package.package_files(ROOT, "auto-g16-reaction-workflow")
+        knowledge = package.package_files(ROOT, "auto-g16-knowledge-base")
         asymmetric = package.package_files(ROOT, "auto-g16-asymmetric-catalysis")
         open_shell = package.package_files(ROOT, "auto-g16-main-group-open-shell")
+        conformer = package.package_files(ROOT, "auto-g16-conformer-search")
+        rtwin = package.package_files(ROOT, "auto-g16-rtwin-pbs")
+        ts_irc = package.package_files(ROOT, "auto-g16-ts-irc")
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/candidate-target-import.schema.json")],
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
+        )
+        self.assertEqual(
+            knowledge[Path("contracts/knowledge-base/manual-evidence-receipt.schema.json")],
+            ROOT / "contracts/knowledge-base/manual-evidence-receipt.schema.json",
         )
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/mechanism-support-matrix.schema.json")],
@@ -58,6 +66,22 @@ class SkillPackagingTests(unittest.TestCase):
             ROOT / "skills/auto-g16-reaction-workflow/references/mechanism-support-matrix-contract.md",
         )
         self.assertEqual(
+            reaction[Path("scripts/scientific_maturity_v2.py")],
+            ROOT / "skills/auto-g16-reaction-workflow/scripts/scientific_maturity_v2.py",
+        )
+        self.assertEqual(
+            reaction[Path("references/scientific-maturity-owner-evidence-v2-contract.md")],
+            ROOT / "skills/auto-g16-reaction-workflow/references/scientific-maturity-owner-evidence-v2-contract.md",
+        )
+        self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/scientific-evidence-receipt.schema.json")],
+            ROOT / "contracts/reaction-workflow/scientific-evidence-receipt.schema.json",
+        )
+        self.assertEqual(
+            conformer[Path("scripts/conformer_core.py")],
+            ROOT / "skills/auto-g16-conformer-search/scripts/conformer_core.py",
+        )
+        self.assertEqual(
             asymmetric[Path("scripts/validate_asymmetric_contract.py")],
             ROOT / "scripts/validate_asymmetric_contract.py",
         )
@@ -69,6 +93,22 @@ class SkillPackagingTests(unittest.TestCase):
             open_shell[Path("contracts/main-group-open-shell/electronic-state-review.schema.json")],
             ROOT / "contracts/main-group-open-shell/electronic-state-review.schema.json",
         )
+        self.assertEqual(
+            rtwin[Path("contracts/rtwin-pbs/input-draft-review-v2.schema.json")],
+            ROOT / "contracts/rtwin-pbs/input-draft-review-v2.schema.json",
+        )
+        self.assertEqual(
+            rtwin[Path("contracts/rtwin-pbs/input-approval-receipt.schema.json")],
+            ROOT / "contracts/rtwin-pbs/input-approval-receipt.schema.json",
+        )
+        self.assertEqual(
+            ts_irc[Path("contracts/qst-raw-input-syntax-audit.schema.json")],
+            ROOT / "skills/auto-g16-ts-irc/contracts/qst-raw-input-syntax-audit.schema.json",
+        )
+        self.assertEqual(
+            ts_irc[Path("contracts/installed-g16-qst-syntax-evidence.schema.json")],
+            ROOT / "skills/auto-g16-ts-irc/contracts/installed-g16-qst-syntax-evidence.schema.json",
+        )
         self.assertFalse(
             (ROOT / "skills/auto-g16-reaction-workflow/contracts").exists(),
             "deployment contracts must be mapped, not duplicated in the repository Skill",
@@ -76,6 +116,10 @@ class SkillPackagingTests(unittest.TestCase):
         self.assertFalse(
             (ROOT / "skills/auto-g16-asymmetric-catalysis/scripts/validate_asymmetric_contract.py").exists(),
             "the specialist validator must remain single-source in the repository",
+        )
+        self.assertFalse(
+            (ROOT / "skills/auto-g16-rtwin-pbs/contracts").exists(),
+            "RTwin/PBS contracts must be mapped from the repository root, not duplicated",
         )
 
     def test_dry_run_does_not_write_and_apply_refuses_installed_extras(self) -> None:
@@ -144,6 +188,8 @@ class SkillPackagingTests(unittest.TestCase):
                 "auto-g16-knowledge-base",
                 "auto-g16-reaction-literature",
                 "auto-g16-asymmetric-catalysis",
+                "auto-g16-conformer-search",
+                "auto-g16-main-group-open-shell",
                 "auto-g16-ts-irc",
                 "auto-g16-rtwin-pbs",
             )
@@ -217,6 +263,49 @@ class SkillPackagingTests(unittest.TestCase):
             self.assertTrue(
                 (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/scientific-maturity-gate.schema.json").is_file()
             )
+            maturity_v2 = installed / "auto-g16-reaction-workflow/scripts/scientific_maturity_v2.py"
+            maturity_v2_help = subprocess.run(
+                [sys.executable, str(maturity_v2), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(maturity_v2_help.returncode, 0, maturity_v2_help.stdout + maturity_v2_help.stderr)
+            self.assertIn("build-evidence-receipt", maturity_v2_help.stdout)
+            self.assertIn("build-action", maturity_v2_help.stdout)
+            for schema_name in (
+                "scientific-maturity-review-v2.schema.json", "scientific-evidence-receipt.schema.json",
+                "scientific-maturity-gate-v2.schema.json", "scientific-maturity-action-v2.schema.json",
+            ):
+                self.assertTrue(
+                    (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow" / schema_name).is_file()
+                )
+            conformer = installed / "auto-g16-conformer-search/scripts/conformer_search.py"
+            conformer_help = subprocess.run(
+                [sys.executable, str(conformer), "--help"], cwd=root, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(conformer_help.returncode, 0, conformer_help.stdout + conformer_help.stderr)
+            self.assertIn("validate-handoff", conformer_help.stdout)
+            manual = installed / "auto-g16-knowledge-base/scripts/manual_evidence.py"
+            manual_help = subprocess.run(
+                [sys.executable, str(manual), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(manual_help.returncode, 0, manual_help.stdout + manual_help.stderr)
+            self.assertIn("build-receipt", manual_help.stdout)
+            self.assertTrue(
+                (installed / "auto-g16-knowledge-base/contracts/knowledge-base/manual-evidence-receipt.schema.json").is_file()
+            )
+            self.assertTrue(
+                (installed / "auto-g16-ts-irc/contracts/qst-raw-input-syntax-audit.schema.json").is_file()
+            )
+            self.assertTrue(
+                (installed / "auto-g16-ts-irc/contracts/installed-g16-qst-syntax-evidence.schema.json").is_file()
+            )
             owner_loader_smoke = "\n".join(
                 (
                     "import importlib.util, pathlib, sys",
@@ -241,6 +330,23 @@ class SkillPackagingTests(unittest.TestCase):
             )
             self.assertEqual(owner_loaders.returncode, 0, owner_loaders.stdout + owner_loaders.stderr)
             self.assertIn("deployed-owner-loaders-ok", owner_loaders.stdout)
+            rtwin_cli = installed / "auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
+            rtwin_help = subprocess.run(
+                [sys.executable, str(rtwin_cli), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(rtwin_help.returncode, 0, rtwin_help.stdout + rtwin_help.stderr)
+            self.assertIn("finalize-input-review", rtwin_help.stdout)
+            self.assertIn("build-input-approval", rtwin_help.stdout)
+            self.assertIn("validate-input-approval", rtwin_help.stdout)
+            for name in ("input-draft-review-v2.schema.json", "input-approval-receipt.schema.json"):
+                deployed_schema = installed / "auto-g16-rtwin-pbs/contracts/rtwin-pbs" / name
+                source_schema = ROOT / "contracts/rtwin-pbs" / name
+                self.assertTrue(deployed_schema.is_file())
+                self.assertEqual(deployed_schema.read_bytes(), source_schema.read_bytes())
             observation = ADAPTER._finalize(
                 {
                     "schema": ADAPTER.SANITIZED_JOB_SCHEMA,

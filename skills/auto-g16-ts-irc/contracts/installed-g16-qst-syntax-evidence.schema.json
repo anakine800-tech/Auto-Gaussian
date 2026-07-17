@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/ts-irc/installed-g16-qst-syntax-evidence/1",
+  "title": "Auto-G16 Installed Gaussian 16 QST Syntax Evidence V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "evidence_id", "installed_revision", "verification_status", "known_good_example", "limitations", "no_submission_authorization", "evidence_payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-installed-g16-qst-syntax-evidence/1"},
+    "evidence_id": {"type": "string", "minLength": 1},
+    "installed_revision": {"type": "string", "pattern": "Gaussian[ ]+16.*Revision"},
+    "verification_status": {"enum": ["verified", "pending"]},
+    "known_good_example": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["mode", "input", "source", "source_kind", "usable_status", "source_assertion", "support_binding"],
+      "properties": {
+        "mode": {"enum": ["qst2", "qst3"]},
+        "input": {"$ref": "#/$defs/ref"},
+        "source": {"$ref": "#/$defs/ref"},
+        "source_kind": {"enum": ["successful_installed_revision_run", "official_installed_revision_documentation", "gaussview_generated_and_installed_verified"]},
+        "usable_status": {"const": "known_usable"},
+        "source_assertion": {"const": "known_usable_for_installed_revision"},
+        "support_binding": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["syntax_profile", "exact_assertion", "source_locator", "reviewed", "reviewer", "rationale"],
+          "properties": {
+            "syntax_profile": {"const": "gaussian-qst-cartesian-multistructure/1"},
+            "exact_assertion": {"const": "exact_qst_multistructure_syntax_supported_for_installed_revision"},
+            "source_locator": {"type": "string", "minLength": 1},
+            "reviewed": {"const": true},
+            "reviewer": {"type": "string", "minLength": 1},
+            "rationale": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "no_submission_authorization": {"const": true},
+    "evidence_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

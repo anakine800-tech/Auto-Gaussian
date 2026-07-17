@@ -1,0 +1,12 @@
+{
+  "schema": "gaussian-scientific-maturity-v2-design-constraint/1",
+  "constraint_id": "formal_ts_exact_owner_edge_channel_promotion",
+  "historical_schema": "gaussian-scientific-maturity-gate/1",
+  "observed_v1_behavior": "formal_ts_input_scientifically_ready_can_be_true_when_owner_bindings_exist_but_the_target_edge_precedent_disposition_is_only_proposed",
+  "required_v2_behavior": {
+    "mechanism_support": "resolve_and_owner_validate_the_exact_edge_and_stereochemical_channel_readiness",
+    "ts_precedent": "require_accepted_for_candidate_construction_complete_promotion_and_candidate_construction_eligible_for_the_exact_edge_channel",
+    "failure": "emit_an_explicit_formal_blocker_without_changing_v1_reconstruction"
+  },
+  "non_authority": true
+}

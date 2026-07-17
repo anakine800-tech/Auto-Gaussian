@@ -1,0 +1,9 @@
+{
+  "schema": "gaussian-input-draft-review/1",
+  "method": "M06-2X/def2-SVP",
+  "route": "#p M06-2X/def2-SVP Opt=(TS,CalcFC,MaxCycles=50) Freq SCRF=(SMD,Solvent=Toluene)",
+  "structure_hashes": {
+    "reactant_complex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "input_review_status": "accepted_exact_draft"
+}

@@ -10,9 +10,11 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,8 @@ SCHEMA = "gaussian-ts-irc-workflow/1"
 SCHEMA_V2 = "gaussian-ts-irc-workflow/2"
 TERMINAL_TEMPLATE_SCHEMA = "gaussian-terminal-intake-template/1"
 TERMINAL_INTAKE_SCHEMA = "gaussian-terminal-intake/1"
+QST_RAW_AUDIT_SCHEMA = "gaussian-qst-raw-input-syntax-audit/1"
+QST_REVISION_EVIDENCE_SCHEMA = "gaussian-installed-g16-qst-syntax-evidence/1"
 PROJECT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,14}$")
 ELEMENTS = """X H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og""".split()
 COVALENT_RADII_ANGSTROM = {
@@ -58,6 +62,41 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _canonical_payload_sha256(value: dict[str, Any], hash_field: str) -> str:
+    payload = dict(value)
+    payload.pop(hash_field, None)
+    encoded = (
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _load_json_strict(path: Path) -> Any:
+    def reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"{path}: duplicate JSON object key: {key}")
+            value[key] = item
+        return value
+
+    def reject_constant(token: str) -> Any:
+        raise ValueError(f"{path}: non-standard JSON numeric constant: {token}")
+
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=reject_duplicate_pairs,
+        parse_constant=reject_constant,
+    )
 
 
 def _path_acceptance_payload_sha256(value: dict[str, Any]) -> str:
@@ -250,6 +289,801 @@ def parse_cartesian_input(path: Path) -> dict[str, Any]:
     if not atoms:
         raise ValueError(f"{path}: no Cartesian atoms")
     return {"path": str(path.resolve()), "sha256": sha256(path), "charge": charge, "multiplicity": multiplicity, "atoms": atoms}
+
+
+class QstRawSyntaxError(ValueError):
+    def __init__(self, code: str, message: str, line: int | None = None):
+        super().__init__(message)
+        self.code = code
+        self.line = line
+
+
+class QstRawUnsupportedSyntax(QstRawSyntaxError):
+    """A potentially valid Gaussian syntax form outside the plain-Cartesian subset."""
+
+
+_QST_PLACEHOLDER_RE = re.compile(
+    r"(?:<[^>\n]+>|\{\{[^}\n]+\}\}|\$\{[^}\n]+\}|\b(?:TODO|TBD|PLACEHOLDER)\b|\?\?\?)",
+    re.IGNORECASE,
+)
+_QST_OPTION_RE = re.compile(
+    r"(?<![A-Za-z0-9_])opt\s*=\s*(?:\(\s*)?qst([23])(?=\s*(?:[,)]|$))",
+    re.IGNORECASE,
+)
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _qst_syntax_error(code: str, message: str, index: int | None = None) -> None:
+    raise QstRawSyntaxError(code, message, None if index is None else index + 1)
+
+
+def _canonical_element(token: str, index: int) -> str:
+    if not re.fullmatch(r"[A-Za-z]{1,2}", token):
+        raise QstRawUnsupportedSyntax(
+            "unsupported_atom_label",
+            f"atom labels or annotations are outside the plain Cartesian QST audit subset: {token!r}",
+            index + 1,
+        )
+    element = token[0].upper() + token[1:].lower()
+    if element == "X":
+        raise QstRawUnsupportedSyntax(
+            "unsupported_dummy_atom",
+            "dummy atoms are outside the plain Cartesian QST audit subset",
+            index + 1,
+        )
+    if element not in ELEMENTS:
+        _qst_syntax_error("cartesian_element_invalid", f"unsupported Cartesian element: {token!r}", index)
+    return element
+
+
+def parse_raw_qst_input(path: Path) -> dict[str, Any]:
+    """Parse one complete raw QST2/QST3 input without repairing or generating text."""
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("raw QST input must be an existing non-symlink file")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise QstRawSyntaxError("encoding_invalid", "raw QST input must be valid UTF-8 text") from exc
+    if "\x00" in text:
+        raise QstRawSyntaxError("encoding_invalid", "raw QST input contains a NUL byte")
+    if not text.endswith(("\n", "\r")):
+        raise QstRawSyntaxError("missing_terminal_newline", "raw QST input must end with a newline")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+    if not lines or not any(line.strip() for line in lines):
+        raise QstRawSyntaxError("empty_input", "raw QST input is empty")
+    if lines[0].strip() == "":
+        _qst_syntax_error("leading_blank_content", "raw QST input must begin with Link0 or route content", 0)
+    if any(line.strip().lower() == "--link1--" for line in lines):
+        raise QstRawSyntaxError("link1_forbidden", "Link1 content is outside the raw QST2/QST3 audit scope")
+
+    index = 0
+    link0: list[dict[str, Any]] = []
+    seen_link0: set[str] = set()
+    while index < len(lines) and lines[index].startswith("%"):
+        match = re.fullmatch(r"%([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(\S.*)", lines[index])
+        if match is None:
+            _qst_syntax_error("link0_malformed", "Link0 lines must use %key=value with a non-empty value", index)
+        key = match.group(1).lower()
+        if key in seen_link0:
+            _qst_syntax_error("link0_duplicate", f"duplicate Link0 key: %{key}", index)
+        seen_link0.add(key)
+        link0.append({"key": key, "value": match.group(2).strip(), "line": index + 1})
+        index += 1
+    if index >= len(lines) or not lines[index].lstrip().startswith("#"):
+        _qst_syntax_error("route_missing", "raw QST input has no route section", index if index < len(lines) else None)
+    route_start = index
+    route_lines: list[str] = []
+    while index < len(lines) and lines[index].strip():
+        if index > route_start and lines[index].startswith("%"):
+            _qst_syntax_error("link0_after_route", "Link0 content may not appear inside the route section", index)
+        route_lines.append(lines[index].strip())
+        index += 1
+    route = " ".join(route_lines)
+    if _QST_PLACEHOLDER_RE.search("\n".join(lines[:-1])):
+        raise QstRawSyntaxError("placeholder_detected", "raw QST input contains placeholder text")
+    unsupported_route = re.search(
+        r"\b(?:oniom|genecp|gen|external)\b|\bgeom\s*=\s*(?:\([^)]*\bconnectivity\b[^)]*\)|connectivity\b)|\bpseudo\s*=\s*read\b|\bmodredundant\b",
+        route,
+        flags=re.IGNORECASE,
+    )
+    if unsupported_route:
+        raise QstRawUnsupportedSyntax(
+            "unsupported_route_syntax",
+            "route requires annotations or additional sections outside the plain Cartesian QST audit subset",
+            route_start + 1,
+        )
+    option_matches = list(_QST_OPTION_RE.finditer(route))
+    qst_tokens = re.findall(r"\bqst[23]\b", route, flags=re.IGNORECASE)
+    if len(option_matches) != 1 or len(qst_tokens) != 1:
+        raise QstRawSyntaxError("qst_option_invalid", "route must contain exactly one Opt=QST2 or Opt=QST3 option")
+    mode = f"qst{option_matches[0].group(1)}"
+    if index >= len(lines) or lines[index].strip():
+        _qst_syntax_error("route_separator_missing", "route section must be followed by a blank line", index if index < len(lines) else None)
+    route_blank_lines = 0
+    while index < len(lines) and not lines[index].strip():
+        route_blank_lines += 1
+        index += 1
+
+    roles = ["reactant", "product"] if mode == "qst2" else ["reactant", "product", "reviewed_guess"]
+    structures: list[dict[str, Any]] = []
+    separator_blank_lines: list[int] = []
+    for position, role in enumerate(roles, start=1):
+        if index >= len(lines):
+            _qst_syntax_error("structure_missing", f"{mode} requires {len(roles)} complete structure blocks")
+        title_start = index
+        title_lines: list[str] = []
+        while index < len(lines) and lines[index].strip():
+            title_lines.append(lines[index].strip())
+            index += 1
+        if not title_lines:
+            _qst_syntax_error("title_missing", f"structure {position} has no title", title_start)
+        if index >= len(lines):
+            _qst_syntax_error("title_separator_missing", f"structure {position} title is not blank-line terminated")
+        title_blank_lines = 0
+        while index < len(lines) and not lines[index].strip():
+            title_blank_lines += 1
+            index += 1
+        if index >= len(lines):
+            _qst_syntax_error("charge_multiplicity_missing", f"structure {position} has no charge/multiplicity line")
+        charge_line = index
+        match = re.fullmatch(r"\s*([+-]?\d+)\s+([1-9]\d*)\s*", lines[index])
+        if match is None:
+            _qst_syntax_error(
+                "charge_multiplicity_invalid",
+                f"structure {position} charge/multiplicity must contain exactly two integers",
+                index,
+            )
+        charge = int(match.group(1))
+        multiplicity = int(match.group(2))
+        index += 1
+        atoms: list[dict[str, Any]] = []
+        while index < len(lines) and lines[index].strip():
+            fields = lines[index].split()
+            if len(fields) != 4:
+                if len(fields) >= 5 and re.fullmatch(r"[+-]?[01]", fields[1]):
+                    raise QstRawUnsupportedSyntax(
+                        "unsupported_cartesian_columns",
+                        "freeze flags, layer fields, or other annotated Cartesian columns are outside the supported subset",
+                        index + 1,
+                    )
+                _qst_syntax_error(
+                    "cartesian_line_invalid",
+                    f"structure {position} Cartesian lines must contain exactly element, x, y, z",
+                    index,
+                )
+            element = _canonical_element(fields[0], index)
+            try:
+                coordinates = [_float(value) for value in fields[1:]]
+            except ValueError as exc:
+                raise QstRawSyntaxError(
+                    "cartesian_coordinate_invalid",
+                    f"structure {position} has a non-numeric Cartesian coordinate",
+                    index + 1,
+                ) from exc
+            if not all(math.isfinite(value) for value in coordinates):
+                _qst_syntax_error("cartesian_coordinate_nonfinite", f"structure {position} has a non-finite coordinate", index)
+            atoms.append(
+                {
+                    "index": len(atoms) + 1,
+                    "element": element,
+                    "x": coordinates[0],
+                    "y": coordinates[1],
+                    "z": coordinates[2],
+                }
+            )
+            index += 1
+        if not atoms:
+            _qst_syntax_error("cartesian_atoms_missing", f"structure {position} has no Cartesian atoms", charge_line + 1)
+        if index >= len(lines):
+            _qst_syntax_error("structure_separator_missing", f"structure {position} coordinates are not blank-line terminated")
+        blank_lines = 0
+        while index < len(lines) and not lines[index].strip():
+            blank_lines += 1
+            index += 1
+        separator_blank_lines.append(blank_lines)
+        structures.append(
+            {
+                "position": position,
+                "role": role,
+                "title": " ".join(title_lines),
+                "title_line_count": len(title_lines),
+                "title_separator_blank_lines": title_blank_lines,
+                "charge": charge,
+                "multiplicity": multiplicity,
+                "atom_count": len(atoms),
+                "element_order": [atom["element"] for atom in atoms],
+                "atoms": atoms,
+            }
+        )
+    if index < len(lines) and any(line.strip() for line in lines[index:]):
+        first_extra = next(offset for offset, line in enumerate(lines[index:]) if line.strip())
+        raise QstRawUnsupportedSyntax(
+            "unsupported_additional_sections",
+            "non-blank tail sections are outside the plain Cartesian QST audit subset",
+            index + first_extra + 1,
+        )
+    return {
+        "mode": mode,
+        "link0": link0,
+        "route": route,
+        "route_line_count": len(route_lines),
+        "route_separator_blank_lines": route_blank_lines,
+        "structure_separator_blank_lines": separator_blank_lines,
+        "structures": structures,
+        "syntax_profile": "gaussian-qst-cartesian-multistructure/1",
+    }
+
+
+def _qst_ref(path: Path, root: Path) -> dict[str, Any]:
+    if path.is_symlink():
+        raise ValueError(f"QST audit source may not be a symlink: {path}")
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"QST audit source must be an existing non-symlink file: {path}")
+    try:
+        display = resolved.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        raise ValueError("all QST audit sources must be below the output artifact directory") from None
+    if not display or display == "." or ".." in Path(display).parts:
+        raise ValueError("QST audit source reference must be portable and relative")
+    return {"path": display, "sha256": sha256(resolved), "size_bytes": resolved.stat().st_size}
+
+
+def _resolve_qst_artifact_ref(artifact_path: Path, value: Any, label: str, *, extra_fields: set[str] | None = None) -> Path:
+    extra = extra_fields or set()
+    if not isinstance(value, dict) or set(value) != {"path", "sha256", "size_bytes"} | extra:
+        raise ValueError(f"{label} reference fields are invalid")
+    relative = Path(str(value["path"]))
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise ValueError(f"{label} reference must be portable and relative")
+    path = artifact_path.parent / relative
+    if (
+        not path.is_file()
+        or path.is_symlink()
+        or not isinstance(value["sha256"], str)
+        or not _SHA256_RE.fullmatch(value["sha256"])
+        or sha256(path) != value["sha256"]
+        or path.stat().st_size != value["size_bytes"]
+    ):
+        raise ValueError(f"{label} reference changed")
+    return path
+
+
+def _validate_immutable_output_path(path: Path) -> None:
+    if path.exists() or path.is_symlink():
+        raise ValueError("refusing to overwrite an existing raw QST syntax audit")
+    if not path.parent.is_dir():
+        raise ValueError("raw QST syntax audit output parent must already exist")
+    if path.parent.is_symlink():
+        raise ValueError("raw QST syntax audit output may not use a symlink parent")
+
+
+def _atomic_write_new_json(path: Path, value: dict[str, Any]) -> None:
+    _validate_immutable_output_path(path)
+    payload = (json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temporary_path, path)
+    except FileExistsError as exc:
+        raise ValueError("refusing to overwrite an existing raw QST syntax audit") from exc
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _resolve_evidence_ref(evidence_path: Path, value: Any, label: str) -> Path:
+    if not isinstance(value, dict) or set(value) != {"path", "sha256", "size_bytes"}:
+        raise ValueError(f"installed-revision {label} reference fields are invalid")
+    relative = Path(str(value["path"]))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"installed-revision {label} reference must be relative and portable")
+    path = evidence_path.parent / relative
+    if (
+        not path.is_file()
+        or path.is_symlink()
+        or not isinstance(value["sha256"], str)
+        or not _SHA256_RE.fullmatch(value["sha256"])
+        or sha256(path) != value["sha256"]
+        or path.stat().st_size != value["size_bytes"]
+    ):
+        raise ValueError(f"installed-revision {label} reference changed")
+    return path
+
+
+def _revision_key(text: str) -> str | None:
+    match = re.search(r"Gaussian\s+16\s*,?\s*Revision\s+([A-Za-z0-9.]+)", text, flags=re.IGNORECASE)
+    return match.group(1).rstrip(".").upper() if match else None
+
+
+def validate_qst_revision_evidence(path: Path, mode: str | None) -> dict[str, Any]:
+    evidence = _load_json_strict(path)
+    fields = {
+        "schema",
+        "evidence_id",
+        "installed_revision",
+        "verification_status",
+        "known_good_example",
+        "limitations",
+        "no_submission_authorization",
+        "evidence_payload_sha256",
+    }
+    if not isinstance(evidence, dict) or set(evidence) != fields:
+        raise ValueError("installed-revision evidence fields are invalid")
+    if evidence.get("schema") != QST_REVISION_EVIDENCE_SCHEMA:
+        raise ValueError("installed-revision evidence schema is invalid")
+    if evidence.get("evidence_payload_sha256") != _canonical_payload_sha256(evidence, "evidence_payload_sha256"):
+        raise ValueError("installed-revision evidence payload hash is invalid")
+    if not isinstance(evidence.get("evidence_id"), str) or not evidence["evidence_id"].strip():
+        raise ValueError("installed-revision evidence_id is required")
+    installed_revision = evidence.get("installed_revision")
+    if not isinstance(installed_revision, str) or _revision_key(installed_revision) is None:
+        raise ValueError("installed-revision evidence must identify a Gaussian 16 revision")
+    if evidence.get("verification_status") not in {"verified", "pending"}:
+        raise ValueError("installed-revision verification_status must be verified or pending")
+    if evidence.get("no_submission_authorization") is not True:
+        raise ValueError("installed-revision evidence must grant no submission authorization")
+    if not isinstance(evidence.get("limitations"), list) or not evidence["limitations"] or not all(
+        isinstance(item, str) and item.strip() for item in evidence["limitations"]
+    ):
+        raise ValueError("installed-revision evidence must retain non-empty limitations")
+    if evidence["verification_status"] == "pending":
+        if evidence.get("known_good_example") is not None:
+            raise ValueError("pending installed-revision evidence may not claim a known-good example")
+        return {"status": "blocked", "evidence": evidence, "known_good_input_sha256": None}
+
+    example = evidence.get("known_good_example")
+    example_fields = {"mode", "input", "source", "source_kind", "usable_status", "source_assertion", "support_binding"}
+    if not isinstance(example, dict) or set(example) != example_fields:
+        raise ValueError("verified installed-revision evidence requires one closed known-good example")
+    if mode is None:
+        return {"status": "not_evaluated", "evidence": evidence, "known_good_input_sha256": None}
+    if example.get("mode") != mode or example.get("usable_status") != "known_usable":
+        return {"status": "blocked", "evidence": evidence, "known_good_input_sha256": None}
+    if example.get("source_assertion") != "known_usable_for_installed_revision":
+        raise ValueError("known-good example source assertion is invalid")
+    if example.get("source_kind") not in {
+        "successful_installed_revision_run",
+        "official_installed_revision_documentation",
+        "gaussview_generated_and_installed_verified",
+    }:
+        raise ValueError("known-good example source_kind is invalid")
+    known_good_input = _resolve_evidence_ref(path, example["input"], "known-good input")
+    known_good_source = _resolve_evidence_ref(path, example["source"], "known-good source")
+    parsed_example = parse_raw_qst_input(known_good_input)
+    if parsed_example["mode"] != mode or parsed_example["syntax_profile"] != "gaussian-qst-cartesian-multistructure/1":
+        raise ValueError("known-good example does not match the declared QST syntax family")
+    source_text = known_good_source.read_text(encoding="utf-8", errors="replace")
+    if not source_text.strip():
+        raise ValueError("known-good source evidence is empty")
+    binding = example.get("support_binding")
+    binding_fields = {"syntax_profile", "exact_assertion", "source_locator", "reviewed", "reviewer", "rationale"}
+    if not isinstance(binding, dict):
+        return {"status": "blocked", "evidence": evidence, "known_good_input_sha256": None}
+    if set(binding) != binding_fields:
+        raise ValueError("known-good exact support binding fields are invalid")
+    if (
+        binding.get("syntax_profile") != "gaussian-qst-cartesian-multistructure/1"
+        or binding.get("exact_assertion") != "exact_qst_multistructure_syntax_supported_for_installed_revision"
+        or binding.get("reviewed") is not True
+        or not isinstance(binding.get("reviewer"), str)
+        or not binding["reviewer"].strip()
+        or not isinstance(binding.get("rationale"), str)
+        or not binding["rationale"].strip()
+        or not isinstance(binding.get("source_locator"), str)
+        or not binding["source_locator"].strip()
+    ):
+        raise ValueError("known-good exact support binding is invalid")
+    if binding["source_locator"] not in source_text:
+        return {"status": "blocked", "evidence": evidence, "known_good_input_sha256": None}
+    if example["source_kind"] in {"successful_installed_revision_run", "gaussview_generated_and_installed_verified"}:
+        if _revision_key(source_text) != _revision_key(installed_revision):
+            raise ValueError("known-good run does not match the installed Gaussian revision")
+        if "Normal termination of Gaussian" not in source_text or "Error termination" in source_text or "End of file in ZSymb" in source_text:
+            raise ValueError("known-good run does not prove successful installed-revision syntax use")
+    elif re.search(rf"\b{re.escape(mode)}\b", source_text, flags=re.IGNORECASE) is None:
+        return {"status": "blocked", "evidence": evidence, "known_good_input_sha256": None}
+    return {
+        "status": "verified",
+        "evidence": evidence,
+        "known_good_input_sha256": example["input"]["sha256"],
+    }
+
+
+def _validate_expected_sha256(path: Path, expected: str, label: str) -> None:
+    if not isinstance(expected, str) or not _SHA256_RE.fullmatch(expected):
+        raise ValueError(f"{label} expected SHA-256 must be 64 lowercase hexadecimal characters")
+    if sha256(path) != expected:
+        raise ValueError(f"{label} SHA-256 differs from the supplied expected hash")
+
+
+def _validate_raw_against_atom_map_audit(parsed: dict[str, Any], audit_path: Path) -> tuple[list[int], dict[str, Any]]:
+    audit = _load_json_strict(audit_path)
+    if not isinstance(audit, dict) or audit.get("schema") != SCHEMA or audit.get("valid") is not True:
+        raise ValueError("raw QST audit requires a valid historical-compatible validate-inputs artifact")
+    mode = parsed["mode"]
+    if audit.get("entry_mode") != mode:
+        raise ValueError("raw QST mode differs from the endpoint/guess atom-map audit")
+    expected_labels = ["reactant", "product"] if mode == "qst2" else ["reactant", "product", "ts"]
+    structures = audit.get("structures")
+    if not isinstance(structures, dict) or set(structures) != set(expected_labels):
+        raise ValueError("endpoint/guess atom-map audit structure roles are incomplete")
+    atom_count = audit.get("atom_count")
+    atom_map = audit.get("atom_map")
+    if not isinstance(atom_count, int) or atom_count <= 0:
+        raise ValueError("endpoint/guess atom-map audit atom_count is invalid")
+    if not isinstance(atom_map, list) or not all(isinstance(value, int) for value in atom_map):
+        raise ValueError("endpoint/guess atom map must be an integer list")
+    if sorted(atom_map) != list(range(1, atom_count + 1)):
+        raise ValueError("endpoint/guess atom map must be a one-to-one permutation")
+    for raw_structure, label in zip(parsed["structures"], expected_labels):
+        audited = structures[label]
+        if not isinstance(audited, dict) or not _SHA256_RE.fullmatch(str(audited.get("sha256", ""))):
+            raise ValueError(f"{label} atom-map audit must retain the source file SHA-256")
+        audited_atoms = audited.get("atoms")
+        if (
+            audited.get("charge") != raw_structure["charge"]
+            or audited.get("multiplicity") != raw_structure["multiplicity"]
+            or not isinstance(audited_atoms, list)
+            or len(audited_atoms) != raw_structure["atom_count"]
+        ):
+            raise ValueError(f"raw {label} charge, multiplicity, or atom count differs from the atom-map audit")
+        for raw_atom, audited_atom in zip(raw_structure["atoms"], audited_atoms):
+            if not isinstance(audited_atom, dict) or audited_atom.get("element") != raw_atom["element"]:
+                raise ValueError(f"raw {label} element or atom order differs from the atom-map audit")
+            for coordinate in ("x", "y", "z"):
+                value = audited_atom.get(coordinate)
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
+                    raise ValueError(f"{label} atom-map audit has an invalid Cartesian coordinate")
+                if float(value) != raw_atom[coordinate]:
+                    raise ValueError(f"raw {label} Cartesian coordinates differ from the atom-map audit")
+    guess_review: dict[str, Any] = {
+        "third_structure_role": "not_applicable",
+        "reviewed_guess_confirmed": False,
+        "reviewed_structure_sha256": None,
+        "minimum_claim_allowed": False,
+    }
+    if mode == "qst3":
+        review = audit.get("qst3_guess_review")
+        if not isinstance(review, dict):
+            raise ValueError("QST3 requires an explicit hash-bound reviewed-guess record in the atom-map audit")
+        if (
+            review.get("decision") != "reviewed_guess"
+            or review.get("confirmed") is not True
+            or review.get("minimum_claim") is not False
+            or review.get("reviewed_structure_sha256") != structures["ts"]["sha256"]
+            or not isinstance(review.get("reviewer"), str)
+            or not review["reviewer"].strip()
+            or not isinstance(review.get("rationale"), str)
+            or not review["rationale"].strip()
+        ):
+            raise ValueError("QST3 third structure is not explicitly confirmed as a reviewed guess with no minimum claim")
+        guess_review = {
+            "third_structure_role": "reviewed_guess",
+            "reviewed_guess_confirmed": True,
+            "reviewed_structure_sha256": review["reviewed_structure_sha256"],
+            "minimum_claim_allowed": False,
+        }
+    return atom_map, guess_review
+
+
+def qst_raw_audit_payload_sha256(value: dict[str, Any]) -> str:
+    return _canonical_payload_sha256(value, "audit_payload_sha256")
+
+
+def _qst_audit_id(raw_hash: str, atom_map_hash: str, evidence_hash: str, failure_hash: str | None) -> str:
+    bound = "\n".join((raw_hash, atom_map_hash, evidence_hash, failure_hash or "none")).encode("ascii")
+    return f"qst_raw_{hashlib.sha256(bound).hexdigest()[:16]}"
+
+
+def audit_raw_qst_input(
+    raw_input_path: Path,
+    raw_input_sha256: str,
+    atom_map_audit_path: Path,
+    atom_map_audit_sha256: str,
+    revision_evidence_path: Path,
+    revision_evidence_sha256: str,
+    output_path: Path,
+    *,
+    zsymb_failure_log_path: Path | None = None,
+    zsymb_failure_log_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Create one immutable, non-runnable raw QST syntax audit artifact."""
+    _validate_immutable_output_path(output_path)
+    for label, path, expected in (
+        ("raw QST input", raw_input_path, raw_input_sha256),
+        ("endpoint/guess atom-map audit", atom_map_audit_path, atom_map_audit_sha256),
+        ("installed-revision evidence", revision_evidence_path, revision_evidence_sha256),
+    ):
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"{label} must be an existing non-symlink file")
+        _validate_expected_sha256(path, expected, label)
+    if (zsymb_failure_log_path is None) != (zsymb_failure_log_sha256 is None):
+        raise ValueError("ZSymb failure log and its expected SHA-256 must be supplied together")
+    failure_ref: dict[str, Any] | None = None
+    if zsymb_failure_log_path is not None and zsymb_failure_log_sha256 is not None:
+        if not zsymb_failure_log_path.is_file() or zsymb_failure_log_path.is_symlink():
+            raise ValueError("ZSymb failure log must be an existing non-symlink file")
+        _validate_expected_sha256(zsymb_failure_log_path, zsymb_failure_log_sha256, "ZSymb failure log")
+        if "End of file in ZSymb" not in zsymb_failure_log_path.read_text(encoding="utf-8", errors="replace"):
+            raise ValueError("supplied failure log does not contain End of file in ZSymb")
+        failure_ref = _qst_ref(zsymb_failure_log_path, output_path.parent)
+
+    diagnostics: list[dict[str, Any]] = []
+    parsed: dict[str, Any] | None = None
+    unsupported_syntax = False
+    atom_map: list[int] = []
+    guess_review = {
+        "third_structure_role": "not_evaluated",
+        "reviewed_guess_confirmed": False,
+        "reviewed_structure_sha256": None,
+        "minimum_claim_allowed": False,
+    }
+    checks = {
+        "link0_and_route": "not_evaluated",
+        "qst_option": "not_evaluated",
+        "structure_blocks": "not_evaluated",
+        "separators_and_trailing_content": "not_evaluated",
+        "placeholders": "not_evaluated",
+        "atom_map_and_structure_identity": "not_evaluated",
+        "qst3_reviewed_guess_role": "not_evaluated",
+        "installed_revision_applicability": "not_evaluated",
+    }
+    try:
+        parsed = parse_raw_qst_input(raw_input_path)
+        for key in ("link0_and_route", "qst_option", "structure_blocks", "separators_and_trailing_content", "placeholders"):
+            checks[key] = "passed"
+    except QstRawUnsupportedSyntax as exc:
+        unsupported_syntax = True
+        checks["structure_blocks"] = "blocked"
+        diagnostics.append({"code": exc.code, "message": str(exc), "line": exc.line})
+    except QstRawSyntaxError as exc:
+        code_to_check = {
+            "placeholder_detected": "placeholders",
+            "qst_option_invalid": "qst_option",
+            "trailing_content": "separators_and_trailing_content",
+            "missing_terminal_newline": "separators_and_trailing_content",
+            "structure_separator_missing": "separators_and_trailing_content",
+            "route_separator_missing": "separators_and_trailing_content",
+        }
+        failed_check = code_to_check.get(exc.code, "structure_blocks")
+        checks[failed_check] = "failed"
+        diagnostics.append({"code": exc.code, "message": str(exc), "line": exc.line})
+
+    if parsed is not None:
+        try:
+            atom_map, guess_review = _validate_raw_against_atom_map_audit(parsed, atom_map_audit_path)
+            checks["atom_map_and_structure_identity"] = "passed"
+            checks["qst3_reviewed_guess_role"] = "not_applicable" if parsed["mode"] == "qst2" else "passed"
+        except ValueError as exc:
+            checks["atom_map_and_structure_identity"] = "failed"
+            if parsed["mode"] == "qst3" and "reviewed" in str(exc).lower():
+                checks["qst3_reviewed_guess_role"] = "failed"
+            diagnostics.append({"code": "atom_map_audit_mismatch", "message": str(exc), "line": None})
+
+    revision_result: dict[str, Any] | None = None
+    if parsed is not None:
+        revision_result = validate_qst_revision_evidence(revision_evidence_path, parsed["mode"])
+        if revision_result["status"] == "verified":
+            checks["installed_revision_applicability"] = "passed"
+        else:
+            checks["installed_revision_applicability"] = "blocked"
+            diagnostics.append(
+                {
+                    "code": "installed_revision_verification_missing",
+                    "message": "installed-revision evidence does not bind a known-usable example/source for this QST mode",
+                    "line": None,
+                }
+            )
+    else:
+        evidence = validate_qst_revision_evidence(revision_evidence_path, None)
+        revision_result = evidence
+
+    if failure_ref is not None:
+        diagnostics.append(
+            {
+                "code": "zsymb_eof_preserved",
+                "message": "End of file in ZSymb is preserved as failure evidence; rewrite and resubmission are not authorized",
+                "line": None,
+            }
+        )
+        audit_status = "failed_preserved_zsymb_eof"
+    elif unsupported_syntax:
+        audit_status = "blocked_unsupported_syntax"
+    elif any(value == "failed" for value in checks.values()):
+        audit_status = "failed"
+    elif checks["installed_revision_applicability"] != "passed":
+        audit_status = "blocked_pending_installed_revision_verification"
+    else:
+        audit_status = "syntax_verified_for_installed_revision"
+
+    revision_evidence = revision_result["evidence"] if revision_result is not None else {}
+    structures = []
+    if parsed is not None:
+        for structure in parsed["structures"]:
+            structures.append(
+                {
+                    key: structure[key]
+                    for key in ("position", "role", "title", "charge", "multiplicity", "atom_count", "element_order")
+                }
+            )
+    artifact = {
+        "schema": QST_RAW_AUDIT_SCHEMA,
+        "audit_id": _qst_audit_id(
+            raw_input_sha256,
+            atom_map_audit_sha256,
+            revision_evidence_sha256,
+            zsymb_failure_log_sha256,
+        ),
+        "audit_status": audit_status,
+        "syntax_runnable_claim": (
+            "verified_for_installed_revision"
+            if audit_status == "syntax_verified_for_installed_revision"
+            else "not_claimed"
+        ),
+        "claim_scope": "raw_qst_multistructure_syntax_only",
+        "supported_syntax_subset": "plain_cartesian_qst_multistructure/1",
+        "raw_input": _qst_ref(raw_input_path, output_path.parent),
+        "atom_map_audit": {**_qst_ref(atom_map_audit_path, output_path.parent), "schema": SCHEMA},
+        "installed_revision_evidence": {
+            **_qst_ref(revision_evidence_path, output_path.parent),
+            "schema": QST_REVISION_EVIDENCE_SCHEMA,
+            "evidence_id": revision_evidence.get("evidence_id"),
+            "installed_revision": revision_evidence.get("installed_revision"),
+            "verification_status": revision_evidence.get("verification_status"),
+            "known_good_input_sha256": revision_result.get("known_good_input_sha256") if revision_result else None,
+        },
+        "input_family": parsed["mode"] if parsed is not None else None,
+        "syntax_profile": parsed["syntax_profile"] if parsed is not None else None,
+        "link0": parsed["link0"] if parsed is not None else [],
+        "route": parsed["route"] if parsed is not None else None,
+        "structure_count": len(parsed["structures"]) if parsed is not None else 0,
+        "structures": structures,
+        "declared_atom_map": atom_map,
+        "checks": checks,
+        "qst3_third_structure": guess_review,
+        "zsymb_failure_evidence": failure_ref,
+        "diagnostics": diagnostics,
+        "immutable": True,
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "automatic_rewrite_authorized": False,
+        "automatic_resubmission_authorized": False,
+        "next_step": "manual_input_review_only",
+    }
+    artifact["audit_payload_sha256"] = qst_raw_audit_payload_sha256(artifact)
+    _atomic_write_new_json(output_path, artifact)
+    return artifact
+
+
+def validate_qst_raw_audit_artifact(path: Path) -> dict[str, Any]:
+    """Replay local references and hashes for one immutable raw-QST audit artifact."""
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("raw QST syntax audit must be an existing non-symlink file")
+    artifact = _load_json_strict(path)
+    fields = {
+        "schema", "audit_id", "audit_status", "syntax_runnable_claim", "claim_scope",
+        "raw_input", "atom_map_audit", "installed_revision_evidence", "input_family",
+        "syntax_profile", "supported_syntax_subset", "link0", "route", "structure_count",
+        "structures", "declared_atom_map", "checks", "qst3_third_structure",
+        "zsymb_failure_evidence", "diagnostics", "immutable", "calculation_ready",
+        "no_submission_authorization", "automatic_rewrite_authorized",
+        "automatic_resubmission_authorized", "next_step", "audit_payload_sha256",
+    }
+    if not isinstance(artifact, dict) or set(artifact) != fields or artifact.get("schema") != QST_RAW_AUDIT_SCHEMA:
+        raise ValueError("raw QST syntax audit fields or schema are invalid")
+    if artifact.get("audit_payload_sha256") != qst_raw_audit_payload_sha256(artifact):
+        raise ValueError("raw QST syntax audit payload hash is invalid")
+    if not all(isinstance(artifact.get(key), dict) for key in ("raw_input", "atom_map_audit", "installed_revision_evidence")):
+        raise ValueError("raw QST syntax audit source references are invalid")
+    expected_audit_id = _qst_audit_id(
+        artifact["raw_input"].get("sha256", ""),
+        artifact["atom_map_audit"].get("sha256", ""),
+        artifact["installed_revision_evidence"].get("sha256", ""),
+        artifact["zsymb_failure_evidence"].get("sha256") if isinstance(artifact["zsymb_failure_evidence"], dict) else None,
+    )
+    if artifact.get("audit_id") != expected_audit_id:
+        raise ValueError("raw QST syntax audit ID differs from its bound source hashes")
+    if (
+        artifact.get("immutable") is not True
+        or artifact.get("calculation_ready") is not False
+        or artifact.get("no_submission_authorization") is not True
+        or artifact.get("automatic_rewrite_authorized") is not False
+        or artifact.get("automatic_resubmission_authorized") is not False
+        or artifact.get("next_step") != "manual_input_review_only"
+        or artifact.get("claim_scope") != "raw_qst_multistructure_syntax_only"
+        or artifact.get("supported_syntax_subset") != "plain_cartesian_qst_multistructure/1"
+    ):
+        raise ValueError("raw QST syntax audit safety or scope constants changed")
+
+    raw_path = _resolve_qst_artifact_ref(path, artifact["raw_input"], "raw QST input")
+    atom_map_path = _resolve_qst_artifact_ref(
+        path, artifact["atom_map_audit"], "atom-map audit", extra_fields={"schema"}
+    )
+    revision_path = _resolve_qst_artifact_ref(
+        path,
+        artifact["installed_revision_evidence"],
+        "installed-revision evidence",
+        extra_fields={"schema", "evidence_id", "installed_revision", "verification_status", "known_good_input_sha256"},
+    )
+    failure_path = None
+    if artifact["zsymb_failure_evidence"] is not None:
+        failure_path = _resolve_qst_artifact_ref(path, artifact["zsymb_failure_evidence"], "ZSymb failure evidence")
+        if "End of file in ZSymb" not in failure_path.read_text(encoding="utf-8", errors="replace"):
+            raise ValueError("ZSymb failure evidence no longer contains the preserved failure")
+
+    parsed: dict[str, Any] | None = None
+    unsupported = False
+    syntax_failed = False
+    try:
+        parsed = parse_raw_qst_input(raw_path)
+    except QstRawUnsupportedSyntax:
+        unsupported = True
+    except QstRawSyntaxError:
+        syntax_failed = True
+    atom_map_failed = False
+    atom_map: list[int] = []
+    guess_review: dict[str, Any] | None = None
+    if parsed is not None:
+        try:
+            atom_map, guess_review = _validate_raw_against_atom_map_audit(parsed, atom_map_path)
+        except ValueError:
+            atom_map_failed = True
+    mode = parsed["mode"] if parsed is not None else None
+    revision = validate_qst_revision_evidence(revision_path, mode)
+    evidence = revision["evidence"]
+    recorded_evidence = artifact["installed_revision_evidence"]
+    if (
+        recorded_evidence.get("schema") != QST_REVISION_EVIDENCE_SCHEMA
+        or recorded_evidence.get("evidence_id") != evidence.get("evidence_id")
+        or recorded_evidence.get("installed_revision") != evidence.get("installed_revision")
+        or recorded_evidence.get("verification_status") != evidence.get("verification_status")
+        or recorded_evidence.get("known_good_input_sha256") != revision.get("known_good_input_sha256")
+        or artifact["atom_map_audit"].get("schema") != SCHEMA
+    ):
+        raise ValueError("raw QST syntax audit recorded evidence metadata differs from source artifacts")
+
+    if failure_path is not None:
+        expected_status = "failed_preserved_zsymb_eof"
+    elif unsupported:
+        expected_status = "blocked_unsupported_syntax"
+    elif syntax_failed or atom_map_failed:
+        expected_status = "failed"
+    elif revision["status"] != "verified":
+        expected_status = "blocked_pending_installed_revision_verification"
+    else:
+        expected_status = "syntax_verified_for_installed_revision"
+    if artifact.get("audit_status") != expected_status:
+        raise ValueError("raw QST syntax audit status differs from replayed source evidence")
+    expected_claim = "verified_for_installed_revision" if expected_status == "syntax_verified_for_installed_revision" else "not_claimed"
+    if artifact.get("syntax_runnable_claim") != expected_claim:
+        raise ValueError("raw QST syntax audit runnable claim differs from replayed status")
+    if parsed is not None:
+        summaries = [
+            {
+                key: structure[key]
+                for key in ("position", "role", "title", "charge", "multiplicity", "atom_count", "element_order")
+            }
+            for structure in parsed["structures"]
+        ]
+        if (
+            artifact.get("input_family") != parsed["mode"]
+            or artifact.get("syntax_profile") != parsed["syntax_profile"]
+            or artifact.get("link0") != parsed["link0"]
+            or artifact.get("route") != parsed["route"]
+            or artifact.get("structure_count") != len(parsed["structures"])
+            or artifact.get("structures") != summaries
+        ):
+            raise ValueError("raw QST syntax facts differ from replayed input")
+        if not atom_map_failed and (artifact.get("declared_atom_map") != atom_map or artifact.get("qst3_third_structure") != guess_review):
+            raise ValueError("raw QST atom-map or reviewed-guess facts differ from replay")
+    elif artifact.get("input_family") is not None or artifact.get("syntax_profile") is not None:
+        raise ValueError("unparsed raw QST input may not retain a known input family or syntax profile")
+    return artifact
 
 
 def _link0_value(path: Path, key: str) -> str | None:
@@ -1720,6 +2554,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("validate-inputs"); check.add_argument("--mode", choices=["single_guess", "qst2", "qst3"], required=True); check.add_argument("--ts"); check.add_argument("--reactant"); check.add_argument("--product"); check.add_argument("--atom-map", required=True); check.add_argument("--output")
+    raw_qst = sub.add_parser("audit-qst-raw-input")
+    raw_qst.add_argument("--input", required=True)
+    raw_qst.add_argument("--input-sha256", required=True)
+    raw_qst.add_argument("--atom-map-audit", required=True)
+    raw_qst.add_argument("--atom-map-audit-sha256", required=True)
+    raw_qst.add_argument("--installed-revision-evidence", required=True)
+    raw_qst.add_argument("--installed-revision-evidence-sha256", required=True)
+    raw_qst.add_argument("--zsymb-failure-log")
+    raw_qst.add_argument("--zsymb-failure-log-sha256")
+    raw_qst.add_argument("--output", required=True)
+    raw_qst_validate = sub.add_parser("validate-qst-raw-audit")
+    raw_qst_validate.add_argument("artifact")
     family = sub.add_parser("create-family"); family.add_argument("--input-audit", required=True); family.add_argument("--protocol", required=True); family.add_argument("--scientific-maturity", required=True); family.add_argument("--edge-id", required=True); family.add_argument("--node-id", required=True); family.add_argument("--pilot", action="store_true"); family.add_argument("--output", required=True)
     analyze = sub.add_parser("analyze-ts"); analyze.add_argument("log"); analyze.add_argument("--output", required=True)
     review = sub.add_parser("mode-review"); review.add_argument("result"); review.add_argument("--output-dir", required=True); review.add_argument("--forming", action="append", default=[]); review.add_argument("--breaking", action="append", default=[]); review.add_argument("--amplitude", type=float, default=0.1)
@@ -1744,6 +2590,44 @@ def main() -> int:
             output = json.dumps(result, indent=2) + "\n"
             if args.output: Path(args.output).write_text(output, encoding="utf-8")
             else: print(output, end="")
+        elif args.command == "audit-qst-raw-input":
+            result = audit_raw_qst_input(
+                Path(args.input),
+                args.input_sha256,
+                Path(args.atom_map_audit),
+                args.atom_map_audit_sha256,
+                Path(args.installed_revision_evidence),
+                args.installed_revision_evidence_sha256,
+                Path(args.output),
+                zsymb_failure_log_path=Path(args.zsymb_failure_log) if args.zsymb_failure_log else None,
+                zsymb_failure_log_sha256=args.zsymb_failure_log_sha256,
+            )
+            print(
+                json.dumps(
+                    {
+                        "schema": QST_RAW_AUDIT_SCHEMA,
+                        "audit_status": result["audit_status"],
+                        "audit_payload_sha256": result["audit_payload_sha256"],
+                        "calculation_ready": False,
+                        "live_actions": False,
+                    },
+                    indent=2,
+                )
+            )
+        elif args.command == "validate-qst-raw-audit":
+            result = validate_qst_raw_audit_artifact(Path(args.artifact))
+            print(
+                json.dumps(
+                    {
+                        "schema": "gaussian-qst-raw-input-syntax-audit-validation/1",
+                        "audit_status": result["audit_status"],
+                        "audit_payload_sha256": result["audit_payload_sha256"],
+                        "calculation_ready": False,
+                        "live_actions": False,
+                    },
+                    indent=2,
+                )
+            )
         elif args.command == "create-family":
             output_path = Path(args.output)
             if output_path.exists(): raise ValueError("refusing to overwrite an existing family manifest")

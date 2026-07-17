@@ -1,0 +1,13 @@
+{
+  "schema": "gaussian-protocol-profile-source/1",
+  "protocol_id": "synthetic_protocol_001",
+  "method": "M06-2X/def2-SVP",
+  "route": "#p M06-2X/def2-SVP Opt=(TS,CalcFC,MaxCycles=50) Freq SCRF=(SMD,Solvent=Toluene)",
+  "resources": {
+    "resource_tier": "simple",
+    "memory_gb": 12,
+    "cores": 8,
+    "optimization_max_cycles": 50
+  },
+  "structure_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

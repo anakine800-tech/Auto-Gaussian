@@ -131,7 +131,23 @@ Historical calculation plans, TS-family `/1` artifacts and live approvals `/1`
 remain immutable and valid under their original contracts. TS-family `/1` is
 replay-only and cannot create a new IRC plan. New TS-family CLI
 creation emits `gaussian-ts-irc-workflow/2` and requires the maturity gate.
-New TS live approvals use `auto-g16-live-submission-approval/2` and bind the
-edge plus exact maturity file and payload hashes. Non-TS approvals remain `/1`.
-No in-place migration is permitted; a correction creates a new review/gate and
-later artifact revision.
+Historical TS live approvals `/2` and non-TS approvals `/1` remain replayable
+under their original contracts. New live submissions use
+`auto-g16-live-submission-approval/3`, which also binds explicit `work_kind`
+and the exact generic input-approval receipt file/payload hashes. For TS work
+the `/3` scope additionally retains the `/2` maturity and scientific-action
+authorization bindings. No in-place migration is permitted; a correction
+creates a new review/gate and later artifact revision.
+
+### Known `/1` owner-integration blocker
+
+Historical `gaussian-scientific-maturity-gate/1` formal readiness checks bind
+the exact calculation plan but do not yet independently project the target
+edge/channel promotion state from both owner artifacts. The reproducible
+constraint is recorded in
+`tests/fixtures/reaction_workflow/maturity_v2_owner_evidence_constraint.json`;
+it is not an expected failure in the green suite. Do not change the `/1`
+reconstruction semantics in place; close this in a later versioned
+scientific-maturity owner-evidence integration. Input approval and exact live
+approval remain separate mandatory gates and do not repair or replace this
+scientific blocker.

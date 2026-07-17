@@ -1,0 +1,7 @@
+{
+  "schema": "auto-g16-manual-retrieval-adapter/1",
+  "adapter_id": "synthetic_manual_sqlite",
+  "query_sql": "SELECT result_id, canonical_store_digest, source_record_id, source_revision, source_payload_sha256, source_object_sha256, source_kind, locator_kind, page, logical_chunk, text_quality, text_quality_notes, source_program, source_major_version, source_version, evidence_text FROM manual_chunks WHERE (page IS NULL OR page > 0) AND instr(lower(evidence_text), lower(:query)) > 0 ORDER BY result_id LIMIT :limit",
+  "selection_sql": "SELECT result_id, canonical_store_digest, source_record_id, source_revision, source_payload_sha256, source_object_sha256, source_kind, locator_kind, page, logical_chunk, text_quality, text_quality_notes, source_program, source_major_version, source_version, evidence_text FROM manual_chunks WHERE result_id = :result_id AND (page IS NULL OR page > 0) AND instr(lower(evidence_text), lower(:query)) > 0",
+  "preview_char_limit": 120
+}

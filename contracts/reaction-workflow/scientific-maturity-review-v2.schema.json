@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/scientific-maturity-review-v2.schema.json",
+  "title": "Auto-G16 scientific maturity owner-evidence review v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "review_id", "study_id", "base_gate_payload_sha256", "edge_evidence", "minimum_evidence", "manual_claims", "review_decision", "reviewer", "reviewed_at", "review_notes", "calculation_ready", "no_submission_authorization", "no_method_selection_authorization", "no_input_generation_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-scientific-maturity-review/2"},
+    "review_id": {"$ref": "#/$defs/id"}, "study_id": {"$ref": "#/$defs/id"},
+    "base_gate_payload_sha256": {"$ref": "#/$defs/sha"},
+    "edge_evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/edge"}},
+    "minimum_evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/minimum"}},
+    "manual_claims": {"type": "array", "items": {"$ref": "#/$defs/manualClaim"}},
+    "review_decision": {"enum": ["accepted", "blocked"]}, "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "minLength": 1}, "review_notes": {"$ref": "#/$defs/strings"},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true},
+    "no_method_selection_authorization": {"const": true}, "no_input_generation_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "strings": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": "string", "minLength": 1}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "conformerOrigin": {"type": "object", "additionalProperties": false, "required": ["scope", "source_id", "ts_derivation_allowed"], "properties": {"scope": {"type": "string", "minLength": 1}, "source_id": {"$ref": "#/$defs/id"}, "ts_derivation_allowed": {"type": "boolean"}}},
+    "construction": {"type": "object", "additionalProperties": false, "required": ["kind", "source_id"], "properties": {"kind": {"enum": ["precedent_record", "de_novo_seed_plan"]}, "source_id": {"$ref": "#/$defs/id"}}},
+    "edge": {"type": "object", "additionalProperties": false, "required": ["edge_id", "stereochemical_channel", "mechanism_support_record_ids", "candidate_construction"], "properties": {"edge_id": {"$ref": "#/$defs/id"}, "stereochemical_channel": {"type": ["string", "null"]}, "mechanism_support_record_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "candidate_construction": {"$ref": "#/$defs/construction"}}},
+    "minimum": {"type": "object", "additionalProperties": false, "required": ["minimum_id", "state_id", "composition_signature", "formal_charge", "multiplicity", "conformer_origin", "selected_candidate_id", "conformer_handoff", "open_shell_acceptance"], "properties": {"minimum_id": {"$ref": "#/$defs/id"}, "state_id": {"$ref": "#/$defs/id"}, "composition_signature": {"type": "string", "minLength": 1}, "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1}, "conformer_origin": {"$ref": "#/$defs/conformerOrigin"}, "selected_candidate_id": {"$ref": "#/$defs/id"}, "conformer_handoff": {"$ref": "#/$defs/binding"}, "open_shell_acceptance": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/binding"}]}}},
+    "manualClaim": {"type": "object", "additionalProperties": false, "required": ["claim_id", "target_kind", "target_id", "intended_use", "receipt"], "properties": {"claim_id": {"$ref": "#/$defs/id"}, "target_kind": {"enum": ["study", "edge", "minimum"]}, "target_id": {"type": ["string", "null"]}, "intended_use": {"enum": ["scientific_context", "syntax_version_context", "electronic_structure_context"]}, "receipt": {"$ref": "#/$defs/binding"}}}
+  }
+}

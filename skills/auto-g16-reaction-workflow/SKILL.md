@@ -24,6 +24,10 @@ scientific-maturity overlay described in
 [references/scientific-maturity-contract.md](references/scientific-maturity-contract.md).
 It binds the exact calculation plan without rewriting it and projects minima-
 first blockers onto its DAG nodes.
+For owner-evidence enforcement, layer the separate compatibility-preserving `/2`
+contract in
+[references/scientific-maturity-owner-evidence-v2-contract.md](references/scientific-maturity-owner-evidence-v2-contract.md)
+over one exact validated gate `/1`.
 
 Treat every artifact as an offline scientific review or bookkeeping record.
 Keep `calculation_ready: false` and `no_submission_authorization: true`
@@ -327,6 +331,33 @@ target, energy, and observation artifact keeps `calculation_ready: false` and
 `no_submission_authorization: true`. The adapter has no stage, submit, retry,
 cancel, cleanup, DAG mutation, or resume command.
 
+### Optional immutable recalculation-decision sidecar
+
+Use this only after one failed attempt and its exact input, protocol, result,
+and terminal evidence have already been preserved. Read
+[references/recalculation-decision-contract.md](references/recalculation-decision-contract.md),
+then finalize and validate the human review inside one portable package root:
+
+```bash
+DECISION_TOOL="skills/auto-g16-reaction-workflow/scripts/recalculation_decision.py"
+
+python3 "$DECISION_TOOL" finalize --root decision-package review.draft.json \
+  --attempt evidence/attempt.json --input evidence/input.json \
+  --protocol evidence/protocol.json --result evidence/result.json \
+  --terminal-evidence evidence/terminal-intake.json \
+  --output recalculation-decision.json
+python3 "$DECISION_TOOL" validate --root decision-package \
+  recalculation-decision.json
+```
+
+`gaussian-recalculation-decision/1` is an immutable evidence-only decision
+record. It never changes an input or upstream job/result, creates a proposal,
+retries, submits, cancels or cleans up. Even its single approving decision only
+selects one exact human-authored proposal for later independent protocol,
+scientific-maturity, input and live-approval gates. It fixes
+`calculation_ready: false`, `no_submission_authorization: true` and
+`no_automatic_retry: true`.
+
 ### 6a. Close scientific maturity before TS input review
 
 Use `scripts/scientific_maturity.py` after the exact calculation plan exists.
@@ -357,6 +388,19 @@ evidence. Passing this gate grants neither input approval nor live authority.
 The action-authorization command is also offline-only: it prevents reuse across
 a different input, project, node or budget scope, but still grants no staging
 or submission authority.
+
+When owner-evidence overlay `/2` is required, use
+`scripts/scientific_maturity_v2.py` after the immutable `/1` gate. It replays
+the public plan, mechanism-support, precedent, conformer-handoff, applicable
+main-group open-shell, and manual-receipt validators. It emits a separate
+evidence receipt, gate, and exact-scope science action; it does not alter `/1`
+semantics. Manual evidence remains supporting-only, and `ts_input`,
+`ts_submission`, and `irc_input` still require separate input review. The
+current owner set cannot bind a selected conformer through exact input approval
+to the accepted minimum result/log, so all `/2` minimum gates and actions remain
+fail-closed. IRC and formal reporting additionally require future exact owner
+TS-mode and complete thermochemistry/energy artifacts; `/1` booleans do not
+provide `/2` authority.
 
 ### 7. Preserve the W2 knowledge and literature gates
 
@@ -460,6 +504,31 @@ may use a separate de novo endpoint/QST, scan or reviewed-rebuild plan with
 `source_precedent: null` and `source_coordinates_used: false`; that does not
 make the mechanism claim literature-supported or validated.
 
+### Reaction thermochemistry readiness audit
+
+Read
+[references/thermochemistry-readiness-contract.md](references/thermochemistry-readiness-contract.md)
+before auditing a prospective comparison package. This is a blocker audit, not
+a thermochemistry comparator:
+
+```bash
+READINESS="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/thermochemistry_readiness.py"
+
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$READINESS" build readiness-request.json \
+  --root package-root --output readiness-audit.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$READINESS" validate readiness-audit.json \
+  --root package-root
+```
+
+It replays supplied public owner validators, requires all direct and transitive
+bindings to be relative to the explicit readiness package root, and emits only
+structured blockers. Historical artifacts using another path convention need
+a separately reviewed owner rebuild/repackage; the audit does not rewrite or
+promote them. Maturity `/1` remains insufficient. Maturity `/2` now replays
+through its public owner validator but retains the exact minimum candidate-to-
+input-to-result lineage blocker, along with TS/IRC and formal thermochemistry
+blockers. No comparison, barrier arithmetic or live action is available.
+
 ## Scientific boundaries
 
 - Preserve source-exact values beside normalized values. Never turn `rt`,
@@ -522,16 +591,34 @@ make the mechanism claim literature-supported or validated.
 - `scripts/scientific_maturity.py`: standard-library-only immutable maturity
   review/gate builder, deterministic DAG-node projection and fail-closed action
   check reused by TS and PBS owners; no route, input or live authority.
+- `scripts/scientific_maturity_v2.py`: compatibility-preserving owner-evidence
+  receipt/review/gate/action overlay over one exact validated maturity gate `/1`;
+  no route, input, submission or live authority.
 - `references/scientific-maturity-contract.md`: prospective literature,
   mechanism, minima-first, pilot/budget, TS/IRC, reference-state and migration
   contract.
+- `references/scientific-maturity-owner-evidence-v2-contract.md`: exact owner
+  replay, conformer/open-shell/manual projection, action interface and `/1`
+  compatibility boundary.
 - `scripts/calculation_artifacts.py`: standard-library-only target-import,
   exact input-handoff, blocked/electronic-only energy-lineage and immutable
   attempt-link adapters; no live path.
 - `references/calculation-artifact-adapter-contract.md`: exact source,
   authority, refusal, energy-lineage and DAG-owned importer boundary.
+- `scripts/recalculation_decision.py`: standard-library-only portable-package
+  finalizer and replay validator for immutable, non-authorizing recalculation
+  decisions; no input mutation or live path.
+- `references/recalculation-decision-contract.md`: evidence-role allowlists,
+  package-root portability, integrity-versus-owner authority, exact proposal,
+  decision-enumeration and atomic-publication contract.
+- `scripts/thermochemistry_readiness.py`: standard-library-only owner-replay
+  readiness audit with atomic no-clobber publication; it emits blockers and no
+  formal comparison or barrier.
+- `references/thermochemistry-readiness-contract.md`: exact package-relative
+  reference, owner-registry, blocker, repackaging and authority contract.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry, condition-model, mechanism-network,
   mechanism-support, mechanism-support-matrix review/output, TS-precedent-map,
-  calculation-plan, study-index, scientific-maturity review/gate and the
-  calculation-artifact adapter family.
+  calculation-plan, study-index, scientific-maturity `/1` review/gate,
+  owner-evidence `/2` review/receipt/gate/action, and the calculation-artifact
+  adapter family.

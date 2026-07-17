@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/manual-evidence-receipt.schema.json",
+  "title": "Auto-G16 manual evidence receipt",
+  "description": "Immutable evidence-only binding from a private read-only manual retrieval store; never a method, input, calculation, or submission authorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "receipt_id", "retrieval", "source", "evidence",
+    "target_installation", "applicability", "uncertainties", "review",
+    "downstream_role", "claim_ceiling", "calculation_ready",
+    "no_submission_authorization", "no_method_selection_authorization",
+    "no_input_generation_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-manual-evidence-receipt/1"},
+    "receipt_id": {"$ref": "#/$defs/id"},
+    "retrieval": {"$ref": "#/$defs/retrieval"},
+    "source": {"$ref": "#/$defs/source"},
+    "evidence": {"$ref": "#/$defs/evidence"},
+    "target_installation": {"$ref": "#/$defs/installation"},
+    "applicability": {"$ref": "#/$defs/applicability"},
+    "uncertainties": {"$ref": "#/$defs/stringArray"},
+    "review": {"$ref": "#/$defs/receiptReview"},
+    "downstream_role": {
+      "enum": [
+        "manual_lookup_evidence",
+        "installed_revision_applicability_evidence",
+        "scientific_maturity_supporting_evidence",
+        "protocol_candidate_support",
+        "troubleshooting_support"
+      ]
+    },
+    "claim_ceiling": {"const": "manual_evidence_only_no_method_selection_input_generation_calculation_readiness_or_submission_authority"},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "no_method_selection_authorization": {"const": true},
+    "no_input_generation_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "nullableString": {"type": ["string", "null"], "minLength": 1, "maxLength": 2000},
+    "stringArray": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nonempty"}},
+    "majorVersion": {"enum": ["G98", "G03", "G09", "G16", "other"]},
+    "retrieval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter_id", "adapter_config_sha256", "retrieval_database_sha256",
+        "canonical_store_digest", "result_id", "retrieval_row_sha256",
+        "retrieved_text_sha256", "query"
+      ],
+      "properties": {
+        "adapter_id": {"$ref": "#/$defs/id"},
+        "adapter_config_sha256": {"$ref": "#/$defs/sha"},
+        "retrieval_database_sha256": {"$ref": "#/$defs/sha"},
+        "canonical_store_digest": {"$ref": "#/$defs/sha"},
+        "result_id": {"type": "string", "minLength": 1, "maxLength": 300},
+        "retrieval_row_sha256": {"$ref": "#/$defs/sha"},
+        "retrieved_text_sha256": {"$ref": "#/$defs/sha"},
+        "query": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "page", "logical_chunk"],
+      "properties": {
+        "kind": {"enum": ["physical_page", "logical_chunk", "metadata"]},
+        "page": {"type": ["integer", "null"], "minimum": 1},
+        "logical_chunk": {"type": ["string", "null"], "minLength": 1, "maxLength": 300}
+      },
+      "anyOf": [
+        {"properties": {"page": {"type": "integer"}}},
+        {"properties": {"logical_chunk": {"type": "string"}}}
+      ]
+    },
+    "textQuality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "limitations"],
+      "properties": {
+        "classification": {"enum": ["embedded_text", "embedded_ocr_unreviewed", "legacy_word_text_pagination_unstable", "image_only"]},
+        "limitations": {"type": "array", "maxItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nonempty"}}
+      }
+    },
+    "program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "major_version", "version"],
+      "properties": {
+        "name": {"type": ["string", "null"], "minLength": 1, "maxLength": 80},
+        "major_version": {"anyOf": [{"$ref": "#/$defs/majorVersion"}, {"type": "null"}]},
+        "version": {"type": ["string", "null"], "minLength": 1, "maxLength": 200}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id", "revision", "payload_sha256", "object_sha256", "source_kind", "claim_scope", "locator", "text_quality", "program"],
+      "properties": {
+        "record_id": {"$ref": "#/$defs/id"},
+        "revision": {"type": "string", "minLength": 1, "maxLength": 300},
+        "payload_sha256": {"$ref": "#/$defs/sha"},
+        "object_sha256": {"$ref": "#/$defs/sha"},
+        "source_kind": {"enum": ["gaussian_program_manual", "gaussian_associated_text", "general_electronic_structure"]},
+        "claim_scope": {"enum": ["gaussian_syntax_or_version", "gaussian_nonversion_concept", "general_electronic_structure"]},
+        "locator": {"$ref": "#/$defs/locator"},
+        "text_quality": {"$ref": "#/$defs/textQuality"},
+        "program": {"$ref": "#/$defs/program"}
+      }
+    },
+    "visualReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "not_reviewed", "unavailable", "not_applicable_logical_chunk_only"]},
+        "reviewer": {"$ref": "#/$defs/nullableString"},
+        "reviewed_at": {"type": ["string", "null"], "minLength": 1, "maxLength": 80},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement_type", "short_paraphrase", "whole_page_visual_review", "logical_chunk_review"],
+      "properties": {
+        "statement_type": {"enum": ["paraphrase", "short_quote"]},
+        "short_paraphrase": {"type": "string", "minLength": 1, "maxLength": 600},
+        "whole_page_visual_review": {"$ref": "#/$defs/visualReview"},
+        "logical_chunk_review": {"$ref": "#/$defs/chunkReview"}
+      }
+    },
+    "chunkReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "not_reviewed", "not_applicable_no_logical_chunk"]},
+        "reviewer": {"$ref": "#/$defs/nullableString"},
+        "reviewed_at": {"type": ["string", "null"], "minLength": 1, "maxLength": 80},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["program", "major_version", "installed_revision"],
+      "properties": {
+        "program": {"const": "Gaussian"},
+        "major_version": {"$ref": "#/$defs/majorVersion"},
+        "installed_revision": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "installedRevisionReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "evidence_sha256", "notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "not_reviewed", "not_applicable_non_version_claim"]},
+        "reviewer": {"$ref": "#/$defs/nullableString"},
+        "reviewed_at": {"type": ["string", "null"], "minLength": 1, "maxLength": 80},
+        "evidence_sha256": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/sha"}},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "rationale", "installed_revision_review"],
+      "properties": {
+        "decision": {"enum": ["applicable", "applicable_with_limits", "not_applicable", "blocked_pending_installed_revision_review", "blocked_insufficient_evidence"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "installed_revision_review": {"$ref": "#/$defs/installedRevisionReview"}
+      }
+    },
+    "receiptReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "reviewed_at", "review_input_sha256"],
+      "properties": {
+        "reviewer": {"type": "string", "minLength": 1, "maxLength": 200},
+        "reviewed_at": {"type": "string", "minLength": 1, "maxLength": 80},
+        "review_input_sha256": {"$ref": "#/$defs/sha"}
+      }
+    }
+  }
+}

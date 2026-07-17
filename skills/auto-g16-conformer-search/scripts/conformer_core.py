@@ -1046,3 +1046,63 @@ def build_handoff(manifest: dict[str, Any], manifest_path: Path, review: dict[st
     }
     handoff["payload_sha256"] = payload_sha256(handoff)
     return handoff
+
+
+def validate_manifest(path: str | Path) -> dict[str, Any]:
+    """Replay one ensemble manifest through every bound owner artifact."""
+
+    manifest_path = Path(path).expanduser().resolve()
+    manifest = load_json(manifest_path)
+    validate_schema(manifest, "ensemble-manifest.schema.json")
+    verify_document_matches_path(manifest, manifest_path, "conformer ensemble manifest")
+    require(manifest.get("schema") == SCHEMAS["manifest"], "unsupported ensemble-manifest schema")
+    require(manifest.get("payload_sha256") == payload_sha256(manifest), "ensemble-manifest payload hash is invalid")
+    require(
+        manifest.get("candidate_only") is True
+        and manifest.get("calculation_ready") is False
+        and manifest.get("no_submission_authorization") is True,
+        "ensemble-manifest authority boundary is invalid",
+    )
+
+    plan_path = resolve_bound_path(manifest_path, manifest["plan"].get("path"), "bound conformer-search plan")
+    candidates_path = resolve_bound_path(manifest_path, manifest["candidate_set"].get("path"), "bound conformer candidate set")
+    ledger_path = resolve_bound_path(manifest_path, manifest["validity_ledger"].get("path"), "bound conformer validity ledger")
+    verify_binding(manifest["plan"], plan_path, SCHEMAS["plan"])
+    verify_binding(manifest["candidate_set"], candidates_path, SCHEMAS["candidates"])
+    verify_binding(manifest["validity_ledger"], ledger_path, SCHEMAS["ledger"])
+    require(manifest["plan"].get("payload_sha256") == load_json(plan_path).get("payload_sha256"), "manifest plan payload binding differs")
+    require(manifest["validity_ledger"].get("payload_sha256") == load_json(ledger_path).get("payload_sha256"), "manifest ledger payload binding differs")
+    expected = crosscheck(
+        load_json(plan_path), plan_path,
+        load_json(candidates_path), candidates_path,
+        load_json(ledger_path), ledger_path,
+    )
+    require(manifest == expected, "ensemble manifest differs from deterministic bound-source reconstruction")
+    return manifest
+
+
+def validate_handoff(path: str | Path) -> dict[str, Any]:
+    """Public replay API for an exact candidate handoff and its full chain."""
+
+    handoff_path = Path(path).expanduser().resolve()
+    handoff = load_json(handoff_path)
+    validate_schema(handoff, "candidate-handoff.schema.json")
+    verify_document_matches_path(handoff, handoff_path, "conformer candidate handoff")
+    require(handoff.get("schema") == SCHEMAS["handoff"], "unsupported conformer handoff schema")
+    require(handoff.get("payload_sha256") == payload_sha256(handoff), "conformer handoff payload hash is invalid")
+    require(
+        handoff.get("candidate_only") is True
+        and handoff.get("calculation_ready") is False
+        and handoff.get("no_submission_authorization") is True,
+        "conformer handoff authority boundary is invalid",
+    )
+
+    manifest_path = resolve_bound_path(handoff_path, handoff["manifest"].get("path"), "bound conformer ensemble manifest")
+    review_path = resolve_bound_path(handoff_path, handoff["review"].get("path"), "bound conformer handoff review")
+    verify_binding(handoff["manifest"], manifest_path, SCHEMAS["manifest"])
+    verify_binding(handoff["review"], review_path, "gaussian-conformer-handoff-review/1")
+    manifest = validate_manifest(manifest_path)
+    require(handoff["manifest"].get("payload_sha256") == manifest.get("payload_sha256"), "handoff manifest payload binding differs")
+    expected = build_handoff(manifest, manifest_path, load_json(review_path), review_path)
+    require(handoff == expected, "conformer handoff differs from deterministic bound-source reconstruction")
+    return handoff

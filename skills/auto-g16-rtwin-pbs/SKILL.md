@@ -13,8 +13,8 @@ unattended.
 
 ## Input-before protocol gate
 
-For a TS/QST route, first display and validate the reaction-workflow
-`gaussian-scientific-maturity-gate/1`. It shows maturity, evidence, accepted
+For a TS/QST route, first display and validate the reaction-workflow maturity
+gate under its declared `/1` or `/2` schema. It shows maturity, evidence, accepted
 endpoint minima and blockers before route/resources/hash. Protocol selection
 cannot begin formal TS input review while this gate is blocked. A no-direct-
 precedent exception is limited to one reviewed simple-tier pilot after two
@@ -77,7 +77,25 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 1. Resolve structure, stereochemistry, charge, multiplicity and scientific scope. For CDX/CDXML, rely on the corrected explicit-H/CFG importer in `auto-g16-view-rt-win`.
 2. Create the three-candidate protocol proposal, show every candidate and blocked reason, and record the user's hash-bound selection. Select the resource tier separately; use `general` when execution complexity is not clearly simple or complex.
 3. Only after selection, render or audit the offline input draft. Show source hash, identity, warnings, exact route, charge/multiplicity, atom count, cores, memory and remote directory. `gaussian_auto.py` refuses raw structures and SMILES so it cannot bypass this gate.
-4. After separate exact approval of the rendered input and job, record an `auto-g16-live-submission-approval/1` artifact for non-TS work or `/2` for TS work. `/2` also binds the exact maturity file/payload hashes, mechanism edge and pilot flag. It submits once, monitors, fetches, and writes `result.json` plus `optimized.xyz` when coordinates are available.
+4. After separate exact review of the rendered input, finalize
+   `gaussian-input-draft-review/2` and build
+   `gaussian-input-approval-receipt/1`. The receipt replays the exact protocol
+   options and selection, selected option, the non-empty task/profile subset
+   consumed by this input, human-confirmed route/method/basis/solvent/SCF
+   mapping, resources, identity and input SHA-256. It never claims whole-family
+   completion and grants no live authority. Record a new
+   `auto-g16-live-submission-approval/3` that binds explicit `work_kind` plus
+   the exact input-approval receipt file and payload hashes for ordinary and
+   minimum work. Protected TS/scan/IRC prospective live work is currently
+   fail-closed: maturity gate `/1` is replay-only, while current `/2` has no
+   positive action because minimum lineage and specialist owners remain open.
+   A future protected chain must provide an exact maturity action `/2`, action
+   authorization `/2`, and specialist input receipt; generic input receipt plus
+   live `/3` cannot substitute. Historical live `/1` and `/2` records remain
+   replayable under their original contracts but do not satisfy a new
+   submission chain. The low-level `submit` command
+   independently validates the same shared receipt; `--confirmed` is only an
+   additional command confirmation.
 5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate. After terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
 6. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and create a new proposal and selection for any changed restart.
 
@@ -88,13 +106,12 @@ AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" prepare /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example
 
-# Approved unattended run
+# Approved ordinary/minimum unattended run
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" auto /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example \
-  --scientific-maturity /path/to/maturity-gate.json --edge-id reviewed_edge \
-  --node-id reviewed_pilot_node --pilot --work-kind ts_pilot \
-  --scientific-action-authorization /path/to/scientific-action-authorization.json \
-  --approval-record /path/to/live-submission-approval.json \
+  --work-kind minimum \
+  --input-approval-record /path/to/exact-input-approval.json \
+  --approval-record /path/to/live-submission-approval-v3.json \
   --confirmed --watch
 ```
 
@@ -105,6 +122,17 @@ For a local dry run that performs no SSH, PBS or Gaussian action:
   --project dry_test --local-dir /path/to/outputs/dry_test \
   --confirmed --dry-run
 ```
+
+A dry run may omit the input and live receipts for diagnostic use, but then
+reports `live_submission_ready: false` and the exact missing gates. A supplied
+input receipt is validated; a supplied live receipt is evaluated only after
+the input receipt succeeds. A plain `stage` remains a pure offline packaging
+operation; its `job.json` explicitly
+retains `calculation_ready: false` and `no_submission_authorization: true` and
+cannot be promoted by a later live `submit` without the required receipts.
+
+Read [references/input-approval-receipt.md](references/input-approval-receipt.md)
+for the exact compatibility boundary and offline construction commands.
 
 Read [references/protocols.md](references/protocols.md) before proposing protocol candidates.
 
@@ -122,20 +150,23 @@ Use `scripts/gaussian_workflow.py build` to turn one selected, audited Cartesian
 
 ```bash
 WORKFLOW="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_workflow.py"
-AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
 
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$WORKFLOW" build selected.gjf \
   --output project_ofs.gjf \
   --sp-route '#p <approved-single-point-method/basis> <approved-solvent>' \
   --temperature 298.15 --standard-state 1M
-
-"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" auto project_ofs.gjf \
-  --project project_ofs --local-dir /path/to/project_ofs \
-  --approval-record /path/to/live-submission-approval.json \
-  --confirmed --watch
 ```
 
-The first stage uses the approved Opt route. The second stage uses the same method with Freq, `Geom=AllCheck`, and `Guess=Read` unless an explicit Freq route is supplied. The third stage uses the explicit single-point route. Gaussian execution proceeds after normal Link1 termination; scientific acceptance occurs after parsing. Require three normal terminations, optimization/stationary-point evidence, zero imaginary frequencies for a minimum, frequency thermal corrections, and a final single-point SCF energy.
+The builder is offline only. Its checkpoint-derived `Geom=AllCheck` and
+`Guess=Read` stages are outside generic input-approval receipt `/1`; live
+submission is fail-closed until a versioned workflow/checkpoint specialist
+owner approval is integrated. Do not split or relabel this workflow as an
+`ordinary` input to bypass that boundary. Once such an owner contract exists,
+the first stage uses the approved Opt route, the second uses Freq, and the third
+uses the explicit single-point route. Scientific acceptance still requires
+three normal terminations, optimization/stationary-point evidence, zero
+imaginary frequencies for a minimum, frequency thermal corrections, and a
+final single-point SCF energy.
 
 Fetch automatically recognizes the workflow manifest and writes composite thermochemistry to `result.json`. Do not claim a minimum when an imaginary frequency remains. Do not claim quasi-harmonic treatment: the bundled parser reports low modes but applies no quasi-harmonic correction. Read [references/scientific-workflows.md](references/scientific-workflows.md) before building or interpreting this workflow.
 
@@ -158,7 +189,12 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
   --scientific-maturity /path/to/maturity-gate.json --edge-id reviewed_edge \
   --node-id reviewed_pilot_node --pilot --work-kind ts_pilot
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" submit /path/to/job.gjf --project example \
-  --local-dir /path/to/bundle --confirmed
+  --local-dir /path/to/bundle \
+  --scientific-maturity /path/to/maturity-gate.json --edge-id reviewed_edge \
+  --node-id reviewed_pilot_node --pilot --work-kind ts_pilot \
+  --scientific-action-authorization /path/to/scientific-action-authorization.json \
+  --input-approval-record /path/to/exact-input-approval.json \
+  --approval-record /path/to/live-submission-approval-v3.json --confirmed
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" inspect --project example --job-id 563.master \
   --input-stem example_cartesian --local-dir /path/to/bundle
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" watch --project example --job-id 563.master \

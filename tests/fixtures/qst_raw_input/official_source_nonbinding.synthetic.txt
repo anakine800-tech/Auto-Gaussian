@@ -1,0 +1,1 @@
+Synthetic documentation fixture mentioning QST2 in general, without an exact installed-revision syntax assertion.

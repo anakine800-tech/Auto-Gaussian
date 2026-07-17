@@ -36,7 +36,17 @@ cancellation, scheduler cleanup, or server-file deletion. A dry run may omit
 the record because it performs no SSH, directory creation, upload, PBS or
 Gaussian action.
 
-For a TS/QST route use `auto-g16-live-submission-approval/2`. Keep every `/1`
+Both `gaussian_auto.py auto` and the low-level `gaussian_rtwin_pbs.py submit`
+use the shared transport validator before any live transport. `--confirmed`
+never substitutes for a receipt. A dry run may omit receipts and then reports
+`live_submission_ready: false`. A supplied live receipt is evaluated only after
+the exact input-approval receipt has validated, so an old or unrelated live
+record cannot elevate an unreviewed input.
+The submit path validates `/3` against the unique captured input snapshot and
+uses the same stable receipt read for both JSON validation and receipt SHA-256.
+It rechecks staged bytes and upload-file hashes before any network action.
+
+Historical TS records use `auto-g16-live-submission-approval/2`. Keep every `/1`
 field and add this exact object to `scope`:
 
 ```json
@@ -60,3 +70,35 @@ valid `gaussian-scientific-action-authorization/1` for the exact DAG node,
 input hash, project, work kind, resource tier and budget request. That offline
 artifact always has `no_submission_authorization: true`; it is evidence for
 scope consistency and never substitutes for this live approval record.
+
+## New live approval `/3`
+
+Every new live submission requires `auto-g16-live-submission-approval/3`.
+Its scope keeps the exact project, server directory, input hash, route,
+resources, charge and multiplicity fields above, and adds:
+
+```json
+{
+  "work_kind": "ordinary",
+  "input_approval": {
+    "schema": "gaussian-input-approval-receipt/1",
+    "sha256": "<exact receipt file SHA-256>",
+    "payload_sha256": "<exact receipt payload SHA-256>",
+    "input_sha256": "<exact Gaussian input SHA-256>",
+    "work_kind": "ordinary"
+  }
+}
+```
+
+`/3` is currently prospective-live capable only for ordinary and minimum work.
+Protected TS/scan/IRC work must not combine a maturity `/1` action check,
+generic input receipt and live `/3`; that is a mixed-generation chain.
+Maturity gate `/1` and historical live `/2` remain replay-only. Current
+maturity `/2` remains blocker-only, so a protected prospective-live chain is
+not yet reachable. Future integration requires an exact maturity action `/2`,
+action authorization `/2`, and specialist input receipt before a matching live
+contract can be introduced. Missing work kind never defaults to `ordinary`.
+Historical `/1` and `/2` records remain independently replayable by the shared
+validator when checked against their historical summaries; they are not
+silently granted the new input-receipt binding or accepted for a new live
+submission.
