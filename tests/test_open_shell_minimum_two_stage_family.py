@@ -33,7 +33,7 @@ AUTHORIZATIONS = {"create_server_directory": True, "submit": True, "retry": Fals
 
 
 class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
-    def build_chain(self, root: Path) -> dict:
+    def build_chain(self, root: Path, *, expected_frequency_count: int = 3, opt_log_text: str | None = None) -> dict:
         spec = {
             "family_id": "oh_retry_family", "title": "offline OH retry candidate", "charge": 0, "multiplicity": 2,
             "state_family": "doublet_ground_state", "reference_family": "U", "target_s2": 0.75, "max_abs_s2_deviation": 0.1,
@@ -45,7 +45,7 @@ class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
             "structure_sha256": "pending",
             "opt_route": "#p UB3LYP/cc-pVTZ Opt=Tight Freq SCF=(Tight,XQC) Int=UltraFine NoSymm",
             "stability_route": "#p UB3LYP/cc-pVTZ Stable=Opt Geom=AllCheck Guess=Read SCF=(Tight,XQC) Int=UltraFine NoSymm",
-            "opt_checkpoint": "oh_opt.chk", "stability_checkpoint": "oh_stable.chk", "expected_frequency_count": 3,
+            "opt_checkpoint": "oh_opt.chk", "stability_checkpoint": "oh_stable.chk", "expected_frequency_count": expected_frequency_count,
             "resources": {"resource_tier": "simple", "mem_gb": 12, "cores": 8},
             "selection_payload_sha256": "2" * 64, "selected_option_payload_sha256": "3" * 64,
             "superseded_input_sha256": "43ad5e2e" + "0" * 56,
@@ -56,7 +56,7 @@ class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
         handoff = FAMILY.build_family(spec_path, handoff_path, opt_input, stable_input)
         opt_receipt = FAMILY.build_stage_receipt(handoff_path, opt_input, "oh_opt_receipt", "opt_freq")
         opt_receipt_path = root / "opt-receipt.json"; opt_receipt_path.write_bytes(FAMILY.canonical_bytes(opt_receipt))
-        opt_log = root / "oh_opt.log"; opt_log.write_text(self.good_log(stable=False), encoding="utf-8")
+        opt_log = root / "oh_opt.log"; opt_log.write_text(opt_log_text if opt_log_text is not None else self.good_log(stable=False), encoding="utf-8")
         checkpoint_path = root / "oh_opt.chk"; checkpoint_path.write_bytes(b"synthetic offline checkpoint bytes")
         checkpoint = FAMILY.build_checkpoint_binding(handoff_path, opt_log, checkpoint_path, "oh_checkpoint_binding")
         checkpoint_path_json = root / "checkpoint-binding.json"; checkpoint_path_json.write_bytes(FAMILY.canonical_bytes(checkpoint))
@@ -113,6 +113,15 @@ class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
             unstable_log = root / "unstable.log"; unstable_log.write_text(self.good_log(stable=False), encoding="utf-8")
             blocked = FAMILY.build_acceptance(chain["handoff_path"], chain["checkpoint_path_json"], chain["opt_log"], unstable_log, "oh_family_blocked")
             self.assertEqual(blocked["status"], "blocked")
+
+    def test_B_owner_checkpoint_replay_ignores_low_frequency_diagnostics(self) -> None:
+        fixture = (ROOT / "tests/fixtures/main_group_open_shell/oh_low_frequency_diagnostics.synthetic.txt").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+            chain = self.build_chain(Path(temp).resolve(), expected_frequency_count=1, opt_log_text=fixture)
+        evidence = chain["checkpoint"]["opt_freq_evidence"]
+        self.assertEqual(evidence["actual_frequency_count"], 1)
+        self.assertEqual(evidence["imaginary_frequency_count"], 0)
+        self.assertEqual(chain["checkpoint"]["status"], "accepted_final_optimized_checkpoint")
 
     def test_C_receipt_v3_live_v5_direct_and_wrapper_dry_run_no_network(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as temp:

@@ -422,7 +422,15 @@ def build_observation(log_path: str | Path, observation_id: str) -> dict[str, An
     state_matches = re.findall(r"Charge\s*=\s*(-?\d+)\s+Multiplicity\s*=\s*(\d+)", text, flags=re.I)
     scf_matches = re.findall(r"SCF Done:\s+E\(([^)]+)\)\s*=\s*([-+0-9.DEe]+)", text, flags=re.I)
     s2_matches = re.findall(r"S\*\*2\s+before annihilation\s*([-+0-9.DEe]+),\s*after\s*([-+0-9.DEe]+)", text, flags=re.I)
-    frequency_values = [float(token.replace("D", "E")) for line in re.findall(r"Frequencies\s*--\s*([^\r\n]+)", text, flags=re.I) for token in re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DEe][-+]?\d+)?", line)]
+    harmonic_frequency_lines = re.findall(
+        r"(?im)^\s*Frequencies\s+--(?!-)\s*([^\r\n]+)$",
+        text,
+    )
+    frequency_values = [
+        float(token.replace("D", "E"))
+        for line in harmonic_frequency_lines
+        for token in re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DEe][-+]?\d+)?", line)
+    ]
     method = scf_matches[-1][0].strip() if scf_matches else None
     reference = None
     if method:

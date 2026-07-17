@@ -107,6 +107,27 @@ class MainGroupOpenShellTests(unittest.TestCase):
                 self.assertTrue(acceptance["no_submission_authorization"])
                 self.assertTrue(all(value is False for value in acceptance["authorizations"].values()))
 
+    def test_harmonic_frequency_parser_ignores_low_frequency_diagnostics(self) -> None:
+        observation = OPEN_SHELL.build_observation(
+            FIXTURES / "oh_low_frequency_diagnostics.synthetic.txt",
+            "oh_low_frequency_diagnostics",
+        )
+        frequencies = observation["facts"]["frequencies"]
+        self.assertEqual(frequencies["values_cm_minus_1"], [3696.3824])
+        self.assertEqual(frequencies["count"], 1)
+        self.assertEqual(frequencies["imaginary_count"], 0)
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            negative = Path(tmp) / "true-imaginary.synthetic.txt"
+            negative.write_text(
+                " Charge = 0 Multiplicity = 2\n"
+                " Frequencies --   -123.4\n",
+                encoding="utf-8",
+            )
+            parsed = OPEN_SHELL.build_observation(negative, "true_imaginary_frequency")
+        self.assertEqual(parsed["facts"]["frequencies"]["values_cm_minus_1"], [-123.4])
+        self.assertEqual(parsed["facts"]["frequencies"]["imaginary_count"], 1)
+
     def test_result_facts_fail_closed_for_missing_s2_contamination_instability_and_state_drift(self) -> None:
         cases = {
             "missing_s2": lambda text: reline(text, "Annihilation of the first spin contaminant:\nS**2 before annihilation 0.7600, after 0.7505\n", ""),
