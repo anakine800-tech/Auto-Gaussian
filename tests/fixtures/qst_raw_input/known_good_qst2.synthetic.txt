@@ -1,0 +1,4 @@
+Synthetic offline fixture only; not a live Gaussian result.
+Gaussian 16, Revision A.03,
+QST2 exact plain Cartesian multi-structure syntax fixture.
+Normal termination of Gaussian 16

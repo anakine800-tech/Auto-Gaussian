@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/ts-irc/qst-raw-input-syntax-audit/1",
+  "title": "Auto-G16 Raw QST2/QST3 Input Syntax Audit V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "audit_id", "audit_status", "syntax_runnable_claim", "claim_scope", "supported_syntax_subset", "raw_input", "atom_map_audit", "installed_revision_evidence", "input_family", "syntax_profile", "link0", "route", "structure_count", "structures", "declared_atom_map", "checks", "qst3_third_structure", "zsymb_failure_evidence", "diagnostics", "immutable", "calculation_ready", "no_submission_authorization", "automatic_rewrite_authorized", "automatic_resubmission_authorized", "next_step", "audit_payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-qst-raw-input-syntax-audit/1"},
+    "audit_id": {"type": "string", "pattern": "^qst_raw_[0-9a-f]{16}$"},
+    "audit_status": {"enum": ["syntax_verified_for_installed_revision", "blocked_pending_installed_revision_verification", "blocked_unsupported_syntax", "failed", "failed_preserved_zsymb_eof"]},
+    "syntax_runnable_claim": {"enum": ["verified_for_installed_revision", "not_claimed"]},
+    "claim_scope": {"const": "raw_qst_multistructure_syntax_only"},
+    "supported_syntax_subset": {"const": "plain_cartesian_qst_multistructure/1"},
+    "raw_input": {"$ref": "#/$defs/ref"},
+    "atom_map_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "schema": {"const": "gaussian-ts-irc-workflow/1"}
+      }
+    },
+    "installed_revision_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "evidence_id", "installed_revision", "verification_status", "known_good_input_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "schema": {"const": "gaussian-installed-g16-qst-syntax-evidence/1"},
+        "evidence_id": {"type": "string", "minLength": 1},
+        "installed_revision": {"type": "string", "minLength": 1},
+        "verification_status": {"enum": ["verified", "pending"]},
+        "known_good_input_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "input_family": {"enum": ["qst2", "qst3", null]},
+    "syntax_profile": {"enum": ["gaussian-qst-cartesian-multistructure/1", null]},
+    "link0": {"type": "array", "items": {"$ref": "#/$defs/link0"}},
+    "route": {"type": ["string", "null"]},
+    "structure_count": {"type": "integer", "minimum": 0, "maximum": 3},
+    "structures": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/structure"}},
+    "declared_atom_map": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["link0_and_route", "qst_option", "structure_blocks", "separators_and_trailing_content", "placeholders", "atom_map_and_structure_identity", "qst3_reviewed_guess_role", "installed_revision_applicability"],
+      "properties": {
+        "link0_and_route": {"$ref": "#/$defs/check"},
+        "qst_option": {"$ref": "#/$defs/check"},
+        "structure_blocks": {"$ref": "#/$defs/check"},
+        "separators_and_trailing_content": {"$ref": "#/$defs/check"},
+        "placeholders": {"$ref": "#/$defs/check"},
+        "atom_map_and_structure_identity": {"$ref": "#/$defs/check"},
+        "qst3_reviewed_guess_role": {"$ref": "#/$defs/check"},
+        "installed_revision_applicability": {"$ref": "#/$defs/check"}
+      }
+    },
+    "qst3_third_structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["third_structure_role", "reviewed_guess_confirmed", "reviewed_structure_sha256", "minimum_claim_allowed"],
+      "properties": {
+        "third_structure_role": {"enum": ["reviewed_guess", "not_applicable", "not_evaluated"]},
+        "reviewed_guess_confirmed": {"type": "boolean"},
+        "reviewed_structure_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "minimum_claim_allowed": {"const": false}
+      }
+    },
+    "zsymb_failure_evidence": {"oneOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+    "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
+    "immutable": {"const": true},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "automatic_rewrite_authorized": {"const": false},
+    "automatic_resubmission_authorized": {"const": false},
+    "next_step": {"const": "manual_input_review_only"},
+    "audit_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "check": {"enum": ["passed", "failed", "blocked", "not_applicable", "not_evaluated"]},
+    "link0": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "line"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "value": {"type": "string", "minLength": 1},
+        "line": {"type": "integer", "minimum": 1}
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "role", "title", "charge", "multiplicity", "atom_count", "element_order"],
+      "properties": {
+        "position": {"type": "integer", "minimum": 1, "maximum": 3},
+        "role": {"enum": ["reactant", "product", "reviewed_guess"]},
+        "title": {"type": "string", "minLength": 1},
+        "charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "atom_count": {"type": "integer", "minimum": 1},
+        "element_order": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[A-Z][a-z]?$"}}
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "line"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "line": {"type": ["integer", "null"], "minimum": 1}
+      }
+    }
+  }
+}

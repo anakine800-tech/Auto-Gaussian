@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,9 +14,16 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 MODULE = ROOT / "skills" / "auto-g16-ts-irc" / "scripts" / "ts_irc.py"
 DA_FRAGMENT_FIXTURES = ROOT / "tests" / "fixtures" / "da_fragment_endpoint"
+QST_RAW_FIXTURES = ROOT / "tests" / "fixtures" / "qst_raw_input"
+QST_RAW_AUDIT_SCHEMA = ROOT / "skills" / "auto-g16-ts-irc" / "contracts" / "qst-raw-input-syntax-audit.schema.json"
+QST_REVISION_SCHEMA = ROOT / "skills" / "auto-g16-ts-irc" / "contracts" / "installed-g16-qst-syntax-evidence.schema.json"
+SCHEMA_VALIDATOR_PATH = ROOT / "scripts" / "validate_asymmetric_contract.py"
 SPEC = importlib.util.spec_from_file_location("ts_irc", MODULE)
 assert SPEC and SPEC.loader
 TS = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(TS)
+SCHEMA_SPEC = importlib.util.spec_from_file_location("qst_schema_validator", SCHEMA_VALIDATOR_PATH)
+assert SCHEMA_SPEC and SCHEMA_SPEC.loader
+SCHEMA_VALIDATOR = importlib.util.module_from_spec(SCHEMA_SPEC); SCHEMA_SPEC.loader.exec_module(SCHEMA_VALIDATOR)
 
 LOG = """\
  Gaussian 16, Revision A.03,
@@ -40,6 +50,99 @@ LOG = """\
 
 
 class TsIrcTests(unittest.TestCase):
+    def _qst_fixture_root(self, parent: Path) -> Path:
+        destination = parent / "qst_case"
+        shutil.copytree(QST_RAW_FIXTURES, destination)
+        return destination
+
+    def _qst_atom_map_audit(self, root: Path, mode: str) -> Path:
+        labels = ["reactant", "product"] if mode == "qst2" else ["reactant", "product", "ts"]
+        source_names = {
+            "reactant": "reactant.gjf",
+            "product": "product.gjf",
+            "ts": "reviewed_guess.gjf",
+        }
+        structures = {label: TS.parse_cartesian_input(root / source_names[label]) for label in labels}
+        report = TS.validate_input_family(mode, structures, [1, 2])
+        if mode == "qst3":
+            report["qst3_guess_review"] = {
+                "decision": "reviewed_guess",
+                "confirmed": True,
+                "minimum_claim": False,
+                "reviewed_structure_sha256": structures["ts"]["sha256"],
+                "reviewer": "synthetic_offline_fixture_reviewer",
+                "rationale": "The third structure is reviewed only as a QST3 guess and is not a minimum claim.",
+            }
+        path = root / f"{mode}_atom_map_audit.json"
+        path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        return path
+
+    def _qst_revision_evidence(
+        self,
+        root: Path,
+        mode: str,
+        *,
+        verification_status: str = "verified",
+        source_kind: str = "successful_installed_revision_run",
+        exact_binding: bool = True,
+    ) -> Path:
+        if verification_status == "pending":
+            example = None
+        else:
+            input_path = root / f"{mode}_plain.gjf"
+            if source_kind == "official_installed_revision_documentation":
+                source_path = root / "official_source_nonbinding.synthetic.txt"
+            else:
+                source_path = root / f"known_good_{mode}.synthetic.txt"
+            binding = None
+            if exact_binding:
+                binding = {
+                    "syntax_profile": "gaussian-qst-cartesian-multistructure/1",
+                    "exact_assertion": "exact_qst_multistructure_syntax_supported_for_installed_revision",
+                    "source_locator": "Normal termination of Gaussian 16",
+                    "reviewed": True,
+                    "reviewer": "synthetic_offline_fixture_reviewer",
+                    "rationale": "Synthetic binding used only to exercise deterministic offline validation.",
+                }
+            example = {
+                "mode": mode,
+                "input": {"path": input_path.name, "sha256": TS.sha256(input_path), "size_bytes": input_path.stat().st_size},
+                "source": {"path": source_path.name, "sha256": TS.sha256(source_path), "size_bytes": source_path.stat().st_size},
+                "source_kind": source_kind,
+                "usable_status": "known_usable",
+                "source_assertion": "known_usable_for_installed_revision",
+                "support_binding": binding,
+            }
+        evidence = {
+            "schema": TS.QST_REVISION_EVIDENCE_SCHEMA,
+            "evidence_id": f"synthetic_{mode}_{verification_status}_{source_kind}",
+            "installed_revision": "Gaussian 16 Revision A.03",
+            "verification_status": verification_status,
+            "known_good_example": example,
+            "limitations": ["Synthetic offline fixture only; it grants no scientific or live authority."],
+            "no_submission_authorization": True,
+        }
+        evidence["evidence_payload_sha256"] = TS._canonical_payload_sha256(evidence, "evidence_payload_sha256")
+        path = root / f"{mode}_{verification_status}_{source_kind}_{exact_binding}.json"
+        path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+        return path
+
+    def _audit_qst(self, root: Path, mode: str, raw_name: str | None = None, **evidence_options: object) -> tuple[dict, Path]:
+        raw = root / (raw_name or f"{mode}_plain.gjf")
+        atom_map = self._qst_atom_map_audit(root, mode)
+        evidence = self._qst_revision_evidence(root, mode, **evidence_options)
+        output = root / f"{raw.stem}_audit.json"
+        result = TS.audit_raw_qst_input(
+            raw,
+            TS.sha256(raw),
+            atom_map,
+            TS.sha256(atom_map),
+            evidence,
+            TS.sha256(evidence),
+            output,
+        )
+        return result, output
+
     def _terminal_job(
         self, project: str, input_path: Path, log_path: Path, *, state: str = "completed"
     ) -> dict:
@@ -259,6 +362,163 @@ class TsIrcTests(unittest.TestCase):
         swapped = {"charge": 0, "multiplicity": 1, "atoms": [{"element": "H"}, {"element": "C"}]}
         report = TS.validate_input_family("qst2", {"reactant": structure, "product": swapped}, [1, 2])
         self.assertFalse(report["valid"])
+
+    def test_raw_qst2_and_qst3_audits_bind_revision_and_never_authorize_calculation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            for mode in ("qst2", "qst3"):
+                with self.subTest(mode=mode):
+                    result, output = self._audit_qst(root, mode)
+                    self.assertEqual(result["audit_status"], "syntax_verified_for_installed_revision")
+                    self.assertEqual(result["supported_syntax_subset"], "plain_cartesian_qst_multistructure/1")
+                    self.assertFalse(result["calculation_ready"])
+                    self.assertTrue(result["no_submission_authorization"])
+                    self.assertEqual(result["next_step"], "manual_input_review_only")
+                    self.assertEqual(result["audit_payload_sha256"], TS.qst_raw_audit_payload_sha256(result))
+                    replay = TS.validate_qst_raw_audit_artifact(output)
+                    self.assertEqual(replay["audit_payload_sha256"], result["audit_payload_sha256"])
+                    if mode == "qst3":
+                        self.assertEqual(result["structures"][2]["role"], "reviewed_guess")
+                        self.assertTrue(result["qst3_third_structure"]["reviewed_guess_confirmed"])
+                        self.assertFalse(result["qst3_third_structure"]["minimum_claim_allowed"])
+
+    def test_raw_qst_audit_blocks_pending_or_nonbinding_revision_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            pending, _ = self._audit_qst(root, "qst2", verification_status="pending")
+            self.assertEqual(pending["audit_status"], "blocked_pending_installed_revision_verification")
+            self.assertEqual(pending["syntax_runnable_claim"], "not_claimed")
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            nonbinding, _ = self._audit_qst(
+                root,
+                "qst2",
+                source_kind="official_installed_revision_documentation",
+                exact_binding=False,
+            )
+            self.assertEqual(nonbinding["audit_status"], "blocked_pending_installed_revision_verification")
+            self.assertEqual(nonbinding["checks"]["installed_revision_applicability"], "blocked")
+
+    def test_raw_qst_audit_distinguishes_unsupported_legal_forms_from_invalid_plain_syntax(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            unsupported, _ = self._audit_qst(root, "qst2", "qst2_unsupported_freeze_flag.gjf")
+            self.assertEqual(unsupported["audit_status"], "blocked_unsupported_syntax")
+            self.assertEqual(unsupported["diagnostics"][0]["code"], "unsupported_cartesian_columns")
+            self.assertEqual(unsupported["checks"]["installed_revision_applicability"], "not_evaluated")
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            invalid, _ = self._audit_qst(root, "qst2", "qst2_invalid_missing_separator.gjf")
+            self.assertEqual(invalid["audit_status"], "failed")
+            self.assertEqual(invalid["syntax_runnable_claim"], "not_claimed")
+
+    def test_raw_qst_audit_rejects_unreviewed_qst3_guess_and_atom_map_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            atom_map = self._qst_atom_map_audit(root, "qst3")
+            document = json.loads(atom_map.read_text(encoding="utf-8"))
+            document.pop("qst3_guess_review")
+            atom_map.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+            evidence = self._qst_revision_evidence(root, "qst3")
+            raw = root / "qst3_plain.gjf"
+            output = root / "unreviewed_qst3_audit.json"
+            result = TS.audit_raw_qst_input(
+                raw, TS.sha256(raw), atom_map, TS.sha256(atom_map), evidence, TS.sha256(evidence), output
+            )
+            self.assertEqual(result["audit_status"], "failed")
+            self.assertEqual(result["checks"]["qst3_reviewed_guess_role"], "failed")
+            self.assertFalse(result["qst3_third_structure"]["minimum_claim_allowed"])
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            atom_map = self._qst_atom_map_audit(root, "qst2")
+            document = json.loads(atom_map.read_text(encoding="utf-8"))
+            document["structures"]["product"]["charge"] = 1
+            atom_map.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+            evidence = self._qst_revision_evidence(root, "qst2")
+            raw = root / "qst2_plain.gjf"
+            output = root / "drifted_map_audit.json"
+            result = TS.audit_raw_qst_input(
+                raw, TS.sha256(raw), atom_map, TS.sha256(atom_map), evidence, TS.sha256(evidence), output
+            )
+            self.assertEqual(result["audit_status"], "failed")
+            self.assertEqual(result["checks"]["atom_map_and_structure_identity"], "failed")
+
+    def test_raw_qst_zsymb_failure_is_preserved_without_rewrite_or_resubmission(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            raw = root / "qst2_plain.gjf"
+            atom_map = self._qst_atom_map_audit(root, "qst2")
+            evidence = self._qst_revision_evidence(root, "qst2")
+            failure = root / "zsymb_eof.synthetic.txt"
+            output = root / "zsymb_audit.json"
+            result = TS.audit_raw_qst_input(
+                raw, TS.sha256(raw), atom_map, TS.sha256(atom_map), evidence, TS.sha256(evidence), output,
+                zsymb_failure_log_path=failure, zsymb_failure_log_sha256=TS.sha256(failure),
+            )
+            self.assertEqual(result["audit_status"], "failed_preserved_zsymb_eof")
+            self.assertFalse(result["automatic_rewrite_authorized"])
+            self.assertFalse(result["automatic_resubmission_authorized"])
+            TS.validate_qst_raw_audit_artifact(output)
+
+    def test_raw_qst_artifact_is_portable_immutable_and_replay_detects_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            result, output = self._audit_qst(root, "qst2")
+            self.assertFalse(Path(result["raw_input"]["path"]).is_absolute())
+            with self.assertRaisesRegex(ValueError, "overwrite"):
+                TS.audit_raw_qst_input(
+                    root / "qst2_plain.gjf", TS.sha256(root / "qst2_plain.gjf"),
+                    root / "qst2_atom_map_audit.json", TS.sha256(root / "qst2_atom_map_audit.json"),
+                    root / "qst2_verified_successful_installed_revision_run_True.json",
+                    TS.sha256(root / "qst2_verified_successful_installed_revision_run_True.json"), output,
+                )
+            raw = root / "qst2_plain.gjf"
+            raw.write_text(raw.read_text() + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "reference changed"):
+                TS.validate_qst_raw_audit_artifact(output)
+
+    def test_raw_qst_schemas_and_cli_offline_integration(self) -> None:
+        for schema_path in (QST_RAW_AUDIT_SCHEMA, QST_REVISION_SCHEMA):
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+            SCHEMA_VALIDATOR.validate_schema_document(schema)
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._qst_fixture_root(Path(temp))
+            atom_map = self._qst_atom_map_audit(root, "qst2")
+            evidence = self._qst_revision_evidence(root, "qst2")
+            evidence_document = json.loads(evidence.read_text(encoding="utf-8"))
+            revision_schema = json.loads(QST_REVISION_SCHEMA.read_text(encoding="utf-8"))
+            SCHEMA_VALIDATOR._validate_schema_instance(evidence_document, revision_schema, revision_schema)
+            raw = root / "qst2_plain.gjf"
+            output = root / "cli_audit.json"
+            completed = subprocess.run(
+                [
+                    sys.executable, str(MODULE), "audit-qst-raw-input",
+                    "--input", str(raw), "--input-sha256", TS.sha256(raw),
+                    "--atom-map-audit", str(atom_map), "--atom-map-audit-sha256", TS.sha256(atom_map),
+                    "--installed-revision-evidence", str(evidence),
+                    "--installed-revision-evidence-sha256", TS.sha256(evidence),
+                    "--output", str(output),
+                ],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("syntax_verified_for_installed_revision", completed.stdout)
+            artifact = json.loads(output.read_text(encoding="utf-8"))
+            SCHEMA_VALIDATOR._validate_schema_instance(
+                artifact,
+                json.loads(QST_RAW_AUDIT_SCHEMA.read_text(encoding="utf-8")),
+                json.loads(QST_RAW_AUDIT_SCHEMA.read_text(encoding="utf-8")),
+            )
+            replay = subprocess.run(
+                [sys.executable, str(MODULE), "validate-qst-raw-audit", str(output)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("gaussian-qst-raw-input-syntax-audit-validation/1", replay.stdout)
 
     def test_cartesian_input_allows_multiline_route(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

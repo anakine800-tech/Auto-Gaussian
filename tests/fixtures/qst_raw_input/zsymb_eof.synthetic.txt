@@ -1,0 +1,3 @@
+Synthetic offline failure fixture only.
+End of file in ZSymb
+Error termination via Lnk1e in synthetic fixture
