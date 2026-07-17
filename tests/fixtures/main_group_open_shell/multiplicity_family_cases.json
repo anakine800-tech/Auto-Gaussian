@@ -14,7 +14,14 @@
     "forbidden_energy_ordering_claim",
     "unsupported_member_result_bypass",
     "thermochemistry_mixing",
-    "transition_metal_member"
+    "transition_metal_member",
+    "missing_input_result_association",
+    "cross_member_result_lineage",
+    "common_protocol_or_settings_substitution",
+    "member_protocol_or_input_hash_substitution",
+    "acceptance_observation_or_result_source_substitution",
+    "resealed_derived_result_lineage_forgery",
+    "forbidden_transport_or_live_provenance_claim"
   ],
   "closed_shell_regression": "existing closed-shell adapter remains multiplicity-one only"
 }

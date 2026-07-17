@@ -10,7 +10,11 @@ V1 remains limited to candidate-bound, single-reference main-group doublet or hi
 
 Each member owns a distinct candidate file, electronic-state review, member protocol, input-lineage record, and eventual result acceptance. The family builder rejects candidate, review, protocol, input, or result file-hash reuse across members. A protocol binds that member's candidate and review payloads plus the common comparison protocol; an input-lineage record binds that member's candidate and protocol. Unsupported members carry no input artifact hash and no V1 result acceptance.
 
-The family source, plan, comparison protocol, member protocol, input lineage, result manifest, and comparison audit are closed V1 JSON contracts with SHA-256 payload seals. Source file hashes and payload hashes are preserved separately.
+Before a supported result can enter comparison, `bind-result` requires a sealed human source that explicitly binds the exact family plan, member protocol, member input lineage and input artifact hash, accepted result, observation artifact, raw result-source hash, common protocol, and comparison-settings hash. It emits a deterministic `member-result-lineage/1` artifact. Public validation rebuilds this artifact from its source and every transitive binding. A missing lineage produces `blocked_missing_proven_input_result_lineage`; cross-member, cross-protocol, cross-settings, cross-input, acceptance, observation, or raw-result substitutions fail closed even if a derived artifact is re-sealed.
+
+The input-to-result association is only a confirmed supplied offline binding. Its provenance must explicitly set both transport and live-execution provenance claims to false. It neither proves nor implies that Auto-G16 transported, executed, or monitored the calculation.
+
+The family source, plan, comparison protocol, member protocol, input lineage, member-result-lineage source, derived member-result lineage, result manifest, and comparison audit are closed V1 JSON contracts with SHA-256 payload seals. Source file hashes and payload hashes are preserved separately.
 
 ## Comparison boundary
 
@@ -22,4 +26,4 @@ The auditor never sorts energies, names a ground state, or infers multireference
 
 Transition metals, spin crossing, MECP, cross-multiplicity conformer ensembles, automatic ground-state claims, thermochemistry mixing, and energy-proximity multireference inference are excluded. All artifacts retain `calculation_ready: false` and `no_submission_authorization: true`.
 
-Use `scripts/multiplicity_family.py plan`, `audit`, and `validate` offline. These commands contain no Gaussian, SSH, PBS, deployment, retry, cancellation, cleanup, or live-smoke surface.
+Use `scripts/multiplicity_family.py plan`, `bind-result`, `audit`, and `validate` offline. These commands contain no Gaussian, SSH, PBS, deployment, retry, cancellation, cleanup, or live-smoke surface.

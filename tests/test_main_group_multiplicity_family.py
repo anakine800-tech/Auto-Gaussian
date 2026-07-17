@@ -7,6 +7,8 @@ import ast
 import copy
 import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,9 +139,39 @@ class MultiplicityFamilyTests(unittest.TestCase):
         observation_path = STATE.write_new_json(root / "doublet.observation.json", observation)
         acceptance = STATE.build_acceptance(prepared["doublet_review"], observation_path, FIXTURES / "acceptance_policy.json", "family_doublet_acceptance")
         acceptance_path = STATE.write_new_json(root / "doublet.acceptance.json", acceptance)
+        protocol = load(prepared["members"]["ch3_doublet"]["protocol"])
+        input_lineage = load(prepared["members"]["ch3_doublet"]["input"])
+        common = load(prepared["common"])
+        result_source_doc = {
+            "schema": FAMILY.SCHEMA_RESULT_SOURCE,
+            "lineage_id": "family_doublet_result_lineage",
+            "family_id": "ch3_doublet_quartet_family",
+            "member_id": "ch3_doublet",
+            "plan_path": str(prepared["plan"]),
+            "acceptance_path": str(acceptance_path),
+            "declared_bindings": {
+                "common_protocol_payload_sha256": common["payload_sha256"],
+                "comparison_settings_sha256": common["settings_sha256"],
+                "member_protocol_payload_sha256": protocol["payload_sha256"],
+                "member_input_lineage_payload_sha256": input_lineage["payload_sha256"],
+                "input_artifact_sha256": input_lineage["input_artifact_sha256"],
+                "acceptance_payload_sha256": acceptance["payload_sha256"],
+                "observation_payload_sha256": observation["payload_sha256"],
+                "result_source_sha256": STATE.file_sha256(FIXTURES / "ch3_success.synthetic.txt"),
+            },
+            "association_review": {"decision": "confirmed_supplied_offline_input_result_binding", "reviewer": "synthetic_fixture_reviewer", "rationale": "Synthetic fixture explicitly binds this exact input hash to this exact supplied result evidence.", "confirmed": True},
+            "provenance": {"kind": "supplied_offline_binding", "statement": "Synthetic offline fixture binding only; it is not transport or live-execution provenance.", "transport_provenance_claimed": False, "live_execution_provenance_claimed": False},
+            "calculation_ready": False,
+            "no_submission_authorization": True,
+        }
+        result_source = write_json(root / "doublet.result-lineage-source.json", result_source_doc, sealed=True)
+        result_lineage_doc = FAMILY.build_member_result_lineage(result_source)
+        result_lineage = STATE.write_new_json(root / "doublet.result-lineage.json", result_lineage_doc)
+        prepared["result_source"] = result_source
+        prepared["result_lineage"] = result_lineage
         manifest_doc = {
             "schema": "auto-g16-main-group-multiplicity-family-result-manifest/1", "family_id": "ch3_doublet_quartet_family",
-            "results": [{"member_id": "ch3_doublet", "acceptance_path": str(acceptance_path)}, {"member_id": "ch3_quartet", "acceptance_path": None}],
+            "results": [{"member_id": "ch3_doublet", "member_result_lineage_path": str(result_lineage)}, {"member_id": "ch3_quartet", "member_result_lineage_path": None}],
             "comparison_statement": "no_energy_ordering_or_ground_state_claim", "calculation_ready": False, "no_submission_authorization": True,
         }
         manifest = write_json(root / "family.results.json", manifest_doc, sealed=True)
@@ -148,7 +180,7 @@ class MultiplicityFamilyTests(unittest.TestCase):
         return manifest, audit, audit_doc
 
     def test_contract_schemas_are_closed_versioned_and_fixture_catalogued(self) -> None:
-        expected = {"multiplicity-family-source.schema.json", "multiplicity-comparison-protocol.schema.json", "multiplicity-member-protocol.schema.json", "multiplicity-member-input-lineage.schema.json", "multiplicity-family-plan.schema.json", "multiplicity-family-result-manifest.schema.json", "multiplicity-family-comparison-audit.schema.json"}
+        expected = {"multiplicity-family-source.schema.json", "multiplicity-comparison-protocol.schema.json", "multiplicity-member-protocol.schema.json", "multiplicity-member-input-lineage.schema.json", "multiplicity-member-result-lineage-source.schema.json", "multiplicity-member-result-lineage.schema.json", "multiplicity-family-plan.schema.json", "multiplicity-family-result-manifest.schema.json", "multiplicity-family-comparison-audit.schema.json"}
         paths = [ROOT / "contracts/main-group-open-shell" / name for name in expected]
         self.assertTrue(all(path.is_file() for path in paths))
         for path in paths:
@@ -186,6 +218,8 @@ class MultiplicityFamilyTests(unittest.TestCase):
                 "multiplicity-comparison-protocol.schema.json": prepared["common"],
                 "multiplicity-member-protocol.schema.json": prepared["members"]["ch3_doublet"]["protocol"],
                 "multiplicity-member-input-lineage.schema.json": prepared["members"]["ch3_doublet"]["input"],
+                "multiplicity-member-result-lineage-source.schema.json": prepared["result_source"],
+                "multiplicity-member-result-lineage.schema.json": prepared["result_lineage"],
                 "multiplicity-family-plan.schema.json": prepared["plan"],
                 "multiplicity-family-result-manifest.schema.json": manifest,
                 "multiplicity-family-comparison-audit.schema.json": audit,
@@ -206,7 +240,7 @@ class MultiplicityFamilyTests(unittest.TestCase):
             self.assertEqual(audit["thermochemistry"], "not_compared")
             blocked = next(item for item in audit["members"] if item["member_id"] == "ch3_quartet")
             self.assertEqual(blocked["status"], FAMILY.BLOCKED)
-            self.assertIsNone(blocked["result"])
+            self.assertIsNone(blocked["result_lineage"])
             FAMILY.validate_artifact(audit_path)
 
             forged = copy.deepcopy(audit)
@@ -214,6 +248,95 @@ class MultiplicityFamilyTests(unittest.TestCase):
             forged_path = write_json(root / "forged-family.audit.json", forged, sealed=True)
             with self.assertRaisesRegex(FAMILY.ContractError, "deterministic reconstruction"):
                 FAMILY.validate_artifact(forged_path)
+
+    def test_missing_or_drifted_input_result_proof_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            prepared = self.prepare(root)
+            manifest_path, _, _ = self.add_result(root, prepared)
+
+            missing = load(manifest_path)
+            missing["results"][0]["member_result_lineage_path"] = None
+            missing_path = write_json(root / "missing-lineage.results.json", missing, sealed=True)
+            blocked = FAMILY.build_audit(prepared["plan"], missing_path)
+            self.assertEqual(blocked["comparison_status"], "blocked_insufficient_supported_results")
+            row = next(item for item in blocked["members"] if item["member_id"] == "ch3_doublet")
+            self.assertEqual(row["status"], "blocked_missing_proven_input_result_lineage")
+
+            base_source = load(prepared["result_source"])
+            drift_cases = {
+                "common_protocol": "common_protocol_payload_sha256",
+                "settings": "comparison_settings_sha256",
+                "member_protocol": "member_protocol_payload_sha256",
+                "member_input": "member_input_lineage_payload_sha256",
+                "input_hash": "input_artifact_sha256",
+                "acceptance": "acceptance_payload_sha256",
+                "observation": "observation_payload_sha256",
+                "result_source": "result_source_sha256",
+            }
+            for name, field in drift_cases.items():
+                with self.subTest(name=name):
+                    drifted = copy.deepcopy(base_source)
+                    current = drifted["declared_bindings"][field]
+                    drifted["declared_bindings"][field] = "f" * 64 if current != "f" * 64 else "e" * 64
+                    drift_path = write_json(root / f"{name}-drift.result-source.json", drifted, sealed=True)
+                    with self.assertRaisesRegex(FAMILY.ContractError, "declared input-result lineage bindings drift"):
+                        FAMILY.build_member_result_lineage(drift_path)
+
+            cross_member = copy.deepcopy(base_source)
+            cross_member["member_id"] = "ch3_quartet"
+            cross_path = write_json(root / "cross-member.result-source.json", cross_member, sealed=True)
+            with self.assertRaisesRegex(FAMILY.ContractError, "blocked/needs-specialist"):
+                FAMILY.build_member_result_lineage(cross_path)
+
+            no_confirmation = copy.deepcopy(base_source)
+            no_confirmation["association_review"]["confirmed"] = False
+            no_confirmation_path = write_json(root / "unconfirmed.result-source.json", no_confirmation, sealed=True)
+            with self.assertRaisesRegex(FAMILY.ContractError, "explicitly confirmed"):
+                FAMILY.build_member_result_lineage(no_confirmation_path)
+
+    def test_resealed_member_result_substitutions_and_live_provenance_claims_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            prepared = self.prepare(root)
+            self.add_result(root, prepared)
+            original = load(prepared["result_lineage"])
+            mutations = {
+                "common_protocol": lambda value: value["common_comparison_protocol"].update({"sha256": "a" * 64}),
+                "member_protocol": lambda value: value["member_protocol"].update({"sha256": "b" * 64}),
+                "input_lineage": lambda value: value["member_input_lineage"].update({"sha256": "c" * 64}),
+                "input_hash": lambda value: value.update({"input_artifact_sha256": "d" * 64}),
+                "acceptance": lambda value: value["acceptance"].update({"sha256": "e" * 64}),
+                "observation": lambda value: value["observation"].update({"sha256": "f" * 64}),
+                "result_source": lambda value: value["observation_source"].update({"sha256": "1" * 64}),
+            }
+            for name, mutate in mutations.items():
+                with self.subTest(name=name):
+                    forged = copy.deepcopy(original)
+                    mutate(forged)
+                    forged_path = write_json(root / f"forged-{name}.result-lineage.json", forged, sealed=True)
+                    with self.assertRaisesRegex(FAMILY.ContractError, "deterministic reconstruction"):
+                        FAMILY.validate_artifact(forged_path)
+
+            live_claim = copy.deepcopy(load(prepared["result_source"]))
+            live_claim["provenance"]["live_execution_provenance_claimed"] = True
+            live_path = write_json(root / "forged-live-claim.result-source.json", live_claim, sealed=True)
+            with self.assertRaisesRegex(FAMILY.ContractError, "must not claim transport or live execution"):
+                FAMILY.build_member_result_lineage(live_path)
+
+    def test_result_lineage_cli_and_public_validator_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            prepared = self.prepare(root)
+            self.add_result(root, prepared)
+            for artifact in (prepared["result_source"], prepared["result_lineage"]):
+                checked = subprocess.run([sys.executable, str(FAMILY_PATH), "validate", str(artifact)], text=True, capture_output=True, check=False)
+                self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+                self.assertIn('"valid": true', checked.stdout)
+            output = root / "cli.result-lineage.json"
+            built = subprocess.run([sys.executable, str(FAMILY_PATH), "bind-result", str(prepared["result_source"]), "--output", str(output)], text=True, capture_output=True, check=False)
+            self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+            self.assertEqual(load(output), load(prepared["result_lineage"]))
 
     def test_family_member_hash_protocol_and_claim_drift_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -261,7 +384,7 @@ class MultiplicityFamilyTests(unittest.TestCase):
             prepared = self.prepare(root)
             manifest, _, _ = self.add_result(root, prepared)
             value = load(manifest)
-            value["results"][1]["acceptance_path"] = value["results"][0]["acceptance_path"]
+            value["results"][1]["member_result_lineage_path"] = value["results"][0]["member_result_lineage_path"]
             bypass = write_json(root / "blocked-bypass.results.json", value, sealed=True)
             with self.assertRaisesRegex(FAMILY.ContractError, "blocked/needs-specialist"):
                 FAMILY.build_audit(prepared["plan"], bypass)

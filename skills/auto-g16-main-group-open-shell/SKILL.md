@@ -31,6 +31,9 @@ versioned JSON Schemas under the repository `contracts/main-group-open-shell/`
 directory; do not copy them into this Skill.
 
 Run `scripts/multiplicity_family.py --help` for the multiplicity-family CLI.
+Use `bind-result` to deterministically bind the exact member protocol and input
+lineage to supplied accepted result evidence before `audit`; missing proof must
+remain blocked. The binding never claims transport or live-execution provenance.
 It never ranks energies, declares a ground state, mixes thermochemistry, or
 places different multiplicities in a conformer ensemble.
 

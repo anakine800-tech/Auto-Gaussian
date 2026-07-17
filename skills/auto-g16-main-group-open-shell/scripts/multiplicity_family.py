@@ -23,6 +23,8 @@ SCHEMA_AUDIT = "auto-g16-main-group-multiplicity-family-comparison-audit/1"
 SCHEMA_COMMON = "auto-g16-main-group-multiplicity-comparison-protocol/1"
 SCHEMA_MEMBER_PROTOCOL = "auto-g16-main-group-multiplicity-member-protocol/1"
 SCHEMA_MEMBER_INPUT = "auto-g16-main-group-multiplicity-member-input-lineage/1"
+SCHEMA_RESULT_SOURCE = "auto-g16-main-group-multiplicity-member-result-lineage-source/1"
+SCHEMA_MEMBER_RESULT = "auto-g16-main-group-multiplicity-member-result-lineage/1"
 SUPPORTED = "v1_handoff_candidate"
 BLOCKED = "blocked_needs_specialist"
 AUTHORITY = {"calculation_ready": False, "no_submission_authorization": True}
@@ -80,6 +82,13 @@ def _load_sealed(path: str | Path, label: str) -> tuple[Path, dict[str, Any]]:
     require(document["payload_sha256"] == STATE.payload_sha256(document), f"{label} payload hash mismatch")
     _authority(document, label)
     return resolved, document
+
+
+def _load_bound(binding: dict[str, Any], label: str) -> tuple[Path, dict[str, Any]]:
+    _validate_binding(binding, label)
+    path, document = _load_sealed(binding["path"], label)
+    require(_binding(path, document) == binding, f"{label} binding drift")
+    return path, document
 
 
 def validate_common_protocol(document: dict[str, Any]) -> None:
@@ -172,6 +181,7 @@ def build_plan(source_path: str | Path) -> dict[str, Any]:
     validate_common_protocol(common)
     plan_members = []
     unique_lineages: dict[str, set[str]] = {key: set() for key in ("candidate", "state_review", "protocol", "input")}
+    unique_input_artifact_hashes: set[str] = set()
     family_composition: tuple[tuple[tuple[str, int], ...], int, int] | None = None
     for member in source["members"]:
         member_id = member["member_id"]
@@ -202,6 +212,9 @@ def build_plan(source_path: str | Path) -> dict[str, Any]:
         require(protocol["candidate_payload_sha256"] == candidate_payload, "member protocol candidate lineage drift")
         require(protocol["state_review_payload_sha256"] == review["payload_sha256"], "member protocol review lineage drift")
         validate_member_input(input_lineage, member_id, disposition, candidate_payload, protocol["payload_sha256"])
+        if input_lineage["input_artifact_sha256"] is not None:
+            require(input_lineage["input_artifact_sha256"] not in unique_input_artifact_hashes, "input artifact hash reused across family members")
+            unique_input_artifact_hashes.add(input_lineage["input_artifact_sha256"])
         artifacts = {
             "candidate": _binding(candidate_file, candidate),
             "state_review": _binding(review_file, review),
@@ -268,6 +281,135 @@ def validate_plan(document: dict[str, Any], *, check_sources: bool) -> None:
         require(build_plan(source_path) == document, "family plan differs from deterministic reconstruction")
 
 
+def validate_result_lineage_source(document: dict[str, Any]) -> None:
+    _exact(document, {"schema", "lineage_id", "family_id", "member_id", "plan_path", "acceptance_path", "declared_bindings", "association_review", "provenance", "calculation_ready", "no_submission_authorization", "payload_sha256"}, "member result-lineage source")
+    require(document["schema"] == SCHEMA_RESULT_SOURCE, "member result-lineage source schema mismatch")
+    _id(document["lineage_id"], "lineage_id")
+    _id(document["family_id"], "family_id")
+    _id(document["member_id"], "member_id")
+    _text(document["plan_path"], "result-lineage plan_path")
+    _text(document["acceptance_path"], "result-lineage acceptance_path")
+    declared = _exact(document["declared_bindings"], {"common_protocol_payload_sha256", "comparison_settings_sha256", "member_protocol_payload_sha256", "member_input_lineage_payload_sha256", "input_artifact_sha256", "acceptance_payload_sha256", "observation_payload_sha256", "result_source_sha256"}, "declared result bindings")
+    for key, value in declared.items():
+        _hash(value, f"declared_bindings.{key}")
+    review = _exact(document["association_review"], {"decision", "reviewer", "rationale", "confirmed"}, "input-result association review")
+    require(review["decision"] == "confirmed_supplied_offline_input_result_binding" and review["confirmed"] is True, "input-result association must be explicitly confirmed")
+    _text(review["reviewer"], "association reviewer")
+    _text(review["rationale"], "association rationale")
+    provenance = _exact(document["provenance"], {"kind", "statement", "transport_provenance_claimed", "live_execution_provenance_claimed"}, "result provenance")
+    require(provenance["kind"] == "supplied_offline_binding", "result provenance must remain a supplied offline binding")
+    _text(provenance["statement"], "result provenance statement")
+    require(provenance["transport_provenance_claimed"] is False and provenance["live_execution_provenance_claimed"] is False, "offline result binding must not claim transport or live execution provenance")
+    _authority(document, "member result-lineage source")
+    require(document["payload_sha256"] == STATE.payload_sha256(document), "member result-lineage source payload hash mismatch")
+
+
+def build_member_result_lineage(source_path: str | Path) -> dict[str, Any]:
+    source_file, source = _load_sealed(source_path, "member result-lineage source")
+    validate_result_lineage_source(source)
+    plan_file, plan = _load_sealed(source["plan_path"], "bound family plan")
+    validate_plan(plan, check_sources=True)
+    require(plan["family_id"] == source["family_id"], "result-lineage family drift")
+    matches = [item for item in plan["members"] if item["member_id"] == source["member_id"]]
+    require(len(matches) == 1, "result-lineage member is absent or duplicated in plan")
+    member = matches[0]
+    require(member["disposition"] == SUPPORTED, "blocked/needs-specialist member cannot bind a V1 result")
+
+    common_file, common = _load_bound(plan["common_comparison_protocol"], "bound common comparison protocol")
+    validate_common_protocol(common)
+    protocol_file, protocol = _load_bound(member["lineage"]["protocol"], "bound member protocol")
+    input_file, input_lineage = _load_bound(member["lineage"]["input_lineage"], "bound member input lineage")
+    validate_member_protocol(protocol, member["member_id"], common, member["disposition"])
+    validate_member_input(input_lineage, member["member_id"], member["disposition"], member["lineage"]["candidate"]["payload_sha256"], protocol["payload_sha256"])
+    require(input_lineage["input_artifact_sha256"] is not None, "input-result association is missing an exact input artifact hash")
+
+    acceptance_file, acceptance = _load_sealed(source["acceptance_path"], "bound result acceptance")
+    STATE.validate_acceptance(acceptance, check_sources=True)
+    require(acceptance["status"] == "accepted", "member result lineage requires accepted V1 evidence")
+    review_file, review = STATE.load_validated_review(acceptance["review_source"]["path"])
+    require(_binding(review_file, review) == member["lineage"]["state_review"], "result acceptance state-review lineage drift")
+    require(STATE.payload_sha256(review["candidate_snapshot"]) == member["lineage"]["candidate"]["payload_sha256"], "result acceptance candidate lineage drift")
+    observation_file, observation = STATE.load_validated_observation(acceptance["observation_source"]["path"])
+    require(_binding(observation_file, observation)["sha256"] == acceptance["observation_source"]["sha256"], "acceptance observation file hash drift")
+    require(observation["payload_sha256"] == acceptance["observation_source"]["payload_sha256"], "acceptance observation payload drift")
+    result_source = _exact(observation["source"], {"path", "sha256"}, "observation result source")
+    _text(result_source["path"], "observation result source path")
+    _hash(result_source["sha256"], "observation result source hash")
+    result_source_path = STATE._input_path(result_source["path"], "bound observation result source")
+    require(STATE.file_sha256(result_source_path) == result_source["sha256"], "observation result source hash drift")
+
+    expected_declared = {
+        "common_protocol_payload_sha256": common["payload_sha256"],
+        "comparison_settings_sha256": common["settings_sha256"],
+        "member_protocol_payload_sha256": protocol["payload_sha256"],
+        "member_input_lineage_payload_sha256": input_lineage["payload_sha256"],
+        "input_artifact_sha256": input_lineage["input_artifact_sha256"],
+        "acceptance_payload_sha256": acceptance["payload_sha256"],
+        "observation_payload_sha256": observation["payload_sha256"],
+        "result_source_sha256": result_source["sha256"],
+    }
+    require(source["declared_bindings"] == expected_declared, "declared input-result lineage bindings drift")
+    energy = observation["facts"]["scf"]["energy_hartree"]
+    require(energy is not None, "accepted result lacks electronic energy")
+    document = {
+        "schema": SCHEMA_MEMBER_RESULT,
+        "lineage_id": source["lineage_id"],
+        "family_id": source["family_id"],
+        "member_id": source["member_id"],
+        "status": "bound_offline_result_lineage",
+        "source": _binding(source_file, source),
+        "plan": _binding(plan_file, plan),
+        "common_comparison_protocol": _binding(common_file, common),
+        "member_protocol": _binding(protocol_file, protocol),
+        "member_input_lineage": _binding(input_file, input_lineage),
+        "input_artifact_sha256": input_lineage["input_artifact_sha256"],
+        "acceptance": _binding(acceptance_file, acceptance),
+        "observation": _binding(observation_file, observation),
+        "observation_source": result_source,
+        "result_facts": {"electronic_energy_hartree": energy},
+        "association_review": source["association_review"],
+        "provenance": source["provenance"],
+        **AUTHORITY,
+    }
+    document["payload_sha256"] = STATE.payload_sha256(document)
+    validate_member_result_lineage(document, check_sources=False)
+    return document
+
+
+def validate_member_result_lineage(document: dict[str, Any], *, check_sources: bool) -> None:
+    _exact(document, {"schema", "lineage_id", "family_id", "member_id", "status", "source", "plan", "common_comparison_protocol", "member_protocol", "member_input_lineage", "input_artifact_sha256", "acceptance", "observation", "observation_source", "result_facts", "association_review", "provenance", "calculation_ready", "no_submission_authorization", "payload_sha256"}, "member result lineage")
+    require(document["schema"] == SCHEMA_MEMBER_RESULT, "member result-lineage schema mismatch")
+    _id(document["lineage_id"], "lineage_id")
+    _id(document["family_id"], "family_id")
+    _id(document["member_id"], "member_id")
+    require(document["status"] == "bound_offline_result_lineage", "member result-lineage status invalid")
+    for key in ("source", "plan", "common_comparison_protocol", "member_protocol", "member_input_lineage", "acceptance", "observation"):
+        _validate_binding(document[key], f"member result-lineage {key}")
+    _hash(document["input_artifact_sha256"], "member result-lineage input artifact hash")
+    observation_source = _exact(document["observation_source"], {"path", "sha256"}, "member result-lineage observation source")
+    _text(observation_source["path"], "observation source path")
+    _hash(observation_source["sha256"], "observation source hash")
+    facts = _exact(document["result_facts"], {"electronic_energy_hartree"}, "member result facts")
+    STATE._number(facts["electronic_energy_hartree"], "member result electronic energy")
+    source_shape = {**document["association_review"]}
+    _exact(source_shape, {"decision", "reviewer", "rationale", "confirmed"}, "member result association review")
+    require(source_shape["decision"] == "confirmed_supplied_offline_input_result_binding" and source_shape["confirmed"] is True, "member result association is not confirmed")
+    provenance = _exact(document["provenance"], {"kind", "statement", "transport_provenance_claimed", "live_execution_provenance_claimed"}, "member result provenance")
+    require(provenance["kind"] == "supplied_offline_binding" and provenance["transport_provenance_claimed"] is False and provenance["live_execution_provenance_claimed"] is False, "member result provenance authority changed")
+    _authority(document, "member result lineage")
+    require(document["payload_sha256"] == STATE.payload_sha256(document), "member result-lineage payload hash mismatch")
+    if check_sources:
+        source_path, source = _load_bound(document["source"], "bound member result-lineage source")
+        validate_result_lineage_source(source)
+        require(build_member_result_lineage(source_path) == document, "member result lineage differs from deterministic reconstruction")
+
+
+def load_validated_member_result_lineage(path: str | Path) -> tuple[Path, dict[str, Any]]:
+    resolved, document = _load_sealed(path, "member result lineage")
+    validate_member_result_lineage(document, check_sources=True)
+    return resolved, document
+
+
 def build_audit(plan_path: str | Path, result_manifest_path: str | Path) -> dict[str, Any]:
     plan_file, plan = _load_sealed(plan_path, "family plan")
     validate_plan(plan, check_sources=True)
@@ -280,27 +422,36 @@ def build_audit(plan_path: str | Path, result_manifest_path: str | Path) -> dict
     require(isinstance(manifest["results"], list) and {item.get("member_id") for item in manifest["results"]} == set(by_id), "result manifest member set drift")
     rows = []
     accepted_count = 0
-    result_hashes: set[str] = set()
+    result_hashes: dict[str, set[str]] = {key: set() for key in ("lineage", "input", "acceptance", "observation", "result_source")}
     for result in manifest["results"]:
-        _exact(result, {"member_id", "acceptance_path"}, "result manifest member")
+        _exact(result, {"member_id", "member_result_lineage_path"}, "result manifest member")
         member = by_id[result["member_id"]]
         if member["disposition"] == BLOCKED:
-            require(result["acceptance_path"] is None, "blocked/needs-specialist member must not carry V1 result acceptance")
-            rows.append({"member_id": result["member_id"], "multiplicity": member["multiplicity"], "status": BLOCKED, "result": None, "electronic_energy_hartree": None})
+            require(result["member_result_lineage_path"] is None, "blocked/needs-specialist member must not carry V1 result lineage")
+            rows.append({"member_id": result["member_id"], "multiplicity": member["multiplicity"], "status": BLOCKED, "result_lineage": None, "electronic_energy_hartree": None})
             continue
-        acceptance_file, acceptance = _load_sealed(result["acceptance_path"], f"{result['member_id']} result acceptance")
-        STATE.validate_acceptance(acceptance, check_sources=True)
-        require(acceptance["status"] == "accepted", "family comparison requires accepted V1 result evidence")
-        review_file, review = STATE.load_validated_review(acceptance["review_source"]["path"])
-        candidate_binding = member["lineage"]["candidate"]
-        require(STATE.payload_sha256(review["candidate_snapshot"]) == candidate_binding["payload_sha256"], "result acceptance candidate lineage drift")
-        require(STATE.file_sha256(acceptance_file) not in result_hashes, "result acceptance hash reused across members")
-        result_hashes.add(STATE.file_sha256(acceptance_file))
-        _, observation = STATE.load_validated_observation(acceptance["observation_source"]["path"])
-        energy = observation["facts"]["scf"]["energy_hartree"]
-        require(energy is not None, "accepted result lacks electronic energy")
+        if result["member_result_lineage_path"] is None:
+            rows.append({"member_id": result["member_id"], "multiplicity": member["multiplicity"], "status": "blocked_missing_proven_input_result_lineage", "result_lineage": None, "electronic_energy_hartree": None})
+            continue
+        lineage_file, lineage = load_validated_member_result_lineage(result["member_result_lineage_path"])
+        require(lineage["family_id"] == plan["family_id"] and lineage["member_id"] == member["member_id"], "member result lineage family/member drift")
+        require(lineage["plan"] == _binding(plan_file, plan), "member result lineage is bound to a different family plan")
+        require(lineage["common_comparison_protocol"] == plan["common_comparison_protocol"], "member result lineage common protocol drift")
+        require(lineage["member_protocol"] == member["lineage"]["protocol"], "member result lineage protocol drift")
+        require(lineage["member_input_lineage"] == member["lineage"]["input_lineage"], "member result lineage input drift")
+        cross_member_hashes = {
+            "lineage": STATE.file_sha256(lineage_file),
+            "input": lineage["input_artifact_sha256"],
+            "acceptance": lineage["acceptance"]["sha256"],
+            "observation": lineage["observation"]["sha256"],
+            "result_source": lineage["observation_source"]["sha256"],
+        }
+        for kind, digest in cross_member_hashes.items():
+            require(digest not in result_hashes[kind], f"{kind} hash reused across family members")
+            result_hashes[kind].add(digest)
+        energy = lineage["result_facts"]["electronic_energy_hartree"]
         accepted_count += 1
-        rows.append({"member_id": result["member_id"], "multiplicity": member["multiplicity"], "status": "accepted_v1_evidence", "result": _binding(acceptance_file, acceptance), "electronic_energy_hartree": energy})
+        rows.append({"member_id": result["member_id"], "multiplicity": member["multiplicity"], "status": "accepted_v1_evidence", "result_lineage": _binding(lineage_file, lineage), "electronic_energy_hartree": energy})
     status = "comparable_without_ordering_claim" if accepted_count >= 2 else "blocked_insufficient_supported_results"
     document = {
         "schema": SCHEMA_AUDIT,
@@ -351,6 +502,10 @@ def validate_artifact(path: str | Path) -> dict[str, Any]:
         validate_audit(document, check_sources=True)
     elif schema == SCHEMA_COMMON:
         validate_common_protocol(document)
+    elif schema == SCHEMA_RESULT_SOURCE:
+        validate_result_lineage_source(document)
+    elif schema == SCHEMA_MEMBER_RESULT:
+        validate_member_result_lineage(document, check_sources=True)
     else:
         raise ContractError("unknown multiplicity-family artifact schema")
     return document
@@ -362,6 +517,9 @@ def build_parser() -> argparse.ArgumentParser:
     plan = sub.add_parser("plan")
     plan.add_argument("source")
     plan.add_argument("--output", required=True)
+    bind_result = sub.add_parser("bind-result")
+    bind_result.add_argument("source")
+    bind_result.add_argument("--output", required=True)
     audit = sub.add_parser("audit")
     audit.add_argument("plan")
     audit.add_argument("--results", required=True)
@@ -376,6 +534,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "plan":
             document = build_plan(args.source)
+            STATE.write_new_json(args.output, document)
+        elif args.command == "bind-result":
+            document = build_member_result_lineage(args.source)
             STATE.write_new_json(args.output, document)
         elif args.command == "audit":
             document = build_audit(args.plan, args.results)

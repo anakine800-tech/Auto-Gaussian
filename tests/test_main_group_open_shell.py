@@ -71,6 +71,7 @@ class MainGroupOpenShellTests(unittest.TestCase):
                 "electronic-state-review.schema.json", "gaussian-result-observation.schema.json", "result-acceptance.schema.json",
                 "multiplicity-family-source.schema.json", "multiplicity-comparison-protocol.schema.json",
                 "multiplicity-member-protocol.schema.json", "multiplicity-member-input-lineage.schema.json",
+                "multiplicity-member-result-lineage-source.schema.json", "multiplicity-member-result-lineage.schema.json",
                 "multiplicity-family-plan.schema.json", "multiplicity-family-result-manifest.schema.json",
                 "multiplicity-family-comparison-audit.schema.json",
             },

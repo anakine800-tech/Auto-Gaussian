@@ -48,6 +48,14 @@ structure relationship. Every member retains its own candidate, state review,
 protocol, input, and result lineage; file hashes may not be reused across
 members.
 
+An accepted result is not comparable merely because it belongs to the same
+candidate. A closed member-result-lineage source and deterministic derived
+artifact must additionally bind the exact member protocol, common protocol and
+settings, input-lineage artifact and input hash, acceptance, observation, and
+raw result-source hash. Missing proof remains structurally blocked. The record
+is supplied offline provenance only and cannot claim transport or live
+execution provenance.
+
 Only independently accepted single-reference doublet or high-spin triplet
 members can remain eligible for a later, separately approved input handoff.
 Quartets, open-shell singlets, and other unsupported states remain visible as
