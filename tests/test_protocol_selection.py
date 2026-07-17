@@ -181,7 +181,7 @@ def open_shell_request_fixture(review_path: Path, review: dict) -> dict:
         "claim_scope": "Minimum Opt/Freq evidence for the exact reviewed CH3 doublet.",
         "task_types": ["optimization", "frequency"],
         "structure": {
-            "sha256": "1" * 64, "formula": "CH3", "atom_count": 4,
+            "sha256": review["candidate_snapshot"]["structure_sha256"], "formula": "CH3", "atom_count": 4,
             "elements": ["C", "H"], "charge": 0, "multiplicity": 2,
         },
         "system_class": "main_group_open_shell",

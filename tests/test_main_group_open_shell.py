@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 MODULE = ROOT / "skills" / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_state.py"
+MINIMUM_MODULE = ROOT / "skills" / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_minimum.py"
 FIXTURES = ROOT / "tests" / "fixtures" / "main_group_open_shell"
 SPEC = importlib.util.spec_from_file_location("open_shell_state", MODULE)
 assert SPEC and SPEC.loader
@@ -74,6 +75,9 @@ class MainGroupOpenShellTests(unittest.TestCase):
                 "multiplicity-member-result-lineage-source.schema.json", "multiplicity-member-result-lineage.schema.json",
                 "multiplicity-family-plan.schema.json", "multiplicity-family-result-manifest.schema.json",
                 "multiplicity-family-comparison-audit.schema.json",
+                "minimum-opt-freq-input-handoff.schema.json", "minimum-opt-freq-input-audit.schema.json",
+                "minimum-opt-freq-result-observation.schema.json", "minimum-opt-freq-result-continuity.schema.json",
+                "cartesian-candidate.schema.json", "input-specification.schema.json", "result-source-binding.schema.json",
             },
         )
         for path in contract_dir.glob("*.schema.json"):
@@ -232,13 +236,21 @@ class MainGroupOpenShellTests(unittest.TestCase):
                 OPEN_SHELL.write_new_json(linked_output / "new.json", review)
 
     def test_no_live_execution_surface(self) -> None:
-        tree = ast.parse(MODULE.read_text(encoding="utf-8"))
-        imported = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
-        imported |= {str(node.module).split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-        self.assertTrue(imported.isdisjoint({"subprocess", "socket", "requests", "paramiko", "asyncssh"}))
+        for source in (MODULE, MINIMUM_MODULE):
+            tree = ast.parse(source.read_text(encoding="utf-8"))
+            imported = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+            imported |= {str(node.module).split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+            self.assertTrue(imported.isdisjoint({"subprocess", "socket", "requests", "paramiko", "asyncssh"}), source.name)
         parser = OPEN_SHELL.build_parser()
         choices = next(action.choices for action in parser._actions if getattr(action, "choices", None))
         self.assertEqual(set(choices), {"review", "observe", "accept", "validate"})
+        minimum_spec = importlib.util.spec_from_file_location("open_shell_minimum_surface", MINIMUM_MODULE)
+        assert minimum_spec and minimum_spec.loader
+        minimum = importlib.util.module_from_spec(minimum_spec)
+        minimum_spec.loader.exec_module(minimum)
+        minimum_parser = minimum.build_parser()
+        minimum_choices = next(action.choices for action in minimum_parser._actions if getattr(action, "choices", None))
+        self.assertEqual(set(minimum_choices), {"handoff", "audit-input", "observe-result", "accept-result", "validate"})
 
 
 def reline(text: str, old: str, new: str) -> str:

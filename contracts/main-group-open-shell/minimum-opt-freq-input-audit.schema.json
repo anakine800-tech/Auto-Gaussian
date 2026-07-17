@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/minimum-opt-freq-input-audit/1",
+  "title": "Auto-G16 Main-Group Open-Shell Minimum Opt/Freq Input Audit V1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "audit_id", "workflow", "status", "handoff", "input_sha256", "parsed", "checks", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-open-shell-minimum-opt-freq-input-audit/1"}, "audit_id": {"$ref": "#/$defs/id"}, "workflow": {"const": "main_group_open_shell_minimum_opt_freq_v1"}, "status": {"enum": ["passed", "blocked"]}, "handoff": {"$ref": "#/$defs/binding"}, "input_sha256": {"$ref": "#/$defs/sha"}, "parsed": {"$ref": "#/$defs/parsed"}, "checks": {"$ref": "#/$defs/checks"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "schema", "payload_sha256"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "schema": {"type": "string"}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "atom": {"type": "object", "additionalProperties": false, "required": ["index", "element", "x_angstrom", "y_angstrom", "z_angstrom"], "properties": {"index": {"type": "integer", "minimum": 1}, "element": {"type": "string"}, "x_angstrom": {"type": "number"}, "y_angstrom": {"type": "number"}, "z_angstrom": {"type": "number"}}},
+    "parsed": {"type": "object", "additionalProperties": false, "required": ["route", "charge", "multiplicity", "coordinates", "mem", "cores", "checkpoint", "trailing_blank_line"], "properties": {"route": {"type": "string"}, "charge": {"type": "integer"}, "multiplicity": {"enum": [2, 3]}, "coordinates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atom"}}, "mem": {"type": "string"}, "cores": {"type": "integer", "minimum": 1}, "checkpoint": {"type": "string"}, "trailing_blank_line": {"const": true}}},
+    "checks": {"type": "object", "additionalProperties": false, "required": ["input_hash", "charge", "multiplicity", "reference", "stability", "minimum_opt_freq", "atom_order_coordinates", "resources", "server_directory_absent", "trailing_blank_line"], "properties": {"input_hash": {"type": "boolean"}, "charge": {"type": "boolean"}, "multiplicity": {"type": "boolean"}, "reference": {"type": "boolean"}, "stability": {"type": "boolean"}, "minimum_opt_freq": {"type": "boolean"}, "atom_order_coordinates": {"type": "boolean"}, "resources": {"type": "boolean"}, "server_directory_absent": {"type": "boolean"}, "trailing_blank_line": {"type": "boolean"}}}
+  }
+}

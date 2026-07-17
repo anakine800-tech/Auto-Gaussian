@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "auto-g16://contracts/main-group-open-shell/result-source-binding/1", "title": "Auto-G16 Main-Group Open-Shell Result Source Binding V1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "result_id", "handoff", "input_sha256", "result_source", "transport_claim", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {"schema": {"const": "auto-g16-main-group-open-shell-result-source-binding/1"}, "result_id": {"$ref": "#/$defs/id"}, "handoff": {"$ref": "#/$defs/binding"}, "input_sha256": {"$ref": "#/$defs/sha"}, "result_source": {"$ref": "#/$defs/file"}, "transport_claim": {"const": "supplied_offline_source_binding_only"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}},
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "file": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}}}, "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "schema", "payload_sha256"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "schema": {"type": "string"}, "payload_sha256": {"$ref": "#/$defs/sha"}}}}
+}

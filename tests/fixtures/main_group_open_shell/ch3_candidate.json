@@ -1,7 +1,7 @@
 {
   "schema": "auto-g16-main-group-open-shell-candidate/1",
   "candidate_id": "ch3_doublet",
-  "structure_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "structure_sha256": "f43e331864311c02e68afa472ec15521a924e022324969c9eae370c3eed91ba9",
   "atoms": [{"index": 1, "element": "C"}, {"index": 2, "element": "H"}, {"index": 3, "element": "H"}, {"index": 4, "element": "H"}],
   "charge": 0,
   "multiplicity": 2,
