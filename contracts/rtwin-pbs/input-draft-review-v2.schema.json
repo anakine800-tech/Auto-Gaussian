@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/input-draft-review-v2.schema.json",
+  "title": "Auto-G16 generic exact input-draft review v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "review_id", "work_kind", "protocol_task_types", "protocol_binding", "route_profile_mapping", "protocol_family_completion", "approved_input", "decision", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-input-draft-review/2"},
+    "review_id": {"type": "string", "minLength": 1},
+    "work_kind": {"enum": ["ordinary", "minimum", "ts_pilot", "formal_ts"]},
+    "protocol_task_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "protocol_binding": {"$ref": "#/$defs/protocolBinding"},
+    "route_profile_mapping": {"$ref": "#/$defs/routeProfileMapping"},
+    "protocol_family_completion": {"const": false},
+    "approved_input": {"$ref": "#/$defs/inputFacts"},
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "explicit_confirmation", "reviewer", "reviewed_at", "rationale"],
+      "properties": {
+        "status": {"const": "accepted_exact_input"},
+        "explicit_confirmation": {"const": true},
+        "reviewer": {"type": "string", "minLength": 1},
+        "reviewed_at": {"type": "string", "minLength": 1},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "protocolBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["options_sha256", "options_payload_sha256", "selection_sha256", "selection_payload_sha256", "selected_option", "used_profile_ids", "used_tasks"],
+      "properties": {
+        "options_sha256": {"$ref": "#/$defs/sha"}, "options_payload_sha256": {"$ref": "#/$defs/sha"},
+        "selection_sha256": {"$ref": "#/$defs/sha"}, "selection_payload_sha256": {"$ref": "#/$defs/sha"},
+        "selected_option": {
+          "type": "object", "additionalProperties": false,
+          "required": ["tier", "option_id", "option_payload_sha256"],
+          "properties": {"tier": {"type": "string", "minLength": 1}, "option_id": {"type": "string", "minLength": 1}, "option_payload_sha256": {"$ref": "#/$defs/sha"}}
+        },
+        "used_profile_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "used_tasks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/taskBinding"}}
+      }
+    },
+    "taskBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["task_index", "stage_type", "profile_id"],
+      "properties": {"task_index": {"type": "integer", "minimum": 0}, "stage_type": {"type": "string", "minLength": 1}, "profile_id": {"type": "string", "minLength": 1}}
+    },
+    "routeProfileMapping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["exact_route", "method", "basis", "solvent", "scf", "tasks", "explicit_confirmation"],
+      "properties": {
+        "exact_route": {"type": "string", "pattern": "^#"},
+        "method": {"$ref": "#/$defs/profileMapping"}, "basis": {"$ref": "#/$defs/profileMapping"},
+        "solvent": {"$ref": "#/$defs/profileMapping"}, "scf": {"$ref": "#/$defs/profileMapping"},
+        "tasks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/taskRouteMapping"}},
+        "explicit_confirmation": {"const": true}
+      }
+    },
+    "profileMapping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["route_value", "profile_id", "selected_value", "human_confirmed"],
+      "properties": {"route_value": {"type": "string", "minLength": 1}, "profile_id": {"type": "string", "minLength": 1}, "selected_value": {}, "human_confirmed": {"const": true}}
+    },
+    "taskRouteMapping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["task_index", "stage_type", "profile_id", "route_evidence", "human_confirmed"],
+      "properties": {
+        "task_index": {"type": "integer", "minimum": 0}, "stage_type": {"type": "string", "minLength": 1}, "profile_id": {"type": "string", "minLength": 1},
+        "route_evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["opt_ts", "minimum_opt", "frequency", "single_point"]}}, "human_confirmed": {"const": true}
+      }
+    },
+    "inputFacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_sha256", "route", "mem", "nprocshared", "charge", "multiplicity", "atom_count", "elements"],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "route": {"type": "string", "pattern": "^#"},
+        "mem": {"type": "string", "minLength": 1},
+        "nprocshared": {"type": "integer", "minimum": 1, "maximum": 44},
+        "charge": {"type": "integer"},
+        "multiplicity": {"type": "integer", "minimum": 1},
+        "atom_count": {"type": "integer", "minimum": 1},
+        "elements": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "integer", "minimum": 1}}
+      }
+    }
+  }
+}

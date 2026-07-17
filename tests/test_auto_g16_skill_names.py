@@ -59,7 +59,12 @@ class AutoG16SkillNameTests(unittest.TestCase):
             SKILLS / "auto-g16-rtwin-pbs" / "scripts" / "gaussian_auto.py"
         ).read_text(encoding="utf-8")
         self.assertIn("accepts only an existing reviewed .gjf/.com input", auto_tool)
-        self.assertIn("auto-g16-live-submission-approval/1", auto_tool)
+        self.assertIn("return transport.validate_live_approval(path, summary)", auto_tool)
+        transport_tool = (
+            SKILLS / "auto-g16-rtwin-pbs" / "scripts" / "gaussian_rtwin_pbs.py"
+        ).read_text(encoding="utf-8")
+        for version in (1, 2, 3):
+            self.assertIn(f"auto-g16-live-submission-approval/{version}", transport_tool)
 
         for script in ("prepare_preview.py", "prepare_conformers.py"):
             text = (

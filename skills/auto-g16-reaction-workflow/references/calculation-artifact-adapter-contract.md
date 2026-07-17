@@ -170,7 +170,10 @@ its required `<input-stem>.handoff.json` companion. The companion uses
 `gaussian-candidate-input-handoff/1`, binds every source and the exact input,
 records both specialist audits, and records the six gates separately. It still
 has `calculation_ready: false` and `no_submission_authorization: true`; it must
-not be treated as a staging or submission manifest.
+not be treated as a staging, generic input-approval, or submission manifest.
+It covers only this adapter's restricted closed-shell main-group single-guess
+TS/Freq path. The transport owner uses its own versioned generic input-approval
+receipt for the input families that receipt explicitly supports.
 
 ## Specialist result to reviewed energy and lineage
 
