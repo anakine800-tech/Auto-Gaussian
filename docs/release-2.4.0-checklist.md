@@ -4,9 +4,11 @@ Status: release metadata preparation, local commits, exact synchronization of
 `auto-g16-chemdraw-pipeline` and `auto-g16-view-rt-win`, branch push, and Draft
 PR creation were explicitly authorized on 2026-07-18. The user subsequently
 authorized converting PR #38 to Ready and merging it into `main` while `/4`
-and `/5` remain blocked/not authorized. Tag `v2.4.0`, GitHub Release, any other
-Skill deployment, live smoke, SSH/PBS/Gaussian work, retry, cancellation, and
-server cleanup are not authorized.
+and `/5` remain blocked/not authorized. After that merge and its post-merge CI
+passed, the user explicitly authorized continuing with an annotated `v2.4.0`
+tag and a normal GitHub Release through the follow-up publication procedure
+below. Any other Skill deployment, live smoke, SSH/PBS/Gaussian work, retry,
+cancellation, and server cleanup remain not authorized.
 
 ## Candidate scope
 
@@ -53,6 +55,22 @@ server cleanup are not authorized.
 - [x] Merge authorization is not tag, GitHub Release, deployment, SSH, PBS,
       Gaussian, submission, retry, cancellation, cleanup, `/4`, or `/5`
       authorization.
+
+## Publication authorization boundary
+
+- [x] PR #38 was merged as commit
+      `893e494a89fd22ff8099022ccd195dd30064e284` after its required checks
+      passed.
+- [x] Post-merge `main` CI passed for Python 3.11, 3.12, and 3.13, the chemistry
+      dependency profile, CodeQL, and dependency-graph submission.
+- [x] On 2026-07-18, after the merge and post-merge checks passed, the user
+      explicitly instructed the release process to continue. This authorizes
+      an annotated `v2.4.0` tag and a normal GitHub Release for the exact final
+      `main` commit after this authorization record is merged and its required
+      checks pass.
+- [x] Publication authorization does not authorize another Skill deployment,
+      live smoke, SSH, PBS, Gaussian, submission, retry, cancellation, cleanup,
+      `/4`, or `/5`. Those boundaries remain unchanged.
 
 ## Named-Skill synchronization evidence
 
@@ -145,11 +163,12 @@ status and cannot be replayed as live authority.
       hygiene tests, `git diff --check`, and the sensitive-string/private-key
       scan before its separate follow-up commit.
 
-## Authorized PR integration and withheld publication
+## Authorized publication procedure
 
-After the updated PR head passes all required checks, PR #38 may be converted
-to Ready and merged into protected `main` under the explicit 2026-07-18
-authorization. Stop after verifying the merge and synchronizing local `main`.
-Do not create tag `v2.4.0`, a GitHub Release, another deployment, or any live
-operation without a separate explicit request; every scientific and server
-approval gate remains in force.
+Merge this documentation-only authorization record only after its required
+checks pass. Then verify that local `main`, `origin/main`, and the GitHub remote
+identify the same clean commit; create annotated tag `v2.4.0` on exactly that
+commit; push only that tag; and publish the normal GitHub Release from the
+2.4.0 changelog. Do not perform another deployment or any live operation.
+Release publication does not satisfy or bypass `/4`, `/5`, or any scientific,
+input, server, retry, cancellation, or cleanup approval gate.
