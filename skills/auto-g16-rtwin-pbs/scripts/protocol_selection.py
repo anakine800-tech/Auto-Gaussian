@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import re
@@ -24,6 +25,7 @@ FORBIDDEN_KEYS = {
 }
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 SHA_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+_OPEN_SHELL_MODULE: Any | None = None
 
 
 class ContractError(ValueError):
@@ -120,6 +122,53 @@ def _reject_forbidden_keys(value: Any, path: str = "$", *, parent: str | None = 
         require(math.isfinite(value), f"{path}: non-finite number is forbidden")
 
 
+def _open_shell_module() -> Any:
+    """Load the domain validator without duplicating its scientific rules here."""
+    global _OPEN_SHELL_MODULE
+    if _OPEN_SHELL_MODULE is None:
+        path = Path(__file__).resolve().parents[2] / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_state.py"
+        spec = importlib.util.spec_from_file_location("auto_g16_main_group_open_shell", path)
+        require(spec is not None and spec.loader is not None, "open-shell electronic-state validator is unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _OPEN_SHELL_MODULE = module
+    return _OPEN_SHELL_MODULE
+
+
+def _is_open_shell_request(request: dict[str, Any]) -> bool:
+    structure = request.get("structure", {})
+    multiplicity = structure.get("multiplicity") if isinstance(structure, dict) else None
+    return request.get("system_class") == "main_group_open_shell" or (isinstance(multiplicity, int) and multiplicity > 1)
+
+
+def _validated_open_shell_review(request: dict[str, Any]) -> dict[str, Any] | None:
+    if not _is_open_shell_request(request):
+        return None
+    require(request.get("system_class") == "main_group_open_shell", "open-shell V1 request must declare system_class main_group_open_shell")
+    binding = request.get("electronic_state_review")
+    require(isinstance(binding, dict), "open-shell request requires an exact accepted electronic_state_review binding")
+    require(set(binding) == {"path", "sha256", "payload_sha256"}, "open-shell electronic_state_review binding fields mismatch")
+    require(SHA_PATTERN.fullmatch(str(binding.get("sha256", ""))) is not None, "open-shell review file hash is invalid")
+    require(SHA_PATTERN.fullmatch(str(binding.get("payload_sha256", ""))) is not None, "open-shell review payload hash is invalid")
+    module = _open_shell_module()
+    try:
+        review_path, review = module.load_validated_review(binding.get("path", ""))
+    except (module.ContractError, OSError, ValueError) as exc:
+        raise ContractError(f"open-shell electronic-state review is invalid: {exc}") from exc
+    require(sha256_file(review_path) == binding["sha256"], "open-shell review file hash mismatch")
+    require(review.get("payload_sha256") == binding["payload_sha256"], "open-shell review payload hash mismatch")
+    require(review.get("status") == "accepted" and review.get("conclusion", {}).get("decision") == "accepted_for_v1_protocol_gate", "open-shell review is not accepted for the V1 protocol gate")
+    candidate = review["candidate_snapshot"]
+    structure = request["structure"]
+    candidate_elements = [atom["element"] for atom in candidate["atoms"]]
+    require(structure.get("sha256") == candidate.get("structure_sha256"), "open-shell request/review structure hash mismatch")
+    require(structure.get("charge") == candidate.get("charge") and structure.get("multiplicity") == candidate.get("multiplicity"), "open-shell request/review charge or multiplicity mismatch")
+    require(structure.get("atom_count") == len(candidate_elements), "open-shell request/review atom count mismatch")
+    require(set(structure.get("elements", [])) == set(candidate_elements), "open-shell request/review element inventory mismatch")
+    require(request.get("task_types") == candidate.get("task_types"), "open-shell request/review task scope mismatch")
+    return review
+
+
 def validate_request(request: dict[str, Any]) -> None:
     require(request.get("schema") == "gaussian-calculation-request/1", "request: wrong schema")
     require(ID_PATTERN.fullmatch(str(request.get("request_id", ""))) is not None, "request: invalid request_id")
@@ -139,6 +188,7 @@ def validate_request(request: dict[str, Any]) -> None:
     require(isinstance(structure.get("multiplicity"), int) and structure["multiplicity"] > 0, "request: multiplicity must be positive")
     require(request.get("support_status") in {"supported", "unsupported", "unresolved"}, "request: invalid support_status")
     _reject_forbidden_keys(request)
+    _validated_open_shell_review(request)
 
 
 def _validate_basis_stack(profile: dict[str, Any], elements: set[str], context: str) -> None:
@@ -161,7 +211,7 @@ def _validate_basis_stack(profile: dict[str, Any], elements: set[str], context: 
     require(covered == elements, f"{context}: basis/ECP coverage must exactly match request elements")
 
 
-def _validate_method_profile(profile: Any, elements: set[str], context: str) -> None:
+def _validate_method_profile(profile: Any, elements: set[str], context: str, open_shell_review: dict[str, Any] | None = None) -> None:
     require(isinstance(profile, dict), f"{context} must be an object")
     _nonempty_string(profile.get("profile_id"), f"{context}.profile_id")
     _string_list(profile.get("stages"), f"{context}.stages", allow_empty=False)
@@ -174,6 +224,19 @@ def _validate_method_profile(profile: Any, elements: set[str], context: str) -> 
     if solvation["mode"] in {"continuum", "hybrid"}:
         _nonempty_string(solvation.get("model"), f"{context}.solvation.model")
         _nonempty_string(solvation.get("solvent_identity"), f"{context}.solvation.solvent_identity")
+    if open_shell_review is not None:
+        scf = profile["scf"]
+        wavefunction = open_shell_review["wavefunction_policy"]
+        require(scf.get("reference") == wavefunction["reference"], f"{context}: open-shell reference does not match accepted review")
+        require(scf.get("stability_check") == "required", f"{context}: open-shell stability check must be required")
+        require(scf.get("broken_symmetry_policy") == "forbidden", f"{context}: broken symmetry must remain forbidden in V1")
+        expected_s2_policy = {
+            "metric": wavefunction["spin_contamination_policy"]["metric"],
+            "target_s2": wavefunction["target_s2"],
+            "max_abs_deviation": wavefunction["spin_contamination_policy"]["max_abs_deviation"],
+            "missing_diagnostic": "block",
+        }
+        require(scf.get("s2_policy") == expected_s2_policy, f"{context}: open-shell S2 policy does not match accepted review")
     _nonempty_string(profile.get("grid"), f"{context}.grid")
     _nonempty_string(profile.get("relativistic_treatment"), f"{context}.relativistic_treatment")
     _nonempty_string(profile.get("software_compatibility"), f"{context}.software_compatibility")
@@ -221,9 +284,10 @@ def _validate_option(option: Any, request: dict[str, Any]) -> None:
         require(not unresolved, f"{context}: selectable option has unresolved fields")
         require(profiles and tasks, f"{context}: selectable option requires method profiles and task plan")
         elements = set(request["structure"]["elements"])
+        open_shell_review = _validated_open_shell_review(request)
         profile_ids: set[str] = set()
         for index, profile in enumerate(profiles):
-            _validate_method_profile(profile, elements, f"{context}.method_profiles[{index}]")
+            _validate_method_profile(profile, elements, f"{context}.method_profiles[{index}]", open_shell_review)
             profile_id = profile["profile_id"]
             require(profile_id not in profile_ids, f"{context}: duplicate method profile")
             profile_ids.add(profile_id)
@@ -370,6 +434,9 @@ def validate_selection(selection: dict[str, Any], options: dict[str, Any]) -> No
         "multiplicity": request["structure"]["multiplicity"],
         "task_types": request["task_types"],
     }
+    review = _validated_open_shell_review(request)
+    if review is not None:
+        expected_scope["electronic_state_review_payload_sha256"] = review["payload_sha256"]
     require(scope == expected_scope, "selection: calculation scope mismatch")
     _reject_forbidden_keys(selection)
     expected = payload_sha256(_without(selection, "selection_payload_sha256"))
@@ -431,6 +498,9 @@ def build_selection(
             "cleanup": False,
         },
     }
+    review = _validated_open_shell_review(request)
+    if review is not None:
+        document["scope_binding"]["electronic_state_review_payload_sha256"] = review["payload_sha256"]
     require(ID_PATTERN.fullmatch(document["selection_id"]) is not None, "selection: invalid selection_id")
     document["selection_payload_sha256"] = payload_sha256(document)
     validate_selection(document, options)

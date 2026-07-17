@@ -1,0 +1,9 @@
+{
+  "schema": "auto-g16-main-group-open-shell-acceptance-policy/1",
+  "policy_id": "v1_minimum_acceptance",
+  "decision_rule": "accept_if_all_required_checks_pass",
+  "required_checks": ["review_accepted", "normal_termination", "scf_converged", "state_identity", "reference_family", "stability", "s2_present", "s2_within_policy", "stationary_minimum", "frequencies_complete", "no_imaginary_frequencies", "single_reference_scope"],
+  "confirmed": true,
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}

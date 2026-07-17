@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-main-group-open-shell-review-source/1",
+  "review_id": "ch2_triplet_review",
+  "credible_multiplicities": [1, 3],
+  "wavefunction_reference": "U",
+  "stability_required": true,
+  "expected_frequency_count": 3,
+  "spin_contamination_policy": {"metric": "post_annihilation_absolute_s2_deviation", "target_s2": 2.0, "max_abs_deviation": 0.08, "missing_diagnostic": "block"},
+  "alternative_solutions": [{"multiplicity": 1, "state_family": "closed_shell_singlet", "disposition": "lower_priority", "evidence": "Synthetic reviewer fixture records the singlet as a separate state and workflow."}],
+  "multireference_risk": {"level": "low", "evidence": ["Synthetic reviewer assessment supports the triplet single-reference claim."], "action": "accept_single_reference"},
+  "reviewer_decision": {"decision": "accepted_for_v1_protocol_gate", "rationale": "Synthetic triplet carbene fixture satisfies the bounded V1 review.", "confirmed": true},
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}
