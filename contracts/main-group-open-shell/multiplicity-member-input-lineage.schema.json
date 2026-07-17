@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "auto-g16://contracts/main-group-open-shell/multiplicity-member-input-lineage/1", "title": "Auto-G16 Main-Group Multiplicity Member Input Lineage V1",
+  "type": "object", "additionalProperties": false, "required": ["schema", "member_id", "disposition", "candidate_payload_sha256", "member_protocol_payload_sha256", "input_artifact_sha256", "handoff_status", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {"schema": {"const": "auto-g16-main-group-multiplicity-member-input-lineage/1"}, "member_id": {"$ref": "#/$defs/id"}, "disposition": {"$ref": "#/$defs/disposition"}, "candidate_payload_sha256": {"$ref": "#/$defs/sha"}, "member_protocol_payload_sha256": {"$ref": "#/$defs/sha"}, "input_artifact_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sha"}]}, "handoff_status": {"enum": ["eligible_after_separate_input_approval", "blocked_needs_specialist"]}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}},
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "disposition": {"enum": ["v1_handoff_candidate", "blocked_needs_specialist"]}}
+}

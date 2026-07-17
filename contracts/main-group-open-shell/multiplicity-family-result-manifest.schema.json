@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "auto-g16://contracts/main-group-open-shell/multiplicity-family-result-manifest/1", "title": "Auto-G16 Main-Group Multiplicity-Family Result Manifest V1",
+  "type": "object", "additionalProperties": false, "required": ["schema", "family_id", "results", "comparison_statement", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {"schema": {"const": "auto-g16-main-group-multiplicity-family-result-manifest/1"}, "family_id": {"$ref": "#/$defs/id"}, "results": {"type": "array", "minItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["member_id", "acceptance_path"], "properties": {"member_id": {"$ref": "#/$defs/id"}, "acceptance_path": {"type": ["string", "null"], "minLength": 1}}}}, "comparison_statement": {"const": "no_energy_ordering_or_ground_state_claim"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}},
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

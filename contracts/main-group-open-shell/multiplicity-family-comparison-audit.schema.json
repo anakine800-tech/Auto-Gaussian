@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/multiplicity-family-comparison-audit/1",
+  "title": "Auto-G16 Main-Group Multiplicity-Family Comparison Audit V1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "family_id", "plan", "result_manifest", "common_comparison_protocol", "members", "comparison_status", "energy_ordering", "ground_state_claim", "thermochemistry", "multireference_inference", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-multiplicity-family-comparison-audit/1"}, "family_id": {"$ref": "#/$defs/id"}, "plan": {"$ref": "#/$defs/binding"}, "result_manifest": {"$ref": "#/$defs/binding"}, "common_comparison_protocol": {"$ref": "#/$defs/binding"},
+    "members": {"type": "array", "minItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["member_id", "multiplicity", "status", "result", "electronic_energy_hartree"], "properties": {"member_id": {"$ref": "#/$defs/id"}, "multiplicity": {"type": "integer", "minimum": 1}, "status": {"enum": ["accepted_v1_evidence", "blocked_needs_specialist"]}, "result": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/binding"}]}, "electronic_energy_hartree": {"type": ["number", "null"]}}}},
+    "comparison_status": {"enum": ["comparable_without_ordering_claim", "blocked_insufficient_supported_results"]}, "energy_ordering": {"const": "not_evaluated"}, "ground_state_claim": {"const": "not_made"}, "thermochemistry": {"const": "not_compared"}, "multireference_inference": {"const": "not_made_from_energy_proximity"},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "text": {"type": "string", "minLength": 1}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "schema", "payload_sha256"], "properties": {"path": {"$ref": "#/$defs/text"}, "sha256": {"$ref": "#/$defs/sha"}, "schema": {"$ref": "#/$defs/text"}, "payload_sha256": {"$ref": "#/$defs/sha"}}}}
+}

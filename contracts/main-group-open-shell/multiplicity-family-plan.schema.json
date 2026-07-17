@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/multiplicity-family-plan/1",
+  "title": "Auto-G16 Main-Group Multiplicity-Family Offline Plan V1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "family_id", "source", "composition_signature", "structure_relationship", "common_comparison_protocol", "members", "planning_status", "comparison_status", "exclusions", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-multiplicity-family-plan/1"}, "family_id": {"$ref": "#/$defs/id"}, "source": {"$ref": "#/$defs/binding"}, "composition_signature": {"$ref": "#/$defs/text"},
+    "structure_relationship": {"type": "object", "additionalProperties": false, "required": ["kind", "statement", "atom_mapping_reviewed", "confirmed"], "properties": {"kind": {"enum": ["same_composition_reviewed_atom_mapping", "same_exact_structure_different_state"]}, "statement": {"$ref": "#/$defs/text"}, "atom_mapping_reviewed": {"const": true}, "confirmed": {"const": true}}},
+    "common_comparison_protocol": {"$ref": "#/$defs/binding"},
+    "members": {"type": "array", "minItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["member_id", "state_label", "multiplicity", "disposition", "lineage", "handoff_status", "result_lineage_status"], "properties": {"member_id": {"$ref": "#/$defs/id"}, "state_label": {"$ref": "#/$defs/text"}, "multiplicity": {"type": "integer", "minimum": 1}, "disposition": {"enum": ["v1_handoff_candidate", "blocked_needs_specialist"]}, "lineage": {"type": "object", "additionalProperties": false, "required": ["candidate", "state_review", "protocol", "input_lineage"], "properties": {"candidate": {"$ref": "#/$defs/binding"}, "state_review": {"$ref": "#/$defs/binding"}, "protocol": {"$ref": "#/$defs/binding"}, "input_lineage": {"$ref": "#/$defs/binding"}}}, "handoff_status": {"enum": ["eligible_after_separate_input_approval", "blocked_needs_specialist"]}, "result_lineage_status": {"enum": ["awaiting_independent_result", "blocked_needs_specialist"]}}}},
+    "planning_status": {"enum": ["ready_for_independent_v1_handoffs", "blocked_no_supported_v1_members"]}, "comparison_status": {"const": "planned_not_performed"}, "exclusions": {"type": "array", "minItems": 7, "uniqueItems": true, "items": {"type": "string"}},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "text": {"type": "string", "minLength": 1}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "binding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "schema", "payload_sha256"], "properties": {"path": {"$ref": "#/$defs/text"}, "sha256": {"$ref": "#/$defs/sha"}, "schema": {"$ref": "#/$defs/text"}, "payload_sha256": {"$ref": "#/$defs/sha"}}}}
+}
