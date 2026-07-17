@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/result-acceptance/1",
+  "title": "Auto-G16 Main-Group Open-Shell Result Acceptance V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "acceptance_id", "status", "review_source", "observation_source", "policy_source", "checks", "decision", "calculation_ready", "no_submission_authorization", "authorizations", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-open-shell-result-acceptance/1"},
+    "acceptance_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "status": {"enum": ["accepted", "blocked"]},
+    "review_source": {"$ref": "#/$defs/payloadBinding"},
+    "observation_source": {"$ref": "#/$defs/payloadBinding"},
+    "policy_source": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "policy_id"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "policy_id": {"type": "string"}}},
+    "checks": {"type": "array", "minItems": 12, "maxItems": 12, "items": {"type": "object", "additionalProperties": false, "required": ["check", "status", "detail"], "properties": {"check": {"type": "string"}, "status": {"enum": ["pass", "block"]}, "detail": {"type": "string", "minLength": 1}}}},
+    "decision": {"enum": ["accepted_for_v1_minimum_evidence", "blocked"]},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true},
+    "authorizations": {"type": "object", "additionalProperties": false, "required": ["render_input", "gaussian", "ssh", "pbs", "submit", "retry", "cancel", "cleanup", "deploy"], "properties": {"render_input": {"const": false}, "gaussian": {"const": false}, "ssh": {"const": false}, "pbs": {"const": false}, "submit": {"const": false}, "retry": {"const": false}, "cancel": {"const": false}, "cleanup": {"const": false}, "deploy": {"const": false}}},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "payloadBinding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "payload_sha256": {"$ref": "#/$defs/sha256"}}}
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/electronic-state-review/1",
+  "title": "Auto-G16 Main-Group Open-Shell Electronic-State Review V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "review_id", "status", "candidate_source", "review_source", "candidate_snapshot", "atom_inventory", "electron_accounting", "credible_multiplicities", "state_assessment", "wavefunction_policy", "alternative_solutions", "multireference_risk", "conclusion", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-open-shell-review/1"},
+    "review_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "status": {"enum": ["accepted", "blocked"]},
+    "candidate_source": {"$ref": "#/$defs/fileBinding"},
+    "review_source": {"$ref": "#/$defs/fileBinding"},
+    "candidate_snapshot": {"$ref": "#/$defs/candidate"},
+    "atom_inventory": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atoms", "elements", "atomic_number_sum"],
+      "properties": {
+        "atoms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atom"}},
+        "elements": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "atomic_number_sum": {"type": "integer", "minimum": 1}
+      }
+    },
+    "electron_accounting": {
+      "type": "object", "additionalProperties": false,
+      "required": ["charge", "electron_count", "electron_parity", "multiplicity", "multiplicity_parity_consistent"],
+      "properties": {
+        "charge": {"type": "integer"}, "electron_count": {"type": "integer"},
+        "electron_parity": {"enum": ["even", "odd"]}, "multiplicity": {"type": "integer", "minimum": 1},
+        "multiplicity_parity_consistent": {"type": "boolean"}
+      }
+    },
+    "credible_multiplicities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+    "state_assessment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state_family", "electronic_scope", "structure_role", "task_types", "expected_frequency_count", "v1_classification"],
+      "properties": {
+        "state_family": {"type": "string"}, "electronic_scope": {"type": "string"}, "structure_role": {"type": "string"},
+        "task_types": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "expected_frequency_count": {"type": "integer", "minimum": 1},
+        "v1_classification": {"enum": ["supported_single_reference_minimum", "outside_or_blocked_v1"]}
+      }
+    },
+    "wavefunction_policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reference", "stability_required", "target_spin", "target_s2", "spin_contamination_policy"],
+      "properties": {
+        "reference": {"enum": ["U", "RO"]}, "stability_required": {"const": true},
+        "target_spin": {"type": "number", "minimum": 0}, "target_s2": {"type": "number", "minimum": 0},
+        "spin_contamination_policy": {"$ref": "#/$defs/s2Policy"}
+      }
+    },
+    "alternative_solutions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/alternative"}},
+    "multireference_risk": {"$ref": "#/$defs/multireferenceRisk"},
+    "conclusion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "reasons", "confirmed"],
+      "properties": {
+        "decision": {"enum": ["accepted_for_v1_protocol_gate", "blocked", "rejected"]},
+        "reasons": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "confirmed": {"const": true}
+      }
+    },
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fileBinding": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "atom": {"type": "object", "additionalProperties": false, "required": ["index", "element"], "properties": {"index": {"type": "integer", "minimum": 1}, "element": {"type": "string", "minLength": 1}}},
+    "candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "candidate_id", "structure_sha256", "atoms", "charge", "multiplicity", "state_family", "electronic_scope", "structure_role", "task_types", "calculation_ready", "no_submission_authorization"],
+      "properties": {
+        "schema": {"const": "auto-g16-main-group-open-shell-candidate/1"}, "candidate_id": {"type": "string"}, "structure_sha256": {"$ref": "#/$defs/sha256"},
+        "atoms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atom"}}, "charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1},
+        "state_family": {"type": "string"}, "electronic_scope": {"type": "string"}, "structure_role": {"type": "string"},
+        "task_types": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}
+      }
+    },
+    "s2Policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["metric", "target_s2", "max_abs_deviation", "missing_diagnostic"],
+      "properties": {"metric": {"const": "post_annihilation_absolute_s2_deviation"}, "target_s2": {"type": "number", "minimum": 0}, "max_abs_deviation": {"type": "number", "minimum": 0}, "missing_diagnostic": {"const": "block"}}
+    },
+    "alternative": {
+      "type": "object", "additionalProperties": false,
+      "required": ["multiplicity", "state_family", "disposition", "evidence"],
+      "properties": {"multiplicity": {"type": "integer", "minimum": 1}, "state_family": {"type": "string"}, "disposition": {"enum": ["lower_priority", "excluded_by_evidence", "requires_escalation"]}, "evidence": {"type": "string", "minLength": 1}}
+    },
+    "multireferenceRisk": {
+      "type": "object", "additionalProperties": false,
+      "required": ["level", "evidence", "action"],
+      "properties": {"level": {"enum": ["low", "moderate", "high", "unresolved"]}, "evidence": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "action": {"enum": ["accept_single_reference", "escalate", "reject"]}}
+    }
+  }
+}

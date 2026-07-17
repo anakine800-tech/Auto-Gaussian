@@ -1,0 +1,10 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-main-group-open-shell",
+  "include": [
+    {
+      "source": "contracts/main-group-open-shell",
+      "target": "contracts/main-group-open-shell"
+    }
+  ]
+}

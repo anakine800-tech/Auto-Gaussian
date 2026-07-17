@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-main-group-open-shell-review-source/1",
+  "review_id": "ch3_doublet_review",
+  "credible_multiplicities": [2],
+  "wavefunction_reference": "U",
+  "stability_required": true,
+  "expected_frequency_count": 6,
+  "spin_contamination_policy": {"metric": "post_annihilation_absolute_s2_deviation", "target_s2": 0.75, "max_abs_deviation": 0.05, "missing_diagnostic": "block"},
+  "alternative_solutions": [{"multiplicity": 4, "state_family": "excited_state", "disposition": "excluded_by_evidence", "evidence": "Synthetic reviewer fixture records the quartet as outside the ground-state claim."}],
+  "multireference_risk": {"level": "low", "evidence": ["Synthetic single-reference suitability review completed."], "action": "accept_single_reference"},
+  "reviewer_decision": {"decision": "accepted_for_v1_protocol_gate", "rationale": "Synthetic CH3 doublet fixture satisfies the bounded V1 review.", "confirmed": true},
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}

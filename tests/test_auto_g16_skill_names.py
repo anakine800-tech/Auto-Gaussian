@@ -17,6 +17,7 @@ EXPECTED = {
     "auto-g16-conformer-search",
     "auto-g16-gaussian-learning-library",
     "auto-g16-knowledge-base",
+    "auto-g16-main-group-open-shell",
     "auto-g16-metal-ts",
     "auto-g16-reaction-literature",
     "auto-g16-reaction-workflow",

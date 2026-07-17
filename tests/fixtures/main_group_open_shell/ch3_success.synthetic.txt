@@ -1,0 +1,10 @@
+Synthetic Gaussian-like observation fixture; no private or production output.
+Charge = 0 Multiplicity = 2
+SCF Done: E(UB3LYP) = -39.8123456789 A.U.
+Annihilation of the first spin contaminant:
+S**2 before annihilation 0.7600, after 0.7505
+The wavefunction is stable under the perturbations considered.
+Stationary point found.
+Frequencies -- 510.0 780.0 1100.0
+Frequencies -- 1200.0 1500.0 3000.0
+Normal termination of Gaussian

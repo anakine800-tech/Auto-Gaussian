@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-main-group-open-shell-candidate/1",
+  "candidate_id": "ch2_triplet_carbene",
+  "structure_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "atoms": [{"index": 1, "element": "C"}, {"index": 2, "element": "H"}, {"index": 3, "element": "H"}],
+  "charge": 0,
+  "multiplicity": 3,
+  "state_family": "triplet_carbene",
+  "electronic_scope": "single_reference_ground_state",
+  "structure_role": "minimum",
+  "task_types": ["optimization", "frequency"],
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}

@@ -2,7 +2,8 @@
 """Create a reviewed Gaussian input and manifest from ChemDraw, MOL, SDF, or SMILES.
 
 This is intentionally conservative: it refuses unassigned tetrahedral
-stereochemistry and requires an explicit multiplicity for radical inputs.
+stereochemistry and requires both an explicit multiplicity and an explicit
+route for radical inputs.
 It is a geometry-preparation utility, not a substitute for method selection
 or review of unusual chemical systems.
 """
@@ -16,6 +17,13 @@ from pathlib import Path
 from typing import Any
 
 from cdx_stereo import load_chemdraw_molecules
+
+
+DEFAULT_CLOSED_SHELL_ROUTE = "#p b3lyp/6-31g(d) opt"
+OPEN_SHELL_DRAFT_WARNING = (
+    "Open-shell Gaussian input is an offline draft only; explicit route and "
+    "multiplicity do not confer electronic-state scientific acceptance or submission authorization."
+)
 
 
 def fail(message: str) -> None:
@@ -139,6 +147,17 @@ def gaussian_route(route: str) -> str:
     return route if route.startswith("#") else f"#p {route}"
 
 
+def resolve_draft_protocol(radical_electrons: int, route: str | None, multiplicity: int | None) -> tuple[str, int, list[str]]:
+    """Preserve the closed-shell default while refusing radical defaults."""
+    if radical_electrons:
+        if multiplicity is None:
+            fail("Radical input detected; provide --multiplicity explicitly")
+        if route is None:
+            fail("Radical input detected; provide --route explicitly")
+        return route, multiplicity, [OPEN_SHELL_DRAFT_WARNING]
+    return route if route is not None else DEFAULT_CLOSED_SHELL_ROUTE, 1 if multiplicity is None else multiplicity, []
+
+
 def coordinate_lines(mol, Chem) -> list[str]:
     if mol.GetNumConformers() == 0:
         fail("No 3D conformer is available")
@@ -154,7 +173,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", help="CDX/CDXML/MOL/SDF/SMILES file, or a SMILES string")
     parser.add_argument("--output", required=True, help="Output Gaussian .gjf path")
-    parser.add_argument("--route", default="#p b3lyp/6-31g(d) opt")
+    parser.add_argument("--route", default=None)
     parser.add_argument("--charge", type=int, default=None)
     parser.add_argument("--multiplicity", type=int, default=None)
     parser.add_argument("--mem", default="1200MB")
@@ -185,9 +204,9 @@ def main() -> int:
     formal_charge = int(Chem.GetFormalCharge(mol))
     charge = formal_charge if args.charge is None else args.charge
     radical_electrons = sum(atom.GetNumRadicalElectrons() for atom in mol.GetAtoms())
-    if args.multiplicity is None and radical_electrons:
-        fail("Radical input detected; provide --multiplicity explicitly")
-    multiplicity = 1 if args.multiplicity is None else args.multiplicity
+    route_argument, multiplicity, draft_warnings = resolve_draft_protocol(
+        radical_electrons, args.route, args.multiplicity
+    )
 
     geometry, embedding, optimization = make_3d(
         mol, AllChem, Chem, args.seed, not args.no_optimize
@@ -195,7 +214,7 @@ def main() -> int:
     output = Path(args.output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     chk_name = f"{output.stem}.chk"
-    route = gaussian_route(args.route)
+    route = gaussian_route(route_argument)
     title = args.title or output.stem
     coordinates = coordinate_lines(geometry, Chem)
     input_text = (
@@ -217,7 +236,7 @@ def main() -> int:
 
     symbols = sorted({atom.GetSymbol() for atom in geometry.GetAtoms()})
     common_main_group = {"H", "B", "C", "N", "O", "F", "P", "S", "Cl", "Br", "I", "Si"}
-    warnings = []
+    warnings = list(draft_warnings)
     if import_diagnostics:
         diagnostic = import_diagnostics[0]
         if diagnostic["conflicting_bond_cfg"]:
@@ -263,6 +282,7 @@ def main() -> int:
         "charge_used": charge,
         "radical_electrons": int(radical_electrons),
         "multiplicity_used": multiplicity,
+        "multiplicity_was_explicit": args.multiplicity is not None,
         "chiral_centers": chiral_centers,
         "cdx_stereo_import": import_diagnostics[0] if import_diagnostics else None,
         "geometry": {
@@ -272,6 +292,10 @@ def main() -> int:
             "seed": args.seed,
         },
         "route": route,
+        "route_was_explicit": args.route is not None,
+        "scientific_acceptance": False,
+        "calculation_ready": False,
+        "no_submission_authorization": True,
         "mem": args.mem,
         "nprocshared": args.nproc,
         "warnings": warnings,
