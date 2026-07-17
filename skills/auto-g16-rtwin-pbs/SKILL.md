@@ -79,7 +79,11 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
 3. Only after selection, render or audit the offline input draft. Show source hash, identity, warnings, exact route, charge/multiplicity, atom count, cores, memory and remote directory. `gaussian_auto.py` refuses raw structures and SMILES so it cannot bypass this gate.
 4. After separate exact review of the rendered input, finalize
    `gaussian-input-draft-review/2` and build
-   `gaussian-input-approval-receipt/1`. The receipt replays the exact protocol
+   `gaussian-input-approval-receipt/1`. For a main-group open-shell minimum,
+   the builder additionally requires and replays the electronic-state review,
+   minimum input handoff and passed input audit, and emits the versioned,
+   offline-only `gaussian-input-approval-receipt/2`; current live `/3` does not
+   accept that `/2` receipt. The receipt replays the exact protocol
    options and selection, selected option, the non-empty task/profile subset
    consumed by this input, human-confirmed route/method/basis/solvent/SCF
    mapping, resources, identity and input SHA-256. It never claims whole-family
