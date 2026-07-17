@@ -1,0 +1,29 @@
+{
+  "fixture_schema": "gaussian-reaction-thermochemistry-readiness-cases/1",
+  "positive_case": {
+    "case_id": "incomplete_package_audit",
+    "input": "closed readiness request with no owner artifacts",
+    "output_kind": "structured_blocker_audit",
+    "formal_comparison_ready": false,
+    "formal_barrier_available": false,
+    "arithmetic_performed": false
+  },
+  "negative_cases": [
+    {"case_id": "absolute_transitive_ref", "expected": "reject"},
+    {"case_id": "parent_traversal", "expected": "reject"},
+    {"case_id": "symlink", "expected": "reject"},
+    {"case_id": "forged_allowed_schema", "expected": "reject_without_actual_owner_validator"},
+    {"case_id": "forged_validator_cache", "expected": "reject_unknown_field"},
+    {"case_id": "maturity_v1_minimum", "expected": "emit_minimum_owner_evidence_v2_required"},
+    {"case_id": "attempt_link_only_ts", "expected": "emit_attempt_link_only_ts"},
+    {"case_id": "wrong_exact_ts_result_hash", "expected": "emit_ts_result_hash_mismatch"},
+    {"case_id": "role_schema_swap", "expected": "reject"}
+  ],
+  "nonclaims": {
+    "comparison_artifact": false,
+    "formal_barrier": false,
+    "method_validation": false,
+    "path_acceptance": false,
+    "submission_authorization": false
+  }
+}

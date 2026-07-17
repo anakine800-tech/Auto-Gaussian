@@ -504,6 +504,29 @@ may use a separate de novo endpoint/QST, scan or reviewed-rebuild plan with
 `source_precedent: null` and `source_coordinates_used: false`; that does not
 make the mechanism claim literature-supported or validated.
 
+### Reaction thermochemistry readiness audit
+
+Read
+[references/thermochemistry-readiness-contract.md](references/thermochemistry-readiness-contract.md)
+before auditing a prospective comparison package. This is a blocker audit, not
+a thermochemistry comparator:
+
+```bash
+READINESS="$HOME/.codex/skills/auto-g16-reaction-workflow/scripts/thermochemistry_readiness.py"
+
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$READINESS" build readiness-request.json \
+  --root package-root --output readiness-audit.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$READINESS" validate readiness-audit.json \
+  --root package-root
+```
+
+It replays supplied public owner validators, requires all direct and transitive
+bindings to be relative to the explicit readiness package root, and emits only
+structured blockers. Historical artifacts using another path convention need
+a separately reviewed owner rebuild/repackage; the audit does not rewrite or
+promote them. Maturity `/1` remains insufficient and is always blocked pending
+an owner-evidence `/2`. No barrier arithmetic or live action is available.
+
 ## Scientific boundaries
 
 - Preserve source-exact values beside normalized values. Never turn `rt`,
@@ -586,6 +609,11 @@ make the mechanism claim literature-supported or validated.
 - `references/recalculation-decision-contract.md`: evidence-role allowlists,
   package-root portability, integrity-versus-owner authority, exact proposal,
   decision-enumeration and atomic-publication contract.
+- `scripts/thermochemistry_readiness.py`: standard-library-only owner-replay
+  readiness audit with atomic no-clobber publication; it emits blockers and no
+  formal comparison or barrier.
+- `references/thermochemistry-readiness-contract.md`: exact package-relative
+  reference, owner-registry, blocker, repackaging and authority contract.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry, condition-model, mechanism-network,
   mechanism-support, mechanism-support-matrix review/output, TS-precedent-map,

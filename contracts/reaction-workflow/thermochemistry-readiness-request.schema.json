@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/thermochemistry-readiness-request.schema.json",
+  "title": "Auto-G16 reaction thermochemistry readiness request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "audit_id", "study_id", "owner_artifacts", "reviewer", "reviewed_at", "review_notes", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-reaction-thermochemistry-readiness-request/1"},
+    "audit_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "owner_artifacts": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/source"}},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "minLength": 1},
+    "review_notes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"enum": ["gaussian-scientific-maturity-gate/1", "gaussian-calculation-attempt-link/1", "gaussian-ts-irc-path-acceptance/1", "gaussian-energy-lineage/1"]}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "source": {"type": "object", "additionalProperties": false, "required": ["source_id", "role", "artifact"], "properties": {"source_id": {"$ref": "#/$defs/id"}, "role": {"enum": ["minimum_evidence", "ts_attempt", "ts_path_acceptance", "energy_lineage"]}, "artifact": {"$ref": "#/$defs/ref"}}}
+  }
+}
