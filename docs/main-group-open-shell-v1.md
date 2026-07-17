@@ -42,9 +42,11 @@ method, basis, solvent, resources, multiplicity, U/RO reference, stability
 policy, frequency count, or server location.
 
 The handoff accepts only explicit U/RO minimum Opt/Freq routes with stability
-testing and rejects TS/QST, IRC, TD and `guess=mix`. It preserves exact atom
-order and Cartesian coordinates, requires protocol-selected resources, keeps
-the server directory null/not authorized, and grants no execution authority.
+testing. Its case/spacing-normalized option audit rejects TS/QST/saddle,
+FOpt/POpt, IRC/IRCMax, TD/TDA, scan/specialist Opt, and `guess=mix`. It
+preserves exact atom order and Cartesian coordinates, requires
+protocol-selected resources, keeps the server directory null/not authorized,
+and grants no execution authority.
 The result closure requires normal termination, SCF convergence, a stationary
 minimum, exact state/reference continuity, stable-wavefunction evidence,
 in-policy post-annihilation S2, the reviewed frequency count, and no imaginary

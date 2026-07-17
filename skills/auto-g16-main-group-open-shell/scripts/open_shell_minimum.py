@@ -186,15 +186,97 @@ def _load_protocol(selection_path: Path) -> tuple[dict[str, Any], dict[str, Any]
     return selection_raw, options, selected, options_path.resolve()
 
 
+def _normalize_route(route: str) -> str:
+    normalized = " ".join(route.lower().split())
+    normalized = re.sub(r"\s*=\s*", "=", normalized)
+    normalized = re.sub(r"\s*,\s*", ",", normalized)
+    normalized = re.sub(r"\(\s*", "(", normalized)
+    normalized = re.sub(r"\s*\)", ")", normalized)
+    return re.sub(r"\s+\(", "(", normalized)
+
+
+def _route_tokens(route: str) -> list[str]:
+    tokens: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for character in route:
+        if character.isspace() and depth == 0:
+            if current:
+                tokens.append("".join(current))
+                current = []
+            continue
+        current.append(character)
+        if character == "(":
+            depth += 1
+        elif character == ")" and depth:
+            depth -= 1
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+def _route_has_keyword(route: str, keyword: str) -> bool:
+    return any(re.match(rf"^{re.escape(keyword)}(?=$|[=(])", token) is not None for token in _route_tokens(route))
+
+
+def _route_keyword_count(route: str, keyword: str) -> int:
+    return sum(re.match(rf"^{re.escape(keyword)}(?=$|[=(])", token) is not None for token in _route_tokens(route))
+
+
+def _route_option_values(route: str, keyword: str) -> list[str]:
+    result: list[str] = []
+    for token in _route_tokens(route):
+        match = re.fullmatch(rf"{re.escape(keyword)}(?:=([^\s]+)|\(([^)]*)\))", token)
+        if match is None:
+            continue
+        raw = (match.group(1) or match.group(2) or "").strip("()")
+        result.extend(value for value in raw.split(",") if value)
+    return result
+
+
 def _route_audit(route: str, reference: str) -> dict[str, Any]:
-    lower = route.lower()
-    tokens = re.findall(r"[a-z0-9_+./-]+(?:\([^)]*\)|=[^\s]+)?", lower)
-    has_opt = any(token == "opt" or token.startswith("opt=") or token.startswith("opt(") for token in tokens)
-    has_freq = "freq" in tokens
-    has_stable = any(token == "stable" or token.startswith("stable=") or token.startswith("stable(") for token in tokens)
-    forbidden = [token for token in tokens if token.startswith("irc") or token.startswith("td") or token.startswith("opt=ts") or "qst2" in token or "qst3" in token or "guess=mix" in token]
-    method_tokens = [token for token in tokens if "/" in token]
-    method = method_tokens[0].split("/", 1)[0] if method_tokens else ""
+    normalized = _normalize_route(route)
+    has_opt = _route_has_keyword(normalized, "opt")
+    has_freq = _route_has_keyword(normalized, "freq") or _route_has_keyword(normalized, "frequency")
+    has_stable = _route_has_keyword(normalized, "stable")
+    forbidden: list[str] = []
+
+    depth = 0
+    for character in normalized:
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth < 0:
+                break
+    if depth != 0:
+        forbidden.append("malformed:parentheses")
+
+    for keyword in ("irc", "ircmax", "td", "tda", "qst2", "qst3", "scan", "mecp"):
+        if _route_has_keyword(normalized, keyword):
+            forbidden.append(f"keyword:{keyword}")
+    for keyword in ("fopt", "popt"):
+        if _route_has_keyword(normalized, keyword):
+            forbidden.append(f"optimization_family:{keyword}")
+    if _route_keyword_count(normalized, "opt") != 1:
+        forbidden.append("opt:missing_or_duplicate")
+
+    forbidden_opt_options = {
+        "ts", "qst2", "qst3", "conical", "avoided", "scan",
+        "modredundant", "addredundant", "gic", "addgic", "readallgic",
+    }
+    for option in _route_option_values(normalized, "opt"):
+        if option in forbidden_opt_options:
+            forbidden.append(f"opt:{option}")
+            continue
+        saddle = re.fullmatch(r"saddle=([0-9]+)", option)
+        if saddle is not None and int(saddle.group(1)) >= 1:
+            forbidden.append(f"opt:{option}")
+    if "mix" in _route_option_values(normalized, "guess"):
+        forbidden.append("guess:mix")
+
+    method_token = next((token for token in _route_tokens(normalized) if "/" in token), "")
+    method = method_token.split("/", 1)[0]
     reference_ok = method.startswith("ro") if reference == "RO" else method.startswith("u") and not method.startswith("ro")
     return {"opt": has_opt, "freq": has_freq, "stable": has_stable, "reference": reference_ok, "forbidden_tokens": forbidden}
 

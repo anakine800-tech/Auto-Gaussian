@@ -50,8 +50,10 @@ requires equality of candidate identity, coordinate hash, charge,
 multiplicity, review hash, selection hash, selected-option hash, U/RO
 reference, stability requirement, expected frequency count, and selected
 resources. The route must explicitly contain minimum optimization, harmonic
-frequency, stability, and the reviewed U/RO method family; TS, QST, IRC, TD,
-and broken-symmetry `guess=mix` tokens are outside this contract.
+frequency, stability, and the reviewed U/RO method family. Route keywords and
+parenthesized option lists are normalized case- and whitespace-insensitively;
+TS, QST, saddle, FOpt/POpt, IRC/IRCMax, TD/TDA, scan/specialist optimization,
+and broken-symmetry `guess=mix` forms are outside this contract.
 
 The offline handoff renders exact text only as a hash-bound, non-executable
 artifact. It fixes `server_directory` to null and

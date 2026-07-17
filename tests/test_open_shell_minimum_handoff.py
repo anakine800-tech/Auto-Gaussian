@@ -168,11 +168,44 @@ class OpenShellMinimumHandoffTests(unittest.TestCase):
             self.assertFalse(handoff["authorizations"]["submit"])
             self.assertEqual(handoff["structure_candidate"]["payload_sha256"], chain["structure"]["payload_sha256"])
 
+    def test_route_audit_normalizes_opt_options_and_rejects_specialist_bypasses(self) -> None:
+        allowed = (
+            "#p ub3lyp/6-31g(d) opt freq stable=opt",
+            "#P UB3LYP/6-31G(d) Opt=(CalcFC,Tight) Freq Stable=Opt",
+            "#p ub3lyp/6-31g(d) oPt = ( CalcFC , Tight ) fReQ sTaBlE = oPt",
+            "#p ub3lyp/6-31g(d) Opt(CalcFC,Tight) Frequency Stable(Opt)",
+        )
+        for route in allowed:
+            with self.subTest(route=route):
+                audit = MINIMUM._route_audit(route, "U")
+                self.assertTrue(all(audit[key] for key in ("opt", "freq", "stable", "reference")))
+                self.assertEqual(audit["forbidden_tokens"], [])
+
+        forbidden = (
+            "#p ub3lyp/6-31g(d) Opt=(TS,CalcFC) Freq Stable=Opt",
+            "#P UB3LYP/6-31G(d) oPt = ( tS , CalcFC ) FREQ STABLE = OPT",
+            "#p ub3lyp/6-31g(d) Opt(TS,CalcFC) Freq Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt=QST2 Freq Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt=(QST3,CalcFC) Freq Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt=(Saddle=1,CalcFC) Freq Stable=Opt",
+            "#p ub3lyp/6-31g(d) FOpt=(QST2,CalcFC) Freq Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt Freq IRC=(Forward,CalcFC) Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt Freq IRCMax(CalcFC) Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt Freq TD=(NStates=3) Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt Freq Guess = ( Mix , Always ) Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt=(ModRedundant) Freq Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt=(Conical) Freq Stable=Opt",
+            "#p ub3lyp/6-31g(d) Opt=(TS,CalcFC Freq Stable=Opt",
+        )
+        for route in forbidden:
+            with self.subTest(route=route):
+                self.assertTrue(MINIMUM._route_audit(route, "U")["forbidden_tokens"])
+
     def test_state_hash_reference_route_resource_and_structure_drift_fail_closed(self) -> None:
         mutators = {
             "selection hash": lambda spec: spec.__setitem__("selection_payload_sha256", "f" * 64),
             "reference-family drift": lambda spec: spec.__setitem__("reference_family", "RO"),
-            "route outside": lambda spec: spec.__setitem__("route", "#p ub3lyp/6-31g(d) opt=ts freq stable=opt"),
+            "route outside": lambda spec: spec.__setitem__("route", "#p ub3lyp/6-31g(d) Opt=(TS,CalcFC) Freq Stable=Opt"),
             "resource drift": lambda spec: spec["resources"].__setitem__("cores", spec["resources"]["cores"] + 1),
         }
         for label, mutate in mutators.items():
