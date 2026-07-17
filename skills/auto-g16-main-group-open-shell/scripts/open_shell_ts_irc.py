@@ -126,6 +126,85 @@ def _number(value: Any, label: str, *, minimum: float | None = None) -> float:
     return float(value)
 
 
+def normalize_route(route: str) -> str:
+    """Normalize case and insignificant spacing without changing route meaning."""
+    normalized = " ".join(route.lower().split())
+    normalized = re.sub(r"\s*=\s*", "=", normalized)
+    normalized = re.sub(r"\s*,\s*", ",", normalized)
+    normalized = re.sub(r"\s*\(\s*", "(", normalized)
+    return re.sub(r"\s*\)", ")", normalized)
+
+
+def route_has_keyword(route: str, keyword: str) -> bool:
+    normalized = normalize_route(route)
+    return re.search(rf"(?:^|\s){re.escape(keyword.lower())}(?=$|[=(\s])", normalized) is not None
+
+
+def route_keyword_count(route: str, keyword: str) -> int:
+    normalized = normalize_route(route)
+    return len(re.findall(rf"(?:^|\s){re.escape(keyword.lower())}(?=$|[=(\s])", normalized))
+
+
+def route_option_values(route: str, keyword: str) -> list[str]:
+    normalized = normalize_route(route)
+    result: list[str] = []
+    pattern = rf"(?:^|\s){re.escape(keyword.lower())}(?:=([^\s]+)|\(([^)]*)\))"
+    for match in re.finditer(pattern, normalized):
+        values = (match.group(1) or match.group(2) or "").strip("()")
+        result.extend(value for value in values.split(",") if value)
+    return result
+
+
+def audit_stage_route(stage: str, route: str, *, stability_required: bool) -> dict[str, Any]:
+    """Fail-closed semantic audit for the three routes supported by V1."""
+    require(stage in {"ts_freq", "irc_forward", "irc_reverse"}, "unsupported protocol stage")
+    normalized = normalize_route(route)
+    require(normalized.startswith("#"), f"{stage} route must be a complete Gaussian route")
+    require("<" not in normalized and ">" not in normalized and "todo" not in normalized, f"{stage} route contains a placeholder")
+    forbidden = re.search(r"\b(?:td|mecp|conical|avoided|spin[-_]?cross(?:ing)?|crossing|ircmax|scan|modredundant|oniom|external)\b", normalized)
+    require(forbidden is None, f"{stage} route contains an out-of-scope excited-state, crossing, or specialist keyword")
+    require(re.search(r"\bqst[23]\b", normalized) is None, f"{stage} QST2/QST3 requires a separate multi-structure contract and is unsupported in V1")
+    require(route_keyword_count(route, "fopt") == 0 and route_keyword_count(route, "popt") == 0, f"{stage} route contains an unsupported optimization alias")
+    stable_options = route_option_values(route, "stable")
+    if stability_required:
+        require(stable_options.count("opt") == 1, f"{stage} route must explicitly contain exactly one Stable=Opt audit setting")
+
+    if stage == "ts_freq":
+        require(route_keyword_count(route, "opt") == 1, "ts_freq route must contain exactly one top-level Opt keyword")
+        opt_options = route_option_values(route, "opt")
+        require(opt_options.count("ts") == 1, "ts_freq route must explicitly use the supported single-candidate Opt=TS algorithm")
+        require(route_has_keyword(route, "freq") or route_has_keyword(route, "frequency"), "ts_freq route must contain Freq")
+        require(not route_has_keyword(route, "irc"), "ts_freq route must not contain IRC")
+        return {"stage": stage, "normalized_route": normalized, "algorithm": "single_candidate_opt_ts", "frequency": True, "stable_opt": stability_required}
+
+    direction = "forward" if stage == "irc_forward" else "reverse"
+    opposite = "reverse" if direction == "forward" else "forward"
+    require(route_keyword_count(route, "irc") == 1, f"{stage} route must contain exactly one IRC keyword")
+    irc_options = route_option_values(route, "irc")
+    require(irc_options.count(direction) == 1 and opposite not in irc_options, f"{stage} IRC options must contain only its unique {direction} direction")
+    require(len(re.findall(rf"\b{direction}\b", normalized)) == 1 and re.search(rf"\b{opposite}\b", normalized) is None, f"{stage} route contains missing, duplicate, or mixed directions")
+    require(not (route_has_keyword(route, "freq") or route_has_keyword(route, "frequency")), f"{stage} route must not contain Freq")
+    require(route_keyword_count(route, "opt") == 0, f"{stage} route must not contain a top-level Opt keyword")
+    return {"stage": stage, "normalized_route": normalized, "algorithm": "directional_irc", "direction": direction, "stable_opt": stability_required}
+
+
+def parse_single_input_route(path: Path) -> str:
+    """Read one explicit Gaussian route section; Link1/multiple routes are out of V1."""
+    text = path.read_text(encoding="utf-8")
+    require("--link1--" not in text.lower(), "reviewed Gaussian input must not contain Link1")
+    lines = text.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.lstrip().startswith("#")]
+    require(len(starts) == 1, "reviewed Gaussian input must contain exactly one route section")
+    route_lines = [lines[starts[0]].strip()]
+    index = starts[0] + 1
+    while index < len(lines) and lines[index].strip():
+        route_lines.append(lines[index].strip())
+        index += 1
+    route = " ".join(route_lines)
+    require(route.startswith("#"), "reviewed Gaussian input route is invalid")
+    return route
+
+
 def _binding(path: Path, document: dict[str, Any]) -> dict[str, Any]:
     binding = {"path": str(path), "sha256": file_sha256(path)}
     if "payload_sha256" in document:
@@ -183,12 +262,7 @@ def _validate_protocol(protocol: dict[str, Any]) -> None:
         for key in ("route", "method", "basis", "solvent", "resources", "settings"):
             _text(stage[key], f"{name}.{key}")
         _sha(stage["protocol_selection_payload_sha256"], f"{name} selection hash")
-        route = stage["route"].lower()
-        require((name == "ts_freq" and "freq" in route) or (name != "ts_freq" and "irc" in route), f"{name} route lacks explicit stage keyword")
-        if name == "irc_forward":
-            require("forward" in route and "reverse" not in route, "forward route direction invalid")
-        if name == "irc_reverse":
-            require("reverse" in route and "forward" not in route, "reverse route direction invalid")
+        audit_stage_route(name, stage["route"], stability_required=True)
     spin = _exact(protocol["spin_policy"], {"target_s2", "max_abs_post_annihilation_s2_deviation", "stability_required", "reference_continuity_required"}, "spin policy")
     _number(spin["target_s2"], "target S2", minimum=0)
     _number(spin["max_abs_post_annihilation_s2_deviation"], "S2 threshold", minimum=0)
@@ -259,6 +333,9 @@ def build_input_audit(workflow_path: str | Path, source_path: str | Path) -> dic
     input_file = _safe_path(input_record["path"], "reviewed Gaussian input")
     require(file_sha256(input_file) == input_record["sha256"], "reviewed Gaussian input hash drift")
     require(input_record["route"] == stage["route"], "input route differs from reviewed protocol")
+    parsed_route = parse_single_input_route(input_file)
+    require(normalize_route(parsed_route) == normalize_route(input_record["route"]), "reviewed Gaussian input bytes contain a different route")
+    audit_stage_route(source["stage"], parsed_route, stability_required=True)
     require(input_record["atom_elements"] == lineage["atom_elements"], "input atom order drift")
     require(source["same_spin_surface"] is True and source["settings_reviewed"] is True, "input must be reviewed on the same spin surface")
     review = _exact(source["review"], {"decision", "reviewer", "confirmed"}, "input review")

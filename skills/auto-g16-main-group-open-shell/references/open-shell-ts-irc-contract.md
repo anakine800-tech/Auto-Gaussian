@@ -31,6 +31,16 @@ setting.
    against the exact workflow, protocol-selection payload, input bytes, route,
    atom order, charge, multiplicity, state family, and reference. It does not
    render an input.
+   The auditor reads the single route section back from the exact input bytes,
+   rejects Link1 or multiple route sections, compares normalized route meaning
+   with the reviewed protocol, and applies the same stage audit to both.
+   V1 route auditing supports only a single-candidate `Opt=TS` TS/Freq route
+   with `Freq` and an explicit `Stable=Opt` setting. Ordinary minimum Opt/Freq,
+   frequency-only, QST2/QST3, IRC, TD, crossing/MECP, conical and avoided-state
+   routes fail closed. QST2/QST3 would require a later independent
+   multi-structure source contract. Each IRC route must contain exactly one IRC
+   keyword and exactly one direction as its own IRC option, plus the explicit
+   stability setting; mixed, missing or duplicated directions are rejected.
 3. The existing `open_shell_state.py observe` parser owns Gaussian text facts.
    `accept-ts` binds its deterministic observation, the TS input audit, and a
    separate human mode decision. Acceptance requires normal termination, a

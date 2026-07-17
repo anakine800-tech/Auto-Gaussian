@@ -117,6 +117,117 @@ class OpenShellTsIrcTests(unittest.TestCase):
                 self.assertEqual(TS.validate_artifact(chain[name][0])["payload_sha256"], chain[name][1]["payload_sha256"])
                 self.assertFalse(chain[name][1]["calculation_ready"]); self.assertTrue(chain[name][1]["no_submission_authorization"])
 
+    def test_stage_route_auditor_is_case_spacing_and_parenthesis_robust(self) -> None:
+        ts_routes = (
+            "#p UFixture/FixtureBasis Opt=(TS,CalcFC) Freq Stable=Opt",
+            "#P UFixture/FixtureBasis   OPT = ( CalcFC , TS )  FREQUENCY   STABLE = OPT",
+            "#p UFixture/FixtureBasis opt(ts,calcfc) freq stable(opt)",
+        )
+        for route in ts_routes:
+            with self.subTest(route=route):
+                audit = TS.audit_stage_route("ts_freq", route, stability_required=True)
+                self.assertEqual(audit["algorithm"], "single_candidate_opt_ts")
+
+        directional = {
+            "irc_forward": (
+                "#p UFixture/FixtureBasis IRC=(Forward,RCFC) Stable=Opt",
+                "#P UFixture/FixtureBasis IRC = ( RCFC , FoRwArD ) STABLE ( OPT )",
+            ),
+            "irc_reverse": (
+                "#p UFixture/FixtureBasis IRC=(Reverse,RCFC) Stable=Opt",
+                "#P UFixture/FixtureBasis IRC ( RCFC , ReVeRsE ) STABLE = OPT",
+            ),
+        }
+        for stage, routes in directional.items():
+            for route in routes:
+                with self.subTest(stage=stage, route=route):
+                    audit = TS.audit_stage_route(stage, route, stability_required=True)
+                    self.assertEqual(audit["algorithm"], "directional_irc")
+
+    def test_stage_route_auditor_blocks_equivalent_route_bypasses(self) -> None:
+        invalid_ts = {
+            "ordinary_minimum": "#p x/y Opt Freq Stable=Opt",
+            "freq_only": "#p x/y Freq Stable=Opt",
+            "missing_freq": "#p x/y Opt=(TS,CalcFC) Stable=Opt",
+            "qst2": "#p x/y Opt=(QST2,CalcFC) Freq Stable=Opt",
+            "qst3_plus_ts": "#p x/y Opt=(TS,QST3) Freq Stable=Opt",
+            "irc_mixed": "#p x/y Opt=(TS,CalcFC) Freq IRC=(Forward) Stable=Opt",
+            "td": "#p x/y TD Opt=(TS,CalcFC) Freq Stable=Opt",
+            "mecp": "#p x/y MECP Opt=(TS,CalcFC) Freq Stable=Opt",
+            "conical": "#p x/y Opt=(TS,Conical) Freq Stable=Opt",
+            "relaxed_scan": "#p x/y Opt=(TS,Scan) Freq Stable=Opt",
+            "fopt_alias": "#p x/y Opt=(TS) FOpt=(TS) Freq Stable=Opt",
+            "fake_words": "#p x/y Opt=(TSish,CalcFC) NotFreq Stable=Opt",
+            "stable_missing": "#p x/y Opt=(TS,CalcFC) Freq",
+            "stable_duplicate": "#p x/y Opt=(TS,CalcFC) Freq Stable=Opt Stable=Opt",
+            "duplicate_opt": "#p x/y Opt=Loose Opt=(TS,CalcFC) Freq Stable=Opt",
+        }
+        for name, route in invalid_ts.items():
+            with self.subTest(name=name), self.assertRaises(TS.ContractError):
+                TS.audit_stage_route("ts_freq", route, stability_required=True)
+
+        invalid_irc = {
+            "missing_direction": "#p x/y IRC=(RCFC) Stable=Opt",
+            "mixed_options": "#p x/y IRC=(Forward,Reverse,RCFC) Stable=Opt",
+            "opposite_outside": "#p x/y IRC=(Forward,RCFC) Reverse Stable=Opt",
+            "duplicate_direction": "#p x/y IRC=(Forward,Forward,RCFC) Stable=Opt",
+            "direction_outside_irc": "#p x/y IRC=(RCFC) Forward Stable=Opt",
+            "freq_only": "#p x/y Freq Forward Stable=Opt",
+            "ts_freq": "#p x/y Opt=(TS) Freq Forward Stable=Opt",
+            "irc_with_freq": "#p x/y IRC=(Forward,RCFC) Freq Stable=Opt",
+            "irc_with_opt": "#p x/y IRC=(Forward,RCFC) Opt=(TS) Stable=Opt",
+            "duplicate_irc": "#p x/y IRC=(Forward) IRC=(Forward) Stable=Opt",
+            "ircmax": "#p x/y IRC=(Forward,RCFC) IRCMax Stable=Opt",
+            "popt_alias": "#p x/y IRC=(Forward,RCFC) POpt=Loose Stable=Opt",
+            "td": "#p x/y TD IRC=(Forward,RCFC) Stable=Opt",
+            "stable_missing": "#p x/y IRC=(Forward,RCFC)",
+        }
+        for name, route in invalid_irc.items():
+            with self.subTest(name=name), self.assertRaises(TS.ContractError):
+                TS.audit_stage_route("irc_forward", route, stability_required=True)
+
+    def test_protocol_validation_uses_stage_route_auditor(self) -> None:
+        protocol = json.loads((FIXTURES / "ch3_doublet_protocol.json").read_text())
+        TS._validate_protocol(protocol)
+        for route in ("#p x/y Opt Freq Stable=Opt", "#p x/y Freq Stable=Opt"):
+            changed = copy.deepcopy(protocol); changed["stages"]["ts_freq"]["route"] = route
+            with self.subTest(route=route), self.assertRaises(TS.ContractError):
+                TS._validate_protocol(changed)
+
+    def test_input_audit_replays_route_from_exact_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve(); chain = self.build_chain(root)
+            source = json.loads(Path(chain["ts_audit"][1]["source"]["path"]).read_text())
+            valid_route = source["input"]["route"]
+
+            equivalent_input = root / "equivalent.gjf"
+            equivalent_input.write_text("#P UFixture/FixtureBasis OPT = ( CalcFC , TS ) FREQ STABLE = OPT\n\nSynthetic fixture\n")
+            equivalent = copy.deepcopy(source); equivalent["audit_id"] = "equivalent_route_audit"
+            equivalent["input"] = {**source["input"], "path": str(equivalent_input), "sha256": digest(equivalent_input)}
+            equivalent["input"]["route"] = "#P UFixture/FixtureBasis OPT = ( CalcFC , TS ) FREQ STABLE = OPT"
+            protocol = json.loads((FIXTURES / "ch3_doublet_protocol.json").read_text())
+            protocol["stages"]["ts_freq"]["route"] = equivalent["input"]["route"]
+            protocol_path = dump(root / "equivalent.protocol.json", protocol)
+            workflow = TS.build_workflow(chain["workflow"][1]["state_review"]["path"], FIXTURES / "ch3_doublet_ts_candidate.json", protocol_path, "equivalent_route_workflow")
+            workflow_path = TS.write_new_json(root / "equivalent.workflow.json", workflow)
+            equivalent["workflow_payload_sha256"] = workflow["payload_sha256"]
+            equivalent["state_review_payload_sha256"] = workflow["state_review"]["payload_sha256"]
+            equivalent["candidate_sha256"] = workflow["candidate"]["sha256"]
+            equivalent["protocol_file_sha256"] = workflow["protocol"]["sha256"]
+            equivalent_path = dump(root / "equivalent.source.json", equivalent)
+            self.assertEqual(TS.build_input_audit(workflow_path, equivalent_path)["status"], "accepted_offline_input_audit")
+
+            for name, contents in {
+                "ordinary_bytes": "#p x/y Opt Freq Stable=Opt\n\nSynthetic fixture\n",
+                "link1_bytes": valid_route + "\n\nSynthetic fixture\n--Link1--\n#p x/y Opt Freq\n",
+            }.items():
+                input_path = root / f"{name}.gjf"; input_path.write_text(contents)
+                changed = copy.deepcopy(source); changed["audit_id"] = f"{name}_audit"
+                changed["input"] = {**source["input"], "path": str(input_path), "sha256": digest(input_path)}
+                source_path = dump(root / f"{name}.source.json", changed)
+                with self.subTest(name=name), self.assertRaises(TS.ContractError):
+                    TS.build_input_audit(chain["workflow"][0], source_path)
+
     def test_ts_blocks_frequency_mode_s2_stability_reference_and_hash_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve(); chain = self.build_chain(root)
