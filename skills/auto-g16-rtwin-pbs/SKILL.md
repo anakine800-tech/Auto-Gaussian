@@ -13,12 +13,13 @@ unattended.
 
 ## Input-before protocol gate
 
-For a TS/QST route, first display and validate the reaction-workflow
-`gaussian-scientific-maturity-gate/1`. It shows maturity, evidence, accepted
-endpoint minima and blockers before route/resources/hash. Protocol selection
-cannot begin formal TS input review while this gate is blocked. A no-direct-
-precedent exception is limited to one reviewed simple-tier pilot after two
-accepted minima; it never establishes literature support.
+For a TS/QST route, historical `gaussian-scientific-maturity-gate/1` may be
+validated only for replay and cannot authorize prospective protected work.
+New protected preflight dispatches explicitly to owner-evidence gate `/2`.
+That gate currently remains blocked because minimum candidate-to-input-to-
+result lineage is unavailable; IRC and formal barrier actions retain their
+fixed specialist-owner blockers. Protocol selection cannot turn either gate
+into protected live authority.
 
 For every new calculation need, read
 [`references/protocol-rigor.md`](references/protocol-rigor.md) before writing a
@@ -86,7 +87,8 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
    completion and grants no live authority. Record a new
    `auto-g16-live-submission-approval/3` that binds explicit `work_kind` plus
    the exact input-approval receipt file and payload hashes. TS `/3` scopes also
-   bind the exact maturity and scientific-action authorization. Historical live
+   would also bind the exact maturity/action chain once versioned specialist
+   owners exist. Historical live
    `/1` and `/2` records remain replayable under their original contracts but
    do not satisfy the new submission chain. The low-level `submit` command
    independently validates the same shared receipt; `--confirmed` is only an
@@ -101,12 +103,10 @@ AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" prepare /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example
 
-# Approved unattended run
+# Ordinary/minimum approved unattended run (protected TS/scan/IRC remains blocked)
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$AUTO" auto /path/to/reviewed.gjf \
   --project example --local-dir /path/to/outputs/example \
-  --scientific-maturity /path/to/maturity-gate.json --edge-id reviewed_edge \
-  --node-id reviewed_pilot_node --pilot --work-kind ts_pilot \
-  --scientific-action-authorization /path/to/scientific-action-authorization.json \
+  --work-kind minimum \
   --input-approval-record /path/to/exact-input-approval.json \
   --approval-record /path/to/live-submission-approval-v3.json \
   --confirmed --watch

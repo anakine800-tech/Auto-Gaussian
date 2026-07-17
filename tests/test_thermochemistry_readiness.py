@@ -172,6 +172,48 @@ class ThermochemistryReadinessTests(unittest.TestCase):
             self.assertIn("minimum_owner_evidence_v2_required", codes)
             self.assertEqual(audit["owner_replays"][0]["validator_implementation"], "scientific_maturity.validate_gate")
 
+    def test_actual_maturity_v2_replays_and_preserves_all_formal_readiness_blockers(self) -> None:
+        maturity_path = ROOT / "tests" / "test_scientific_maturity_v2.py"
+        spec = importlib.util.spec_from_file_location("thermochemistry_readiness_maturity_v2_fixture", maturity_path)
+        assert spec and spec.loader
+        fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixture)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            helper = fixture.ScientificMaturityV2Tests("test_positive_pilot_roundtrip_schemas_and_v1_compatibility")
+            helper.setUp()
+            _, base_gate_path, base_review, mechanism = helper.base_context(root)
+            review = helper.review_v2(root, base_gate_path, base_review, mechanism)
+            _, _, gate_path = helper.build_overlay(root, review, base_gate_path)
+            validated = MODULE._owner_validate(gate_path, "gaussian-scientific-maturity-gate/2")
+            self.assertEqual(validated["schema"], "gaussian-scientific-maturity-gate/2")
+            source = {
+                "source_id": "minimum_gate_v2", "role": "minimum_evidence",
+                "artifact": artifact_ref(gate_path, root),
+            }
+            request = make_request(root, [source])
+            output = root / "audit.json"
+            # Older nested owner fixtures are not packaged for readiness; only
+            # bypass that portability audit here after the actual /2 validator replay.
+            with mock.patch.object(MODULE, "_audit_transitive_refs", return_value=None):
+                MODULE.build(root, request, output)
+            audit = json.loads(output.read_text(encoding="utf-8"))
+            codes = {item["code"] for item in audit["blockers"]}
+            self.assertTrue({
+                "minimum_candidate_input_result_lineage_unavailable_v2",
+                "exact_owner_ts_mode_artifact_v2_required",
+                "complete_owner_thermochemistry_evidence_v2_required",
+                "ts_owner_chain_missing",
+                "energy_lineage_missing",
+            }.issubset(codes))
+            self.assertEqual(
+                audit["owner_replays"][0]["validator_implementation"],
+                "scientific_maturity_v2.validate_gate",
+            )
+            self.assertFalse(audit["formal_comparison_ready"])
+            self.assertFalse(audit["formal_barrier_available"])
+            self.assertFalse(audit["arithmetic_performed"])
+
     def test_actual_attempt_owner_replays_but_requires_readiness_repackage(self) -> None:
         adapter_path = ROOT / "tests" / "test_calculation_artifacts.py"
         spec = importlib.util.spec_from_file_location("thermochemistry_readiness_attempt_fixture", adapter_path)

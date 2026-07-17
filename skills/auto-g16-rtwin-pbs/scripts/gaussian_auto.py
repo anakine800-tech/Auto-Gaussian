@@ -46,7 +46,7 @@ def matching_resource_tier(mem: str, nproc: int) -> str:
     return "custom"
 
 
-def prepare_source(args) -> dict[str, Any]:
+def prepare_source(args, *, authority_action: str = "ts_input") -> dict[str, Any]:
     project = transport.validate_project(args.project)
     local_dir = guarded_local_dir(Path(args.local_dir))
     source_path = Path(args.source).expanduser()
@@ -79,25 +79,7 @@ def prepare_source(args) -> dict[str, Any]:
         "purpose": "Existing audited Gaussian input",
     }
     audit = transport.parse_gaussian(gjf)
-    maturity = transport.audit_scientific_maturity(args, audit, "ts_input")
-    if maturity is not None and args.scientific_action_authorization:
-        owner = transport._load_scientific_maturity()
-        tier = transport._resource_tier(audit["mem"], audit["nprocshared"])
-        authorization_path = Path(args.scientific_action_authorization).expanduser().resolve()
-        authorization = owner.validate_action_authorization(
-            authorization_path,
-            gate_path=Path(args.scientific_maturity).expanduser().resolve(),
-            input_sha256=audit["input_sha256"], edge_id=args.edge_id, node_id=args.node_id,
-            project=project, work_kind=args.work_kind, resource_tier=tier,
-        )
-        maturity["exact_action_authorization"] = {
-            "sha256": transport.sha256(authorization_path),
-            "payload_sha256": authorization["payload_sha256"],
-            "node_id": authorization["scope"]["node_id"],
-            "project": authorization["scope"]["project"],
-            "input_sha256": authorization["input"]["sha256"],
-            "no_submission_authorization": True,
-        }
+    maturity = transport.audit_scientific_maturity(args, audit, authority_action)
     summary = {
         "schema": "gaussian-auto-preflight/1",
         "project": project,
@@ -164,9 +146,9 @@ def command_auto(args) -> None:
         fail("auto requires --confirmed after exact live approval")
     if not args.dry_run and not args.work_kind:
         fail("live auto submission requires an explicit --work-kind; it must not default to ordinary")
-    summary = prepare_source(args)
-    if "scientific_maturity" in summary and "exact_action_authorization" not in summary["scientific_maturity"]:
-        fail("protected auto submission requires an exact offline scientific action authorization before live approval")
+    # Use the same version-aware protected authority chain as direct submit.
+    # This must reject before spawning the transport wrapper or any network call.
+    summary = prepare_source(args, authority_action="ts_submission")
     if not args.dry_run and summary["input_approval"]["status"] != "validated_exact_input_approval":
         if summary["input_approval"]["status"] == "blocked_missing_specialist_input_approval":
             fail("blocked_missing_specialist_input_approval: specialist owner approval is not integrated")

@@ -41,6 +41,13 @@ class GaussianAutoGateTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def write_protected_ts_input(self, path: Path) -> None:
+        path.write_text(
+            "%chk=protected.chk\n%mem=12GB\n%nprocshared=8\n"
+            "#p hf/sto-3g opt=(ts,calcfc) freq\n\nprotected\n\n0 1\nH 0 0 0\nH 0 0 1\n\n",
+            encoding="utf-8",
+        )
+
     def fake_input_approval(self, report: dict, work_kind: str = "ordinary") -> dict:
         return {
             "status": "validated_exact_input_approval",
@@ -506,6 +513,115 @@ class GaussianAutoGateTests(unittest.TestCase):
                         with self.assertRaises(SystemExit):
                             args.func(args)
                     self.assertFalse(remote_run.called)
+
+    def test_protected_direct_and_wrapper_live_fail_before_first_run_by_explicit_gate_schema(self) -> None:
+        """Neither maturity /1 plus live /3 nor currently blocked /2 can reach a runner."""
+        for gate_version in (1, 2):
+            for surface in ("direct", "wrapper"):
+                with self.subTest(gate_version=gate_version, surface=surface), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    gjf = root / "protected.gjf"
+                    self.write_protected_ts_input(gjf)
+                    gate = root / f"maturity-v{gate_version}.json"
+                    gate.write_text(json.dumps({
+                        "schema": f"gaussian-scientific-maturity-gate/{gate_version}",
+                        "payload_sha256": "a" * 64,
+                    }), encoding="utf-8")
+                    common = [
+                        str(gjf), "--project", "protected", "--local-dir", str(root / "bundle"),
+                        "--confirmed", "--work-kind", "ts_pilot", "--pilot",
+                        "--scientific-maturity", str(gate), "--edge-id", "edge_activation",
+                        "--node-id", "ts_candidate_primary", "--input-approval-record", str(root / "input.json"),
+                        "--approval-record", str(root / "live-v3.json"),
+                    ]
+                    args = (
+                        AUTO.transport.build_parser().parse_args(["submit", *common])
+                        if surface == "direct"
+                        else AUTO.build_parser().parse_args(["auto", *common])
+                    )
+                    v1_owner = SimpleNamespace(validate_gate=mock.Mock(return_value={
+                        "schema": "gaussian-scientific-maturity-gate/1", "payload_sha256": "a" * 64,
+                    }))
+                    v2_owner = SimpleNamespace(assert_action=mock.Mock(
+                        side_effect=ValueError("minimum_candidate_input_result_lineage_unavailable_v2")
+                    ))
+                    with (
+                        mock.patch.object(AUTO.transport, "_load_scientific_maturity", return_value=v1_owner) as load_v1,
+                        mock.patch.object(AUTO.transport, "_load_scientific_maturity_v2", return_value=v2_owner) as load_v2,
+                        mock.patch.object(AUTO.transport, "run") as transport_run,
+                        mock.patch.object(AUTO.subprocess, "run") as wrapper_run,
+                        self.assertRaises(SystemExit),
+                    ):
+                        args.func(args)
+                    self.assertFalse(transport_run.called)
+                    self.assertFalse(wrapper_run.called)
+                    self.assertEqual(load_v1.called, gate_version == 1)
+                    self.assertEqual(load_v2.called, gate_version == 2)
+
+    def test_ordinary_wrapper_dry_run_reaches_only_the_mocked_local_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gjf = root / "ordinary.gjf"
+            self.write_ordinary_input(gjf)
+            args = AUTO.build_parser().parse_args([
+                "auto", str(gjf), "--project", "ordinary", "--local-dir", str(root / "bundle"),
+                "--confirmed", "--dry-run", "--work-kind", "ordinary",
+            ])
+            completed = SimpleNamespace(returncode=0)
+            with (
+                mock.patch.object(AUTO.transport, "run") as network_run,
+                mock.patch.object(AUTO.subprocess, "run", return_value=completed) as local_transport,
+                redirect_stdout(io.StringIO()),
+            ):
+                args.func(args)
+            self.assertFalse(network_run.called)
+            local_transport.assert_called_once()
+            self.assertIn("--dry-run", local_transport.call_args.args[0])
+            self.assertIn("ordinary", local_transport.call_args.args[0])
+
+    def test_ordinary_and_minimum_live_paths_complete_with_every_network_run_mocked(self) -> None:
+        for work_kind in ("ordinary", "minimum"):
+            with self.subTest(work_kind=work_kind), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                gjf = root / f"{work_kind}.gjf"
+                route = "#p hf/sto-3g" if work_kind == "ordinary" else "#p hf/sto-3g opt freq"
+                gjf.write_text(
+                    f"%chk={work_kind}.chk\n%mem=12GB\n%nprocshared=8\n{route}\n\n{work_kind}\n\n0 1\nH 0 0 0\nH 0 0 1\n\n",
+                    encoding="utf-8",
+                )
+                report = AUTO.transport.parse_gaussian(gjf)
+                input_approval = self.fake_input_approval(report, work_kind)
+                bundle = root / "bundle"
+                args = AUTO.transport.build_parser().parse_args([
+                    "submit", str(gjf), "--project", work_kind, "--local-dir", str(bundle),
+                    "--confirmed", "--work-kind", work_kind,
+                    "--input-approval-record", str(root / "input.json"),
+                    "--approval-record", str(root / "live-v3.json"),
+                ])
+
+                def mocked_network(_command, *, input_bytes=None, check=True):
+                    if input_bytes and b"qsub" in input_bytes:
+                        return SimpleNamespace(stdout="123.server\n", stderr="", returncode=0)
+                    hashes = []
+                    if bundle.is_dir():
+                        hashes = [
+                            f"{path.name} {AUTO.transport.sha256(path)}"
+                            for path in bundle.iterdir() if path.is_file() and path.name != "job.json"
+                        ]
+                    return SimpleNamespace(stdout="\n".join(hashes), stderr="", returncode=0)
+
+                stdout = io.StringIO()
+                with (
+                    mock.patch.object(AUTO.transport, "validate_input_approval", return_value=input_approval),
+                    mock.patch.object(AUTO.transport, "validate_live_approval_binding", return_value=({"schema": "auto-g16-live-submission-approval/3"}, "d" * 64)),
+                    mock.patch.object(AUTO.transport, "run", side_effect=mocked_network) as network_run,
+                    redirect_stdout(stdout),
+                ):
+                    args.func(args)
+                result = json.loads(stdout.getvalue())
+                self.assertTrue(result["submitted"])
+                self.assertEqual(result["job_id"], "123.server")
+                self.assertGreater(network_run.call_count, 0)
 
     def test_submit_uses_one_snapshot_when_source_changes_after_input_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

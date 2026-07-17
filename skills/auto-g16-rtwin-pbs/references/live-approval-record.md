@@ -61,11 +61,10 @@ field and add this exact object to `scope`:
 }
 ```
 
-The PBS submission path independently revalidates that gate. `/2` still grants
-only one exact submission and does not weaken the separate protocol, input,
-retry, cancellation, cleanup or server-data boundaries.
+This is a historical `/2` record shape only. It remains replayable under its
+original contract but cannot authorize a new protected submission.
 
-Before creating `/2`, protected TS/scan submission preflight also requires a
+Historical protected TS/scan submission preflight required a
 valid `gaussian-scientific-action-authorization/1` for the exact DAG node,
 input hash, project, work kind, resource tier and budget request. That offline
 artifact always has `no_submission_authorization: true`; it is evidence for
@@ -90,9 +89,13 @@ resources, charge and multiplicity fields above, and adds:
 }
 ```
 
-For protected TS work, `/3` also includes the exact `scientific_maturity`
-object from `/2`. The CLI `--work-kind`, input receipt work kind and live scope
-work kind must be identical. Missing work kind never defaults to `ordinary`.
+For future protected TS work, `/3` must include an exact owner-evidence
+maturity action `/2`, a versioned action-authorization `/2`, and the applicable
+specialist input-approval receipt. Those positive submission owners are not
+currently integrated, so every new protected TS/scan/IRC live request is
+blocked before the first runner or network call. The CLI `--work-kind`, input
+receipt work kind and live scope work kind must be identical. Missing work kind
+never defaults to `ordinary`.
 Historical `/1` and `/2` records remain independently replayable by the shared
 validator when checked against their historical summaries; they are not
 silently granted the new input-receipt binding or accepted for a new live

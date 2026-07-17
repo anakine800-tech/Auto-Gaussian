@@ -8,11 +8,15 @@ validators for supplied artifacts and reports which owner contracts are still
 missing. It performs no energy arithmetic and has no formal barrier success
 state.
 
-Current minimum evidence is deliberately limited to
-`gaussian-scientific-maturity-gate/1`, which always produces the structured
-blocker `minimum_owner_evidence_v2_required` after successful owner replay. A
-future integration may recognize owner-evidence maturity `/2`; `/1` must never
-be treated as sufficient merely because `/2` exists.
+Minimum evidence accepts and owner-replays versioned
+`gaussian-scientific-maturity-gate/1` and `/2` artifacts. `/1` always produces
+`minimum_owner_evidence_v2_required`. `/2` is still not a positive readiness
+claim: the audit preserves
+`minimum_candidate_input_result_lineage_unavailable_v2`,
+`exact_owner_ts_mode_artifact_v2_required`, and
+`complete_owner_thermochemistry_evidence_v2_required`, alongside any missing
+TS/IRC and energy-lineage owner blockers. Neither version can produce a
+comparison or barrier.
 
 The TS readiness slice requires both a validated
 `gaussian-calculation-attempt-link/1` and a validated

@@ -397,17 +397,27 @@ def _resource_tier(mem: str, nproc: int) -> str:
     return "custom"
 
 
-def _load_scientific_maturity() -> Any:
+def _load_scientific_maturity_owner(version: int) -> Any:
     skills_root = Path(__file__).resolve().parents[2]
-    path = skills_root / "auto-g16-reaction-workflow" / "scripts" / "scientific_maturity.py"
+    filename = "scientific_maturity.py" if version == 1 else "scientific_maturity_v2.py"
+    path = skills_root / "auto-g16-reaction-workflow" / "scripts" / filename
     if not path.is_file():
-        fail("scientific-maturity owner validator is unavailable")
-    spec = importlib.util.spec_from_file_location("auto_g16_pbs_scientific_maturity", path)
+        fail(f"scientific-maturity /{version} owner validator is unavailable")
+    spec = importlib.util.spec_from_file_location(f"auto_g16_pbs_scientific_maturity_v{version}", path)
     if spec is None or spec.loader is None:
-        fail("scientific-maturity owner validator cannot be loaded")
+        fail(f"scientific-maturity /{version} owner validator cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_scientific_maturity() -> Any:
+    """Compatibility accessor for historical /1 replay tests."""
+    return _load_scientific_maturity_owner(1)
+
+
+def _load_scientific_maturity_v2() -> Any:
+    return _load_scientific_maturity_owner(2)
 
 
 def _reject_json_constant(value: str) -> None:
@@ -1243,39 +1253,56 @@ def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) ->
     tier = _resource_tier(report["mem"], report["nprocshared"])
     if tier == "custom":
         fail("TS maturity gate requires an exact reviewed simple/general/complex resource tier")
-    maturity = _load_scientific_maturity()
     try:
-        check = maturity.assert_action(
-            Path(gate_value).expanduser().resolve(),
-            edge_id,
-            maturity_action,
-            pilot=pilot,
-            resource_tier=tier,
-            node_id=node_id,
+        gate_path, gate_document, gate_digest, _ = load_strict_json_with_hash(
+            Path(gate_value), "scientific-maturity gate"
         )
-        if action == "ts_submission":
-            authorization_value = getattr(args, "scientific_action_authorization", None)
-            if not authorization_value:
-                fail("protected TS/scan submission requires one exact --scientific-action-authorization")
-            authorization = maturity.validate_action_authorization(
-                Path(authorization_value).expanduser().resolve(),
-                gate_path=Path(gate_value).expanduser().resolve(),
-                input_sha256=report["input_sha256"],
-                edge_id=edge_id,
-                node_id=node_id,
-                project=args.project,
-                work_kind=work_kind,
-                resource_tier=tier,
-            )
-            check["exact_action_authorization"] = {
-                "sha256": sha256(Path(authorization_value).expanduser().resolve()),
-                "payload_sha256": authorization["payload_sha256"],
-                "node_id": authorization["scope"]["node_id"],
-                "project": authorization["scope"]["project"],
-                "input_sha256": authorization["input"]["sha256"],
+    except ValueError as exc:
+        fail(f"scientific-maturity gate cannot be read safely: {exc}")
+    gate_schema = gate_document.get("schema")
+    try:
+        if gate_schema == "gaussian-scientific-maturity-gate/1":
+            owner = _load_scientific_maturity()
+            gate = owner.validate_gate(gate_path)
+            replay = {
+                "schema": gate_schema,
+                "status": "historical_replay_only",
+                "edge_id": edge_id,
+                "node_id": node_id,
+                "pilot": pilot,
+                "maturity_gate_sha256": gate_digest,
+                "maturity_gate_payload_sha256": gate["payload_sha256"],
+                "prospective_protected_live_authority": False,
+                "blockers": ["scientific_maturity_gate_v2_required_for_prospective_protected_work"],
                 "no_submission_authorization": True,
             }
-        return check
+            if action == "ts_submission":
+                fail(
+                    "scientific_maturity_gate_v1_historical_replay_only: protected prospective live "
+                    "submission requires owner-evidence maturity gate /2"
+                )
+            return replay
+        if gate_schema == "gaussian-scientific-maturity-gate/2":
+            owner = _load_scientific_maturity_v2()
+            check = owner.assert_action(
+                gate_path, edge_id, node_id, maturity_action, pilot=pilot
+            )
+            if action == "ts_submission":
+                fail(
+                    "prospective_protected_submission_not_ready: requires an exact maturity action /2, "
+                    "a versioned action-authorization /2, and a specialist input-approval receipt; "
+                    "these submission owners are not yet integrated"
+                )
+            return {
+                **check,
+                "maturity_gate_sha256": gate_digest,
+                "prospective_protected_live_authority": False,
+                "no_submission_authorization": True,
+            }
+        fail(
+            "scientific-maturity gate schema is unsupported; expected explicit "
+            "gaussian-scientific-maturity-gate/1 or /2"
+        )
     except Exception as exc:
         fail(f"scientific-maturity gate blocked {maturity_action}: {exc}")
     return None
