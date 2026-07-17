@@ -160,6 +160,32 @@ an ordering blocker, not a claim that the child builder is unimplemented.
 Network output remains `calculation_ready: false` and grants no mechanism
 promotion, calculation DAG, protocol, Gaussian input, or live authority.
 
+### Optional main-group open-shell W3/DAG overlay
+
+Keep the closed-shell W3 and calculation-plan `/1` paths unchanged. For a
+separately human-reviewed main-group open-shell network, read
+[references/open-shell-reaction-network-contract.md](references/open-shell-reaction-network-contract.md)
+and use the versioned offline overlay:
+
+```bash
+OPEN_SHELL_NETWORK="skills/auto-g16-reaction-workflow/scripts/open_shell_reaction_network.py"
+python3 "$OPEN_SHELL_NETWORK" build reviewed-open-shell-network.json \
+  --output open-shell-network.json
+python3 "$OPEN_SHELL_NETWORK" validate open-shell-network.json
+```
+
+V1 permits only one reviewed single-reference doublet or high-spin triplet
+main-group surface. It replays the main-group electronic-state and protocol
+owner reviews,
+binds every state/node/edge to exact structure, candidate, state-review and
+protocol lineages, and recomputes atom-map, element, charge and electron-count
+conservation. Total multiplicity and fragment spin coupling remain explicit
+human inputs and are never derived from fragment multiplicities. Metal,
+open-shell singlet, multireference, spin-crossing/MECP, state drift, unresolved
+coupling, hash drift and mixed-surface energy lineage fail closed. The emitted
+DAG/handoff is non-executable and grants no TS, IRC, calculation or energy-
+ranking authority.
+
 ### 5. Build the offline calculation plan and study index
 
 Invoke this only after the exact W1 chain, finalized mechanism network and an
@@ -543,8 +569,10 @@ blockers. No comparison, barrier arithmetic or live action is available.
   standard state, mechanism, TS algorithm or resource tier.
 - Do not treat scientific readiness, input review, live approval, execution or
   evidence acceptance as interchangeable states.
-- Keep transition-metal, open-shell, broken-symmetry, multireference and
-  ambiguous coordination cases blocked for later specialist review.
+- Keep transition-metal, broken-symmetry, multireference and ambiguous
+  coordination cases blocked for later specialist review. Open-shell cases
+  remain blocked on the closed-shell `/1` path; only the separate reviewed
+  main-group overlay above may admit its narrow V1 scope.
 
 ## Bundled resources
 
@@ -575,6 +603,10 @@ blockers. No comparison, barrier arithmetic or live action is available.
   blocker.
 - `scripts/mechanism_network.py`: standard-library-only deterministic W3
   mechanism-network builder and validator; no calculation or live path.
+- `references/open-shell-reaction-network-contract.md`: versioned main-group
+  open-shell state, conservation, lineage and authority-boundary contract.
+- `scripts/open_shell_reaction_network.py`: standard-library-only builder and
+  replay auditor for the hash-bound, non-executable open-shell W3/DAG overlay.
 - `scripts/mechanism_support.py`: standard-library-only deterministic evidence
   classification and two-gate builder/validator; no calculation or live path.
 - `scripts/mechanism_support_matrix.py`: standard-library-only deterministic

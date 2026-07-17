@@ -1,0 +1,59 @@
+{
+  "schema": "gaussian-reaction-open-shell-network-review/1",
+  "study_id": "radical_fixture",
+  "network_id": "reviewed_surface",
+  "surface_review": {
+    "multiplicity": 2,
+    "state_family": "doublet_ground_state",
+    "electronic_scope": "single_reference_ground_state",
+    "crossing_excluded": true,
+    "reviewer": "fixture reviewer",
+    "rationale": "One reviewed open-shell surface; no crossing or MECP."
+  },
+  "protocol_lineages": [],
+  "states": [],
+  "edges": [{
+    "edge_id": "radical_step",
+    "from_state_id": "state_a",
+    "to_state_id": "state_b",
+    "atom_mapping": [
+      {"from_atom_id": "a_c", "to_atom_id": "b_c"},
+      {"from_atom_id": "a_h1", "to_atom_id": "b_h1"},
+      {"from_atom_id": "a_h2", "to_atom_id": "b_h2"},
+      {"from_atom_id": "a_h3", "to_atom_id": "b_h3"}
+    ],
+    "total_multiplicity_review": {
+      "status": "reviewed",
+      "multiplicity": 2,
+      "reviewer": "fixture reviewer",
+      "rationale": "Total multiplicity is explicit human input."
+    },
+    "fragment_spin_coupling_review": {
+      "status": "reviewed",
+      "reviewer": "fixture reviewer",
+      "rationale": "Coupling is explicitly reviewed and not auto-combined."
+    },
+    "candidate_lineage": {"from_candidate_id": "radical_a", "to_candidate_id": "radical_b"},
+    "protocol_lineage_ids": ["lineage_a", "lineage_b"]
+  }],
+  "nodes": [
+    {
+      "node_id": "minimum_a", "node_kind": "minimum",
+      "state_ids": ["state_a"], "edge_ids": [],
+      "candidate_bindings": ["radical_a"], "state_review_bindings": [],
+      "protocol_lineage_ids": ["lineage_a"], "depends_on": [], "executable": false
+    },
+    {
+      "node_id": "candidate_edge", "node_kind": "ts_candidate",
+      "state_ids": ["state_a", "state_b"], "edge_ids": ["radical_step"],
+      "candidate_bindings": ["radical_a", "radical_b"], "state_review_bindings": [],
+      "protocol_lineage_ids": ["lineage_a", "lineage_b"], "depends_on": ["minimum_a"], "executable": false
+    }
+  ],
+  "review_decision": "accepted",
+  "reviewer": "fixture reviewer",
+  "reviewed_at": "2026-07-17T00:00:00Z",
+  "review_notes": ["Synthetic offline contract fixture."],
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}
