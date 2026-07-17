@@ -20,6 +20,22 @@ resource tier and task/core-hour/concurrency budget. That binding explicitly is
 not live approval. This checkout has not deployed or exercised that
 gate against SSH, PBS, Gaussian, or any live job.
 
+An additional compatibility-preserving owner-evidence `/2` overlay now binds
+one exact validated maturity gate `/1` and replays the public calculation-plan,
+mechanism-support, TS-precedent, conformer-handoff, applicable main-group
+open-shell, and manual-evidence validators. It blocks artifact-presence,
+hand-filled conformer provenance, and missing open-shell acceptance bypasses;
+manual receipts remain supporting-only. Its exact-scope science actions cover
+TS input/submission, IRC input, and formal barrier reporting while retaining
+separate input and live gates. No historical `/1` semantics or consumers are
+changed. Current owner artifacts do not bind a selected conformer through exact
+input approval to the accepted minimum result/log, so `/2` records that explicit
+lineage blocker and grants no passed action. IRC and formal reporting remain
+fixed fail-closed until exact owner TS-mode and complete thermochemistry/energy
+artifacts are added. Complete owner-chain relocation is also unsupported because
+historical conformer paths may be absolute and open-shell paths may be
+working-directory-relative.
+
 ## 2.3.0 release candidate
 
 Auto-Gaussian 2.3.0 release metadata was prepared on 2026-07-16 from reviewed

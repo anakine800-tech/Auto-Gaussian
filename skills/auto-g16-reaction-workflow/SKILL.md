@@ -24,6 +24,10 @@ scientific-maturity overlay described in
 [references/scientific-maturity-contract.md](references/scientific-maturity-contract.md).
 It binds the exact calculation plan without rewriting it and projects minima-
 first blockers onto its DAG nodes.
+For owner-evidence enforcement, layer the separate compatibility-preserving `/2`
+contract in
+[references/scientific-maturity-owner-evidence-v2-contract.md](references/scientific-maturity-owner-evidence-v2-contract.md)
+over one exact validated gate `/1`.
 
 Treat every artifact as an offline scientific review or bookkeeping record.
 Keep `calculation_ready: false` and `no_submission_authorization: true`
@@ -358,6 +362,19 @@ The action-authorization command is also offline-only: it prevents reuse across
 a different input, project, node or budget scope, but still grants no staging
 or submission authority.
 
+When owner-evidence overlay `/2` is required, use
+`scripts/scientific_maturity_v2.py` after the immutable `/1` gate. It replays
+the public plan, mechanism-support, precedent, conformer-handoff, applicable
+main-group open-shell, and manual-receipt validators. It emits a separate
+evidence receipt, gate, and exact-scope science action; it does not alter `/1`
+semantics. Manual evidence remains supporting-only, and `ts_input`,
+`ts_submission`, and `irc_input` still require separate input review. The
+current owner set cannot bind a selected conformer through exact input approval
+to the accepted minimum result/log, so all `/2` minimum gates and actions remain
+fail-closed. IRC and formal reporting additionally require future exact owner
+TS-mode and complete thermochemistry/energy artifacts; `/1` booleans do not
+provide `/2` authority.
+
 ### 7. Preserve the W2 knowledge and literature gates
 
 The second scientific-modeling round must first query a reviewed reusable
@@ -522,9 +539,15 @@ make the mechanism claim literature-supported or validated.
 - `scripts/scientific_maturity.py`: standard-library-only immutable maturity
   review/gate builder, deterministic DAG-node projection and fail-closed action
   check reused by TS and PBS owners; no route, input or live authority.
+- `scripts/scientific_maturity_v2.py`: compatibility-preserving owner-evidence
+  receipt/review/gate/action overlay over one exact validated maturity gate `/1`;
+  no route, input, submission or live authority.
 - `references/scientific-maturity-contract.md`: prospective literature,
   mechanism, minima-first, pilot/budget, TS/IRC, reference-state and migration
   contract.
+- `references/scientific-maturity-owner-evidence-v2-contract.md`: exact owner
+  replay, conformer/open-shell/manual projection, action interface and `/1`
+  compatibility boundary.
 - `scripts/calculation_artifacts.py`: standard-library-only target-import,
   exact input-handoff, blocked/electronic-only energy-lineage and immutable
   attempt-link adapters; no live path.
@@ -533,5 +556,6 @@ make the mechanism claim literature-supported or validated.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output
   schemas for intake, registry, condition-model, mechanism-network,
   mechanism-support, mechanism-support-matrix review/output, TS-precedent-map,
-  calculation-plan, study-index, scientific-maturity review/gate and the
-  calculation-artifact adapter family.
+  calculation-plan, study-index, scientific-maturity `/1` review/gate,
+  owner-evidence `/2` review/receipt/gate/action, and the calculation-artifact
+  adapter family.

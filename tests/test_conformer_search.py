@@ -291,10 +291,32 @@ class ConformerSearchTests(unittest.TestCase):
             self.assertTrue(handoff["candidate_only"])
             self.assertFalse(handoff["calculation_ready"])
             self.assertFalse(handoff["gaussian_input_present"])
+            handoff_path = root / "handoff.json"
+            write(handoff_path, handoff)
+            self.assertEqual(CORE.validate_handoff(handoff_path), handoff)
             bad = copy.deepcopy(review)
             bad["manifest_sha256"] = "f" * 64
             with self.assertRaises(CORE.ContractError):
                 CORE.build_handoff(chain["manifest"], chain["manifest_path"], bad, review_path)
+
+    def test_owner_absolute_bindings_fail_closed_after_package_move(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            top = Path(temp)
+            original = top / "original"; original.mkdir()
+            chain = self.chain(original)
+            selected = chain["manifest"]["clusters"][0]["medoid_candidate_id"]
+            review = {
+                "schema": "gaussian-conformer-handoff-review/1",
+                "manifest_sha256": CORE.file_sha256(chain["manifest_path"]),
+                "selected_candidate_ids": [selected], "reviewer": "fixture_reviewer",
+                "decision": "selected_for_downstream_input_review", "confirmed": True,
+            }
+            review_path = original / "review.json"; write(review_path, review)
+            handoff = CORE.build_handoff(chain["manifest"], chain["manifest_path"], review, review_path)
+            handoff_path = original / "handoff.json"; write(handoff_path, handoff)
+            moved = top / "moved"; original.rename(moved)
+            with self.assertRaises(CORE.ContractError):
+                CORE.validate_handoff(moved / "handoff.json")
 
     def test_revision_and_supersedes_are_preserved_without_overwrite(self) -> None:
         request = self.request()

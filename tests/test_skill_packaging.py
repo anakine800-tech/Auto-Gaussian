@@ -38,6 +38,7 @@ class SkillPackagingTests(unittest.TestCase):
         knowledge = package.package_files(ROOT, "auto-g16-knowledge-base")
         asymmetric = package.package_files(ROOT, "auto-g16-asymmetric-catalysis")
         open_shell = package.package_files(ROOT, "auto-g16-main-group-open-shell")
+        conformer = package.package_files(ROOT, "auto-g16-conformer-search")
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/candidate-target-import.schema.json")],
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
@@ -61,6 +62,22 @@ class SkillPackagingTests(unittest.TestCase):
         self.assertEqual(
             reaction[Path("references/mechanism-support-matrix-contract.md")],
             ROOT / "skills/auto-g16-reaction-workflow/references/mechanism-support-matrix-contract.md",
+        )
+        self.assertEqual(
+            reaction[Path("scripts/scientific_maturity_v2.py")],
+            ROOT / "skills/auto-g16-reaction-workflow/scripts/scientific_maturity_v2.py",
+        )
+        self.assertEqual(
+            reaction[Path("references/scientific-maturity-owner-evidence-v2-contract.md")],
+            ROOT / "skills/auto-g16-reaction-workflow/references/scientific-maturity-owner-evidence-v2-contract.md",
+        )
+        self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/scientific-evidence-receipt.schema.json")],
+            ROOT / "contracts/reaction-workflow/scientific-evidence-receipt.schema.json",
+        )
+        self.assertEqual(
+            conformer[Path("scripts/conformer_core.py")],
+            ROOT / "skills/auto-g16-conformer-search/scripts/conformer_core.py",
         )
         self.assertEqual(
             asymmetric[Path("scripts/validate_asymmetric_contract.py")],
@@ -149,6 +166,8 @@ class SkillPackagingTests(unittest.TestCase):
                 "auto-g16-knowledge-base",
                 "auto-g16-reaction-literature",
                 "auto-g16-asymmetric-catalysis",
+                "auto-g16-conformer-search",
+                "auto-g16-main-group-open-shell",
                 "auto-g16-ts-irc",
                 "auto-g16-rtwin-pbs",
             )
@@ -222,6 +241,30 @@ class SkillPackagingTests(unittest.TestCase):
             self.assertTrue(
                 (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/scientific-maturity-gate.schema.json").is_file()
             )
+            maturity_v2 = installed / "auto-g16-reaction-workflow/scripts/scientific_maturity_v2.py"
+            maturity_v2_help = subprocess.run(
+                [sys.executable, str(maturity_v2), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(maturity_v2_help.returncode, 0, maturity_v2_help.stdout + maturity_v2_help.stderr)
+            self.assertIn("build-evidence-receipt", maturity_v2_help.stdout)
+            self.assertIn("build-action", maturity_v2_help.stdout)
+            for schema_name in (
+                "scientific-maturity-review-v2.schema.json", "scientific-evidence-receipt.schema.json",
+                "scientific-maturity-gate-v2.schema.json", "scientific-maturity-action-v2.schema.json",
+            ):
+                self.assertTrue(
+                    (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow" / schema_name).is_file()
+                )
+            conformer = installed / "auto-g16-conformer-search/scripts/conformer_search.py"
+            conformer_help = subprocess.run(
+                [sys.executable, str(conformer), "--help"], cwd=root, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(conformer_help.returncode, 0, conformer_help.stdout + conformer_help.stderr)
+            self.assertIn("validate-handoff", conformer_help.stdout)
             manual = installed / "auto-g16-knowledge-base/scripts/manual_evidence.py"
             manual_help = subprocess.run(
                 [sys.executable, str(manual), "--help"],

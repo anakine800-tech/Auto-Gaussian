@@ -1,0 +1,18 @@
+{
+  "schema": "auto-g16-scientific-maturity-v2-synthetic-cases/1",
+  "cases": [
+    {"case_id": "owner_evidence_pilot_positive", "expected_edge_pilot": true, "expected_gate_pilot": false, "expected_formal": false},
+    {"case_id": "owner_evidence_formal_positive", "expected_edge_formal": true, "expected_gate_pilot": false, "expected_gate_formal": false},
+    {"case_id": "precedent_presence_bypass", "candidate_source_id": "precedent_close", "expected_blocker": "candidate_construction_source_not_eligible"},
+    {"case_id": "conformer_handfill_bypass", "selected_candidate_id": "unreviewed_handfilled_candidate", "expected_blocker": "selected_conformer_is_not_a_reviewed_handoff_medoid"},
+    {"case_id": "open_shell_specialist_bypass", "expected_blocker": "open_shell_minimum_outside_main_group_v1_specialist_scope"},
+    {"case_id": "manual_version_gate", "expected_blocker": "manual_receipt_not_positively_applicable"},
+    {"case_id": "manual_quality_gate", "expected_blocker": "manual_receipt_not_positively_applicable"},
+    {"case_id": "manual_general_source_as_syntax", "expected_blocker": "manual_receipt_source_scope_incompatible_with_syntax_version_context"},
+    {"case_id": "main_group_open_shell_missing", "expected_blocker": "main_group_open_shell_acceptance_missing"},
+    {"case_id": "main_group_open_shell_blocked", "expected_blocker": "main_group_open_shell_acceptance_is_blocked"},
+    {"case_id": "main_group_open_shell_identity_mismatch", "expected_blocker": "open_shell_charge_or_multiplicity_differs_from_minimum"},
+    {"case_id": "main_group_open_shell_exact", "expected_specialist_valid": true},
+    {"case_id": "unknown_dependency_blocker", "expected_preserved": true}
+  ]
+}
