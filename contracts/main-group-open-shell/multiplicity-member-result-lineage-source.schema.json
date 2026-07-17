@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16://contracts/main-group-open-shell/multiplicity-member-result-lineage-source/1",
+  "title": "Auto-G16 Main-Group Multiplicity Member Result-Lineage Human Source V1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "lineage_id", "family_id", "member_id", "plan_path", "acceptance_path", "declared_bindings", "association_review", "provenance", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-main-group-multiplicity-member-result-lineage-source/1"},
+    "lineage_id": {"$ref": "#/$defs/id"}, "family_id": {"$ref": "#/$defs/id"}, "member_id": {"$ref": "#/$defs/id"},
+    "plan_path": {"$ref": "#/$defs/text"}, "acceptance_path": {"$ref": "#/$defs/text"},
+    "declared_bindings": {"type": "object", "additionalProperties": false, "required": ["common_protocol_payload_sha256", "comparison_settings_sha256", "member_protocol_payload_sha256", "member_input_lineage_payload_sha256", "input_artifact_sha256", "acceptance_payload_sha256", "observation_payload_sha256", "result_source_sha256"], "properties": {"common_protocol_payload_sha256": {"$ref": "#/$defs/sha"}, "comparison_settings_sha256": {"$ref": "#/$defs/sha"}, "member_protocol_payload_sha256": {"$ref": "#/$defs/sha"}, "member_input_lineage_payload_sha256": {"$ref": "#/$defs/sha"}, "input_artifact_sha256": {"$ref": "#/$defs/sha"}, "acceptance_payload_sha256": {"$ref": "#/$defs/sha"}, "observation_payload_sha256": {"$ref": "#/$defs/sha"}, "result_source_sha256": {"$ref": "#/$defs/sha"}}},
+    "association_review": {"$ref": "#/$defs/association"}, "provenance": {"$ref": "#/$defs/provenance"},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "text": {"type": "string", "minLength": 1}, "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "association": {"type": "object", "additionalProperties": false, "required": ["decision", "reviewer", "rationale", "confirmed"], "properties": {"decision": {"const": "confirmed_supplied_offline_input_result_binding"}, "reviewer": {"$ref": "#/$defs/text"}, "rationale": {"$ref": "#/$defs/text"}, "confirmed": {"const": true}}},
+    "provenance": {"type": "object", "additionalProperties": false, "required": ["kind", "statement", "transport_provenance_claimed", "live_execution_provenance_claimed"], "properties": {"kind": {"const": "supplied_offline_binding"}, "statement": {"$ref": "#/$defs/text"}, "transport_provenance_claimed": {"const": false}, "live_execution_provenance_claimed": {"const": false}}}
+  }
+}

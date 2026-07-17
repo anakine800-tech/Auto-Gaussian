@@ -39,3 +39,32 @@ refusal, and no-overwrite writes. Every artifact retains
 `calculation_ready: false` and `no_submission_authorization: true`. This slice
 has no Gaussian, SSH, PBS, deployment, or live-smoke execution surface and
 does not modify the existing closed-shell single-guess TS/Freq adapter.
+
+## Multiplicity-family extension
+
+The offline multiplicity-family V1 extension records multiple independently
+reviewed multiplicity/state branches under one human-confirmed composition and
+structure relationship. Every member retains its own candidate, state review,
+protocol, input, and result lineage; file hashes may not be reused across
+members.
+
+An accepted result is not comparable merely because it belongs to the same
+candidate. A closed member-result-lineage source and deterministic derived
+artifact must additionally bind the exact member protocol, common protocol and
+settings, input-lineage artifact and input hash, acceptance, observation, and
+raw result-source hash. Missing proof remains structurally blocked. The record
+is supplied offline provenance only and cannot claim transport or live
+execution provenance.
+
+Only independently accepted single-reference doublet or high-spin triplet
+members can remain eligible for a later, separately approved input handoff.
+Quartets, open-shell singlets, and other unsupported states remain visible as
+`blocked_needs_specialist`; they are not silently omitted.
+
+Comparison requires an explicitly approved common electronic-energy protocol,
+exact common reference, settings hash, and comparability statement. The audit
+does not order energies, declare a ground state, mix thermochemistry, infer
+multireference character from energy proximity, model spin crossing or MECP,
+or combine multiplicities in one conformer ensemble. The contracts are under
+`contracts/main-group-open-shell/`; the detailed boundary is in
+`references/multiplicity-family-contract.md` in the Skill.

@@ -20,10 +20,22 @@ live smoke test through this Skill.
    with `accept`. Fail closed on any missing or inconsistent diagnostic.
 6. Use `validate` to re-check canonical JSON, hashes, source bindings, and the
    authority boundary.
+7. For a reviewed multiplicity/state family, read
+   [references/multiplicity-family-contract.md](references/multiplicity-family-contract.md),
+   then use `scripts/multiplicity_family.py` to build the independent-member
+   offline plan and audit supplied result comparability. Retain unsupported
+   members as `blocked_needs_specialist`.
 
 Run `scripts/open_shell_state.py --help` for the offline CLI. Store the closed,
 versioned JSON Schemas under the repository `contracts/main-group-open-shell/`
 directory; do not copy them into this Skill.
+
+Run `scripts/multiplicity_family.py --help` for the multiplicity-family CLI.
+Use `bind-result` to deterministically bind the exact member protocol and input
+lineage to supplied accepted result evidence before `audit`; missing proof must
+remain blocked. The binding never claims transport or live-execution provenance.
+It never ranks energies, declares a ground state, mixes thermochemistry, or
+places different multiplicities in a conformer ensemble.
 
 ## Boundaries
 
@@ -36,3 +48,5 @@ enter V1, while singlet or multireference carbene cases remain outside it.
 Every emitted artifact must retain `calculation_ready: false` and
 `no_submission_authorization: true`. Result acceptance does not authorize an
 input draft, submission, retry, live action, or promotion into another workflow.
+Multiplicity-family planning and comparison auditing have the same authority
+boundary and additionally exclude spin crossing and MECP.
