@@ -8,6 +8,16 @@ This repository is the version-controlled source of truth. Installed copies
 under `~/.codex/skills` are deployment targets and must not be edited
 independently.
 
+The current open-shell input-receipt bridge preserves generic receipt `/1`
+unchanged and adds offline-only `gaussian-input-approval-receipt/2` for a
+reviewed main-group open-shell minimum. `/2` replays the accepted electronic
+state, exact minimum Opt/Freq handoff and passed input audit in addition to the
+selected protocol, mapping, resources and exact input SHA-256. It recognizes
+`optimization`/`frequency` with composite `opt_freq` owner stages, counts only
+top-level Gaussian route keywords (so `Stable=Opt` is not a duplicate Opt),
+and retains all specialist syntax blockers. It grants no live authority and is
+not accepted by the current live-submission `/3` contract.
+
 The current unreleased feature slice adds a prospective scientific-maturity
 overlay and minima-first TS hard gate. It preserves all historical `/1`
 records, requires two accepted Gaussian Opt/Freq zero-imaginary minima before
