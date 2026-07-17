@@ -118,6 +118,24 @@ def prepare_source(args) -> dict[str, Any]:
         # Approval material deliberately leads with scientific maturity,
         # evidence/endpoints/blockers before protocol/resources/input hash.
         summary = {"scientific_maturity": maturity, **summary}
+    input_approval_record = getattr(args, "input_approval_record", None)
+    requested_work_kind = getattr(args, "work_kind", None)
+    summary["work_kind"] = requested_work_kind
+    compatibility = transport.input_approval_compatibility(audit, requested_work_kind)
+    if compatibility["status"] != "supported_generic_v1":
+        summary["input_approval"] = {**compatibility, "no_submission_authorization": True}
+    elif input_approval_record:
+        assert requested_work_kind is not None
+        summary["input_approval"] = transport.validate_input_approval(
+            Path(input_approval_record), gjf, audit, requested_work_kind
+        )
+    else:
+        summary["input_approval"] = {
+            "status": "missing_required_for_live_submission",
+            "required_schema": transport.INPUT_APPROVAL_SCHEMA,
+            "work_kind": requested_work_kind,
+            "no_submission_authorization": True,
+        }
     if workflow is not None:
         summary["workflow"] = workflow
     transport.atomic_json(local_dir / "automation_preflight.json", summary)
@@ -125,48 +143,7 @@ def prepare_source(args) -> dict[str, Any]:
 
 
 def validate_live_approval(path: Path, summary: dict[str, Any]) -> dict[str, Any]:
-    try:
-        approval = json.loads(path.expanduser().read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        fail(f"cannot read live approval record: {exc}")
-    expected = {
-        "project": summary["project"],
-        "remote_workdir": summary["remote_workdir"],
-        "input_sha256": summary["input_sha256"],
-        "route": summary["protocol"]["route"],
-        "mem": summary["protocol"]["mem"],
-        "nprocshared": summary["protocol"]["nproc"],
-        "charge": summary["charge"],
-        "multiplicity": summary["multiplicity"],
-    }
-    expected_schema = "auto-g16-live-submission-approval/2" if "scientific_maturity" in summary else "auto-g16-live-submission-approval/1"
-    if "scientific_maturity" in summary:
-        maturity = summary["scientific_maturity"]
-        expected["scientific_maturity"] = {
-            "edge_id": maturity["edge_id"],
-            "pilot": maturity["pilot"],
-            "maturity_gate_sha256": maturity["maturity_gate_sha256"],
-            "maturity_gate_payload_sha256": maturity["maturity_gate_payload_sha256"],
-            "node_id": maturity["node_id"],
-            "scientific_action_authorization_sha256": maturity["exact_action_authorization"]["sha256"],
-            "scientific_action_authorization_payload_sha256": maturity["exact_action_authorization"]["payload_sha256"],
-        }
-    if approval.get("schema") != expected_schema:
-        fail("live approval record has the wrong schema")
-    if approval.get("decision") != "approved" or approval.get("explicit_confirmation") is not True:
-        fail("live approval record lacks an explicit approved decision")
-    if approval.get("scope") != expected:
-        fail("live approval scope does not exactly match the current preflight")
-    if approval.get("authorizations") != {
-        "create_server_directory": True,
-        "submit": True,
-        "retry": False,
-        "cancel": False,
-        "cleanup": False,
-        "delete_server_data": False,
-    }:
-        fail("live approval authorization boundary changed")
-    return approval
+    return transport.validate_live_approval(path, summary)
 
 
 def connection_arguments(args) -> list[str]:
@@ -185,14 +162,20 @@ def command_prepare(args) -> None:
 def command_auto(args) -> None:
     if not args.confirmed:
         fail("auto requires --confirmed after exact live approval")
+    if not args.dry_run and not args.work_kind:
+        fail("live auto submission requires an explicit --work-kind; it must not default to ordinary")
     summary = prepare_source(args)
     if "scientific_maturity" in summary and "exact_action_authorization" not in summary["scientific_maturity"]:
         fail("protected auto submission requires an exact offline scientific action authorization before live approval")
+    if not args.dry_run and summary["input_approval"]["status"] != "validated_exact_input_approval":
+        if summary["input_approval"]["status"] == "blocked_missing_specialist_input_approval":
+            fail("blocked_missing_specialist_input_approval: specialist owner approval is not integrated")
+        fail("auto submission requires --input-approval-record before live approval")
     if not args.dry_run:
         if not args.approval_record:
             fail("a hash-bound --approval-record is required for live submission")
         validate_live_approval(Path(args.approval_record), summary)
-    elif args.approval_record:
+    elif args.approval_record and summary["input_approval"]["status"] == "validated_exact_input_approval":
         validate_live_approval(Path(args.approval_record), summary)
     print(json.dumps({"approved_preflight": summary}, ensure_ascii=False, indent=2), flush=True)
     submit_command = [
@@ -208,6 +191,10 @@ def command_auto(args) -> None:
         submit_command.extend(["--work-kind", args.work_kind])
     if args.scientific_action_authorization:
         submit_command.extend(["--scientific-action-authorization", args.scientific_action_authorization])
+    if args.input_approval_record:
+        submit_command.extend(["--input-approval-record", args.input_approval_record])
+    if args.approval_record:
+        submit_command.extend(["--approval-record", args.approval_record])
     if args.dry_run:
         submit_command.append("--dry-run")
     submitted = subprocess.run(submit_command)
@@ -237,6 +224,7 @@ def add_prepare_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source", help="existing reviewed .gjf/.com input")
     parser.add_argument("--project", required=True)
     parser.add_argument("--local-dir", required=True)
+    parser.add_argument("--input-approval-record", help=f"owner-validated {transport.INPUT_APPROVAL_SCHEMA} required for live submission")
     transport.add_scientific_maturity_options(parser)
 
 

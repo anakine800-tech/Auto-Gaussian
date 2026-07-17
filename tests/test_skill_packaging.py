@@ -39,6 +39,7 @@ class SkillPackagingTests(unittest.TestCase):
         asymmetric = package.package_files(ROOT, "auto-g16-asymmetric-catalysis")
         open_shell = package.package_files(ROOT, "auto-g16-main-group-open-shell")
         conformer = package.package_files(ROOT, "auto-g16-conformer-search")
+        rtwin = package.package_files(ROOT, "auto-g16-rtwin-pbs")
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/candidate-target-import.schema.json")],
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
@@ -91,6 +92,14 @@ class SkillPackagingTests(unittest.TestCase):
             open_shell[Path("contracts/main-group-open-shell/electronic-state-review.schema.json")],
             ROOT / "contracts/main-group-open-shell/electronic-state-review.schema.json",
         )
+        self.assertEqual(
+            rtwin[Path("contracts/rtwin-pbs/input-draft-review-v2.schema.json")],
+            ROOT / "contracts/rtwin-pbs/input-draft-review-v2.schema.json",
+        )
+        self.assertEqual(
+            rtwin[Path("contracts/rtwin-pbs/input-approval-receipt.schema.json")],
+            ROOT / "contracts/rtwin-pbs/input-approval-receipt.schema.json",
+        )
         self.assertFalse(
             (ROOT / "skills/auto-g16-reaction-workflow/contracts").exists(),
             "deployment contracts must be mapped, not duplicated in the repository Skill",
@@ -98,6 +107,10 @@ class SkillPackagingTests(unittest.TestCase):
         self.assertFalse(
             (ROOT / "skills/auto-g16-asymmetric-catalysis/scripts/validate_asymmetric_contract.py").exists(),
             "the specialist validator must remain single-source in the repository",
+        )
+        self.assertFalse(
+            (ROOT / "skills/auto-g16-rtwin-pbs/contracts").exists(),
+            "RTwin/PBS contracts must be mapped from the repository root, not duplicated",
         )
 
     def test_dry_run_does_not_write_and_apply_refuses_installed_extras(self) -> None:
@@ -302,6 +315,23 @@ class SkillPackagingTests(unittest.TestCase):
             )
             self.assertEqual(owner_loaders.returncode, 0, owner_loaders.stdout + owner_loaders.stderr)
             self.assertIn("deployed-owner-loaders-ok", owner_loaders.stdout)
+            rtwin_cli = installed / "auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
+            rtwin_help = subprocess.run(
+                [sys.executable, str(rtwin_cli), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(rtwin_help.returncode, 0, rtwin_help.stdout + rtwin_help.stderr)
+            self.assertIn("finalize-input-review", rtwin_help.stdout)
+            self.assertIn("build-input-approval", rtwin_help.stdout)
+            self.assertIn("validate-input-approval", rtwin_help.stdout)
+            for name in ("input-draft-review-v2.schema.json", "input-approval-receipt.schema.json"):
+                deployed_schema = installed / "auto-g16-rtwin-pbs/contracts/rtwin-pbs" / name
+                source_schema = ROOT / "contracts/rtwin-pbs" / name
+                self.assertTrue(deployed_schema.is_file())
+                self.assertEqual(deployed_schema.read_bytes(), source_schema.read_bytes())
             observation = ADAPTER._finalize(
                 {
                     "schema": ADAPTER.SANITIZED_JOB_SCHEMA,

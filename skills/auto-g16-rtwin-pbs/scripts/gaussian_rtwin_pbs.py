@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import hashlib
 import importlib.util
 import json
@@ -12,14 +13,17 @@ import math
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from gaussian_log import analyze_log_file, analyze_log_text, analyze_workflow_log_file
+import protocol_selection
 from runtime_config import setting
 
 
@@ -49,6 +53,12 @@ MAX_CORES = 44
 MAX_MEMORY_BYTES = 120 * 1024**3
 PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$")
 JOB_ID_RE = re.compile(r"^[0-9]+(?:\.[A-Za-z0-9_.-]+)?$")
+SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+INPUT_REVIEW_SCHEMA = "gaussian-input-draft-review/2"
+INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/1"
+INPUT_APPROVAL_WORK_KINDS = {"ordinary", "minimum", "ts_pilot", "formal_ts"}
+SPECIALIST_INPUT_WORK_KINDS = {"ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"}
+ALL_WORK_KINDS = INPUT_APPROVAL_WORK_KINDS | SPECIALIST_INPUT_WORK_KINDS
 
 
 def fail(message: str, code: int = 2) -> None:
@@ -85,6 +95,43 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def read_stable_bytes(path: Path, label: str) -> tuple[Path, bytes, str]:
+    """Read one regular non-symlink file from one descriptor and bind its bytes."""
+
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    try:
+        resolved = expanded.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"{label} is unavailable: {exc}") from exc
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(resolved, flags)
+    except OSError as exc:
+        raise ValueError(f"cannot open {label} without following a symlink: {exc}") from exc
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError(f"{label} must be a regular file")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    identity = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+    if identity != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+        raise ValueError(f"{label} changed while it was being read")
+    data = b"".join(chunks)
+    if len(data) != before.st_size:
+        raise ValueError(f"{label} size changed while it was being read")
+    return resolved, data, hashlib.sha256(data).hexdigest()
+
+
 def atomic_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
@@ -94,6 +141,110 @@ def atomic_text(path: Path, text: str) -> None:
 
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
     atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+
+
+def publish_new_json(
+    path: Path,
+    value: dict[str, Any],
+    validator: Any | None = None,
+) -> None:
+    """Atomically publish immutable JSON without any overwrite window."""
+
+    expanded = path.expanduser()
+    if expanded.name in {"", ".", ".."}:
+        raise ValueError("immutable artifact output must name a file")
+    path = expanded.parent.resolve() / expanded.name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if validator is not None:
+            validator(temporary)
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            raise ValueError(f"refusing to overwrite immutable artifact: {path}") from None
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def capture_submission_snapshot(source: Path, local_dir: Path) -> tuple[Path, str]:
+    """Capture one unique, durable source snapshot before any approval replay."""
+
+    resolved, data, digest = read_stable_bytes(source, "Gaussian submission source")
+    if resolved.suffix.lower() not in {".gjf", ".com"}:
+        raise ValueError("Gaussian submission source must end in .gjf or .com")
+    local_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_dir = Path(tempfile.mkdtemp(prefix=".submit-snapshot-", dir=local_dir))
+    snapshot = snapshot_dir / resolved.name
+    descriptor = os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except Exception:
+        raise
+    directory_fd = os.open(snapshot_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    _, captured, captured_digest = read_stable_bytes(snapshot, "Gaussian submission snapshot")
+    if captured != data or captured_digest != digest:
+        raise ValueError("Gaussian submission snapshot differs from the captured source bytes")
+    return snapshot, digest
+
+
+def verify_staged_submission(
+    local_dir: Path,
+    job: dict[str, Any],
+    expected_report: dict[str, Any],
+    input_approval: dict[str, Any],
+    files: list[Path],
+) -> dict[str, str]:
+    """Recheck staged facts and file hashes immediately before any live action."""
+
+    staged_input = local_dir / str(job["input"])
+    before_path, _, before_digest = read_stable_bytes(staged_input, "staged Gaussian input")
+    staged_report = parse_gaussian(before_path)
+    _, _, after_digest = read_stable_bytes(staged_input, "staged Gaussian input")
+    if before_digest != after_digest:
+        fail("staged Gaussian input changed during final pre-network verification")
+    if (
+        _input_approval_facts(staged_report) != _input_approval_facts(expected_report)
+        or job.get("input_sha256") != before_digest
+        or (
+            input_approval.get("status") == "validated_exact_input_approval"
+            and input_approval.get("input_sha256") != before_digest
+        )
+    ):
+        fail("staged Gaussian input no longer matches the exact input and live approval chain")
+    expected: dict[str, str] = {}
+    for path in files:
+        _, _, digest = read_stable_bytes(path, f"staged upload file {path.name}")
+        expected[path.name] = digest
+    return expected
+
+
+def assert_file_bindings_unchanged(files: list[Path], expected: dict[str, str]) -> None:
+    for path in files:
+        _, _, digest = read_stable_bytes(path, f"staged upload file {path.name}")
+        if digest != expected.get(path.name):
+            fail(f"staged upload file changed before transfer: {path.name}")
 
 
 def validate_project(project: str) -> str:
@@ -185,17 +336,51 @@ def parse_memory(value: str) -> int:
     return int(number * 1024**power)
 
 
-def classify_protected_work(route: str) -> str | None:
+def normalize_route(route: str) -> str:
     lowered = " ".join(route.lower().split())
-    if re.search(r"\birc\b", lowered):
+    lowered = re.sub(r"\s*=\s*", "=", lowered)
+    lowered = re.sub(r"\s*,\s*", ",", lowered)
+    lowered = re.sub(r"\(\s*", "(", lowered)
+    return re.sub(r"\s*\)", ")", lowered)
+
+
+def route_has_keyword(route: str, keyword: str) -> bool:
+    return re.search(rf"\b{re.escape(keyword.lower())}(?=$|[=(\s])", normalize_route(route)) is not None
+
+
+def route_keyword_count(route: str, keyword: str) -> int:
+    return len(re.findall(rf"\b{re.escape(keyword.lower())}(?=$|[=(\s])", normalize_route(route)))
+
+
+def route_has_option(route: str, keyword: str, option: str) -> bool:
+    normalized = normalize_route(route)
+    keyword = re.escape(keyword.lower())
+    option = re.escape(option.lower())
+    for match in re.finditer(rf"\b{keyword}\s*(?:=([^\s]+)|\(([^)]*)\))", normalized):
+        values = (match.group(1) or match.group(2) or "").strip("()")
+        if re.search(rf"(?:^|,){option}(?:,|$)", values) is not None:
+            return True
+    return False
+
+
+def route_has_frequency(route: str) -> bool:
+    return route_has_keyword(route, "freq") or route_has_keyword(route, "frequency")
+
+
+def route_has_ts_optimization(route: str) -> bool:
+    return any(route_has_option(route, "opt", value) for value in ("ts", "qst2", "qst3"))
+
+
+def route_has_scan(route: str) -> bool:
+    return route_has_keyword(route, "modredundant") or route_has_option(route, "opt", "scan") or route_has_option(route, "opt", "modredundant")
+
+
+def classify_protected_work(route: str) -> str | None:
+    if route_has_keyword(route, "irc"):
         return "irc"
-    if re.search(r"\bmodredundant\b", lowered) or re.search(r"\bopt\s*=\s*\([^)]*\bscan\b", lowered):
+    if route_has_scan(route):
         return "ts_scan"
-    if (
-        re.search(r"\bqst[23]\b", lowered)
-        or re.search(r"\bopt\s*=\s*ts\b", lowered)
-        or re.search(r"\bopt\s*=\s*\([^)]*\bts\b", lowered)
-    ):
+    if route_has_ts_optimization(route):
         return "ts"
     return None
 
@@ -223,6 +408,813 @@ def _load_scientific_maturity() -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant is forbidden: {value}")
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key is forbidden: {key}")
+        result[key] = value
+    return result
+
+
+def _parse_strict_json_bytes(data: bytes, path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(
+            data.decode("utf-8"),
+            parse_constant=_reject_json_constant,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"could not read strict JSON {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: top-level JSON must be an object")
+    return value
+
+
+def load_strict_json_with_hash(path: Path, label: str = "JSON artifact") -> tuple[Path, dict[str, Any], str, int]:
+    resolved, data, digest = read_stable_bytes(path, label)
+    return resolved, _parse_strict_json_bytes(data, resolved), digest, len(data)
+
+
+def load_strict_json(path: Path) -> dict[str, Any]:
+    return load_strict_json_with_hash(path)[1]
+
+
+def canonical_json_bytes(value: Any) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+
+
+def contract_payload_sha256(value: dict[str, Any]) -> str:
+    payload = copy.deepcopy(value)
+    payload.pop("payload_sha256", None)
+    return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+
+
+def canonical_value_sha256(value: Any) -> str:
+    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def _exact_fields(value: Any, fields: set[str], label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != fields:
+        actual = set(value) if isinstance(value, dict) else set()
+        raise ValueError(
+            f"{label} fields differ: missing={sorted(fields - actual)}, unknown={sorted(actual - fields)}"
+        )
+    return value
+
+
+def _input_approval_facts(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "input_sha256": report["input_sha256"],
+        "route": report["route"],
+        "mem": report["mem"],
+        "nprocshared": report["nprocshared"],
+        "charge": report["charge"],
+        "multiplicity": report["multiplicity"],
+        "atom_count": report["atom_count"],
+        "elements": report["elements"],
+    }
+
+
+def input_approval_compatibility(report: dict[str, Any], work_kind: str | None) -> dict[str, Any]:
+    """Classify only the input families fully represented by generic receipt /1."""
+
+    if work_kind is None:
+        return {
+            "status": "missing_work_kind",
+            "required": "an explicit --work-kind bound by input and live approvals",
+        }
+    if work_kind in SPECIALIST_INPUT_WORK_KINDS:
+        return {
+            "status": "blocked_missing_specialist_input_approval",
+            "work_kind": work_kind,
+            "reason": "this work kind requires its specialist owner manifest and exact raw-syntax/checkpoint review",
+        }
+    if work_kind not in INPUT_APPROVAL_WORK_KINDS:
+        return {"status": "unsupported_work_kind", "work_kind": work_kind}
+
+    route = str(report.get("route", ""))
+    specialist_syntax = (
+        report.get("link1_count", 0) != 0
+        or report.get("route_section_count", 1) != 1
+        or any(route_keyword_count(route, keyword) > 1 for keyword in ("opt", "geom", "guess"))
+        or route_has_option(route, "opt", "qst2")
+        or route_has_option(route, "opt", "qst3")
+        or route_has_keyword(route, "irc")
+        or route_has_scan(route)
+        or route_has_option(route, "geom", "allcheck")
+        or route_has_option(route, "geom", "check")
+        or route_has_option(route, "guess", "read")
+        or report.get("geometry_source") != "explicit_cartesian"
+        or report.get("oldcheckpoint") is not None
+    )
+    if specialist_syntax:
+        return {
+            "status": "blocked_missing_specialist_input_approval",
+            "work_kind": work_kind,
+            "reason": "generic /1 covers only one self-contained Cartesian structure and no checkpoint-derived syntax",
+        }
+
+    protected = classify_protected_work(route)
+    if work_kind in {"ts_pilot", "formal_ts"}:
+        if protected != "ts" or not route_has_frequency(route):
+            return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
+    elif protected is not None:
+        return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
+    if work_kind == "minimum" and not route_has_keyword(route, "opt"):
+        return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
+    if work_kind == "ordinary" and (route_has_keyword(route, "opt") or route_has_frequency(route)):
+        return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
+    return {"status": "supported_generic_v1", "work_kind": work_kind}
+
+
+def _validate_protocol_binding_shape(value: Any) -> dict[str, Any]:
+    binding = _exact_fields(
+        value,
+        {
+            "options_sha256", "options_payload_sha256", "selection_sha256",
+            "selection_payload_sha256", "selected_option", "used_profile_ids", "used_tasks",
+        },
+        "input review protocol_binding",
+    )
+    for key in ("options_sha256", "options_payload_sha256", "selection_sha256", "selection_payload_sha256"):
+        if not isinstance(binding[key], str) or SHA256_RE.fullmatch(binding[key]) is None:
+            raise ValueError(f"input review protocol_binding.{key} is invalid")
+    selected = _exact_fields(
+        binding["selected_option"], {"tier", "option_id", "option_payload_sha256"},
+        "input review selected_option",
+    )
+    if not all(isinstance(selected[key], str) and selected[key] for key in ("tier", "option_id")):
+        raise ValueError("input review selected option identity is invalid")
+    if not isinstance(selected["option_payload_sha256"], str) or SHA256_RE.fullmatch(selected["option_payload_sha256"]) is None:
+        raise ValueError("input review selected option payload SHA-256 is invalid")
+    profiles = binding["used_profile_ids"]
+    if not isinstance(profiles, list) or not profiles or len(profiles) != len(set(profiles)) or not all(isinstance(item, str) and item for item in profiles):
+        raise ValueError("input review used_profile_ids must be unique non-empty strings")
+    tasks = binding["used_tasks"]
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError("input review used_tasks must be non-empty")
+    for task in tasks:
+        item = _exact_fields(task, {"task_index", "stage_type", "profile_id"}, "input review used task")
+        if not isinstance(item["task_index"], int) or isinstance(item["task_index"], bool) or item["task_index"] < 0:
+            raise ValueError("input review task_index is invalid")
+        if not isinstance(item["stage_type"], str) or not item["stage_type"] or item["profile_id"] not in profiles:
+            raise ValueError("input review used task is invalid")
+    indices = [item["task_index"] for item in tasks]
+    if len(indices) != len(set(indices)):
+        raise ValueError("input review used task indices must be unique")
+    return binding
+
+
+def _validate_route_profile_mapping_shape(value: Any, approved_route: str) -> dict[str, Any]:
+    mapping = _exact_fields(
+        value, {"exact_route", "method", "basis", "solvent", "scf", "tasks", "explicit_confirmation"},
+        "input review route_profile_mapping",
+    )
+    if mapping["exact_route"] != approved_route or mapping["explicit_confirmation"] is not True:
+        raise ValueError("input review route/profile mapping is not explicitly bound to the exact route")
+    route_lower = " ".join(approved_route.lower().split())
+    for key in ("method", "basis", "solvent", "scf"):
+        item = _exact_fields(
+            mapping[key], {"route_value", "profile_id", "selected_value", "human_confirmed"},
+            f"input review route mapping {key}",
+        )
+        if not isinstance(item["route_value"], str) or not item["route_value"].strip() or not isinstance(item["profile_id"], str) or not item["profile_id"]:
+            raise ValueError(f"input review {key} route/profile value is missing")
+        if item["human_confirmed"] is not True:
+            raise ValueError(f"input review {key} mapping lacks human confirmation")
+        route_value = item["route_value"].lower()
+        if key in {"method", "basis"} and route_value not in route_lower:
+            raise ValueError(f"input review {key} route value is absent from the exact route")
+        if key == "solvent" and route_value == "none" and ("scrf" in route_lower or "solvent" in route_lower):
+            raise ValueError("input review claims no solvent but the route contains solvation syntax")
+        if key == "scf" and route_value == "default" and re.search(r"\bscf\b", route_lower):
+            raise ValueError("input review claims default SCF but the route contains explicit SCF syntax")
+    tasks = mapping["tasks"]
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError("input review route task mappings are missing")
+    for task in tasks:
+        item = _exact_fields(
+            task, {"task_index", "stage_type", "profile_id", "route_evidence", "human_confirmed"},
+            "input review route task mapping",
+        )
+        evidence = item["route_evidence"]
+        if item["human_confirmed"] is not True or not isinstance(evidence, list) or not evidence or len(evidence) != len(set(evidence)):
+            raise ValueError("input review route task mapping is not explicitly confirmed")
+        if not all(token in {"opt_ts", "minimum_opt", "frequency", "single_point"} for token in evidence):
+            raise ValueError("input review task evidence must use deterministic route predicates")
+    return mapping
+
+
+def validate_input_review(path: Path) -> dict[str, Any]:
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise ValueError("input review must not be a symlink")
+    path = expanded.resolve()
+    review = load_strict_json(path)
+    _exact_fields(
+        review,
+        {
+            "schema", "review_id", "work_kind", "protocol_task_types", "protocol_binding",
+            "route_profile_mapping", "protocol_family_completion", "approved_input", "decision", "calculation_ready",
+            "no_submission_authorization", "payload_sha256",
+        },
+        "input-draft review /2",
+    )
+    if review["schema"] != INPUT_REVIEW_SCHEMA:
+        raise ValueError(f"input review schema must be {INPUT_REVIEW_SCHEMA}")
+    if review["work_kind"] not in INPUT_APPROVAL_WORK_KINDS:
+        raise ValueError("input review work_kind is unsupported")
+    if not isinstance(review["review_id"], str) or not review["review_id"].strip():
+        raise ValueError("input review review_id is missing")
+    task_types = review["protocol_task_types"]
+    if not isinstance(task_types, list) or not task_types or not all(isinstance(item, str) and item.strip() for item in task_types):
+        raise ValueError("input review protocol_task_types must be a non-empty string array")
+    if len(task_types) != len(set(task_types)):
+        raise ValueError("input review protocol_task_types contains duplicates")
+    _validate_protocol_binding_shape(review["protocol_binding"])
+    if review["protocol_family_completion"] is not False:
+        raise ValueError("one input review must not claim whole protocol-family completion")
+    facts = _exact_fields(
+        review["approved_input"],
+        {"input_sha256", "route", "mem", "nprocshared", "charge", "multiplicity", "atom_count", "elements"},
+        "input review approved_input",
+    )
+    if not isinstance(facts["input_sha256"], str) or SHA256_RE.fullmatch(facts["input_sha256"]) is None:
+        raise ValueError("input review SHA-256 is invalid")
+    if not isinstance(facts["route"], str) or not facts["route"].startswith("#"):
+        raise ValueError("input review route is invalid")
+    if not isinstance(facts["mem"], str) or parse_memory(facts["mem"]) <= 0:
+        raise ValueError("input review memory is invalid")
+    for key in ("nprocshared", "multiplicity", "atom_count"):
+        if not isinstance(facts[key], int) or isinstance(facts[key], bool) or facts[key] <= 0:
+            raise ValueError(f"input review {key} is invalid")
+    if not isinstance(facts["charge"], int) or isinstance(facts["charge"], bool):
+        raise ValueError("input review charge is invalid")
+    if not isinstance(facts["elements"], dict) or not facts["elements"]:
+        raise ValueError("input review elements are missing")
+    if sum(facts["elements"].values()) != facts["atom_count"]:
+        raise ValueError("input review element counts differ from atom_count")
+    _validate_route_profile_mapping_shape(review["route_profile_mapping"], facts["route"])
+    decision = _exact_fields(
+        review["decision"],
+        {"status", "explicit_confirmation", "reviewer", "reviewed_at", "rationale"},
+        "input review decision",
+    )
+    if decision["status"] != "accepted_exact_input" or decision["explicit_confirmation"] is not True:
+        raise ValueError("input review is not explicitly accepted")
+    for key in ("reviewer", "reviewed_at", "rationale"):
+        if not isinstance(decision[key], str) or not decision[key].strip():
+            raise ValueError(f"input review decision.{key} is missing")
+    if review["calculation_ready"] is not False or review["no_submission_authorization"] is not True:
+        raise ValueError("input review authority boundary changed")
+    if review["payload_sha256"] != contract_payload_sha256(review):
+        raise ValueError("input review payload SHA-256 is invalid")
+    return review
+
+
+def finalize_input_review(draft_path: Path, output: Path) -> dict[str, Any]:
+    if draft_path.expanduser().is_symlink():
+        raise ValueError("input review draft must not be a symlink")
+    draft = load_strict_json(draft_path)
+    if draft.get("payload_sha256") is not None:
+        raise ValueError("input review draft payload_sha256 must be null before finalization")
+    finalized = copy.deepcopy(draft)
+    finalized["payload_sha256"] = contract_payload_sha256(finalized)
+    expanded_output = output.expanduser()
+    output = expanded_output.parent.resolve() / expanded_output.name
+    if output.exists() or output.is_symlink():
+        raise ValueError(f"refusing to overwrite input review: {output}")
+    publish_new_json(output, finalized, validate_input_review)
+    return finalized
+
+
+def _artifact_binding(path: Path, root: Path, schema: str, payload: str) -> dict[str, Any]:
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"bound {schema} artifact must not be a symlink")
+    resolved = expanded.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"bound {schema} artifact is missing or a symlink")
+    try:
+        relative = resolved.relative_to(root.resolve())
+    except ValueError:
+        raise ValueError("all input-approval artifacts must share one artifact root") from None
+    return {
+        "path": relative.as_posix(), "sha256": sha256(resolved),
+        "size_bytes": resolved.stat().st_size, "schema": schema,
+        "payload_sha256": payload,
+    }
+
+
+def _resolve_portable_binding_path(relative_value: Any, owner: Path, label: str) -> Path:
+    relative = Path(str(relative_value))
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise ValueError(f"{label} path must be portable and relative")
+    root = owner.parent.resolve()
+    raw = root / relative
+    cursor = raw
+    while cursor != root:
+        if cursor.is_symlink():
+            raise ValueError(f"{label} path must not traverse a symlink")
+        cursor = cursor.parent
+    try:
+        resolved = raw.resolve(strict=True)
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        raise ValueError(f"{label} path resolves outside its artifact root or is missing") from None
+    return resolved
+
+
+def _resolve_artifact_binding(binding: Any, owner: Path, schema: str) -> tuple[Path, dict[str, Any]]:
+    value = _exact_fields(binding, {"path", "sha256", "size_bytes", "schema", "payload_sha256"}, "input-approval binding")
+    if value["schema"] != schema:
+        raise ValueError(f"input-approval binding schema must be {schema}")
+    path = _resolve_portable_binding_path(value["path"], owner, "input-approval binding")
+    path, document, digest, size = load_strict_json_with_hash(path, "input-approval bound artifact")
+    if digest != value["sha256"] or size != value["size_bytes"]:
+        raise ValueError("input-approval bound artifact bytes changed")
+    if document.get("schema") != schema:
+        raise ValueError("input-approval bound artifact schema changed")
+    return path, document
+
+
+def _input_blob_binding(path: Path, root: Path) -> dict[str, Any]:
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise ValueError("approved Gaussian input must not be a symlink")
+    resolved = expanded.resolve()
+    if not resolved.is_file():
+        raise ValueError("approved Gaussian input is missing or a symlink")
+    try:
+        relative = resolved.relative_to(root.resolve())
+    except ValueError:
+        raise ValueError("approved Gaussian input must share the receipt artifact root") from None
+    return {"path": relative.as_posix(), "sha256": sha256(resolved), "size_bytes": resolved.stat().st_size}
+
+
+def _resolve_input_blob(binding: Any, owner: Path) -> Path:
+    value = _exact_fields(binding, {"path", "sha256", "size_bytes"}, "input-approval input binding")
+    path = _resolve_portable_binding_path(value["path"], owner, "input-approval input")
+    path, data, digest = read_stable_bytes(path, "input-approval exact input")
+    if digest != value["sha256"] or len(data) != value["size_bytes"]:
+        raise ValueError("input-approval exact input changed")
+    return path
+
+
+def _assert_work_kind_matches_route(work_kind: str, report: dict[str, Any]) -> None:
+    compatibility = input_approval_compatibility(report, work_kind)
+    if compatibility["status"] != "supported_generic_v1":
+        raise ValueError(f"{compatibility['status']}: {compatibility.get('reason', 'route/work_kind mismatch')}")
+
+
+def _validate_protocol_consumption(
+    binding: dict[str, Any],
+    options_path: Path, selection_path: Path, selection: dict[str, Any],
+    options: dict[str, Any], selected: dict[str, Any],
+) -> None:
+    profiles = selected.get("method_profiles")
+    tasks = selected.get("task_plan")
+    if not isinstance(profiles, list) or not profiles or not isinstance(tasks, list) or not tasks:
+        raise ValueError("selected option has no method profiles or task plan")
+    expected_identity = {
+        "options_sha256": sha256(options_path),
+        "options_payload_sha256": options["proposal_payload_sha256"],
+        "selection_sha256": sha256(selection_path),
+        "selection_payload_sha256": selection["selection_payload_sha256"],
+        "selected_option": copy.deepcopy(selection["selected_option"]),
+    }
+    for key, value in expected_identity.items():
+        if binding.get(key) != value:
+            raise ValueError("input review does not bind the exact options, selection and selected option")
+    available_profiles = {profile["profile_id"] for profile in profiles}
+    consumed_profiles = set(binding["used_profile_ids"])
+    if not consumed_profiles <= available_profiles:
+        raise ValueError("input review consumes a profile outside the selected option")
+    referenced_profiles: set[str] = set()
+    for consumed in binding["used_tasks"]:
+        index = consumed["task_index"]
+        if index >= len(tasks):
+            raise ValueError("input review consumes a task index outside the selected option")
+        selected_task = tasks[index]
+        expected_task = {
+            "task_index": index,
+            "stage_type": selected_task["stage_type"],
+            "profile_id": selected_task["profile_id"],
+        }
+        if consumed != expected_task:
+            raise ValueError("input review consumed task differs from the selected option task")
+        referenced_profiles.add(consumed["profile_id"])
+    if referenced_profiles != consumed_profiles:
+        raise ValueError("input review used profiles must exactly equal profiles referenced by consumed tasks")
+
+
+def _replay_route_profile_mapping(review: dict[str, Any], selected: dict[str, Any]) -> None:
+    binding = review["protocol_binding"]
+    mapping = review["route_profile_mapping"]
+    profiles = {profile["profile_id"]: profile for profile in selected["method_profiles"]}
+    field_names = {
+        "method": "functional_or_method", "basis": "basis_stack",
+        "solvent": "solvation", "scf": "scf",
+    }
+    for key, field in field_names.items():
+        item = mapping[key]
+        profile = profiles.get(item["profile_id"])
+        if profile is None or item["profile_id"] not in binding["used_profile_ids"]:
+            raise ValueError(f"input review {key} mapping names an unselected profile")
+        if item["selected_value"] != profile.get(field):
+            raise ValueError(f"input review {key} mapping differs from the selected profile payload")
+    expected_tasks = binding["used_tasks"]
+    mapped_tasks = [
+        {"task_index": task["task_index"], "stage_type": task["stage_type"], "profile_id": task["profile_id"]}
+        for task in mapping["tasks"]
+    ]
+    if mapped_tasks != expected_tasks:
+        raise ValueError("input review route task mapping differs from the selected task plan")
+    _assert_consumed_tasks_match_route(mapping["exact_route"], expected_tasks, mapping["tasks"])
+
+
+def _assert_consumed_tasks_match_route(
+    route: str,
+    consumed_tasks: list[dict[str, Any]],
+    route_mappings: list[dict[str, Any]],
+) -> None:
+    if len(consumed_tasks) != len(route_mappings):
+        raise ValueError("consumed task and route-mapping counts differ")
+    for consumed, mapping in zip(consumed_tasks, route_mappings):
+        stage = str(consumed["stage_type"]).lower()
+        if stage == "single_guess_ts_opt_freq":
+            expected = {"opt_ts", "frequency"}
+            valid = route_has_ts_optimization(route) and route_has_frequency(route)
+        elif "transition_state" in stage:
+            expected = {"opt_ts"}
+            valid = route_has_ts_optimization(route)
+        elif "harmonic_frequency" in stage or stage in {"frequency", "freq"}:
+            expected = {"frequency"}
+            valid = route_has_frequency(route)
+        elif "minimum" in stage or "geometry_optimization" in stage or stage in {"optimization", "opt"}:
+            expected = {"minimum_opt"}
+            valid = route_has_keyword(route, "opt") and not route_has_ts_optimization(route) and not route_has_scan(route)
+        elif "single_point" in stage:
+            expected = {"single_point"}
+            valid = not any((route_has_keyword(route, "opt"), route_has_frequency(route), route_has_keyword(route, "irc")))
+        else:
+            raise ValueError(f"selected task stage_type has no generic /1 route predicate: {stage}")
+        if not valid or set(mapping["route_evidence"]) != expected:
+            raise ValueError(f"selected task {stage} does not deterministically match the exact route")
+
+
+def _formula_element_counts(formula: Any) -> dict[str, int]:
+    if not isinstance(formula, str) or not formula:
+        raise ValueError("protocol request formula is missing")
+    tokens = re.findall(r"([A-Z][a-z]?)([0-9]*)", formula)
+    if not tokens or "".join(f"{element}{count}" for element, count in tokens) != formula:
+        raise ValueError("generic /1 cannot derive exact element counts from the protocol request formula")
+    counts: Counter[str] = Counter()
+    for element, count in tokens:
+        value = int(count) if count else 1
+        if value < 1:
+            raise ValueError("protocol request formula contains a non-positive element count")
+        counts[element] += value
+    return dict(sorted(counts.items()))
+
+
+def _assert_protocol_structure_scope(request_structure: Any, report: dict[str, Any]) -> None:
+    if not isinstance(request_structure, dict):
+        raise ValueError("protocol request structure scope is missing")
+    expected_counts = _formula_element_counts(request_structure.get("formula"))
+    if (
+        request_structure.get("charge") != report["charge"]
+        or request_structure.get("multiplicity") != report["multiplicity"]
+        or request_structure.get("atom_count") != report["atom_count"]
+        or set(request_structure.get("elements", [])) != set(report["elements"])
+        or expected_counts != report["elements"]
+        or sum(expected_counts.values()) != report["atom_count"]
+    ):
+        raise ValueError("protocol request charge/multiplicity/complete element counts differ from the exact input")
+
+
+def _make_input_approval_receipt(
+    options_path: Path,
+    selection_path: Path,
+    review_path: Path,
+    input_path: Path,
+    output: Path,
+    receipt_id: str,
+) -> dict[str, Any]:
+    selection, options, selected = protocol_selection.load_validated_selection(selection_path, options_path)
+    review = validate_input_review(review_path)
+    report = parse_gaussian(input_path)
+    _assert_work_kind_matches_route(review["work_kind"], report)
+    if review["approved_input"] != _input_approval_facts(report):
+        raise ValueError("input review facts differ from the exact Gaussian input")
+    if review["protocol_task_types"] != selection["scope_binding"]["task_types"]:
+        raise ValueError("input review task types differ from the exact protocol selection")
+    _validate_protocol_consumption(
+        review["protocol_binding"], options_path, selection_path, selection, options, selected
+    )
+    _replay_route_profile_mapping(review, selected)
+    request_structure = options.get("request_snapshot", {}).get("structure", {})
+    _assert_protocol_structure_scope(request_structure, report)
+    if review["work_kind"] in {"ts_pilot", "formal_ts"} and review["protocol_task_types"] != [
+        "transition_state_optimization", "harmonic_frequency"
+    ]:
+        raise ValueError("generic single-guess TS approval requires the exact TS optimization + frequency task family")
+    if review["work_kind"] == "minimum" and "geometry_optimization" not in review["protocol_task_types"]:
+        raise ValueError("minimum approval requires a selected geometry_optimization task")
+    resources = selected.get("resources", {})
+    if resources.get("cores") != report["nprocshared"]:
+        raise ValueError("selected protocol cores differ from the exact input")
+    mem_gb = resources.get("mem_gb")
+    if not isinstance(mem_gb, (int, float)) or isinstance(mem_gb, bool) or parse_memory(report["mem"]) != int(float(mem_gb) * 1024**3):
+        raise ValueError("selected protocol memory differs from the exact input")
+    if not isinstance(receipt_id, str) or not receipt_id.strip():
+        raise ValueError("input approval receipt_id is missing")
+    root = output.parent.resolve()
+    document = {
+        "schema": INPUT_APPROVAL_SCHEMA,
+        "receipt_id": receipt_id,
+        "work_kind": review["work_kind"],
+        "protocol_task_types": review["protocol_task_types"],
+        "sources": {
+            "protocol_options": _artifact_binding(options_path, root, "gaussian-protocol-options/1", options["proposal_payload_sha256"]),
+            "protocol_selection": _artifact_binding(selection_path, root, "gaussian-protocol-selection/1", selection["selection_payload_sha256"]),
+            "input_review": _artifact_binding(review_path, root, INPUT_REVIEW_SCHEMA, review["payload_sha256"]),
+        },
+        "input": _input_blob_binding(input_path, root),
+        "protocol_review_binding": {
+            "input_review_payload_sha256": review["payload_sha256"],
+            "options_payload_sha256": review["protocol_binding"]["options_payload_sha256"],
+            "selection_payload_sha256": review["protocol_binding"]["selection_payload_sha256"],
+            "selected_option_payload_sha256": review["protocol_binding"]["selected_option"]["option_payload_sha256"],
+            "consumed_profile_ids": copy.deepcopy(review["protocol_binding"]["used_profile_ids"]),
+            "consumed_task_indices": [task["task_index"] for task in review["protocol_binding"]["used_tasks"]],
+            "exact_route": review["route_profile_mapping"]["exact_route"],
+            "route_profile_mapping_sha256": canonical_value_sha256(review["route_profile_mapping"]),
+            "explicit_confirmation": True,
+        },
+        "protocol_family_completion": False,
+        "approved_input": _input_approval_facts(report),
+        "decision": {"status": "approved_exact_input", "explicit_confirmation": True},
+        "single_exact_input_only": True,
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+    }
+    document["payload_sha256"] = contract_payload_sha256(document)
+    return document
+
+
+def build_input_approval_receipt(
+    options_path: Path,
+    selection_path: Path,
+    review_path: Path,
+    input_path: Path,
+    output: Path,
+    receipt_id: str,
+) -> dict[str, Any]:
+    raw_sources = (options_path, selection_path, review_path, input_path)
+    if any(path.expanduser().is_symlink() for path in raw_sources):
+        raise ValueError("input-approval source artifacts must not be symlinks")
+    expanded_output = output.expanduser()
+    output = expanded_output.parent.resolve() / expanded_output.name
+    if output.exists() or output.is_symlink():
+        raise ValueError(f"refusing to overwrite input approval receipt: {output}")
+    document = _make_input_approval_receipt(
+        options_path.expanduser().resolve(), selection_path.expanduser().resolve(),
+        review_path.expanduser().resolve(), input_path.expanduser().resolve(), output, receipt_id,
+    )
+    publish_new_json(output, document, validate_input_approval_receipt)
+    return document
+
+
+def validate_input_approval_receipt(
+    receipt_path: Path,
+    *,
+    input_path: Path | None = None,
+    report: dict[str, Any] | None = None,
+    work_kind: str | None = None,
+    _document: dict[str, Any] | None = None,
+    _resolved_path: Path | None = None,
+) -> dict[str, Any]:
+    if _document is None:
+        expanded_receipt = receipt_path.expanduser()
+        if expanded_receipt.is_symlink():
+            raise ValueError("input-approval receipt must not be a symlink")
+        receipt_path, document, _, _ = load_strict_json_with_hash(
+            expanded_receipt, "input-approval receipt"
+        )
+    else:
+        if _resolved_path is None:
+            raise ValueError("internal input-approval path binding is missing")
+        receipt_path = _resolved_path
+        document = _document
+    _exact_fields(
+        document,
+        {
+            "schema", "receipt_id", "work_kind", "protocol_task_types", "sources", "input",
+            "protocol_review_binding", "protocol_family_completion", "approved_input", "decision", "single_exact_input_only",
+            "calculation_ready", "no_submission_authorization", "payload_sha256",
+        },
+        "input-approval receipt",
+    )
+    if document["schema"] != INPUT_APPROVAL_SCHEMA:
+        raise ValueError(f"input approval schema must be {INPUT_APPROVAL_SCHEMA}")
+    if document["payload_sha256"] != contract_payload_sha256(document):
+        raise ValueError("input approval receipt payload SHA-256 is invalid")
+    if document["single_exact_input_only"] is not True or document["calculation_ready"] is not False or document["no_submission_authorization"] is not True:
+        raise ValueError("input approval receipt authority boundary changed")
+    if document["protocol_family_completion"] is not False:
+        raise ValueError("one input-approval receipt must not claim whole protocol-family completion")
+    if document["decision"] != {"status": "approved_exact_input", "explicit_confirmation": True}:
+        raise ValueError("input approval receipt decision changed")
+    sources = _exact_fields(document["sources"], {"protocol_options", "protocol_selection", "input_review"}, "input-approval sources")
+    options_path, options = _resolve_artifact_binding(sources["protocol_options"], receipt_path, "gaussian-protocol-options/1")
+    selection_path, selection = _resolve_artifact_binding(sources["protocol_selection"], receipt_path, "gaussian-protocol-selection/1")
+    review_path, review = _resolve_artifact_binding(sources["input_review"], receipt_path, INPUT_REVIEW_SCHEMA)
+    if options.get("proposal_payload_sha256") != sources["protocol_options"]["payload_sha256"]:
+        raise ValueError("input approval protocol-options payload changed")
+    if selection.get("selection_payload_sha256") != sources["protocol_selection"]["payload_sha256"]:
+        raise ValueError("input approval protocol-selection payload changed")
+    if review.get("payload_sha256") != sources["input_review"]["payload_sha256"]:
+        raise ValueError("input approval review payload changed")
+    bound_input = _resolve_input_blob(document["input"], receipt_path)
+    expected = _make_input_approval_receipt(
+        options_path, selection_path, review_path, bound_input, receipt_path, document["receipt_id"]
+    )
+    if expected != document:
+        raise ValueError("input approval receipt differs from owner reconstruction")
+    if input_path is not None:
+        _, current_bytes, current_digest = read_stable_bytes(input_path, "current Gaussian input snapshot")
+        if current_digest != document["input"]["sha256"] or len(current_bytes) != document["input"]["size_bytes"]:
+            raise ValueError("input approval is bound to different Gaussian input bytes")
+    if report is not None and document["approved_input"] != _input_approval_facts(report):
+        raise ValueError("input approval is bound to different current input facts")
+    if work_kind is not None and document["work_kind"] != work_kind:
+        raise ValueError("input approval work_kind differs from the requested submission")
+    return document
+
+
+def validate_input_approval(
+    approval_path: Path,
+    input_path: Path,
+    report: dict[str, Any],
+    work_kind: str,
+) -> dict[str, Any]:
+    try:
+        expanded_approval = approval_path.expanduser()
+        if expanded_approval.is_symlink():
+            raise ValueError("input-approval receipt must not be a symlink")
+        resolved_approval, loaded_document, approval_digest, _ = load_strict_json_with_hash(
+            expanded_approval, "input-approval receipt"
+        )
+        document = validate_input_approval_receipt(
+            resolved_approval, input_path=input_path, report=report, work_kind=work_kind,
+            _document=loaded_document, _resolved_path=resolved_approval,
+        )
+        return {
+            "status": "validated_exact_input_approval",
+            "schema": document["schema"],
+            "sha256": approval_digest,
+            "payload_sha256": document["payload_sha256"],
+            "input_sha256": report["input_sha256"],
+            "work_kind": document["work_kind"],
+            "protocol_options_schema": document["sources"]["protocol_options"]["schema"],
+            "protocol_selection_schema": document["sources"]["protocol_selection"]["schema"],
+            "input_review_schema": document["sources"]["input_review"]["schema"],
+            "no_submission_authorization": True,
+        }
+    except SystemExit:
+        raise
+    except Exception as exc:
+        fail(f"exact input-approval gate blocked submission: {exc}")
+    raise AssertionError("unreachable")
+
+
+def live_approval_summary(
+    project: str,
+    report: dict[str, Any],
+    maturity: dict[str, Any] | None,
+    work_kind: str | None = None,
+    input_approval: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    summary = {
+        "project": project,
+        "remote_workdir": remote_project_dir(project),
+        "input_sha256": report["input_sha256"],
+        "protocol": {
+            "route": report["route"],
+            "mem": report["mem"],
+            "nproc": report["nprocshared"],
+        },
+        "charge": report["charge"],
+        "multiplicity": report["multiplicity"],
+    }
+    if work_kind is not None:
+        summary["work_kind"] = work_kind
+    if input_approval is not None:
+        summary["input_approval"] = input_approval
+    return {"scientific_maturity": maturity, **summary} if maturity is not None else summary
+
+
+def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    expected = {
+        "project": summary["project"],
+        "remote_workdir": summary["remote_workdir"],
+        "input_sha256": summary["input_sha256"],
+        "route": summary["protocol"]["route"],
+        "mem": summary["protocol"]["mem"],
+        "nprocshared": summary["protocol"]["nproc"],
+        "charge": summary["charge"],
+        "multiplicity": summary["multiplicity"],
+    }
+    has_new_binding = "work_kind" in summary or "input_approval" in summary
+    if has_new_binding:
+        if "work_kind" not in summary or "input_approval" not in summary:
+            fail("live approval /3 requires both work_kind and exact input-approval receipt binding")
+        input_approval = summary["input_approval"]
+        if not isinstance(input_approval, dict) or input_approval.get("status") not in {None, "validated_exact_input_approval"}:
+            fail("live approval /3 requires a validated exact input-approval receipt")
+        exact_input_approval = {
+            key: input_approval.get(key)
+            for key in ("schema", "sha256", "payload_sha256", "input_sha256", "work_kind")
+        }
+        if (
+            exact_input_approval["schema"] != INPUT_APPROVAL_SCHEMA
+            or exact_input_approval["input_sha256"] != summary["input_sha256"]
+            or exact_input_approval["work_kind"] != summary["work_kind"]
+            or summary["work_kind"] not in ALL_WORK_KINDS
+            or any(
+                not isinstance(exact_input_approval[key], str)
+                or SHA256_RE.fullmatch(exact_input_approval[key]) is None
+                for key in ("sha256", "payload_sha256", "input_sha256")
+            )
+        ):
+            fail("live approval /3 input-approval binding differs from the current exact input/work_kind")
+        expected["work_kind"] = summary["work_kind"]
+        expected["input_approval"] = exact_input_approval
+        expected_schema = "auto-g16-live-submission-approval/3"
+    else:
+        expected_schema = (
+            "auto-g16-live-submission-approval/2"
+            if "scientific_maturity" in summary
+            else "auto-g16-live-submission-approval/1"
+        )
+    if "scientific_maturity" in summary:
+        maturity = summary["scientific_maturity"]
+        exact_authorization = maturity.get("exact_action_authorization")
+        if not isinstance(exact_authorization, dict):
+            fail("TS live approval requires an exact scientific action authorization")
+        expected["scientific_maturity"] = {
+            "edge_id": maturity["edge_id"],
+            "pilot": maturity["pilot"],
+            "maturity_gate_sha256": maturity["maturity_gate_sha256"],
+            "maturity_gate_payload_sha256": maturity["maturity_gate_payload_sha256"],
+            "node_id": maturity["node_id"],
+            "scientific_action_authorization_sha256": exact_authorization["sha256"],
+            "scientific_action_authorization_payload_sha256": exact_authorization["payload_sha256"],
+        }
+    return expected_schema, expected
+
+
+def _validate_live_approval_document(approval: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    expected_schema, expected = expected_live_approval_scope(summary)
+    if approval.get("schema") != expected_schema:
+        fail("live approval record has the wrong schema")
+    if approval.get("decision") != "approved" or approval.get("explicit_confirmation") is not True:
+        fail("live approval record lacks an explicit approved decision")
+    if approval.get("scope") != expected:
+        fail("live approval scope does not exactly match the current preflight")
+    if approval.get("authorizations") != {
+        "create_server_directory": True,
+        "submit": True,
+        "retry": False,
+        "cancel": False,
+        "cleanup": False,
+        "delete_server_data": False,
+    }:
+        fail("live approval authorization boundary changed")
+    return approval
+
+
+def validate_live_approval_binding(path: Path, summary: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    try:
+        expanded = path.expanduser()
+        if expanded.is_symlink():
+            raise ValueError("live approval record must not be a symlink")
+        _, approval, digest, _ = load_strict_json_with_hash(expanded, "live approval record")
+    except ValueError as exc:
+        fail(f"cannot read live approval record: {exc}")
+    return _validate_live_approval_document(approval, summary), digest
+
+
+def validate_live_approval(path: Path, summary: dict[str, Any]) -> dict[str, Any]:
+    return validate_live_approval_binding(path, summary)[0]
 
 
 def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) -> dict[str, Any] | None:
@@ -295,7 +1287,10 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
     if path.suffix.lower() not in {".gjf", ".com"}:
         fail("Gaussian input must end in .gjf or .com")
     text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
+    segments = re.split(r"(?im)^\s*--link1--\s*$", text)
+    link1_count = len(segments) - 1
+    route_section_count = len(re.findall(r"(?m)^\s*#", text))
+    lines = segments[0].splitlines()
     if not text.endswith("\n\n"):
         fail("Gaussian input must end with a trailing blank line")
 
@@ -442,6 +1437,8 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         "elements": dict(sorted(elements.items())),
         "atom_order": atom_order,
         "geometry_source": "geom_allcheck_from_reviewed_checkpoint" if geom_allcheck else "explicit_cartesian",
+        "link1_count": link1_count,
+        "route_section_count": route_section_count,
         "trailing_blank_line": True,
     }
     report["manifest"] = None
@@ -535,9 +1532,13 @@ def stage(input_path: Path, project: str, local_dir: Path) -> tuple[dict[str, An
             )
     destination = local_dir / input_path.name
     if destination.resolve() != input_path.resolve():
-        if destination.exists() and sha256(destination) != sha256(input_path):
-            fail(f"refusing to overwrite different staged input: {destination}")
-        shutil.copy2(input_path, destination)
+        if destination.is_symlink():
+            fail(f"refusing symlink staged input: {destination}")
+        if destination.exists():
+            if sha256(destination) != sha256(input_path):
+                fail(f"refusing to overwrite different staged input: {destination}")
+        else:
+            shutil.copy2(input_path, destination)
     else:
         destination = input_path
 
@@ -548,9 +1549,13 @@ def stage(input_path: Path, project: str, local_dir: Path) -> tuple[dict[str, An
         target = local_dir / source.name
         if source.is_file():
             if target.resolve() != source.resolve():
-                if target.exists() and sha256(target) != sha256(source):
-                    fail(f"refusing to overwrite different companion: {target}")
-                shutil.copy2(source, target)
+                if target.is_symlink():
+                    fail(f"refusing symlink staged companion: {target}")
+                if target.exists():
+                    if sha256(target) != sha256(source):
+                        fail(f"refusing to overwrite different companion: {target}")
+                else:
+                    shutil.copy2(source, target)
             companions.append(target)
 
     oldcheckpoint = audit.get("oldcheckpoint")
@@ -561,9 +1566,13 @@ def stage(input_path: Path, project: str, local_dir: Path) -> tuple[dict[str, An
             fail("%oldchk must name an existing non-symlink checkpoint beside the input")
         target = local_dir / oldcheckpoint
         if target.resolve() != source.resolve():
-            if target.exists() and sha256(target) != sha256(source):
-                fail(f"refusing to overwrite different checkpoint companion: {target}")
-            shutil.copy2(source, target)
+            if target.is_symlink():
+                fail(f"refusing symlink staged checkpoint: {target}")
+            if target.exists():
+                if sha256(target) != sha256(source):
+                    fail(f"refusing to overwrite different checkpoint companion: {target}")
+            else:
+                shutil.copy2(source, target)
         companions.append(target)
 
     pbs = local_dir / f"{project}.pbs"
@@ -575,6 +1584,8 @@ def stage(input_path: Path, project: str, local_dir: Path) -> tuple[dict[str, An
         "schema": "gaussian-rtwin-pbs/1",
         "project": project,
         "status": "staged",
+        "calculation_ready": False,
+        "no_submission_authorization": True,
         "input": destination.name,
         "input_sha256": audit["input_sha256"],
         "pbs_script": pbs.name,
@@ -971,6 +1982,33 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
     return transfer
 
 
+def command_finalize_input_review(args) -> None:
+    try:
+        document = finalize_input_review(Path(args.draft), Path(args.output))
+    except (OSError, ValueError, protocol_selection.ContractError) as exc:
+        fail(f"input-review finalization failed: {exc}")
+    print(json.dumps({"schema": document["schema"], "payload_sha256": document["payload_sha256"], "live_actions": False}, ensure_ascii=False, indent=2))
+
+
+def command_build_input_approval(args) -> None:
+    try:
+        document = build_input_approval_receipt(
+            Path(args.protocol_options), Path(args.protocol_selection), Path(args.input_review),
+            Path(args.input), Path(args.output), args.receipt_id,
+        )
+    except (OSError, ValueError, protocol_selection.ContractError) as exc:
+        fail(f"input-approval build failed: {exc}")
+    print(json.dumps({"schema": document["schema"], "payload_sha256": document["payload_sha256"], "live_actions": False}, ensure_ascii=False, indent=2))
+
+
+def command_validate_input_approval(args) -> None:
+    try:
+        document = validate_input_approval_receipt(Path(args.receipt))
+    except (OSError, ValueError, protocol_selection.ContractError) as exc:
+        fail(f"input-approval validation failed: {exc}")
+    print(json.dumps({"schema": document["schema"], "payload_sha256": document["payload_sha256"], "live_actions": False}, ensure_ascii=False, indent=2))
+
+
 def command_preflight(args) -> None:
     project = validate_project(args.project)
     report = parse_gaussian(Path(args.input).expanduser().resolve())
@@ -995,11 +2033,92 @@ def command_submit(args) -> None:
     if not args.confirmed:
         fail("submit requires --confirmed after the exact preflight is approved")
     project = validate_project(args.project)
-    input_path = Path(args.input).expanduser().resolve()
-    input_report = parse_gaussian(input_path)
-    maturity = audit_scientific_maturity(args, input_report, "ts_submission")
     local_dir = Path(args.local_dir).expanduser().resolve()
+    try:
+        input_path, captured_input_sha256 = capture_submission_snapshot(
+            Path(args.input), local_dir
+        )
+    except ValueError as exc:
+        fail(f"could not capture immutable submission snapshot: {exc}")
+    input_report = parse_gaussian(input_path)
+    if input_report["input_sha256"] != captured_input_sha256:
+        fail("submission snapshot hash changed before approval replay")
+    requested_work_kind = args.work_kind
+    if not args.dry_run and requested_work_kind is None:
+        fail("live submission requires an explicit --work-kind; it must not default to ordinary")
+    maturity = audit_scientific_maturity(args, input_report, "ts_submission")
+    compatibility = input_approval_compatibility(input_report, requested_work_kind)
+    input_approval: dict[str, Any]
+    if compatibility["status"] != "supported_generic_v1":
+        input_approval = {**compatibility, "no_submission_authorization": True}
+    elif args.input_approval_record:
+        assert requested_work_kind is not None
+        input_approval = validate_input_approval(
+            Path(args.input_approval_record), input_path, input_report, requested_work_kind
+        )
+    else:
+        input_approval = {
+            "status": "missing_required_for_live_submission",
+            "required_schema": INPUT_APPROVAL_SCHEMA,
+            "work_kind": requested_work_kind,
+            "no_submission_authorization": True,
+        }
+    approval_summary = None
+    if input_approval["status"] == "validated_exact_input_approval":
+        assert requested_work_kind is not None
+        approval_summary = live_approval_summary(
+            project, input_report, maturity, requested_work_kind, input_approval
+        )
+    live_approval: dict[str, Any]
+    if args.approval_record and approval_summary is not None:
+        validated_live, live_approval_digest = validate_live_approval_binding(
+            Path(args.approval_record), approval_summary
+        )
+        live_approval = {
+            "status": "validated_exact_live_approval",
+            "schema": validated_live["schema"],
+            "sha256": live_approval_digest,
+        }
+    elif args.approval_record:
+        live_approval = {
+            "status": "not_evaluated_missing_exact_input_approval",
+            "required_schema": "auto-g16-live-submission-approval/3",
+        }
+    else:
+        live_approval = {
+            "status": "omitted_for_dry_run" if args.dry_run else "missing_required_for_live_submission",
+            "required_schema": "auto-g16-live-submission-approval/3",
+        }
+    live_submission_ready = (
+        input_approval["status"] == "validated_exact_input_approval"
+        and live_approval["status"] == "validated_exact_live_approval"
+    )
+    if not args.dry_run:
+        if input_approval["status"] != "validated_exact_input_approval":
+            if input_approval["status"] == "blocked_missing_specialist_input_approval":
+                fail(
+                    "blocked_missing_specialist_input_approval: this input family requires its "
+                    "specialist owner manifest and exact raw-syntax/checkpoint approval"
+                )
+            fail(
+                "live submission requires --input-approval-record with exact "
+                "protocol selection, input-draft review, and input hash"
+            )
+        if live_approval["status"] != "validated_exact_live_approval":
+            fail("live submission requires a hash-bound --approval-record")
     job, files = stage(input_path, project, local_dir)
+    job["submission_snapshot"] = {
+        "path": str(input_path),
+        "sha256": captured_input_sha256,
+        "immutable_capture": True,
+    }
+    job.update({
+        "input_approval": input_approval,
+        "live_approval": live_approval,
+        "live_submission_ready": live_submission_ready,
+    })
+    atomic_json(local_dir / "job.json", job)
+    expected = verify_staged_submission(local_dir, job, input_report, input_approval, files)
     windows_dir = f"{args.windows_root}\\{project}"
     remote_dir = remote_project_dir(project)
 
@@ -1010,6 +2129,9 @@ def command_submit(args) -> None:
         "remote_dir": remote_dir,
         "files": [path.name for path in files],
         "input_sha256": job["input_sha256"],
+        "input_approval": input_approval,
+        "live_approval": live_approval,
+        "live_submission_ready": live_submission_ready,
     }
     if maturity is not None:
         plan = {"scientific_maturity": maturity, **plan}
@@ -1020,6 +2142,7 @@ def command_submit(args) -> None:
 
     mkdir_script = f"New-Item -ItemType Directory -Force -Path '{windows_dir}' | Out-Null"
     run([*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(mkdir_script)])
+    assert_file_bindings_unchanged(files, expected)
     windows_dir_scp = windows_dir.replace("\\", "/")
     scp_to_windows = [
         "scp", "-F", str(Path(args.mac_ssh_config).expanduser()), *map(str, files),
@@ -1027,7 +2150,6 @@ def command_submit(args) -> None:
     ]
     run(scp_to_windows)
 
-    expected = {path.name: sha256(path) for path in files}
     ps_paths = ",".join(f"'{windows_dir}\\{name}'" for name in expected)
     hash_script = (
         f"$files=@({ps_paths}); foreach($f in $files){{"
@@ -1368,13 +2490,31 @@ def add_scientific_maturity_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--edge-id", help="reviewed mechanism edge bound by the maturity gate")
     parser.add_argument("--node-id", help="exact reviewed calculation-DAG node for this protected action")
     parser.add_argument("--pilot", action="store_true", help="limit this TS action to the reviewed one-candidate simple-tier pilot")
-    parser.add_argument("--work-kind", choices=["ordinary", "minimum", "ts_pilot", "formal_ts", "ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"], help="explicit scientific work classification; required for TS, scan, and IRC routes")
+    parser.add_argument("--work-kind", choices=["ordinary", "minimum", "ts_pilot", "formal_ts", "ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"], help="explicit scientific work classification; required for every live submission (dry-run may report it missing)")
     parser.add_argument("--scientific-action-authorization", help="exact offline input/project/node/budget binding required for protected submission; it is not live approval")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    finalize_review = sub.add_parser("finalize-input-review", help="finalize one generic exact input-draft review /2 without live action")
+    finalize_review.add_argument("draft")
+    finalize_review.add_argument("--output", required=True)
+    finalize_review.set_defaults(func=command_finalize_input_review)
+
+    build_approval = sub.add_parser("build-input-approval", help="bind protocol selection, exact input review, and exact input into one non-authorizing receipt")
+    build_approval.add_argument("input")
+    build_approval.add_argument("--protocol-options", required=True)
+    build_approval.add_argument("--protocol-selection", required=True)
+    build_approval.add_argument("--input-review", required=True)
+    build_approval.add_argument("--receipt-id", required=True)
+    build_approval.add_argument("--output", required=True)
+    build_approval.set_defaults(func=command_build_input_approval)
+
+    validate_approval = sub.add_parser("validate-input-approval", help="replay one generic exact input-approval receipt without live action")
+    validate_approval.add_argument("receipt")
+    validate_approval.set_defaults(func=command_validate_input_approval)
 
     preflight = sub.add_parser("preflight", help="audit a local Gaussian input without network access")
     preflight.add_argument("input")
@@ -1394,6 +2534,11 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--local-dir", required=True)
     submit.add_argument("--confirmed", action="store_true")
     submit.add_argument("--dry-run", action="store_true")
+    submit.add_argument(
+        "--approval-record",
+        help="exact live /3 receipt required for new submissions; /1-/2 are historical replay-only",
+    )
+    submit.add_argument("--input-approval-record", help=f"owner-validated {INPUT_APPROVAL_SCHEMA} required for every live submission")
     add_scientific_maturity_options(submit)
     add_connection_options(submit)
     submit.set_defaults(func=command_submit)

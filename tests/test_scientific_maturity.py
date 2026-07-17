@@ -592,6 +592,11 @@ class ScientificMaturityTests(unittest.TestCase):
             dry_plan = json.loads(submit_passed.stdout)
             self.assertTrue(dry_plan["dry_run"])
             self.assertTrue(dry_plan["scientific_maturity"]["separate_live_approval_still_required"])
+            self.assertEqual(
+                dry_plan["input_approval"]["status"],
+                "missing_required_for_live_submission",
+            )
+            self.assertFalse(dry_plan["live_submission_ready"])
             reused = self.run_cli(
                 PBS_TOOL, "submit", str(gjf), "--project", "other_project", "--local-dir", str(root / "reused_bundle"),
                 "--confirmed", "--dry-run", "--scientific-maturity", str(gate), "--edge-id", "edge_activation", "--node-id", "ts_candidate_primary",
