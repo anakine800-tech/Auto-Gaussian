@@ -1,0 +1,10 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-knowledge-base",
+  "include": [
+    {
+      "source": "contracts/knowledge-base",
+      "target": "contracts/knowledge-base"
+    }
+  ]
+}

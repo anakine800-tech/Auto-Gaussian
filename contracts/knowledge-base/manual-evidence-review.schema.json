@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/manual-evidence-review.schema.json",
+  "title": "Auto-G16 manual evidence review input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "receipt_id", "query", "selected_result_id", "claim_scope", "statement_type",
+    "short_paraphrase", "whole_page_visual_review", "logical_chunk_review",
+    "target_installation", "installed_revision_review", "applicability_decision",
+    "applicability_rationale", "uncertainties", "reviewer", "reviewed_at",
+    "downstream_role"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-manual-evidence-review/1"},
+    "receipt_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "query": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "selected_result_id": {"type": "string", "minLength": 1, "maxLength": 300},
+    "claim_scope": {"enum": ["gaussian_syntax_or_version", "gaussian_nonversion_concept", "general_electronic_structure"]},
+    "statement_type": {"enum": ["paraphrase", "short_quote"]},
+    "short_paraphrase": {"type": "string", "minLength": 1, "maxLength": 600},
+    "whole_page_visual_review": {"$ref": "#/$defs/visualReview"},
+    "logical_chunk_review": {"$ref": "#/$defs/chunkReview"},
+    "target_installation": {"$ref": "#/$defs/installation"},
+    "installed_revision_review": {"$ref": "#/$defs/installedReview"},
+    "applicability_decision": {"enum": ["applicable", "applicable_with_limits", "not_applicable", "blocked_pending_installed_revision_review", "blocked_insufficient_evidence"]},
+    "applicability_rationale": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "uncertainties": {"$ref": "#/$defs/stringArray"},
+    "reviewer": {"type": "string", "minLength": 1, "maxLength": 200},
+    "reviewed_at": {"type": "string", "minLength": 1, "maxLength": 80},
+    "downstream_role": {"enum": ["manual_lookup_evidence", "installed_revision_applicability_evidence", "scientific_maturity_supporting_evidence", "protocol_candidate_support", "troubleshooting_support"]}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "stringArray": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 1000}},
+    "nullableString": {"type": ["string", "null"], "minLength": 1, "maxLength": 200},
+    "visualReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "not_reviewed", "unavailable", "not_applicable_logical_chunk_only"]},
+        "reviewer": {"$ref": "#/$defs/nullableString"},
+        "reviewed_at": {"type": ["string", "null"], "minLength": 1, "maxLength": 80},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "chunkReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "not_reviewed", "not_applicable_no_logical_chunk"]},
+        "reviewer": {"$ref": "#/$defs/nullableString"},
+        "reviewed_at": {"type": ["string", "null"], "minLength": 1, "maxLength": 80},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "installation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["program", "major_version", "installed_revision"],
+      "properties": {
+        "program": {"const": "Gaussian"},
+        "major_version": {"enum": ["G98", "G03", "G09", "G16", "other"]},
+        "installed_revision": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "installedReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "evidence_sha256", "notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "not_reviewed", "not_applicable_non_version_claim"]},
+        "reviewer": {"$ref": "#/$defs/nullableString"},
+        "reviewed_at": {"type": ["string", "null"], "minLength": 1, "maxLength": 80},
+        "evidence_sha256": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/sha"}},
+        "notes": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  }
+}

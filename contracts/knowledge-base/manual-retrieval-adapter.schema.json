@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/manual-retrieval-adapter.schema.json",
+  "title": "Auto-G16 private manual retrieval adapter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "adapter_id", "query_sql", "selection_sql", "preview_char_limit"],
+  "properties": {
+    "schema": {"const": "auto-g16-manual-retrieval-adapter/1"},
+    "adapter_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "query_sql": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "selection_sql": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "preview_char_limit": {"type": "integer", "minimum": 40, "maximum": 500}
+  }
+}

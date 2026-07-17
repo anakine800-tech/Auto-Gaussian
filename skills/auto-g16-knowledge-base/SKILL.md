@@ -18,6 +18,9 @@ Read `references/store-and-index.md` before initializing, verifying, indexing,
 or querying a canonical store, or verifying a study snapshot.
 Read `references/import-and-export.md` before planning, reviewing, or applying
 any record/object import or permission-aware export.
+Read `references/manual-evidence-receipt.md` before adapting a private manual
+retrieval database or creating, validating, or consuming a manual-evidence
+receipt.
 
 ## Boundaries
 
@@ -112,6 +115,30 @@ Verify a frozen snapshot and its exact parent reaction intake separately:
    snapshot, together with the exact parent reaction-intake hash, queries, and
    inclusion/exclusion decisions.
 
+## Private manual evidence receipts
+
+Use the separate evidence-only CLI for a path-free read-only adapter over an
+existing private SQLite manual index:
+
+```bash
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/manual_evidence.py \
+  validate-config ADAPTER.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/manual_evidence.py \
+  query --config ADAPTER.json --database PRIVATE.sqlite \
+  --expected-db-sha256 SHA256 --query 'bounded query'
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/manual_evidence.py \
+  build-receipt --config ADAPTER.json --database PRIVATE.sqlite \
+  --expected-db-sha256 SHA256 --review REVIEW.json --output RECEIPT.json
+```
+
+The receipt is not one of the five knowledge-record schemas and does not
+change their semantics. Preserve the private library's exact text-quality
+classification, keep source metadata separate from reviewer-assigned claim
+scope, and require complete page/logical-chunk review before positive use.
+G09-to-G16 version-specific evidence without exact installed-revision review
+must remain blocked. Never commit a private database, retrieval output, source
+text, raw PDF/DOC, or a machine path.
+
 ## Import and export
 
 Never copy records or objects into a canonical store manually. Use:
@@ -138,6 +165,9 @@ binary objects.
 W2A implements the immutable record contracts. W2B-1 adds the canonical store,
 deterministic SQLite index/query, and snapshot verification. W2B-2 adds
 hash-bound plan-review-apply import, exact lawful-object ingestion, and
-permission-aware full or metadata-redacted JSON export. Authentication,
+permission-aware full or metadata-redacted JSON export. The manual-evidence
+adapter adds an independent immutable evidence receipt over a stable private
+read-only retrieval database without extending the five record schemas or
+scientific-maturity `/1`. Authentication,
 signatures, audit logging, binary-object export, chemical search, and a
 multi-user service remain later work.

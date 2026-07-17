@@ -35,11 +35,16 @@ ADAPTER = load_adapter()
 class SkillPackagingTests(unittest.TestCase):
     def test_package_manifests_map_authoritative_contracts_without_repository_duplicates(self) -> None:
         reaction = package.package_files(ROOT, "auto-g16-reaction-workflow")
+        knowledge = package.package_files(ROOT, "auto-g16-knowledge-base")
         asymmetric = package.package_files(ROOT, "auto-g16-asymmetric-catalysis")
         open_shell = package.package_files(ROOT, "auto-g16-main-group-open-shell")
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/candidate-target-import.schema.json")],
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
+        )
+        self.assertEqual(
+            knowledge[Path("contracts/knowledge-base/manual-evidence-receipt.schema.json")],
+            ROOT / "contracts/knowledge-base/manual-evidence-receipt.schema.json",
         )
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/mechanism-support-matrix.schema.json")],
@@ -216,6 +221,19 @@ class SkillPackagingTests(unittest.TestCase):
             self.assertIn("authorize-action", maturity_help.stdout)
             self.assertTrue(
                 (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/scientific-maturity-gate.schema.json").is_file()
+            )
+            manual = installed / "auto-g16-knowledge-base/scripts/manual_evidence.py"
+            manual_help = subprocess.run(
+                [sys.executable, str(manual), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(manual_help.returncode, 0, manual_help.stdout + manual_help.stderr)
+            self.assertIn("build-receipt", manual_help.stdout)
+            self.assertTrue(
+                (installed / "auto-g16-knowledge-base/contracts/knowledge-base/manual-evidence-receipt.schema.json").is_file()
             )
             owner_loader_smoke = "\n".join(
                 (
