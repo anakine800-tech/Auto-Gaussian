@@ -78,6 +78,7 @@ class MainGroupOpenShellTests(unittest.TestCase):
                 "minimum-opt-freq-input-handoff.schema.json", "minimum-opt-freq-input-audit.schema.json",
                 "minimum-opt-freq-result-observation.schema.json", "minimum-opt-freq-result-continuity.schema.json",
                 "cartesian-candidate.schema.json", "input-specification.schema.json", "result-source-binding.schema.json",
+                "ts-irc-contracts.schema.json",
             },
         )
         for path in contract_dir.glob("*.schema.json"):

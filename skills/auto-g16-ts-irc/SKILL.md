@@ -7,6 +7,12 @@ description: Audit, prepare, pause, and analyze Gaussian 16 TS–Freq–IRC job 
 
 Use this Skill for the scientific layer only. Use `auto-g16-rtwin-pbs` for the RTwin/PBS transport, hashing, submission, monitoring, retrieval, and scheduler safety; use `auto-g16-view-rt-win` for reviewed structures and visible mode/geometry inspection.
 
+For reviewed main-group single-reference doublet or high-spin-triplet
+same-surface work, use the separate offline adapter defined by
+`auto-g16-main-group-open-shell/references/open-shell-ts-irc-contract.md`.
+Do not route those artifacts through or widen the historical closed-shell
+adapter. The open-shell adapter has no transport or execution surface.
+
 ## Safety and scope
 
 - Keep every server project and scratch path within `/home/user100/SDL`; never override that root, overwrite, or delete. Delegate `qdel` to the core Skill: it may automatically clear only a repeatedly proven terminal scheduler zombie, while active-job cancellation still requires exact confirmation.
