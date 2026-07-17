@@ -93,8 +93,10 @@ retain their existing names for compatibility and provenance.
 - `skills/auto-g16-chemdraw-pipeline`: audited ChemDraw-to-Cartesian conversion.
 - `skills/auto-g16-main-group-open-shell`: offline, hash-bound electronic-state
   review and result acceptance for explicitly reviewed single-reference
-  main-group doublet and high-spin triplet minima. It blocks open-shell
-  singlets, multireference states, metals, TS/IRC, and all live actions.
+  main-group doublet and high-spin triplet minima, plus the immutable
+  `main_group_open_shell_minimum_opt_freq_v1` input-handoff, input-audit, and
+  result-continuity closure. It blocks open-shell singlets, multireference
+  states, metals, TS/IRC, server-directory creation, and all live actions.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
 - `skills/auto-g16-conformer-search`: offline, hash-bound A/A1/A2 and B/B1/B2 conformer/complex discovery planning, supplied-candidate legality auditing, composite structural cross-validation, negative-evidence preservation, clustering, medoids, and candidate-only handoff. It never executes xTB, CREST, Gaussian, PBS, or SSH.
 - `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.

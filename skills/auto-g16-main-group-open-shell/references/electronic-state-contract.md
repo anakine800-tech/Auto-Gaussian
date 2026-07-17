@@ -39,9 +39,38 @@ state drift, incomplete SCF/termination/frequency facts, a frequency count
 different from the reviewed expectation, any imaginary frequency for a
 minimum, or any review outside the V1 positive scope.
 
+## Minimum Opt/Freq input and continuity handoff
+
+The versioned workflow identifier is
+`main_group_open_shell_minimum_opt_freq_v1`. Its input handoff binds five exact
+canonical sources: the accepted electronic-state review, a human-reviewed
+Cartesian candidate, protocol options, protocol selection, and an explicit
+input specification. The builder preserves atom order and coordinates and
+requires equality of candidate identity, coordinate hash, charge,
+multiplicity, review hash, selection hash, selected-option hash, U/RO
+reference, stability requirement, expected frequency count, and selected
+resources. The route must explicitly contain minimum optimization, harmonic
+frequency, stability, and the reviewed U/RO method family; TS, QST, IRC, TD,
+and broken-symmetry `guess=mix` tokens are outside this contract.
+
+The offline handoff renders exact text only as a hash-bound, non-executable
+artifact. It fixes `server_directory` to null and
+`server_directory_status` to `not_created_not_authorized`. The input audit
+re-parses that text and checks Link 0 resources, route, state, atom order,
+coordinates, trailing termination blank line, and input SHA-256.
+
+A result-source binding is supplied evidence, not a transport claim. It binds
+the exact handoff payload and input-text SHA-256 to one exact result file
+SHA-256. Result observation reuses the electronic-state fact parser. Continuity
+acceptance closes candidate→state review→protocol→input→result and requires
+normal termination, converged SCF, stationary-point text, exact state and
+reference, stable wavefunction evidence, present and in-policy post-annihilation
+S2, the reviewed frequency count, and zero imaginary frequencies.
+
 ## Authority
 
 All artifacts are canonical JSON with SHA-256 payload seals and exact source
-file hashes. They are offline evidence only. They never authorize Gaussian,
-SSH, PBS, server directories, input rendering, retry, cancellation, cleanup,
-deployment, or live smoke testing.
+file hashes. They are offline evidence only. The minimum handoff authorizes
+only its already-rendered offline text; it never authorizes Gaussian, SSH, PBS,
+server-directory creation, submission, retry, cancellation, cleanup,
+deployment, evidence promotion, or live smoke testing.

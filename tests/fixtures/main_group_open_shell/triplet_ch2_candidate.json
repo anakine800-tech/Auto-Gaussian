@@ -1,7 +1,7 @@
 {
   "schema": "auto-g16-main-group-open-shell-candidate/1",
   "candidate_id": "ch2_triplet_carbene",
-  "structure_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "structure_sha256": "ea0f2c9a7ead0c7822074c588d0725fef45ae2e62d7ad404db678e1539b64e12",
   "atoms": [{"index": 1, "element": "C"}, {"index": 2, "element": "H"}, {"index": 3, "element": "H"}],
   "charge": 0,
   "multiplicity": 3,
