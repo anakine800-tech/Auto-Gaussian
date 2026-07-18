@@ -100,8 +100,13 @@ class ReleaseHygieneTests(unittest.TestCase):
             workflow,
         )
         self.assertEqual(len(action_uses), 4)
+        audited_revisions = {
+            "actions/checkout": "08c6903cd8c0fde910a37f88322edcfb5dd907a8",
+            "actions/setup-python": "e797f83bcb11b83ae66e0230d6156d7c80228e7c",
+        }
         for action, revision in action_uses:
             self.assertRegex(revision, r"^[0-9a-f]{40}$", action)
+            self.assertEqual(revision, audited_revisions[action])
         versions = set(re.findall(r'"(3\.1[123])"', workflow))
         self.assertEqual(versions, {"3.11", "3.12", "3.13"})
 
