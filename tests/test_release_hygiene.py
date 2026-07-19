@@ -86,7 +86,10 @@ class ReleaseHygieneTests(unittest.TestCase):
         self.assertTrue((ROOT / "docs" / "release-2.2.0-checklist.md").is_file())
         workflow = ROOT / ".github" / "workflows" / "offline-tests.yml"
         self.assertTrue(workflow.is_file())
-        self.assertIn("unittest discover", workflow.read_text())
+        workflow_text = workflow.read_text()
+        self.assertIn("scripts/run_tests.py", workflow_text)
+        self.assertIn("AUTO_G16_SKIP_PRESSURE_TESTS", workflow_text)
+        self.assertIn("source-archive-release", workflow_text)
 
     def test_optional_chemistry_dependencies_are_declared(self) -> None:
         requirements = ROOT / "requirements" / "chemistry.txt"
@@ -106,7 +109,7 @@ class ReleaseHygieneTests(unittest.TestCase):
             r"(?m)^\s*- uses: (actions/(?:checkout|setup-python))@([^\s]+)$",
             workflow,
         )
-        self.assertEqual(len(action_uses), 4)
+        self.assertEqual(len(action_uses), 6)
         audited_revisions = {
             "actions/checkout": "08c6903cd8c0fde910a37f88322edcfb5dd907a8",
             "actions/setup-python": "e797f83bcb11b83ae66e0230d6156d7c80228e7c",
@@ -116,6 +119,8 @@ class ReleaseHygieneTests(unittest.TestCase):
             self.assertEqual(revision, audited_revisions[action])
         versions = set(re.findall(r'"(3\.1[123])"', workflow))
         self.assertEqual(versions, {"3.11", "3.12", "3.13"})
+        self.assertEqual(workflow.count("git archive HEAD"), 1)
+        self.assertIn("scripts/static_quality.py", workflow)
 
     def test_chemistry_ci_resolution_is_constrained(self) -> None:
         workflow = (
@@ -127,6 +132,7 @@ class ReleaseHygieneTests(unittest.TestCase):
         constraints = (ROOT / lock_path).read_text(encoding="utf-8").lower()
         for dependency in ("numpy", "pillow", "rdkit"):
             self.assertRegex(constraints, rf"(?m)^{dependency}==[^\s]+$")
+        self.assertIn("tests.test_rdkit_smoke", workflow)
 
     def test_repository_status_separates_current_and_historical_evidence(self) -> None:
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")

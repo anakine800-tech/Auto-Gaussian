@@ -148,6 +148,44 @@ class ContractError(ValueError):
     """The offline calculation-planning contract was violated."""
 
 
+class _ValidationContext:
+    """Process-local caches for already hash-verified immutable content.
+
+    Every explicit artifact binding is still read and checked for byte size,
+    file SHA-256, payload SHA-256, schema, and symlinks.  The cache only avoids
+    repeating deterministic owner validation for the same verified content and
+    re-reading ancestry records that were already validated as direct links
+    lower in the same supersession walk.
+    """
+
+    def __init__(self, *, enabled: bool = True) -> None:
+        self.enabled = enabled
+        self.owner_replays: set[tuple[Any, ...]] = set()
+        self.rebased_bindings: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+    @staticmethod
+    def content_identity(binding: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            binding["schema"],
+            binding["sha256"],
+            binding["size_bytes"],
+            binding["payload_sha256"],
+        )
+
+    def owner_key(
+        self,
+        path: Path,
+        validator: Any,
+        binding: dict[str, Any],
+    ) -> tuple[Any, ...]:
+        return (
+            getattr(validator, "__module__", ""),
+            getattr(validator, "__qualname__", repr(validator)),
+            path.parent.resolve(),
+            self.content_identity(binding),
+        )
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ContractError(message)
@@ -1254,11 +1292,25 @@ def _assemble_plan(
     })
 
 
-def _validated_upstream(path: Path, validator: Any, label: str) -> None:
+def _validated_upstream(
+    path: Path,
+    validator: Any,
+    label: str,
+    *,
+    context: _ValidationContext | None = None,
+    binding: dict[str, Any] | None = None,
+) -> None:
+    cache_key: tuple[Any, ...] | None = None
+    if context is not None and context.enabled and binding is not None:
+        cache_key = context.owner_key(path, validator, binding)
+        if cache_key in context.owner_replays:
+            return
     try:
         validator(path)
     except (rw.OfflineError, ValueError, OSError, AssertionError) as exc:
         raise ContractError(f"{label} validation failed: {exc}") from exc
+    if cache_key is not None:
+        context.owner_replays.add(cache_key)
 
 
 def _require_exact_selected_parents(
@@ -1283,8 +1335,10 @@ def _require_exact_selected_parents(
 def _validate_mechanism_support(
     artifact: dict[str, Any],
     artifact_path: Path,
+    artifact_binding: dict[str, Any],
     study_id: str,
     selected_parents: tuple[tuple[str, Path, dict[str, Any]], ...],
+    context: _ValidationContext | None = None,
 ) -> bool:
     """Validate origin/main evidence-gate /1 without edge-level promotion.
 
@@ -1294,7 +1348,13 @@ def _validate_mechanism_support(
     mapping blocker until a later reviewed contract supplies that dimension.
     """
 
-    _validated_upstream(artifact_path, mechanism_support.validate, "mechanism support")
+    _validated_upstream(
+        artifact_path,
+        mechanism_support.validate,
+        "mechanism support",
+        context=context,
+        binding=artifact_binding,
+    )
     _check_study_and_safety(artifact, study_id, "mechanism support")
     require(artifact.get("mechanism_claim_validation_present") is False, "mechanism support cannot validate a mechanism claim")
     _require_exact_selected_parents(artifact, artifact_path, selected_parents, "mechanism-support")
@@ -1330,8 +1390,10 @@ def _mechanism_support_gate_blockers(
 def _validated_ts_precedent_edges(
     artifact: dict[str, Any],
     artifact_path: Path,
+    artifact_binding: dict[str, Any],
     study_id: str,
     selected_parents: tuple[tuple[str, Path, dict[str, Any]], ...],
+    context: _ValidationContext | None = None,
 ) -> set[str]:
     """Return only owner-validated, locally accepted edge coverage.
 
@@ -1341,7 +1403,13 @@ def _validated_ts_precedent_edges(
     authority.
     """
 
-    _validated_upstream(artifact_path, ts_precedent.validate, "TS precedent map")
+    _validated_upstream(
+        artifact_path,
+        ts_precedent.validate,
+        "TS precedent map",
+        context=context,
+        binding=artifact_binding,
+    )
     _check_study_and_safety(artifact, study_id, "TS precedent map")
     _require_exact_selected_parents(artifact, artifact_path, selected_parents, "TS-precedent")
 
@@ -1400,6 +1468,7 @@ def build_plan(
         support_promotable = _validate_mechanism_support(
             support,
             support_path,
+            support_binding,
             review["study_id"],
             (
                 ("reaction_intake", intake_path, intake_binding),
@@ -1417,6 +1486,7 @@ def build_plan(
         precedent_eligible_edges = _validated_ts_precedent_edges(
             precedent,
             precedent_path,
+            precedent_binding,
             review["study_id"],
             (
                 ("reaction_intake", intake_path, intake_binding),
@@ -1432,7 +1502,7 @@ def build_plan(
         # Reserve the not-yet-written output as the first ancestry frame so a
         # builder cannot create a plan that its validator would immediately
         # reject at the documented depth boundary.
-        _validate_plan_internal(path, {output.absolute()})
+        _validate_plan_internal(path, {output.absolute()}, _ValidationContext())
         require(old["study_id"] == review["study_id"] and old["plan_id"] == review["plan_id"], "superseded plan must preserve study_id and plan_id")
         superseded_bindings.append(binding)
     require(len({item["payload_sha256"] for item in superseded_bindings}) == len(superseded_bindings), "duplicate superseded plan bindings are forbidden")
@@ -1458,7 +1528,54 @@ def build_plan(
     return artifact
 
 
-def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _rebase_verified_history_binding(
+    record: dict[str, Any],
+    current_root: Path,
+    context: _ValidationContext,
+    label: str,
+) -> dict[str, Any]:
+    """Rebase one already directly validated ancestry record.
+
+    The recursive walk has already read this exact file and checked its
+    immutable binding.  Reusing that identity prevents quadratic re-reading of
+    every ancestor at every parent while retaining path and symlink checks.
+    """
+
+    resolved = record["path"]
+    require(isinstance(resolved, Path), f"{label} internal path is invalid")
+    resolved = resolved.resolve()
+    root = current_root.resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError:
+        raise ContractError(f"{label} escapes artifact root") from None
+    require(not relative.is_absolute() and ".." not in relative.parts, f"{label} path must be portable and relative")
+    _reject_symlink_chain(root, resolved, label)
+    require(resolved.is_file(), f"{label} is missing: {resolved}")
+    source_binding = record["binding"]
+    require(isinstance(source_binding, dict), f"{label} internal binding is invalid")
+    cache_key = (
+        root,
+        resolved,
+        context.content_identity(source_binding),
+    )
+    if context.enabled and cache_key in context.rebased_bindings:
+        return copy.deepcopy(context.rebased_bindings[cache_key])
+    if context.enabled:
+        rebased = copy.deepcopy(source_binding)
+        rebased["path"] = relative.as_posix()
+        context.rebased_bindings[cache_key] = rebased
+        return copy.deepcopy(rebased)
+    _artifact, rebased = _binding_from_path(resolved, root, PLAN_SCHEMA, label)
+    return rebased
+
+
+def _validate_plan_internal(
+    path: Path,
+    stack: set[Path],
+    context: _ValidationContext | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    context = _ValidationContext() if context is None else context
     require(
         len(stack) < MAX_SUPERSEDED_PLAN_DEPTH,
         f"calculation-plan supersession ancestry exceeds supported depth {MAX_SUPERSEDED_PLAN_DEPTH}",
@@ -1476,10 +1593,22 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
         registry, registry_path = _resolve_binding(artifact["species_registry"], path, rw.REGISTRY_SCHEMA, "species registry")
         condition, condition_path = _resolve_binding(artifact["condition_model"], path, rw.CONDITION_SCHEMA, "condition model")
         mechanism_artifact, mechanism_path = _resolve_binding(artifact["mechanism_network"], path, mechanism.OUTPUT_SCHEMA, "mechanism network")
-        _validated_upstream(intake_path, rw.validate_artifact, "reaction intake")
-        _validated_upstream(registry_path, rw.validate_artifact, "species registry")
-        _validated_upstream(condition_path, rw.validate_artifact, "condition model")
-        _validated_upstream(mechanism_path, mechanism.validate, "mechanism network")
+        _validated_upstream(
+            intake_path, rw.validate_artifact, "reaction intake",
+            context=context, binding=artifact["intake"],
+        )
+        _validated_upstream(
+            registry_path, rw.validate_artifact, "species registry",
+            context=context, binding=artifact["species_registry"],
+        )
+        _validated_upstream(
+            condition_path, rw.validate_artifact, "condition model",
+            context=context, binding=artifact["condition_model"],
+        )
+        _validated_upstream(
+            mechanism_path, mechanism.validate, "mechanism network",
+            context=context, binding=artifact["mechanism_network"],
+        )
         review, _review_path = _resolve_binding(artifact["review_source"], path, REVIEW_SCHEMA, "calculation-plan review source")
         review = normalize_review(review, require_hash=True)
         support_binding = artifact["mechanism_support"]
@@ -1492,6 +1621,7 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
             support_promotable = _validate_mechanism_support(
                 support,
                 support_path,
+                support_binding,
                 artifact["study_id"],
                 (
                     ("reaction_intake", intake_path, artifact["intake"]),
@@ -1499,6 +1629,7 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
                     ("condition_model", condition_path, artifact["condition_model"]),
                     ("mechanism_network", mechanism_path, artifact["mechanism_network"]),
                 ),
+                context,
             )
             support_gate_blockers = _mechanism_support_gate_blockers(support, support_promotable)
         precedent_binding = artifact["ts_precedent_map"]
@@ -1509,6 +1640,7 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
             precedent_eligible_edges = _validated_ts_precedent_edges(
                 precedent,
                 precedent_path,
+                precedent_binding,
                 artifact["study_id"],
                 (
                     ("reaction_intake", intake_path, artifact["intake"]),
@@ -1517,41 +1649,33 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
                     ("mechanism_network", mechanism_path, artifact["mechanism_network"]),
                     ("mechanism_support", support_path, support_binding),
                 ),
+                context,
             )
         require(isinstance(artifact["superseded_plans"], list), "superseded_plans must be an array")
         prior_bindings: list[dict[str, Any]] = []
         history_by_payload: dict[str, dict[str, Any]] = {}
         for index, binding in enumerate(artifact["superseded_plans"]):
             prior, prior_path = _resolve_binding(binding, path, PLAN_SCHEMA, f"superseded plan {index}")
-            validated_prior, prior_chain = _validate_plan_internal(prior_path, stack)
+            validated_prior, prior_chain = _validate_plan_internal(prior_path, stack, context)
             require(prior == validated_prior, f"superseded plan {index} changed during recursive validation")
             require(prior["study_id"] == artifact["study_id"] and prior["plan_id"] == artifact["plan_id"], "superseded plan must preserve study_id and plan_id")
             prior_bindings.append(binding)
-            rebased_history = [binding]
-            for ancestor_index, ancestor_binding in enumerate(prior_chain["superseded_plan_bindings"]):
-                _ancestor, ancestor_path = _resolve_binding(
-                    ancestor_binding,
-                    prior_path,
-                    PLAN_SCHEMA,
+            direct_record = {"binding": binding, "path": prior_path}
+            rebased_records = [direct_record]
+            for ancestor_index, ancestor_record in enumerate(prior_chain["superseded_plan_records"]):
+                rebased_binding = _rebase_verified_history_binding(
+                    ancestor_record,
+                    path.parent.absolute(),
+                    context,
                     f"superseded plan {index} ancestor {ancestor_index}",
                 )
-                current_root = path.parent.absolute()
-                try:
-                    ancestor_relative = ancestor_path.relative_to(current_root.resolve())
-                except ValueError:
-                    raise ContractError(f"superseded plan {index} ancestor {ancestor_index} escapes artifact root") from None
-                _ancestor, rebased_binding = _binding_from_path(
-                    current_root / ancestor_relative,
-                    current_root,
-                    PLAN_SCHEMA,
-                    f"superseded plan {index} ancestor {ancestor_index}",
-                )
-                rebased_history.append(rebased_binding)
-            for historical_binding in rebased_history:
+                rebased_records.append({"binding": rebased_binding, "path": ancestor_record["path"]})
+            for historical_record in rebased_records:
+                historical_binding = historical_record["binding"]
                 digest = historical_binding["payload_sha256"]
                 if digest in history_by_payload:
-                    require(history_by_payload[digest] == historical_binding, f"conflicting exact bindings for superseded plan payload {digest}")
-                history_by_payload[digest] = historical_binding
+                    require(history_by_payload[digest]["binding"] == historical_binding, f"conflicting exact bindings for superseded plan payload {digest}")
+                history_by_payload[digest] = historical_record
         expected = _assemble_plan(
             review=review,
             intake=intake,
@@ -1577,14 +1701,19 @@ def _validate_plan_internal(path: Path, stack: set[Path]) -> tuple[dict[str, Any
             "condition": condition,
             "mechanism": mechanism_artifact,
             "support": support,
-            "superseded_plan_bindings": [history_by_payload[key] for key in sorted(history_by_payload)],
+            "superseded_plan_bindings": [history_by_payload[key]["binding"] for key in sorted(history_by_payload)],
+            "superseded_plan_records": [history_by_payload[key] for key in sorted(history_by_payload)],
         }
     finally:
         stack.remove(absolute)
 
 
-def validate_plan(path: Path) -> dict[str, Any]:
-    artifact, _ = _validate_plan_internal(path, set())
+def validate_plan(path: Path, *, use_validation_cache: bool = True) -> dict[str, Any]:
+    artifact, _ = _validate_plan_internal(
+        path,
+        set(),
+        _ValidationContext(enabled=use_validation_cache),
+    )
     return {
         "schema": "gaussian-reaction-calculation-plan-validation/1",
         "artifact_schema": PLAN_SCHEMA,

@@ -1,0 +1,643 @@
+#!/usr/bin/env python3
+"""Plan, review, and explicitly apply a no-delete private-study copy migration."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import errno
+import hashlib
+import json
+import os
+import re
+import stat
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMA = "auto-g16-private-study-migration-plan/1"
+PLAN_KEYS = {
+    "schema",
+    "created_at",
+    "source_root",
+    "target_root",
+    "file_count",
+    "source_size_bytes",
+    "planned_size_bytes",
+    "source_tree_sha256",
+    "planned_tree_sha256",
+    "entries",
+    "conflicts",
+    "rewrite_count",
+    "safety",
+    "plan_sha256",
+}
+ENTRY_KEYS = {
+    "relative_path",
+    "source_size_bytes",
+    "source_sha256",
+    "planned_size_bytes",
+    "planned_sha256",
+    "content_kind",
+    "conflict",
+    "absolute_path_references",
+}
+REFERENCE_KEYS = {"value", "rewrite_to", "action"}
+POSIX_PATH_RE = re.compile(r"(?<![A-Za-z0-9_.-])/(?:[^/\s\x00\"'<>|]+/)*[^/\s\x00\"'<>|]+")
+WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:\\(?:[^\\\r\n\t\x00\"<>|]+\\)*[^\\\r\n\t\x00\"<>|]+")
+
+
+class MigrationError(ValueError):
+    """The private-study migration contract was violated."""
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise MigrationError(message)
+
+
+DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+SOURCE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+
+
+def _unsafe_path_error(label: str, exc: OSError) -> MigrationError:
+    if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+        return MigrationError(f"{label} contains a symlink or non-directory component")
+    return MigrationError(f"could not safely open {label}: {exc}")
+
+
+def _absolute_parts(path: Path, label: str) -> tuple[str, ...]:
+    require(path.is_absolute(), f"{label} must be absolute")
+    parts = path.parts[1:]
+    require(all(part not in {"", ".", ".."} for part in parts), f"{label} is unsafe")
+    return parts
+
+
+def _relative_parts(path: Path, label: str) -> tuple[str, ...]:
+    require(not path.is_absolute(), f"{label} must be relative")
+    parts = path.parts
+    require(parts and all(part not in {"", ".", ".."} for part in parts), f"{label} is unsafe")
+    return parts
+
+
+def _open_directory_at(parent_fd: int, name: str, label: str, *, create: bool = False) -> int:
+    if create:
+        try:
+            os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        except OSError as exc:
+            raise _unsafe_path_error(label, exc) from exc
+    try:
+        fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    except OSError as exc:
+        raise _unsafe_path_error(label, exc) from exc
+    opened = os.fstat(fd)
+    if not stat.S_ISDIR(opened.st_mode):
+        os.close(fd)
+        raise MigrationError(f"{label} must be a directory")
+    return fd
+
+
+def _open_absolute_directory(path: Path, label: str) -> int:
+    parts = _absolute_parts(path, label)
+    fd = os.open(path.anchor, DIRECTORY_FLAGS)
+    try:
+        for index, part in enumerate(parts):
+            next_fd = _open_directory_at(fd, part, f"{label} component {index + 1}")
+            os.close(fd)
+            fd = next_fd
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _read_fd(fd: int, label: str) -> bytes:
+    chunks: list[bytes] = []
+    try:
+        while True:
+            chunk = os.read(fd, 1024 * 1024)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    except OSError as exc:
+        raise MigrationError(f"could not read {label}: {exc}") from exc
+
+
+def _read_source_at(source_fd: int, relative: Path) -> bytes:
+    parts = _relative_parts(relative, "source relative path")
+    parent_fd = os.dup(source_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            next_fd = _open_directory_at(parent_fd, part, f"source ancestor {index + 1}")
+            os.close(parent_fd)
+            parent_fd = next_fd
+        try:
+            leaf_fd = os.open(parts[-1], SOURCE_FLAGS, dir_fd=parent_fd)
+        except OSError as exc:
+            raise _unsafe_path_error(f"source leaf {relative.as_posix()}", exc) from exc
+        try:
+            opened = os.fstat(leaf_fd)
+            require(stat.S_ISREG(opened.st_mode), f"source leaf is not a regular file: {relative.as_posix()}")
+            return _read_fd(leaf_fd, f"source leaf {relative.as_posix()}")
+        finally:
+            os.close(leaf_fd)
+    finally:
+        os.close(parent_fd)
+
+
+def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        require(key not in result, f"duplicate JSON key is forbidden: {key}")
+        result[key] = value
+    return result
+
+
+def canonical_bytes(value: Any) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        + "\n"
+    ).encode("utf-8")
+
+
+def digest_value(value: Any) -> str:
+    return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+def plan_digest(value: dict[str, Any]) -> str:
+    payload = copy.deepcopy(value)
+    payload.pop("plan_sha256", None)
+    return digest_value(payload)
+
+
+def _reject_symlink_chain(path: Path, label: str) -> Path:
+    absolute = path.absolute()
+    current = Path(absolute.anchor)
+    for depth, part in enumerate(absolute.parts[1:], start=1):
+        current = current / part
+        try:
+            mode = os.lstat(current).st_mode
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise MigrationError(f"could not inspect {label} path component {current}: {exc}") from exc
+        if stat.S_ISLNK(mode) and depth == 1:
+            try:
+                current = current.resolve(strict=True)
+            except OSError as exc:
+                raise MigrationError(f"could not resolve trusted OS path alias {current}: {exc}") from exc
+            continue
+        require(not stat.S_ISLNK(mode), f"{label} path contains a symlink: {current}")
+    return absolute
+
+
+def _outside_checkout(path: Path, label: str) -> None:
+    resolved = path.resolve(strict=False)
+    require(not resolved.is_relative_to(ROOT), f"{label} must remain outside the public checkout")
+
+
+def _target_state(target: Path) -> None:
+    _reject_symlink_chain(target, "target root")
+    _outside_checkout(target, "target root")
+    if not target.exists():
+        require(target.parent.exists() and target.parent.is_dir(), "target parent must already exist")
+        return
+    require(target.is_dir(), "target root must be a directory")
+    target_stat = target.stat()
+    require(target_stat.st_uid == os.getuid(), "target root must be owned by the current user")
+    require(stat.S_IMODE(target_stat.st_mode) == 0o700, "target root must have owner-only mode 0700")
+
+
+def _iter_source_files(source: Path) -> list[Path]:
+    require(source.exists() and source.is_dir(), "source root must be an existing directory")
+    _reject_symlink_chain(source, "source root")
+    require(source.resolve() != ROOT, "refusing to migrate the repository root")
+    files: list[Path] = []
+    for candidate in sorted(source.rglob("*")):
+        _reject_symlink_chain(candidate, "source entry")
+        mode = candidate.lstat().st_mode
+        require(not stat.S_ISLNK(mode), f"source entry is a symlink: {candidate}")
+        require(stat.S_ISDIR(mode) or stat.S_ISREG(mode), f"source entry is not a regular file or directory: {candidate}")
+        if stat.S_ISREG(mode):
+            files.append(candidate)
+    return files
+
+
+def _text(raw: bytes) -> str | None:
+    if b"\x00" in raw:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _absolute_references(text: str, source: Path, target: Path) -> list[dict[str, Any]]:
+    found = sorted(set(POSIX_PATH_RE.findall(text)) | set(WINDOWS_PATH_RE.findall(text)))
+    references: list[dict[str, Any]] = []
+    source_text = str(source)
+    target_text = str(target)
+    for value in found:
+        if value == source_text or value.startswith(source_text + os.sep):
+            rewrite_to = target_text + value[len(source_text):]
+            action = "rewrite_source_root_to_target_root"
+        else:
+            rewrite_to = None
+            action = "review_external_absolute_reference"
+        references.append({"value": value, "rewrite_to": rewrite_to, "action": action})
+    return references
+
+
+def _planned_bytes(raw: bytes, source: Path, target: Path) -> bytes:
+    if _text(raw) is None:
+        return raw
+    return raw.replace(str(source).encode("utf-8"), str(target).encode("utf-8"))
+
+
+def _tree_digest(entries: list[dict[str, Any]], *, planned: bool) -> str:
+    prefix = "planned" if planned else "source"
+    manifest = [
+        {
+            "relative_path": item["relative_path"],
+            "size_bytes": item[f"{prefix}_size_bytes"],
+            "sha256": item[f"{prefix}_sha256"],
+        }
+        for item in entries
+    ]
+    return digest_value(manifest)
+
+
+def build_plan(source: Path, target: Path, *, created_at: str | None = None) -> dict[str, Any]:
+    source = _reject_symlink_chain(source.expanduser(), "source root").resolve()
+    target = _reject_symlink_chain(target.expanduser(), "target root").resolve(strict=False)
+    require(source != target, "source and target roots must differ")
+    require(not target.is_relative_to(source), "target root must not be inside the source tree")
+    _target_state(target)
+    entries: list[dict[str, Any]] = []
+    conflicts: list[str] = []
+    rewrite_count = 0
+    source_fd = _open_absolute_directory(source, "source root")
+    try:
+        for path in _iter_source_files(source):
+            relative = path.relative_to(source)
+            require(not relative.is_absolute() and ".." not in relative.parts, "source relative path is unsafe")
+            raw = _read_source_at(source_fd, relative)
+            planned = _planned_bytes(raw, source, target)
+            text = _text(raw)
+            references = [] if text is None else _absolute_references(text, source, target)
+            rewrite_count += sum(item["rewrite_to"] is not None for item in references)
+            destination = target / relative
+            conflict = destination.exists() or destination.is_symlink()
+            if conflict:
+                conflicts.append(relative.as_posix())
+            entries.append({
+                "relative_path": relative.as_posix(),
+                "source_size_bytes": len(raw),
+                "source_sha256": hashlib.sha256(raw).hexdigest(),
+                "planned_size_bytes": len(planned),
+                "planned_sha256": hashlib.sha256(planned).hexdigest(),
+                "content_kind": "utf8_text" if text is not None else "binary",
+                "conflict": conflict,
+                "absolute_path_references": references,
+            })
+    finally:
+        os.close(source_fd)
+    plan = {
+        "schema": SCHEMA,
+        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
+        "source_root": str(source),
+        "target_root": str(target),
+        "file_count": len(entries),
+        "source_size_bytes": sum(item["source_size_bytes"] for item in entries),
+        "planned_size_bytes": sum(item["planned_size_bytes"] for item in entries),
+        "source_tree_sha256": _tree_digest(entries, planned=False),
+        "planned_tree_sha256": _tree_digest(entries, planned=True),
+        "entries": entries,
+        "conflicts": conflicts,
+        "rewrite_count": rewrite_count,
+        "safety": {
+            "dry_run": True,
+            "copy_only": True,
+            "source_deletion_authorized": False,
+            "overwrite_authorized": False,
+            "live_actions": False,
+            "apply_requires_exact_plan_sha256": True,
+        },
+        "plan_sha256": None,
+    }
+    plan["plan_sha256"] = plan_digest(plan)
+    return plan
+
+
+def _validate_plan_shape(plan: dict[str, Any]) -> None:
+    require(set(plan) == PLAN_KEYS, "migration plan is not a closed-schema object")
+    require(plan["schema"] == SCHEMA, "unsupported migration plan schema")
+    require(plan.get("plan_sha256") == plan_digest(plan), "migration plan SHA-256 mismatch")
+    require(isinstance(plan["entries"], list), "migration plan entries must be an array")
+    require(isinstance(plan["conflicts"], list), "migration plan conflicts must be an array")
+    require(plan["file_count"] == len(plan["entries"]), "migration plan file count mismatch")
+    for entry in plan["entries"]:
+        require(isinstance(entry, dict) and set(entry) == ENTRY_KEYS, "migration entry is not closed-schema")
+        require(isinstance(entry["absolute_path_references"], list), "absolute-path references must be an array")
+        for reference in entry["absolute_path_references"]:
+            require(isinstance(reference, dict) and set(reference) == REFERENCE_KEYS, "absolute-path reference is not closed-schema")
+    require(plan["safety"] == {
+        "dry_run": True,
+        "copy_only": True,
+        "source_deletion_authorized": False,
+        "overwrite_authorized": False,
+        "live_actions": False,
+        "apply_requires_exact_plan_sha256": True,
+    }, "migration plan safety constants changed")
+
+
+def load_plan(path: Path) -> dict[str, Any]:
+    path = _reject_symlink_chain(path.expanduser(), "migration plan")
+    require(path.is_absolute(), "migration plan path must be absolute")
+    require(path.is_file(), "migration plan is missing")
+    try:
+        plan = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_object)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise MigrationError(f"could not read migration plan: {exc}") from exc
+    require(isinstance(plan, dict), "migration plan must be a JSON object")
+    _validate_plan_shape(plan)
+    return plan
+
+
+def review_plan(path: Path) -> dict[str, Any]:
+    plan = load_plan(path)
+    fresh = build_plan(
+        Path(plan["source_root"]),
+        Path(plan["target_root"]),
+        created_at=plan["created_at"],
+    )
+    require(fresh == plan, "migration plan is stale: source, target, hashes, paths, or conflicts changed")
+    require(not plan["conflicts"], "migration plan has target conflicts and cannot be applied")
+    return plan
+
+
+def write_new(path: Path, value: dict[str, Any]) -> None:
+    path = _reject_symlink_chain(path.expanduser(), "plan output")
+    require(path.is_absolute(), "plan output path must be absolute")
+    _outside_checkout(path, "plan output")
+    require(path.parent.exists() and path.parent.is_dir(), "plan output parent must already exist")
+    require(not os.path.lexists(path), "refusing to overwrite an existing plan output")
+    with path.open("xb") as handle:
+        handle.write(canonical_bytes(value))
+    os.chmod(path, 0o600)
+
+
+def _verified_source_bytes(
+    source_fd: int,
+    entry: dict[str, Any],
+    source: Path,
+    target: Path,
+) -> bytes:
+    relative = Path(entry["relative_path"])
+    raw = _read_source_at(source_fd, relative)
+    require(len(raw) == entry["source_size_bytes"], f"source size changed before apply: {relative.as_posix()}")
+    require(hashlib.sha256(raw).hexdigest() == entry["source_sha256"], f"source hash changed before apply: {relative.as_posix()}")
+    planned = _planned_bytes(raw, source, target)
+    require(len(planned) == entry["planned_size_bytes"], f"planned size changed before apply: {relative.as_posix()}")
+    require(hashlib.sha256(planned).hexdigest() == entry["planned_sha256"], f"planned hash changed before apply: {relative.as_posix()}")
+    return planned
+
+
+def _preflight_source_entries(
+    source_fd: int,
+    entries: list[dict[str, Any]],
+    source: Path,
+    target: Path,
+) -> None:
+    for entry in entries:
+        _verified_source_bytes(source_fd, entry, source, target)
+
+
+def _target_root_handles(target: Path) -> tuple[int, int | None, str]:
+    parts = _absolute_parts(target, "target root")
+    require(parts, "target root must not be the filesystem root")
+    parent_fd = _open_absolute_directory(target.parent, "target parent")
+    leaf = parts[-1]
+    try:
+        target_fd = _open_directory_at(parent_fd, leaf, "target root")
+    except MigrationError as exc:
+        try:
+            os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return parent_fd, None, leaf
+        except OSError as stat_exc:
+            os.close(parent_fd)
+            raise _unsafe_path_error("target root", stat_exc) from stat_exc
+        os.close(parent_fd)
+        raise exc
+    target_stat = os.fstat(target_fd)
+    if target_stat.st_uid != os.getuid() or stat.S_IMODE(target_stat.st_mode) != 0o700:
+        os.close(target_fd)
+        os.close(parent_fd)
+        raise MigrationError("target root must be owned by the current user with exact mode 0700")
+    return parent_fd, target_fd, leaf
+
+
+def _destination_exists(target_fd: int, relative: Path) -> bool:
+    parts = _relative_parts(relative, "migration destination path")
+    parent_fd = os.dup(target_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            try:
+                next_fd = _open_directory_at(parent_fd, part, f"destination ancestor {index + 1}")
+            except MigrationError:
+                try:
+                    os.stat(part, dir_fd=parent_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    return False
+                raise
+            os.close(parent_fd)
+            parent_fd = next_fd
+        try:
+            os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise _unsafe_path_error(f"destination leaf {relative.as_posix()}", exc) from exc
+        return True
+    finally:
+        os.close(parent_fd)
+
+
+def _preflight_destination_conflicts(target_fd: int | None, entries: list[dict[str, Any]]) -> None:
+    if target_fd is None:
+        return
+    conflicts = [
+        entry["relative_path"]
+        for entry in entries
+        if _destination_exists(target_fd, Path(entry["relative_path"]))
+    ]
+    require(not conflicts, f"target conflicts appeared before apply: {conflicts}")
+
+
+def _create_target_root(parent_fd: int, target_fd: int | None, leaf: str) -> int:
+    if target_fd is not None:
+        return target_fd
+    try:
+        os.mkdir(leaf, mode=0o700, dir_fd=parent_fd)
+    except OSError as exc:
+        raise MigrationError(f"target root changed after preflight; no files were copied: {exc}") from exc
+    fd = _open_directory_at(parent_fd, leaf, "new target root")
+    os.fchmod(fd, 0o700)
+    return fd
+
+
+def _write_all(fd: int, raw: bytes) -> None:
+    offset = 0
+    while offset < len(raw):
+        written = os.write(fd, raw[offset:])
+        if written <= 0:
+            raise OSError("zero-byte write")
+        offset += written
+
+
+def _write_destination(target_fd: int, relative: Path, raw: bytes) -> None:
+    parts = _relative_parts(relative, "migration destination path")
+    parent_fd = os.dup(target_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            next_fd = _open_directory_at(
+                parent_fd,
+                part,
+                f"destination ancestor {index + 1}",
+                create=True,
+            )
+            os.close(parent_fd)
+            parent_fd = next_fd
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        try:
+            leaf_fd = os.open(parts[-1], flags, 0o600, dir_fd=parent_fd)
+        except OSError as exc:
+            raise MigrationError(f"refusing unsafe or existing migration destination: {relative.as_posix()}: {exc}") from exc
+        try:
+            os.fchmod(leaf_fd, 0o600)
+            _write_all(leaf_fd, raw)
+            os.fsync(leaf_fd)
+        finally:
+            os.close(leaf_fd)
+    finally:
+        os.close(parent_fd)
+
+
+def apply_plan(path: Path, *, confirmation: str, reviewer: str) -> dict[str, Any]:
+    require(bool(reviewer.strip()), "apply requires a non-empty reviewer identity")
+    plan = review_plan(path)
+    require(confirmation == plan["plan_sha256"], "apply confirmation does not match the exact reviewed plan SHA-256")
+    source = Path(plan["source_root"])
+    target = Path(plan["target_root"])
+    _target_state(target)
+    source_fd = _open_absolute_directory(source, "apply source root")
+    target_parent_fd: int | None = None
+    target_fd: int | None = None
+    copied_file_count = 0
+    copied_size_bytes = 0
+    try:
+        # No target directory or file is created until every source byte/hash and
+        # every destination conflict has passed this descriptor-bound preflight.
+        _preflight_source_entries(source_fd, plan["entries"], source, target)
+        target_parent_fd, target_fd, target_leaf = _target_root_handles(target)
+        _preflight_destination_conflicts(target_fd, plan["entries"])
+        target_fd = _create_target_root(target_parent_fd, target_fd, target_leaf)
+        try:
+            for entry in plan["entries"]:
+                relative = Path(entry["relative_path"])
+                planned = _verified_source_bytes(source_fd, entry, source, target)
+                _write_destination(target_fd, relative, planned)
+                copied_file_count += 1
+                copied_size_bytes += len(planned)
+        except Exception as exc:
+            raise MigrationError(
+                "apply stopped after "
+                f"{copied_file_count} file(s) and {copied_size_bytes} byte(s); "
+                "a partial copy may remain and requires manual inspection; "
+                "automatic rollback deletion is forbidden"
+            ) from exc
+    finally:
+        os.close(source_fd)
+        if target_fd is not None:
+            os.close(target_fd)
+        if target_parent_fd is not None:
+            os.close(target_parent_fd)
+    return {
+        "schema": "auto-g16-private-study-migration-apply-result/2",
+        "plan_sha256": plan["plan_sha256"],
+        "reviewer": reviewer.strip(),
+        "copied_file_count": copied_file_count,
+        "copied_size_bytes": copied_size_bytes,
+        "source_deleted": False,
+        "overwrites": 0,
+        "partial_copy": False,
+        "manual_partial_copy_review_required": False,
+        "automatic_rollback_deletion": False,
+        "live_actions": False,
+    }
+
+
+def _summary(plan: dict[str, Any], status: str) -> dict[str, Any]:
+    return {
+        "schema": "auto-g16-private-study-migration-summary/1",
+        "status": status,
+        "plan_sha256": plan["plan_sha256"],
+        "file_count": plan["file_count"],
+        "source_size_bytes": plan["source_size_bytes"],
+        "planned_size_bytes": plan["planned_size_bytes"],
+        "conflict_count": len(plan["conflicts"]),
+        "rewrite_count": plan["rewrite_count"],
+        "copy_only": True,
+        "source_deleted": False,
+        "live_actions": False,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    plan_parser = subparsers.add_parser("plan", help="create a dry-run manifest outside the checkout")
+    plan_parser.add_argument("source", type=Path)
+    plan_parser.add_argument(
+        "--target",
+        type=Path,
+        default=Path.home() / "Documents" / "Auto-G16-Private-Studies",
+    )
+    plan_parser.add_argument("--plan-out", type=Path, required=True)
+    review_parser = subparsers.add_parser("review", help="replay an exact plan without writing data")
+    review_parser.add_argument("plan", type=Path)
+    apply_parser = subparsers.add_parser("apply", help="copy an exact reviewed plan without deleting source data")
+    apply_parser.add_argument("plan", type=Path)
+    apply_parser.add_argument("--confirm-plan-sha256", required=True)
+    apply_parser.add_argument("--reviewed-by", required=True)
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "plan":
+            plan = build_plan(args.source, args.target)
+            write_new(args.plan_out, plan)
+            print(json.dumps(_summary(plan, "planned_dry_run"), indent=2, sort_keys=True))
+            return 0
+        if args.command == "review":
+            plan = review_plan(args.plan)
+            print(json.dumps(_summary(plan, "reviewed_no_apply"), indent=2, sort_keys=True))
+            return 0
+        result = apply_plan(
+            args.plan,
+            confirmation=args.confirm_plan_sha256,
+            reviewer=args.reviewed_by,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    except (MigrationError, OSError, UnicodeError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

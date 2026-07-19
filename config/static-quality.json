@@ -1,0 +1,16 @@
+{
+  "schema": "auto-g16-static-quality/1",
+  "paths": [
+    "scripts/python_environment.py",
+    "scripts/private_study_migration.py",
+    "scripts/run_tests.py",
+    "scripts/runtime_config.py",
+    "skills/auto-g16-reaction-workflow/scripts/calculation_dag.py"
+  ],
+  "rules": [
+    "no-bare-except",
+    "no-builtin-eval-exec",
+    "no-shell-true",
+    "no-star-import"
+  ]
+}
