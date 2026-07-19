@@ -5,8 +5,26 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-19
+
 ### Added
 
+- Added evidence-bound method-selection contracts for reusable benchmark
+  cases, run observations, method-selection contexts, and evidence briefs.
+  The database layer separates reported, internally observed, and benchmarked
+  method evidence without inferring or approving a production method.
+- Added an offline human scientific decision layer with explicit mechanism
+  discussion, method decisions, operator action cards, and immutable study
+  learning updates. Human decisions remain distinct from AI proposals and
+  from every input or live-action approval.
+- Added hash-bound, non-executable TS-seed candidates and bounded 1+1
+  portfolios. Each primary and backup seed retains exact target, atom mapping,
+  geometry lineage, construction rationale, review status, and supersession
+  provenance without rendering or authorizing a Gaussian input.
+- Added closure-priority planning that ranks already reviewed calculation
+  targets by scientific evidence, initial-guess quality, convergence and
+  TS-closure likelihood, information value, and practical compute cost while
+  preserving hard blockers and bounded search scope.
 - Added the offline `gaussian-v25-integration-review/1` owner overlay linking
   method evidence to an explicit human method decision, mechanism discussion
   to closure hard gates, TS-seed portfolios to exact initial-guess provenance,
@@ -17,6 +35,13 @@ All notable public release changes are recorded here. The project follows
   core-hour accounting, fail-closed retry classification, uncertain-submission
   reservation, atomic locking, and read-only immediate/60-minute monitoring.
 
+### Changed
+
+- Connected the six v2.5 planning and governance slices through a
+  cross-Skill, owner-validator replay rather than copying or weakening their
+  individual contracts. Selected closure nodes must retain their exact
+  evidence, human decision, seed, priority, batch-review, and ledger bindings.
+
 ### Safety
 
 - The v2.5 integration overlay replays owner validators and fixes every
@@ -26,6 +51,11 @@ All notable public release changes are recorded here. The project follows
 - Execution-batch planning and tests are standard-library and offline only.
   They add no automatic qsub, retry, scientific change, cancellation, search
   expansion, scheduler cleanup, deployment, SSH, PBS or Gaussian action.
+- Release publication makes no claim of a successful real reaction study,
+  accepted minimum, TS/IRC closure, or real PBS/Gaussian validation. Exact
+  structure, stereochemistry, charge, multiplicity, method, input, resource,
+  server-directory, and live approvals remain mandatory before future
+  execution.
 
 ## [2.4.0] - 2026-07-18
 
@@ -348,7 +378,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.1.0...v2.2.0

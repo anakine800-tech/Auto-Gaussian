@@ -2,147 +2,137 @@
 
 ## Current mainline state
 
-Status date: 2026-07-18
+Status date: 2026-07-19
 
-Auto-Gaussian 2.4.0 release preparation is based on confirmed `origin/main`
-commit `69222eb40fc4485392c753b240989719fcec56a4`. That content baseline is
-58 commits and 235 changed files after immutable release tag `v2.3.0`. The
-annotated `v2.4.0` tag and GitHub Release are separate publication actions and
-are not authorized or created by this preparation.
+Auto-Gaussian 2.5.0 release preparation started from a clean, fetched
+`origin/main` at exact commit
+`c46301bdcfc08fef4292abf17cfed256963cc5f1`. Local `HEAD`, local `main`, and
+`origin/main` were identical with ahead/behind `0/0` before the isolated
+`codex/release-2.5.0-prep` branch was created. The immutable annotated
+`v2.4.0` tag dereferences to
+`48e5398bd4f0ddb47edf553626e232319a00b78f`; the pre-metadata delta is 14
+commits and 46 changed files, including PR #40's audited GitHub Actions runtime
+maintenance and PR #41's six-slice v2.5 integration.
 
-The 2.4.0 source retains the complete 2.3.0 foundation and adds metal TS P0–P5
-readiness and candidate closure, offline dual-route conformer discovery,
-main-group open-shell state/minimum/result contracts, multiplicity families,
-same-spin open-shell TS/Freq/IRC, open-shell reaction networks, and
-scientific-maturity owner gates. Compatibility-preserving input receipts `/2`
-and `/3` remain non-authorizing; prospective live approvals `/4` and `/5`
-define separate single-stage and two-stage exact-scope paths.
+The release scope is the offline human-AI scientific decision,
+method-evidence, bounded hash-bound TS-seed, closure-priority, PBS
+execution-batch governance, and cross-Skill non-authorizing integration layer.
+It records evidence and human decisions, prioritizes reviewed closure work, and
+accounts for at most ten stable scientific tasks with separate physical-attempt
+and core-hour ledgers plus read-only immediate and 60-minute summaries.
+
+Every planning/review artifact remains `calculation_ready: false`; calculation
+nodes remain `executable: false`; the integration overlay remains
+non-authorizing. Release publication does not claim a successful real reaction
+study, accepted minimum, TS/IRC closure, or real PBS/Gaussian validation. Exact
+structure, stereochemistry, charge, multiplicity, method, input, resource,
+server-directory, and fresh live approvals remain mandatory for any future
+execution.
 
 Repository source under `skills/` is authoritative. A checkout alone says
-nothing about `~/.codex/skills`. Machine-local deployment status is an
-external fact outside this checkout. Read-only 2026-07-18 named-Skill dry runs
-found one changed packaged file for `auto-g16-chemdraw-pipeline` and two for
-`auto-g16-view-rt-win`; no missing or extra files were reported. No deployment
-was authorized or performed.
-
-All candidate planning, review, receipt, and adapter artifacts remain
-non-authorizing unless the distinct exact live gate is satisfied. They do not
-select scientific methods, make calculation nodes executable, accept a TS, or
-grant deployment, SSH, PBS, Gaussian, submission, retry, cancellation,
-cleanup, or live-smoke authority.
+nothing about deployed copies; machine-local deployment status is an
+external fact outside this checkout.
+The delegated release baseline records exact synchronization of
+`auto-g16-knowledge-base`,
+`auto-g16-reaction-workflow`, `auto-g16-rtwin-pbs`, and
+`auto-g16-ts-seed`, followed by all 14 repository/deployed named Skills in
+sync. This release task performs only read-only drift and offline entry-point
+checks. Any required write would be a deployment and is outside this release
+authorization.
 
 ## Current capability and limits
 
 - The `core` profile is fixed to Python 3.13.13. The `chem` profile is fixed to
   Python 3.11.15 with NumPy 2.4.6, Pillow 12.3.0, and RDKit 2026.03.3. Offline
   CI supports Python 3.11 through 3.13.
-- The reaction workflow binds reviewed inputs and immutable upstream evidence,
-  keeps mechanism exploration distinct from validation, and keeps scientific,
-  input-review, live-approval, execution, and evidence-acceptance states
-  independent.
-- The mechanism-support matrix is a downstream view over the owner support
-  gate. It cannot weaken an owner blocker, validate a mechanism, or create or
-  promote a calculation-DAG node.
-- The calculation plan and read-only study index are deterministic offline
-  bookkeeping artifacts. Every node remains `executable: false`; every plan
-  remains `calculation_ready: false` with
-  `no_submission_authorization: true`.
-- The calculation-artifact adapter binds reviewed handoffs and result evidence
-  without owning or mutating DAG node identity and without granting staging or
-  submission authority.
-- Transition-metal P0–P5 artifacts define offline readiness, input/result
-  acceptance, promotion and first-smoke decision boundaries. The reviewed
-  candidates remain blocked and no metal input, runtime, or live authority is
-  granted.
-- Dual-route conformer search is an offline plan/audit layer over supplied
-  candidates. It does not execute xTB, CREST, Gaussian, PBS, or SSH and does
-  not promote a candidate without a separate exact review.
-- Main-group open-shell support is limited to explicitly reviewed
-  single-reference doublet/high-spin-triplet states. Multiplicity members,
-  minimum families, TS/IRC paths, and reaction-network nodes remain
-  state-bound; no cross-state ranking or ground-state inference is permitted.
-- Single-stage receipt `/2` can only feed a separately approved `/4`. Each
-  two-stage receipt `/3` can only feed a stage-specific `/5`; stage 2 remains
-  blocked until accepted stage-1 checkpoint continuity is reviewed.
+- Method-evidence records distinguish reported, internally observed, and
+  benchmarked evidence. They do not select or authorize a research method.
+- Mechanism discussions, method decisions, operator action cards, and learning
+  updates preserve the human decision separately from AI recommendations.
+- TS-seed candidates and bounded 1+1 portfolios retain exact target, mapping,
+  geometry, review, and supersession provenance without rendering a Gaussian
+  input or promoting a candidate.
+- Closure-priority plans preserve hard scientific blockers and rank only
+  reviewed targets by evidence, initial-guess quality, closure likelihood,
+  information value, and practical compute cost.
+- Execution batches have stable task identities, a ten-task cap, separate
+  physical-attempt and core-hour accounting, diagnosed retry classification,
+  uncertain-submission reservation, atomic ledgers, and read-only monitoring.
+  They do not submit, retry, cancel, clean up, or change chemistry.
+- The `gaussian-v25-integration-review/1` overlay replays every owner validator
+  and binds exact evidence, human decision, seed, priority, batch review, and
+  ledger artifacts. It cannot weaken a blocker or replace an input/live gate.
+- The fixed `/home/user100/SDL` server boundary, non-empty-directory refusal,
+  no-deletion policy, exact job-ID cancellation gate, and scheduler-spool
+  prohibition are unchanged.
 - W2 still lacks authentication, signatures, durable audit logging, chemical
   search, and multi-user enforcement. Declared offline principals are not an
   operating-system security boundary.
-- Historical BF3 and asymmetric-catalysis records are evidence only. They do
-  not authorize retries, IRC, endpoint claims, deployment, or new live work.
+- Historical BF3, open-shell, metal, and asymmetric-catalysis records remain
+  evidence only. They do not authorize retries, IRC, endpoint claims,
+  deployment, or new live work.
 
 ## Current release-preparation evidence
 
-- Before branch creation, local `HEAD` and `origin/main` were both confirmed as
-  exact commit `69222eb40fc4485392c753b240989719fcec56a4` in a clean detached
-  worktree. The unique `codex/release-2.4.0-prep` branch was created from that
-  commit without switching or modifying the original checkout's local `main`.
-- Complete offline validation passed: 522 worktree tests and the same 522 tests
-  from a source archive without `.git`, plus compilation, shell syntax,
-  release hygiene, diff checks, and both pinned environment checks. Exact
-  evidence is recorded in `docs/release-2.4.0-checklist.md`.
-- Named-Skill drift evidence is a no-write dry-run plan only. Exact public plan
-  hashes and sanitized repository-relative summaries are recorded in the 2.4.0
-  checklist; `--apply` was not used.
-- Live smoke remains blocked and not authorized. The `/4` single-stage path and
-  both `/5` two-stage stages require their own exact inputs, hashes, scope and
-  explicit approvals.
-- This release preparation performs no push, pull request, merge, tag, GitHub
-  Release, deployment, live smoke, SSH, PBS, Gaussian, submission, retry,
-  cancellation, or cleanup.
+- Baseline GitHub CI for exact commit
+  `c46301bdcfc08fef4292abf17cfed256963cc5f1` passed on 2026-07-19: CodeQL
+  analysis and Offline tests for Python 3.11, 3.12, 3.13, the chemistry
+  dependency profile, and the source-archive regression all completed
+  successfully.
+- The local release ladder covers the complete worktree unittest suite,
+  focused release-hygiene tests, `compileall`, tracked shell/template syntax,
+  `git diff --check`, both pinned environment profiles, read-only named-Skill
+  synchronization, deployed-copy offline entry points for the four v2.5
+  areas, a credential/private-key/host/raw-output/checkpoint/job-ID scan, and a
+  `.git`-free source-copy regression. Sanitized exact results are recorded in
+  `docs/release-2.5.0-checklist.md` before the release PR is opened.
+- The user explicitly authorized the isolated branch, metadata edits,
+  validation, commit, push, draft PR, required-check inspection and
+  release-only fixes, Ready conversion, merge, post-merge CI wait, annotated
+  `v2.5.0` tag, and normal latest GitHub Release.
+- No deployment, SSH, RTwin, PBS, Gaussian, live smoke, submission, retry,
+  cancellation, server cleanup, or broader scientific action is included.
 
-## Historical evidence
+## Historical and external evidence
 
-The records below preserve dated evidence without presenting old feature
-branches, deployed copies, live observations, or test counts as current
-checkout state.
+These records preserve dated evidence without presenting an old feature
+branch, deployment, live observation, or test count as a current scientific
+result.
 
-### Feature evidence — 2026-07-16 — commit 162489b0ed4afee39ed934ef5f045fbddbbbb0cb
+### Feature evidence — 2026-07-19 — commit c46301bdcfc08fef4292abf17cfed256963cc5f1
 
-PR #23 merged the distinct
-`gaussian-reaction-mechanism-support-matrix/1` contract into `main`. The matrix
-binds the exact owner support artifact, network, and immutable review; covers
-the complete reviewed row-by-support-record space; preserves exclusions and
-supersession; and cannot alter owner-gate decisions or create DAG readiness.
+PR #41 integrated the six offline v2.5 slices: method-evidence contracts,
+human scientific decisions, bounded TS seeds, closure-priority planning,
+execution-batch governance, and the cross-Skill owner-validation overlay. The
+PR did not deploy Skills or perform RTwin/PBS/Gaussian validation.
 
-### Deployment evidence — 2026-07-16 — commit 90560e9c48ee2d82e5d00c0fee8d61a44b61d566
+### Deployment evidence — 2026-07-19 — commit c46301bdcfc08fef4292abf17cfed256963cc5f1
 
-An explicitly approved historical deployed-copy DAG smoke compared and
-synchronized the named packages required by `auto-g16-reaction-workflow`, then
-passed three deployed-entry-point offline tests. It retained
-`calculation_ready: false`, `no_submission_authorization: true`, and
-`live_actions: false`. This is historical external evidence, not proof of the
-current candidate or any later deployment state.
+The delegated external record states that repository copies of the four v2.5
+owner Skills were synchronized exactly and that the subsequent read-only
+named-Skill check reported all 14 repository/deployed pairs synchronized. The
+release checklist records this as deployment evidence, not as authority for
+another deployment and not as a live scientific result.
 
-### Test evidence — 2026-07-16 — commit 162489b0ed4afee39ed934ef5f045fbddbbbb0cb
+### Test evidence — 2026-07-19 — commit c46301bdcfc08fef4292abf17cfed256963cc5f1
 
-The PR #23 baseline passed 280 full offline repository tests under Python 3.13,
-including calculation-artifact, TS-precedent, mechanism-network,
-reaction-workflow, naming, packaging, and release-hygiene regressions. No live
-or deployment action was part of that validation.
+PR #41 reported 564/564 offline unit tests, and the exact post-merge commit's
+GitHub Offline tests and CodeQL checks passed. This is baseline evidence; the
+release-preparation branch repeats the proportional offline ladder and records
+its own exact sanitized results in the 2.5.0 checklist.
 
-## Next approval gates
+## Remaining validation boundary
 
-### Pd(PHOX) TS20 candidate closure - 2026-07-16
-
-The source-bound replacement review is recorded in
-`studies/metal_m4_p0_p1_baseline/pd-phox-ts20-candidate-closure.json`. It
-corrects the DOI identity, preserves original SI SHA-256 and coordinate-block
-lineage, and records a strict gap ledger. Its status is
-`blocked_source_incomplete_no_real_m1`; P5 and all live actions remain blocked.
-
-- Review and commit the 2.4.0 release preparation locally only after every
-  offline check and sensitive-string review passes. Push, pull request, merge,
-  and CI observation remain separate actions requiring authorization.
-- Obtain separate explicit authorization before creating annotated tag
-  `v2.4.0` or its GitHub Release.
-- Review a fresh exact named-Skill dry-run plan and obtain separate deployment
-  authorization before synchronizing either drifted Skill.
-- Supply exact inputs, hashes, projects, resources, and separate approvals for
-  the `/4` single-stage path or each `/5` two-stage stage before any live smoke.
-- Continue W2 authentication, audit logging, chemical search, and service-
-  boundary work only through a separately reviewed feature.
-- Review one concrete transition-metal M1 case before any M3 runtime or
-  promotion design; do not render or submit a metal Gaussian input under the
-  current contracts.
-- Treat every BF3 retry, IRC, endpoint workflow, deployment, and live smoke as
-  a new exact approval scope.
+- The exact release commit is the future clean PR merge commit, not the
+  pre-metadata baseline. Tag creation must wait until required PR checks and
+  post-merge `main` checks pass and local, remote, and GitHub `main` agree.
+- A source/deployed drift finding may be inspected read-only. If release edits
+  unexpectedly require synchronization, stop because deployment is excluded.
+- No release artifact can satisfy scientific readiness, exact input review,
+  stage dependency, live approval, execution, or evidence-acceptance gates.
+- Every real calculation still requires exact reviewed structure and mapping,
+  stereochemistry, charge, multiplicity, method/route, input hash, resources,
+  fresh server directory, and operation-specific live approval.
+- A TS requires exactly one reviewed intended imaginary mode; IRC validation
+  requires both directions to terminate and both endpoints to be structurally
+  identified. This release supplies neither result.

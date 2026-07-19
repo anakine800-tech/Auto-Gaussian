@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.4.0
+# Auto-G16 — Auto-Gaussian 2.5.0
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -58,7 +58,7 @@ artifacts are added. Complete owner-chain relocation is also unsupported because
 historical conformer paths may be absolute and open-shell paths may be
 working-directory-relative.
 
-The unreleased v2.5 integration layer now adds explicit human scientific
+The 2.5.0 release adds explicit human scientific
 decisions, evidence-only method briefs, bounded TS-seed portfolios, practical
 closure-priority planning, and persistent ten-task execution-batch governance.
 `gaussian-v25-integration-review/1` replays those owner contracts and binds the
@@ -67,7 +67,25 @@ every component remain non-executable and non-authorizing; exact input review,
 stage dependency evidence, and a fresh live approval per physical attempt are
 still independent requirements. See `docs/v2.5-integration-approval.md`.
 
-## 2.4.0 release preparation
+## 2.5.0 release
+
+Auto-Gaussian 2.5.0 release metadata was prepared on 2026-07-19 from confirmed
+`origin/main` content baseline
+`c46301bdcfc08fef4292abf17cfed256963cc5f1`. The immutable 2.4.0 release
+history is preserved. Publication is authorized only through a clean release
+PR, passing required and post-merge CI, an annotated `v2.5.0` tag on the exact
+merge commit, and a normal GitHub Release.
+
+The 2.5.0 scope is the offline human-AI decision, method-evidence, bounded
+TS-seed, closure-priority, execution-batch, and cross-Skill integration layer.
+Every planning and review artifact remains `calculation_ready: false`, every
+calculation node remains `executable: false`, and none grants submission
+authority. This release does not claim a successful real reaction study,
+accepted TS/IRC closure, or real PBS/Gaussian validation. Future execution
+still requires exact structure, method, input, resource, server-directory, and
+live approvals.
+
+## 2.4.0 release preparation record
 
 Auto-Gaussian 2.4.0 release metadata was prepared on 2026-07-18 from confirmed
 `origin/main` commit `69222eb40fc4485392c753b240989719fcec56a4`. The immutable
