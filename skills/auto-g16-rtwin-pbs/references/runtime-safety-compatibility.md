@@ -25,6 +25,9 @@ adds `qdel_outcome` and `verification_outcome`; consumers that only branch on
 explicitly report `Unknown Job Id`, and the verification qstat must explicitly
 report `Unknown Job Id`. Every transport, command and parse failure is
 `cleanup_unverified`.
+The additive `scheduler_record_evidence_status` preserves `present`, `absent`
+or `unknown`; `scheduler_record_present` remains `null` when evidence is
+unknown instead of being coerced to false.
 
 ## Fetch migration
 
@@ -50,6 +53,9 @@ snapshot as evidence and choose a new output path. Each attempt also uses a
 unique non-overwriting RTwin snapshot path, so no remote cleanup is required.
 The exact local job record must already be `completed`, `failed` or
 `interrupted`; a live or unknown record cannot be fetched as a final snapshot.
+The local bundle and output paths are inspected before resolution; a symlink in
+the leaf or any existing ancestor is rejected before snapshot creation or any
+transport command.
 
 Successful snapshots contain:
 

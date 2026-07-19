@@ -211,7 +211,7 @@ class RepositoryBaselineTests(unittest.TestCase):
                 "--input-stem",
                 "safe_job",
                 "--local-dir",
-                "/tmp/safe_job",
+                str(Path(tempfile.gettempdir()).resolve() / "safe_job"),
             ]
         )
         self.assertFalse(cleanup_args.confirmed)
@@ -254,6 +254,10 @@ class RepositoryBaselineTests(unittest.TestCase):
             refused_cleanup = PBS.cleanup_zombie_record(cleanup_args)
         self.assertEqual(refused_cleanup["status"], "not_eligible")
         self.assertFalse(refused_cleanup["qdel_issued"])
+        self.assertTrue(refused_cleanup["scheduler_record_present"])
+        self.assertEqual(
+            refused_cleanup["scheduler_record_evidence_status"], "present"
+        )
         run.assert_not_called()
 
         cancel_args = parser.parse_args(["cancel", "--job-id", "123.master"])
@@ -267,8 +271,9 @@ class RepositoryBaselineTests(unittest.TestCase):
     def test_watch_fetch_defaults_to_automatic_zombie_cleanup(self) -> None:
         parser = PBS.build_parser()
         with tempfile.TemporaryDirectory() as temp:
-            local_dir = Path(temp) / "bundle"
-            output_dir = Path(temp) / "results"
+            root = Path(temp).resolve()
+            local_dir = root / "bundle"
+            output_dir = root / "results"
             local_dir.mkdir()
             (local_dir / "job.json").write_text("{}")
             args = parser.parse_args(
@@ -308,13 +313,26 @@ class RepositoryBaselineTests(unittest.TestCase):
                     "fetch_results",
                     return_value={"analysis": {}, "snapshot_complete": True},
                 ),
-                mock.patch.object(PBS, "update_job"),
+                mock.patch.object(PBS, "update_job") as update,
                 mock.patch.object(
                     PBS, "cleanup_zombie_record", return_value=cleanup
                 ) as automatic_cleanup,
             ):
                 PBS.command_watch(args)
             automatic_cleanup.assert_called_once()
+            completion_updates = [
+                call for call in update.call_args_list if "results_fetched" in call.kwargs
+            ]
+            self.assertEqual(len(completion_updates), 1)
+            self.assertTrue(completion_updates[0].kwargs["results_fetched"])
+            self.assertEqual(
+                completion_updates[0].kwargs["fetch_snapshot"],
+                str(output_dir / "transfer.json"),
+            )
+            self.assertEqual(
+                completion_updates[0].kwargs["result_file"],
+                str(output_dir / "result.json"),
+            )
             called_args = automatic_cleanup.call_args.args[0]
             self.assertEqual(called_args.stability_seconds, 10)
             self.assertEqual(called_args.verify_seconds, 5)

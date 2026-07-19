@@ -308,6 +308,27 @@ def validate_transfer_name(name: str) -> str:
     return name
 
 
+def checked_local_path(path: Path, label: str) -> Path:
+    """Return an absolute path only when every existing component is non-symlink."""
+
+    expanded = path.expanduser()
+    if not expanded.is_absolute():
+        expanded = Path.cwd() / expanded
+    absolute = Path(os.path.abspath(str(expanded)))
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            break
+        except OSError as exc:
+            fail(f"cannot inspect {label} path component {current}: {exc}")
+        if stat.S_ISLNK(mode):
+            fail(f"{label} must not contain a symlink: {current}")
+    return absolute
+
+
 def command_detail(result: subprocess.CompletedProcess) -> str | None:
     """Return one bounded diagnostic without turning an error into evidence."""
 
@@ -2455,7 +2476,8 @@ def validate_local_job_binding(
 ) -> dict[str, Any]:
     """Bind a cleanup request to the immutable local job audit record."""
 
-    job_path = local_dir.expanduser().resolve() / "job.json"
+    local_dir = checked_local_path(local_dir, "local job directory")
+    job_path = local_dir / "job.json"
     if not job_path.is_file() or job_path.is_symlink():
         fail(f"local job audit record does not exist: {job_path}")
     try:
@@ -2727,11 +2749,9 @@ def parse_server_fetch_inventory(
 def begin_fetch_snapshot(output_dir: Path, binding: dict[str, str]) -> Path:
     """Reserve one empty local snapshot; partial snapshots remain visibly blocked."""
 
-    expanded = output_dir.expanduser()
-    if expanded.is_symlink():
-        fail("fetch output directory must not be a symlink")
-    output_dir = expanded.resolve()
+    output_dir = checked_local_path(output_dir, "fetch output directory")
     output_dir.parent.mkdir(parents=True, exist_ok=True)
+    output_dir = checked_local_path(output_dir, "fetch output directory")
     if output_dir.exists():
         if not output_dir.is_dir():
             fail("fetch output path already exists and is not a directory")
@@ -2739,6 +2759,7 @@ def begin_fetch_snapshot(output_dir: Path, binding: dict[str, str]) -> Path:
             fail("refusing to mix fetch results with a non-empty or partial target")
     else:
         output_dir.mkdir()
+    output_dir = checked_local_path(output_dir, "fetch output directory")
     marker = output_dir / ".fetch-in-progress"
     try:
         descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
@@ -2763,14 +2784,13 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
     local_dir_value = getattr(args, "local_dir", None)
     if not local_dir_value:
         fail("fetch requires --local-dir with the exact job.json audit bundle")
-    local_dir = Path(local_dir_value).expanduser().resolve()
+    local_dir = checked_local_path(Path(local_dir_value), "fetch local job directory")
     job = validate_local_job_binding(
         local_dir, project, job_id, input_stem, require_fetched=False
     )
     if job.get("status") not in {"completed", "failed", "interrupted"}:
         fail("refusing fetch before the exact local job record is terminal")
     required, optional, expected_hashes = load_fetch_allowlist(local_dir, job, input_stem)
-    output_dir = output_dir.expanduser().resolve()
     snapshot_id = hashlib.sha256(
         f"{project}\0{job_id}\0{input_stem}\0{time.time_ns()}\0{os.getpid()}".encode("utf-8")
     ).hexdigest()[:16]
@@ -2781,6 +2801,7 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         "snapshot_id": snapshot_id,
     }
     marker = begin_fetch_snapshot(output_dir, binding)
+    output_dir = marker.parent
 
     inventory_result = run(
         nested_ssh(args, "bash", "-s"),
@@ -3222,9 +3243,9 @@ def command_tail(args) -> None:
 def command_fetch(args) -> None:
     transfer = fetch_results(args, args.project, Path(args.output_dir))
     if transfer.get("snapshot_complete") is True:
-        output_dir = Path(args.output_dir).expanduser().resolve()
+        output_dir = checked_local_path(Path(args.output_dir), "fetch output directory")
         update_job(
-            Path(args.local_dir).expanduser().resolve(),
+            checked_local_path(Path(args.local_dir), "fetch local job directory"),
             results_fetched=True,
             fetch_snapshot=str(output_dir / "transfer.json"),
             result_file=str(output_dir / "result.json"),
@@ -3235,7 +3256,7 @@ def command_fetch(args) -> None:
 def command_inspect(args) -> None:
     inspection = inspect_job(args, args.project, args.input_stem, args.job_id)
     if args.local_dir:
-        local_dir = Path(args.local_dir).expanduser().resolve()
+        local_dir = checked_local_path(Path(args.local_dir), "inspection local job directory")
         if (local_dir / "job.json").is_file():
             update_job(local_dir, status=inspection["state"], last_inspection=inspection)
     print(json.dumps(inspection, ensure_ascii=False, indent=2))
@@ -3246,8 +3267,8 @@ def command_watch(args) -> None:
         fail("--poll-seconds must be between 2 and 300")
     if not 10 <= args.timeout_seconds <= 7 * 24 * 3600:
         fail("--timeout-seconds must be between 10 seconds and 7 days")
-    local_dir = Path(args.local_dir).expanduser().resolve()
-    output_dir = Path(args.output_dir).expanduser().resolve()
+    local_dir = checked_local_path(Path(args.local_dir), "watch local job directory")
+    output_dir = checked_local_path(Path(args.output_dir), "watch output directory")
     deadline = time.monotonic() + args.timeout_seconds
     previous_stale_signature = None
     stale_repeats = 0
@@ -3294,6 +3315,7 @@ def command_watch(args) -> None:
             status=final["state"],
             last_inspection=final,
             results_fetched=fetch_complete,
+            fetch_snapshot=str(output_dir / "transfer.json") if fetch_complete else None,
             result_file=str(output_dir / "result.json") if fetch_complete else None,
         )
     scheduler_cleanup = None
@@ -3354,7 +3376,7 @@ def diagnose_zombie(args) -> dict[str, Any]:
     input_stem = args.input_stem
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", input_stem):
         fail("invalid input stem")
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    local_dir = checked_local_path(Path(args.local_dir), "zombie local job directory")
     validate_local_job_binding(
         local_dir, project, job_id, input_stem, require_fetched=True
     )
@@ -3372,9 +3394,29 @@ def diagnose_zombie(args) -> dict[str, Any]:
 
 def command_diagnose_zombie(args) -> None:
     diagnosis = diagnose_zombie(args)
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    local_dir = checked_local_path(Path(args.local_dir), "zombie local job directory")
     update_job(local_dir, last_zombie_diagnosis=diagnosis)
     print(json.dumps(diagnosis, ensure_ascii=False, indent=2))
+
+
+def last_scheduler_record_evidence(diagnosis: dict[str, Any]) -> tuple[bool | None, str]:
+    """Preserve the last diagnosis' scheduler-record three-state evidence."""
+
+    observations = diagnosis.get("observations")
+    last = observations[-1] if isinstance(observations, list) and observations else {}
+    if not isinstance(last, dict):
+        return None, "unknown"
+    present = last.get("pbs_record_present")
+    if present is not True and present is not False and present is not None:
+        present = None
+    evidence_status = last.get("pbs_evidence_status")
+    if evidence_status not in {"present", "absent", "unknown"}:
+        evidence_status = (
+            "present" if present is True
+            else "absent" if present is False
+            else "unknown"
+        )
+    return present, evidence_status
 
 
 def cleanup_zombie_record(args) -> dict[str, Any]:
@@ -3383,7 +3425,7 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
     if not 1 <= args.verify_seconds <= 60:
         fail("--verify-seconds must be between 1 and 60")
     diagnosis = diagnose_zombie(args)
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    local_dir = checked_local_path(Path(args.local_dir), "zombie local job directory")
     if diagnosis["classification"] == "self_purged":
         cleanup = {
             "schema": "pbs-zombie-cleanup/1",
@@ -3392,22 +3434,22 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
             "status": "self_purged",
             "qdel_issued": False,
             "scheduler_record_present": False,
+            "scheduler_record_evidence_status": "absent",
             "server_project_files_changed": False,
             "diagnosis": diagnosis,
         }
         update_job(local_dir, last_zombie_diagnosis=diagnosis, scheduler_cleanup=cleanup)
         return cleanup
     if not diagnosis.get("cleanup_eligible"):
+        record_present, evidence_status = last_scheduler_record_evidence(diagnosis)
         cleanup = {
             "schema": "pbs-zombie-cleanup/1",
             "project": args.project,
             "job_id": args.job_id,
             "status": "not_eligible",
             "qdel_issued": False,
-            "scheduler_record_present": bool(
-                diagnosis.get("observations")
-                and diagnosis["observations"][-1].get("pbs_record_present")
-            ),
+            "scheduler_record_present": record_present,
+            "scheduler_record_evidence_status": evidence_status,
             "server_project_files_changed": False,
             "diagnosis": diagnosis,
         }
@@ -3439,6 +3481,7 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
         "verification_returncode": verification["returncode"],
         "verification_error": verification["error"],
         "scheduler_record_present": record_present,
+        "scheduler_record_evidence_status": verification["status"],
         "server_project_files_changed": False,
         "diagnosis": diagnosis,
     }

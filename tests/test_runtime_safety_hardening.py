@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -130,7 +131,8 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
         args = parser.parse_args(
             [
                 "cleanup-zombie", "--project", "safe_job", "--job-id", "123.master",
-                "--input-stem", "safe_job", "--local-dir", "/tmp/safe_job",
+                "--input-stem", "safe_job", "--local-dir",
+                str(Path(tempfile.gettempdir()).resolve() / "safe_job"),
             ]
         )
         diagnosis = {
@@ -177,6 +179,39 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
         self.assertEqual(unverifiable_after_success["status"], "cleanup_unverified")
         self.assertEqual(unverifiable_after_success["qdel_outcome"], "success")
         self.assertEqual(unverifiable_after_success["verification_outcome"], "unknown")
+
+    def test_not_eligible_cleanup_preserves_unknown_scheduler_evidence(self) -> None:
+        parser = PBS.build_parser()
+        args = parser.parse_args(
+            [
+                "cleanup-zombie", "--project", "safe_job", "--job-id", "123.master",
+                "--input-stem", "safe_job", "--local-dir",
+                str(Path(tempfile.gettempdir()).resolve() / "safe_job"),
+            ]
+        )
+        diagnosis = {
+            "schema": "pbs-zombie-diagnosis/1",
+            "project": "safe_job",
+            "job_id": "123.master",
+            "classification": "not_confirmed_zombie",
+            "cleanup_eligible": False,
+            "observations": [
+                {
+                    "pbs_record_present": None,
+                    "pbs_evidence_status": "unknown",
+                }
+            ],
+        }
+        with (
+            mock.patch.object(PBS, "diagnose_zombie", return_value=diagnosis),
+            mock.patch.object(PBS, "update_job"),
+            mock.patch.object(PBS, "run") as run,
+        ):
+            cleanup = PBS.cleanup_zombie_record(args)
+        self.assertEqual(cleanup["status"], "not_eligible")
+        self.assertIsNone(cleanup["scheduler_record_present"])
+        self.assertEqual(cleanup["scheduler_record_evidence_status"], "unknown")
+        run.assert_not_called()
 
     def make_fetch_case(self, root: Path) -> tuple[SimpleNamespace, Path, dict[str, bytes]]:
         local_dir = root / "bundle"
@@ -243,9 +278,131 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             lines.append(f"{name}\t{digest}\t{len(files[name])}")
         return "\n".join(lines) + "\n"
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks are unavailable")
+    def test_fetch_rejects_output_symlink_and_symlink_ancestor_before_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            args, _, _ = self.make_fetch_case(root)
+            real_output = root / "real-output"
+            real_output.mkdir()
+            leaf_link = root / "snapshot-link"
+            leaf_link.symlink_to(real_output, target_is_directory=True)
+            with mock.patch.object(PBS, "run") as run:
+                with self.assertRaises(SystemExit):
+                    PBS.fetch_results(args, "safe_job", leaf_link)
+            run.assert_not_called()
+            self.assertEqual(list(real_output.iterdir()), [])
+
+            real_parent = root / "real-parent"
+            real_parent.mkdir()
+            linked_parent = root / "linked-parent"
+            linked_parent.symlink_to(real_parent, target_is_directory=True)
+            nested_snapshot = linked_parent / "nested-snapshot"
+            with mock.patch.object(PBS, "run") as run:
+                with self.assertRaises(SystemExit):
+                    PBS.fetch_results(args, "safe_job", nested_snapshot)
+            run.assert_not_called()
+            self.assertFalse((real_parent / "nested-snapshot").exists())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks are unavailable")
+    def test_fetch_rejects_local_dir_symlink_before_snapshot_or_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            args, local_dir, _ = self.make_fetch_case(root)
+            local_link = root / "bundle-link"
+            local_link.symlink_to(local_dir, target_is_directory=True)
+            args.local_dir = str(local_link)
+            output = root / "must-not-exist"
+            with mock.patch.object(PBS, "run") as run:
+                with self.assertRaises(SystemExit):
+                    PBS.fetch_results(args, "safe_job", output)
+            run.assert_not_called()
+            self.assertFalse(output.exists())
+
+    def test_fetch_commands_write_results_only_for_complete_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            local_dir = root / "bundle"
+            local_dir.mkdir()
+            output = root / "snapshot"
+            args = SimpleNamespace(
+                project="safe_job",
+                output_dir=str(output),
+                local_dir=str(local_dir),
+            )
+            with (
+                mock.patch.object(
+                    PBS,
+                    "fetch_results",
+                    return_value={"snapshot_complete": False, "analysis": None},
+                ),
+                mock.patch.object(PBS, "update_job") as update,
+            ):
+                PBS.command_fetch(args)
+            update.assert_not_called()
+
+            with (
+                mock.patch.object(
+                    PBS,
+                    "fetch_results",
+                    return_value={"snapshot_complete": True, "analysis": {}},
+                ),
+                mock.patch.object(PBS, "update_job") as update,
+            ):
+                PBS.command_fetch(args)
+            update.assert_called_once()
+            self.assertTrue(update.call_args.kwargs["results_fetched"])
+            self.assertEqual(
+                update.call_args.kwargs["fetch_snapshot"],
+                str(output / "transfer.json"),
+            )
+
+    def test_watch_does_not_record_or_cleanup_incomplete_snapshot(self) -> None:
+        parser = PBS.build_parser()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            local_dir = root / "bundle"
+            output_dir = root / "results"
+            local_dir.mkdir()
+            (local_dir / "job.json").write_text("{}", encoding="utf-8")
+            args = parser.parse_args(
+                [
+                    "watch", "--project", "safe_job", "--job-id", "123.master",
+                    "--input-stem", "safe_job", "--local-dir", str(local_dir),
+                    "--output-dir", str(output_dir), "--fetch",
+                ]
+            )
+            final = {
+                "state": "completed",
+                "pbs_state": "R",
+                "log_size": 100,
+                "log_mtime_epoch": 200,
+                "scheduler_zombie_candidate": True,
+                "analysis": {},
+            }
+            with (
+                mock.patch.object(PBS, "inspect_job", return_value=final),
+                mock.patch.object(
+                    PBS,
+                    "fetch_results",
+                    return_value={"snapshot_complete": False, "analysis": None},
+                ),
+                mock.patch.object(PBS, "update_job") as update,
+                mock.patch.object(PBS, "cleanup_zombie_record") as cleanup,
+            ):
+                PBS.command_watch(args)
+            completion_updates = [
+                call for call in update.call_args_list if "results_fetched" in call.kwargs
+            ]
+            self.assertEqual(len(completion_updates), 1)
+            self.assertFalse(completion_updates[0].kwargs["results_fetched"])
+            self.assertIsNone(completion_updates[0].kwargs["fetch_snapshot"])
+            self.assertIsNone(completion_updates[0].kwargs["result_file"])
+            cleanup.assert_not_called()
+
     def test_fetch_snapshot_selects_exact_log_and_verifies_both_hops(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             args, _, files = self.make_fetch_case(root)
             output = root / "snapshot"
 
@@ -293,7 +450,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
 
     def test_fetch_rejects_old_target_multiple_logs_and_missing_required_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             args, _, files = self.make_fetch_case(root)
             old = root / "old"
             old.mkdir()
@@ -334,7 +491,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
 
     def test_fetch_hash_mismatch_and_partial_transfer_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             args, _, files = self.make_fetch_case(root)
             mismatch = root / "mismatch"
             with mock.patch.object(
