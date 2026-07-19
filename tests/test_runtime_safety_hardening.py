@@ -39,6 +39,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             "transport_classification": "success", "pbs_state": "R", "pbs_record_present": True,
             "log_size": 100, "log_mtime_epoch": 200, "workflow_expected_stages": None,
             "full_normal_termination_count": 1, "full_error_termination_count": 0,
+            "termination_counts_known": True,
             "scheduler_zombie_candidate": True, "interrupted_candidate": False,
             "interruption_proof": None, "analysis": PBS.analyze_log_text(""),
         }

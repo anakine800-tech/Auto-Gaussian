@@ -22,6 +22,8 @@ codes and bounded error summaries make that distinction explicit. Consumers
 must not coerce `null` to false. Unknown evidence cannot establish stale,
 interrupted, self-purged or zombie state. An incomplete log becomes
 `interrupted` only after repeated stable observations plus explicit absence.
+Whole-log normal/error counters must both be known integers; counter parse
+failure is unknown transport/freshness evidence, never an implicit zero.
 
 `pbs-zombie-diagnosis/1` and `pbs-zombie-cleanup/1` are also retained. Cleanup
 adds `qdel_outcome` and `verification_outcome`; consumers that only branch on

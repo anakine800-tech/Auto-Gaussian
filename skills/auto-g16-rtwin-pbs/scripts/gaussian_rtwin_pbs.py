@@ -2844,6 +2844,8 @@ def classify_inspection_state(
 def terminal_log_proven(inspection: dict[str, Any]) -> bool:
     """Return True only when the log proves Gaussian reached a terminal outcome."""
 
+    if inspection.get("termination_counts_known") is not True:
+        return False
     expected = inspection.get("workflow_expected_stages")
     normal_count = int(inspection.get("full_normal_termination_count") or 0)
     error_count = int(inspection.get("full_error_termination_count") or 0)
@@ -3031,6 +3033,7 @@ def validate_terminal_inspection_receipt(
         inspection.get("project") != project or inspection.get("job_id") != job_id
         or inspection.get("freshness") != "fresh"
         or inspection.get("transport_classification") != "success"
+        or inspection.get("termination_counts_known") is not True
         or inspection.get("state") != receipt.get("terminal_state")
     ):
         fail("terminal inspection was not fresh, successful, and exact when captured")
@@ -3039,7 +3042,7 @@ def validate_terminal_inspection_receipt(
             fail("terminal inspection lacks exact terminal log evidence")
     elif receipt["terminal_state"] == "interrupted":
         proof = inspection.get("interruption_proof")
-        if not isinstance(proof, dict) or proof.get("stable_repeats", 0) < 2 or proof.get("stable_duration_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("log_age_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("full_normal_termination_count") != 0 or proof.get("full_error_termination_count") != 0 or any(proof.get(key) is not True for key in ("scheduler_record_absent", "log_signature_stable", "normal_termination_absent")):
+        if not isinstance(proof, dict) or proof.get("stable_repeats", 0) < 2 or proof.get("stable_duration_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("log_age_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("full_normal_termination_count") != 0 or proof.get("full_error_termination_count") != 0 or any(proof.get(key) is not True for key in ("scheduler_record_absent", "log_signature_stable", "normal_termination_absent", "termination_counts_known")):
             fail("interrupted terminal receipt lacks repeated stable absence proof")
     else:
         fail("terminal inspection receipt is not terminal")
@@ -3055,6 +3058,7 @@ def publish_terminal_inspection_receipt(
     if (
         inspection.get("freshness") != "fresh"
         or inspection.get("transport_classification") != "success"
+        or inspection.get("termination_counts_known") is not True
         or inspection.get("evidence_sha256") != canonical_digest({key: value for key, value in inspection.items() if key != "evidence_sha256"})
     ):
         fail("refusing to publish stale, failed, or tampered terminal inspection evidence")
@@ -3063,7 +3067,7 @@ def publish_terminal_inspection_receipt(
             fail("refusing terminal receipt without terminal log evidence")
     elif inspection.get("state") == "interrupted":
         proof = inspection.get("interruption_proof")
-        if not isinstance(proof, dict) or proof.get("stable_repeats", 0) < 2 or proof.get("stable_duration_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("log_age_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("full_normal_termination_count") != 0 or proof.get("full_error_termination_count") != 0 or any(proof.get(key) is not True for key in ("scheduler_record_absent", "log_signature_stable", "normal_termination_absent")):
+        if not isinstance(proof, dict) or proof.get("stable_repeats", 0) < 2 or proof.get("stable_duration_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("log_age_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("full_normal_termination_count") != 0 or proof.get("full_error_termination_count") != 0 or any(proof.get(key) is not True for key in ("scheduler_record_absent", "log_signature_stable", "normal_termination_absent", "termination_counts_known")):
             fail("refusing interrupted terminal receipt without repeated stable proof")
     else:
         fail("refusing terminal receipt for a non-terminal observation")
@@ -3313,7 +3317,8 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
             "local_request_epoch": local_request_epoch, "local_received_epoch": local_received_epoch, "remote_collected_epoch": None,
             "freshness": "unknown", "age_seconds": 0, "transport_classification": "timeout" if result.returncode == 124 else "transport_error",
             "transport_returncode": result.returncode, "pbs_state": None, "log_size": None,
-            "log_mtime_epoch": None, "session_id": None, "evidence_conflict": False,
+            "log_mtime_epoch": None, "session_id": None, "termination_counts_known": False,
+            "evidence_conflict": False,
             "error": command_detail(result) or "snapshot transport failed or timed out",
         }
     try:
@@ -3325,7 +3330,8 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
             "local_request_epoch": local_request_epoch, "local_received_epoch": local_received_epoch, "remote_collected_epoch": None,
             "freshness": "unknown", "age_seconds": 0, "transport_classification": "parse_failed",
             "transport_returncode": result.returncode, "pbs_state": None, "log_size": None,
-            "log_mtime_epoch": None, "session_id": None, "evidence_conflict": False, "error": str(exc),
+            "log_mtime_epoch": None, "session_id": None, "termination_counts_known": False,
+            "evidence_conflict": False, "error": str(exc),
         }
     remote_epoch = snapshot["collected_epoch"]
     if remote_epoch <= 0 or remote_epoch > local_received_epoch + MAX_REMOTE_CLOCK_SKEW_SECONDS:
@@ -3336,7 +3342,8 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
             "remote_collected_epoch": remote_epoch, "freshness": "unknown", "age_seconds": 0,
             "transport_classification": "parse_failed", "transport_returncode": result.returncode,
             "pbs_state": None, "log_size": None, "log_mtime_epoch": None, "session_id": None,
-            "evidence_conflict": True, "error": "remote collection clock is invalid or beyond allowed skew",
+            "termination_counts_known": False, "evidence_conflict": True,
+            "error": "remote collection clock is invalid or beyond allowed skew",
         }
         inspection["evidence_sha256"] = canonical_digest(inspection); return inspection
     qstat_evidence = classify_qstat_evidence(snapshot["qstat"])
@@ -3349,25 +3356,29 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
     analysis = analyze_log_text(snapshot["tail_text"] if snapshot["tail_rc"] == 0 else "")
     stat_match = re.fullmatch(r"(\d+):(\d+)", snapshot["log_stat"])
     size, mtime = (map(int, stat_match.groups()) if stat_match else (None, None))
-    counts_known = re.fullmatch(r"\d+", snapshot["normal_count"]) and re.fullmatch(r"\d+", snapshot["error_count"])
-    normal_count = int(snapshot["normal_count"]) if counts_known else 0
-    error_count = int(snapshot["error_count"]) if counts_known else 0
+    counts_known = bool(
+        re.fullmatch(r"\d+", snapshot["normal_count"])
+        and re.fullmatch(r"\d+", snapshot["error_count"])
+    )
+    normal_count = int(snapshot["normal_count"]) if counts_known else None
+    error_count = int(snapshot["error_count"]) if counts_known else None
     conflict = bool(qstat_evidence["status"] == "present" and qstat_evidence["job_name"] != project)
     state, expected_stages, workflow_complete, workflow_failed = classify_inspection_state(
-        workflow_manifest=workflow_manifest, full_normal_count=normal_count,
-        full_error_count=error_count, analysis=analysis, qstate=qstat_evidence["pbs_state"],
+        workflow_manifest=workflow_manifest, full_normal_count=normal_count or 0,
+        full_error_count=error_count or 0, analysis=analysis, qstate=qstat_evidence["pbs_state"],
         process_alive=process_evidence["process_alive"], pbs_evidence_status=qstat_evidence["status"],
     )
     if conflict or not counts_known: state = "unknown"
     age_seconds = max(0, int(local_received_epoch - remote_epoch))
-    freshness = "fresh" if age_seconds <= 120 else "stale"
+    freshness = "unknown" if not counts_known else ("fresh" if age_seconds <= 120 else "stale")
     if freshness != "fresh": state = "unknown"
     inspection = {
         "schema": "gaussian-job-inspection/2", "project": project, "job_id": job_id,
         "state": state, "collected_at": collected_at, "source": "single_remote_read_only_snapshot",
         "local_request_epoch": local_request_epoch, "local_received_epoch": local_received_epoch,
         "remote_collected_epoch": remote_epoch,
-        "freshness": freshness, "age_seconds": age_seconds, "transport_classification": "success",
+        "freshness": freshness, "age_seconds": age_seconds,
+        "transport_classification": "success" if counts_known else "parse_failed",
         "transport_returncode": result.returncode, "pbs_job_name": qstat_evidence["job_name"],
         "pbs_state": qstat_evidence["pbs_state"], "pbs_record_present": qstat_evidence["record_present"],
         "pbs_evidence_status": qstat_evidence["status"], "process_alive": process_evidence["process_alive"],
@@ -3375,8 +3386,11 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
         "process_evidence_status": process_evidence["status"], "log_size": size,
         "log_mtime_epoch": mtime, "workflow_expected_stages": expected_stages if workflow_manifest else None,
         "full_normal_termination_count": normal_count, "full_error_termination_count": error_count,
-        "interruption_proof": None, "evidence_conflict": conflict, "analysis": analysis,
+        "termination_counts_known": counts_known, "interruption_proof": None,
+        "evidence_conflict": conflict or not counts_known, "analysis": analysis,
     }
+    if not counts_known:
+        inspection["error"] = "whole-log termination counts are malformed or unavailable"
     terminal_proven = terminal_log_proven(inspection)
     inspection.update({
         "scheduler_record_lingering": bool(
@@ -3389,7 +3403,8 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
             and terminal_proven
         ),
         "interrupted_candidate": bool(
-            qstat_evidence["status"] == "absent"
+            counts_known
+            and qstat_evidence["status"] == "absent"
             and size is not None
             and not terminal_proven
         ),
@@ -4937,7 +4952,11 @@ def command_watch(args) -> None:
     while time.monotonic() < deadline:
         inspection = inspect_job(args, args.project, args.input_stem, args.job_id)
         signature = (inspection.get("log_size"), inspection.get("log_mtime_epoch"))
-        if inspection.get("interrupted_candidate") is True and inspection.get("pbs_record_present") is False:
+        if (
+            inspection.get("termination_counts_known") is True
+            and inspection.get("interrupted_candidate") is True
+            and inspection.get("pbs_record_present") is False
+        ):
             same_signature = signature == previous_stale_signature
             stale_repeats = stale_repeats + 1 if same_signature else 1
             if not same_signature: stable_since_epoch = time.time()
@@ -4945,7 +4964,7 @@ def command_watch(args) -> None:
             now_epoch = time.time()
             stable_duration = 0 if stable_since_epoch is None else max(0, now_epoch - stable_since_epoch)
             log_age = 0 if inspection.get("log_mtime_epoch") is None else max(0, now_epoch - inspection["log_mtime_epoch"])
-            if stale_repeats >= 2 and stable_duration >= MIN_INTERRUPTION_STABLE_SECONDS and log_age >= MIN_INTERRUPTION_STABLE_SECONDS and not terminal_log_proven(inspection):
+            if stale_repeats >= 2 and stable_duration >= MIN_INTERRUPTION_STABLE_SECONDS and log_age >= MIN_INTERRUPTION_STABLE_SECONDS and inspection.get("termination_counts_known") is True and not terminal_log_proven(inspection):
                 inspection["state"] = "interrupted"
                 inspection["note"] = (
                     "explicit scheduler-record absence and a stable incomplete log prove interruption"
@@ -4955,6 +4974,7 @@ def command_watch(args) -> None:
                     "scheduler_record_absent": inspection.get("pbs_record_present") is False,
                     "log_signature_stable": True,
                     "normal_termination_absent": not terminal_log_proven(inspection),
+                    "termination_counts_known": True,
                     "stable_duration_seconds": stable_duration,
                     "log_age_seconds": log_age,
                     "full_normal_termination_count": inspection.get("full_normal_termination_count"),

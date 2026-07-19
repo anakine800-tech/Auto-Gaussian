@@ -151,6 +151,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             "transport_classification": "success", "pbs_state": pbs_state,
             "pbs_record_present": pbs_present, "log_size": 100, "log_mtime_epoch": mtime,
             "full_normal_termination_count": normal, "full_error_termination_count": error,
+            "termination_counts_known": True,
             "workflow_expected_stages": None, "interrupted_candidate": candidate,
             "interruption_proof": None, "analysis": {
                 "normal_termination": False, "error_termination": False,
@@ -393,7 +394,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             RESOURCE.record_monitor_observation(path, attempt_id=attempt["attempt_id"], project="safejob", observation=conflict, job_id="123.master")
             ledger = RESOURCE.load(path); self.assertEqual(ledger["attempts"][0]["state"], "running")
             self.assertEqual(ledger["events"][-1]["details"]["reconciliation_classification"], "conflict_unknown")
-            interrupted = {"collected_at": "2026-01-01T00:11:00Z", "source": "repeated stable exact interruption proof", "freshness": "fresh", "age_seconds": 0, "transport_classification": "success", "state": "interrupted", "interruption_proof": {"stable_repeats": 2, "scheduler_record_absent": True, "log_signature_stable": True, "normal_termination_absent": True, "stable_duration_seconds": 60, "log_age_seconds": 60, "full_normal_termination_count": 0, "full_error_termination_count": 0}, "evidence_sha256": "1" * 64}
+            interrupted = {"collected_at": "2026-01-01T00:11:00Z", "source": "repeated stable exact interruption proof", "freshness": "fresh", "age_seconds": 0, "transport_classification": "success", "state": "interrupted", "interruption_proof": {"stable_repeats": 2, "scheduler_record_absent": True, "log_signature_stable": True, "normal_termination_absent": True, "termination_counts_known": True, "stable_duration_seconds": 60, "log_age_seconds": 60, "full_normal_termination_count": 0, "full_error_termination_count": 0}, "evidence_sha256": "1" * 64}
             RESOURCE.record_monitor_observation(path, attempt_id=attempt["attempt_id"], project="safejob", observation=interrupted, job_id="123.master")
             ledger = RESOURCE.load(path); self.assertEqual(ledger["attempts"][0]["state"], "failed")
             self.assertFalse(ledger["events"][-2]["details"]["scientific_conclusion_changed"])
@@ -541,6 +542,48 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             self.assertEqual(receipt["inspection"]["full_normal_termination_count"], 1)
             self.assertTrue(PBS.read_job_state(local_dir)["results_fetched"])
             self.assertEqual(RESOURCE.load(ledger_path)["attempts"][0]["state"], "completed")
+
+    def test_malformed_whole_log_count_never_interrupts_or_releases_attempt(self):
+        def b64(text):
+            return base64.b64encode(text.encode()).decode()
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            ledger_path, attempt, local_dir = self.make_submitted_bundle(root)
+            config = root / "ssh_config"; config.write_text("Host rtwin\n")
+            args = self.watch_args(root, ledger_path, attempt["attempt_id"])
+            args.timeout_seconds = 70
+            args.mac_ssh_config = str(config); args.rtwin_alias = "rtwin"
+            args.windows_server_config = "cfg"; args.server_alias = "server"
+            now_epoch = int(time.time())
+            framed = "\n".join([
+                f"COLLECTED_EPOCH\t{now_epoch}", "QSTAT_RC\t153",
+                "QSTAT_B64\t" + b64("qstat: Unknown Job Id 123.master\n"),
+                "PROCESS_RC\t125", "PROCESS_B64\t", "MANIFEST_RC\t1", "MANIFEST_B64\t",
+                "TAIL_RC\t0", "TAIL_B64\t" + b64("SCF Done: E(RHF) = -1.0\n"),
+                f"LOG_STAT\t100:{now_epoch - 120}", "NORMAL_COUNT\tnot-an-int", "ERROR_COUNT\t0",
+            ]) + "\n"
+            result = subprocess.CompletedProcess([], 0, framed, "")
+
+            with mock.patch.object(PBS, "run_read_only", return_value=result):
+                inspection = PBS.inspect_job(args, "safejob", "input", "123.master")
+            self.assertFalse(inspection["termination_counts_known"])
+            self.assertEqual(inspection["transport_classification"], "parse_failed")
+            self.assertEqual(inspection["freshness"], "unknown")
+            self.assertEqual(inspection["state"], "unknown")
+            self.assertFalse(inspection["interrupted_candidate"])
+            self.assertIsNone(inspection["full_normal_termination_count"])
+
+            with mock.patch.object(PBS, "run_read_only", return_value=result) as snapshots, \
+                 mock.patch.object(PBS.time, "monotonic", side_effect=[0, 0, 61, 71]), \
+                 mock.patch.object(PBS.time, "sleep"), self.assertRaises(SystemExit):
+                PBS.command_watch(args)
+            self.assertEqual(snapshots.call_count, 2)
+            self.assertFalse((local_dir / "terminal-inspection.json").exists())
+            ledger = RESOURCE.load(ledger_path)
+            current = next(item for item in ledger["attempts"] if item["attempt_id"] == attempt["attempt_id"])
+            self.assertEqual(current["state"], "submitted")
+            self.assertEqual(ledger["tasks"][0]["state"], "submitted")
 
     def test_transient_absence_and_stale_present_record_never_interrupt_or_release(self):
         with tempfile.TemporaryDirectory() as temp:

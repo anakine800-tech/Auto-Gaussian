@@ -50,7 +50,9 @@ acceptance or automatic retry. Interruption needs explicit scheduler absence,
 stable log identity, no whole-log terminal marker, and at least a 60-second
 stable/log-age window. A still-present stale PBS record never proves
 interruption. Whole-log normal/error counts determine terminal state even when
-the marker lies outside the 500-line tail.
+the marker lies outside the 500-line tail. Both counters must be parsed known
+integers; missing or malformed counts stay unknown and cannot release resource
+occupancy or publish a terminal receipt.
 
 After reservation, immutable intent/approval-consumption publication, checksum
 rewrite, local job update, and verification remain inside the pre-network

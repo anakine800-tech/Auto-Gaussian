@@ -865,14 +865,16 @@ def validate_monitor_observation(observation: dict[str, Any]) -> dict[str, Any]:
     if observation["state"] == "interrupted":
         proof = _exact(observation["interruption_proof"], {
             "stable_repeats", "scheduler_record_absent", "log_signature_stable", "normal_termination_absent",
-            "stable_duration_seconds", "log_age_seconds", "full_normal_termination_count", "full_error_termination_count",
+            "termination_counts_known", "stable_duration_seconds", "log_age_seconds",
+            "full_normal_termination_count", "full_error_termination_count",
         }, "interruption proof")
         if (
             _number(proof["stable_repeats"], "stable_repeats", integer=True) < 2
             or _number(proof["stable_duration_seconds"], "stable_duration_seconds") < 60
             or _number(proof["log_age_seconds"], "log_age_seconds") < 60
             or proof["full_normal_termination_count"] != 0 or proof["full_error_termination_count"] != 0
-            or proof["scheduler_record_absent"] is not True or proof["log_signature_stable"] is not True or proof["normal_termination_absent"] is not True
+            or proof["scheduler_record_absent"] is not True or proof["log_signature_stable"] is not True
+            or proof["normal_termination_absent"] is not True or proof["termination_counts_known"] is not True
         ):
             raise ResourceError("interrupted state requires repeated stable exact absence evidence")
     elif observation["interruption_proof"] is not None:

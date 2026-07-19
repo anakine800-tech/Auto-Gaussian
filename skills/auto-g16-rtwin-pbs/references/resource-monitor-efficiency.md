@@ -63,7 +63,11 @@ record absence, unchanged log metadata, zero whole-log terminal counts, and a
 minimum 60-second stable/log-age window. A still-present `R` record is stale or
 zombie evidence, never interruption. Whole-log error count has terminal
 precedence over normal count when no workflow manifest exists, even if the
-marker is outside the 500-line tail.
+marker is outside the 500-line tail. Both whole-log counters must parse as
+known integers. A missing or malformed counter emits
+`termination_counts_known=false`, `transport_classification=parse_failed`, and
+unknown freshness/state; it cannot authorize a terminal receipt, interruption,
+ledger reconciliation, or scheduler-zombie cleanup.
 
 Completed/failed/interrupted fetch authorization comes from an immutable,
 hash-sealed terminal inspection receipt bound to exact project, scheduler job,
