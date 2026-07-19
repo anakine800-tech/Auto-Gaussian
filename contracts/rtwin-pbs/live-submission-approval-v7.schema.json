@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/live-submission-approval-v7.schema.json",
+  "title": "Auto-G16 one-time open-shell minimum live submission approval v7",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "approval_id", "approver_identity", "approved_at", "expires_at", "decision", "explicit_confirmation", "scope", "revocation", "consumption", "authorizations"],
+  "properties": {
+    "schema": {"const": "auto-g16-live-submission-approval/7"},
+    "approval_id": {"type": "string", "minLength": 1},
+    "approver_identity": {"type": "string", "minLength": 1},
+    "approved_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "decision": {"const": "approved"},
+    "explicit_confirmation": {"const": true},
+    "scope": {"$ref": "#/$defs/scope"},
+    "revocation": {"$ref": "#/$defs/revocation"},
+    "consumption": {"$ref": "#/$defs/consumption"},
+    "authorizations": {"$ref": "#/$defs/authorizations"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sha256"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["batch_id", "review_sha256", "scientific_task_id", "attempt_id", "idempotency_key", "estimated_core_hours", "estimated_core_hours_evidence"],
+      "properties": {
+        "batch_id": {"type": "string", "minLength": 1},
+        "review_sha256": {"$ref": "#/$defs/sha"},
+        "scientific_task_id": {"type": "string", "pattern": "^scientific-task-[a-f0-9]{64}$"},
+        "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$"},
+        "idempotency_key": {"type": "string", "minLength": 1},
+        "estimated_core_hours": {"type": "number", "minimum": 0},
+        "estimated_core_hours_evidence": {"$ref": "#/$defs/evidence"}
+      }
+    },
+    "inputApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "sha256", "payload_sha256", "input_sha256", "work_kind"],
+      "properties": {
+        "schema": {"const": "gaussian-input-approval-receipt/2"},
+        "sha256": {"$ref": "#/$defs/sha"},
+        "payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "work_kind": {"const": "minimum"}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_tier", "mem_gb", "cores"],
+      "properties": {
+        "resource_tier": {"type": "string", "minLength": 1},
+        "mem_gb": {"type": "integer", "minimum": 1},
+        "cores": {"type": "integer", "minimum": 1, "maximum": 44}
+      }
+    },
+    "openShellOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "workflow", "electronic_state_review_payload_sha256", "input_handoff_payload_sha256", "input_audit_payload_sha256", "selected_option_payload_sha256", "input_sha256", "exact_route", "charge", "multiplicity", "reference_family", "resources", "owner_replay_passed"],
+      "properties": {
+        "owner": {"const": "auto-g16-main-group-open-shell"},
+        "workflow": {"const": "main_group_open_shell_minimum_opt_freq_v1"},
+        "electronic_state_review_payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_handoff_payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_audit_payload_sha256": {"$ref": "#/$defs/sha"},
+        "selected_option_payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "exact_route": {"type": "string", "minLength": 1},
+        "charge": {"type": "integer"},
+        "multiplicity": {"enum": [2, 3]},
+        "reference_family": {"enum": ["U", "RO"]},
+        "resources": {"$ref": "#/$defs/resources"},
+        "owner_replay_passed": {"const": true}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "remote_workdir", "input_sha256", "route", "mem", "nprocshared", "charge", "multiplicity", "work_kind", "input_approval", "open_shell_owner", "operation", "execution"],
+      "properties": {
+        "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "remote_workdir": {"type": "string", "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "route": {"type": "string", "minLength": 1},
+        "mem": {"type": "string", "minLength": 1},
+        "nprocshared": {"type": "integer", "minimum": 1, "maximum": 44},
+        "charge": {"type": "integer"},
+        "multiplicity": {"enum": [2, 3]},
+        "work_kind": {"const": "minimum"},
+        "input_approval": {"$ref": "#/$defs/inputApproval"},
+        "open_shell_owner": {"$ref": "#/$defs/openShellOwner"},
+        "operation": {"const": "submit"},
+        "execution": {"$ref": "#/$defs/execution"}
+      }
+    },
+    "revocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revoked", "revoked_at", "reason"],
+      "properties": {"revoked": {"const": false}, "revoked_at": {"type": "null"}, "reason": {"type": "null"}}
+    },
+    "consumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["single_use", "consumed"],
+      "properties": {"single_use": {"const": true}, "consumed": {"const": false}}
+    },
+    "authorizations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["create_server_directory", "submit", "retry", "cancel", "cleanup", "delete_server_data"],
+      "properties": {
+        "create_server_directory": {"const": true},
+        "submit": {"const": true},
+        "retry": {"const": false},
+        "cancel": {"const": false},
+        "cleanup": {"const": false},
+        "delete_server_data": {"const": false}
+      }
+    }
+  }
+}

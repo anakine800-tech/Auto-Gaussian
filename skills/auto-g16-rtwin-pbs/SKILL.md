@@ -88,17 +88,23 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
    consumed by this input, human-confirmed route/method/basis/solvent/SCF
    mapping, resources, identity and input SHA-256. It never claims whole-family
    completion and grants no live authority. For ordinary or closed-shell
-   minimum work, record a new `auto-g16-live-submission-approval/3` that binds
-   generic receipt `/1`. For one main-group open-shell minimum, only a separate
-   closed `auto-g16-live-submission-approval/4` may bind a fully owner-replayed
+   minimum work, historical replay uses `auto-g16-live-submission-approval/3`;
+   every new protected submit uses its time-bounded, one-time `/6` successor.
+   For one main-group open-shell minimum, historical replay uses the separate
+   closed `auto-g16-live-submission-approval/4`, while a new protected submit
+   uses `/7`, to bind a fully owner-replayed
    receipt `/2`, its exact file/payload/input hashes, open-shell owner workflow,
    state-review/handoff/audit/selected-option payloads, U/RO reference,
    resource tier and replay result. `/3` semantics are unchanged, and receipt
    `/2` itself remains `calculation_ready: false` with
    `no_submission_authorization: true`. A checkpoint-bound two-stage open-shell
    minimum instead requires one exact
-   `gaussian-input-approval-receipt/3` and one closed live approval `/5` per
-   stage. The stability receipt additionally binds the accepted Opt/Freq final
+   `gaussian-input-approval-receipt/3`; historical replay uses one closed live
+   approval `/5` per stage and new protected submit uses `/8`. `/6`-`/8`
+   require approver identity, approved/expires timestamps, active revocation
+   state, a one-time approval ID, and exact batch/task/attempt/idempotency
+   binding. Old approvals without those fields cannot enter a new submit. The
+   stability receipt additionally binds the accepted Opt/Freq final
    checkpoint and owner manifest. A prior failed combined input uses family
    handoff `/1`; a fresh prospective family uses `/2` and explicitly carries no
    prior-failure hash. This does not extend receipt `/2` or live `/4`.
@@ -127,7 +133,13 @@ AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
   --project example --local-dir /path/to/outputs/example \
   --work-kind minimum \
   --input-approval-record /path/to/exact-input-approval.json \
-  --approval-record /path/to/live-submission-approval-v3-or-v4.json \
+  --approval-record /path/to/time-bounded-live-approval-v6-v7-or-v8.json \
+  --execution-batch-ledger /path/to/execution-batch-v2.json \
+  --scientific-task-id scientific-task-<sha256> \
+  --idempotency-key operator-attempt-key \
+  --estimated-core-hours 8 \
+  --estimated-core-hours-evidence-source reviewed-estimate-record \
+  --estimated-core-hours-evidence-sha256 <sha256> \
   --confirmed --watch
 ```
 
@@ -169,10 +181,15 @@ Use `scripts/execution_batch.py` and
 [references/execution-batch-governance.md](references/execution-batch-governance.md)
 when several reviewed calculations share one operator batch. One immutable
 `gaussian-execution-batch-review/1` initializes one persistent,
-hash-bound `gaussian-execution-batch/1` ledger with a hard limit of ten
+hash-bound `gaussian-execution-batch/1` planning ledger with a hard limit of ten
 distinct scientific tasks. A task identity binds structure, chemical
 hypothesis, method/protocol, calculation objective and relevant input hashes;
 filenames, PBS names, aliases, splits and retries cannot reset the cap.
+
+Before a new live submit, explicitly migrate an attempt-free or definitively
+negative `/1` ledger to `gaussian-execution-batch/2`. `/2` binds evidence
+source/SHA-256 for estimated and observed core-hours and reserves the package-4
+hard-budget/concurrency interface without implementing those gates here.
 
 Reserve each physical attempt atomically before qsub. The reservation begins
 as `submission_uncertain` and remains counted and blocks another attempt until
@@ -192,6 +209,16 @@ overlay requires the immutable review and ledger task sets to equal the
 selected closure calculation nodes and preserves the ten-task cap. This is an
 offline planning binding only; every attempt still needs the ordinary exact
 input review, dependency evidence, and a fresh live approval.
+
+Real `submit` requires the `/2` ledger, stable task ID, idempotency key,
+estimated core-hours and its evidence source/hash. It reserves under lock
+before any SSH/SCP/qsub, claims the server project with one atomic `mkdir`
+(pre-existing empty directories are refused), uploads exact hashes, and
+publishes immutable local/remote receipts. Ambiguous qsub output remains
+`submission_uncertain`; never rerun qsub. `reconcile-submission` reads only
+remote intent/receipt and exact qstat bindings. One unique match backfills the
+job ID; zero or multiple matches stay closed unless absence of the atomic
+project directory proves qsub was never reachable.
 
 ## Opt-Freq-single-point workflow
 
@@ -256,7 +283,10 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
   --output-dir /path/to/results
 ```
 
-Run `cancel --confirmed` only after the user explicitly identifies the job to stop. Cancellation never authorizes file deletion.
+Active cancellation does not rely on `--confirmed`. It requires a fresh
+`auto-g16-exact-cancellation-approval/1` binding approver/time/project/job ID,
+current local job-state hash and exact attempt hash, then consumes it into one
+immutable receipt. Cancellation never authorizes retry, cleanup or deletion.
 
 ## PBS zombie records
 
@@ -302,8 +332,9 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/protocol_selection.py`: standard-library-only three-tier proposal,
   explicit selection, hash verification and offline input-draft authorization.
 - `scripts/execution_batch.py`: standard-library-only locked execution-batch
-  ledger, stable scientific-task identity, cap/attempt/core-hour accounting,
-  retry classification and read-only monitoring summaries.
+  ledger, explicit `/1` to `/2` migration, stable scientific-task identity,
+  evidence-bound core-hour accounting, retry classification and read-only
+  monitoring summaries.
 - `scripts/gaussian_auto.py`: exact-input approval gate and one-command
   submission through analyzed results; raw structure-to-method preparation is
   intentionally unsupported.

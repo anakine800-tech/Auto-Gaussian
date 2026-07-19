@@ -18,6 +18,7 @@ from typing import Any, Iterator
 
 
 BATCH_SCHEMA = "gaussian-execution-batch/1"
+BATCH_V2_SCHEMA = "gaussian-execution-batch/2"
 REVIEW_SCHEMA = "gaussian-execution-batch-review/1"
 MAX_DISTINCT_TASKS = 10
 DEFAULT_SUMMARY_CADENCE_MINUTES = 60
@@ -150,6 +151,25 @@ def validate_identity(identity: Any) -> dict[str, str]:
 def scientific_task_id(identity: dict[str, str]) -> str:
     validated = validate_identity(identity)
     return "scientific-task-" + digest_value(validated)
+
+
+def attempt_id_for(batch_id: str, idempotency_key: str) -> str:
+    """Return the stable physical-attempt identity before any reservation write."""
+
+    _require_string(batch_id, "batch_id")
+    _require_string(idempotency_key, "idempotency_key")
+    return "qsub-attempt-" + hashlib.sha256(
+        f"{batch_id}\0{idempotency_key}".encode("utf-8")
+    ).hexdigest()
+
+
+def validate_evidence(value: Any, label: str) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != {"source", "sha256"}:
+        raise BatchError(f"{label} must contain exactly source and sha256")
+    return {
+        "source": _require_string(value["source"], f"{label}.source"),
+        "sha256": _require_sha(value["sha256"], f"{label}.sha256"),
+    }
 
 
 def finalize_review(document: dict[str, Any]) -> dict[str, Any]:
@@ -647,6 +667,464 @@ def reconcile_attempt(
     return _mutate(ledger_path, change)[0]
 
 
+def _calculate_v2_counters(ledger: dict[str, Any]) -> dict[str, Any]:
+    assumed_physical = [
+        attempt for attempt in ledger["attempts"]
+        if attempt["state"] != "reconciled_not_submitted"
+    ]
+    return {
+        "distinct_scientific_tasks": len(ledger["tasks"]),
+        "physical_qsub_attempts": len(assumed_physical),
+        "estimated_core_hours": round(
+            sum(float(item["estimated_core_hours"]) for item in assumed_physical), 12
+        ),
+        "consumed_core_hours": round(
+            sum(float(item["consumed_core_hours"] or 0) for item in ledger["attempts"]), 12
+        ),
+    }
+
+
+def _seal_v2(ledger: dict[str, Any]) -> dict[str, Any]:
+    ledger["counters"] = _calculate_v2_counters(ledger)
+    ledger["ledger_sha256"] = digest_value(_without(ledger, "ledger_sha256"))
+    return ledger
+
+
+def validate_submission_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
+    """Validate the execution ledger required by every new live submit."""
+
+    required = {
+        "schema", "batch", "revision", "created_at", "tasks", "attempts", "events",
+        "counters", "resource_policy_interface", "calculation_ready",
+        "no_submission_authorization", "ledger_sha256",
+    }
+    if set(ledger) != required or ledger.get("schema") != BATCH_V2_SCHEMA:
+        raise BatchError(f"protected submission requires a closed {BATCH_V2_SCHEMA} ledger")
+    if ledger["calculation_ready"] is not False or ledger["no_submission_authorization"] is not True:
+        raise BatchError("execution ledger must remain non-authorizing")
+    batch = ledger["batch"]
+    if not isinstance(batch, dict) or set(batch) != {
+        "batch_id", "review_id", "review_sha256", "max_distinct_scientific_tasks"
+    }:
+        raise BatchError("submission ledger batch identity is malformed")
+    _require_string(batch["batch_id"], "batch.batch_id")
+    _require_string(batch["review_id"], "batch.review_id")
+    _require_sha(batch["review_sha256"], "batch.review_sha256")
+    if batch["max_distinct_scientific_tasks"] != MAX_DISTINCT_TASKS:
+        raise BatchError("submission ledger batch cap changed")
+    if not isinstance(ledger["revision"], int) or ledger["revision"] < 0:
+        raise BatchError("submission ledger revision must be non-negative")
+    parse_time(ledger["created_at"])
+    interface = ledger["resource_policy_interface"]
+    if interface != {
+        "schema": "gaussian-execution-resource-policy-hook/1",
+        "owner": "auto-g16-package-4",
+        "status": "interface_reserved_not_enforced_by_package_2",
+        "hard_budget_gate_implemented": False,
+        "concurrency_resource_gate_implemented": False,
+    }:
+        raise BatchError("package-4 resource-policy interface changed")
+    if not isinstance(ledger["tasks"], list) or len(ledger["tasks"]) > MAX_DISTINCT_TASKS:
+        raise BatchError("submission ledger task cap exceeded")
+    task_ids: set[str] = set()
+    for task in ledger["tasks"]:
+        if not isinstance(task, dict) or set(task) != {
+            "scientific_task_id", "identity", "state", "admitted_at", "admitted_by",
+            "admission_reason", "initial_estimated_core_hours",
+            "initial_estimated_core_hours_evidence",
+        }:
+            raise BatchError("submission ledger task has unknown or missing fields")
+        identity = validate_identity(task["identity"])
+        task_id = scientific_task_id(identity)
+        if task["scientific_task_id"] != task_id or task_id in task_ids:
+            raise BatchError("submission ledger task identity is duplicated or inconsistent")
+        task_ids.add(task_id)
+        if task["state"] not in TASK_STATES:
+            raise BatchError("invalid submission-ledger task state")
+        parse_time(task["admitted_at"])
+        _require_string(task["admitted_by"], "admitted_by")
+        _require_string(task["admission_reason"], "admission_reason")
+        _core_hours(task["initial_estimated_core_hours"], "initial_estimated_core_hours")
+        validate_evidence(
+            task["initial_estimated_core_hours_evidence"],
+            "initial_estimated_core_hours_evidence",
+        )
+    attempt_ids: set[str] = set()
+    idempotency_keys: set[str] = set()
+    approval_hashes: set[str] = set()
+    approval_ids: set[str] = set()
+    for attempt in ledger["attempts"]:
+        if not isinstance(attempt, dict) or set(attempt) != {
+            "attempt_id", "scientific_task_id", "idempotency_key", "state",
+            "project", "job_name", "remote_workdir", "input_sha256",
+            "live_approval_id", "live_approval_sha256", "estimated_core_hours",
+            "estimated_core_hours_evidence", "consumed_core_hours",
+            "consumed_core_hours_evidence", "reserved_at", "updated_at",
+            "scheduler_reference", "reconciliation_evidence", "audit_reason",
+            "resource_gate",
+        }:
+            raise BatchError("submission attempt has unknown or missing fields")
+        attempt_id = _require_string(attempt["attempt_id"], "attempt_id")
+        key = _require_string(attempt["idempotency_key"], "idempotency_key")
+        if attempt_id in attempt_ids or key in idempotency_keys:
+            raise BatchError("attempt or idempotency key is duplicated")
+        attempt_ids.add(attempt_id)
+        idempotency_keys.add(key)
+        if attempt["scientific_task_id"] not in task_ids:
+            raise BatchError("attempt refers to an unreviewed task")
+        if attempt["state"] not in ATTEMPT_STATES:
+            raise BatchError("invalid submission attempt state")
+        project = _require_string(attempt["project"], "project")
+        if attempt["job_name"] != project:
+            raise BatchError("job_name must exactly equal the reviewed project")
+        if attempt["remote_workdir"] != f"/home/user100/SDL/{project}":
+            raise BatchError("attempt remote_workdir is outside the fixed server root")
+        _require_sha(attempt["input_sha256"], "attempt input_sha256")
+        approval_id = _require_string(attempt["live_approval_id"], "live_approval_id")
+        approval_hash = _require_sha(attempt["live_approval_sha256"], "live_approval_sha256")
+        if approval_id in approval_ids or approval_hash in approval_hashes:
+            raise BatchError("one-time live approval ID/hash must be unique per attempt")
+        approval_ids.add(approval_id)
+        approval_hashes.add(approval_hash)
+        _core_hours(attempt["estimated_core_hours"], "estimated_core_hours")
+        validate_evidence(attempt["estimated_core_hours_evidence"], "estimated_core_hours_evidence")
+        if attempt["consumed_core_hours"] is None:
+            if attempt["consumed_core_hours_evidence"] is not None:
+                raise BatchError("consumed evidence requires an observed consumed_core_hours value")
+        else:
+            _core_hours(attempt["consumed_core_hours"], "consumed_core_hours")
+            validate_evidence(attempt["consumed_core_hours_evidence"], "consumed_core_hours_evidence")
+        parse_time(attempt["reserved_at"])
+        parse_time(attempt["updated_at"])
+        scheduler_reference = attempt["scheduler_reference"]
+        if attempt["state"] in {"submitted", "queued", "running", "completed", "failed"}:
+            _require_string(scheduler_reference, "scheduler_reference")
+        elif scheduler_reference is not None:
+            _require_string(scheduler_reference, "scheduler_reference")
+        if attempt["state"] == "submission_uncertain":
+            if attempt["reconciliation_evidence"] is not None:
+                validate_evidence(attempt["reconciliation_evidence"], "reconciliation_evidence")
+        elif attempt["reconciliation_evidence"] is None:
+            raise BatchError("resolved attempt requires hash-bound reconciliation evidence")
+        else:
+            validate_evidence(attempt["reconciliation_evidence"], "reconciliation_evidence")
+        _require_string(attempt["audit_reason"], "audit_reason")
+        if attempt["resource_gate"] != {
+            "schema": "gaussian-execution-resource-gate/1",
+            "owner": "auto-g16-package-4",
+            "status": "not_evaluated_by_package_2",
+        }:
+            raise BatchError("attempt resource-gate interface changed")
+    if not isinstance(ledger["events"], list):
+        raise BatchError("events must be an array")
+    previous: str | None = None
+    for index, event in enumerate(ledger["events"], start=1):
+        if not isinstance(event, dict) or set(event) != {
+            "sequence", "event_type", "timestamp", "important",
+            "previous_event_sha256", "details", "event_sha256",
+        }:
+            raise BatchError("submission-ledger event is malformed")
+        if event["sequence"] != index or event["previous_event_sha256"] != previous:
+            raise BatchError("submission-ledger event chain is discontinuous")
+        if event["event_sha256"] != digest_value(_without(event, "event_sha256")):
+            raise BatchError("submission-ledger event hash mismatch")
+        previous = event["event_sha256"]
+        parse_time(event["timestamp"])
+    if ledger["counters"] != _calculate_v2_counters(ledger):
+        raise BatchError("submission-ledger counters do not match records")
+    if ledger["ledger_sha256"] != digest_value(_without(ledger, "ledger_sha256")):
+        raise BatchError("submission-ledger hash mismatch")
+    return ledger
+
+
+def migrate_to_submission_ledger(
+    ledger_path: Path,
+    *,
+    migrated_at: str,
+    migration_source: str,
+) -> dict[str, Any]:
+    """Upgrade a valid /1 ledger to /2 without changing its scientific identity."""
+
+    parse_time(migrated_at)
+    source = _require_string(migration_source, "migration_source")
+    with _locked(ledger_path):
+        raw = load_json(ledger_path)
+        if raw.get("schema") == BATCH_V2_SCHEMA:
+            return validate_submission_ledger(raw)
+        legacy = validate_ledger(raw)
+        upgraded = copy.deepcopy(legacy)
+        upgraded["schema"] = BATCH_V2_SCHEMA
+        upgraded["resource_policy_interface"] = {
+            "schema": "gaussian-execution-resource-policy-hook/1",
+            "owner": "auto-g16-package-4",
+            "status": "interface_reserved_not_enforced_by_package_2",
+            "hard_budget_gate_implemented": False,
+            "concurrency_resource_gate_implemented": False,
+        }
+        for task in upgraded["tasks"]:
+            task["initial_estimated_core_hours_evidence"] = {
+                "source": source,
+                "sha256": digest_value({
+                    "legacy_schema": BATCH_SCHEMA,
+                    "scientific_task_id": task["scientific_task_id"],
+                    "initial_estimated_core_hours": task["initial_estimated_core_hours"],
+                }),
+            }
+        for attempt in upgraded["attempts"]:
+            if attempt["state"] != "reconciled_not_submitted":
+                raise BatchError(
+                    "legacy ledger with a physical or uncertain attempt cannot be auto-migrated; "
+                    "preserve it for historical replay and create a reviewed /2 batch"
+                )
+            attempt.update({
+                "project": "legacy_unbound",
+                "job_name": "legacy_unbound",
+                "remote_workdir": "/home/user100/SDL/legacy_unbound",
+                "live_approval_id": "legacy-" + attempt["attempt_id"],
+                "estimated_core_hours_evidence": {
+                    "source": source,
+                    "sha256": digest_value({
+                        "attempt_id": attempt["attempt_id"],
+                        "estimated_core_hours": attempt["estimated_core_hours"],
+                    }),
+                },
+                "consumed_core_hours_evidence": None,
+                "reconciliation_evidence": {
+                    "source": source,
+                    "sha256": digest_value({
+                        "attempt_id": attempt["attempt_id"],
+                        "state": "reconciled_not_submitted",
+                    }),
+                },
+                "resource_gate": {
+                    "schema": "gaussian-execution-resource-gate/1",
+                    "owner": "auto-g16-package-4",
+                    "status": "not_evaluated_by_package_2",
+                },
+            })
+        upgraded["revision"] += 1
+        _append_event(
+            upgraded,
+            "ledger_migrated_to_v2",
+            {"from_schema": BATCH_SCHEMA, "source": source},
+            timestamp=migrated_at,
+            important=True,
+        )
+        _seal_v2(upgraded)
+        validate_submission_ledger(upgraded)
+        _atomic_write(ledger_path, upgraded)
+        return upgraded
+
+
+def _mutate_v2(ledger_path: Path, callback: Any) -> Any:
+    with _locked(ledger_path):
+        ledger = validate_submission_ledger(load_json(ledger_path))
+        original_batch = copy.deepcopy(ledger["batch"])
+        result = callback(ledger)
+        if ledger["batch"] != original_batch:
+            raise BatchError("immutable reviewed batch identity changed")
+        ledger["revision"] += 1
+        _seal_v2(ledger)
+        validate_submission_ledger(ledger)
+        _atomic_write(ledger_path, ledger)
+        return result, ledger
+
+
+def reserve_submission_attempt(
+    ledger_path: Path,
+    scientific_task_id_value: str,
+    *,
+    identity: dict[str, str],
+    idempotency_key: str,
+    project: str,
+    remote_workdir: str,
+    input_sha256: str,
+    live_approval_id: str,
+    live_approval_sha256: str,
+    estimated_core_hours: float,
+    estimated_core_hours_evidence: dict[str, str],
+    reserved_at: str,
+    audit_reason: str,
+) -> dict[str, Any]:
+    proposed_identity = validate_identity(identity)
+    key = _require_string(idempotency_key, "idempotency_key")
+    project_value = _require_string(project, "project")
+    if remote_workdir != f"/home/user100/SDL/{project_value}":
+        raise BatchError("reservation remote_workdir must use the fixed server root")
+    input_digest = _require_sha(input_sha256, "input_sha256")
+    approval_id = _require_string(live_approval_id, "live_approval_id")
+    approval_digest = _require_sha(live_approval_sha256, "live_approval_sha256")
+    estimate = _core_hours(estimated_core_hours, "estimated_core_hours")
+    estimate_evidence = validate_evidence(
+        estimated_core_hours_evidence, "estimated_core_hours_evidence"
+    )
+    parse_time(reserved_at)
+    _require_string(audit_reason, "audit_reason")
+
+    def change(ledger: dict[str, Any]) -> dict[str, Any]:
+        task = next(
+            (item for item in ledger["tasks"] if item["scientific_task_id"] == scientific_task_id_value),
+            None,
+        )
+        if task is None:
+            raise BatchError("physical attempt requires an admitted scientific task")
+        retry = classify_retry(task["identity"], proposed_identity)
+        if retry["classification"] != "exact_resubmission":
+            raise BatchError("scientific identity changed; admit a new scientific task")
+        if input_digest != task["identity"]["relevant_input_sha256"]:
+            raise BatchError("input hash differs from reviewed task identity")
+        attempt_id = attempt_id_for(ledger["batch"]["batch_id"], key)
+        same_key = next((item for item in ledger["attempts"] if item["idempotency_key"] == key), None)
+        if same_key is not None:
+            expected = {
+                "attempt_id": attempt_id,
+                "scientific_task_id": scientific_task_id_value,
+                "project": project_value,
+                "input_sha256": input_digest,
+                "live_approval_id": approval_id,
+                "live_approval_sha256": approval_digest,
+                "estimated_core_hours": estimate,
+                "estimated_core_hours_evidence": estimate_evidence,
+            }
+            if any(same_key[field] != value for field, value in expected.items()):
+                raise BatchError("idempotency key was already used for a different attempt request")
+            return copy.deepcopy(same_key)
+        if any(
+            item["live_approval_id"] == approval_id
+            or item["live_approval_sha256"] == approval_digest
+            for item in ledger["attempts"]
+        ):
+            raise BatchError("one-time live approval was already consumed")
+        if any(
+            item["scientific_task_id"] == scientific_task_id_value
+            and item["state"] in UNRESOLVED_ATTEMPT_STATES
+            for item in ledger["attempts"]
+        ):
+            raise BatchError("task already has an unresolved physical attempt")
+        attempt = {
+            "attempt_id": attempt_id,
+            "scientific_task_id": scientific_task_id_value,
+            "idempotency_key": key,
+            "state": "submission_uncertain",
+            "project": project_value,
+            "job_name": project_value,
+            "remote_workdir": remote_workdir,
+            "input_sha256": input_digest,
+            "live_approval_id": approval_id,
+            "live_approval_sha256": approval_digest,
+            "estimated_core_hours": estimate,
+            "estimated_core_hours_evidence": estimate_evidence,
+            "consumed_core_hours": None,
+            "consumed_core_hours_evidence": None,
+            "reserved_at": reserved_at,
+            "updated_at": reserved_at,
+            "scheduler_reference": None,
+            "reconciliation_evidence": None,
+            "audit_reason": audit_reason,
+            "resource_gate": {
+                "schema": "gaussian-execution-resource-gate/1",
+                "owner": "auto-g16-package-4",
+                "status": "not_evaluated_by_package_2",
+            },
+        }
+        ledger["attempts"].append(attempt)
+        task["state"] = "submission_uncertain"
+        _append_event(
+            ledger,
+            "submission_attempt_reserved",
+            {
+                "attempt_id": attempt_id,
+                "scientific_task_id": scientific_task_id_value,
+                "project": project_value,
+                "approval_id": approval_id,
+                "reason": "reserved before any network or qsub action",
+            },
+            timestamp=reserved_at,
+            important=True,
+        )
+        return copy.deepcopy(attempt)
+
+    return _mutate_v2(ledger_path, change)[0]
+
+
+def reconcile_submission_attempt(
+    ledger_path: Path,
+    attempt_id: str,
+    *,
+    state: str,
+    observed_at: str,
+    reason: str,
+    reconciliation_evidence: dict[str, str],
+    scheduler_reference: str | None = None,
+    consumed_core_hours: float | None = None,
+    consumed_core_hours_evidence: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if state not in ATTEMPT_STATES:
+        raise BatchError(f"invalid attempt reconciliation state: {state}")
+    parse_time(observed_at)
+    _require_string(reason, "reconciliation reason")
+    evidence = validate_evidence(reconciliation_evidence, "reconciliation_evidence")
+    if state in {"submitted", "queued", "running", "completed", "failed"}:
+        reference = _require_string(scheduler_reference, "scheduler_reference")
+    else:
+        reference = scheduler_reference
+        if reference is not None:
+            _require_string(reference, "scheduler_reference")
+    consumed = None if consumed_core_hours is None else _core_hours(
+        consumed_core_hours, "consumed_core_hours"
+    )
+    if consumed is None and consumed_core_hours_evidence is not None:
+        raise BatchError("consumed evidence requires consumed_core_hours")
+    consumed_evidence = None if consumed is None else validate_evidence(
+        consumed_core_hours_evidence, "consumed_core_hours_evidence"
+    )
+
+    def change(ledger: dict[str, Any]) -> dict[str, Any]:
+        attempt = next((item for item in ledger["attempts"] if item["attempt_id"] == attempt_id), None)
+        if attempt is None:
+            raise BatchError("unknown attempt_id")
+        if state == attempt["state"]:
+            if (
+                attempt["scheduler_reference"] != reference
+                or attempt["reconciliation_evidence"] != evidence
+            ):
+                raise BatchError("idempotent reconciliation differs from recorded evidence")
+            return copy.deepcopy(attempt)
+        if state not in TRANSITIONS[attempt["state"]]:
+            raise BatchError(f"invalid attempt transition {attempt['state']} -> {state}")
+        attempt["state"] = state
+        attempt["updated_at"] = observed_at
+        attempt["scheduler_reference"] = reference
+        attempt["reconciliation_evidence"] = evidence
+        if consumed is not None:
+            attempt["consumed_core_hours"] = consumed
+            attempt["consumed_core_hours_evidence"] = consumed_evidence
+        task = next(
+            item for item in ledger["tasks"]
+            if item["scientific_task_id"] == attempt["scientific_task_id"]
+        )
+        if state == "reconciled_not_submitted":
+            task["state"] = "reviewed"
+        else:
+            task["state"] = state
+        _append_event(
+            ledger,
+            "submission_attempt_reconciled",
+            {
+                "attempt_id": attempt_id,
+                "state": state,
+                "scheduler_reference": reference,
+                "evidence_sha256": evidence["sha256"],
+                "reason": reason,
+            },
+            timestamp=observed_at,
+            important=True,
+        )
+        return copy.deepcopy(attempt)
+
+    return _mutate_v2(ledger_path, change)[0]
+
+
 def record_error(ledger_path: Path, *, code: str, message: str, observed_at: str) -> dict[str, Any]:
     _require_string(code, "error code")
     _require_string(message, "error message")
@@ -716,6 +1194,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     validate = sub.add_parser("validate", help="validate one offline execution-batch ledger")
     validate.add_argument("ledger")
+    migrate = sub.add_parser(
+        "migrate-v2",
+        help="upgrade an attempt-free or definitively-negative /1 ledger to the v2 contract",
+    )
+    migrate.add_argument("ledger")
+    migrate.add_argument("--migrated-at", required=True)
+    migrate.add_argument("--migration-source", required=True)
     summary = sub.add_parser("summary", help="emit a read-only operator summary")
     summary.add_argument("ledger")
     summary.add_argument("--now", required=True)
@@ -727,8 +1212,25 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     if args.command == "validate":
-        ledger = validate_ledger(load_json(Path(args.ledger)))
+        raw = load_json(Path(args.ledger))
+        ledger = (
+            validate_submission_ledger(raw)
+            if raw.get("schema") == BATCH_V2_SCHEMA
+            else validate_ledger(raw)
+        )
         _print({"valid": True, "schema": ledger["schema"], "counters": ledger["counters"], "live_actions": False})
+    elif args.command == "migrate-v2":
+        ledger = migrate_to_submission_ledger(
+            Path(args.ledger),
+            migrated_at=args.migrated_at,
+            migration_source=args.migration_source,
+        )
+        _print({
+            "migrated": True,
+            "schema": ledger["schema"],
+            "ledger_sha256": ledger["ledger_sha256"],
+            "live_actions": False,
+        })
     elif args.command == "summary":
         _print(monitoring_summary(Path(args.ledger), now=args.now, last_summary_at=args.last_summary_at, cadence_minutes=args.cadence_minutes))
     return 0

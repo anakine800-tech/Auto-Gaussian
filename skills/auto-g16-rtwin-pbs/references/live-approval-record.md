@@ -1,5 +1,55 @@
 # Auto-G16 Exact Live Submission Approval
 
+## New protected submission contracts `/6`-`/8`
+
+`/3`-`/5` remain historical/offline replay contracts. They do not satisfy a
+new live submit because they lack time, principal, reservation and consumption
+semantics. Their protected successors are `/6` for generic receipt `/1`, `/7`
+for owner-replayed open-shell receipt `/2`, and `/8` for one open-shell family
+stage receipt `/3`.
+
+Every `/6`-`/8` record is closed and adds these fields:
+
+```json
+{
+  "approval_id": "one-time-operator-decision-id",
+  "approver_identity": "reviewed-operator-principal",
+  "approved_at": "2026-07-19T08:00:00Z",
+  "expires_at": "2026-07-19T09:00:00Z",
+  "revocation": {"revoked": false, "revoked_at": null, "reason": null},
+  "consumption": {"single_use": true, "consumed": false}
+}
+```
+
+Its exact scope adds `operation: "submit"` and an `execution` object binding
+batch/review hash, stable scientific task, deterministic attempt ID,
+idempotency key, estimated core-hours, and the estimate evidence source/hash.
+Approval validation occurs before reservation; reservation consumes the unique
+approval ID/hash under the `/2` ledger lock and writes an immutable local
+consumption receipt before network access. Expired, revoked, already consumed,
+reused, future-dated, legacy no-time, or scope-mismatched approvals fail closed.
+The submitter performs a fresh stable file read/hash/scope/time/revocation
+replay after local staging immediately before reservation, then repeats the
+replay immediately before qsub. Approval drift or expiry at the second point
+reconciles the reserved attempt as definitely not submitted; uploaded evidence
+may remain under the no-delete policy, but qsub is not invoked.
+
+Use `auto-g16-exact-cancellation-approval/1` separately for active qdel. It
+binds approver and time window, exact project/job ID, current derived
+`job.json` state hash, exact execution attempt hash, and one-time consumption.
+`--confirmed` is never a substitute and the cancellation record grants no
+retry, cleanup or deletion authority.
+
+Before any qstat or qdel, cancellation atomically publishes one immutable
+`cancellation-intent.json` with the exact approval/job/attempt hashes and adds
+the reservation to the append-only job event log. Any existing intent blocks
+every later qdel invocation, including after transport loss or local outcome-
+receipt failure. Once qdel invocation starts, every non-success result is
+`cancellation_uncertain` and cannot be retried automatically.
+`reconcile-cancellation` is remote read-only: it classifies the exact job as
+`active`, `absent`, or `unknown`, never issues qdel, and never converts an old
+intent into new cancellation authority.
+
 Create this record only after showing and approving the exact structure,
 stereochemistry, charge, multiplicity, route, memory, cores, input SHA-256,
 fresh project name and `/home/user100/SDL/<project>` directory.

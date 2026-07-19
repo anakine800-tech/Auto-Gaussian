@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/exact-cancellation-approval.schema.json",
+  "title": "Auto-G16 exact active-job cancellation approval v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "approval_id", "approver_identity", "approved_at", "expires_at", "decision", "explicit_confirmation", "scope", "revocation", "consumption", "authorizations"],
+  "properties": {
+    "schema": {"const": "auto-g16-exact-cancellation-approval/1"},
+    "approval_id": {"type": "string", "minLength": 1},
+    "approver_identity": {"type": "string", "minLength": 1},
+    "approved_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "decision": {"const": "approved"},
+    "explicit_confirmation": {"const": true},
+    "scope": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "project", "job_id", "local_job_sha256", "attempt_id", "attempt_sha256"],
+      "properties": {
+        "operation": {"const": "cancel_active_job"},
+        "project": {"type": "string", "minLength": 1},
+        "job_id": {"type": "string", "minLength": 1},
+        "local_job_sha256": {"$ref": "#/$defs/sha"},
+        "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$"},
+        "attempt_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "revocation": {"type": "object", "additionalProperties": false, "required": ["revoked", "revoked_at", "reason"], "properties": {"revoked": {"const": false}, "revoked_at": {"type": "null"}, "reason": {"type": "null"}}},
+    "consumption": {"type": "object", "additionalProperties": false, "required": ["single_use", "consumed"], "properties": {"single_use": {"const": true}, "consumed": {"const": false}}},
+    "authorizations": {"type": "object", "additionalProperties": false, "required": ["qdel_exact_job", "retry", "cleanup", "delete_server_data"], "properties": {"qdel_exact_job": {"const": true}, "retry": {"const": false}, "cleanup": {"const": false}, "delete_server_data": {"const": false}}}
+  },
+  "$defs": {"sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

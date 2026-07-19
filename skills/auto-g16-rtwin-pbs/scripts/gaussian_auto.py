@@ -125,6 +125,42 @@ def command_auto(args) -> None:
         fail("live auto submission requires an explicit --work-kind; it must not default to ordinary")
     args._prospective_live = not args.dry_run
     summary = prepare_source(args, maturity_action="ts_submission")
+    execution_values = (
+        args.execution_batch_ledger, args.scientific_task_id, args.idempotency_key,
+        args.estimated_core_hours, args.estimated_core_hours_evidence_source,
+        args.estimated_core_hours_evidence_sha256,
+    )
+    if not args.dry_run and any(value is None for value in execution_values):
+        fail("live auto submission requires the complete execution-batch reservation binding")
+    if all(value is not None for value in execution_values):
+        try:
+            ledger = transport.execution_batch.validate_submission_ledger(
+                transport.execution_batch.load_json(
+                    Path(args.execution_batch_ledger).expanduser().resolve()
+                )
+            )
+        except transport.execution_batch.BatchError as exc:
+            fail(f"execution-batch gate blocked auto submit: {exc}")
+        task = next(
+            (item for item in ledger["tasks"] if item["scientific_task_id"] == args.scientific_task_id),
+            None,
+        )
+        if task is None or task["identity"]["relevant_input_sha256"] != summary["input_sha256"]:
+            fail("auto execution binding does not match the exact reviewed input task")
+        summary["execution"] = {
+            "batch_id": ledger["batch"]["batch_id"],
+            "review_sha256": ledger["batch"]["review_sha256"],
+            "scientific_task_id": args.scientific_task_id,
+            "attempt_id": transport.execution_batch.attempt_id_for(
+                ledger["batch"]["batch_id"], args.idempotency_key
+            ),
+            "idempotency_key": args.idempotency_key,
+            "estimated_core_hours": float(args.estimated_core_hours),
+            "estimated_core_hours_evidence": {
+                "source": args.estimated_core_hours_evidence_source,
+                "sha256": args.estimated_core_hours_evidence_sha256,
+            },
+        }
     if "scientific_maturity" in summary and "exact_action_authorization" not in summary["scientific_maturity"]:
         fail("protected auto submission requires an exact offline scientific action authorization before live approval")
     if not args.dry_run and summary["input_approval"]["status"] != "validated_exact_input_approval":
@@ -155,6 +191,14 @@ def command_auto(args) -> None:
         submit_command.extend(["--input-approval-record", args.input_approval_record])
     if args.approval_record:
         submit_command.extend(["--approval-record", args.approval_record])
+    for option in (
+        "execution_batch_ledger", "scientific_task_id", "idempotency_key",
+        "estimated_core_hours", "estimated_core_hours_evidence_source",
+        "estimated_core_hours_evidence_sha256",
+    ):
+        value = getattr(args, option, None)
+        if value is not None:
+            submit_command.extend(["--" + option.replace("_", "-"), str(value)])
     if args.dry_run:
         submit_command.append("--dry-run")
     submitted = subprocess.run(submit_command)
@@ -206,8 +250,14 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument("--confirmed", action="store_true")
     auto.add_argument(
         "--approval-record",
-        help="exact live approval /3 for receipt /1, /4 for receipt /2, or /5 for one family-stage receipt /3",
+        help="time-bounded one-time live approval /6, /7, or /8 for protected submit",
     )
+    auto.add_argument("--execution-batch-ledger")
+    auto.add_argument("--scientific-task-id")
+    auto.add_argument("--idempotency-key")
+    auto.add_argument("--estimated-core-hours", type=float)
+    auto.add_argument("--estimated-core-hours-evidence-source")
+    auto.add_argument("--estimated-core-hours-evidence-sha256")
     auto.add_argument("--watch", action="store_true")
     auto.add_argument("--dry-run", action="store_true")
     auto.add_argument("--output-dir")
