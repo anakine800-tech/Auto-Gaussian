@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/mechanism-discussion.schema.json",
+  "title": "Hash-bound human mechanism discussion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "discussion_id", "study_id", "sources", "scientific_question", "established_facts", "uncertainties", "alternatives", "ai_assessment", "user_decision", "confirmation_scope_sha256", "revision_policy", "calculation_ready", "no_submission_authorization", "no_automatic_promotion", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-mechanism-discussion/1"},
+    "discussion_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "sources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mechanism", "network", "evidence"],
+      "properties": {
+        "mechanism": {"$ref": "#/$defs/binding"},
+        "network": {"$ref": "#/$defs/binding"},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/binding"}}
+      }
+    },
+    "scientific_question": {"$ref": "#/$defs/nonempty"},
+    "established_facts": {"$ref": "#/$defs/nonemptyStrings"},
+    "uncertainties": {"$ref": "#/$defs/nonemptyStrings"},
+    "alternatives": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/alternative"}},
+    "ai_assessment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["recommendation", "rationale", "risks", "origin", "proposal_only", "may_confirm"],
+      "properties": {
+        "recommendation": {"$ref": "#/$defs/nonempty"}, "rationale": {"$ref": "#/$defs/nonempty"},
+        "risks": {"$ref": "#/$defs/nonemptyStrings"}, "origin": {"const": "ai_generated"},
+        "proposal_only": {"const": true}, "may_confirm": {"const": false}
+      }
+    },
+    "user_decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "exact_text", "confirmed_claims", "origin", "assistant_generated", "automated_command_generated", "approver", "decided_at"],
+      "properties": {
+        "decision": {"enum": ["confirm_selected", "defer", "reject", "request_revision"]},
+        "exact_text": {"$ref": "#/$defs/nonempty"},
+        "confirmed_claims": {"type": "array", "items": {"$ref": "#/$defs/confirmedClaim"}},
+        "origin": {"const": "explicit_user_input"}, "assistant_generated": {"const": false},
+        "automated_command_generated": {"const": false}, "approver": {"$ref": "#/$defs/nonempty"},
+        "decided_at": {"type": "string", "minLength": 20}
+      }
+    },
+    "confirmation_scope_sha256": {"$ref": "#/$defs/sha"},
+    "revision_policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["changed_source_requires_renewed_confirmation", "prior_confirmation_reusable", "learning_update_may_rewrite_decision"],
+      "properties": {"changed_source_requires_renewed_confirmation": {"const": true}, "prior_confirmation_reusable": {"const": false}, "learning_update_may_rewrite_decision": {"const": false}}
+    },
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true},
+    "no_automatic_promotion": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "nonemptyStrings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}},
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {"role": {"$ref": "#/$defs/nonempty"}, "path": {"$ref": "#/$defs/nonempty"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": ["string", "null"]}, "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}}
+    },
+    "alternative": {
+      "type": "object", "additionalProperties": false,
+      "required": ["alternative_id", "summary", "origin", "proposal_only"],
+      "properties": {"alternative_id": {"$ref": "#/$defs/id"}, "summary": {"$ref": "#/$defs/nonempty"}, "origin": {"enum": ["ai_generated", "human_submitted", "evidence_derived"]}, "proposal_only": {"const": true}}
+    },
+    "confirmedClaim": {
+      "type": "object", "additionalProperties": false,
+      "required": ["claim_type", "claim_id", "alternative_id", "decision"],
+      "properties": {"claim_type": {"enum": ["mechanism", "active_species", "elementary_step", "method", "calculation_route"]}, "claim_id": {"$ref": "#/$defs/id"}, "alternative_id": {"$ref": "#/$defs/id"}, "decision": {"const": "confirmed_by_user"}}
+    }
+  }
+}
