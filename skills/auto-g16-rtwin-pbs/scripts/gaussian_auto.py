@@ -125,6 +125,53 @@ def command_auto(args) -> None:
         fail("live auto submission requires an explicit --work-kind; it must not default to ordinary")
     args._prospective_live = not args.dry_run
     summary = prepare_source(args, maturity_action="ts_submission")
+    execution_values = (
+        args.execution_batch_ledger, args.scientific_task_id, args.idempotency_key,
+        args.estimated_core_hours, args.estimated_core_hours_evidence_source,
+        args.estimated_core_hours_evidence_sha256,
+        args.resource_policy, args.resource_gate, args.scheduler_resource_snapshot,
+        args.resource_tier, args.resource_cores, args.resource_memory_gb, args.walltime_seconds,
+    )
+    if not args.dry_run and any(value is None for value in execution_values):
+        fail("live auto submission requires the complete execution-batch reservation binding")
+    if all(value is not None for value in execution_values):
+        try:
+            ledger = transport.resource_efficiency.validate_ledger(
+                transport.resource_efficiency.load(Path(args.execution_batch_ledger).expanduser().resolve())
+            )
+            policy = transport.resource_efficiency.validate_policy(transport.resource_efficiency.load(Path(args.resource_policy).expanduser().resolve()))
+            gate = transport.resource_efficiency._validate_gate_binding(transport.resource_efficiency.load(Path(args.resource_gate).expanduser().resolve()), allow_historical=False)
+            scheduler = transport.resource_efficiency.validate_scheduler_snapshot(transport.resource_efficiency.load(Path(args.scheduler_resource_snapshot).expanduser().resolve()))
+        except (transport.execution_batch.BatchError, transport.resource_efficiency.ResourceError) as exc:
+            fail(f"execution-batch gate blocked auto submit: {exc}")
+        task = next(
+            (item for item in ledger["tasks"] if item["scientific_task_id"] == args.scientific_task_id),
+            None,
+        )
+        if task is None or task["identity"]["relevant_input_sha256"] != summary["input_sha256"]:
+            fail("auto execution binding does not match the exact reviewed input task")
+        summary["execution"] = {
+            "batch_id": ledger["batch"]["batch_id"],
+            "review_sha256": ledger["batch"]["review_sha256"],
+            "scientific_task_id": args.scientific_task_id,
+            "attempt_id": transport.execution_batch.attempt_id_for(
+                ledger["batch"]["batch_id"], args.idempotency_key
+            ),
+            "idempotency_key": args.idempotency_key,
+            "estimated_core_hours": float(args.estimated_core_hours),
+            "estimated_core_hours_evidence": {
+                "source": args.estimated_core_hours_evidence_source,
+                "sha256": args.estimated_core_hours_evidence_sha256,
+            },
+            "resource_binding": {
+                "policy_id": policy["policy_id"], "policy_sha256": policy["payload_sha256"],
+                "gate_id": gate["gate_id"], "gate_sha256": gate["gate_sha256"],
+                "resource_tier": args.resource_tier, "cores": args.resource_cores,
+                "memory_gb": args.resource_memory_gb, "walltime_seconds": args.walltime_seconds,
+            },
+        }
+        if gate["policy_sha256"] != policy["payload_sha256"] or gate["scheduler_snapshot"]["payload_sha256"] != scheduler["payload_sha256"]:
+            fail("auto resource policy/gate/scheduler binding mismatch")
     if "scientific_maturity" in summary and "exact_action_authorization" not in summary["scientific_maturity"]:
         fail("protected auto submission requires an exact offline scientific action authorization before live approval")
     if not args.dry_run and summary["input_approval"]["status"] != "validated_exact_input_approval":
@@ -155,8 +202,21 @@ def command_auto(args) -> None:
         submit_command.extend(["--input-approval-record", args.input_approval_record])
     if args.approval_record:
         submit_command.extend(["--approval-record", args.approval_record])
+    for option in (
+        "execution_batch_ledger", "scientific_task_id", "idempotency_key",
+        "estimated_core_hours", "estimated_core_hours_evidence_source",
+        "estimated_core_hours_evidence_sha256",
+        "resource_policy", "resource_gate", "scheduler_resource_snapshot", "resource_tier",
+        "resource_cores", "resource_memory_gb", "walltime_seconds",
+    ):
+        value = getattr(args, option, None)
+        if value is not None:
+            submit_command.extend(["--" + option.replace("_", "-"), str(value)])
     if args.dry_run:
         submit_command.append("--dry-run")
+    # The transport owns finite timeouts for each local/SSH/scp phase.  Do not
+    # kill the multi-phase transaction with a shorter wrapper timeout: once a
+    # phase has begun, an outer timeout cannot prove the physical outcome.
     submitted = subprocess.run(submit_command)
     if submitted.returncode:
         raise SystemExit(submitted.returncode)
@@ -174,9 +234,14 @@ def command_auto(args) -> None:
         "--input-stem", input_stem, "--local-dir", args.local_dir,
         "--output-dir", str(output_dir), "--poll-seconds", str(args.poll_seconds),
         "--timeout-seconds", str(args.timeout_seconds), "--fetch",
+        "--execution-batch-ledger", args.execution_batch_ledger,
+        "--attempt-id", summary["execution"]["attempt_id"],
         *connection_arguments(args),
     ]
-    watched = subprocess.run(watch_command)
+    try:
+        watched = subprocess.run(watch_command, timeout=args.timeout_seconds + 60)
+    except subprocess.TimeoutExpired:
+        fail("watch subprocess exceeded its explicit timeout", code=4)
     raise SystemExit(watched.returncode)
 
 
@@ -206,8 +271,21 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument("--confirmed", action="store_true")
     auto.add_argument(
         "--approval-record",
-        help="exact live approval /3 for receipt /1, /4 for receipt /2, or /5 for one family-stage receipt /3",
+        help="resource-bound one-time live approval /9, /10, or /11 for protected submit",
     )
+    auto.add_argument("--execution-batch-ledger")
+    auto.add_argument("--scientific-task-id")
+    auto.add_argument("--idempotency-key")
+    auto.add_argument("--estimated-core-hours", type=float)
+    auto.add_argument("--estimated-core-hours-evidence-source")
+    auto.add_argument("--estimated-core-hours-evidence-sha256")
+    auto.add_argument("--resource-policy")
+    auto.add_argument("--resource-gate")
+    auto.add_argument("--scheduler-resource-snapshot")
+    auto.add_argument("--resource-tier")
+    auto.add_argument("--resource-cores", type=int)
+    auto.add_argument("--resource-memory-gb", type=int)
+    auto.add_argument("--walltime-seconds", type=int)
     auto.add_argument("--watch", action="store_true")
     auto.add_argument("--dry-run", action="store_true")
     auto.add_argument("--output-dir")

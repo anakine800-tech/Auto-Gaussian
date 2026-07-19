@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/resource-policy.schema.json",
+  "title": "Auto-G16 reviewed execution resource policy v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "policy_id", "reviewed_at", "reviewer", "limits", "governance", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-execution-resource-policy/1"},
+    "policy_id": {"type": "string", "minLength": 1}, "reviewed_at": {"type": "string", "format": "date-time"},
+    "reviewer": {"type": "string", "minLength": 1}, "payload_sha256": {"$ref": "#/$defs/sha"},
+    "limits": {"type": "object", "additionalProperties": false,
+      "required": ["max_estimated_core_hours", "max_remaining_core_hours", "max_concurrent_unresolved_attempts", "max_concurrent_active_attempts", "max_total_cores", "max_total_memory_gb", "max_job_cores", "max_job_memory_gb", "max_job_walltime_seconds"],
+      "properties": {
+        "max_estimated_core_hours": {"type": "number", "minimum": 0}, "max_remaining_core_hours": {"type": "number", "minimum": 0},
+        "max_concurrent_unresolved_attempts": {"type": "integer", "minimum": 1}, "max_concurrent_active_attempts": {"type": "integer", "minimum": 1},
+        "max_total_cores": {"type": "integer", "minimum": 1}, "max_total_memory_gb": {"type": "integer", "minimum": 1},
+        "max_job_cores": {"type": "integer", "minimum": 1}, "max_job_memory_gb": {"type": "integer", "minimum": 1},
+        "max_job_walltime_seconds": {"type": "integer", "minimum": 1}
+      }
+    },
+    "governance": {"type": "object", "additionalProperties": false,
+      "required": ["unknown_scheduler_or_ledger_state_fails_closed", "resources_must_be_exact_reviewed_bindings", "walltime_must_be_explicitly_reviewed", "automatic_resource_change", "automatic_retry", "monitoring_changes_scientific_conclusion"],
+      "properties": {
+        "unknown_scheduler_or_ledger_state_fails_closed": {"const": true}, "resources_must_be_exact_reviewed_bindings": {"const": true},
+        "walltime_must_be_explicitly_reviewed": {"const": true}, "automatic_resource_change": {"const": false},
+        "automatic_retry": {"const": false}, "monitoring_changes_scientific_conclusion": {"const": false}
+      }
+    }
+  },
+  "$defs": {"sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

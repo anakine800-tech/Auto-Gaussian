@@ -7,6 +7,16 @@ locked, atomic, hash-chain-preserving updates. Renaming a file, PBS project or
 job; adding an alias; splitting work across files; or resubmitting does not
 create a different reviewed batch or reset a counter.
 
+`/1` remains the package-1 planning and historical replay contract and `/2`
+remains the package-2 reservation replay contract. Every new protected live
+submit requires `gaussian-execution-batch/3`. First use
+`execution_batch.py migrate-v2` only for an attempt-free ledger or one whose
+legacy attempts are all definitively `reconciled_not_submitted`; an uncertain,
+physical, or active legacy attempt fails migration closed. Migration preserves
+the immutable batch/task identity and adds hash-bound estimate evidence. Then
+use `resource_efficiency.py migrate-ledger` to create `/3`; historical `/2`
+attempts stay explicitly resource-unbound and can only be replayed.
+
 ## Scientific-task identity and cap
 
 One `scientific_task_id` is deterministically derived from exactly these
@@ -47,6 +57,16 @@ reconciles it as submitted/queued/running/completed/failed or proves
 refused. Replaying the same idempotency key returns the same record. Reusing a
 live-approval hash is refused.
 
+The `/3` reservation also binds project, exact PBS job name, fixed server
+workdir, one-time `/9`-`/11` approval ID, estimate evidence source/hash and the
+exact package-4 policy/gate/scheduler-snapshot chain. Package-2 `/2` attempts
+retain their historical `not_evaluated_by_package_2` resource interface and
+cannot enter the new live path. Observed core-hours require exact terminal
+scheduler/accounting evidence source, collection time, parser version, size and
+SHA-256.
+Reconciliation to a scheduler-backed state requires a non-empty scheduler
+reference and hash-bound evidence.
+
 Failure diagnosis and retry proposals may be automated outside this ledger,
 but neither `execution_batch.py` nor its records can issue qsub, change
 chemistry or approve a retry. An exact resubmission still needs the ordinary
@@ -72,10 +92,37 @@ repeated-evidence policy remains the only automatic exact qdel path, applies
 only after results are fetched, and never authorizes cancellation or server
 file deletion.
 
+## Submission transaction and reconcile
+
+The submitter validates `/3`, the stable task, exact captured input, exact
+resource policy and fresh scheduler-resource snapshot, passed gate, and a
+time-bounded `/9`-`/11` approval before reserving under the ledger lock. Only
+then may network work begin. The transaction order is reservation, immutable local
+intent and approval consumption, atomic remote `mkdir`, exact per-hop
+upload/hash, one qsub carrying attempt/input hashes in PBS variables, immutable
+remote/local submission receipts, then ledger and derived job-state backfill.
+
+The scheduler-resource snapshot is operationally built offline from the exact
+`/3` ledger plus one fresh `batch-status` observation by
+`resource_efficiency.py build-scheduler-snapshot`. The builder never infers
+resources: every unresolved ledger attempt must have one matching scheduler
+record with exact state, cores and memory or it fails closed.
+
+A pre-existing remote project path is always refused, even if empty. A qsub
+return with zero or multiple job IDs, a nonzero result, lost output, or receipt
+ambiguity remains `submission_uncertain`; qsub is never retried automatically.
+`reconcile-submission` makes only read-only remote/PBS queries and matches exact
+project/job name/input hash/attempt. A unique receipt or PBS record can
+backfill the job ID. Zero or multiple records remain closed unless the atomic
+project directory is provably absent, which proves this transaction never
+reached qsub.
+
 ## Offline API
 
 The standard-library module is
-`scripts/execution_batch.py`. Its CLI exposes only `validate` and read-only
-`summary`; reviewed callers use its Python functions to initialize, admit,
-classify, reserve and reconcile ledger records. The module imports no network,
-SSH, PBS or Gaussian execution client.
+`scripts/execution_batch.py` together with `scripts/resource_efficiency.py`.
+Their CLIs expose `validate`, offline `migrate-v2`, `migrate-ledger`,
+`build-scheduler-snapshot`, `evaluate-gate`,
+and read-only `summary`; reviewed callers use its Python functions to
+initialize, admit, classify, reserve and reconcile ledger records. The module
+imports no network, SSH, PBS or Gaussian execution client.

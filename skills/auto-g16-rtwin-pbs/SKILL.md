@@ -88,17 +88,29 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
    consumed by this input, human-confirmed route/method/basis/solvent/SCF
    mapping, resources, identity and input SHA-256. It never claims whole-family
    completion and grants no live authority. For ordinary or closed-shell
-   minimum work, record a new `auto-g16-live-submission-approval/3` that binds
-   generic receipt `/1`. For one main-group open-shell minimum, only a separate
-   closed `auto-g16-live-submission-approval/4` may bind a fully owner-replayed
+   minimum work, historical replay uses `auto-g16-live-submission-approval/3`;
+   `/6` is retained for package-2 historical replay; every new resource-bound
+   protected submit uses its time-bounded, one-time `/9` successor.
+   Generic `/9` ordinary execution is singlet-only. Ordinary multiplicity
+   greater than one is blocked early because no specialist ordinary open-shell
+   owner/schema exists; never finish a generic receipt and fail only at live
+   approval, and never silently broaden `/9`.
+   For one main-group open-shell minimum, historical replay uses the separate
+   closed `auto-g16-live-submission-approval/4`, while a new protected submit
+   uses `/10` (`/7` remains historical replay only), to bind a fully owner-replayed
    receipt `/2`, its exact file/payload/input hashes, open-shell owner workflow,
    state-review/handoff/audit/selected-option payloads, U/RO reference,
    resource tier and replay result. `/3` semantics are unchanged, and receipt
    `/2` itself remains `calculation_ready: false` with
    `no_submission_authorization: true`. A checkpoint-bound two-stage open-shell
    minimum instead requires one exact
-   `gaussian-input-approval-receipt/3` and one closed live approval `/5` per
-   stage. The stability receipt additionally binds the accepted Opt/Freq final
+   `gaussian-input-approval-receipt/3`; historical replay uses one closed live
+   approval `/5` per stage, package-2 historical replay uses `/8`, and every
+   new protected submit uses `/11`. `/9`-`/11`
+   require approver identity, approved/expires timestamps, active revocation
+   state, a one-time approval ID, and exact batch/task/attempt/idempotency
+   binding. Old approvals without those fields cannot enter a new submit. The
+   stability receipt additionally binds the accepted Opt/Freq final
    checkpoint and owner manifest. A prior failed combined input uses family
    handoff `/1`; a fresh prospective family uses `/2` and explicitly carries no
    prior-failure hash. This does not extend receipt `/2` or live `/4`.
@@ -112,7 +124,12 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
    submission chain. The low-level `submit` command
    independently validates the same shared receipt; `--confirmed` is only an
    additional command confirmation.
-5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate. After terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
+5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. PBS and process evidence are fail-closed three-state observations: `present`, `absent`, or `unknown`. SSH failures, non-recognized command return codes and parse failures are `unknown`; they never prove interruption, self-purge, process absence or a zombie. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` with explicitly absent process evidence is not a running calculation, but one observation is only a zombie candidate. After a verified terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
+   Package 4 collects qstat, session process, log size/mtime/tail/terminal counts,
+   manifest, collection time, transport and freshness in one remote read-only
+   snapshot call per job per poll. Conflicts, timeout, stale evidence or parse
+   failure are `unknown`. Job and `/3` ledger observations are append-only and
+   never change scientific acceptance.
 6. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and create a new proposal and selection for any changed restart.
 
 ```bash
@@ -127,7 +144,18 @@ AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
   --project example --local-dir /path/to/outputs/example \
   --work-kind minimum \
   --input-approval-record /path/to/exact-input-approval.json \
-  --approval-record /path/to/live-submission-approval-v3-or-v4.json \
+  --approval-record /path/to/resource-bound-live-approval-v9-v10-or-v11.json \
+  --execution-batch-ledger /path/to/execution-batch-v3.json \
+  --scientific-task-id scientific-task-<sha256> \
+  --idempotency-key operator-attempt-key \
+  --estimated-core-hours 8 \
+  --estimated-core-hours-evidence-source reviewed-estimate-record \
+  --estimated-core-hours-evidence-sha256 <sha256> \
+  --resource-policy /path/to/resource-policy-v1.json \
+  --scheduler-resource-snapshot /path/to/fresh-scheduler-resource-snapshot-v1.json \
+  --resource-gate /path/to/exact-resource-gate-v2.json \
+  --resource-tier simple --resource-cores 8 --resource-memory-gb 12 \
+  --walltime-seconds 86400 \
   --confirmed --watch
 ```
 
@@ -169,10 +197,21 @@ Use `scripts/execution_batch.py` and
 [references/execution-batch-governance.md](references/execution-batch-governance.md)
 when several reviewed calculations share one operator batch. One immutable
 `gaussian-execution-batch-review/1` initializes one persistent,
-hash-bound `gaussian-execution-batch/1` ledger with a hard limit of ten
+hash-bound `gaussian-execution-batch/1` planning ledger with a hard limit of ten
 distinct scientific tasks. A task identity binds structure, chemical
 hypothesis, method/protocol, calculation objective and relevant input hashes;
 filenames, PBS names, aliases, splits and retries cannot reset the cap.
+
+`/1` planning and `/2` idempotent ledgers remain historical. Before every new
+live submit, explicitly migrate `/1 -> /2 -> gaussian-execution-batch/3` with
+the offline owner CLIs. `/3` consumes one exact reviewed resource policy, one
+fresh scheduler-resource snapshot, and one exact resource gate under the
+ledger lock before any network action.
+
+The gate binds `/3`'s resource-state projection hash/revision, not the whole
+monitor journal. Append-only same/unknown/conflict observations stay hash-
+chained without invalidating unrelated reviewed gates; any task, attempt-state,
+resource, estimate, or accounting change advances the resource revision.
 
 Reserve each physical attempt atomically before qsub. The reservation begins
 as `submission_uncertain` and remains counted and blocks another attempt until
@@ -192,6 +231,55 @@ overlay requires the immutable review and ledger task sets to equal the
 selected closure calculation nodes and preserves the ten-task cap. This is an
 offline planning binding only; every attempt still needs the ordinary exact
 input review, dependency evidence, and a fresh live approval.
+
+Real `submit` requires the `/3` ledger, stable task ID, idempotency key,
+estimated core-hours and its evidence source/hash, exact tier/cores/memory,
+explicit walltime, resource policy, scheduler snapshot, and gate. It reserves under lock
+before any SSH/SCP/qsub, claims the server project with one atomic `mkdir`
+(pre-existing empty directories are refused), uploads exact hashes, and
+publishes immutable local/remote receipts. Ambiguous qsub output remains
+`submission_uncertain`; never rerun qsub. `reconcile-submission` reads only
+remote intent/receipt and exact qstat bindings. One unique match backfills the
+job ID; zero or multiple matches stay closed unless absence of the atomic
+project directory proves qsub was never reachable.
+
+Build the scheduler input operationally without manual resource inference:
+
+```bash
+python scripts/gaussian_rtwin_pbs.py batch-status \
+  --job-id 123.master --job-id 124.master > batch-qstat.json
+python scripts/resource_efficiency.py build-scheduler-snapshot execution-batch-v3.json batch-qstat.json \
+  --snapshot-id reviewed-poll-1 --max-age-seconds 120 --output scheduler-resource-snapshot.json
+python scripts/resource_efficiency.py evaluate-gate execution-batch-v3.json \
+  --policy resource-policy.json --scheduler-snapshot scheduler-resource-snapshot.json \
+  --gate-id gate-1 --evaluated-at 2026-07-19T10:00:00Z \
+  --scientific-task-id scientific-task-<sha256> --attempt-id qsub-attempt-<sha256> \
+  --project example --input-sha256 <sha256> --resource-tier simple \
+  --cores 8 --memory-gb 12 --walltime-seconds 86400 --estimated-core-hours 8 \
+  --output resource-gate.json
+```
+
+`batch-status` makes one read-only qstat call for the complete active PBS-user
+scope; optional `--job-id` values are expectations, never a filter. No IDs plus
+rc=0 is the first zero-active path; rc=153 does not prove an empty scope.
+Duplicate blocks/resources, owner conflicts, warning/non-job output outside
+exact blocks, and incomplete parsing are unknown.
+The builder rejects absent/unknown records, missing ledger attempts, state or
+resource conflicts, and records without exact cores/memory; multi-node cores
+are `nodes * ppn`.
+
+Fresh successful exact monitor evidence may reconcile queued/running/terminal
+execution state only when the attempt already has the same non-null scheduler
+reference and exact project/input binding. Monitoring never advances
+`submission_uncertain`; only `reconcile-submission` may bind its job. Timeout,
+stale or conflicting evidence stays append-only.
+Only repeated stable interruption proof maps execution to `failed` to release
+occupancy; this never accepts a scientific result. The proof needs explicit
+scheduler absence, stable log metadata, zero whole-log terminal counts, and at
+least 60 seconds of stability/log age. A still-present stale PBS record never
+qualifies. Whole-log normal/error counts drive terminal state even when the
+marker is outside the tail. Fetch requires the immutable exact terminal
+inspection receipt; mutable terminal status alone is never authority.
 
 ## Opt-Freq-single-point workflow
 
@@ -249,11 +337,17 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" watch --project example --job-id 563.master \
   --input-stem example_cartesian --local-dir /path/to/bundle \
   --output-dir /path/to/results --fetch
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" fetch \
+  --project example --job-id 563.master --input-stem example_cartesian \
+  --local-dir /path/to/bundle --output-dir /path/to/new-results-snapshot
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" analyze /path/to/results/example_cartesian.log \
   --output-dir /path/to/results
 ```
 
-Run `cancel --confirmed` only after the user explicitly identifies the job to stop. Cancellation never authorizes file deletion.
+Active cancellation does not rely on `--confirmed`. It requires a fresh
+`auto-g16-exact-cancellation-approval/1` binding approver/time/project/job ID,
+current local job-state hash and exact attempt hash, then consumes it into one
+immutable receipt. Cancellation never authorizes retry, cleanup or deletion.
 
 ## PBS zombie records
 
@@ -262,7 +356,7 @@ Treat terminal scheduler-zombie cleanup as an automatic evidence-gated operation
 1. Run `diagnose-zombie` first. It binds the request to local `job.json`, requires `results_fetched: true`, and observes the same job twice at least 5 seconds apart.
 2. Classify `confirmed_scheduler_zombie` only when both observations show the exact PBS job name, PBS `R`, a present session ID with no session process, unchanged log size and mtime, and terminal Gaussian evidence. A Link1 workflow must have all expected normal terminations or a definite error termination.
 3. Record the exact project, job ID, evidence, and the fact that only scheduler state will change. No per-job confirmation is required after every eligibility check passes.
-4. Run `cleanup-zombie`, or let `watch --fetch` invoke it automatically. It diagnoses again, issues at most one exact `qdel <job-id>`, and verifies with `qstat`. Never retry `qdel` automatically.
+4. Run `cleanup-zombie`, or let `watch --fetch` invoke it automatically. It diagnoses again, issues at most one exact `qdel <job-id>`, and verifies with `qstat`. `cleared` requires an accepted qdel outcome (`0` or explicit `Unknown Job Id`) and an explicit post-qdel `Unknown Job Id`; qdel, qstat, transport or parse failure is `cleanup_unverified`. Never retry `qdel` automatically.
 5. If the record self-purges during diagnosis, report `self_purged` and issue no `qdel`. Refuse cleanup for `Q`, `H`, `E`, a live or unknown session, a changing log, a job-name mismatch, missing terminal evidence, or results not yet fetched.
 
 ```bash
@@ -286,19 +380,27 @@ Zombie cleanup changes only a PBS-owned record. It never deletes or modifies `/h
 
 - For optimization success, require `Normal termination` and optimization/stationary-point evidence. For a same-input `Opt ... Freq` job, require the expected final frequency output and a terminal process/PBS observation; the first normal termination can belong only to the Opt stage.
 - Preserve input, manifest, PBS file, checksums, log, checkpoint, local `job.json`, `result.json`, and optimized XYZ.
-- Fetch only after terminal classification, then parse the newly fetched log. If a prior fetch ended during a running second stage, fetch again before reporting frequencies, thermochemistry, or a TS conclusion.
+- Fetch only after terminal classification. Bind the request to the exact local `job.json` project/job/input stem, generate a server allowlist from staged checksums plus the exact log and named outputs, and copy only those basenames. Scratch and unrelated files are excluded. Verify SHA-256 on server, RTwin and Mac before parsing only `<input_stem>.log`.
+- Every fetch target is one immutable snapshot. It must be new or empty; an old, concurrent or partially transferred target is rejected. A failed attempt leaves its local in-progress marker for audit. Retry transfer into a new output directory; no retry submits, qdel, deletes or overwrites anything.
+- `fetch --reuse-snapshot <old-transfer-or-directory>` may reuse only old complete
+  files whose exact project/job/input binding, remote manifest size/hash and
+  freshly recomputed local size/hash all match. Reuse makes a private fsynced
+  no-clobber copy (never a shared inode); only changed files cross
+  server -> RTwin -> Mac. The new snapshot is still a full independent set.
 - Report final SCF energy only from a completed log.
 - If frequencies were requested, report imaginary-frequency count; never imply a minimum without a frequency calculation.
 
 Read [references/environment-and-failures.md](references/environment-and-failures.md) for connection, stale PBS, fetch, and restart decisions.
+Read [references/runtime-safety-compatibility.md](references/runtime-safety-compatibility.md) for additive inspection fields and the direct-fetch migration.
 
 ## Bundled scripts
 
 - `scripts/protocol_selection.py`: standard-library-only three-tier proposal,
   explicit selection, hash verification and offline input-draft authorization.
 - `scripts/execution_batch.py`: standard-library-only locked execution-batch
-  ledger, stable scientific-task identity, cap/attempt/core-hour accounting,
-  retry classification and read-only monitoring summaries.
+  ledger, explicit `/1` to `/2` migration, stable scientific-task identity,
+  evidence-bound core-hour accounting, retry classification and read-only
+  monitoring summaries.
 - `scripts/gaussian_auto.py`: exact-input approval gate and one-command
   submission through analyzed results; raw structure-to-method preparation is
   intentionally unsupported.
