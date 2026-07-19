@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/method-selection-context.schema.json",
+  "title": "Auto-G16 method selection context",
+  "description": "Immutable reviewed calculation context for evidence retrieval; it does not authorize method selection or calculation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "artifact_id", "revision_id", "created_at", "created_by", "review", "access",
+    "provenance", "source_revision_refs", "supersedes", "exclusions", "question",
+    "context_profile", "reviewed_calculation_refs", "calculation_ready",
+    "no_submission_authorization", "no_method_selection_authorization",
+    "no_approval_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-method-selection-context/1"},
+    "artifact_id": {"$ref": "#/$defs/id"},
+    "revision_id": {"$ref": "#/$defs/id"},
+    "created_at": {"$ref": "_common.schema.json#/$defs/timestamp"},
+    "created_by": {"type": "string", "minLength": 1},
+    "review": {"$ref": "_common.schema.json#/$defs/review"},
+    "access": {"$ref": "_common.schema.json#/$defs/access"},
+    "provenance": {"$ref": "_common.schema.json#/$defs/provenance"},
+    "source_revision_refs": {"type": "array", "minItems": 1, "items": {"$ref": "_common.schema.json#/$defs/recordRef"}},
+    "supersedes": {"type": "array", "items": {"$ref": "#/$defs/artifactRef"}},
+    "exclusions": {"$ref": "_common.schema.json#/$defs/stringArray"},
+    "question": {"type": "string", "minLength": 1},
+    "context_profile": {"$ref": "#/$defs/contextProfile"},
+    "reviewed_calculation_refs": {"type": "array", "items": {"$ref": "_common.schema.json#/$defs/recordRef"}},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "no_method_selection_authorization": {"const": true},
+    "no_approval_authorization": {"const": true},
+    "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "artifactRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "artifact_id", "revision_id", "payload_sha256"],
+      "properties": {
+        "schema": {"enum": ["auto-g16-method-selection-context/1", "auto-g16-method-benchmark-case/1", "auto-g16-method-run-observation/1", "auto-g16-method-evidence-brief/1"]},
+        "artifact_id": {"$ref": "#/$defs/id"}, "revision_id": {"$ref": "#/$defs/id"},
+        "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+      }
+    },
+    "solvent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "identity", "model_constraints"],
+      "properties": {
+        "status": {"enum": ["specified", "not_applicable", "unknown"]},
+        "identity": {"type": ["string", "null"]},
+        "model_constraints": {"$ref": "_common.schema.json#/$defs/stringArray"}
+      }
+    },
+    "resourceConstraints": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_cores", "max_memory_gb", "max_walltime_hours", "notes"],
+      "properties": {
+        "max_cores": {"type": ["integer", "null"], "minimum": 0},
+        "max_memory_gb": {"type": ["number", "null"], "minimum": 0},
+        "max_walltime_hours": {"type": ["number", "null"], "minimum": 0},
+        "notes": {"$ref": "_common.schema.json#/$defs/stringArray"}
+      }
+    },
+    "contextProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["calculation_family", "elements", "ecp_elements", "charge", "multiplicity", "electronic_state_constraints", "reference_constraints", "phase", "solvent", "target_properties", "resource_constraints"],
+      "properties": {
+        "calculation_family": {"type": "string", "minLength": 1},
+        "elements": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z][a-z]?$"}},
+        "ecp_elements": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z][a-z]?$"}},
+        "charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1},
+        "electronic_state_constraints": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "reference_constraints": {"$ref": "_common.schema.json#/$defs/stringArray"},
+        "phase": {"enum": ["gas", "solution", "solid", "interface", "unknown"]},
+        "solvent": {"$ref": "#/$defs/solvent"},
+        "target_properties": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "resource_constraints": {"$ref": "#/$defs/resourceConstraints"}
+      }
+    }
+  }
+}

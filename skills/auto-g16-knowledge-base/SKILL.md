@@ -102,6 +102,29 @@ Verify a frozen snapshot and its exact parent reaction intake separately:
   verify-snapshot SNAPSHOT.json --store STORE --artifact-root STUDY_DIR
 ```
 
+## Method evidence briefs
+
+Use the independent offline evidence CLI to validate immutable v2.5 method
+contexts, benchmark cases, run observations, and evidence briefs:
+
+```bash
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/method_evidence.py \
+  validate ARTIFACT.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/method_evidence.py \
+  query --context CONTEXT.json --evidence BENCHMARK.json RUN.json
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" skills/auto-g16-knowledge-base/scripts/method_evidence.py \
+  build-brief --context CONTEXT.json --evidence BENCHMARK.json RUN.json \
+  --brief-id BRIEF_ID --revision-id REVISION_ID --created-at TIMESTAMP \
+  --created-by REVIEWER --output BRIEF.json
+```
+
+Omitting `--principal` permits public evidence only. The brief preserves
+chemical directness, benchmark quality, technical feasibility, convergence
+history, and cost as separate dimensions. It never selects a method, estimates
+a success probability, approves a protocol, creates an input, or authorizes a
+calculation or submission. Missing dimensions remain `unknown`, and inadequate
+evidence produces `insufficient`.
+
 ## Review workflow
 
 1. Choose exactly one supported record schema.

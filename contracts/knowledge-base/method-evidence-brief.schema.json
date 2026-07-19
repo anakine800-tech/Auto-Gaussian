@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/knowledge-base/method-evidence-brief.schema.json",
+  "title": "Auto-G16 method evidence brief",
+  "description": "Permission-aware multidimensional evidence summary for human review; method selection and approval are structurally forbidden.",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "artifact_id", "revision_id", "created_at", "created_by", "review", "access", "provenance", "source_revision_refs", "supersedes", "exclusions", "context_ref", "included_evidence_refs", "excluded_evidence", "candidate_evidence", "query_summary", "evidence_status", "status_rationale", "method_selection", "approval", "calculation_ready", "no_submission_authorization", "no_method_selection_authorization", "no_approval_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-method-evidence-brief/1"},
+    "artifact_id": {"$ref": "#/$defs/id"}, "revision_id": {"$ref": "#/$defs/id"},
+    "created_at": {"$ref": "_common.schema.json#/$defs/timestamp"}, "created_by": {"type": "string", "minLength": 1},
+    "review": {"$ref": "_common.schema.json#/$defs/review"}, "access": {"$ref": "_common.schema.json#/$defs/access"}, "provenance": {"$ref": "_common.schema.json#/$defs/provenance"},
+    "source_revision_refs": {"type": "array", "minItems": 1, "items": {"$ref": "_common.schema.json#/$defs/recordRef"}},
+    "supersedes": {"type": "array", "items": {"$ref": "#/$defs/artifactRef"}}, "exclusions": {"$ref": "_common.schema.json#/$defs/stringArray"},
+    "context_ref": {"$ref": "#/$defs/artifactRef"}, "included_evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/artifactRef"}},
+    "excluded_evidence": {"type": "array", "items": {"$ref": "#/$defs/excludedEvidence"}},
+    "candidate_evidence": {"type": "array", "items": {"$ref": "#/$defs/candidateEvidence"}},
+    "query_summary": {"$ref": "#/$defs/querySummary"}, "evidence_status": {"enum": ["reviewable", "insufficient", "unknown"]},
+    "status_rationale": {"type": "string", "minLength": 1},
+    "method_selection": {"type": "object", "additionalProperties": false, "required": ["status", "selected_method_record_ref"], "properties": {"status": {"const": "not_performed"}, "selected_method_record_ref": {"type": "null"}}},
+    "approval": {"type": "object", "additionalProperties": false, "required": ["status", "approved_protocol_ref"], "properties": {"status": {"const": "not_granted"}, "approved_protocol_ref": {"type": "null"}}},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "no_method_selection_authorization": {"const": true}, "no_approval_authorization": {"const": true},
+    "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "artifactRef": {"type": "object", "additionalProperties": false, "required": ["schema", "artifact_id", "revision_id", "payload_sha256"], "properties": {"schema": {"enum": ["auto-g16-method-selection-context/1", "auto-g16-method-benchmark-case/1", "auto-g16-method-run-observation/1", "auto-g16-method-evidence-brief/1"]}, "artifact_id": {"$ref": "#/$defs/id"}, "revision_id": {"$ref": "#/$defs/id"}, "payload_sha256": {"$ref": "_common.schema.json#/$defs/sha256"}}},
+    "excludedEvidence": {"type": "object", "additionalProperties": false, "required": ["evidence_ref", "reasons"], "properties": {"evidence_ref": {"$ref": "#/$defs/artifactRef"}, "reasons": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}},
+    "dimension": {"type": "object", "additionalProperties": false, "required": ["status", "evidence_refs", "notes", "observations"], "properties": {"status": {"enum": ["direct", "near", "indirect", "strong", "moderate", "weak", "demonstrated", "mixed", "failed", "consistent", "observed", "partial", "unknown"]}, "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/artifactRef"}}, "notes": {"$ref": "_common.schema.json#/$defs/stringArray"}, "observations": {"$ref": "_common.schema.json#/$defs/stringArray"}}},
+    "candidateEvidence": {"type": "object", "additionalProperties": false, "required": ["method_record_ref", "chemical_directness", "benchmark_quality", "technical_feasibility", "convergence_history", "cost"], "properties": {"method_record_ref": {"$ref": "_common.schema.json#/$defs/recordRef"}, "chemical_directness": {"$ref": "#/$defs/dimension"}, "benchmark_quality": {"$ref": "#/$defs/dimension"}, "technical_feasibility": {"$ref": "#/$defs/dimension"}, "convergence_history": {"$ref": "#/$defs/dimension"}, "cost": {"$ref": "#/$defs/dimension"}}},
+    "querySummary": {"type": "object", "additionalProperties": false, "required": ["supplied", "included", "excluded_permission", "excluded_context"], "properties": {"supplied": {"type": "integer", "minimum": 0}, "included": {"type": "integer", "minimum": 0}, "excluded_permission": {"type": "integer", "minimum": 0}, "excluded_context": {"type": "integer", "minimum": 0}}}
+  }
+}
