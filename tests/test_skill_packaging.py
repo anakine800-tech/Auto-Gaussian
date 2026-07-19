@@ -41,6 +41,7 @@ class SkillPackagingTests(unittest.TestCase):
         conformer = package.package_files(ROOT, "auto-g16-conformer-search")
         rtwin = package.package_files(ROOT, "auto-g16-rtwin-pbs")
         ts_irc = package.package_files(ROOT, "auto-g16-ts-irc")
+        ts_seed = package.package_files(ROOT, "auto-g16-ts-seed")
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/candidate-target-import.schema.json")],
             ROOT / "contracts/reaction-workflow/candidate-target-import.schema.json",
@@ -76,6 +77,18 @@ class SkillPackagingTests(unittest.TestCase):
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/scientific-evidence-receipt.schema.json")],
             ROOT / "contracts/reaction-workflow/scientific-evidence-receipt.schema.json",
+        )
+        self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/v25-integration-review.schema.json")],
+            ROOT / "contracts/reaction-workflow/v25-integration-review.schema.json",
+        )
+        self.assertEqual(
+            reaction[Path("scripts/v25_integration.py")],
+            ROOT / "skills/auto-g16-reaction-workflow/scripts/v25_integration.py",
+        )
+        self.assertEqual(
+            reaction[Path("references/v25-integration-contract.md")],
+            ROOT / "skills/auto-g16-reaction-workflow/references/v25-integration-contract.md",
         )
         self.assertEqual(
             conformer[Path("scripts/conformer_core.py")],
@@ -114,12 +127,28 @@ class SkillPackagingTests(unittest.TestCase):
             ROOT / "contracts/rtwin-pbs/live-submission-approval-v5.schema.json",
         )
         self.assertEqual(
+            rtwin[Path("contracts/rtwin-pbs/execution-batch.schema.json")],
+            ROOT / "contracts/rtwin-pbs/execution-batch.schema.json",
+        )
+        self.assertEqual(
+            rtwin[Path("contracts/rtwin-pbs/execution-batch-review.schema.json")],
+            ROOT / "contracts/rtwin-pbs/execution-batch-review.schema.json",
+        )
+        self.assertEqual(
             ts_irc[Path("contracts/qst-raw-input-syntax-audit.schema.json")],
             ROOT / "skills/auto-g16-ts-irc/contracts/qst-raw-input-syntax-audit.schema.json",
         )
         self.assertEqual(
             ts_irc[Path("contracts/installed-g16-qst-syntax-evidence.schema.json")],
             ROOT / "skills/auto-g16-ts-irc/contracts/installed-g16-qst-syntax-evidence.schema.json",
+        )
+        self.assertEqual(
+            ts_seed[Path("contracts/ts-seed/candidate.schema.json")],
+            ROOT / "contracts/ts-seed/candidate.schema.json",
+        )
+        self.assertEqual(
+            ts_seed[Path("contracts/ts-seed/portfolio.schema.json")],
+            ROOT / "contracts/ts-seed/portfolio.schema.json",
         )
         self.assertFalse(
             (ROOT / "skills/auto-g16-reaction-workflow/contracts").exists(),
@@ -203,6 +232,7 @@ class SkillPackagingTests(unittest.TestCase):
                 "auto-g16-conformer-search",
                 "auto-g16-main-group-open-shell",
                 "auto-g16-ts-irc",
+                "auto-g16-ts-seed",
                 "auto-g16-rtwin-pbs",
             )
             for name in names:
@@ -293,12 +323,33 @@ class SkillPackagingTests(unittest.TestCase):
                 self.assertTrue(
                     (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow" / schema_name).is_file()
                 )
+            v25 = installed / "auto-g16-reaction-workflow/scripts/v25_integration.py"
+            v25_help = subprocess.run(
+                [sys.executable, str(v25), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(v25_help.returncode, 0, v25_help.stdout + v25_help.stderr)
+            self.assertIn("finalize", v25_help.stdout)
+            self.assertIn("validate", v25_help.stdout)
+            self.assertTrue(
+                (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/v25-integration-review.schema.json").is_file()
+            )
             conformer = installed / "auto-g16-conformer-search/scripts/conformer_search.py"
             conformer_help = subprocess.run(
                 [sys.executable, str(conformer), "--help"], cwd=root, text=True, capture_output=True, check=False,
             )
             self.assertEqual(conformer_help.returncode, 0, conformer_help.stdout + conformer_help.stderr)
             self.assertIn("validate-handoff", conformer_help.stdout)
+            ts_seed = installed / "auto-g16-ts-seed/scripts/ts_seed.py"
+            ts_seed_help = subprocess.run(
+                [sys.executable, str(ts_seed), "--help"], cwd=root, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(ts_seed_help.returncode, 0, ts_seed_help.stdout + ts_seed_help.stderr)
+            self.assertIn("build-candidate", ts_seed_help.stdout)
+            self.assertIn("build-portfolio", ts_seed_help.stdout)
             manual = installed / "auto-g16-knowledge-base/scripts/manual_evidence.py"
             manual_help = subprocess.run(
                 [sys.executable, str(manual), "--help"],
@@ -359,6 +410,8 @@ class SkillPackagingTests(unittest.TestCase):
                 "input-approval-receipt.schema.json",
                 "live-submission-approval-v4.schema.json",
                 "live-submission-approval-v5.schema.json",
+                "execution-batch.schema.json",
+                "execution-batch-review.schema.json",
             ):
                 deployed_schema = installed / "auto-g16-rtwin-pbs/contracts/rtwin-pbs" / name
                 source_schema = ROOT / "contracts/rtwin-pbs" / name

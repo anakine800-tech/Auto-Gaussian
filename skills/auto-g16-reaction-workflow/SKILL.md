@@ -454,6 +454,24 @@ citation, or transfer an unreviewed structure/geometry. A database match and
 literature similarity do not prove the target mechanism or TS and grant no
 calculation authorization.
 
+### v2.5 human decision, closure priority, and integration routing
+
+Use `scripts/human_scientific_decision.py` to record an exact evidence-bound
+mechanism discussion, explicit user decisions, non-authorizing operator action
+cards, and learning updates. Use `scripts/closure_priority.py` only after every
+reviewed hard gate is supplied; it ranks the smallest practical closure bundle
+and emits a non-executable TS/Freq -> mode review -> bidirectional IRC ->
+endpoint decision DAG.
+
+When method evidence, a human method decision, a TS-seed portfolio, a selected
+closure plan, and an execution-batch ledger must be treated as one reviewed
+chain, use `scripts/v25_integration.py` and read
+`references/v25-integration-contract.md`. The integration owner replays the
+specialist validators and requires exact cross-artifact hashes and one-to-one
+selected-node/task mappings. It remains non-authorizing and does not replace
+scientific maturity, exact input review, stage dependency evidence, or fresh
+per-attempt live approval.
+
 ### Optional reviewed mechanism-support gate
 
 Invoke this only after the immutable W1/network chain, knowledge snapshot,
@@ -646,6 +664,15 @@ blockers. No comparison, barrier arithmetic or live action is available.
 - `scripts/thermochemistry_readiness.py`: standard-library-only owner-replay
   readiness audit with atomic no-clobber publication; it emits blockers and no
   formal comparison or barrier.
+- `scripts/human_scientific_decision.py`: explicit user-decision, operator-card,
+  and learning-update artifacts; AI content remains proposal-only.
+- `scripts/closure_priority.py`: gate-before-rank practical closure planning
+  with a non-executable conditional TS/Freq-IRC-endpoint DAG.
+- `scripts/v25_integration.py`: cross-Skill owner replay for the v2.5 method,
+  decision, TS-seed, closure, and ten-task batch chain; no input or live
+  authority.
+- `references/v25-integration-contract.md`: exact v2.5 routing, identity,
+  dependency, and authority-boundary contract.
 - `references/thermochemistry-readiness-contract.md`: exact package-relative
   reference, owner-registry, blocker, repackaging and authority contract.
 - `contracts/reaction-workflow/` in the repository: Draft 2020-12 output

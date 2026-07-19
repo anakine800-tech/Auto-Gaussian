@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/ts-seed/portfolio.schema.json",
+  "title": "Auto-G16 Gaussian TS Seed Portfolio",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "portfolio_id", "target_id", "target_signature_sha256", "entries",
+    "policy", "review", "calculation_ready", "executable",
+    "no_submission_authorization", "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-ts-seed-portfolio/1"},
+    "portfolio_id": {"$ref": "#/$defs/id"},
+    "target_id": {"$ref": "#/$defs/id"},
+    "target_signature_sha256": {"$ref": "#/$defs/sha256"},
+    "entries": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/entry"}},
+    "policy": {"$ref": "#/$defs/policy"},
+    "review": {"$ref": "#/$defs/review"},
+    "calculation_ready": {"const": false},
+    "executable": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifactRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonempty"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "schema": {"const": "gaussian-ts-seed-candidate/1"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "entry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_id", "role", "scientific_rationale", "user_reviewed", "candidate", "geometry_sha256", "hypothesis_signature_sha256", "target_signature_sha256"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "role": {"enum": ["primary", "backup", "additional"]},
+        "scientific_rationale": {"$ref": "#/$defs/nonempty"},
+        "user_reviewed": {"const": true},
+        "candidate": {"$ref": "#/$defs/artifactRef"},
+        "geometry_sha256": {"$ref": "#/$defs/sha256"},
+        "hypothesis_signature_sha256": {"$ref": "#/$defs/sha256"},
+        "target_signature_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "exceptionReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["approved", "new_scientific_rationale", "user_reviewed"],
+      "properties": {
+        "approved": {"type": "boolean"},
+        "new_scientific_rationale": {"type": ["string", "null"]},
+        "user_reviewed": {"type": "boolean"}
+      }
+    },
+    "policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["normal_limit", "primary_count", "backup_count", "exception_review", "deduplication"],
+      "properties": {
+        "normal_limit": {"const": 2},
+        "primary_count": {"const": 1},
+        "backup_count": {"type": "integer", "minimum": 0, "maximum": 1},
+        "exception_review": {"$ref": "#/$defs/exceptionReview"},
+        "deduplication": {"const": "geometry_and_scientific_hypothesis"}
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reviewer", "review_notes"],
+      "properties": {
+        "status": {"enum": ["reviewed", "blocked"]},
+        "reviewer": {"$ref": "#/$defs/nonempty"},
+        "review_notes": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}}
+      }
+    }
+  }
+}

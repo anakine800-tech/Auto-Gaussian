@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/operator-action-card.schema.json",
+  "title": "Non-authorizing Gaussian operator action card",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "card_id", "study_id", "discussion", "disposition", "purpose", "exact_scope", "prerequisites", "scientific_value", "estimated_cost", "success_confidence", "closure_confidence", "stop_conditions", "continuation", "rollback", "unauthorized_actions", "recommendation_only", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-operator-action-card/1"}, "card_id": {"$ref": "#/$defs/id"}, "study_id": {"$ref": "#/$defs/id"},
+    "discussion": {"$ref": "#/$defs/binding"}, "disposition": {"enum": ["run", "defer", "reject"]}, "purpose": {"$ref": "#/$defs/nonempty"},
+    "exact_scope": {"type": "object", "additionalProperties": false, "required": ["target_kind", "target_ids", "included_actions"], "properties": {"target_kind": {"$ref": "#/$defs/nonempty"}, "target_ids": {"$ref": "#/$defs/nonemptyStrings"}, "included_actions": {"$ref": "#/$defs/nonemptyStrings"}}},
+    "prerequisites": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["name", "status", "evidence"], "properties": {"name": {"$ref": "#/$defs/nonempty"}, "status": {"enum": ["satisfied", "blocked", "unknown"]}, "evidence": {"$ref": "#/$defs/nonempty"}}}},
+    "scientific_value": {"$ref": "#/$defs/nonempty"},
+    "estimated_cost": {"type": "object", "additionalProperties": false, "required": ["status", "task_count", "core_hours_band", "walltime_band", "assumptions"], "properties": {"status": {"enum": ["estimated", "unknown"]}, "task_count": {"type": ["integer", "null"], "minimum": 1}, "core_hours_band": {"type": ["string", "null"]}, "walltime_band": {"type": ["string", "null"]}, "assumptions": {"$ref": "#/$defs/nonemptyStrings"}}},
+    "success_confidence": {"$ref": "#/$defs/confidence"}, "closure_confidence": {"$ref": "#/$defs/confidence"},
+    "stop_conditions": {"$ref": "#/$defs/nonemptyStrings"},
+    "continuation": {"type": "object", "additionalProperties": false, "required": ["on_success", "on_failure"], "properties": {"on_success": {"$ref": "#/$defs/nonemptyStrings"}, "on_failure": {"$ref": "#/$defs/nonemptyStrings"}}},
+    "rollback": {"$ref": "#/$defs/nonemptyStrings"},
+    "unauthorized_actions": {"type": "array", "items": {"enum": ["automatic_retry", "chemistry_change", "method_change", "calculation_route_change", "candidate_expansion", "job_cancellation", "data_cleanup", "live_submission"]}, "minItems": 8, "maxItems": 8, "uniqueItems": true},
+    "recommendation_only": {"const": true}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "nonempty": {"type": "string", "minLength": 1}, "nonemptyStrings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["role", "path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"role": {"const": "discussion"}, "path": {"$ref": "#/$defs/nonempty"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-mechanism-discussion/1"}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "confidence": {"type": "object", "additionalProperties": false, "required": ["band", "rationale"], "properties": {"band": {"enum": ["very_low", "low", "moderate", "high", "unknown"]}, "rationale": {"$ref": "#/$defs/nonempty"}}}
+  }
+}

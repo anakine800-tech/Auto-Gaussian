@@ -5,6 +5,28 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- Added the offline `gaussian-v25-integration-review/1` owner overlay linking
+  method evidence to an explicit human method decision, mechanism discussion
+  to closure hard gates, TS-seed portfolios to exact initial-guess provenance,
+  and selected closure calculation nodes to the immutable execution-batch
+  review and ten-task ledger.
+- Added immutable reviewed `gaussian-execution-batch/1` governance with stable
+  scientific-task identities, a ten-task cap, separate physical-attempt and
+  core-hour accounting, fail-closed retry classification, uncertain-submission
+  reservation, atomic locking, and read-only immediate/60-minute monitoring.
+
+### Safety
+
+- The v2.5 integration overlay replays owner validators and fixes every
+  component and cross-Skill artifact as non-executable and non-authorizing.
+  Exact input review, stage dependency evidence, and fresh per-attempt live
+  approval remain separate gates.
+- Execution-batch planning and tests are standard-library and offline only.
+  They add no automatic qsub, retry, scientific change, cancellation, search
+  expansion, scheduler cleanup, deployment, SSH, PBS or Gaussian action.
+
 ## [2.4.0] - 2026-07-18
 
 ### Added

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/reaction-workflow/study-learning-update.schema.json",
+  "title": "Evidence-bound non-rewriting study learning update",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "update_id", "study_id", "discussion", "evidence", "observations", "interpretations", "affected_approved_decisions", "decision_effect", "proposed_changes", "decision_handling", "review", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-study-learning-update/1"}, "update_id": {"$ref": "#/$defs/id"}, "study_id": {"$ref": "#/$defs/id"},
+    "discussion": {"$ref": "#/$defs/binding"}, "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/binding"}},
+    "observations": {"$ref": "#/$defs/nonemptyStrings"},
+    "interpretations": {"type": "array", "items": {"$ref": "#/$defs/proposalText"}},
+    "affected_approved_decisions": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+    "decision_effect": {"enum": ["no_change", "invalidates_requires_new_discussion", "proposal_for_review"]},
+    "proposed_changes": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["target_claim_id", "proposal", "origin", "proposal_only"], "properties": {"target_claim_id": {"$ref": "#/$defs/id"}, "proposal": {"$ref": "#/$defs/nonempty"}, "origin": {"enum": ["ai_generated", "human_submitted"]}, "proposal_only": {"const": true}}}},
+    "decision_handling": {"type": "object", "additionalProperties": false, "required": ["approved_decisions_rewritten", "new_confirmation_required", "automatic_promotion"], "properties": {"approved_decisions_rewritten": {"const": false}, "new_confirmation_required": {"const": true}, "automatic_promotion": {"const": false}}},
+    "review": {"type": "object", "additionalProperties": false, "required": ["reviewer", "reviewed_at", "notes"], "properties": {"reviewer": {"$ref": "#/$defs/nonempty"}, "reviewed_at": {"type": "string", "minLength": 20}, "notes": {"$ref": "#/$defs/nonemptyStrings"}}},
+    "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"}, "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "nonempty": {"type": "string", "minLength": 1}, "nonemptyStrings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["role", "path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"role": {"$ref": "#/$defs/nonempty"}, "path": {"$ref": "#/$defs/nonempty"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"type": ["string", "null"]}, "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}}},
+    "proposalText": {"type": "object", "additionalProperties": false, "required": ["text", "origin", "proposal_only"], "properties": {"text": {"$ref": "#/$defs/nonempty"}, "origin": {"enum": ["ai_generated", "human_submitted"]}, "proposal_only": {"const": true}}}
+  }
+}

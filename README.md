@@ -58,6 +58,15 @@ artifacts are added. Complete owner-chain relocation is also unsupported because
 historical conformer paths may be absolute and open-shell paths may be
 working-directory-relative.
 
+The unreleased v2.5 integration layer now adds explicit human scientific
+decisions, evidence-only method briefs, bounded TS-seed portfolios, practical
+closure-priority planning, and persistent ten-task execution-batch governance.
+`gaussian-v25-integration-review/1` replays those owner contracts and binds the
+selected closure nodes to the exact batch review and ledger. The overlay and
+every component remain non-executable and non-authorizing; exact input review,
+stage dependency evidence, and a fresh live approval per physical attempt are
+still independent requirements. See `docs/v2.5-integration-approval.md`.
+
 ## 2.4.0 release preparation
 
 Auto-Gaussian 2.4.0 release metadata was prepared on 2026-07-18 from confirmed
@@ -138,7 +147,10 @@ retain their existing names for compatibility and provenance.
   states, metals, TS/IRC, server-directory creation, and all live actions.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
 - `skills/auto-g16-conformer-search`: offline, hash-bound A/A1/A2 and B/B1/B2 conformer/complex discovery planning, supplied-candidate legality auditing, composite structural cross-validation, negative-evidence preservation, clustering, medoids, and candidate-only handoff. It never executes xTB, CREST, Gaussian, PBS, or SSH.
-- `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
+- `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring,
+  retrieval, Opt–Freq–SP analysis, scheduler-state handling, and locked
+  ten-task execution-batch governance with separate task/attempt/core-hour
+  accounting.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks,
   minima-gated prospective `/2` family creation, imaginary-mode review
   artifacts, explicit mode promotion, and hash-bound forward/reverse IRC
