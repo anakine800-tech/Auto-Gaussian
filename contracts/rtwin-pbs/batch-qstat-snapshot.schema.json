@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/batch-qstat-snapshot.schema.json",
+  "title": "Auto-G16 complete user-scope batch qstat snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "collected_at", "source", "scope", "freshness", "age_seconds", "transport_classification", "job_ids", "records", "read_only", "error", "evidence_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-batch-qstat-snapshot/1"},
+    "collected_at": {"type": "string", "format": "date-time"},
+    "source": {"const": "single_complete_user_qstat"},
+    "scope": {"$ref": "#/$defs/scope"},
+    "freshness": {"enum": ["fresh", "unknown"]},
+    "age_seconds": {"type": "number", "minimum": 0},
+    "transport_classification": {"enum": ["success", "timeout", "transport_error", "parse_failed"]},
+    "job_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "records": {"type": "object", "additionalProperties": {"$ref": "#/$defs/record"}},
+    "read_only": {"const": true},
+    "error": {"type": ["string", "null"]},
+    "evidence_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "scope": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "owner", "completeness", "requested_job_ids"],
+      "properties": {
+        "kind": {"const": "complete_user_active_jobs"},
+        "owner": {"type": ["string", "null"]},
+        "completeness": {"enum": ["complete", "unknown"]},
+        "requested_job_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "record": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "pbs_state", "job_name", "cores", "memory_gb", "error"],
+      "properties": {
+        "status": {"enum": ["present", "unknown"]},
+        "pbs_state": {"type": ["string", "null"]},
+        "job_name": {"type": ["string", "null"]},
+        "cores": {"type": ["integer", "null"], "minimum": 1},
+        "memory_gb": {"type": ["integer", "null"], "minimum": 1},
+        "error": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

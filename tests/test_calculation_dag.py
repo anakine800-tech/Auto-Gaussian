@@ -20,6 +20,7 @@ from typing import Callable
 
 ROOT = Path(__file__).parents[1]
 TOOL = ROOT / "skills" / "auto-g16-reaction-workflow" / "scripts" / "calculation_dag.py"
+TOOL_DIR = TOOL.parent
 FIXTURES = ROOT / "tests" / "fixtures" / "reaction_workflow"
 REVIEW_TEMPLATE = FIXTURES / "calculation_plan_review.template.json"
 PLAN_SCHEMA = ROOT / "contracts" / "reaction-workflow" / "calculation-plan.schema.json"
@@ -57,6 +58,18 @@ ADAPTER_TEST_SPEC = importlib.util.spec_from_file_location("calculation_dag_adap
 assert ADAPTER_TEST_SPEC and ADAPTER_TEST_SPEC.loader
 ADAPTER_FIXTURE = importlib.util.module_from_spec(ADAPTER_TEST_SPEC)
 ADAPTER_TEST_SPEC.loader.exec_module(ADAPTER_FIXTURE)
+
+_inserted_tool_dir = str(TOOL_DIR) not in sys.path
+if _inserted_tool_dir:
+    sys.path.insert(0, str(TOOL_DIR))
+try:
+    DAG_SPEC = importlib.util.spec_from_file_location("calculation_dag_cache_fixture", TOOL)
+    assert DAG_SPEC and DAG_SPEC.loader
+    DAG = importlib.util.module_from_spec(DAG_SPEC)
+    DAG_SPEC.loader.exec_module(DAG)
+finally:
+    if _inserted_tool_dir:
+        sys.path.remove(str(TOOL_DIR))
 
 
 def canonical_bytes(value: object) -> bytes:
@@ -1541,6 +1554,10 @@ class CalculationDagTests(unittest.TestCase):
         self.assertNotEqual(checked.returncode, 0)
         self.assertRegex(checked.stderr.lower(), r"stage|resume|deterministic|recomput|index")
 
+    @unittest.skipIf(
+        os.environ.get("AUTO_G16_SKIP_PRESSURE_TESTS") == "1",
+        "large DAG pressure test runs on the dedicated Python 3.13/release path",
+    )
     def test_deep_node_supersession_is_iterative_and_plan_ancestry_is_bounded(self) -> None:
         node_count = 1101
 
@@ -1634,6 +1651,24 @@ class CalculationDagTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn(f"exceeds supported depth {MAX_SUPERSEDED_PLAN_DEPTH}", refused.stderr.lower())
         self.assertFalse(refused_path.exists())
+
+    def test_validation_cache_is_equivalent_and_tamper_still_fails_closed(self) -> None:
+        work = self.workdir("validation_cache_equivalence")
+        _review_path, plan_path, built = self.build_plan(work)
+        self.assert_success(built)
+
+        cached = DAG.validate_plan(plan_path, use_validation_cache=True)
+        uncached = DAG.validate_plan(plan_path, use_validation_cache=False)
+        self.assertEqual(cached, uncached)
+
+        context = DAG._ValidationContext(enabled=True)
+        DAG._validate_plan_internal(plan_path, set(), context)
+        self.assertTrue(context.owner_replays)
+
+        intake_path = work / "intake.json"
+        intake_path.write_bytes(intake_path.read_bytes() + b" \n")
+        with self.assertRaisesRegex(DAG.ContractError, r"size|hash|drift"):
+            DAG._validate_plan_internal(plan_path, set(), context)
 
     def test_superseded_plan_is_exactly_bound_and_visible_in_resume_index(self) -> None:
         work = self.workdir("superseded")

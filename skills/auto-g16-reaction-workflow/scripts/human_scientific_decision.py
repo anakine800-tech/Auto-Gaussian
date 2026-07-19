@@ -271,6 +271,8 @@ def build_action(root: Path, draft_path: Path, discussion_path: Path, output: Pa
         item = exact(raw, {"name", "status", "evidence"}, f"prerequisites[{index}]")
         require(item["status"] in {"satisfied", "blocked", "unknown"}, "prerequisite status is invalid")
         prerequisites.append({"name": text(item["name"], "prerequisite name"), "status": item["status"], "evidence": text(item["evidence"], "prerequisite evidence")})
+    if draft["disposition"] == "run":
+        require(all(item["status"] == "satisfied" for item in prerequisites), "run disposition requires every hard prerequisite to be satisfied")
     cost = exact(draft["estimated_cost"], {"status", "task_count", "core_hours_band", "walltime_band", "assumptions"}, "estimated_cost")
     require(cost["status"] in {"estimated", "unknown"}, "estimated_cost.status is invalid")
     if cost["status"] == "unknown":
@@ -312,6 +314,8 @@ def validate_action(root: Path, artifact: dict[str, Any]) -> None:
         item = exact(raw, {"name", "status", "evidence"}, f"prerequisites[{index}]")
         text(item["name"], "prerequisite name"); text(item["evidence"], "prerequisite evidence")
         require(item["status"] in {"satisfied", "blocked", "unknown"}, "prerequisite status is invalid")
+    if artifact["disposition"] == "run":
+        require(all(item["status"] == "satisfied" for item in artifact["prerequisites"]), "run disposition requires every hard prerequisite to remain satisfied")
     cost = exact(artifact["estimated_cost"], {"status", "task_count", "core_hours_band", "walltime_band", "assumptions"}, "estimated_cost")
     require(cost["status"] in {"estimated", "unknown"}, "estimated_cost.status is invalid")
     if cost["status"] == "unknown":

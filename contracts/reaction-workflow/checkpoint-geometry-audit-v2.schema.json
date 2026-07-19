@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/checkpoint-geometry-audit-v2.schema.json",
+  "title": "Auto-G16 source-bound checkpoint geometry audit v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "audit_status", "geometry_source", "checkpoint_file", "checkpoint_sha256", "ts_input_sha256", "ts_log_sha256", "ts_result_sha256", "mode_review_sha256", "mode_decision_sha256", "fetch_snapshot_sha256", "charge", "multiplicity", "atom_count", "atom_order", "checks", "limitations", "sources", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-checkpoint-geometry-audit/2"},
+    "audit_status": {"const": "passed"},
+    "geometry_source": {"const": "reviewed_ts_checkpoint"},
+    "checkpoint_file": {"type": "string", "pattern": "^[^/\\\\]+\\.chk$"},
+    "checkpoint_sha256": {"$ref": "#/$defs/sha"},
+    "ts_input_sha256": {"$ref": "#/$defs/sha"},
+    "ts_log_sha256": {"$ref": "#/$defs/sha"},
+    "ts_result_sha256": {"$ref": "#/$defs/sha"},
+    "mode_review_sha256": {"$ref": "#/$defs/sha"},
+    "mode_decision_sha256": {"$ref": "#/$defs/sha"},
+    "fetch_snapshot_sha256": {"$ref": "#/$defs/sha"},
+    "charge": {"type": "integer"},
+    "multiplicity": {"type": "integer", "minimum": 1},
+    "atom_count": {"type": "integer", "minimum": 1},
+    "atom_order": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atom"}},
+    "checks": {"$ref": "#/$defs/checks"},
+    "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "sources": {"$ref": "#/$defs/sources"},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes"], "properties": {"path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}},
+    "atom": {"type": "object", "additionalProperties": false, "required": ["index", "atomic_number", "element"], "properties": {"index": {"type": "integer", "minimum": 1}, "atomic_number": {"type": "integer", "minimum": 1}, "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"}}},
+    "checks": {"type": "object", "additionalProperties": false, "required": ["ts_input_checkpoint_name_matches", "ts_result_log_hash_matches", "charge_multiplicity_matches", "input_log_result_atom_order_matches", "imaginary_mode_atom_order_matches", "accepted_mode_decision_hashes_match", "source_log_is_exact_supplied_log", "execution_input_is_exact_supplied_input", "checkpoint_is_exact_hash_verified_fetch_artifact"], "properties": {"ts_input_checkpoint_name_matches": {"const": true}, "ts_result_log_hash_matches": {"const": true}, "charge_multiplicity_matches": {"const": true}, "input_log_result_atom_order_matches": {"const": true}, "imaginary_mode_atom_order_matches": {"const": true}, "accepted_mode_decision_hashes_match": {"const": true}, "source_log_is_exact_supplied_log": {"const": true}, "execution_input_is_exact_supplied_input": {"const": true}, "checkpoint_is_exact_hash_verified_fetch_artifact": {"const": true}}},
+    "sources": {"type": "object", "additionalProperties": false, "required": ["ts_input", "ts_log", "ts_result", "checkpoint", "mode_review", "mode_decision", "fetch_snapshot"], "properties": {"ts_input": {"$ref": "#/$defs/ref"}, "ts_log": {"$ref": "#/$defs/ref"}, "ts_result": {"$ref": "#/$defs/ref"}, "checkpoint": {"$ref": "#/$defs/ref"}, "mode_review": {"$ref": "#/$defs/ref"}, "mode_decision": {"$ref": "#/$defs/ref"}, "fetch_snapshot": {"$ref": "#/$defs/ref"}}}
+  }
+}

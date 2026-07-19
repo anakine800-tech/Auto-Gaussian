@@ -56,6 +56,30 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def parse_candidate_atom_order(path: Path) -> list[str]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    charge_line = next((index for index, line in enumerate(lines) if re.fullmatch(r"\s*[-+]?\d+\s+\d+\s*", line)), None)
+    if charge_line is None:
+        fail("selected candidate input lacks an exact charge/multiplicity line")
+    elements: list[str] = []
+    for line in lines[charge_line + 1:]:
+        if not line.strip():
+            break
+        fields = line.split()
+        if len(fields) != 4 or not re.fullmatch(r"[A-Z][a-z]?", fields[0]):
+            fail("selected candidate input contains an unsupported Cartesian row")
+        try:
+            values = [float(value.replace("D", "E").replace("d", "e")) for value in fields[1:]]
+        except ValueError:
+            fail("selected candidate input contains a damaged Cartesian token")
+        if not all(value == value and abs(value) != float("inf") for value in values):
+            fail("selected candidate input contains non-finite Cartesian coordinates")
+        elements.append(fields[0])
+    if not elements:
+        fail("selected candidate input lacks Cartesian coordinates")
+    return elements
+
+
 def safe_project(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}", value):
         fail("project must be 1-40 safe filename characters, starting alphanumeric")
@@ -385,6 +409,8 @@ def command_select(args) -> None:
     if output_dir.exists() and any(output_dir.iterdir()):
         fail("selection output directory is not empty")
     output_dir.mkdir(parents=True, exist_ok=True)
+    source_ensemble_path = output_dir / "source_ensemble.json"
+    shutil.copy2(ensemble_path, source_ensemble_path)
     selected_files = []
     for key in ("gaussian_input", "xyz", "manifest"):
         source = Path(candidate[key]).resolve()
@@ -393,18 +419,41 @@ def command_select(args) -> None:
         selected_files.append(str(target))
     selected_manifest_path = output_dir / manifest_path.name
     selected_manifest = json.loads(selected_manifest_path.read_text(encoding="utf-8"))
+    selected_input_path = output_dir / Path(candidate["gaussian_input"]).name
+    selected_xyz_path = output_dir / Path(candidate["xyz"]).name
+    atom_elements = parse_candidate_atom_order(selected_input_path)
+    if len(atom_elements) != selected_manifest.get("atom_count_in_gaussian_input"):
+        fail("selected candidate atom count differs between input and manifest")
     selected_manifest.update(
         {
-            "candidate_only": False,
-            "calculation_ready": True,
+            "schema": "gaussian-conformer-selection-receipt/1",
+            "candidate_only": True,
+            "calculation_ready": False,
+            "no_submission_authorization": True,
             "selection": {
                 "confirmed": True,
                 "rank": args.rank,
-                "ensemble": str(ensemble_path),
+                "scope": "human_structure_selection_only",
+                "ensemble": source_ensemble_path.name,
                 "ensemble_sha256": sha256(ensemble_path),
+                "ensemble_size_bytes": ensemble_path.stat().st_size,
             },
-            "gaussian_input": str(output_dir / Path(candidate["gaussian_input"]).name),
-            "xyz_coordinates": str(output_dir / Path(candidate["xyz"]).name),
+            "gaussian_input": selected_input_path.name,
+            "gaussian_input_sha256": sha256(selected_input_path),
+            "gaussian_input_size_bytes": selected_input_path.stat().st_size,
+            "xyz_coordinates": selected_xyz_path.name,
+            "xyz_sha256": sha256(selected_xyz_path),
+            "xyz_size_bytes": selected_xyz_path.stat().st_size,
+            "candidate_atom_elements": atom_elements,
+            "workflow_states": {
+                "human_selected": True,
+                "input_draft_generated": True,
+                "exact_input_approved": False,
+                "submission_authorized": False,
+                "result_accepted": False,
+            },
+            "selection_is_not_authorization": True,
+            "required_next_review": "exact structure mapping, protocol, resources, and input-hash approval",
         }
     )
     selected_manifest_path.write_text(json.dumps(selected_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -433,7 +482,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--allow-disconnected", action="store_true")
     generate.set_defaults(func=command_generate)
 
-    select = sub.add_parser("select", help="promote one reviewed candidate to calculation-ready")
+    select = sub.add_parser("select", help="record one reviewed candidate selection without calculation or submission authority")
     select.add_argument("ensemble")
     select.add_argument("--rank", type=int, required=True)
     select.add_argument("--output-dir", required=True)

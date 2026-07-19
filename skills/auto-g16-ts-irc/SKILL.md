@@ -67,7 +67,7 @@ adapter. The open-shell adapter has no transport or execution surface.
    submits nor writes to the server.
 4. After the user approves the exact TS project, use `auto-g16-rtwin-pbs` to stage and run the separately prepared TS/Freq input. Fetch the log and checkpoint before proceeding.
 5. Before a live result exists, prepare one hash-bound `gaussian-terminal-intake-template/1` per approved project. After terminal process/PBS evidence, fetch the complete log and run `ingest-terminal` against the exact local input and mutable `job.json`. The command refuses non-terminal, unfetched, process-alive, size/count-mismatched, transport-unverified, project-mismatched, input-hash-mismatched, or template-hash-mismatched evidence. A committed template contains no runtime job ID and grants no live authority.
-6. For TS/Freq, proceed to `analyze-ts` and `mode-review` only when intake reports `ready_for_manual_mode_review`. Require normal TS/Freq termination, stationary-point evidence, the exact expected mode count, exactly one raw negative frequency, and a complete displacement block. Re-fetch if an earlier automatic snapshot ended after Opt but before Freq.
+6. For TS/Freq, proceed to `analyze-ts` and `mode-review` only when intake reports `ready_for_manual_mode_review`. `analyze-ts` emits source-bound `gaussian-ts-freq-result/2` with the exact portable log reference, SHA-256, size, parser version/schema, exact 3N-6 or 3N-5 expectation, and full mode-displacement replay. Require normal TS/Freq termination, stationary-point evidence, the exact expected mode count, exactly one raw negative frequency, and a complete displacement block. Re-fetch if an earlier automatic snapshot ended after Opt but before Freq. Historical result `/1` is replay-only and cannot enter the new formal path-acceptance contract.
    Parser/terminal classification replay and mode-review geometry arithmetic
    remain owned by `classify_ts_freq_result_facts`,
    `classify_ts_freq_terminal_facts`, and `validate_mode_review_geometry`;
@@ -82,16 +82,16 @@ adapter. The open-shell adapter has no transport or execution surface.
    `ReCorrect=Never`.
 10. Only after exact IRC approval, use `plan-irc` to create two new, hash-bound PBS submission plans for a normal bidirectional family. New planning accepts only `gaussian-ts-irc-workflow/2`, revalidates its exact maturity binding and formal scientific input check, and propagates that binding into the IRC plan. Historical `/1` is validation/replay-only. Supply the verified installed G16 revision plus complete, verified routes containing explicit and non-swapped `Forward`/`Reverse` direction keywords—this Skill does not manufacture Gaussian IRC keywords. A one-direction diagnostic retry remains a fresh, separately approved project and does not replace two-direction validation.
 11. Submit each approved direction through `auto-g16-rtwin-pbs` into a fresh project, fetch results, then run `ingest-terminal` separately for each direction. `ready_for_endpoint_structure_review` means only that the numerical path reached a clean, direction-specific final point with the declared corrector evidence; it does not label the endpoint or validate the path. Never submit a replacement automatically.
-12. After both IRC directions complete and their structures are reviewed, run `audit-irc-endpoint` separately on each final point. Require direction-specific path completion, every expected point's corrector convergence, normal termination, matching log/result atom order and coordinates, a fetched job record, and an exact final IRC checkpoint hash. Chemical-side labels must come from reviewed structural evidence.
-    Then run `build-path-acceptance` to bind the formal family, TS result,
-    mode review/decision and both complete endpoint source bundles. Its owner
-    validator reconstructs both endpoint audits and requires one reactant and
-    one product side with identical composition/spin/atom order. This opens
+12. After both IRC directions complete, run `audit-irc-endpoint` separately on each final point with the exact accepted TS checkpoint, checkpoint audit `/2`, IRC plan and AllCheck manifest, then create one immutable `gaussian-endpoint-structure-review/2` per direction with `build-endpoint-structure-review`. Each review binds the exact input, full log, result, job, attempt, terminal receipt, fetch snapshot, IRC checkpoint and shared TS-checkpoint lineage by relative path, SHA-256 and size; records parser version/schema, stable atom IDs, identity, connectivity, stereochemistry, reviewer, rationale and time; and replays the source audit. Chemical-side strings alone are insufficient. Historical endpoint review `/1` is display/replay-only and cannot open a new path or maturity gate.
+    Then run `build-path-acceptance-v2` to bind the formal family, source-bound TS result,
+    mode review/decision and both immutable endpoint reviews. Its owner
+    validator reconstructs both `/2` endpoint reviews and requires one reactant and
+    one product side with identical composition, charge, multiplicity and stable atom ID/order. This opens
     only the next endpoint-minimum gate; it is not endpoint Opt/Freq or barrier
     acceptance.
-13. For a connected endpoint, build the job with `build-allcheck-endpoint`. Require a separately approved route containing `Opt Freq Geom=AllCheck Guess=Read`, a fresh project, and an exact audited IRC checkpoint.
+13. For a connected endpoint, build the job with `build-allcheck-endpoint`. It accepts only an owner-replayed `gaussian-endpoint-structure-review/2` and the exact IRC checkpoint in that review's complete source bundle; historical review/audit `/1` and a standalone handwritten audit `/2` are replay-only and cannot create a runnable input. Require a separately approved route containing `Opt Freq Geom=AllCheck Guess=Read` and a fresh project.
 14. For a disconnected endpoint, run `propose-endpoint-components`. Treat its covalent-radius connectivity as a review proposal only. Require a hash-bound `gaussian-irc-component-review/1` that explicitly accepts every atom partition and supplies each identity, fresh project, charge, multiplicity, and a spin-coupling note. Then run `build-fragment-endpoints`; it emits explicit Cartesian inputs and no submission authorization.
-15. Submit each fragment only after exact per-project approval. Run `audit-fragment-endpoints` on fetched results and require every fragment to optimize normally with a complete frequency calculation and zero imaginary frequencies. Report the electronic-energy sum only as an isolated-fragment electronic energy, never as a reaction Gibbs energy.
+15. Submit each fragment only after exact per-project approval. For formal acceptance use `audit-fragment-endpoints-v2` with every exact raw log and checkpoint. It replays each log and records result/job/log/checkpoint references plus parser version/schema. A single-atom minimum has zero vibrational modes and must report `expected_frequency_count=0`, `frequencies=[]`, `lowest_frequency_cm-1=null`, and zero imaginary frequencies. Every fragment with `N>1` retains the complete 3N-6 (or 3N-5 when linear) mode-count hard gate and rejects malformed, non-finite or truncated frequencies. Historical `/1` is replay-only for formal closure. Report the electronic-energy sum only as an isolated-fragment electronic energy, never as a reaction Gibbs energy.
 
 ## Offline commands
 
@@ -147,11 +147,22 @@ TOOL="$HOME/.codex/skills/auto-g16-ts-irc/scripts/ts_irc.py"
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" audit-irc-endpoint \
   --irc-input irc_forward.gjf --irc-log irc_forward.log \
   --irc-result result.json --job job.json --checkpoint irc_forward.chk \
+  --ts-checkpoint accepted_ts.chk --checkpoint-audit checkpoint_audit_v2.json \
+  --irc-plan irc_plan.json --allcheck-input-manifest irc_forward.json \
   --direction forward --chemical-side reactant --expected-points 30 \
   --forming 1,7 --output endpoint_audit.json
 
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-endpoint-structure-review \
+  --review endpoint_review_draft.json --family ts_family_v2.json \
+  --audit endpoint_audit.json --irc-input irc_forward.gjf --irc-log irc_forward.log \
+  --irc-result result.json --job job.json --checkpoint irc_forward.chk \
+  --terminal-inspection-receipt terminal-inspection-receipt.json \
+  --fetch-snapshot transfer.json --ts-checkpoint accepted_ts.chk \
+  --checkpoint-audit checkpoint_audit_v2.json --irc-plan irc_plan.json \
+  --allcheck-input-manifest irc_forward.json --output endpoint_structure_review_v2.json
+
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-allcheck-endpoint \
-  --endpoint-audit endpoint_audit.json --checkpoint irc_forward.chk \
+  --endpoint-review endpoint_structure_review_v2.json --checkpoint irc_forward.chk \
   --output endpoint_opt_freq.gjf \
   --route '#p <approved endpoint Opt Freq route including Geom=AllCheck Guess=Read>' \
   --memory 12GB --nprocshared 8

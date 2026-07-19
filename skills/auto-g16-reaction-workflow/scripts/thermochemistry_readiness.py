@@ -30,7 +30,7 @@ ROLE_SCHEMAS = {
         "gaussian-scientific-maturity-gate/2",
     },
     "ts_attempt": {"gaussian-calculation-attempt-link/1"},
-    "ts_path_acceptance": {"gaussian-ts-irc-path-acceptance/1"},
+    "ts_path_acceptance": {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"},
     "energy_lineage": {"gaussian-energy-lineage/1"},
 }
 VALIDATOR_IMPLEMENTATIONS = {
@@ -38,6 +38,7 @@ VALIDATOR_IMPLEMENTATIONS = {
     "gaussian-scientific-maturity-gate/2": "scientific_maturity_v2.validate_gate",
     "gaussian-calculation-attempt-link/1": "calculation_artifacts.validate_artifact",
     "gaussian-ts-irc-path-acceptance/1": "ts_irc.validate_path_acceptance_artifact",
+    "gaussian-ts-irc-path-acceptance/2": "ts_irc.validate_path_acceptance_v2_artifact",
     "gaussian-energy-lineage/1": "calculation_artifacts.validate_artifact",
 }
 
@@ -158,7 +159,7 @@ def _owner_validate(path: Path, schema: str) -> dict[str, Any]:
         import calculation_artifacts
         calculation_artifacts.validate_artifact(path)
         return rw.load_json(path)
-    if schema == "gaussian-ts-irc-path-acceptance/1":
+    if schema in {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"}:
         ts_path = Path(__file__).resolve().parents[2] / "auto-g16-ts-irc/scripts/ts_irc.py"
         ts_owner = _load_external_module("thermochemistry_readiness_ts_owner", ts_path)
         return ts_owner.validate_path_acceptance_artifact(path)
@@ -225,6 +226,12 @@ def _ts_readiness_blockers(root: Path, roles: dict[str, dict[str, Any]]) -> list
         return [_blocker("ts_attempt_missing", "ts_evidence", [path_acceptance["source_id"]], "Path acceptance is not bound to a supplied calculation attempt.", "calculation attempt link sharing the exact TS result")]
     if path_acceptance is None:
         return [_blocker("attempt_link_only_ts", "ts_evidence", [attempt["source_id"]], "Attempt-link-only TS evidence is insufficient.", "ts_irc.validate_path_acceptance_artifact owner chain")]
+    if path_acceptance["document"].get("schema") != "gaussian-ts-irc-path-acceptance/2":
+        return [_blocker(
+            "path_acceptance_v2_required", "ts_evidence", [path_acceptance["source_id"]],
+            "Historical path acceptance /1 is replay-only and cannot open new thermochemistry qualification.",
+            "gaussian-ts-irc-path-acceptance/2 with endpoint review /2 owner replay",
+        )]
     mismatch = _exact_ts_result_blocker(root, attempt, path_acceptance)
     return [] if mismatch is None else [mismatch]
 
@@ -276,12 +283,17 @@ def _derive(root: Path, request_path: Path, request: dict[str, Any]) -> dict[str
     elif roles["minimum_evidence"]["document"]["schema"] == "gaussian-scientific-maturity-gate/1":
         blockers.append(_blocker("minimum_owner_evidence_v2_required", "minimum_evidence", [roles["minimum_evidence"]["source_id"]], "Scientific-maturity gate /1 does not close conformer and electronic-state ownership for formal thermochemistry.", "owner-evidence scientific-maturity gate /2"))
     else:
-        blockers.append(_blocker(
-            "minimum_candidate_input_result_lineage_unavailable_v2", "minimum_evidence",
-            [roles["minimum_evidence"]["source_id"]],
-            "Scientific-maturity gate /2 replays, but its current minimum chain does not bind the selected candidate through exact input approval to the accepted minimum result/log.",
-            "owner-validated minimum candidate/input/result lineage",
-        ))
+        incomplete = [
+            item["minimum_id"] for item in roles["minimum_evidence"]["document"].get("minimum_gates", [])
+            if item.get("owner_evidence_ready") is not True
+        ]
+        if incomplete:
+            blockers.append(_blocker(
+                "minimum_candidate_input_result_lineage_unavailable_v2", "minimum_evidence",
+                [roles["minimum_evidence"]["source_id"]],
+                "Scientific-maturity gate /2 has minima without replayed exact candidate/input/job/result lineage: " + ", ".join(incomplete),
+                "owner-validated minimum candidate/input/result lineage",
+            ))
 
     blockers.extend(_ts_readiness_blockers(root, roles))
 

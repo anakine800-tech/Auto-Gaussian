@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -15,6 +16,14 @@ from typing import Any, Optional
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "config" / "python-environments.json"
 PACKAGE_IMPORTS = {"numpy": "numpy", "Pillow": "PIL", "rdkit": "rdkit"}
+RUNTIME_CONFIG_PATH = ROOT / "scripts" / "runtime_config.py"
+RUNTIME_CONFIG_SPEC = importlib.util.spec_from_file_location(
+    "auto_g16_strict_runtime_config",
+    RUNTIME_CONFIG_PATH,
+)
+assert RUNTIME_CONFIG_SPEC and RUNTIME_CONFIG_SPEC.loader
+RUNTIME_CONFIG = importlib.util.module_from_spec(RUNTIME_CONFIG_SPEC)
+RUNTIME_CONFIG_SPEC.loader.exec_module(RUNTIME_CONFIG)
 
 
 class EnvironmentError(ValueError):
@@ -72,19 +81,20 @@ def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
 def runtime_config_path(
     environ: Optional[dict[str, str]] = None, home: Optional[Path] = None
 ) -> Path:
-    environ = os.environ if environ is None else environ
-    home = Path.home() if home is None else home
-    raw = environ.get("AUTO_G16_RUNTIME_CONFIG")
-    return Path(raw).expanduser() if raw else home / ".config" / "auto-g16" / "runtime.json"
+    try:
+        return RUNTIME_CONFIG.default_path(environ, home)
+    except RUNTIME_CONFIG.RuntimeConfigError as exc:
+        raise EnvironmentError(str(exc)) from exc
 
 
 def load_runtime_config(
     environ: Optional[dict[str, str]] = None, home: Optional[Path] = None
 ) -> tuple[dict[str, Any], Path]:
     path = runtime_config_path(environ, home)
-    if not path.is_file():
-        return {}, path
-    return load_json(path), path
+    try:
+        return RUNTIME_CONFIG.load(path, missing_ok=True), path
+    except RUNTIME_CONFIG.RuntimeConfigError as exc:
+        raise EnvironmentError(str(exc)) from exc
 
 
 def resolve_profile(

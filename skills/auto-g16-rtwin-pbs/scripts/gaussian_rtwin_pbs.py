@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import copy
+import fcntl
 import hashlib
 import importlib.util
 import json
 import math
 import os
+import random
 import re
 import shutil
 import stat
@@ -19,11 +22,14 @@ import sys
 import tempfile
 import time
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from gaussian_log import analyze_log_file, analyze_log_text, analyze_workflow_log_file
+import execution_batch
 import protocol_selection
+import resource_efficiency
 from runtime_config import setting
 
 
@@ -63,9 +69,42 @@ LIVE_APPROVAL_V2_SCHEMA = "auto-g16-live-submission-approval/2"
 LIVE_APPROVAL_V3_SCHEMA = "auto-g16-live-submission-approval/3"
 OPEN_SHELL_LIVE_APPROVAL_SCHEMA = "auto-g16-live-submission-approval/4"
 OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA = "auto-g16-live-submission-approval/5"
+LIVE_APPROVAL_V6_SCHEMA = "auto-g16-live-submission-approval/6"
+OPEN_SHELL_LIVE_APPROVAL_V7_SCHEMA = "auto-g16-live-submission-approval/7"
+OPEN_SHELL_FAMILY_LIVE_APPROVAL_V8_SCHEMA = "auto-g16-live-submission-approval/8"
+LIVE_APPROVAL_V9_SCHEMA = "auto-g16-live-submission-approval/9"
+OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA = "auto-g16-live-submission-approval/10"
+OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA = "auto-g16-live-submission-approval/11"
+CANCELLATION_APPROVAL_SCHEMA = "auto-g16-exact-cancellation-approval/1"
 INPUT_APPROVAL_WORK_KINDS = {"ordinary", "minimum", "ts_pilot", "formal_ts"}
 SPECIALIST_INPUT_WORK_KINDS = {"ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"}
 ALL_WORK_KINDS = INPUT_APPROVAL_WORK_KINDS | SPECIALIST_INPUT_WORK_KINDS
+DEFAULT_COMMAND_TIMEOUT_SECONDS = 60
+STREAM_COPY_CHUNK_SIZE = 1024 * 1024
+MAX_IN_MEMORY_READ_BYTES = 16 * 1024 * 1024
+TRANSFER_RATE_FLOOR_BYTES_PER_SECOND = 1024 * 1024
+TRANSFER_FIXED_OVERHEAD_SECONDS = 30
+MIN_TRANSFER_TIMEOUT_SECONDS = 60
+# Seven days is a finite operational ceiling shared with watch.  Requests
+# above the corresponding byte capacity fail closed instead of silently
+# violating the declared minimum sustained rate.
+MAX_TRANSFER_TIMEOUT_SECONDS = 7 * 24 * 3600
+MAX_TRANSFER_BYTES = (
+    MAX_TRANSFER_TIMEOUT_SECONDS - TRANSFER_FIXED_OVERHEAD_SECONDS
+) * TRANSFER_RATE_FLOOR_BYTES_PER_SECOND
+HASH_RATE_FLOOR_BYTES_PER_SECOND = 1024 * 1024
+HASH_FIXED_OVERHEAD_SECONDS = 30
+MIN_HASH_TIMEOUT_SECONDS = 60
+MAX_HASH_TIMEOUT_SECONDS = 7 * 24 * 3600
+MAX_HASH_BYTES = (
+    MAX_HASH_TIMEOUT_SECONDS - HASH_FIXED_OVERHEAD_SECONDS
+) * HASH_RATE_FLOOR_BYTES_PER_SECOND
+MAX_READ_ONLY_RETRIES = 2
+MAX_REMOTE_CLOCK_SKEW_SECONDS = 5
+MIN_INTERRUPTION_STABLE_SECONDS = 60
+WATCH_HEARTBEAT_SECONDS = 3600
+WATCH_MAX_POLL_SECONDS = 300
+WATCH_JITTER_FRACTION = 0.10
 
 
 def fail(message: str, code: int = 2) -> None:
@@ -82,8 +121,22 @@ def decode(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def run(command: list[str], *, input_bytes: bytes | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    result = subprocess.run(command, input=input_bytes, capture_output=True)
+def run(
+    command: list[str], *, input_bytes: bytes | None = None, check: bool = True,
+    timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess:
+    """Run one local/SSH/scp command with a mandatory finite timeout and no retry."""
+
+    if not isinstance(timeout_seconds, int) or timeout_seconds < 1:
+        fail("command timeout must be a positive integer")
+    try:
+        result = subprocess.run(
+            command, input=input_bytes, capture_output=True, timeout=timeout_seconds
+        )
+    except subprocess.TimeoutExpired as exc:
+        result = subprocess.CompletedProcess(
+            command, 124, exc.stdout or b"", (exc.stderr or b"") + b"\nAUTO_G16_COMMAND_TIMEOUT"
+        )
     stdout = decode(result.stdout)
     stderr = decode(result.stderr)
     result.stdout = stdout  # type: ignore[assignment]
@@ -91,6 +144,111 @@ def run(command: list[str], *, input_bytes: bytes | None = None, check: bool = T
     if check and result.returncode:
         detail = (stderr or stdout).strip()
         fail(f"command failed ({result.returncode}): {detail}")
+    return result
+
+
+def _size_derived_timeout_seconds(
+    total_bytes: int, *, rate_floor: int, fixed_overhead: int,
+    minimum: int, maximum: int, maximum_bytes: int, label: str,
+) -> int:
+    if not isinstance(total_bytes, int) or isinstance(total_bytes, bool) or total_bytes < 0:
+        fail(f"{label} timeout requires an exact non-negative byte count")
+    if total_bytes > maximum_bytes:
+        fail(f"{label} byte count exceeds the finite audited timeout capacity")
+    calculated = fixed_overhead + math.ceil(total_bytes / rate_floor)
+    if calculated > maximum:
+        fail(f"{label} timeout exceeds the finite audited ceiling")
+    return max(minimum, calculated)
+
+
+def transfer_timeout_seconds(total_bytes: int) -> int:
+    """Return a finite transfer budget that preserves the declared rate floor."""
+    return _size_derived_timeout_seconds(
+        total_bytes, rate_floor=TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
+        fixed_overhead=TRANSFER_FIXED_OVERHEAD_SECONDS,
+        minimum=MIN_TRANSFER_TIMEOUT_SECONDS, maximum=MAX_TRANSFER_TIMEOUT_SECONDS,
+        maximum_bytes=MAX_TRANSFER_BYTES, label="transfer",
+    )
+
+
+def hash_timeout_seconds(total_bytes: int) -> int:
+    """Return a finite exact-byte hashing budget with no hidden 60 s umbrella."""
+    return _size_derived_timeout_seconds(
+        total_bytes, rate_floor=HASH_RATE_FLOOR_BYTES_PER_SECOND,
+        fixed_overhead=HASH_FIXED_OVERHEAD_SECONDS,
+        minimum=MIN_HASH_TIMEOUT_SECONDS, maximum=MAX_HASH_TIMEOUT_SECONDS,
+        maximum_bytes=MAX_HASH_BYTES, label="hash",
+    )
+
+
+class _ReadOnlyCapability:
+    __slots__ = ("kind", "command", "input_sha256")
+
+    def __init__(self, kind: str, command: list[str], input_bytes: bytes | None):
+        self.kind = kind
+        self.command = tuple(command)
+        self.input_sha256 = hashlib.sha256(input_bytes or b"").hexdigest()
+
+
+COMPLETE_USER_QSTAT_SCRIPT = b'''set -u
+owner=$(id -un) || exit 91
+printf 'AUTO_G16_OWNER\t%s\n' "$owner"
+qstat -f -u "$owner"
+'''
+
+
+def _exact_read_only_capability(kind: str, command: list[str], input_bytes: bytes | None) -> _ReadOnlyCapability:
+    if kind not in {"single_job_inspection", "complete_user_qstat"}:
+        raise ValueError("unknown read-only capability")
+    if (
+        len(command) != 10 or command[0] != "ssh" or command[1] != "-F"
+        or command[4] != "ssh" or command[5] != "-F"
+        or command[8:] != ["bash", "-s"] or input_bytes is None
+        or any(not isinstance(command[index], str) or not command[index] for index in (2, 3, 6, 7))
+        or any(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", command[index]) is None for index in (3, 7))
+    ):
+        raise ValueError("read-only capability requires the exact internal snapshot builder")
+    if kind == "complete_user_qstat" and input_bytes != COMPLETE_USER_QSTAT_SCRIPT:
+        raise ValueError("complete-user capability accepts only the fixed qstat builder")
+    if kind == "single_job_inspection":
+        text = decode(input_bytes)
+        job_match = re.search(r"qstat_out=\$\(qstat -f '([^']+)'", text)
+        log_match = re.search(r"if \[ -f '(/home/user100/SDL/([^/]+)/([^/]+)\.log)' \]", text)
+        if not job_match or not log_match:
+            raise ValueError("inspection capability cannot recover exact builder scope")
+        project, input_stem = log_match.group(2), log_match.group(3)
+        if input_bytes != server_job_snapshot_script(project, input_stem, job_match.group(1)).encode("utf-8"):
+            raise ValueError("inspection capability accepts only the exact generated snapshot script")
+    return _ReadOnlyCapability(kind, command, input_bytes)
+
+
+def run_read_only(
+    command: list[str], *, input_bytes: bytes | None = None,
+    timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    retries: int = MAX_READ_ONLY_RETRIES,
+    capability: _ReadOnlyCapability | None = None,
+) -> subprocess.CompletedProcess:
+    """Retry only commands whose complete command/script is provably read-only."""
+
+    if (
+        not isinstance(capability, _ReadOnlyCapability)
+        or capability.kind not in {"single_job_inspection", "complete_user_qstat"}
+        or capability.command != tuple(command)
+        or capability.input_sha256 != hashlib.sha256(input_bytes or b"").hexdigest()
+    ):
+        raise ValueError("automatic retry requires an exact private read-only snapshot capability")
+    if not isinstance(retries, int) or not 0 <= retries <= MAX_READ_ONLY_RETRIES:
+        raise ValueError("read-only retries exceed the finite package-4 limit")
+    result: subprocess.CompletedProcess | None = None
+    for attempt in range(retries + 1):
+        result = run(
+            command, input_bytes=input_bytes, check=False, timeout_seconds=timeout_seconds
+        )
+        if result.returncode not in {124, 255}:
+            return result
+        if attempt < retries:
+            time.sleep(0.05 * (2 ** attempt))
+    assert result is not None
     return result
 
 
@@ -121,33 +279,179 @@ def read_stable_bytes(path: Path, label: str) -> tuple[Path, bytes, str]:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ValueError(f"{label} must be a regular file")
-        chunks: list[bytes] = []
+        if before.st_size > MAX_IN_MEMORY_READ_BYTES:
+            raise ValueError(f"{label} exceeds the bounded in-memory read limit; use streaming copy/hash")
+        data = bytearray()
+        digest = hashlib.sha256()
         while True:
-            chunk = os.read(descriptor, 1024 * 1024)
+            chunk = os.read(descriptor, STREAM_COPY_CHUNK_SIZE)
             if not chunk:
                 break
-            chunks.append(chunk)
+            data.extend(chunk); digest.update(chunk)
         after = os.fstat(descriptor)
     finally:
         os.close(descriptor)
     identity = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
     if identity != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
         raise ValueError(f"{label} changed while it was being read")
-    data = b"".join(chunks)
     if len(data) != before.st_size:
         raise ValueError(f"{label} size changed while it was being read")
-    return resolved, data, hashlib.sha256(data).hexdigest()
+    return resolved, bytes(data), digest.hexdigest()
+
+
+def stable_file_metadata(path: Path, label: str) -> tuple[Path, str, int]:
+    """Hash a descriptor-bound regular file without retaining its bytes."""
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    resolved = expanded.resolve(strict=True)
+    descriptor = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError(f"{label} must be a regular file")
+        digest = hashlib.sha256(); size = 0
+        while True:
+            chunk = os.read(descriptor, STREAM_COPY_CHUNK_SIZE)
+            if not chunk:
+                break
+            digest.update(chunk); size += len(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    if _descriptor_identity(before) != _descriptor_identity(after) or _nofollow_path_identity(resolved, label) != _descriptor_identity(before) or size != before.st_size:
+        raise ValueError(f"{label} changed while it was hashed")
+    return resolved, digest.hexdigest(), size
+
+
+def _descriptor_identity(value: os.stat_result) -> tuple[int, int, int, int]:
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+
+
+def _nofollow_path_identity(path: Path, label: str) -> tuple[int, int, int, int]:
+    try:
+        value = os.stat(path, follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError(f"{label} path identity is unavailable: {exc}") from exc
+    if not stat.S_ISREG(value.st_mode):
+        raise ValueError(f"{label} must remain a regular non-symlink file")
+    return _descriptor_identity(value)
+
+
+def atomic_stable_file_copy(
+    source: Path, destination: Path, label: str, *, expected: dict[str, Any] | None = None,
+    mode: int = 0o400,
+) -> dict[str, Any]:
+    """Descriptor-bound chunked copy with private no-clobber publication."""
+    expanded = source.expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    resolved = expanded.resolve(strict=True)
+    source_fd = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    temporary = destination.with_name(f".{destination.name}.copy-{os.getpid()}-{time.time_ns()}.tmp")
+    destination_fd = -1
+    try:
+        before = os.fstat(source_fd)
+        if not stat.S_ISREG(before.st_mode) or _nofollow_path_identity(resolved, label) != _descriptor_identity(before):
+            raise ValueError(f"{label} descriptor/path identity differs")
+        destination_fd = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), mode
+        )
+        os.fchmod(destination_fd, mode)
+        digest = hashlib.sha256(); size = 0
+        while True:
+            chunk = os.read(source_fd, STREAM_COPY_CHUNK_SIZE)
+            if not chunk: break
+            digest.update(chunk); size += len(chunk)
+            offset = 0
+            while offset < len(chunk):
+                written = os.write(destination_fd, chunk[offset:])
+                if written <= 0: raise OSError("zero-byte stable copy write")
+                offset += written
+        os.fsync(destination_fd)
+        after = os.fstat(source_fd)
+        identity = _descriptor_identity(before)
+        if identity != _descriptor_identity(after) or _nofollow_path_identity(resolved, label) != identity or size != before.st_size:
+            raise ValueError(f"{label} changed while it was copied")
+        observed = {"sha256": digest.hexdigest(), "size": size}
+        if expected is not None and observed != {"sha256": expected.get("sha256"), "size": expected.get("size")}:
+            raise ValueError(f"{label} changed after manifest validation")
+        os.close(destination_fd); destination_fd = -1
+        copied = os.stat(temporary, follow_symlinks=False)
+        if not stat.S_ISREG(copied.st_mode) or copied.st_size != size or sha256(temporary) != observed["sha256"]:
+            raise ValueError(f"{label} private copy failed pre-publication verification")
+        try:
+            os.link(temporary, destination)
+        except FileExistsError as exc:
+            raise ValueError(f"{label} destination already exists") from exc
+        directory_fd = os.open(destination.parent, os.O_RDONLY)
+        try: os.fsync(directory_fd)
+        finally: os.close(directory_fd)
+        if _nofollow_path_identity(destination, f"published {label}")[2] != size or sha256(destination) != observed["sha256"]:
+            raise ValueError(f"published {label} failed verification")
+        return {**observed, "source": resolved}
+    finally:
+        os.close(source_fd)
+        if destination_fd >= 0: os.close(destination_fd)
+        with contextlib.suppress(FileNotFoundError): temporary.unlink()
 
 
 def atomic_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(text, encoding="utf-8")
-    temporary.replace(path)
+    if path.is_symlink():
+        raise ValueError(f"refusing to replace symlink state file: {path}")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temporary.unlink()
 
 
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
     atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+
+
+@contextlib.contextmanager
+def locked_state(path: Path):
+    lock_path = path.with_name(path.name + ".lock")
+    if path.is_symlink() or lock_path.is_symlink():
+        raise ValueError("job state and lock paths must not be symlinks")
+    descriptor = os.open(
+        lock_path,
+        os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def canonical_digest(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def publish_new_json(
@@ -226,19 +530,10 @@ def capture_submission_snapshot(source: Path, local_dir: Path) -> tuple[Path, st
             raise ValueError("%oldchk must be a local basename inside the snapshot")
         companion_sources.append(resolved.parent / oldchk_name)
     for companion_source in companion_sources:
-        companion_resolved, companion_data, companion_digest = read_stable_bytes(
-            companion_source, f"submission companion {companion_source.name}"
+        companion_snapshot = snapshot_dir / companion_source.name
+        atomic_stable_file_copy(
+            companion_source, companion_snapshot, f"submission companion {companion_source.name}", mode=0o400
         )
-        companion_snapshot = snapshot_dir / companion_resolved.name
-        companion_descriptor = os.open(
-            companion_snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400
-        )
-        with os.fdopen(companion_descriptor, "wb") as handle:
-            handle.write(companion_data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        if read_stable_bytes(companion_snapshot, "submission companion snapshot")[2] != companion_digest:
-            raise ValueError("submission companion snapshot hash mismatch")
     return snapshot, digest
 
 
@@ -268,14 +563,14 @@ def verify_staged_submission(
         fail("staged Gaussian input no longer matches the exact input and live approval chain")
     expected: dict[str, str] = {}
     for path in files:
-        _, _, digest = read_stable_bytes(path, f"staged upload file {path.name}")
+        _, digest, _ = stable_file_metadata(path, f"staged upload file {path.name}")
         expected[path.name] = digest
     return expected
 
 
 def assert_file_bindings_unchanged(files: list[Path], expected: dict[str, str]) -> None:
     for path in files:
-        _, _, digest = read_stable_bytes(path, f"staged upload file {path.name}")
+        _, digest, _ = stable_file_metadata(path, f"staged upload file {path.name}")
         if digest != expected.get(path.name):
             fail(f"staged upload file changed before transfer: {path.name}")
 
@@ -308,8 +603,151 @@ def validate_transfer_name(name: str) -> str:
     return name
 
 
+def checked_local_path(path: Path, label: str) -> Path:
+    """Return an absolute path only when every existing component is non-symlink."""
+
+    expanded = path.expanduser()
+    if not expanded.is_absolute():
+        expanded = Path.cwd() / expanded
+    absolute = Path(os.path.abspath(str(expanded)))
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            break
+        except OSError as exc:
+            fail(f"cannot inspect {label} path component {current}: {exc}")
+        if stat.S_ISLNK(mode):
+            fail(f"{label} must not contain a symlink: {current}")
+    return absolute
+
+
+def command_detail(result: subprocess.CompletedProcess) -> str | None:
+    """Return one bounded diagnostic without turning an error into evidence."""
+
+    detail = " ".join(str(result.stderr or result.stdout).strip().split())
+    return detail[:500] if detail else None
+
+
+def is_unknown_job_id(result: subprocess.CompletedProcess) -> bool:
+    """Recognize only PBS' explicit statement that one exact record is absent."""
+
+    text = f"{result.stdout}\n{result.stderr}"
+    return bool(re.search(r"\bunknown\s+job(?:\s+identifier|\s+id)?\b", text, re.I))
+
+
+def classify_qstat_evidence(result: subprocess.CompletedProcess) -> dict[str, Any]:
+    """Classify qstat as present/absent/unknown; command errors stay unknown."""
+
+    text = str(result.stdout or result.stderr)
+    if result.returncode == 0:
+        qstate_match = re.search(r"(?m)^\s*job_state\s*=\s*(\S+)", text)
+        job_name_match = re.search(r"(?m)^\s*Job_Name\s*=\s*(\S+)", text)
+        session_match = re.search(r"(?m)^\s*session_id\s*=\s*(\d+)", text)
+        if qstate_match and job_name_match:
+            return {
+                "status": "present",
+                "record_present": True,
+                "pbs_state": qstate_match.group(1),
+                "job_name": job_name_match.group(1),
+                "session_id": session_match.group(1) if session_match else None,
+                "returncode": result.returncode,
+                "error": None,
+            }
+        return {
+            "status": "unknown",
+            "record_present": None,
+            "pbs_state": None,
+            "job_name": None,
+            "session_id": None,
+            "returncode": result.returncode,
+            "error": "qstat succeeded but its exact job record could not be parsed",
+        }
+    if result.returncode != 255 and is_unknown_job_id(result):
+        return {
+            "status": "absent",
+            "record_present": False,
+            "pbs_state": None,
+            "job_name": None,
+            "session_id": None,
+            "returncode": result.returncode,
+            "error": None,
+        }
+    return {
+        "status": "unknown",
+        "record_present": None,
+        "pbs_state": None,
+        "job_name": None,
+        "session_id": None,
+        "returncode": result.returncode,
+        "error": command_detail(result) or "qstat failed without an explicit Unknown Job Id response",
+    }
+
+
+def classify_process_evidence(result: subprocess.CompletedProcess) -> dict[str, Any]:
+    """Classify an exact PBS session process observation without guessing."""
+
+    output = str(result.stdout).strip()
+    if result.returncode == 0:
+        present = bool(output)
+        return {
+            "status": "present" if present else "absent",
+            "process_alive": present,
+            "returncode": result.returncode,
+            "error": None,
+        }
+    if result.returncode == 1 and not output and not str(result.stderr).strip():
+        return {
+            "status": "absent",
+            "process_alive": False,
+            "returncode": result.returncode,
+            "error": None,
+        }
+    return {
+        "status": "unknown",
+        "process_alive": None,
+        "returncode": result.returncode,
+        "error": command_detail(result) or "ps failed, so session-process presence is unknown",
+    }
+
+
+def classify_qdel_outcome(result: subprocess.CompletedProcess) -> dict[str, Any]:
+    """Classify the one allowed qdel without treating transport failure as success."""
+
+    if result.returncode == 0:
+        return {"status": "success", "returncode": 0, "error": None}
+    if result.returncode != 255 and is_unknown_job_id(result):
+        return {
+            "status": "unknown_job_id",
+            "returncode": result.returncode,
+            "error": None,
+        }
+    return {
+        "status": "failed",
+        "returncode": result.returncode,
+        "error": command_detail(result) or "qdel failed without an explicit Unknown Job Id response",
+    }
+
+
+def classify_qsub_outcome(result: subprocess.CompletedProcess) -> dict[str, Any]:
+    combined = f"{result.stdout}\n{result.stderr}"
+    job_ids = sorted(set(re.findall(
+        r"(?m)^([0-9]+(?:\.[A-Za-z0-9_.-]+)?)\s*$", combined
+    )))
+    if result.returncode == 0 and len(job_ids) == 1:
+        return {"classification": "submitted_unique", "job_id": job_ids[0], "output": combined.strip()}
+    return {
+        "classification": "submission_uncertain",
+        "job_id": None,
+        "candidate_job_ids": job_ids,
+        "output": combined.strip(),
+    }
+
+
 def remote_empty_directory_guard(project: str) -> str:
-    """Create one empty, non-symlink project directory inside the fixed root."""
+    """Atomically claim a never-before-existing project directory."""
 
     remote_dir = remote_project_dir(project)
     return f"""set -euo pipefail
@@ -320,23 +758,16 @@ if [ "$root_real" != "$root" ]; then
   echo 'REFUSING_OUTSIDE_SDL: allowed root is missing, moved, or a symlink' >&2
   exit 40
 fi
-if [ -L "$jobdir" ]; then
-  echo 'REFUSING_SYMLINK: project directory is a symbolic link' >&2
-  exit 41
-fi
 if [ -e "$jobdir" ]; then
-  job_real=$(realpath -e -- "$jobdir")
-  case "$job_real" in
-    "$root"/*) ;;
-    *) echo 'REFUSING_OUTSIDE_SDL: project resolves outside allowed root' >&2; exit 42 ;;
-  esac
-  if [ -n "$(find "$jobdir" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
-    echo 'REFUSING_OVERWRITE: server project directory is not empty' >&2
-    exit 43
-  fi
-else
-  mkdir -- "$jobdir"
+  echo 'REFUSING_OVERWRITE: server project directory already exists, even if empty' >&2
+  exit 43
 fi
+mkdir -- "$jobdir"
+job_real=$(realpath -e -- "$jobdir")
+case "$job_real" in
+  "$root"/*) ;;
+  *) echo 'REFUSING_OUTSIDE_SDL: claimed project resolves outside allowed root' >&2; exit 42 ;;
+esac
 """
 
 
@@ -677,6 +1108,14 @@ def input_approval_compatibility(report: dict[str, Any], work_kind: str | None) 
         }
     if work_kind not in INPUT_APPROVAL_WORK_KINDS:
         return {"status": "unsupported_work_kind", "work_kind": work_kind}
+    if work_kind == "ordinary" and isinstance(report.get("multiplicity"), int) and report["multiplicity"] > 1:
+        return {
+            "status": "blocked_unsupported_open_shell_ordinary",
+            "work_kind": work_kind,
+            "required_owner": "unavailable_specialist_open_shell_ordinary_owner",
+            "required_schema": None,
+            "reason": "generic input receipt /1 and live approval /9 are singlet-only for ordinary jobs",
+        }
 
     route = str(report.get("route", ""))
     route_tokens = set(normalize_route(route).split())
@@ -1533,8 +1972,8 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
                 "combined with a prospective input receipt + live approval"
             )
         if exact_input_approval["schema"] == INPUT_APPROVAL_SCHEMA:
-            if summary["work_kind"] == "minimum" and summary["multiplicity"] != 1:
-                fail("generic receipt /1 cannot authorize a non-singlet minimum")
+            if summary["multiplicity"] != 1:
+                fail("generic receipt /1 and resource-bound live /9 are singlet-only")
             expected_schema = LIVE_APPROVAL_V3_SCHEMA
         elif exact_input_approval["schema"] == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
             if input_approval.get("status") != "validated_exact_input_approval":
@@ -1649,12 +2088,159 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
             "scientific_action_authorization_sha256": exact_authorization["sha256"],
             "scientific_action_authorization_payload_sha256": exact_authorization["payload_sha256"],
         }
+    execution = summary.get("execution")
+    if execution is not None:
+        resource_binding = execution.get("resource_binding") if isinstance(execution, dict) else None
+        execution_fields = {
+            "batch_id", "review_sha256", "scientific_task_id", "attempt_id",
+            "idempotency_key", "estimated_core_hours",
+            "estimated_core_hours_evidence",
+        }
+        if resource_binding is not None:
+            execution_fields.add("resource_binding")
+        try:
+            exact_execution = _exact_fields(
+                execution,
+                execution_fields,
+                "protected live execution binding",
+            )
+            evidence = _exact_fields(
+                exact_execution["estimated_core_hours_evidence"],
+                {"source", "sha256"},
+                "estimated core-hour evidence",
+            )
+        except ValueError as exc:
+            fail(str(exc))
+        if (
+            not isinstance(exact_execution["batch_id"], str)
+            or not exact_execution["batch_id"]
+            or not isinstance(exact_execution["scientific_task_id"], str)
+            or not exact_execution["scientific_task_id"].startswith("scientific-task-")
+            or not isinstance(exact_execution["attempt_id"], str)
+            or not exact_execution["attempt_id"].startswith("qsub-attempt-")
+            or not isinstance(exact_execution["idempotency_key"], str)
+            or not exact_execution["idempotency_key"]
+            or not isinstance(exact_execution["estimated_core_hours"], (int, float))
+            or isinstance(exact_execution["estimated_core_hours"], bool)
+            or not math.isfinite(float(exact_execution["estimated_core_hours"]))
+            or float(exact_execution["estimated_core_hours"]) <= 0
+            or any(
+                not isinstance(exact_execution[key], str)
+                or SHA256_RE.fullmatch(exact_execution[key]) is None
+                for key in ("review_sha256",)
+            )
+            or not isinstance(evidence["source"], str)
+            or not evidence["source"]
+            or not isinstance(evidence["sha256"], str)
+            or SHA256_RE.fullmatch(evidence["sha256"]) is None
+        ):
+            fail("protected live execution binding is malformed")
+        expected["operation"] = "submit"
+        expected["execution"] = copy.deepcopy(exact_execution)
+        if resource_binding is not None:
+            try:
+                exact_resource = _exact_fields(
+                    resource_binding,
+                    {
+                        "policy_id", "policy_sha256", "gate_id", "gate_sha256",
+                        "resource_tier", "cores", "memory_gb", "walltime_seconds",
+                    },
+                    "resource-bound live execution",
+                )
+            except ValueError as exc:
+                fail(str(exc))
+            if (
+                any(not isinstance(exact_resource[key], str) or not exact_resource[key] for key in ("policy_id", "gate_id", "resource_tier"))
+                or any(not isinstance(exact_resource[key], str) or SHA256_RE.fullmatch(exact_resource[key]) is None for key in ("policy_sha256", "gate_sha256"))
+                or any(isinstance(exact_resource[key], bool) or not isinstance(exact_resource[key], int) or exact_resource[key] < 1 for key in ("cores", "memory_gb", "walltime_seconds"))
+                or exact_resource["cores"] != summary["protocol"]["nproc"]
+                or exact_resource["memory_gb"] * 1024**3 != parse_memory(summary["protocol"]["mem"])
+            ):
+                fail("resource-bound live execution differs from the exact Gaussian/PBS resources")
+            try:
+                resource_efficiency.validate_resource_tuple(
+                    exact_resource["resource_tier"], exact_resource["cores"], exact_resource["memory_gb"]
+                )
+            except resource_efficiency.ResourceError as exc:
+                fail(str(exc))
+            owner_key = (
+                "open_shell_owner" if expected_schema == OPEN_SHELL_LIVE_APPROVAL_SCHEMA
+                else "open_shell_family" if expected_schema == OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA
+                else None
+            )
+            if owner_key is not None:
+                owner_resources = expected[owner_key]["resources"]
+                if (
+                    owner_resources["resource_tier"] != exact_resource["resource_tier"]
+                    or owner_resources["cores"] != exact_resource["cores"]
+                    or owner_resources["mem_gb"] != exact_resource["memory_gb"]
+                ):
+                    fail("specialist owner resources differ from the exact resource-bound live gate")
+            schema_upgrade = {
+                LIVE_APPROVAL_V3_SCHEMA: LIVE_APPROVAL_V9_SCHEMA,
+                OPEN_SHELL_LIVE_APPROVAL_SCHEMA: OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA,
+                OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA: OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA,
+            }
+        else:
+            schema_upgrade = {
+                LIVE_APPROVAL_V3_SCHEMA: LIVE_APPROVAL_V6_SCHEMA,
+                OPEN_SHELL_LIVE_APPROVAL_SCHEMA: OPEN_SHELL_LIVE_APPROVAL_V7_SCHEMA,
+                OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA: OPEN_SHELL_FAMILY_LIVE_APPROVAL_V8_SCHEMA,
+            }
+        if expected_schema not in schema_upgrade:
+            fail("historical approval generations cannot enter a new protected submit")
+        expected_schema = schema_upgrade[expected_schema]
     return expected_schema, expected
 
 
 def _validate_live_approval_document(approval: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
     expected_schema, expected = expected_live_approval_scope(summary)
-    if expected_schema in {OPEN_SHELL_LIVE_APPROVAL_SCHEMA, OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA}:
+    protected_schemas = {
+        LIVE_APPROVAL_V6_SCHEMA,
+        OPEN_SHELL_LIVE_APPROVAL_V7_SCHEMA,
+        OPEN_SHELL_FAMILY_LIVE_APPROVAL_V8_SCHEMA,
+        LIVE_APPROVAL_V9_SCHEMA,
+        OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA,
+        OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA,
+    }
+    if expected_schema in protected_schemas:
+        try:
+            _exact_fields(
+                approval,
+                {
+                    "schema", "approval_id", "approver_identity", "approved_at",
+                    "expires_at", "decision", "explicit_confirmation", "scope",
+                    "revocation", "consumption", "authorizations",
+                },
+                "protected live approval",
+            )
+            revocation = _exact_fields(
+                approval["revocation"], {"revoked", "revoked_at", "reason"},
+                "live approval revocation",
+            )
+            consumption = _exact_fields(
+                approval["consumption"], {"single_use", "consumed"},
+                "live approval consumption",
+            )
+        except ValueError as exc:
+            fail(str(exc))
+        if not isinstance(approval["approval_id"], str) or not approval["approval_id"].strip():
+            fail("protected live approval requires a one-time approval_id")
+        if not isinstance(approval["approver_identity"], str) or not approval["approver_identity"].strip():
+            fail("protected live approval requires approver_identity")
+        try:
+            approved_at = execution_batch.parse_time(approval["approved_at"])
+            expires_at = execution_batch.parse_time(approval["expires_at"])
+        except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
+            fail(f"protected live approval timestamp is invalid: {exc}")
+        now = datetime.now(timezone.utc)
+        if approved_at > now or expires_at <= approved_at or now >= expires_at:
+            fail("protected live approval is not currently within its approved time window")
+        if revocation != {"revoked": False, "revoked_at": None, "reason": None}:
+            fail("protected live approval has been revoked or has malformed revocation state")
+        if consumption != {"single_use": True, "consumed": False}:
+            fail("protected live approval must be active and single-use before reservation")
+    elif expected_schema in {OPEN_SHELL_LIVE_APPROVAL_SCHEMA, OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA}:
         try:
             _exact_fields(
                 approval,
@@ -1989,6 +2575,8 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         "trailing_blank_line": True,
     }
     report["manifest"] = None
+    report["manifest_sha256"] = None
+    report["manifest_size"] = None
     report["manifest_warnings"] = []
     if manifest is not None:
         warnings = manifest.get("warnings", [])
@@ -2012,15 +2600,42 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         if manifest_atoms is not None and manifest_atoms != coordinate_count:
             fail("atom count differs between Gaussian input and companion manifest")
         report["manifest"] = str(manifest_path.resolve())
+        report["manifest_sha256"] = sha256(manifest_path)
+        report["manifest_size"] = manifest_path.stat().st_size
     return report
 
 
-def pbs_text(project: str, input_name: str, nproc: int) -> str:
+def _pbs_walltime(seconds: int) -> str:
+    if not isinstance(seconds, int) or seconds < 1:
+        raise ValueError("PBS walltime must be a positive reviewed integer")
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds_value = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds_value:02d}"
+
+
+def pbs_text(
+    project: str, input_name: str, nproc: int, *, mem_gb: int | None = None,
+    walltime_seconds: int | None = None, resource_tier: str | None = None,
+) -> str:
+    resource_lines = ""
+    if any(value is not None for value in (mem_gb, walltime_seconds, resource_tier)):
+        if (
+            not isinstance(mem_gb, int) or mem_gb < 1
+            or not isinstance(walltime_seconds, int) or walltime_seconds < 1
+            or not isinstance(resource_tier, str) or not resource_tier.strip()
+        ):
+            raise ValueError("resource-bound PBS generation requires exact tier, memory, and walltime")
+        resource_efficiency.validate_resource_tuple(resource_tier, nproc, mem_gb)
+        resource_lines = (
+            f"#PBS -l mem={mem_gb}gb\n"
+            f"#PBS -l walltime={_pbs_walltime(walltime_seconds)}\n"
+            f"# AUTO_G16_RESOURCE_TIER={resource_tier}\n"
+        )
     return f"""#!/bin/sh
 #PBS -N {project}
 #PBS -j oe
 #PBS -l nodes=1:ppn={nproc}
-#PBS -V
+{resource_lines}#PBS -V
 #PBS -o ./{project}.pbs.out
 
 set -eu
@@ -2058,7 +2673,10 @@ g16 "{input_name}"
 """
 
 
-def stage(input_path: Path, project: str, local_dir: Path) -> tuple[dict[str, Any], list[Path]]:
+def stage(
+    input_path: Path, project: str, local_dir: Path,
+    resource_binding: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[Path]]:
     audit = parse_gaussian(input_path)
     validate_transfer_name(input_path.name)
     local_dir.mkdir(parents=True, exist_ok=True)
@@ -2124,7 +2742,18 @@ def stage(input_path: Path, project: str, local_dir: Path) -> tuple[dict[str, An
         companions.append(target)
 
     pbs = local_dir / f"{project}.pbs"
-    atomic_text(pbs, pbs_text(project, destination.name, audit["nprocshared"]))
+    pbs_kwargs: dict[str, Any] = {}
+    if resource_binding is not None:
+        if resource_binding["cores"] != audit["nprocshared"]:
+            fail("resource gate cores differ from Gaussian %nprocshared")
+        if resource_binding["memory_gb"] * 1024**3 != parse_memory(audit["mem"]):
+            fail("resource gate memory differs from Gaussian %mem")
+        pbs_kwargs = {
+            "mem_gb": resource_binding["memory_gb"],
+            "walltime_seconds": resource_binding["walltime_seconds"],
+            "resource_tier": resource_binding["resource_tier"],
+        }
+    atomic_text(pbs, pbs_text(project, destination.name, audit["nprocshared"], **pbs_kwargs))
     immutable = [destination, *companions, pbs]
     checksums = local_dir / "checksums.sha256"
     atomic_text(checksums, "".join(f"{sha256(item)}  {item.name}\n" for item in immutable))
@@ -2141,8 +2770,9 @@ def stage(input_path: Path, project: str, local_dir: Path) -> tuple[dict[str, An
         "remote_workdir": remote_project_dir(project),
         "job_id": None,
         "gaussian": audit,
+        "resource_binding": copy.deepcopy(resource_binding),
     }
-    atomic_json(local_dir / "job.json", job)
+    initialize_job_state(local_dir, job)
     # job.json is mutable local control-plane state and is never uploaded.
     return job, [*immutable, checksums]
 
@@ -2168,10 +2798,149 @@ def powershell_encoded(script: str) -> str:
 
 def update_job(local_dir: Path, **updates: Any) -> dict[str, Any]:
     path = local_dir / "job.json"
-    job = json.loads(path.read_text(encoding="utf-8"))
-    job.update(updates)
-    atomic_json(path, job)
-    return job
+    events_path = local_dir / "job.events.jsonl"
+    with locked_state(path):
+        events = _load_job_events(events_path)
+        if not events:
+            if not path.is_file() or path.is_symlink():
+                raise ValueError(f"local job state is unavailable: {path}")
+            current = json.loads(path.read_text(encoding="utf-8"))
+            _append_job_event_locked(
+                events_path,
+                events,
+                "legacy_snapshot_imported",
+                {"replace": current},
+            )
+            events = _load_job_events(events_path)
+        current = _derive_job_state(events)
+        _append_job_event_locked(
+            events_path,
+            events,
+            "job_state_updated",
+            {"updates": copy.deepcopy(updates)},
+        )
+        current.update(updates)
+        current["state_revision"] = len(events) + 1
+        current["state_event_sha256"] = _load_job_events(events_path)[-1]["event_sha256"]
+        current["state_sha256"] = canonical_digest(
+            {key: value for key, value in current.items() if key != "state_sha256"}
+        )
+        atomic_json(path, current)
+        return current
+
+
+def _load_job_events(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("job event log must be a regular non-symlink file")
+    events: list[dict[str, Any]] = []
+    previous: str | None = None
+    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"job event log line {index} is invalid: {exc}") from exc
+        if not isinstance(event, dict) or set(event) != {
+            "sequence", "event_type", "timestamp", "previous_event_sha256",
+            "payload", "event_sha256",
+        }:
+            raise ValueError("job event log contains an open or malformed record")
+        if event["sequence"] != index or event["previous_event_sha256"] != previous:
+            raise ValueError("job event log sequence/hash chain is discontinuous")
+        if event["event_sha256"] != canonical_digest(
+            {key: value for key, value in event.items() if key != "event_sha256"}
+        ):
+            raise ValueError("job event hash mismatch")
+        previous = event["event_sha256"]
+        events.append(event)
+    return events
+
+
+def _append_job_event_locked(
+    path: Path,
+    events: list[dict[str, Any]],
+    event_type: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    event = {
+        "sequence": len(events) + 1,
+        "event_type": event_type,
+        "timestamp": utc_now(),
+        "previous_event_sha256": events[-1]["event_sha256"] if events else None,
+        "payload": payload,
+    }
+    event["event_sha256"] = canonical_digest(event)
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        pass
+    return event
+
+
+def _derive_job_state(events: list[dict[str, Any]]) -> dict[str, Any]:
+    current: dict[str, Any] = {}
+    for event in events:
+        payload = event["payload"]
+        if "replace" in payload:
+            current = copy.deepcopy(payload["replace"])
+        elif "updates" in payload:
+            current.update(copy.deepcopy(payload["updates"]))
+        else:
+            raise ValueError("job event payload has no recognized state operation")
+    if not events:
+        raise ValueError("job event log is empty")
+    current["state_revision"] = len(events)
+    current["state_event_sha256"] = events[-1]["event_sha256"]
+    current["state_sha256"] = canonical_digest(
+        {key: value for key, value in current.items() if key != "state_sha256"}
+    )
+    return current
+
+
+def initialize_job_state(local_dir: Path, job: dict[str, Any]) -> dict[str, Any]:
+    path = local_dir / "job.json"
+    events_path = local_dir / "job.events.jsonl"
+    with locked_state(path):
+        if events_path.exists():
+            raise ValueError(
+                "refusing to replace existing append-only job event history; use a fresh local directory"
+            )
+        event = _append_job_event_locked(
+            events_path, [], "job_state_initialized", {"replace": copy.deepcopy(job)}
+        )
+        current = copy.deepcopy(job)
+        current["state_revision"] = 1
+        current["state_event_sha256"] = event["event_sha256"]
+        current["state_sha256"] = canonical_digest(current)
+        atomic_json(path, current)
+        return current
+
+
+def read_job_state(local_dir: Path) -> dict[str, Any]:
+    path = local_dir / "job.json"
+    events_path = local_dir / "job.events.jsonl"
+    with locked_state(path):
+        events = _load_job_events(events_path)
+        if events:
+            derived = _derive_job_state(events)
+            if not path.is_file() or path.is_symlink():
+                raise ValueError("derived job.json is missing or unsafe")
+            stored = json.loads(path.read_text(encoding="utf-8"))
+            if stored != derived:
+                atomic_json(path, derived)
+            return derived
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("job.json is missing or unsafe")
+        return json.loads(path.read_text(encoding="utf-8"))
 
 
 def classify_inspection_state(
@@ -2182,16 +2951,23 @@ def classify_inspection_state(
     analysis: dict[str, Any],
     qstate: str | None,
     process_alive: bool | None,
+    pbs_evidence_status: str | None = None,
 ) -> tuple[str, int, bool, bool]:
     expected_stages = int(workflow_manifest.get("expected_stage_count", 3)) if workflow_manifest else 1
     workflow_complete = bool(
         workflow_manifest and full_normal_count >= expected_stages and full_error_count == 0
     )
     workflow_failed = bool(workflow_manifest and full_error_count > 0)
+    if pbs_evidence_status is None:
+        pbs_evidence_status = "present" if qstate is not None else "unknown"
+    if pbs_evidence_status not in {"present", "absent", "unknown"}:
+        raise ValueError("pbs_evidence_status must be present, absent, or unknown")
     # A single input can contain sequential work (for example, Opt followed by
     # Freq).  An earlier "Normal termination" does not make the overall job
     # terminal while PBS still has a live Gaussian session.
-    if qstate == "R" and process_alive is True:
+    if pbs_evidence_status == "unknown":
+        state = "unknown"
+    elif qstate == "R" and process_alive is True:
         state = "running"
     elif qstate == "Q":
         state = "queued"
@@ -2205,18 +2981,12 @@ def classify_inspection_state(
         state = "completed"
     elif workflow_failed:
         state = "failed"
-    elif not workflow_manifest and analysis["normal_termination"]:
-        state = "completed"
-    elif not workflow_manifest and analysis["error_termination"]:
+    elif not workflow_manifest and (full_error_count > 0 or analysis["error_termination"]):
         state = "failed"
+    elif not workflow_manifest and (full_normal_count >= 1 or analysis["normal_termination"]):
+        state = "completed"
     elif qstate == "R" and process_alive is False:
         state = "stale"
-    elif qstate is None and (
-        analysis.get("scf_calculations", 0) > 0
-        or analysis.get("final_coordinate_count", 0) > 0
-        or analysis.get("normal_termination_count", 0) + analysis.get("error_termination_count", 0) > 0
-    ):
-        state = "interrupted"
     else:
         state = "unknown"
     return state, expected_stages, workflow_complete, workflow_failed
@@ -2225,6 +2995,8 @@ def classify_inspection_state(
 def terminal_log_proven(inspection: dict[str, Any]) -> bool:
     """Return True only when the log proves Gaussian reached a terminal outcome."""
 
+    if inspection.get("termination_counts_known") is not True:
+        return False
     expected = inspection.get("workflow_expected_stages")
     normal_count = int(inspection.get("full_normal_termination_count") or 0)
     error_count = int(inspection.get("full_error_termination_count") or 0)
@@ -2233,18 +3005,36 @@ def terminal_log_proven(inspection: dict[str, Any]) -> bool:
     if expected is not None:
         return normal_count >= int(expected)
     analysis = inspection.get("analysis") or {}
-    return bool(analysis.get("normal_termination") or analysis.get("error_termination"))
+    return bool(normal_count > 0 or error_count > 0 or analysis.get("normal_termination") or analysis.get("error_termination"))
 
 
 def zombie_snapshot(inspection: dict[str, Any]) -> dict[str, Any]:
     """Keep only scheduler-safety evidence needed for zombie diagnosis."""
 
+    pbs_record_present = inspection.get("pbs_record_present")
+    pbs_evidence_status = inspection.get("pbs_evidence_status")
+    if pbs_evidence_status not in {"present", "absent", "unknown"}:
+        pbs_evidence_status = (
+            "present" if pbs_record_present is True
+            else "absent" if pbs_record_present is False
+            else "unknown"
+        )
+    process_alive = inspection.get("process_alive")
+    process_evidence_status = inspection.get("process_evidence_status")
+    if process_evidence_status not in {"present", "absent", "unknown"}:
+        process_evidence_status = (
+            "present" if process_alive is True
+            else "absent" if process_alive is False
+            else "unknown"
+        )
     return {
         "pbs_job_name": inspection.get("pbs_job_name"),
         "pbs_state": inspection.get("pbs_state"),
         "pbs_record_present": inspection.get("pbs_record_present"),
+        "pbs_evidence_status": pbs_evidence_status,
         "session_id": inspection.get("session_id"),
         "process_alive": inspection.get("process_alive"),
+        "process_evidence_status": process_evidence_status,
         "log_size": inspection.get("log_size"),
         "log_mtime_epoch": inspection.get("log_mtime_epoch"),
         "workflow_expected_stages": inspection.get("workflow_expected_stages"),
@@ -2276,7 +3066,7 @@ def assess_zombie_observations(
             "failed_checks": ["at least two observations are required"],
             "observations": snapshots,
         }
-    if not snapshots[-1]["pbs_record_present"]:
+    if snapshots[-1]["pbs_evidence_status"] == "absent":
         return {
             **base,
             "classification": "self_purged",
@@ -2286,10 +3076,16 @@ def assess_zombie_observations(
         }
 
     checks = {
+        "pbs_evidence_present": all(
+            value["pbs_evidence_status"] == "present" for value in snapshots
+        ),
         "exact_job_name": all(value["pbs_job_name"] == project for value in snapshots),
         "pbs_running_record": all(value["pbs_state"] == "R" for value in snapshots),
         "session_id_present": all(bool(value["session_id"]) for value in snapshots),
-        "session_process_absent": all(value["process_alive"] is False for value in snapshots),
+        "session_process_absent": all(
+            value["process_evidence_status"] == "absent" and value["process_alive"] is False
+            for value in snapshots
+        ),
         "terminal_log_proven": all(value["terminal_log_proven"] for value in snapshots),
         "log_metadata_present": all(
             value["log_size"] is not None and value["log_mtime_epoch"] is not None
@@ -2319,16 +3115,14 @@ def validate_local_job_binding(
     job_id: str,
     input_stem: str,
     *,
-    require_fetched: bool,
+    require_fetched: bool, expected_attempt_id: str | None = None,
 ) -> dict[str, Any]:
-    """Bind a cleanup request to the immutable local job audit record."""
+    """Bind any local status/fetch mutation to the exact staged job bytes."""
 
-    job_path = local_dir.expanduser().resolve() / "job.json"
-    if not job_path.is_file():
-        fail(f"local job audit record does not exist: {job_path}")
+    local_dir = checked_local_path(local_dir, "local job directory")
     try:
-        job = json.loads(job_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        job = read_job_state(local_dir)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         fail(f"could not read local job audit record: {exc}")
     expected = {
         "project": project,
@@ -2337,15 +3131,113 @@ def validate_local_job_binding(
     }
     for key, value in expected.items():
         if job.get(key) != value:
-            fail(f"local job audit record {key} does not match the cleanup request")
-    if Path(str(job.get("input", ""))).stem != input_stem:
-        fail("local job audit record input stem does not match the cleanup request")
+            fail(f"local job audit record {key} does not match the exact request")
+    input_name = str(job.get("input", ""))
+    if Path(input_name).stem != input_stem or Path(input_name).name != input_name:
+        fail("local job audit record input stem does not match the exact request")
+    input_digest = job.get("input_sha256")
+    staged_input = local_dir / input_name
+    if not isinstance(input_digest, str) or not SHA256_RE.fullmatch(input_digest):
+        fail("local job audit record lacks an exact input hash")
+    if staged_input.is_symlink() or not staged_input.is_file() or sha256(staged_input) != input_digest:
+        fail("local staged input bytes do not match the job audit hash")
+    if expected_attempt_id is not None:
+        execution = job.get("execution_batch")
+        if not isinstance(execution, dict) or execution.get("attempt_id") != expected_attempt_id:
+            fail("local job audit attempt does not match the exact request")
     if require_fetched and job.get("results_fetched") is not True:
         fail("refusing scheduler cleanup before results_fetched is recorded true")
     return job
 
 
-def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, Any]:
+def validate_terminal_inspection_receipt(
+    local_dir: Path, job: dict[str, Any], project: str, job_id: str, input_stem: str,
+) -> dict[str, Any]:
+    path = local_dir / "terminal-inspection.json"
+    if path.is_symlink() or not path.is_file():
+        fail("fetch requires an immutable exact terminal inspection receipt")
+    receipt = load_strict_json(path)
+    required = {
+        "schema", "project", "job_id", "input_stem", "input_sha256", "attempt_id",
+        "terminal_state", "collected_at", "inspection_evidence_sha256", "inspection",
+        "scientific_acceptance", "receipt_sha256",
+    }
+    if set(receipt) != required or receipt.get("schema") != "gaussian-terminal-inspection-receipt/1":
+        fail("terminal inspection receipt is open or malformed")
+    execution = job.get("execution_batch") if isinstance(job.get("execution_batch"), dict) else {}
+    expected = {
+        "project": project, "job_id": job_id, "input_stem": input_stem,
+        "input_sha256": job.get("input_sha256"), "attempt_id": execution.get("attempt_id"),
+    }
+    if any(receipt.get(key) != value for key, value in expected.items()):
+        fail("terminal inspection receipt differs from the exact local job binding")
+    if receipt.get("scientific_acceptance") is not False:
+        fail("terminal inspection receipt must not claim scientific acceptance")
+    if receipt.get("receipt_sha256") != canonical_digest({key: value for key, value in receipt.items() if key != "receipt_sha256"}):
+        fail("terminal inspection receipt hash mismatch")
+    inspection = receipt.get("inspection")
+    if not isinstance(inspection, dict) or inspection.get("evidence_sha256") != receipt.get("inspection_evidence_sha256"):
+        fail("terminal inspection evidence binding is malformed")
+    if inspection["evidence_sha256"] != canonical_digest({key: value for key, value in inspection.items() if key != "evidence_sha256"}):
+        fail("terminal inspection evidence hash mismatch")
+    if (
+        inspection.get("project") != project or inspection.get("job_id") != job_id
+        or inspection.get("freshness") != "fresh"
+        or inspection.get("transport_classification") != "success"
+        or inspection.get("termination_counts_known") is not True
+        or inspection.get("state") != receipt.get("terminal_state")
+    ):
+        fail("terminal inspection was not fresh, successful, and exact when captured")
+    if receipt["terminal_state"] in {"completed", "failed"}:
+        if not terminal_log_proven(inspection):
+            fail("terminal inspection lacks exact terminal log evidence")
+    elif receipt["terminal_state"] == "interrupted":
+        proof = inspection.get("interruption_proof")
+        if not isinstance(proof, dict) or proof.get("stable_repeats", 0) < 2 or proof.get("stable_duration_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("log_age_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("full_normal_termination_count") != 0 or proof.get("full_error_termination_count") != 0 or any(proof.get(key) is not True for key in ("scheduler_record_absent", "log_signature_stable", "normal_termination_absent", "termination_counts_known")):
+            fail("interrupted terminal receipt lacks repeated stable absence proof")
+    else:
+        fail("terminal inspection receipt is not terminal")
+    return receipt
+
+
+def publish_terminal_inspection_receipt(
+    local_dir: Path, job: dict[str, Any], inspection: dict[str, Any], input_stem: str,
+) -> dict[str, Any]:
+    path = local_dir / "terminal-inspection.json"
+    if path.exists() or path.is_symlink():
+        return validate_terminal_inspection_receipt(local_dir, job, inspection["project"], inspection["job_id"], input_stem)
+    if (
+        inspection.get("freshness") != "fresh"
+        or inspection.get("transport_classification") != "success"
+        or inspection.get("termination_counts_known") is not True
+        or inspection.get("evidence_sha256") != canonical_digest({key: value for key, value in inspection.items() if key != "evidence_sha256"})
+    ):
+        fail("refusing to publish stale, failed, or tampered terminal inspection evidence")
+    if inspection.get("state") in {"completed", "failed"}:
+        if not terminal_log_proven(inspection):
+            fail("refusing terminal receipt without terminal log evidence")
+    elif inspection.get("state") == "interrupted":
+        proof = inspection.get("interruption_proof")
+        if not isinstance(proof, dict) or proof.get("stable_repeats", 0) < 2 or proof.get("stable_duration_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("log_age_seconds", 0) < MIN_INTERRUPTION_STABLE_SECONDS or proof.get("full_normal_termination_count") != 0 or proof.get("full_error_termination_count") != 0 or any(proof.get(key) is not True for key in ("scheduler_record_absent", "log_signature_stable", "normal_termination_absent", "termination_counts_known")):
+            fail("refusing interrupted terminal receipt without repeated stable proof")
+    else:
+        fail("refusing terminal receipt for a non-terminal observation")
+    execution = job.get("execution_batch") if isinstance(job.get("execution_batch"), dict) else {}
+    receipt = {
+        "schema": "gaussian-terminal-inspection-receipt/1",
+        "project": inspection["project"], "job_id": inspection["job_id"],
+        "input_stem": input_stem, "input_sha256": job["input_sha256"],
+        "attempt_id": execution.get("attempt_id"), "terminal_state": inspection["state"],
+        "collected_at": inspection["collected_at"],
+        "inspection_evidence_sha256": inspection["evidence_sha256"],
+        "inspection": copy.deepcopy(inspection), "scientific_acceptance": False,
+    }
+    receipt["receipt_sha256"] = canonical_digest(receipt)
+    publish_new_json(path, receipt)
+    return validate_terminal_inspection_receipt(local_dir, job, inspection["project"], inspection["job_id"], input_stem)
+
+
+def _legacy_multi_call_inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, Any]:
     """Combine PBS, process, and Gaussian-log evidence into one state."""
 
     project = validate_project(project)
@@ -2353,17 +3245,21 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", input_stem):
         fail("invalid input stem")
     qstat = run(nested_ssh(args, "qstat", "-f", job_id), check=False)
-    qstat_text = str(qstat.stdout or qstat.stderr)
-    qstate_match = re.search(r"(?m)^\s*job_state\s*=\s*(\S+)", qstat_text)
-    qstate = qstate_match.group(1) if qstate_match else None
-    job_name_match = re.search(r"(?m)^\s*Job_Name\s*=\s*(\S+)", qstat_text)
-    pbs_job_name = job_name_match.group(1) if job_name_match else None
-    session_match = re.search(r"(?m)^\s*session_id\s*=\s*(\d+)", qstat_text)
-    session_id = session_match.group(1) if session_match else None
+    qstat_evidence = classify_qstat_evidence(qstat)
+    qstate = qstat_evidence["pbs_state"]
+    pbs_job_name = qstat_evidence["job_name"]
+    session_id = qstat_evidence["session_id"]
     process_alive: bool | None = None
+    process_evidence = {
+        "status": "unknown",
+        "process_alive": None,
+        "returncode": None,
+        "error": "no parsed PBS session id was available",
+    }
     if session_id:
         process = run(nested_ssh(args, "ps", "-s", session_id, "-o", "pid="), check=False)
-        process_alive = bool(str(process.stdout).strip())
+        process_evidence = classify_process_evidence(process)
+        process_alive = process_evidence["process_alive"]
 
     remote_dir = remote_project_dir(project)
     guard = run(
@@ -2420,9 +3316,11 @@ printf '%s:%s\\n' "$normal" "$error"
         analysis=analysis,
         qstate=qstate,
         process_alive=process_alive,
+        pbs_evidence_status=qstat_evidence["status"],
     )
     scheduler_record_lingering = bool(
-        qstate is not None
+        qstat_evidence["status"] == "present"
+        and qstate is not None
         and (workflow_execution_complete or (not workflow_manifest and analysis["normal_termination"]))
     )
     terminal_proven = bool(
@@ -2437,6 +3335,18 @@ printf '%s:%s\\n' "$normal" "$error"
         and process_alive is False
         and terminal_proven
     )
+    incomplete_log_observed = bool(
+        analysis.get("scf_calculations", 0) > 0
+        or analysis.get("final_coordinate_count", 0) > 0
+        or analysis.get("normal_termination_count", 0) + analysis.get("error_termination_count", 0) > 0
+    )
+    interrupted_candidate = bool(
+        qstat_evidence["status"] == "absent"
+        and incomplete_log_observed
+        and not terminal_proven
+        and size is not None
+        and mtime is not None
+    )
 
     inspection = {
         "schema": "gaussian-job-inspection/1",
@@ -2445,9 +3355,15 @@ printf '%s:%s\\n' "$normal" "$error"
         "state": state,
         "pbs_job_name": pbs_job_name,
         "pbs_state": qstate,
-        "pbs_record_present": qstate is not None,
+        "pbs_record_present": qstat_evidence["record_present"],
+        "pbs_evidence_status": qstat_evidence["status"],
+        "pbs_returncode": qstat_evidence["returncode"],
+        "pbs_evidence_error": qstat_evidence["error"],
         "session_id": session_id,
         "process_alive": process_alive,
+        "process_evidence_status": process_evidence["status"],
+        "process_returncode": process_evidence["returncode"],
+        "process_evidence_error": process_evidence["error"],
         "log": log_path,
         "log_size": size,
         "log_mtime_epoch": mtime,
@@ -2456,6 +3372,7 @@ printf '%s:%s\\n' "$normal" "$error"
         "full_error_termination_count": full_error_count,
         "scheduler_record_lingering": scheduler_record_lingering,
         "scheduler_zombie_candidate": zombie_candidate,
+        "interrupted_candidate": interrupted_candidate,
         "analysis": analysis,
     }
     if scheduler_record_lingering:
@@ -2466,46 +3383,572 @@ printf '%s:%s\\n' "$normal" "$error"
     return inspection
 
 
+def server_job_snapshot_script(project: str, input_stem: str, job_id: str) -> str:
+    """One read-only remote script for qstat/process/log/manifest evidence."""
+    remote_dir = remote_project_dir(project)
+    log_path = f"{remote_dir}/{input_stem}.log"
+    manifest_path = f"{remote_dir}/{input_stem}.json"
+    return remote_existing_directory_guard(project) + fr"""
+qstat_out=$(qstat -f '{job_id}' 2>&1); qrc=$?
+session=$(printf '%s\n' "$qstat_out" | sed -n 's/^[[:space:]]*session_id[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
+qstate=$(printf '%s\n' "$qstat_out" | sed -n 's/^[[:space:]]*job_state[[:space:]]*=[[:space:]]*\([A-Z]\).*/\1/p' | head -n 1)
+if [ -n "$session" ]; then process_out=$(ps -s "$session" -o pid= 2>&1); prc=$?; else process_out=''; prc=125; fi
+if [ -f '{manifest_path}' ] && [ ! -L '{manifest_path}' ]; then manifest_out=$(cat -- '{manifest_path}'); mrc=$?; else manifest_out=''; mrc=1; fi
+if [ -f '{log_path}' ] && [ ! -L '{log_path}' ]; then
+  tail_out=$(tail -n 500 -- '{log_path}' 2>&1); trc=$?
+  stat_value=$(stat -c '%s:%Y' -- '{log_path}' 2>/dev/null || true)
+  if [ "$qstate" = Q ] || [ "$qstate" = H ] || {{ [ "$qstate" = R ] && [ "$prc" -eq 0 ] && [ -n "$process_out" ]; }}; then
+    normal_count=''; error_count=''; scan_scope='bounded_tail_only'
+  else
+    counts=$(awk '/Normal termination of Gaussian/{{n++}} /Error termination/{{e++}} END{{printf "%d:%d", n+0, e+0}}' -- '{log_path}' 2>/dev/null || true)
+    normal_count=${{counts%%:*}}; error_count=${{counts#*:}}; scan_scope='exact_whole_log_once'
+  fi
+else tail_out=''; trc=1; stat_value=''; normal_count=''; error_count=''; fi
+printf 'COLLECTED_EPOCH\t%s\n' "$(date +%s)"
+printf 'QSTAT_RC\t%s\nQSTAT_B64\t' "$qrc"; printf '%s' "$qstat_out" | base64 -w0; printf '\n'
+printf 'PROCESS_RC\t%s\nPROCESS_B64\t' "$prc"; printf '%s' "$process_out" | base64 -w0; printf '\n'
+printf 'MANIFEST_RC\t%s\nMANIFEST_B64\t' "$mrc"; printf '%s' "$manifest_out" | base64 -w0; printf '\n'
+printf 'TAIL_RC\t%s\nTAIL_B64\t' "$trc"; printf '%s' "$tail_out" | base64 -w0; printf '\n'
+printf 'LOG_STAT\t%s\nNORMAL_COUNT\t%s\nERROR_COUNT\t%s\nSCAN_SCOPE\t%s\n' "$stat_value" "$normal_count" "$error_count" "${{scan_scope:-no_log}}"
+"""
+
+
+def parse_job_snapshot_output(text: str) -> dict[str, Any]:
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        if "\t" not in line:
+            if line.strip():
+                raise ValueError("remote snapshot contains an unframed line")
+            continue
+        key, value = line.split("\t", 1)
+        if key in values:
+            raise ValueError("remote snapshot repeats a field")
+        values[key] = value
+    required = {
+        "COLLECTED_EPOCH", "QSTAT_RC", "QSTAT_B64", "PROCESS_RC", "PROCESS_B64",
+        "MANIFEST_RC", "MANIFEST_B64", "TAIL_RC", "TAIL_B64", "LOG_STAT",
+        "NORMAL_COUNT", "ERROR_COUNT",
+    }
+    if set(values) not in {frozenset(required), frozenset(required | {"SCAN_SCOPE"})}:
+        raise ValueError("remote snapshot fields are missing or unknown")
+
+    def integer(key: str) -> int:
+        if re.fullmatch(r"-?\d+", values[key]) is None:
+            raise ValueError(f"remote snapshot {key} is not an integer")
+        return int(values[key])
+
+    def decoded(key: str) -> str:
+        try:
+            return base64.b64decode(values[key], validate=True).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ValueError(f"remote snapshot {key} is invalid base64/UTF-8") from exc
+
+    return {
+        "collected_epoch": integer("COLLECTED_EPOCH"),
+        "qstat": subprocess.CompletedProcess([], integer("QSTAT_RC"), decoded("QSTAT_B64"), ""),
+        "process": subprocess.CompletedProcess([], integer("PROCESS_RC"), decoded("PROCESS_B64"), ""),
+        "manifest_rc": integer("MANIFEST_RC"), "manifest_text": decoded("MANIFEST_B64"),
+        "tail_rc": integer("TAIL_RC"), "tail_text": decoded("TAIL_B64"),
+        "log_stat": values["LOG_STAT"], "normal_count": values["NORMAL_COUNT"],
+        "error_count": values["ERROR_COUNT"],
+        "scan_scope": values.get("SCAN_SCOPE", "exact_whole_log_once"),
+    }
+
+
+def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, Any]:
+    """Collect one structured read-only remote snapshot for one exact job."""
+    project = validate_project(project); job_id = validate_job_id(job_id)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", input_stem): fail("invalid input stem")
+    collected_at = utc_now(); local_request_epoch = time.time()
+    command = nested_ssh(args, "bash", "-s")
+    snapshot_bytes = server_job_snapshot_script(project, input_stem, job_id).encode("utf-8")
+    result = run_read_only(
+        command, input_bytes=snapshot_bytes,
+        capability=_exact_read_only_capability("single_job_inspection", command, snapshot_bytes),
+    )
+    local_received_epoch = time.time()
+    if result.returncode != 0:
+        return {
+            "schema": "gaussian-job-inspection/2", "project": project, "job_id": job_id,
+            "state": "unknown", "collected_at": collected_at, "source": "single_remote_read_only_snapshot",
+            "local_request_epoch": local_request_epoch, "local_received_epoch": local_received_epoch, "remote_collected_epoch": None,
+            "freshness": "unknown", "age_seconds": 0, "transport_classification": "timeout" if result.returncode == 124 else "transport_error",
+            "transport_returncode": result.returncode, "pbs_state": None, "log_size": None,
+            "log_mtime_epoch": None, "session_id": None, "termination_counts_known": False,
+            "evidence_conflict": False,
+            "error": command_detail(result) or "snapshot transport failed or timed out",
+        }
+    try:
+        snapshot = parse_job_snapshot_output(str(result.stdout))
+    except ValueError as exc:
+        return {
+            "schema": "gaussian-job-inspection/2", "project": project, "job_id": job_id,
+            "state": "unknown", "collected_at": collected_at, "source": "single_remote_read_only_snapshot",
+            "local_request_epoch": local_request_epoch, "local_received_epoch": local_received_epoch, "remote_collected_epoch": None,
+            "freshness": "unknown", "age_seconds": 0, "transport_classification": "parse_failed",
+            "transport_returncode": result.returncode, "pbs_state": None, "log_size": None,
+            "log_mtime_epoch": None, "session_id": None, "termination_counts_known": False,
+            "evidence_conflict": False, "error": str(exc),
+        }
+    remote_epoch = snapshot["collected_epoch"]
+    if remote_epoch <= 0 or remote_epoch > local_received_epoch + MAX_REMOTE_CLOCK_SKEW_SECONDS:
+        inspection = {
+            "schema": "gaussian-job-inspection/2", "project": project, "job_id": job_id,
+            "state": "unknown", "collected_at": collected_at, "source": "single_remote_read_only_snapshot",
+            "local_request_epoch": local_request_epoch, "local_received_epoch": local_received_epoch,
+            "remote_collected_epoch": remote_epoch, "freshness": "unknown", "age_seconds": 0,
+            "transport_classification": "parse_failed", "transport_returncode": result.returncode,
+            "pbs_state": None, "log_size": None, "log_mtime_epoch": None, "session_id": None,
+            "termination_counts_known": False, "evidence_conflict": True,
+            "error": "remote collection clock is invalid or beyond allowed skew",
+        }
+        inspection["evidence_sha256"] = canonical_digest(inspection); return inspection
+    qstat_evidence = classify_qstat_evidence(snapshot["qstat"])
+    process_evidence = classify_process_evidence(snapshot["process"])
+    workflow_manifest = None
+    if snapshot["manifest_rc"] == 0:
+        try: manifest_value = json.loads(snapshot["manifest_text"])
+        except json.JSONDecodeError: manifest_value = None
+        if isinstance(manifest_value, dict) and manifest_value.get("schema") == "gaussian-opt-freq-sp/1": workflow_manifest = manifest_value
+    analysis = analyze_log_text(snapshot["tail_text"] if snapshot["tail_rc"] == 0 else "")
+    stat_match = re.fullmatch(r"(\d+):(\d+)", snapshot["log_stat"])
+    size, mtime = (map(int, stat_match.groups()) if stat_match else (None, None))
+    scan_scope = snapshot["scan_scope"]
+    if scan_scope not in {"bounded_tail_only", "exact_whole_log_once", "no_log"}:
+        scan_scope = "invalid"
+    counts_known = bool(
+        scan_scope == "exact_whole_log_once"
+        and
+        re.fullmatch(r"\d+", snapshot["normal_count"])
+        and re.fullmatch(r"\d+", snapshot["error_count"])
+    )
+    normal_count = int(snapshot["normal_count"]) if counts_known else None
+    error_count = int(snapshot["error_count"]) if counts_known else None
+    conflict = bool(qstat_evidence["status"] == "present" and qstat_evidence["job_name"] != project)
+    state, expected_stages, workflow_complete, workflow_failed = classify_inspection_state(
+        workflow_manifest=workflow_manifest, full_normal_count=normal_count or 0,
+        full_error_count=error_count or 0, analysis=analysis, qstate=qstat_evidence["pbs_state"],
+        process_alive=process_evidence["process_alive"], pbs_evidence_status=qstat_evidence["status"],
+    )
+    malformed_full_scan = scan_scope in {"exact_whole_log_once", "invalid"} and not counts_known
+    if conflict or malformed_full_scan: state = "unknown"
+    age_seconds = max(0, int(local_received_epoch - remote_epoch))
+    freshness = "unknown" if malformed_full_scan else ("fresh" if age_seconds <= 120 else "stale")
+    if freshness != "fresh": state = "unknown"
+    inspection = {
+        "schema": "gaussian-job-inspection/2", "project": project, "job_id": job_id,
+        "state": state, "collected_at": collected_at, "source": "single_remote_read_only_snapshot",
+        "local_request_epoch": local_request_epoch, "local_received_epoch": local_received_epoch,
+        "remote_collected_epoch": remote_epoch,
+        "freshness": freshness, "age_seconds": age_seconds,
+        "transport_classification": "parse_failed" if malformed_full_scan else "success",
+        "transport_returncode": result.returncode, "pbs_job_name": qstat_evidence["job_name"],
+        "pbs_state": qstat_evidence["pbs_state"], "pbs_record_present": qstat_evidence["record_present"],
+        "pbs_evidence_status": qstat_evidence["status"], "process_alive": process_evidence["process_alive"],
+        "session_id": qstat_evidence["session_id"],
+        "process_evidence_status": process_evidence["status"], "log_size": size,
+        "log_mtime_epoch": mtime, "workflow_expected_stages": expected_stages if workflow_manifest else None,
+        "full_normal_termination_count": normal_count, "full_error_termination_count": error_count,
+        "termination_counts_known": counts_known, "termination_scan_scope": scan_scope,
+        "interruption_proof": None,
+        "evidence_conflict": conflict or malformed_full_scan, "analysis": analysis,
+    }
+    if malformed_full_scan:
+        inspection["error"] = "whole-log termination counts are malformed or unavailable"
+    terminal_proven = terminal_log_proven(inspection)
+    inspection.update({
+        "scheduler_record_lingering": bool(
+            qstat_evidence["status"] == "present" and terminal_proven
+        ),
+        "scheduler_zombie_candidate": bool(
+            qstat_evidence["job_name"] == project
+            and qstat_evidence["pbs_state"] == "R"
+            and process_evidence["process_alive"] is False
+            and terminal_proven
+        ),
+        "interrupted_candidate": bool(
+            counts_known
+            and qstat_evidence["status"] == "absent"
+            and size is not None
+            and not terminal_proven
+        ),
+    })
+    inspection["evidence_sha256"] = canonical_digest(inspection)
+    return inspection
+
+
+def load_fetch_allowlist(
+    local_dir: Path,
+    job: dict[str, Any],
+    input_stem: str,
+) -> tuple[list[str], list[str], dict[str, str]]:
+    """Build the exact server allowlist from the staged local audit bundle."""
+
+    checksums_name = validate_transfer_name(str(job.get("checksums", "")))
+    checksums_path = local_dir / checksums_name
+    if not checksums_path.is_file() or checksums_path.is_symlink():
+        fail("local staged checksums file is missing or is a symlink")
+    expected_hashes: dict[str, str] = {}
+    for line in checksums_path.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"([a-f0-9]{64})\s{2}([^/\\]+)", line)
+        if not match:
+            fail("local staged checksums file contains a malformed entry")
+        digest, name = match.groups()
+        name = validate_transfer_name(name)
+        if name in expected_hashes:
+            fail(f"local staged checksums file repeats {name}")
+        expected_hashes[name] = digest
+    expected_hashes[checksums_name] = sha256(checksums_path)
+    input_name = validate_transfer_name(str(job.get("input", "")))
+    if input_name not in expected_hashes:
+        fail("local staged checksums do not bind the exact Gaussian input")
+    if expected_hashes[input_name] != job.get("input_sha256"):
+        fail("local staged input hash does not match job.json")
+    local_input = local_dir / input_name
+    if not local_input.is_file() or local_input.is_symlink():
+        fail("local staged Gaussian input is missing or is a symlink")
+    if sha256(local_input) != job.get("input_sha256"):
+        fail("local staged Gaussian input bytes no longer match job.json")
+    required = sorted({*expected_hashes, validate_transfer_name(f"{input_stem}.log")})
+    optional = {validate_transfer_name(f"{job['project']}.pbs.out")}
+    checkpoint = (job.get("gaussian") or {}).get("checkpoint")
+    if checkpoint:
+        optional.add(validate_transfer_name(str(checkpoint)))
+    optional.difference_update(required)
+    return required, sorted(optional), expected_hashes
+
+
+def server_fetch_inventory_script(
+    project: str,
+    required: list[str],
+    optional: list[str],
+) -> str:
+    """Return a fast size-only exact-file inventory; never hash under 60 s."""
+
+    lines = [remote_existing_directory_guard(project), f"cd '{remote_project_dir(project)}'"]
+    for status, names in (("REQUIRED", required), ("OPTIONAL", optional)):
+        for name in names:
+            validate_transfer_name(name)
+            lines.append(
+                f"if [ -L '{name}' ]; then echo 'REFUSING_SYMLINK\t{name}' >&2; exit 51; "
+                f"elif [ -f '{name}' ]; then size=$(stat -c %s -- '{name}') || exit 52; "
+                f"printf 'FILE\\t{name}\\t%s\\n' \"$size\"; "
+                f"else printf 'MISSING_{status}\\t{name}\\n'; fi"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def parse_server_fetch_inventory(
+    text: str,
+    required: list[str],
+    optional: list[str],
+) -> tuple[dict[str, int], list[str]]:
+    allowed = set(required) | set(optional)
+    files: dict[str, int] = {}
+    missing_required: list[str] = []
+    missing_optional: list[str] = []
+    reported: set[str] = set()
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if fields[0] == "FILE" and len(fields) == 3:
+            _, name, size_text = fields
+            if name not in allowed or name in reported:
+                fail("server fetch inventory contains an unexpected or duplicate file")
+            try:
+                size = int(size_text)
+            except ValueError:
+                fail("server fetch inventory contains an invalid file size")
+            if size < 0:
+                fail("server fetch inventory contains a negative file size")
+            files[name] = size
+            reported.add(name)
+        elif fields[0] in {"MISSING_REQUIRED", "MISSING_OPTIONAL"} and len(fields) == 2:
+            name = fields[1]
+            if name not in allowed or name in reported:
+                fail("server fetch inventory reports an unexpected missing file")
+            (missing_required if fields[0] == "MISSING_REQUIRED" else missing_optional).append(name)
+            reported.add(name)
+        elif line.strip():
+            fail("server fetch inventory could not be parsed exactly")
+    unreported = allowed - set(files) - set(missing_required) - set(missing_optional)
+    if unreported:
+        fail("server fetch inventory omitted allowlisted entries: " + ", ".join(sorted(unreported)))
+    if missing_required:
+        fail("server fetch is missing required files: " + ", ".join(sorted(missing_required)))
+    return files, sorted(missing_optional)
+
+
+def server_fetch_hash_script(project: str, sizes: dict[str, int]) -> str:
+    """Hash the exact size-inventoried files with before/after identity checks."""
+    lines = [remote_existing_directory_guard(project), f"cd '{remote_project_dir(project)}'"]
+    for name in sorted(sizes):
+        validate_transfer_name(name)
+        expected_size = sizes[name]
+        if not isinstance(expected_size, int) or isinstance(expected_size, bool) or expected_size < 0:
+            fail("server fetch hash requires exact non-negative file sizes")
+        lines.append(
+            f"if [ -L '{name}' ] || [ ! -f '{name}' ]; then echo 'HASH_SOURCE_CHANGED\\t{name}' >&2; exit 53; fi; "
+            f"before=$(stat -c '%d:%i:%s:%Y' -- '{name}') || exit 54; "
+            f"size=${{before#*:*:}}; size=${{size%%:*}}; [ \"$size\" = '{expected_size}' ] || exit 55; "
+            f"digest=$(sha256sum -- '{name}') || exit 56; digest=${{digest%% *}}; "
+            f"after=$(stat -c '%d:%i:%s:%Y' -- '{name}') || exit 57; [ \"$before\" = \"$after\" ] || exit 58; "
+            f"printf 'FILE\\t{name}\\t%s\\t%s\\n' \"$digest\" \"$size\""
+        )
+    return "\n".join(lines) + "\n"
+
+
+def parse_server_fetch_hashes(text: str, sizes: dict[str, int]) -> dict[str, dict[str, Any]]:
+    files: dict[str, dict[str, Any]] = {}
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if len(fields) != 4 or fields[0] != "FILE":
+            if line.strip(): fail("server fetch hash inventory could not be parsed exactly")
+            continue
+        _, name, digest, size_text = fields
+        if name not in sizes or name in files or not SHA256_RE.fullmatch(digest):
+            fail("server fetch hash inventory contains an unexpected or duplicate file")
+        try: observed_size = int(size_text)
+        except ValueError: fail("server fetch hash inventory contains an invalid size")
+        if observed_size != sizes[name]:
+            fail("server fetch hash inventory size differs from size-only inventory")
+        files[name] = {"sha256": digest, "size": observed_size}
+    if set(files) != set(sizes):
+        fail("server fetch hash inventory omitted an inventoried file")
+    return files
+
+
+def begin_fetch_snapshot(output_dir: Path, binding: dict[str, str]) -> Path:
+    """Reserve one empty local snapshot; partial snapshots remain visibly blocked."""
+
+    output_dir = checked_local_path(output_dir, "fetch output directory")
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    output_dir = checked_local_path(output_dir, "fetch output directory")
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            fail("fetch output path already exists and is not a directory")
+        if any(output_dir.iterdir()):
+            fail("refusing to mix fetch results with a non-empty or partial target")
+    else:
+        output_dir.mkdir()
+    output_dir = checked_local_path(output_dir, "fetch output directory")
+    marker = output_dir / ".fetch-in-progress"
+    try:
+        descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+    except FileExistsError:
+        fail("another or partial fetch already owns this snapshot target")
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump({"schema": "gaussian-fetch-in-progress/1", **binding}, handle, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return marker
+
+
+def reusable_snapshot_files(
+    reuse_value: str | None, binding: dict[str, str], server_files: dict[str, dict[str, Any]],
+) -> dict[str, Path]:
+    """Return only old immutable files whose local bytes re-hash to the new remote manifest."""
+    if not reuse_value:
+        return {}
+    candidate = checked_local_path(Path(reuse_value), "reuse snapshot")
+    transfer_path = candidate / "transfer.json" if candidate.is_dir() else candidate
+    if transfer_path.name != "transfer.json" or transfer_path.is_symlink() or not transfer_path.is_file():
+        fail("--reuse-snapshot must name an immutable transfer.json or its snapshot directory")
+    transfer = load_strict_json(transfer_path)
+    if (
+        transfer.get("schema") != "gaussian-fetch-snapshot/1"
+        or transfer.get("snapshot_complete") is not True
+        or transfer.get("payload_sha256") != canonical_digest({key: value for key, value in transfer.items() if key != "payload_sha256"})
+        or not isinstance(transfer.get("terminal_inspection_receipt_sha256"), str)
+        or not isinstance(transfer.get("artifacts"), dict)
+        or any(transfer.get(key) != binding[key] for key in ("project", "job_id", "input_stem"))
+        or not isinstance(transfer.get("per_hop"), dict)
+    ):
+        fail("reuse snapshot is incomplete or bound to a different exact job")
+    reusable: dict[str, Path] = {}
+    for name, remote in server_files.items():
+        old = transfer["per_hop"].get(name)
+        artifact = transfer["artifacts"].get(name)
+        path = transfer_path.parent / name
+        if not isinstance(old, dict) or not isinstance(artifact, dict) or path.is_symlink() or not path.is_file():
+            continue
+        if (
+            old.get("server_sha256") == remote["sha256"]
+            and old.get("mac_sha256") == remote["sha256"]
+            and old.get("size") == remote["size"]
+            and artifact == {"sha256": remote["sha256"], "size": remote["size"]}
+            and path.stat().st_size == remote["size"]
+            and sha256(path) == remote["sha256"]
+        ):
+            reusable[name] = path
+    return reusable
+
+
+def atomic_private_reuse_copy(source: Path, destination: Path, expected: dict[str, Any]) -> None:
+    """Publish a private no-clobber copy; never share an inode with the old snapshot."""
+    try:
+        atomic_stable_file_copy(source, destination, "reusable immutable snapshot file", expected=expected, mode=0o400)
+    except (OSError, ValueError) as exc:
+        fail(str(exc))
+
+
 def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
-    """Fetch a complete project tree without changing server data."""
+    """Create one exact, hash-verified, immutable fetch snapshot."""
 
     project = validate_project(project)
-    output_dir = output_dir.expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    windows_results = f"{args.windows_root}\\{project}\\results"
-    mkdir_script = f"New-Item -ItemType Directory -Force -Path '{windows_results}' | Out-Null"
-    run([*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(mkdir_script)])
-    guard = run(
+    job_id = validate_job_id(str(getattr(args, "job_id", "")))
+    input_stem = str(getattr(args, "input_stem", ""))
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", input_stem):
+        fail("fetch requires a valid exact --input-stem")
+    local_dir_value = getattr(args, "local_dir", None)
+    if not local_dir_value:
+        fail("fetch requires --local-dir with the exact job.json audit bundle")
+    local_dir = checked_local_path(Path(local_dir_value), "fetch local job directory")
+    job = validate_local_job_binding(
+        local_dir, project, job_id, input_stem, require_fetched=False
+    )
+    terminal_receipt = validate_terminal_inspection_receipt(local_dir, job, project, job_id, input_stem)
+    required, optional, expected_hashes = load_fetch_allowlist(local_dir, job, input_stem)
+    snapshot_id = hashlib.sha256(
+        f"{project}\0{job_id}\0{input_stem}\0{time.time_ns()}\0{os.getpid()}".encode("utf-8")
+    ).hexdigest()[:16]
+    binding = {
+        "project": project,
+        "job_id": job_id,
+        "input_stem": input_stem,
+        "snapshot_id": snapshot_id,
+    }
+    marker = begin_fetch_snapshot(output_dir, binding)
+    output_dir = marker.parent
+
+    inventory_result = run(
         nested_ssh(args, "bash", "-s"),
-        input_bytes=remote_existing_directory_guard(project).encode("utf-8"),
-        check=False,
+        input_bytes=server_fetch_inventory_script(project, required, optional).encode("utf-8"),
     )
-    if guard.returncode:
-        fail(str(guard.stderr or guard.stdout).strip())
-    remote_glob = f"{args.server_alias}:{remote_project_dir(project)}/*"
-    run([*ssh_base(args), "scp", "-r", "-F", args.windows_server_config, remote_glob, windows_results + "\\"])
+    inventory_sizes, missing_optional = parse_server_fetch_inventory(
+        str(inventory_result.stdout), required, optional
+    )
+    server_hash_size_bytes = sum(inventory_sizes.values())
+    server_hash_timeout = hash_timeout_seconds(server_hash_size_bytes)
+    server_hash_result = run(
+        nested_ssh(args, "bash", "-s"),
+        input_bytes=server_fetch_hash_script(project, inventory_sizes).encode("utf-8"),
+        timeout_seconds=server_hash_timeout,
+    )
+    server_files = parse_server_fetch_hashes(str(server_hash_result.stdout), inventory_sizes)
+    staged_mismatches = [
+        name for name, digest in expected_hashes.items()
+        if server_files.get(name, {}).get("sha256") != digest
+    ]
+    if staged_mismatches:
+        fail("server staged-file SHA-256 mismatch: " + ", ".join(staged_mismatches))
+
+    reusable = reusable_snapshot_files(
+        getattr(args, "reuse_snapshot", None), binding, server_files
+    )
+    changed_names = sorted(set(server_files) - set(reusable))
+    changed_size_bytes = sum(server_files[name]["size"] for name in changed_names)
+    fetch_transfer_timeout = transfer_timeout_seconds(changed_size_bytes)
+    rtwin_hash_timeout = hash_timeout_seconds(changed_size_bytes)
+
+    snapshot_tag = f"fetch-{project}-{job_id}-{input_stem}-{snapshot_id}"
+    windows_results = f"{args.windows_root}\\{project}\\{snapshot_tag}"
+    escaped_windows_results = windows_results.replace("'", "''")
+    mkdir_script = (
+        f"if (Test-Path -LiteralPath '{escaped_windows_results}') "
+        "{ throw 'REFUSING_EXISTING_FETCH_SNAPSHOT' }; "
+        f"New-Item -ItemType Directory -Path '{escaped_windows_results}' | Out-Null"
+    )
+    present_names = sorted(server_files)
+    if changed_names:
+        run([
+            *ssh_base(args), "powershell", "-NoProfile", "-NonInteractive",
+            "-EncodedCommand", powershell_encoded(mkdir_script),
+        ])
+        remote_sources = [
+            f"{args.server_alias}:{remote_project_dir(project)}/{name}" for name in changed_names
+        ]
+        run([
+            *ssh_base(args), "scp", "-F", args.windows_server_config,
+            *remote_sources, windows_results + "\\",
+        ], timeout_seconds=fetch_transfer_timeout)
+    ps_paths = ",".join(
+        "'" + f"{windows_results}\\{name}".replace("'", "''") + "'"
+        for name in changed_names
+    )
+    hash_script = (
+        f"$files=@({ps_paths}); foreach($f in $files){{"
+        "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
+        "$s=(Get-Item -LiteralPath $f).Length;"
+        "Write-Output ((Split-Path $f -Leaf)+\"`t\"+$h+\"`t\"+$s)}"
+    )
+    rtwin_hashes: dict[str, dict[str, Any]] = {
+        name: copy.deepcopy(server_files[name]) for name in reusable
+    }
+    rtwin_hash_result: subprocess.CompletedProcess | None = None
+    if changed_names:
+        rtwin_hash_result = run([
+            *ssh_base(args), "powershell", "-NoProfile", "-NonInteractive",
+            "-EncodedCommand", powershell_encoded(hash_script),
+        ], timeout_seconds=rtwin_hash_timeout)
+        for line in str(rtwin_hash_result.stdout).splitlines():
+            fields = line.strip().split("\t")
+            if len(fields) != 3 or fields[0] not in changed_names or not SHA256_RE.fullmatch(fields[1]):
+                fail("RTwin fetch hash inventory could not be parsed exactly")
+            if fields[0] in rtwin_hashes:
+                fail("RTwin fetch hash inventory repeats a file")
+            try:
+                size = int(fields[2])
+            except ValueError:
+                fail("RTwin fetch hash inventory contains an invalid size")
+            rtwin_hashes[fields[0]] = {"sha256": fields[1], "size": size}
+    if rtwin_hashes != server_files:
+        fail("server to RTwin fetch verification failed")
+
     windows_results_scp = windows_results.replace("\\", "/")
-    run([
-        "scp", "-r", "-F", str(Path(args.mac_ssh_config).expanduser()),
-        f"{args.rtwin_alias}:{windows_results_scp}/*",
-        str(output_dir) + "/",
-    ])
-    fetched = sorted(
-        str(path.relative_to(output_dir)) for path in output_dir.rglob("*") if path.is_file()
-    )
-    logs = sorted(output_dir.glob("*.log"))
+    for name, old_path in reusable.items():
+        destination = output_dir / name
+        atomic_private_reuse_copy(old_path, destination, server_files[name])
+    if changed_names:
+        local_network_stage = Path(tempfile.mkdtemp(prefix=f".fetch-network-{snapshot_id}-", dir=output_dir.parent))
+        rtwin_sources = [f"{args.rtwin_alias}:{windows_results_scp}/{name}" for name in changed_names]
+        run([
+            "scp", "-F", str(Path(args.mac_ssh_config).expanduser()),
+            *rtwin_sources, str(local_network_stage) + "/",
+        ], timeout_seconds=fetch_transfer_timeout)
+        for name in changed_names:
+            staged = local_network_stage / name
+            if staged.is_symlink() or not staged.is_file() or sha256(staged) != server_files[name]["sha256"] or staged.stat().st_size != server_files[name]["size"]:
+                fail("private network staging failed exact hash/size verification")
+            atomic_private_reuse_copy(staged, output_dir / name, server_files[name])
+        for name in changed_names:
+            with contextlib.suppress(FileNotFoundError): (local_network_stage / name).unlink()
+        with contextlib.suppress(OSError): local_network_stage.rmdir()
+    actual_entries = {path.name for path in output_dir.iterdir() if path.name != marker.name}
+    if actual_entries != set(present_names):
+        fail("Mac fetch snapshot contains missing, extra, nested, or partial transfer entries")
+    mac_hashes: dict[str, dict[str, Any]] = {}
+    for name in present_names:
+        path = output_dir / name
+        if not path.is_file() or path.is_symlink():
+            fail(f"Mac fetch snapshot entry is not one regular file: {name}")
+        mac_hashes[name] = {"sha256": sha256(path), "size": path.stat().st_size}
+    if mac_hashes != server_files:
+        fail("RTwin to Mac fetch verification failed")
+
+    exact_log = output_dir / f"{input_stem}.log"
     workflow_manifest = None
-    for candidate in sorted(output_dir.glob("*.json")):
+    exact_manifest = output_dir / f"{input_stem}.json"
+    if exact_manifest.name in present_names:
         try:
-            value = json.loads(candidate.read_text(encoding="utf-8"))
+            manifest_value = json.loads(exact_manifest.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            continue
-        if value.get("schema") == "gaussian-opt-freq-sp/1":
-            workflow_manifest = value
-            break
-    if logs and workflow_manifest:
+            manifest_value = None
+        if isinstance(manifest_value, dict) and manifest_value.get("schema") == "gaussian-opt-freq-sp/1":
+            workflow_manifest = manifest_value
+    if workflow_manifest:
         analysis = analyze_workflow_log_file(
-            logs[0], output_dir,
+            exact_log, output_dir,
             temperature_k=float(workflow_manifest["temperature_k"]),
             standard_state=str(workflow_manifest["standard_state"]),
             expected_stages=int(workflow_manifest.get("expected_stage_count", 3)),
@@ -2519,14 +3962,94 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         }
         atomic_json(output_dir / "result.json", analysis)
     else:
-        analysis = analyze_log_file(logs[0], output_dir) if logs else None
-    transfer = {
-        "project": project,
-        "output_dir": str(output_dir),
-        "files": fetched,
-        "analysis": analysis,
+        analysis = analyze_log_file(exact_log, output_dir)
+
+    per_hop = {
+        name: {
+            "server_sha256": server_files[name]["sha256"],
+            "rtwin_sha256": rtwin_hashes[name]["sha256"],
+            "mac_sha256": mac_hashes[name]["sha256"],
+            "size": mac_hashes[name]["size"],
+        }
+        for name in present_names
     }
-    atomic_json(output_dir / "transfer.json", transfer)
+    allowlist_record = {
+        "schema": "gaussian-server-fetch-allowlist/1",
+        **binding,
+        "remote_workdir": remote_project_dir(project),
+        "required": required,
+        "optional": optional,
+        "missing_optional": missing_optional,
+        "present": present_names,
+        "scratch_included": False,
+        "unrelated_files_included": False,
+    }
+    publish_new_json(output_dir / "server-allowlist.json", allowlist_record)
+    atomic_text(
+        output_dir / "fetch.sha256",
+        "".join(f"{mac_hashes[name]['sha256']}  {name}\n" for name in present_names),
+    )
+    files = sorted(
+        path.name for path in output_dir.iterdir()
+        if path.is_file() and path.name != marker.name
+    )
+    transfer = {
+        "schema": "gaussian-fetch-snapshot/1",
+        **binding,
+        "input_sha256": job["input_sha256"],
+        "terminal_inspection_receipt_sha256": terminal_receipt["receipt_sha256"],
+        "output_dir": str(output_dir),
+        "snapshot_complete": True,
+        "files": files,
+        "exact_log": exact_log.name,
+        "server_allowlist": "server-allowlist.json",
+        "sha256_manifest": "fetch.sha256",
+        "per_hop_sha256_verified": True,
+        "incremental_reuse": {
+            "source_snapshot": str(getattr(args, "reuse_snapshot", None)) if reusable else None,
+            "reused_files": sorted(reusable), "transferred_files": changed_names,
+            "complete_independent_snapshot": True,
+        },
+        "transfer_timeout_evidence": {
+            "known_changed_size_bytes": changed_size_bytes,
+            "server_to_rtwin_timeout_seconds": fetch_transfer_timeout,
+            "rtwin_to_mac_timeout_seconds": fetch_transfer_timeout,
+            "rate_floor_bytes_per_second": TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
+            "fixed_overhead_seconds": TRANSFER_FIXED_OVERHEAD_SECONDS,
+        },
+        "hash_timeout_evidence": {
+            "size_inventory": {
+                "known_size_bytes": server_hash_size_bytes,
+                "timeout_seconds": DEFAULT_COMMAND_TIMEOUT_SECONDS,
+                "returncode": inventory_result.returncode, "status": "passed",
+            },
+            "server_sha256": {
+                "known_size_bytes": server_hash_size_bytes,
+                "timeout_seconds": server_hash_timeout,
+                "returncode": server_hash_result.returncode, "status": "passed",
+            },
+            "rtwin_sha256": {
+                "known_size_bytes": changed_size_bytes,
+                "timeout_seconds": rtwin_hash_timeout,
+                "returncode": rtwin_hash_result.returncode if rtwin_hash_result is not None else None,
+                "status": "passed" if changed_names else "not_needed",
+            },
+            "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
+            "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
+            "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
+        },
+        "per_hop": per_hop,
+        "analysis": analysis,
+        "artifacts": {
+            path.name: {"sha256": sha256(path), "size": path.stat().st_size}
+            for path in output_dir.iterdir()
+            if path.is_file() and path.name not in {marker.name, "transfer.json"}
+        },
+        "payload_sha256": "",
+    }
+    transfer["payload_sha256"] = canonical_digest({key: value for key, value in transfer.items() if key != "payload_sha256"})
+    publish_new_json(output_dir / "transfer.json", transfer)
+    marker.unlink()
     return transfer
 
 
@@ -2586,6 +4109,42 @@ def command_stage(args) -> None:
     print(json.dumps({"job": job, "files": [str(path) for path in files]}, ensure_ascii=False, indent=2))
 
 
+def validate_execution_ledger_path(path: Path) -> dict[str, Any]:
+    raw = execution_batch.load_json(path)
+    if raw.get("schema") == resource_efficiency.LEDGER_SCHEMA:
+        return resource_efficiency.validate_ledger(raw)
+    return execution_batch.validate_submission_ledger(raw)
+
+
+def reconcile_execution_attempt(path: Path, attempt_id: str, **kwargs: Any) -> dict[str, Any]:
+    raw = execution_batch.load_json(path)
+    if raw.get("schema") == resource_efficiency.LEDGER_SCHEMA:
+        return resource_efficiency.reconcile_attempt(path, attempt_id, **kwargs)
+    return execution_batch.reconcile_submission_attempt(path, attempt_id, **kwargs)
+
+
+def replay_resource_artifacts_before_qsub(
+    *, policy_path: Path, gate_path: Path, scheduler_path: Path,
+    expected_policy: dict[str, Any], expected_gate: dict[str, Any],
+    expected_scheduler: dict[str, Any],
+    expected_bindings: dict[str, tuple[str, int]], now: str,
+) -> None:
+    """Replay exact immutable resource artifacts and freshness immediately before qsub."""
+    replay_policy, policy_sha, policy_size = resource_efficiency.load_artifact(policy_path)
+    replay_gate, gate_sha, gate_size = resource_efficiency.load_artifact(gate_path)
+    replay_scheduler, scheduler_sha, scheduler_size = resource_efficiency.load_artifact(scheduler_path)
+    resource_efficiency.validate_policy(replay_policy)
+    resource_efficiency._validate_gate_binding(replay_gate, allow_historical=False)
+    resource_efficiency.validate_scheduler_snapshot(replay_scheduler, now=now)
+    if (
+        replay_policy != expected_policy or (policy_sha, policy_size) != expected_bindings["policy"]
+        or replay_gate != expected_gate or (gate_sha, gate_size) != expected_bindings["gate"]
+        or replay_scheduler != expected_scheduler
+        or (scheduler_sha, scheduler_size) != expected_bindings["scheduler"]
+    ):
+        raise resource_efficiency.ResourceError("resource artifact drifted after reservation")
+
+
 def command_submit(args) -> None:
     if not args.confirmed:
         fail("submit requires --confirmed after the exact preflight is approved")
@@ -2606,6 +4165,114 @@ def command_submit(args) -> None:
     args._prospective_live = not args.dry_run
     maturity = audit_scientific_maturity(args, input_report, "ts_submission")
     compatibility = input_approval_compatibility(input_report, requested_work_kind)
+    execution_binding: dict[str, Any] | None = None
+    execution_ledger_path: Path | None = None
+    execution_task: dict[str, Any] | None = None
+    execution_ledger: dict[str, Any] | None = None
+    resource_policy: dict[str, Any] | None = None
+    resource_gate: dict[str, Any] | None = None
+    scheduler_resource_snapshot: dict[str, Any] | None = None
+    resource_artifact_bindings: dict[str, tuple[str, int]] = {}
+    execution_values = (
+        args.execution_batch_ledger,
+        args.scientific_task_id,
+        args.idempotency_key,
+        args.estimated_core_hours,
+        args.estimated_core_hours_evidence_source,
+        args.estimated_core_hours_evidence_sha256,
+        args.resource_policy,
+        args.resource_gate,
+        args.scheduler_resource_snapshot,
+        args.resource_tier,
+        args.resource_cores,
+        args.resource_memory_gb,
+        args.walltime_seconds,
+    )
+    if not args.dry_run and any(value is None for value in execution_values):
+        fail(
+            "protected live submit requires --execution-batch-ledger, --scientific-task-id, "
+            "--idempotency-key, --estimated-core-hours, and its evidence source/hash"
+            "; package 4 also requires --resource-policy, --resource-gate, exact tier/cores/memory, "
+                "an exact --scheduler-resource-snapshot, and explicitly reviewed --walltime-seconds"
+        )
+    if all(value is not None for value in execution_values):
+        execution_ledger_path = Path(args.execution_batch_ledger).expanduser().resolve()
+        try:
+            execution_ledger = resource_efficiency.validate_ledger(
+                resource_efficiency.load(execution_ledger_path)
+            )
+            policy_raw, policy_file_sha, policy_size = resource_efficiency.load_artifact(Path(args.resource_policy).expanduser().resolve())
+            gate_raw, gate_file_sha, gate_size = resource_efficiency.load_artifact(Path(args.resource_gate).expanduser().resolve())
+            scheduler_raw, scheduler_file_sha, scheduler_size = resource_efficiency.load_artifact(Path(args.scheduler_resource_snapshot).expanduser().resolve())
+            resource_policy = resource_efficiency.validate_policy(policy_raw)
+            resource_gate = resource_efficiency._validate_gate_binding(
+                gate_raw,
+                allow_historical=False,
+            )
+            scheduler_resource_snapshot = resource_efficiency.validate_scheduler_snapshot(scheduler_raw, now=utc_now())
+            resource_artifact_bindings = {
+                "policy": (policy_file_sha, policy_size), "gate": (gate_file_sha, gate_size),
+                "scheduler": (scheduler_file_sha, scheduler_size),
+            }
+        except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
+            fail(f"execution-batch gate blocked submit: {exc}")
+        execution_task = next(
+            (
+                item for item in execution_ledger["tasks"]
+                if item["scientific_task_id"] == args.scientific_task_id
+            ),
+            None,
+        )
+        if execution_task is None:
+            fail("execution-batch ledger does not contain the exact scientific task")
+        if execution_task["identity"]["relevant_input_sha256"] != captured_input_sha256:
+            fail("execution-batch scientific task is not bound to the captured input hash")
+        attempt_id = execution_batch.attempt_id_for(
+            execution_ledger["batch"]["batch_id"], args.idempotency_key
+        )
+        execution_binding = {
+            "batch_id": execution_ledger["batch"]["batch_id"],
+            "review_sha256": execution_ledger["batch"]["review_sha256"],
+            "scientific_task_id": args.scientific_task_id,
+            "attempt_id": attempt_id,
+            "idempotency_key": args.idempotency_key,
+            "estimated_core_hours": float(args.estimated_core_hours),
+            "estimated_core_hours_evidence": {
+                "source": args.estimated_core_hours_evidence_source,
+                "sha256": args.estimated_core_hours_evidence_sha256,
+            },
+            "resource_binding": {
+                "policy_id": resource_policy["policy_id"],
+                "policy_sha256": resource_policy["payload_sha256"],
+                "gate_id": resource_gate["gate_id"],
+                "gate_sha256": resource_gate["gate_sha256"],
+                "resource_tier": args.resource_tier,
+                "cores": args.resource_cores,
+                "memory_gb": args.resource_memory_gb,
+                "walltime_seconds": args.walltime_seconds,
+            },
+        }
+        requested = resource_gate["requested_resources"]
+        if (
+            resource_gate["policy_id"] != resource_policy["policy_id"]
+            or resource_gate["policy_sha256"] != resource_policy["payload_sha256"]
+            or requested != {
+                "resource_tier": args.resource_tier,
+                "cores": args.resource_cores,
+                "memory_gb": args.resource_memory_gb,
+                "walltime_seconds": args.walltime_seconds,
+                "estimated_core_hours": float(args.estimated_core_hours),
+            }
+            or args.resource_cores != input_report["nprocshared"]
+            or args.resource_memory_gb * 1024**3 != parse_memory(input_report["mem"])
+        ):
+            fail("resource policy/gate/CLI binding differs from exact input resources")
+        if (
+            resource_gate["scheduler_snapshot"]["payload_sha256"] != scheduler_resource_snapshot["payload_sha256"]
+            or resource_gate["scheduler_snapshot"]["artifact_sha256"] != resource_artifact_bindings["scheduler"][0]
+            or resource_gate["scheduler_snapshot"]["artifact_size"] != resource_artifact_bindings["scheduler"][1]
+        ):
+            fail("resource gate differs from the exact scheduler snapshot artifact")
     input_approval: dict[str, Any]
     if args.input_approval_record:
         assert requested_work_kind is not None
@@ -2628,16 +4295,22 @@ def command_submit(args) -> None:
         approval_summary = live_approval_summary(
             project, input_report, maturity, requested_work_kind, input_approval
         )
+        if execution_binding is not None:
+            approval_summary["execution"] = execution_binding
         live_requirement = live_approval_scope_proposal(approval_summary)
     live_approval: dict[str, Any]
+    validated_live_document: dict[str, Any] | None = None
     if args.approval_record and approval_summary is not None:
         validated_live, live_approval_digest = validate_live_approval_binding(
             Path(args.approval_record), approval_summary
         )
+        validated_live_document = validated_live
         live_approval = {
             "status": "validated_exact_live_approval",
             "schema": validated_live["schema"],
             "sha256": live_approval_digest,
+            "approval_id": validated_live.get("approval_id"),
+            "approver_identity": validated_live.get("approver_identity"),
         }
     elif args.approval_record:
         live_approval = {
@@ -2660,7 +4333,11 @@ def command_submit(args) -> None:
     )
     if not args.dry_run:
         if input_approval["status"] != "validated_exact_input_approval":
-            if input_approval["status"] in {"blocked_missing_specialist_input_approval", "blocked_combined_open_shell_minimum_stability_parse_risk"}:
+            if input_approval["status"] in {
+                "blocked_missing_specialist_input_approval",
+                "blocked_combined_open_shell_minimum_stability_parse_risk",
+                "blocked_unsupported_open_shell_ordinary",
+            }:
                 fail(
                     f"{input_approval['status']}: this input family requires its specialist "
                     "owner manifest and independently approved exact stage"
@@ -2671,7 +4348,10 @@ def command_submit(args) -> None:
             )
         if live_approval["status"] != "validated_exact_live_approval":
             fail("live submission requires a hash-bound --approval-record")
-    job, files = stage(input_path, project, local_dir)
+    job, files = stage(
+        input_path, project, local_dir,
+        execution_binding["resource_binding"] if execution_binding is not None else None,
+    )
     job["submission_snapshot"] = {
         "path": str(input_path),
         "sha256": captured_input_sha256,
@@ -2682,7 +4362,13 @@ def command_submit(args) -> None:
         "live_approval": live_approval,
         "live_submission_ready": live_submission_ready,
     })
-    atomic_json(local_dir / "job.json", job)
+    job = update_job(
+        local_dir,
+        submission_snapshot=job["submission_snapshot"],
+        input_approval=input_approval,
+        live_approval=live_approval,
+        live_submission_ready=live_submission_ready,
+    )
     expected = verify_staged_submission(local_dir, job, input_report, input_approval, files)
     windows_dir = f"{args.windows_root}\\{project}"
     remote_dir = remote_project_dir(project)
@@ -2705,69 +4391,630 @@ def command_submit(args) -> None:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return
 
-    mkdir_script = f"New-Item -ItemType Directory -Force -Path '{windows_dir}' | Out-Null"
-    run([*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(mkdir_script)])
-    assert_file_bindings_unchanged(files, expected)
-    windows_dir_scp = windows_dir.replace("\\", "/")
-    scp_to_windows = [
-        "scp", "-F", str(Path(args.mac_ssh_config).expanduser()), *map(str, files),
-        f"{args.rtwin_alias}:{windows_dir_scp}/",
-    ]
-    run(scp_to_windows)
+    assert execution_binding is not None
+    assert execution_ledger_path is not None
+    assert execution_task is not None
+    assert validated_live_document is not None
+    assert approval_summary is not None
+    assert resource_policy is not None
+    assert resource_gate is not None
+    assert scheduler_resource_snapshot is not None
+    try:
+        replayed_live_document, replayed_live_digest = validate_live_approval_binding(
+            Path(args.approval_record), approval_summary
+        )
+    except SystemExit:
+        fail("live approval changed, was revoked, or expired during local staging; no reservation or network action occurred")
+    if (
+        replayed_live_digest != live_approval["sha256"]
+        or replayed_live_document != validated_live_document
+    ):
+        fail("live approval stable replay differs before reservation; no network action occurred")
+    validated_live_document = replayed_live_document
+    try:
+        reservation = resource_efficiency.reserve_attempt(
+            execution_ledger_path,
+            execution_binding["scientific_task_id"],
+            identity=execution_task["identity"],
+            idempotency_key=execution_binding["idempotency_key"],
+            project=project,
+            remote_workdir=remote_dir,
+            input_sha256=captured_input_sha256,
+            live_approval_id=validated_live_document["approval_id"],
+            live_approval_sha256=live_approval["sha256"],
+            estimated_core_hours_evidence=execution_binding["estimated_core_hours_evidence"],
+            reserved_at=utc_now(),
+            audit_reason="exact input, live approval, stable task, and idempotency key replayed before network",
+            policy=resource_policy,
+            gate=resource_gate,
+            scheduler_snapshot=scheduler_resource_snapshot,
+            scheduler_artifact_sha256=resource_artifact_bindings["scheduler"][0],
+            scheduler_artifact_size=resource_artifact_bindings["scheduler"][1],
+        )
+    except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
+        fail(f"attempt reservation blocked submit before network: {exc}")
+    def prepare_reserved_local_transaction() -> tuple[dict[str, Any], list[Path], dict[str, str], dict[str, Any], int, int]:
+        """Publish every post-reservation local artifact before the first network call."""
+        intent = {
+            "schema": "gaussian-submission-intent/1",
+            "project": project,
+            "job_name": project,
+            "remote_workdir": remote_dir,
+            "input_sha256": captured_input_sha256,
+            "batch_id": execution_binding["batch_id"],
+            "scientific_task_id": execution_binding["scientific_task_id"],
+            "attempt_id": reservation["attempt_id"],
+            "idempotency_key": execution_binding["idempotency_key"],
+            "live_approval_id": validated_live_document["approval_id"],
+            "live_approval_sha256": live_approval["sha256"],
+            "reserved_at": reservation["reserved_at"],
+        }
+        intent["intent_sha256"] = canonical_digest(intent)
+        intent_path = local_dir / "submission-intent.json"
+        publish_new_json(intent_path, intent)
+        consumption = {
+            "schema": "auto-g16-live-approval-consumption/1",
+            "approval_id": validated_live_document["approval_id"],
+            "approval_sha256": live_approval["sha256"],
+            "attempt_id": reservation["attempt_id"],
+            "idempotency_key": reservation["idempotency_key"],
+            "consumed_at": utc_now(),
+        }
+        consumption["consumption_sha256"] = canonical_digest(consumption)
+        publish_new_json(local_dir / "live-approval-consumption.json", consumption)
+        checksums_path = local_dir / str(job["checksums"])
+        upload_files = [path for path in files if path != checksums_path]
+        upload_files.append(intent_path)
+        atomic_text(
+            checksums_path,
+            "".join(f"{sha256(item)}  {item.name}\n" for item in upload_files),
+        )
+        transaction_files = [*upload_files, checksums_path]
+        transfer_size_bytes = sum(path.stat().st_size for path in transaction_files)
+        upload_timeout_seconds = transfer_timeout_seconds(transfer_size_bytes)
+        upload_hash_timeout_seconds = hash_timeout_seconds(transfer_size_bytes)
+        transaction_job = update_job(
+            local_dir,
+            status="submission_uncertain",
+            execution_batch={
+                "ledger": str(execution_ledger_path),
+                "batch_id": execution_binding["batch_id"],
+                "scientific_task_id": execution_binding["scientific_task_id"],
+                "attempt_id": reservation["attempt_id"],
+                "idempotency_key": reservation["idempotency_key"],
+                "reservation_sha256": canonical_digest(reservation),
+            },
+            submission_intent_sha256=intent["intent_sha256"],
+            transfer_timeout_evidence={
+                "known_upload_size_bytes": transfer_size_bytes,
+                "mac_to_rtwin_timeout_seconds": upload_timeout_seconds,
+                "rtwin_to_server_timeout_seconds": upload_timeout_seconds,
+                "rate_floor_bytes_per_second": TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
+                "fixed_overhead_seconds": TRANSFER_FIXED_OVERHEAD_SECONDS,
+            },
+            upload_hash_timeout_evidence={
+                "known_upload_size_bytes": transfer_size_bytes,
+                "rtwin_sha256_timeout_seconds": upload_hash_timeout_seconds,
+                "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
+                "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
+                "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
+                "status": "pending",
+            },
+        )
+        transaction_expected = verify_staged_submission(
+            local_dir, transaction_job, input_report, input_approval, transaction_files
+        )
+        return intent, transaction_files, transaction_expected, transaction_job, upload_timeout_seconds, upload_hash_timeout_seconds
 
-    ps_paths = ",".join(f"'{windows_dir}\\{name}'" for name in expected)
-    hash_script = (
-        f"$files=@({ps_paths}); foreach($f in $files){{"
-        "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
-        "Write-Output ((Split-Path $f -Leaf)+' '+$h)}"
-    )
-    hash_result = run([*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(hash_script)])
-    observed: dict[str, str] = {}
-    for line in str(hash_result.stdout).splitlines():
-        match = re.fullmatch(r"(.+?)\s+([0-9a-fA-F]{64})", line.strip())
-        if match:
-            observed[match.group(1)] = match.group(2).lower()
-    mismatches = [name for name, digest in expected.items() if observed.get(name) != digest]
-    if mismatches:
-        fail("RTwin SHA-256 mismatch or missing hash: " + ", ".join(mismatches))
+    try:
+        intent, files, expected, job, upload_timeout_seconds, upload_hash_timeout_seconds = prepare_reserved_local_transaction()
+    except (OSError, ValueError, SystemExit, KeyboardInterrupt) as exc:
+        evidence = {
+            "source": "proven_pre_network_local_transaction_failure",
+            "sha256": canonical_digest({
+                "attempt_id": reservation["attempt_id"],
+                "phase": "post_reservation_before_first_network",
+                "error_type": type(exc).__name__,
+            }),
+        }
+        try:
+            reconcile_execution_attempt(
+                execution_ledger_path, reservation["attempt_id"],
+                state="reconciled_not_submitted", observed_at=utc_now(),
+                reason="post-reservation local transaction failed before any network command",
+                reconciliation_evidence=evidence,
+            )
+        except (execution_batch.BatchError, resource_efficiency.ResourceError) as ledger_exc:
+            with contextlib.suppress(OSError, ValueError, SystemExit):
+                update_job(local_dir, status="submission_uncertain", pre_network_reconciliation_error=str(ledger_exc))
+            fail("pre-network local transaction failed and ledger release also failed", code=5)
+        with contextlib.suppress(OSError, ValueError, SystemExit):
+            update_job(local_dir, status="not_submitted", qsub_invocation_started=False, submission_reconciliation=evidence)
+        if isinstance(exc, KeyboardInterrupt):
+            raise
+        fail(f"local transaction failed before network; reservation released: {exc}")
 
-    # This is the only server-side directory creation path.  It resolves both
-    # the fixed root and project path, rejects symlinks, and refuses to upload
-    # into any non-empty directory so existing server data is never overwritten.
-    run(
-        nested_ssh(args, "bash", "-s"),
-        input_bytes=remote_empty_directory_guard(project).encode("utf-8"),
-    )
-    windows_files = [f"{windows_dir}\\{path.name}" for path in files]
-    run([*ssh_base(args), "scp", "-F", args.windows_server_config, *windows_files, f"{args.server_alias}:{remote_dir}/"])
+    try:
+        mkdir_script = (
+            f"if(Test-Path -LiteralPath '{windows_dir}'){{exit 43}};"
+            f"New-Item -ItemType Directory -Path '{windows_dir}' -ErrorAction Stop | Out-Null"
+        )
+        run([*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(mkdir_script)])
+        assert_file_bindings_unchanged(files, expected)
+        windows_dir_scp = windows_dir.replace("\\", "/")
+        scp_to_windows = [
+            "scp", "-F", str(Path(args.mac_ssh_config).expanduser()), *map(str, files),
+            f"{args.rtwin_alias}:{windows_dir_scp}/",
+        ]
+        run(scp_to_windows, timeout_seconds=upload_timeout_seconds)
 
+        ps_paths = ",".join(f"'{windows_dir}\\{name}'" for name in expected)
+        hash_script = (
+            f"$files=@({ps_paths}); foreach($f in $files){{"
+            "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
+            "Write-Output ((Split-Path $f -Leaf)+' '+$h)}"
+        )
+        hash_result = run(
+            [*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(hash_script)],
+            timeout_seconds=upload_hash_timeout_seconds,
+        )
+        observed: dict[str, str] = {}
+        for line in str(hash_result.stdout).splitlines():
+            match = re.fullmatch(r"(.+?)\s+([0-9a-fA-F]{64})", line.strip())
+            if match:
+                observed[match.group(1)] = match.group(2).lower()
+        mismatches = [name for name, digest in expected.items() if observed.get(name) != digest]
+        if mismatches:
+            fail("RTwin SHA-256 mismatch or missing hash: " + ", ".join(mismatches))
+        job = update_job(
+            local_dir,
+            upload_hash_timeout_evidence={
+                "known_upload_size_bytes": sum(path.stat().st_size for path in files),
+                "rtwin_sha256_timeout_seconds": upload_hash_timeout_seconds,
+                "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
+                "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
+                "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
+                "returncode": hash_result.returncode,
+                "status": "passed",
+            },
+        )
+
+        # This is the only server-side directory creation path. It is one
+        # atomic claim and rejects every pre-existing path, including empty.
+        run(
+            nested_ssh(args, "bash", "-s"),
+            input_bytes=remote_empty_directory_guard(project).encode("utf-8"),
+        )
+        windows_files = [f"{windows_dir}\\{path.name}" for path in files]
+        run(
+            [*ssh_base(args), "scp", "-F", args.windows_server_config, *windows_files, f"{args.server_alias}:{remote_dir}/"],
+            timeout_seconds=upload_timeout_seconds,
+        )
+    except SystemExit:
+        evidence = {
+            "source": "local_transaction_stopped_before_qsub",
+            "sha256": canonical_digest({
+                "attempt_id": reservation["attempt_id"],
+                "phase": "pre_qsub_transport",
+                "job_state_sha256": read_job_state(local_dir)["state_sha256"],
+            }),
+        }
+        try:
+            reconcile_execution_attempt(
+                execution_ledger_path,
+                reservation["attempt_id"],
+                state="reconciled_not_submitted",
+                observed_at=utc_now(),
+                reason="local control flow proved qsub was never invoked",
+                reconciliation_evidence=evidence,
+            )
+        except (execution_batch.BatchError, resource_efficiency.ResourceError) as ledger_exc:
+            update_job(local_dir, status="submission_uncertain", pre_qsub_reconciliation_error=str(ledger_exc))
+            fail("pre-qsub transport failed and ledger reconciliation also failed", code=5)
+        update_job(local_dir, status="not_submitted", submission_reconciliation=evidence)
+        raise
+
+    try:
+        replay_resource_artifacts_before_qsub(
+            policy_path=Path(args.resource_policy).expanduser().resolve(),
+            gate_path=Path(args.resource_gate).expanduser().resolve(),
+            scheduler_path=Path(args.scheduler_resource_snapshot).expanduser().resolve(),
+            expected_policy=resource_policy, expected_gate=resource_gate,
+            expected_scheduler=scheduler_resource_snapshot,
+            expected_bindings=resource_artifact_bindings, now=utc_now(),
+        )
+    except (OSError, ValueError, resource_efficiency.ResourceError) as exc:
+        evidence = {
+            "source": "resource_artifact_replay_failed_before_qsub",
+            "sha256": canonical_digest({"attempt_id": reservation["attempt_id"], "reason": str(exc)}),
+        }
+        try:
+            reconcile_execution_attempt(
+                execution_ledger_path, reservation["attempt_id"],
+                state="reconciled_not_submitted", observed_at=utc_now(),
+                reason="resource policy/gate/scheduler freshness or exact replay failed before qsub",
+                reconciliation_evidence=evidence,
+            )
+        except (execution_batch.BatchError, resource_efficiency.ResourceError) as ledger_exc:
+            update_job(local_dir, status="submission_uncertain", resource_replay_error=str(ledger_exc))
+            fail("resource replay failed before qsub and ledger reconciliation also failed", code=5)
+        update_job(local_dir, status="not_submitted", qsub_invocation_started=False, submission_reconciliation=evidence)
+        fail("resource artifact/freshness replay failed; qsub was not invoked")
+
+    try:
+        qsub_live_document, qsub_live_digest = validate_live_approval_binding(
+            Path(args.approval_record), approval_summary
+        )
+        if (
+            qsub_live_digest != live_approval["sha256"]
+            or qsub_live_document != validated_live_document
+        ):
+            fail("live approval changed after reservation and transfer")
+    except SystemExit:
+        evidence = {
+            "source": "live_approval_replay_failed_before_qsub",
+            "sha256": canonical_digest({
+                "attempt_id": reservation["attempt_id"],
+                "approval_sha256": live_approval["sha256"],
+                "phase": "immediately_before_qsub",
+            }),
+        }
+        try:
+            reconcile_execution_attempt(
+                execution_ledger_path,
+                reservation["attempt_id"],
+                state="reconciled_not_submitted",
+                observed_at=utc_now(),
+                reason="approval drift, revocation, or expiry was detected before qsub invocation",
+                reconciliation_evidence=evidence,
+            )
+        except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
+            update_job(
+                local_dir, status="submission_uncertain", qsub_invocation_started=False,
+                approval_replay_reconciliation_error={
+                    "error_type": type(exc).__name__, "message": str(exc),
+                    "attempt_id": reservation["attempt_id"], "evidence_sha256": evidence["sha256"],
+                },
+            )
+            fail("approval replay failed before qsub and ledger reconciliation also failed", code=5)
+        update_job(
+            local_dir,
+            status="not_submitted",
+            qsub_invocation_started=False,
+            submission_reconciliation=evidence,
+        )
+        fail("approval is no longer valid; qsub was not invoked and the attempt is reconciled not submitted")
+
+    update_job(local_dir, status="submission_uncertain", qsub_invocation_started=True)
     submit_script = remote_existing_directory_guard(project) + f"""
 cd {remote_dir}
 sha256sum -c checksums.sha256
-if qstat -f 2>/dev/null | grep -Fq 'Job_Name = {project}'; then
-  echo 'REFUSING_DUPLICATE: active PBS job named {project}' >&2
+if [ -e submission-receipt.json ]; then
+  echo 'REFUSING_DUPLICATE: immutable submission receipt already exists' >&2
   exit 17
 fi
-qsub {project}.pbs
+job_id=$(qsub -v AUTO_G16_ATTEMPT_ID={reservation['attempt_id']},AUTO_G16_INPUT_SHA256={captured_input_sha256} {project}.pbs)
+receipt_tmp='.submission-receipt-{reservation['attempt_id']}.tmp'
+if [ -e "$receipt_tmp" ]; then
+  echo 'REFUSING_DUPLICATE: transaction temp receipt already exists' >&2
+  exit 18
+fi
+printf '{{"schema":"gaussian-remote-submission-receipt/1","project":"{project}","job_name":"{project}","input_sha256":"{captured_input_sha256}","attempt_id":"{reservation['attempt_id']}","job_id":"%s"}}\n' "$job_id" > "$receipt_tmp"
+chmod 400 "$receipt_tmp"
+if ! ln "$receipt_tmp" submission-receipt.json; then
+  echo 'REFUSING_DUPLICATE: immutable submission receipt publish failed' >&2
+  exit 19
+fi
+printf '%s\n' "$job_id"
 """
     result = run(nested_ssh(args, "bash", "-l", "-s"), input_bytes=submit_script.encode("utf-8"), check=False)
-    combined = f"{result.stdout}\n{result.stderr}"
-    job_ids = re.findall(r"(?m)^([0-9]+(?:\.[A-Za-z0-9_.-]+)?)\s*$", combined)
-    if result.returncode or not job_ids:
-        update_job(local_dir, status="submission_uncertain", submission_output=combined.strip())
+    outcome = classify_qsub_outcome(result)
+    if outcome["classification"] != "submitted_unique":
+        update_job(local_dir, status="submission_uncertain", submission_output=outcome["output"])
         fail(
-            "qsub result is uncertain; do not retry. Run status --project " + project,
+            "qsub result is uncertain; do not retry. Run reconcile-submission for the exact reservation",
             code=3,
         )
-    job_id = job_ids[-1]
+    job_id = outcome["job_id"]
+    assert isinstance(job_id, str)
+    receipt = {
+        "schema": "gaussian-submission-receipt/1",
+        "project": project,
+        "job_name": project,
+        "input_sha256": captured_input_sha256,
+        "attempt_id": reservation["attempt_id"],
+        "job_id": job_id,
+        "intent_sha256": intent["intent_sha256"],
+        "observed_at": utc_now(),
+    }
+    receipt["receipt_sha256"] = canonical_digest(receipt)
+    try:
+        publish_new_json(local_dir / "submission-receipt.json", receipt)
+    except ValueError as exc:
+        update_job(local_dir, status="submission_uncertain", receipt_error=str(exc))
+        fail("qsub may have succeeded but immutable local receipt could not be published; reconcile only", code=3)
+    try:
+        reconciled_attempt = reconcile_execution_attempt(
+            execution_ledger_path,
+            reservation["attempt_id"],
+            state="submitted",
+            observed_at=receipt["observed_at"],
+            reason="unique qsub job ID captured in immutable local and remote receipts",
+            scheduler_reference=job_id,
+            reconciliation_evidence={
+                "source": "immutable_submission_receipt",
+                "sha256": receipt["receipt_sha256"],
+            },
+        )
+    except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
+        update_job(local_dir, status="submission_uncertain", ledger_reconcile_error=str(exc))
+        fail("qsub succeeded but ledger reconciliation is incomplete; reconcile only", code=3)
     updated = update_job(
         local_dir,
         status="submitted",
         job_id=job_id,
         rtwin_sha256_verified=True,
         server_sha256_verified=True,
+        execution_attempt_sha256=canonical_digest(reconciled_attempt),
+        submission_receipt_sha256=receipt["receipt_sha256"],
     )
     print(json.dumps({"submitted": True, "job_id": job_id, "job": updated}, ensure_ascii=False, indent=2))
+
+
+def classify_submission_reconciliation(
+    *,
+    project: str,
+    input_sha256: str,
+    attempt_id: str,
+    directory_present: bool | None,
+    remote_intent: dict[str, Any] | None,
+    remote_receipt: dict[str, Any] | None,
+    qstat_text: str,
+) -> dict[str, Any]:
+    """Classify read-only remote evidence without ever proposing another qsub."""
+
+    exact = {
+        "project": project,
+        "job_name": project,
+        "input_sha256": input_sha256,
+        "attempt_id": attempt_id,
+    }
+    intent_matches = bool(
+        isinstance(remote_intent, dict)
+        and all(remote_intent.get(key) == value for key, value in exact.items())
+    )
+    receipt_job_id: str | None = None
+    if isinstance(remote_receipt, dict) and all(
+        remote_receipt.get(key) == value for key, value in exact.items()
+    ):
+        candidate = remote_receipt.get("job_id")
+        if isinstance(candidate, str) and JOB_ID_RE.fullmatch(candidate):
+            receipt_job_id = candidate
+    candidates: list[str] = []
+    for block in re.split(r"(?=Job Id:)", qstat_text):
+        identifier = re.search(r"(?m)^Job Id:\s*([^\s]+)\s*$", block)
+        if not identifier:
+            continue
+        job_id = identifier.group(1)
+        if (
+            JOB_ID_RE.fullmatch(job_id)
+            and re.search(rf"(?m)^\s*Job_Name\s*=\s*{re.escape(project)}\s*$", block)
+            and f"AUTO_G16_ATTEMPT_ID={attempt_id}" in block
+            and f"AUTO_G16_INPUT_SHA256={input_sha256}" in block
+        ):
+            candidates.append(job_id)
+    unique_candidates = sorted(set(candidates))
+    if receipt_job_id is not None:
+        if unique_candidates and unique_candidates != [receipt_job_id]:
+            return {
+                "classification": "still_uncertain_multiple",
+                "job_ids": sorted(set([receipt_job_id, *unique_candidates])),
+                "intent_matches": intent_matches,
+                "automatic_qsub_authorized": False,
+            }
+        return {
+            "classification": "submitted_unique",
+            "job_ids": [receipt_job_id],
+            "intent_matches": intent_matches,
+            "evidence_source": "immutable_remote_submission_receipt",
+            "automatic_qsub_authorized": False,
+        }
+    if len(unique_candidates) == 1 and intent_matches:
+        return {
+            "classification": "submitted_unique",
+            "job_ids": unique_candidates,
+            "intent_matches": True,
+            "evidence_source": "exact_qstat_variables_and_remote_intent",
+            "automatic_qsub_authorized": False,
+        }
+    if len(unique_candidates) > 1:
+        return {
+            "classification": "still_uncertain_multiple",
+            "job_ids": unique_candidates,
+            "intent_matches": intent_matches,
+            "automatic_qsub_authorized": False,
+        }
+    if len(unique_candidates) == 1:
+        return {
+            "classification": "still_uncertain_one_unbound",
+            "job_ids": unique_candidates,
+            "intent_matches": False,
+            "automatic_qsub_authorized": False,
+        }
+    if directory_present is False and not unique_candidates:
+        return {
+            "classification": "definitely_not_submitted",
+            "job_ids": [],
+            "intent_matches": False,
+            "evidence_source": "atomic_project_directory_absent_and_no_exact_scheduler_job",
+            "automatic_qsub_authorized": False,
+        }
+    return {
+        "classification": "still_uncertain_zero",
+        "job_ids": [],
+        "intent_matches": intent_matches,
+        "automatic_qsub_authorized": False,
+    }
+
+
+def _decode_probe_json(markers: dict[str, str], key: str) -> dict[str, Any] | None:
+    encoded = markers.get(key)
+    if not encoded:
+        return None
+    try:
+        value = json.loads(base64.b64decode(encoded).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def command_reconcile_submission(args) -> None:
+    project = validate_project(args.project)
+    local_dir = Path(args.local_dir).expanduser().resolve()
+    ledger_path = Path(args.execution_batch_ledger).expanduser().resolve()
+    try:
+        ledger = validate_execution_ledger_path(ledger_path)
+    except execution_batch.BatchError as exc:
+        fail(f"cannot reconcile invalid execution ledger: {exc}")
+    attempt = next((item for item in ledger["attempts"] if item["attempt_id"] == args.attempt_id), None)
+    if attempt is None:
+        fail("reconcile-submission requires an exact existing attempt reservation")
+    if (
+        attempt["project"] != project
+        or attempt["job_name"] != project
+        or attempt["remote_workdir"] != remote_project_dir(project)
+    ):
+        fail("reconcile-submission project/job scope differs from the reservation")
+    if attempt["state"] != "submission_uncertain":
+        print(json.dumps({
+            "classification": "already_reconciled",
+            "attempt": attempt,
+            "remote_actions": False,
+            "automatic_qsub_authorized": False,
+        }, ensure_ascii=False, indent=2))
+        return
+    remote_dir = remote_project_dir(project)
+    probe_script = f"""set -euo pipefail
+jobdir='{remote_dir}'
+if [ ! -e "$jobdir" ]; then
+  echo 'DIRECTORY_PRESENT=0'
+  exit 0
+fi
+echo 'DIRECTORY_PRESENT=1'
+if [ -f "$jobdir/submission-intent.json" ] && [ ! -L "$jobdir/submission-intent.json" ]; then
+  printf 'INTENT_B64='
+  base64 -w0 "$jobdir/submission-intent.json"
+  printf '\n'
+fi
+if [ -f "$jobdir/submission-receipt.json" ] && [ ! -L "$jobdir/submission-receipt.json" ]; then
+  printf 'RECEIPT_B64='
+  base64 -w0 "$jobdir/submission-receipt.json"
+  printf '\n'
+fi
+"""
+    probe = run(
+        nested_ssh(args, "bash", "-s"), input_bytes=probe_script.encode("utf-8"), check=False
+    )
+    qstat = run(nested_ssh(args, "qstat", "-f"), check=False)
+    if probe.returncode != 0 or qstat.returncode != 0:
+        fail("submission reconciliation transport evidence is unknown; qsub remains forbidden", code=3)
+    markers: dict[str, str] = {}
+    for line in str(probe.stdout).splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            markers[key] = value
+    directory_present = (
+        True if markers.get("DIRECTORY_PRESENT") == "1"
+        else False if markers.get("DIRECTORY_PRESENT") == "0"
+        else None
+    )
+    classification = classify_submission_reconciliation(
+        project=project,
+        input_sha256=attempt["input_sha256"],
+        attempt_id=attempt["attempt_id"],
+        directory_present=directory_present,
+        remote_intent=_decode_probe_json(markers, "INTENT_B64"),
+        remote_receipt=_decode_probe_json(markers, "RECEIPT_B64"),
+        qstat_text=str(qstat.stdout),
+    )
+    evidence_document = {
+        "schema": "gaussian-submission-reconciliation/1",
+        "project": project,
+        "job_name": project,
+        "input_sha256": attempt["input_sha256"],
+        "attempt_id": attempt["attempt_id"],
+        "classification": classification["classification"],
+        "job_ids": classification["job_ids"],
+        "observed_at": utc_now(),
+        "remote_read_only": True,
+        "automatic_qsub_authorized": False,
+    }
+    evidence_document["evidence_sha256"] = canonical_digest(evidence_document)
+    if classification["classification"] == "submitted_unique":
+        job_id = classification["job_ids"][0]
+        local_receipt = {
+            "schema": "gaussian-submission-receipt/1",
+            "project": project,
+            "job_name": project,
+            "input_sha256": attempt["input_sha256"],
+            "attempt_id": attempt["attempt_id"],
+            "job_id": job_id,
+            "intent_sha256": read_job_state(local_dir).get("submission_intent_sha256"),
+            "observed_at": evidence_document["observed_at"],
+        }
+        local_receipt["receipt_sha256"] = canonical_digest(local_receipt)
+        receipt_path = local_dir / "submission-receipt.json"
+        if receipt_path.exists():
+            existing = load_strict_json(receipt_path)
+            if any(existing.get(key) != local_receipt.get(key) for key in (
+                "project", "job_name", "input_sha256", "attempt_id", "job_id"
+            )):
+                fail("existing immutable submission receipt conflicts with reconciliation")
+            local_receipt = existing
+        else:
+            publish_new_json(receipt_path, local_receipt)
+        resolved = reconcile_execution_attempt(
+            ledger_path,
+            attempt["attempt_id"],
+            state="submitted",
+            observed_at=evidence_document["observed_at"],
+            reason="read-only reconciliation found exactly one bound scheduler submission",
+            scheduler_reference=job_id,
+            reconciliation_evidence={
+                "source": classification["evidence_source"],
+                "sha256": evidence_document["evidence_sha256"],
+            },
+        )
+        update_job(
+            local_dir,
+            status="submitted",
+            job_id=job_id,
+            submission_reconciliation=evidence_document,
+            execution_attempt_sha256=canonical_digest(resolved),
+        )
+    elif classification["classification"] == "definitely_not_submitted":
+        resolved = reconcile_execution_attempt(
+            ledger_path,
+            attempt["attempt_id"],
+            state="reconciled_not_submitted",
+            observed_at=evidence_document["observed_at"],
+            reason="read-only evidence proved the atomic project directory never existed",
+            reconciliation_evidence={
+                "source": classification["evidence_source"],
+                "sha256": evidence_document["evidence_sha256"],
+            },
+        )
+        update_job(
+            local_dir,
+            status="not_submitted",
+            submission_reconciliation=evidence_document,
+            execution_attempt_sha256=canonical_digest(resolved),
+        )
+    print(json.dumps({
+        **classification,
+        "reconciliation_evidence": evidence_document,
+        "remote_read_only": True,
+    }, ensure_ascii=False, indent=2))
 
 
 def command_status(args) -> None:
@@ -2786,6 +5033,102 @@ def command_status(args) -> None:
         print("\n\n".join(matches))
     else:
         print(json.dumps({"project": project, "active_job": False, "note": "job may be completed and purged; inspect/fetch the log"}))
+
+
+def batch_qstat_snapshot(args, job_ids: list[str] | None = None) -> dict[str, Any]:
+    exact_ids = [validate_job_id(item) for item in (job_ids or [])]
+    if len(set(exact_ids)) != len(exact_ids):
+        fail("batch-status job IDs must be unique")
+    collected_at = utc_now()
+    script = COMPLETE_USER_QSTAT_SCRIPT
+    command = nested_ssh(args, "bash", "-s")
+    result = run_read_only(
+        command, input_bytes=script,
+        capability=_exact_read_only_capability("complete_user_qstat", command, script),
+    )
+    records: dict[str, dict[str, Any]] = {}
+    owner: str | None = None
+    transport = "success"
+    error: str | None = None
+    if result.returncode != 0:
+        transport = "timeout" if result.returncode == 124 else "transport_error"
+        error = command_detail(result) or "complete user qstat did not return scheduler success; empty scope is unproven"
+    elif str(result.stderr or "").strip():
+        transport = "parse_failed"
+        error = "complete user qstat returned nonempty warning/error text on stderr"
+    else:
+        output = str(result.stdout or "")
+        owner_match = re.match(r"^AUTO_G16_OWNER\t([A-Za-z0-9_.-]+)\n", output)
+        if owner_match is None:
+            transport = "parse_failed"; error = "complete user qstat owner evidence is absent"
+        else:
+            owner = owner_match.group(1); qstat_output = output[owner_match.end():]
+            blocks_by_job: dict[str, list[str]] = {}
+            split_blocks = re.split(r"(?=^Job Id:)", qstat_output, flags=re.MULTILINE)
+            prefix = split_blocks[0]
+            job_blocks = split_blocks[1:]
+            if prefix.strip():
+                transport = "parse_failed"; error = "complete user qstat contains non-job text before the first job block"
+            for block in job_blocks:
+                match = re.search(r"(?m)^Job Id:\s*([^\s]+)\s*$", block)
+                if match: blocks_by_job.setdefault(match.group(1), []).append(block)
+            marker_count = len(re.findall(r"(?m)^Job Id:", qstat_output))
+            malformed_block_text = any(
+                any(line.strip() and not line[:1].isspace() for line in block.splitlines()[1:])
+                for block in job_blocks
+            )
+            if transport != "success":
+                pass
+            elif marker_count != sum(len(blocks) for blocks in blocks_by_job.values()):
+                transport = "parse_failed"; error = "complete user qstat contains an unparseable job block"
+            elif malformed_block_text:
+                transport = "parse_failed"; error = "complete user qstat contains non-field text inside or after a job block"
+            elif any(len(blocks) != 1 for blocks in blocks_by_job.values()):
+                transport = "parse_failed"; error = "complete user qstat repeats a job block"
+            else:
+                for job_id, only in blocks_by_job.items():
+                    block = only[0]
+                    owner_fields = re.findall(r"(?im)^\s*Job_Owner\s*=\s*([^@\s]+)@\S+\s*$", block)
+                    state_fields = re.findall(r"(?im)^\s*job_state\s*=\s*(\S+)\s*$", block)
+                    name_fields = re.findall(r"(?im)^\s*Job_Name\s*=\s*(\S+)\s*$", block)
+                    core_fields = [int(value) for value in re.findall(r"(?im)^\s*Resource_List\.(?:ncpus|procs)\s*=\s*(\d+)\s*$", block)]
+                    core_fields += [int(nodes) * int(ppn) for nodes, ppn in re.findall(r"(?im)^\s*Resource_List\.nodes\s*=\s*(\d+):ppn=(\d+)\s*$", block)]
+                    memory_fields = re.findall(r"(?im)^\s*Resource_List\.mem\s*=\s*(\d+(?:\.\d+)?)(kb|mb|gb|tb)\s*$", block)
+                    if len(owner_fields) != 1 or owner_fields[0] != owner or len(state_fields) != 1 or len(name_fields) != 1:
+                        records[job_id] = {"status": "unknown", "pbs_state": None, "job_name": None, "cores": None, "memory_gb": None, "error": "job owner/state/name evidence is absent, duplicated, or conflicting"}
+                        continue
+                    if state_fields[0] not in {"Q", "R"}:
+                        records[job_id] = {"status": "unknown", "pbs_state": None, "job_name": None, "cores": None, "memory_gb": None, "error": "job scheduler state is unsupported or non-active"}
+                        continue
+                    cores = core_fields[0] if len(core_fields) == 1 else None
+                    memory_gb = None
+                    if len(memory_fields) == 1:
+                        number, unit = memory_fields[0]
+                        converted = float(number) * {"kb": 1 / 1024**2, "mb": 1 / 1024, "gb": 1, "tb": 1024}[unit.lower()]
+                        if converted.is_integer(): memory_gb = int(converted)
+                    records[job_id] = {
+                        "status": "present", "pbs_state": state_fields[0], "job_name": name_fields[0],
+                        "cores": cores, "memory_gb": memory_gb, "error": None,
+                    }
+                for job_id in exact_ids:
+                    if job_id not in records:
+                        records[job_id] = {"status": "unknown", "pbs_state": None, "job_name": None, "cores": None, "memory_gb": None, "error": "requested exact job absent from complete user qstat"}
+    if transport != "success":
+        owner = None; records = {}
+    snapshot = {
+        "schema": "gaussian-batch-qstat-snapshot/1", "collected_at": collected_at,
+        "source": "single_complete_user_qstat",
+        "scope": {"kind": "complete_user_active_jobs", "owner": owner, "completeness": "complete" if transport == "success" else "unknown", "requested_job_ids": exact_ids},
+        "freshness": "fresh" if transport == "success" else "unknown",
+        "age_seconds": 0, "transport_classification": transport,
+        "job_ids": sorted(records), "records": records, "read_only": True, "error": error,
+    }
+    snapshot["evidence_sha256"] = canonical_digest(snapshot)
+    return resource_efficiency.validate_batch_qstat_snapshot(snapshot)
+
+
+def command_batch_status(args) -> None:
+    print(json.dumps(batch_qstat_snapshot(args, args.job_ids), ensure_ascii=False, indent=2))
 
 
 def command_tail(args) -> None:
@@ -2811,16 +5154,75 @@ def command_tail(args) -> None:
 
 def command_fetch(args) -> None:
     transfer = fetch_results(args, args.project, Path(args.output_dir))
+    if transfer.get("snapshot_complete") is True:
+        output_dir = checked_local_path(Path(args.output_dir), "fetch output directory")
+        local_dir = checked_local_path(Path(args.local_dir), "fetch local job directory")
+        validate_local_job_binding(local_dir, args.project, args.job_id, args.input_stem, require_fetched=False)
+        transfer_path = output_dir / "transfer.json"
+        update_job(
+            local_dir,
+            results_fetched=True,
+            fetch_snapshot=str(output_dir / "transfer.json"),
+            fetch_snapshot_sha256=sha256(transfer_path),
+            fetch_snapshot_size=transfer_path.stat().st_size,
+            result_file=str(output_dir / "result.json"),
+        )
     print(json.dumps(transfer, ensure_ascii=False, indent=2))
 
 
 def command_inspect(args) -> None:
     inspection = inspect_job(args, args.project, args.input_stem, args.job_id)
     if args.local_dir:
-        local_dir = Path(args.local_dir).expanduser().resolve()
+        local_dir = checked_local_path(Path(args.local_dir), "inspection local job directory")
         if (local_dir / "job.json").is_file():
-            update_job(local_dir, status=inspection["state"], last_inspection=inspection)
+            job = validate_local_job_binding(local_dir, args.project, args.job_id, args.input_stem, require_fetched=False, expected_attempt_id=args.attempt_id)
+            updates: dict[str, Any] = {"status": inspection["state"], "monitor_observation": inspection}
+            if inspection["state"] in {"completed", "failed"} and inspection["freshness"] == "fresh" and inspection["transport_classification"] == "success":
+                receipt = publish_terminal_inspection_receipt(local_dir, job, inspection, args.input_stem)
+                updates["terminal_inspection_receipt_sha256"] = receipt["receipt_sha256"]
+            update_job(local_dir, **updates)
+    if args.execution_batch_ledger or args.attempt_id:
+        if not args.execution_batch_ledger or not args.attempt_id:
+            fail("ledger monitor recording requires both --execution-batch-ledger and --attempt-id")
+        observation = {
+            "collected_at": inspection["collected_at"], "source": inspection["source"],
+            "freshness": inspection["freshness"], "age_seconds": inspection["age_seconds"],
+            "transport_classification": inspection["transport_classification"],
+            "state": inspection["state"] if inspection["state"] not in {"held", "exiting"} else "unknown",
+            "interruption_proof": None,
+            "evidence_sha256": inspection.get("evidence_sha256", canonical_digest(inspection)),
+        }
+        try:
+            resource_efficiency.record_monitor_observation(
+                Path(args.execution_batch_ledger).expanduser().resolve(),
+                attempt_id=args.attempt_id, project=args.project,
+                observation=observation, job_id=args.job_id,
+            )
+        except resource_efficiency.ResourceError as exc:
+            fail(f"monitor ledger append failed closed: {exc}")
     print(json.dumps(inspection, ensure_ascii=False, indent=2))
+
+
+def _watch_critical_signature(inspection: dict[str, Any]) -> tuple[Any, ...]:
+    """Separate durable state/evidence changes from high-rate log telemetry."""
+    analysis = inspection.get("analysis") if isinstance(inspection.get("analysis"), dict) else {}
+    interruption = inspection.get("interruption_proof")
+    return (
+        inspection.get("state"), inspection.get("pbs_state"),
+        inspection.get("pbs_record_present"), inspection.get("pbs_evidence_status"),
+        inspection.get("process_alive"), inspection.get("process_evidence_status"),
+        inspection.get("transport_classification"), inspection.get("transport_returncode"),
+        inspection.get("freshness"), inspection.get("termination_counts_known"),
+        inspection.get("termination_scan_scope"),
+        inspection.get("full_normal_termination_count"),
+        inspection.get("full_error_termination_count"),
+        bool(analysis.get("normal_termination")), bool(analysis.get("error_termination")),
+        analysis.get("normal_termination_count"), analysis.get("error_termination_count"),
+        inspection.get("evidence_conflict"), inspection.get("interrupted_candidate"),
+        inspection.get("scheduler_record_lingering"), inspection.get("scheduler_zombie_candidate"),
+        str(inspection.get("error", "")),
+        canonical_digest(interruption) if interruption else None,
+    )
 
 
 def command_watch(args) -> None:
@@ -2828,26 +5230,99 @@ def command_watch(args) -> None:
         fail("--poll-seconds must be between 2 and 300")
     if not 10 <= args.timeout_seconds <= 7 * 24 * 3600:
         fail("--timeout-seconds must be between 10 seconds and 7 days")
-    local_dir = Path(args.local_dir).expanduser().resolve()
-    output_dir = Path(args.output_dir).expanduser().resolve()
-    deadline = time.monotonic() + args.timeout_seconds
+    local_dir = checked_local_path(Path(args.local_dir), "watch local job directory")
+    output_dir = checked_local_path(Path(args.output_dir), "watch output directory")
+    clock = getattr(args, "_watch_monotonic", time.monotonic)
+    sleeper = getattr(args, "_watch_sleep", time.sleep)
+    random_value = getattr(args, "_watch_random", random.random)
+    deadline = clock() + args.timeout_seconds
     previous_stale_signature = None
     stale_repeats = 0
+    stable_since_epoch: float | None = None
     final: dict[str, Any] | None = None
-    while time.monotonic() < deadline:
+    last_persist_signature: tuple[Any, ...] | None = None
+    last_persisted_at: float | None = None
+    poll_interval = float(args.poll_seconds)
+    while True:
+        loop_now = clock()
+        if loop_now >= deadline:
+            break
         inspection = inspect_job(args, args.project, args.input_stem, args.job_id)
         signature = (inspection.get("log_size"), inspection.get("log_mtime_epoch"))
-        if inspection["state"] == "stale":
-            stale_repeats = stale_repeats + 1 if signature == previous_stale_signature else 1
+        if (
+            inspection.get("termination_counts_known") is True
+            and inspection.get("interrupted_candidate") is True
+            and inspection.get("pbs_record_present") is False
+        ):
+            same_signature = signature == previous_stale_signature
+            stale_repeats = stale_repeats + 1 if same_signature else 1
+            if not same_signature: stable_since_epoch = time.time()
             previous_stale_signature = signature
-            if stale_repeats >= 2:
+            now_epoch = time.time()
+            stable_duration = 0 if stable_since_epoch is None else max(0, now_epoch - stable_since_epoch)
+            log_age = 0 if inspection.get("log_mtime_epoch") is None else max(0, now_epoch - inspection["log_mtime_epoch"])
+            if stale_repeats >= 2 and stable_duration >= MIN_INTERRUPTION_STABLE_SECONDS and log_age >= MIN_INTERRUPTION_STABLE_SECONDS and inspection.get("termination_counts_known") is True and not terminal_log_proven(inspection):
                 inspection["state"] = "interrupted"
-                inspection["note"] = "PBS record is stale; session is absent and log stopped changing"
+                inspection["note"] = (
+                    "explicit scheduler-record absence and a stable incomplete log prove interruption"
+                )
+                inspection["interruption_proof"] = {
+                    "stable_repeats": stale_repeats,
+                    "scheduler_record_absent": inspection.get("pbs_record_present") is False,
+                    "log_signature_stable": True,
+                    "normal_termination_absent": not terminal_log_proven(inspection),
+                    "termination_counts_known": True,
+                    "stable_duration_seconds": stable_duration,
+                    "log_age_seconds": log_age,
+                    "full_normal_termination_count": inspection.get("full_normal_termination_count"),
+                    "full_error_termination_count": inspection.get("full_error_termination_count"),
+                }
+                inspection["evidence_sha256"] = canonical_digest({
+                    key: value for key, value in inspection.items() if key != "evidence_sha256"
+                })
         else:
             stale_repeats = 0
             previous_stale_signature = None
-        if (local_dir / "job.json").is_file():
-            update_job(local_dir, status=inspection["state"], last_inspection=inspection)
+            stable_since_epoch = None
+        persistence_signature = _watch_critical_signature(inspection)
+        stable_unchanged = persistence_signature == last_persist_signature
+        terminal = inspection.get("state") in {"completed", "failed", "interrupted"}
+        heartbeat_due = last_persisted_at is None or loop_now - last_persisted_at >= WATCH_HEARTBEAT_SECONDS
+        # Log size/mtime are progress telemetry.  The latest values are retained
+        # in memory and written on a bounded heartbeat, but growth alone never
+        # rewrites the job or append-only ledger.  Critical deterioration,
+        # recovery, scheduler/process transitions and terminal evidence persist
+        # immediately; stable abnormal classifications are deduplicated.
+        persist = terminal or not stable_unchanged or heartbeat_due
+        if persist and (local_dir / "job.json").is_file():
+            job = validate_local_job_binding(local_dir, args.project, args.job_id, args.input_stem, require_fetched=False, expected_attempt_id=args.attempt_id)
+            updates = {"status": inspection["state"], "monitor_observation": inspection}
+            if inspection["state"] in {"completed", "failed", "interrupted"} and inspection["freshness"] == "fresh" and inspection["transport_classification"] == "success":
+                receipt = publish_terminal_inspection_receipt(local_dir, job, inspection, args.input_stem)
+                updates["terminal_inspection_receipt_sha256"] = receipt["receipt_sha256"]
+            update_job(local_dir, **updates)
+        if persist and (args.execution_batch_ledger or args.attempt_id):
+            if not args.execution_batch_ledger or not args.attempt_id:
+                fail("watch ledger recording requires both --execution-batch-ledger and --attempt-id")
+            try:
+                resource_efficiency.record_monitor_observation(
+                    Path(args.execution_batch_ledger).expanduser().resolve(),
+                    attempt_id=args.attempt_id, project=args.project,
+                    observation={
+                        "collected_at": inspection["collected_at"], "source": inspection["source"],
+                        "freshness": inspection["freshness"], "age_seconds": inspection["age_seconds"],
+                        "transport_classification": inspection["transport_classification"],
+                        "state": inspection["state"] if inspection["state"] not in {"held", "exiting"} else "unknown",
+                        "interruption_proof": inspection.get("interruption_proof"),
+                        "evidence_sha256": inspection.get("evidence_sha256", canonical_digest(inspection)),
+                    },
+                    job_id=args.job_id,
+                )
+            except resource_efficiency.ResourceError as exc:
+                fail(f"watch ledger append failed closed: {exc}")
+        if persist:
+            last_persist_signature = persistence_signature
+            last_persisted_at = loop_now
         print(
             json.dumps(
                 {
@@ -2858,27 +5333,40 @@ def command_watch(args) -> None:
             ),
             flush=True,
         )
-        if inspection["state"] in {"completed", "failed", "interrupted"}:
+        if terminal:
             final = inspection
             break
-        time.sleep(args.poll_seconds)
+        if stable_unchanged:
+            poll_interval = min(float(WATCH_MAX_POLL_SECONDS), max(float(args.poll_seconds), poll_interval * 2.0))
+        else:
+            poll_interval = float(args.poll_seconds)
+        jitter = (float(random_value()) * 2.0 - 1.0) * WATCH_JITTER_FRACTION
+        sleeper(max(float(args.poll_seconds), min(float(WATCH_MAX_POLL_SECONDS), poll_interval * (1.0 + jitter))))
     if final is None:
         fail("watch timeout reached while job is still non-terminal", code=4)
     transfer = fetch_results(args, args.project, output_dir) if args.fetch else None
     if transfer and transfer.get("analysis"):
         final["analysis"] = transfer["analysis"]
+    fetch_complete = bool(transfer and transfer.get("snapshot_complete") is True)
     if (local_dir / "job.json").is_file():
+        validate_local_job_binding(
+            local_dir, args.project, args.job_id, args.input_stem,
+            require_fetched=False, expected_attempt_id=args.attempt_id,
+        )
         update_job(
             local_dir,
             status=final["state"],
             last_inspection=final,
-            results_fetched=bool(transfer),
-            result_file=str(output_dir / "result.json") if transfer else None,
+            results_fetched=fetch_complete,
+            fetch_snapshot=str(output_dir / "transfer.json") if fetch_complete else None,
+            fetch_snapshot_sha256=sha256(output_dir / "transfer.json") if fetch_complete else None,
+            fetch_snapshot_size=(output_dir / "transfer.json").stat().st_size if fetch_complete else None,
+            result_file=str(output_dir / "result.json") if fetch_complete else None,
         )
     scheduler_cleanup = None
     if (
         args.auto_cleanup_zombie
-        and transfer
+        and fetch_complete
         and final.get("scheduler_zombie_candidate") is True
     ):
         cleanup_args = argparse.Namespace(**vars(args))
@@ -2898,7 +5386,7 @@ def command_watch(args) -> None:
                 )
             )
             fail(
-                "automatic qdel was issued once but the PBS record still exists; do not retry automatically",
+                "automatic qdel was issued once but cleanup could not be verified; do not retry automatically",
                 code=5,
             )
     print(
@@ -2933,7 +5421,7 @@ def diagnose_zombie(args) -> dict[str, Any]:
     input_stem = args.input_stem
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", input_stem):
         fail("invalid input stem")
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    local_dir = checked_local_path(Path(args.local_dir), "zombie local job directory")
     validate_local_job_binding(
         local_dir, project, job_id, input_stem, require_fetched=True
     )
@@ -2951,9 +5439,29 @@ def diagnose_zombie(args) -> dict[str, Any]:
 
 def command_diagnose_zombie(args) -> None:
     diagnosis = diagnose_zombie(args)
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    local_dir = checked_local_path(Path(args.local_dir), "zombie local job directory")
     update_job(local_dir, last_zombie_diagnosis=diagnosis)
     print(json.dumps(diagnosis, ensure_ascii=False, indent=2))
+
+
+def last_scheduler_record_evidence(diagnosis: dict[str, Any]) -> tuple[bool | None, str]:
+    """Preserve the last diagnosis' scheduler-record three-state evidence."""
+
+    observations = diagnosis.get("observations")
+    last = observations[-1] if isinstance(observations, list) and observations else {}
+    if not isinstance(last, dict):
+        return None, "unknown"
+    present = last.get("pbs_record_present")
+    if present is not True and present is not False and present is not None:
+        present = None
+    evidence_status = last.get("pbs_evidence_status")
+    if evidence_status not in {"present", "absent", "unknown"}:
+        evidence_status = (
+            "present" if present is True
+            else "absent" if present is False
+            else "unknown"
+        )
+    return present, evidence_status
 
 
 def cleanup_zombie_record(args) -> dict[str, Any]:
@@ -2962,7 +5470,7 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
     if not 1 <= args.verify_seconds <= 60:
         fail("--verify-seconds must be between 1 and 60")
     diagnosis = diagnose_zombie(args)
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    local_dir = checked_local_path(Path(args.local_dir), "zombie local job directory")
     if diagnosis["classification"] == "self_purged":
         cleanup = {
             "schema": "pbs-zombie-cleanup/1",
@@ -2971,22 +5479,22 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
             "status": "self_purged",
             "qdel_issued": False,
             "scheduler_record_present": False,
+            "scheduler_record_evidence_status": "absent",
             "server_project_files_changed": False,
             "diagnosis": diagnosis,
         }
         update_job(local_dir, last_zombie_diagnosis=diagnosis, scheduler_cleanup=cleanup)
         return cleanup
     if not diagnosis.get("cleanup_eligible"):
+        record_present, evidence_status = last_scheduler_record_evidence(diagnosis)
         cleanup = {
             "schema": "pbs-zombie-cleanup/1",
             "project": args.project,
             "job_id": args.job_id,
             "status": "not_eligible",
             "qdel_issued": False,
-            "scheduler_record_present": bool(
-                diagnosis.get("observations")
-                and diagnosis["observations"][-1].get("pbs_record_present")
-            ),
+            "scheduler_record_present": record_present,
+            "scheduler_record_evidence_status": evidence_status,
             "server_project_files_changed": False,
             "diagnosis": diagnosis,
         }
@@ -2996,11 +5504,15 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
     # This is deliberately the only qdel in the zombie cleanup path. It changes
     # PBS-owned state only; it never removes, truncates, or rewrites server data.
     qdel = run(nested_ssh(args, "qdel", validate_job_id(args.job_id)), check=False)
+    qdel_outcome = classify_qdel_outcome(qdel)
     time.sleep(args.verify_seconds)
     after = run(nested_ssh(args, "qstat", "-f", validate_job_id(args.job_id)), check=False)
-    after_text = str(after.stdout or after.stderr)
-    record_present = bool(re.search(r"(?m)^\s*job_state\s*=\s*\S+", after_text))
-    cleared = not record_present
+    verification = classify_qstat_evidence(after)
+    record_present = verification["record_present"]
+    cleared = bool(
+        qdel_outcome["status"] in {"success", "unknown_job_id"}
+        and verification["status"] == "absent"
+    )
     cleanup = {
         "schema": "pbs-zombie-cleanup/1",
         "project": args.project,
@@ -3008,7 +5520,13 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
         "status": "cleared" if cleared else "cleanup_unverified",
         "qdel_issued": True,
         "qdel_returncode": qdel.returncode,
+        "qdel_outcome": qdel_outcome["status"],
+        "qdel_error": qdel_outcome["error"],
+        "verification_outcome": verification["status"],
+        "verification_returncode": verification["returncode"],
+        "verification_error": verification["error"],
         "scheduler_record_present": record_present,
+        "scheduler_record_evidence_status": verification["status"],
         "server_project_files_changed": False,
         "diagnosis": diagnosis,
     }
@@ -3024,22 +5542,255 @@ def command_cleanup_zombie(args) -> None:
     if cleanup["status"] == "not_eligible":
         fail("refusing qdel because repeated observations did not prove a scheduler zombie")
     if cleanup["status"] == "cleanup_unverified":
-        fail("qdel was issued once but the PBS record still exists; do not retry automatically", code=5)
+        fail("qdel was issued once but cleanup could not be verified; do not retry automatically", code=5)
 
 
 def command_cancel(args) -> None:
-    if not args.confirmed:
-        fail("cancel requires --confirmed after explicit user authorization")
     job_id = validate_job_id(args.job_id)
+    if not args.local_dir or not args.approval_record or not args.execution_batch_ledger or not args.attempt_id:
+        fail(
+            "active cancellation requires --local-dir, exact --approval-record, "
+            "--execution-batch-ledger, and --attempt-id; --confirmed is not authority"
+        )
+    local_dir = Path(args.local_dir).expanduser().resolve()
+    if (local_dir / "cancellation-intent.json").exists():
+        fail(
+            "cancellation intent already exists; this job scope is consumed and qdel is "
+            "forbidden for every later invocation"
+        )
+    job = read_job_state(local_dir)
+    if job.get("project") is None:
+        fail("local job state has no exact project binding")
+    project = validate_project(job["project"])
+    if job.get("job_id") != job_id or job.get("remote_workdir") != remote_project_dir(project):
+        fail("local job state does not match the exact cancellation target")
+    ledger_path = Path(args.execution_batch_ledger).expanduser().resolve()
+    try:
+        ledger = validate_execution_ledger_path(ledger_path)
+    except execution_batch.BatchError as exc:
+        fail(f"cancellation execution ledger is invalid: {exc}")
+    attempt = next((item for item in ledger["attempts"] if item["attempt_id"] == args.attempt_id), None)
+    if (
+        attempt is None
+        or attempt["project"] != project
+        or attempt["scheduler_reference"] != job_id
+    ):
+        fail("cancellation attempt scope does not match project/job ID")
+    expected_scope = {
+        "operation": "cancel_active_job",
+        "project": project,
+        "job_id": job_id,
+        "local_job_sha256": job["state_sha256"],
+        "attempt_id": attempt["attempt_id"],
+        "attempt_sha256": canonical_digest(attempt),
+    }
+    try:
+        _, approval, approval_sha256, _ = load_strict_json_with_hash(
+            Path(args.approval_record).expanduser(), "exact cancellation approval"
+        )
+        _exact_fields(
+            approval,
+            {
+                "schema", "approval_id", "approver_identity", "approved_at", "expires_at",
+                "decision", "explicit_confirmation", "scope", "revocation", "consumption",
+                "authorizations",
+            },
+            "exact cancellation approval",
+        )
+        revocation = _exact_fields(
+            approval["revocation"], {"revoked", "revoked_at", "reason"},
+            "cancellation revocation",
+        )
+        consumption = _exact_fields(
+            approval["consumption"], {"single_use", "consumed"},
+            "cancellation consumption",
+        )
+    except (ValueError, OSError) as exc:
+        fail(f"cannot validate exact cancellation approval: {exc}")
+    if (
+        approval.get("schema") != CANCELLATION_APPROVAL_SCHEMA
+        or approval.get("decision") != "approved"
+        or approval.get("explicit_confirmation") is not True
+        or not isinstance(approval.get("approval_id"), str)
+        or not approval["approval_id"].strip()
+        or not isinstance(approval.get("approver_identity"), str)
+        or not approval["approver_identity"].strip()
+        or approval.get("scope") != expected_scope
+        or approval.get("authorizations") != {
+            "qdel_exact_job": True,
+            "retry": False,
+            "cleanup": False,
+            "delete_server_data": False,
+        }
+        or revocation != {"revoked": False, "revoked_at": None, "reason": None}
+        or consumption != {"single_use": True, "consumed": False}
+    ):
+        fail("exact cancellation approval scope/authority is invalid")
+    try:
+        approved_at = execution_batch.parse_time(approval["approved_at"])
+        expires_at = execution_batch.parse_time(approval["expires_at"])
+    except execution_batch.BatchError as exc:
+        fail(f"cancellation approval timestamp is invalid: {exc}")
+    now = datetime.now(timezone.utc)
+    if approved_at > now or expires_at <= approved_at or now >= expires_at:
+        fail("exact cancellation approval is expired or not yet active")
+    intent = {
+        "schema": "auto-g16-exact-cancellation-intent/1",
+        "approval_id": approval["approval_id"],
+        "approval_sha256": approval_sha256,
+        "approver_identity": approval["approver_identity"],
+        "scope": expected_scope,
+        "reserved_at": utc_now(),
+        "qdel_may_be_issued_at_most_once": True,
+        "automatic_retry_authorized": False,
+    }
+    intent["intent_sha256"] = canonical_digest(intent)
+    intent_path = local_dir / "cancellation-intent.json"
+    try:
+        publish_new_json(intent_path, intent)
+    except ValueError:
+        fail(
+            "cancellation intent already exists or cannot be reserved; qdel is forbidden "
+            "for every later invocation of this job scope"
+        )
+    try:
+        update_job(
+            local_dir,
+            status="cancellation_reserved",
+            cancellation_intent_sha256=intent["intent_sha256"],
+            cancellation_approval_id=approval["approval_id"],
+            qdel_invocation_started=False,
+        )
+    except Exception as exc:
+        fail(
+            "cancellation intent was consumed but append-only job-state reservation failed; "
+            f"do not issue or retry qdel: {exc}",
+            code=5,
+        )
     before = run(nested_ssh(args, "qstat", "-f", job_id), check=False)
-    if before.returncode:
-        fail(f"PBS job does not appear active: {job_id}")
-    result = run(nested_ssh(args, "qdel", job_id))
-    if args.local_dir:
-        local_dir = Path(args.local_dir).expanduser().resolve()
-        if (local_dir / "job.json").is_file():
-            update_job(local_dir, status="cancel_requested", cancel_requested=True)
-    print(json.dumps({"cancel_requested": True, "job_id": job_id, "output": str(result.stdout).strip()}))
+    before_evidence = classify_qstat_evidence(before)
+    if (
+        before_evidence["status"] != "present"
+        or before_evidence["job_name"] != project
+    ):
+        classification = (
+            "absent_no_qdel" if before_evidence["status"] == "absent"
+            else "unknown_no_qdel"
+        )
+        update_job(
+            local_dir,
+            status="cancellation_uncertain",
+            cancellation_precheck={
+                "classification": classification,
+                "pbs_evidence": before_evidence,
+                "qdel_issued": False,
+                "automatic_retry_authorized": False,
+            },
+        )
+        fail(
+            "cancellation intent is consumed but exact active-job evidence is absent or unknown; "
+            "qdel was not issued and must not be retried automatically",
+            code=3,
+        )
+    update_job(
+        local_dir,
+        status="cancellation_uncertain",
+        qdel_invocation_started=True,
+        qdel_invocation_started_at=utc_now(),
+    )
+    result = run(nested_ssh(args, "qdel", job_id), check=False)
+    qdel_outcome = classify_qdel_outcome(result)
+    receipt = {
+        "schema": "auto-g16-exact-cancellation-receipt/1",
+        "approval_id": approval["approval_id"],
+        "approval_sha256": approval_sha256,
+        "approver_identity": approval["approver_identity"],
+        "scope": expected_scope,
+        "consumed_at": utc_now(),
+        "qdel_issued_once": True,
+        "qdel_outcome": qdel_outcome["status"],
+        "qdel_returncode": result.returncode,
+        "automatic_retry_authorized": False,
+    }
+    receipt["receipt_sha256"] = canonical_digest(receipt)
+    try:
+        publish_new_json(local_dir / "cancellation-receipt.json", receipt)
+    except ValueError as exc:
+        update_job(
+            local_dir,
+            status="cancellation_uncertain",
+            qdel_outcome=qdel_outcome,
+            cancellation_receipt_publication_failed=True,
+        )
+        fail(
+            "qdel was invoked once but immutable outcome receipt publication failed; "
+            f"the prior intent forbids every resend: {exc}",
+            code=5,
+        )
+    update_job(
+        local_dir,
+        status="cancel_requested" if qdel_outcome["status"] == "success" else "cancellation_uncertain",
+        cancel_requested=True,
+        cancellation_receipt_sha256=receipt["receipt_sha256"],
+        qdel_outcome=qdel_outcome,
+    )
+    print(json.dumps({
+        "cancel_requested": qdel_outcome["status"] == "success",
+        "job_id": job_id,
+        "qdel_outcome": qdel_outcome,
+        "automatic_retry_authorized": False,
+    }))
+    if qdel_outcome["status"] != "success":
+        fail("qdel outcome is uncertain; the consumed cancellation intent forbids retry", code=5)
+
+
+def command_reconcile_cancellation(args) -> None:
+    """Read one exact PBS record after a consumed intent; never issue qdel."""
+
+    job_id = validate_job_id(args.job_id)
+    local_dir = Path(args.local_dir).expanduser().resolve()
+    job = read_job_state(local_dir)
+    project = validate_project(str(job.get("project", "")))
+    if job.get("job_id") != job_id or job.get("remote_workdir") != remote_project_dir(project):
+        fail("cancellation reconciliation differs from the exact local job scope")
+    intent_path = local_dir / "cancellation-intent.json"
+    try:
+        intent = load_strict_json(intent_path)
+    except (OSError, ValueError) as exc:
+        fail(f"cancellation reconciliation requires the immutable intent: {exc}")
+    scope = intent.get("scope")
+    if (
+        intent.get("schema") != "auto-g16-exact-cancellation-intent/1"
+        or not isinstance(scope, dict)
+        or scope.get("project") != project
+        or scope.get("job_id") != job_id
+        or intent.get("intent_sha256") != canonical_digest(
+            {key: value for key, value in intent.items() if key != "intent_sha256"}
+        )
+    ):
+        fail("immutable cancellation intent hash/scope is invalid")
+    result = run(nested_ssh(args, "qstat", "-f", job_id), check=False)
+    evidence = classify_qstat_evidence(result)
+    if evidence["status"] == "present" and evidence["job_name"] == project:
+        classification = "active"
+    elif evidence["status"] == "absent":
+        classification = "absent"
+    else:
+        classification = "unknown"
+    report = {
+        "schema": "auto-g16-exact-cancellation-reconciliation/1",
+        "project": project,
+        "job_id": job_id,
+        "intent_sha256": intent["intent_sha256"],
+        "classification": classification,
+        "pbs_evidence": evidence,
+        "remote_read_only": True,
+        "qdel_issued": False,
+        "automatic_retry_authorized": False,
+        "observed_at": utc_now(),
+    }
+    report["evidence_sha256"] = canonical_digest(report)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 def add_connection_options(parser: argparse.ArgumentParser) -> None:
@@ -3102,11 +5853,24 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--local-dir", required=True)
     submit.add_argument("--confirmed", action="store_true")
     submit.add_argument("--dry-run", action="store_true")
+    submit.add_argument("--execution-batch-ledger", help="protected gaussian-execution-batch/3 ledger; /2 is historical replay-only")
+    submit.add_argument("--scientific-task-id", help="stable reviewed scientific task identity")
+    submit.add_argument("--idempotency-key", help="operator-generated stable key for this physical attempt")
+    submit.add_argument("--estimated-core-hours", type=float, help="attempt estimate bound into the ledger and approval")
+    submit.add_argument("--estimated-core-hours-evidence-source", help="non-empty source identifier for the estimate")
+    submit.add_argument("--estimated-core-hours-evidence-sha256", help="lowercase SHA-256 of the estimate evidence")
+    submit.add_argument("--resource-policy", help="exact reviewed gaussian-execution-resource-policy/1")
+    submit.add_argument("--resource-gate", help="fresh exact gaussian-execution-resource-gate/2")
+    submit.add_argument("--scheduler-resource-snapshot", help="exact fresh scheduler resource snapshot bound by the gate")
+    submit.add_argument("--resource-tier", help="explicit reviewed tier; never inferred from chemistry")
+    submit.add_argument("--resource-cores", type=int, help="explicit reviewed cores; must equal %nprocshared")
+    submit.add_argument("--resource-memory-gb", type=int, help="explicit reviewed memory; must equal %mem")
+    submit.add_argument("--walltime-seconds", type=int, help="explicit reviewed PBS walltime")
     submit.add_argument(
         "--approval-record",
         help=(
-            "exact live-submission approval /3 for receipt /1, /4 for owner-replayed "
-            "open-shell receipt /2, or /5 for one family-stage receipt /3; required unless --dry-run"
+            "resource-bound one-time live approval /9 for receipt /1, /10 for owner-replayed "
+            "open-shell receipt /2, or /11 for one family-stage receipt /3; /6-/8 are historical replay only"
         ),
     )
     submit.add_argument(
@@ -3121,11 +5885,27 @@ def build_parser() -> argparse.ArgumentParser:
     add_connection_options(submit)
     submit.set_defaults(func=command_submit)
 
+    reconcile = sub.add_parser(
+        "reconcile-submission",
+        help="read remote intent/receipt and exact qstat bindings without qsub or retry",
+    )
+    reconcile.add_argument("--project", required=True)
+    reconcile.add_argument("--local-dir", required=True)
+    reconcile.add_argument("--execution-batch-ledger", required=True)
+    reconcile.add_argument("--attempt-id", required=True)
+    add_connection_options(reconcile)
+    reconcile.set_defaults(func=command_reconcile_submission)
+
     status = sub.add_parser("status", help="query an active PBS job")
     status.add_argument("--job-id")
     status.add_argument("--project")
     add_connection_options(status)
     status.set_defaults(func=command_status)
+
+    batch_status = sub.add_parser("batch-status", help="query the complete active user scope with one read-only qstat call")
+    batch_status.add_argument("--job-id", dest="job_ids", action="append", help="optional exact ledger job expected in the complete scope")
+    add_connection_options(batch_status)
+    batch_status.set_defaults(func=command_batch_status)
 
     tail = sub.add_parser("tail", help="read the end of a Gaussian log")
     tail.add_argument("--project", required=True)
@@ -3134,9 +5914,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_connection_options(tail)
     tail.set_defaults(func=command_tail)
 
-    fetch = sub.add_parser("fetch", help="copy all server job files through RTwin to the Mac")
+    fetch = sub.add_parser("fetch", help="create one exact immutable fetch snapshot through RTwin")
     fetch.add_argument("--project", required=True)
+    fetch.add_argument("--job-id", required=True)
+    fetch.add_argument("--input-stem", required=True)
+    fetch.add_argument("--local-dir", required=True)
     fetch.add_argument("--output-dir", required=True)
+    fetch.add_argument("--reuse-snapshot", help="prior immutable complete snapshot for hash-verified local reuse")
     add_connection_options(fetch)
     fetch.set_defaults(func=command_fetch)
 
@@ -3145,6 +5929,8 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser.add_argument("--job-id", required=True)
     inspect_parser.add_argument("--input-stem", required=True)
     inspect_parser.add_argument("--local-dir")
+    inspect_parser.add_argument("--execution-batch-ledger")
+    inspect_parser.add_argument("--attempt-id")
     add_connection_options(inspect_parser)
     inspect_parser.set_defaults(func=command_inspect)
 
@@ -3185,6 +5971,9 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--poll-seconds", type=int, default=30)
     watch.add_argument("--timeout-seconds", type=int, default=86400)
     watch.add_argument("--fetch", action="store_true")
+    watch.add_argument("--reuse-snapshot", help="prior immutable complete snapshot for incremental fetch")
+    watch.add_argument("--execution-batch-ledger")
+    watch.add_argument("--attempt-id")
     watch.add_argument(
         "--no-auto-cleanup-zombie",
         action="store_false",
@@ -3204,10 +5993,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     cancel = sub.add_parser("cancel", help="qdel an explicitly approved PBS job")
     cancel.add_argument("--job-id", required=True)
-    cancel.add_argument("--confirmed", action="store_true")
+    cancel.add_argument("--confirmed", action="store_true", help=argparse.SUPPRESS)
     cancel.add_argument("--local-dir")
+    cancel.add_argument("--approval-record")
+    cancel.add_argument("--execution-batch-ledger")
+    cancel.add_argument("--attempt-id")
     add_connection_options(cancel)
     cancel.set_defaults(func=command_cancel)
+
+    reconcile_cancel = sub.add_parser(
+        "reconcile-cancellation",
+        help="classify the exact job active/absent/unknown after a consumed cancellation intent",
+    )
+    reconcile_cancel.add_argument("--job-id", required=True)
+    reconcile_cancel.add_argument("--local-dir", required=True)
+    add_connection_options(reconcile_cancel)
+    reconcile_cancel.set_defaults(func=command_reconcile_cancellation)
     return parser
 
 

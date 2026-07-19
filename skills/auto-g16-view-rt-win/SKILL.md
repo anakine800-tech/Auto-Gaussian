@@ -120,7 +120,7 @@ CONF="$HOME/.codex/skills/auto-g16-view-rt-win/scripts/prepare_conformers.py"
 
 Use ETKDGv3 with chirality enforcement, MMFF94s when fully parameterized, otherwise UFF, then filter by force-field energy and RMSD. Preserve the ensemble SDF, candidate GJF/XYZ/JSON files, rankings, and warnings. Treat every generated input as `candidate_only`; the PBS Skill must refuse it.
 
-Open candidates in GaussView when 3D inspection matters. After explicit review, promote exactly one candidate at a time:
+Open candidates in GaussView when 3D inspection matters. After explicit review, record exactly one candidate selection at a time:
 
 ```bash
 "$CHEM_PY" "$CONF" select example_conformers.json \
@@ -128,6 +128,10 @@ Open candidates in GaussView when 3D inspection matters. After explicit review, 
 ```
 
 Selection is not evidence that rank 1 is the only relevant conformer. Retain all candidates within the approved energy window, calculate them with the same Opt-Freq-single-point protocol, and use Gaussian Gibbs energies for Boltzmann populations. Read [references/conformer-workflow.md](references/conformer-workflow.md) before generating or selecting an ensemble.
+
+The selection receipt is never calculation-ready and never authorizes input
+approval or submission. Keep human selection, draft generation, exact input
+approval, submission authority, and accepted result as separate states.
 
 Hand an exact immutable reviewed R08 artifact to
 `auto-g16-conformer-search` when dual-route discovery planning, supplied

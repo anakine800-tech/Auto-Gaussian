@@ -4,6 +4,19 @@
   "title": "Gaussian asymmetric transition-state result",
   "type": "object",
   "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "validation_level": {"const": "path_validated"},
+        "artifacts": {"required": ["input", "log", "checkpoint", "parsed_ts_result", "mode_review", "mode_decision", "checkpoint_audit", "irc_plan", "forward_path", "reverse_path", "path_acceptance"]}
+      },
+      "required": ["validation_level", "artifacts"]
+    },
+    {
+      "properties": {"validation_level": {"not": {"const": "path_validated"}}},
+      "required": ["validation_level"]
+    }
+  ],
   "required": [
     "schema", "result_id", "candidate_id", "candidate_sha256", "study_id",
     "comparison_group_id", "channel_id", "protocol_id", "calculation_ready",
@@ -39,7 +52,8 @@
         "checkpoint_audit": {"$ref": "#/$defs/nullableArtifact"},
         "irc_plan": {"$ref": "#/$defs/nullableArtifact"},
         "forward_path": {"$ref": "#/$defs/nullableArtifact"},
-        "reverse_path": {"$ref": "#/$defs/nullableArtifact"}
+        "reverse_path": {"$ref": "#/$defs/nullableArtifact"},
+        "path_acceptance": {"$ref": "#/$defs/nullableArtifact"}
       }
     },
     "termination": {

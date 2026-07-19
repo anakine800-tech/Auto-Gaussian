@@ -22,7 +22,7 @@
     "scientific_classification": {
       "type": "object", "additionalProperties": false,
       "required": ["parsed_result_schema", "parsed_status", "first_order_saddle_candidate", "mode_decision"],
-      "properties": {"parsed_result_schema": {"const": "gaussian-ts-freq-result/1"}, "parsed_status": {"type": ["string", "null"]}, "first_order_saddle_candidate": {"type": ["boolean", "null"]}, "mode_decision": {"type": ["string", "null"]}}
+      "properties": {"parsed_result_schema": {"enum": ["gaussian-ts-freq-result/1", "gaussian-ts-freq-result/2"]}, "parsed_status": {"type": ["string", "null"]}, "first_order_saddle_candidate": {"type": ["boolean", "null"]}, "mode_decision": {"type": ["string", "null"]}}
     },
     "comparison_eligible": {"const": false},
     "blockers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},

@@ -98,7 +98,10 @@ one imaginary frequency, manual intended-coordinate confirmation, terminated
 forward and reverse IRC, structurally identified endpoints, and endpoint
 re-Opt/Freq with zero imaginary frequencies matching the expected minima. An
 accepted TS mode binds an owner-validated calculation-attempt link; the two IRC
-directions bind owner-built `gaussian-ts-irc-path-acceptance/1`; endpoint
+directions bind owner-built `gaussian-ts-irc-path-acceptance/2`. Its owner
+replays the exact mechanism network/edge/study, TS family/result and mode,
+direction endpoint execution, charge, multiplicity and stable atom-to-element
+mapping. Historical `/1` remains replayable but cannot weaken this gate. Endpoint
 re-Opt/Freq binds two additional accepted minimum records rather than reusing
 the original endpoints. An accepted path must cite auditable evidence for that complete chain;
 partial or isolated acceptance flags cannot open IRC, downstream DAG nodes or

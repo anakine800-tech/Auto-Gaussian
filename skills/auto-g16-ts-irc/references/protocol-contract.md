@@ -82,7 +82,40 @@ ingested scientific failure is an explicit non-accepted outcome. For TS/Freq,
 minimum, or validated reaction path. The command must never contact PBS or
 perform a live action.
 
-`gaussian-ts-freq-result/1` holds termination/error evidence, stationary-point status, energy, frequencies, raw imaginary count, parsed displacement vectors, final geometry, candidate status, mode-review status, hashes, and diagnostics. Exactly one negative frequency makes `first_order_saddle_candidate` true only when normal/stationary/frequency evidence is also present.
+`gaussian-ts-freq-result/2` is the formal result contract. It binds the exact
+full log by portable relative path, SHA-256 and size, records parser
+name/version/schema, derives the exact linear/nonlinear 3N-5 or 3N-6 mode
+expectation from the final geometry, and replays every displacement row.
+Malformed, non-finite, truncated or atom-incomplete mode evidence is
+ineligible. Historical `/1` can be inspected but cannot satisfy new formal
+path acceptance. Every new closure reference rejects a symlink leaf or any
+existing symlinked ancestor below its artifact root by lexical `lstat` checks
+before resolution.
+
+`gaussian-endpoint-structure-review/2` is the prospective append-only human
+review, not a reactant/product label shortcut. It binds the endpoint
+coordinates, audit, input, raw log, result, job, attempt, terminal receipt,
+fetch snapshot, IRC checkpoint, IRC plan, AllCheck manifest and the same
+accepted TS-checkpoint audit `/2`; it records identity, connectivity,
+stereochemistry, stable atom IDs, reviewer, rationale and timestamp and replays
+the owner endpoint audit. `gaussian-ts-irc-path-acceptance/2` accepts only two
+such `/2` reviews plus a source-bound TS result `/2`, and rejects different TS
+checkpoint lineages, composition, charge, multiplicity or stable atom ID/order.
+Historical endpoint review `/1` remains display/replay-only and cannot open a
+new path-acceptance, maturity, thermochemistry or comparison gate. Therefore an
+84-atom complex and a 36-atom isolated product cannot be QST2 endpoints or a
+bidirectional path pair.
+
+`gaussian-irc-fragment-endpoint-validation/2` is the formal disconnected
+endpoint minimum contract. Every fragment result is replayed from its exact
+full log and bound to the exact job and checkpoint. Legacy fragment validation
+`/1` lacks that closure and remains historical replay-only.
+
+The new TS result `/2`, endpoint review, path acceptance `/2`, and fragment
+validation `/2` publication paths use same-directory exclusive temporary
+creation followed by an atomic no-clobber hard link. Validation occurs before
+the final name is published. Existing or concurrent targets are preserved, and
+failure cleanup is restricted to the publisher's private temporary file.
 
 `classify_ts_freq_result_facts` and `classify_ts_freq_terminal_facts` are the
 pure specialist replay boundary for parser status, first-order/mode-review
@@ -109,27 +142,45 @@ The protocol-selection hash and selected stage payload must also remain bound
 to the input/plan lineage. A changed proposal, selection, route, resource value
 or source hash invalidates the draft and requires a new selection.
 
-`gaussian-checkpoint-geometry-audit/1` binds a non-symlink checkpoint basename and SHA-256 to the explicit reviewed TS input, completed TS log, TS result, imaginary-mode displacement indices, mode review, and accepted decision. Require identical charge/multiplicity and one-based atomic-number order across the explicit input, final log orientation, result geometry, and displacement table. State explicitly that this provenance audit does not decode the binary checkpoint.
+`gaussian-checkpoint-geometry-audit/2` is the current source-bound owner artifact for a TS/Freq result `/2`. In addition to the reviewed atom-order and charge/multiplicity checks, it binds and replays the exact supplied TS input and log, TS result, accepted mode review and decision, checkpoint basename/hash/size, and the exact fetch snapshot whose `artifacts` and every `per_hop` digest contain that checkpoint. The AllCheck builder and downstream consumers must call the canonical owner validator; a copied input/log, same-name changed checkpoint, changed fetch hop, or resealed audit fails closed. Historical `gaussian-checkpoint-geometry-audit/1` remains readable under its immutable contract only. Neither version decodes the binary checkpoint.
 
 `gaussian-allcheck-input-manifest/1` accompanies a coordinate-free continuation input of the same stem. Require `%oldchk` to match the audited checkpoint basename and hash, `%chk` to be distinct, and the route to contain the approved direction plus `RCFC Geom=AllCheck Guess=Read`. Put no title, charge/multiplicity line, or coordinates after the route. Reject changed input/checkpoint hashes, `ReCorrect=Never`, unresolved warnings, and atom-order records that are not contiguous and one-based.
 
-`gaussian-irc-endpoint-audit/1` binds one direction's final completed point to the fetched IRC checkpoint, input, log, parsed result, and local job record. Require the declared final point, direction-specific completion, corrector convergence evidence for every expected point, normal termination, matching final log/result atom order and coordinates, and reviewed forming-bond distances. A reactant/product label is review evidence, not proof of a minimum.
+`gaussian-irc-endpoint-audit/2` is required for prospective closure and binds
+one direction's final completed point to the fetched IRC checkpoint, exact
+attempt/terminal/fetch chain, IRC plan and AllCheck manifest, plus the accepted
+TS checkpoint and checkpoint audit `/2` named by `%oldchk`. The completed job's
+`gaussian.oldcheckpoint` basename/hash and companion-manifest hash/size must
+match that accepted checkpoint and exact AllCheck manifest; input declarations
+alone are insufficient. Require the declared
+final point, direction-specific completion, corrector convergence evidence for
+every expected point, normal termination, matching final log/result atom order
+and coordinates, and reviewed forming-bond distances. Historical audit `/1` is
+replay-only. A reactant/product label is review evidence, not proof of a minimum.
 
-`gaussian-ts-irc-path-acceptance/1` is the next immutable owner artifact. It
-binds a formal non-pilot TS-family `/2`, TS result, accepted mode review and
-decision, plus both directions' exact audit/input/log/result/job/checkpoint
-bundles. Validation rechecks the family maturity binding, specialist TS mode
-arithmetic and both endpoint audits from their raw sources; it requires one
-reactant and one product side with equal charge, multiplicity and atom order.
-It does not prove either endpoint is a minimum and grants no live authority.
+`gaussian-ts-irc-path-acceptance/2` is the current immutable owner artifact.
+It binds a formal non-pilot TS-family `/2`, an execution-bound TS/Freq result
+`/2`, accepted mode review and decision, both endpoint-structure reviews, and
+the exact owner-validated mechanism network edge. Validation replays the
+family/input/job/attempt/terminal-receipt/fetch-snapshot chain, the mechanism
+edge's from/to states and stable atom map, and the direction-to-endpoint state
+assignment. Swapped directions, stale maps and cross-family or cross-job
+evidence fail closed. Historical path acceptance `/1` remains replayable only
+under its original contract and does not gain `/2` authority. Neither version
+proves either endpoint is a minimum or grants live authority.
 
-For an endpoint continuation, reuse `gaussian-allcheck-input-manifest/1` with `continuation_kind: endpoint_opt_freq`. Require an approved route containing `Opt Freq Geom=AllCheck Guess=Read` and forbid IRC or TS optimization keywords. The `%oldchk` hash must match the endpoint audit and the input must contain no explicit molecule specification.
+`analyze-ts` may publish an incomplete or damaged-log `/2` result without
+execution sources only as non-authorizing negative evidence. A complete
+TS/Freq result requires the exact family, input, job, terminal-inspection
+receipt and fetch snapshot arguments; omitting any member rejects publication.
+
+For an endpoint continuation, reuse `gaussian-allcheck-input-manifest/1` with `continuation_kind: endpoint_opt_freq`. New construction requires canonical owner replay of `gaussian-endpoint-structure-review/2` and its complete family/audit/input/log/result/job/attempt/terminal/fetch/IRC-checkpoint/TS-checkpoint/plan/AllCheck source bundle. Historical review/audit `/1` and a standalone handwritten audit `/2` cannot authorize a new input. Require an approved route containing `Opt Freq Geom=AllCheck Guess=Read` and forbid IRC or TS optimization keywords. The `%oldchk` hash must match the exact review-bound endpoint checkpoint and the input must contain no explicit molecule specification.
 
 `gaussian-irc-component-proposal/1` binds a distance-based disconnected-component proposal to the endpoint-audit and IRC-result hashes. Restrict automatic detection to supported main-group organic elements and record the exact covalent radii, scale, proposed bonds, coordinates, formulas, and source atom indices. Mark it `calculation_ready: false`; never infer chemical identities, fragment charges, fragment multiplicities, or spin coupling.
 
 `gaussian-irc-component-review/1` must bind the proposal SHA-256, record `decision: accepted` and `confirmed: true`, preserve each proposed atom partition exactly, and explicitly supply every identity, PBS-safe fresh project, integer charge, positive multiplicity, and a non-empty spin-coupling note. Require fragment charges to sum to the audited total charge.
 
-`gaussian-irc-fragment-endpoint-plan/1` records the reviewed explicit Cartesian input hashes, atom maps, route, resources, and remote SDL directories. It grants no submission authorization. Forbid `IRC`, `Geom=AllCheck`, `Guess=Read`, and TS optimization keywords in fragment routes. `gaussian-irc-fragment-endpoint-validation/1` binds each fetched `job.json` to the planned input SHA-256 and requires completed stationary-point optimization, a complete frequency list, unchanged element order, and zero imaginary frequencies for every planned fragment. Label the energy sum as isolated-fragment electronic energy only; it is not a reaction Gibbs energy.
+`gaussian-irc-fragment-endpoint-plan/1` records the reviewed explicit Cartesian input hashes, atom maps, route, resources, and remote SDL directories. It grants no submission authorization. Forbid `IRC`, `Geom=AllCheck`, `Guess=Read`, and TS optimization keywords in fragment routes. `gaussian-irc-fragment-endpoint-validation/1` binds each fetched `job.json` to the planned input SHA-256 and requires completed stationary-point optimization, unchanged element order, and zero imaginary frequencies for every planned fragment. A single atom has zero vibrational modes and must carry `expected_frequency_count=0`, `frequencies=[]`, and `lowest_frequency_cm-1=null`; for `N>1`, retain the complete 3N-6 (or linear 3N-5) list and lowest-frequency hard gate. Label the energy sum as isolated-fragment electronic energy only; it is not a reaction Gibbs energy.
 
 Final validation needs both complete IRC direction results plus endpoint Opt/Freq evidence. A connected endpoint uses one reviewed continuation. A disconnected asymptotic endpoint may use separately reviewed isolated fragments after preserving the failed or bypassed combined-supermolecule evidence and documenting why no finite-distance minimum is claimed. A failed IRC does not by itself disprove the stationary point; it means the intended connection was not established.
 

@@ -225,7 +225,9 @@ class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
                 with redirect_stdout(output): wrapper_args.func(wrapper_args)
             self.assertFalse(network.called)
             preflight = json.loads((root / "wrapper" / "automation_preflight.json").read_text())
-            self.assertEqual(preflight["live_approval_requirement"]["required_schema"], TRANSPORT.OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA)
+            self.assertEqual(preflight["live_approval_requirement"]["status"], "incomplete_non_authorizing_preflight")
+            self.assertIsNone(preflight["live_approval_requirement"]["required_schema"])
+            self.assertIsNone(preflight["live_approval_requirement"]["scope_proposal"])
 
     def test_D_old_failed_combined_route_is_classified_and_receipt_generations_fail_closed(self) -> None:
         route = "#p UB3LYP/cc-pVTZ Opt=Tight Freq Stable=Opt SCF=(Tight,XQC) Int=UltraFine NoSymm"

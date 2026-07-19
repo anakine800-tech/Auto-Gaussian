@@ -178,8 +178,9 @@ receipt for the input families that receipt explicitly supports.
 ## Specialist result to reviewed energy and lineage
 
 The energy adapter consumes only existing specialist JSON with schema
-`gaussian-ts-freq-result/1`; it never opens or parses a raw Gaussian log and
-never reinterprets an imaginary mode, TS validity, IRC path, endpoint, or
+owner-replayed `gaussian-ts-freq-result/1` or execution-bound
+`gaussian-ts-freq-result/2`; it never treats a raw Gaussian log as an accepted
+result and never reinterprets an imaginary mode, TS validity, IRC path, endpoint, or
 specialist status. `gaussian-energy-review/1` binds the exact candidate and
 parsed result and may bind an exact TS mode review and scientific decision as
 a pair. When that pair is present, their parsed-result and review hashes must

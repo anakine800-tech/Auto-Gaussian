@@ -45,6 +45,12 @@ Never diagnose a CDX tetrahedral center from the default `removeHs=True` import.
 
 The CDX/CDXML import may emit parser warnings such as conflicting wedge directions. Preserve those warnings in the user-facing summary. Do not silently repair or reinterpret a conflicting wedge.
 
+The conversion manifest also records a closed structure-invariant projection:
+explicit hydrogen indices, restored/conflicting/unsupported CFG counts, CIP
+centers, formula, source/Gaussian atom counts, and whether boron triggered a
+force-field-fallback review requirement. Formula or atom-count drift while
+adding explicit Cartesian hydrogens is a hard error, not a warning.
+
 Record or derive:
 
 - canonical isomeric SMILES;

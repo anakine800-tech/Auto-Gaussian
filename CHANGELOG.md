@@ -5,6 +5,47 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Changed
+
+- Hardened the offline TS/Freq/IRC evidence chain with owner-replayed `/2`
+  contracts for exact family/input/job/attempt/terminal/fetch provenance,
+  checkpoint continuity, endpoint execution, and mechanism study, charge,
+  multiplicity and stable atom-element identity.
+- Connected minimum-lineage `/2` to scientific-maturity and thermochemistry
+  blocker consumers, and connected TS-result `/2` to recalculation and
+  asymmetric-catalysis only through the canonical owner validator.
+- Tightened resource-gate, reservation and ledger replay for positive exact
+  core-hour estimates and bounded scheduler-clock skew; stale, future-dated,
+  forged-age and cross-estimate records fail closed.
+- Hardened private migration publication with owner-only atomic file creation,
+  source identity checks, destination rehashing and a persisted destination
+  receipt. Skill-local runtime configuration remains source-archive
+  self-contained while enforcing the root strict loader contract.
+- Made private migration `/2` path auditing quote/escape aware and
+  occurrence-positioned, retained same-prefix external references, blocked
+  ambiguous unquoted-space candidates, rejected Boolean count substitutions,
+  and classified NUL-bearing binaries before text-candidate limits.
+- Made prospective TS/IRC qualification require endpoint review and path
+  acceptance `/2`, including one shared accepted TS `%oldchk` lineage, while
+  keeping `/1` artifacts strictly historical and non-qualifying.
+- Added bounded streaming for Gaussian log parsing, private migration and
+  checkpoint/result snapshots, including plan/review migration passes, plus
+  separate size-derived finite transfer and hash budgets and bounded adaptive
+  monitoring persistence without active-state whole-log scans.
+- Required new endpoint Opt/Freq inputs to replay an endpoint-structure review
+  `/2` and the completed IRC job's exact transported TS checkpoint and companion
+  manifest; standalone or historical endpoint audits remain non-authorizing.
+- Upgraded private migration planning to `/2`: UTF-8 classification and
+  absolute-path scanning now cover files of every size with bounded reads,
+  occurrence-counted boundary-safe rewrites, while true binary files are
+  explicitly classified and copied unchanged.
+
+### Safety
+
+- All hardening and validation in this entry is offline. It performs no SSH,
+  PBS, Gaussian, deployment, submission, retry, cancellation, cleanup or live
+  scientific acceptance.
+
 ## [2.5.0] - 2026-07-19
 
 ### Added

@@ -35,6 +35,7 @@ PRECEDENT_SCHEMA = "gaussian-ts-precedent-map/1"
 CONFORMER_SCHEMA = "gaussian-conformer-candidate-handoff/1"
 OPEN_SHELL_SCHEMA = "auto-g16-main-group-open-shell-result-acceptance/1"
 MANUAL_SCHEMA = "auto-g16-manual-evidence-receipt/1"
+MINIMUM_LINEAGE_SCHEMA = "gaussian-minimum-lineage-handoff/2"
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
 EDGE_ACTIONS = {"ts_input", "ts_submission", "irc_input", "formal_barrier_reporting"}
@@ -78,6 +79,7 @@ def _owners() -> dict[str, Any]:
         "conformer": _load_module("auto_g16_maturity_v2_conformer_owner", root / "auto-g16-conformer-search" / "scripts" / "conformer_core.py"),
         "open_shell": _load_module("auto_g16_maturity_v2_open_shell_owner", root / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_state.py"),
         "manual": _load_module("auto_g16_maturity_v2_manual_owner", root / "auto-g16-knowledge-base" / "scripts" / "manual_evidence.py"),
+        "minimum_lineage": _load_module("auto_g16_maturity_v2_minimum_lineage_owner", Path(__file__).with_name("scientific_closure_lineage.py")),
     }
 
 
@@ -247,13 +249,16 @@ def _normalize_review(value: dict[str, Any], *, require_hash: bool) -> dict[str,
     for index, raw in enumerate(data["minimum_evidence"]):
         item = _exact(raw, {
             "minimum_id", "state_id", "composition_signature", "formal_charge", "multiplicity",
-            "conformer_origin", "selected_candidate_id", "conformer_handoff", "open_shell_acceptance",
+            "conformer_origin", "selected_candidate_id", "conformer_handoff", "open_shell_acceptance", "minimum_lineage",
         }, f"minimum_evidence[{index}]")
         require(isinstance(item["formal_charge"], int) and not isinstance(item["formal_charge"], bool), "minimum formal_charge must be integer")
         require(isinstance(item["multiplicity"], int) and not isinstance(item["multiplicity"], bool) and item["multiplicity"] > 0, "minimum multiplicity must be positive integer")
         open_shell = item["open_shell_acceptance"]
         if open_shell is not None:
             open_shell = _binding_literal(open_shell, OPEN_SHELL_SCHEMA, f"minimum_evidence[{index}].open_shell_acceptance")
+        minimum_lineage = item["minimum_lineage"]
+        if minimum_lineage is not None:
+            minimum_lineage = _binding_literal(minimum_lineage, MINIMUM_LINEAGE_SCHEMA, f"minimum_evidence[{index}].minimum_lineage")
         origin = _exact(
             item["conformer_origin"], {"scope", "source_id", "ts_derivation_allowed"},
             f"minimum_evidence[{index}].conformer_origin",
@@ -272,6 +277,7 @@ def _normalize_review(value: dict[str, Any], *, require_hash: bool) -> dict[str,
             "selected_candidate_id": _identifier(item["selected_candidate_id"], "selected conformer candidate ID"),
             "conformer_handoff": _binding_literal(item["conformer_handoff"], CONFORMER_SCHEMA, f"minimum_evidence[{index}].conformer_handoff"),
             "open_shell_acceptance": open_shell,
+            "minimum_lineage": minimum_lineage,
         })
     require(minima and len({item["minimum_id"] for item in minima}) == len(minima), "minimum evidence must be non-empty and unique")
 
@@ -424,6 +430,24 @@ def _minimum_candidate_input_result_lineage_blockers() -> list[str]:
     return ["minimum_candidate_input_result_lineage_unavailable_v2"]
 
 
+def consume_minimum_lineage_v2(
+    binding: dict[str, Any], owner_path: Path, *, minimum_id: str, state_id: str,
+    formula: str, formal_charge: int, multiplicity: int, stable_atom_ids: list[str],
+) -> dict[str, Any]:
+    """Replay one exact minimum-lineage /2 for maturity/thermochemistry consumers."""
+    lineage, lineage_path = _resolve(binding, owner_path, MINIMUM_LINEAGE_SCHEMA)
+    _owners()["minimum_lineage"].validate_artifact(lineage_path)
+    require(lineage.get("minimum_id") == minimum_id, f"minimum lineage targets another minimum: {minimum_id}")
+    require(lineage.get("state_id") == state_id, f"minimum lineage targets another mechanism state: {minimum_id}")
+    require(
+        (lineage.get("formula"), lineage.get("charge"), lineage.get("multiplicity"))
+        == (formula, formal_charge, multiplicity),
+        f"minimum lineage composition/charge/spin differs: {minimum_id}",
+    )
+    require(lineage.get("stable_atom_ids") == stable_atom_ids, f"minimum lineage stable atom order differs: {minimum_id}")
+    return lineage
+
+
 def _owner_manifest(conformer: Any, handoff: dict[str, Any], handoff_path: Path) -> dict[str, Any]:
     manifest_path = conformer.resolve_bound_path(handoff_path, handoff["manifest"]["path"], "bound conformer ensemble manifest")
     return conformer.load_json(manifest_path)
@@ -573,7 +597,19 @@ def _build_evidence_receipt(
             item, signature, selected, review_path, owners["open_shell"],
         )
         local.extend(open_shell_blockers)
-        local.extend(_minimum_candidate_input_result_lineage_blockers())
+        lineage_payload = None
+        if item["minimum_lineage"] is None:
+            local.extend(_minimum_candidate_input_result_lineage_blockers())
+        else:
+            try:
+                lineage = consume_minimum_lineage_v2(
+                    item["minimum_lineage"], review_path, minimum_id=minimum_id, state_id=item["state_id"],
+                    formula=item["composition_signature"], formal_charge=item["formal_charge"],
+                    multiplicity=item["multiplicity"], stable_atom_ids=expected_order,
+                )
+                lineage_payload = lineage["payload_sha256"]
+            except Exception as exc:
+                local.append(f"minimum_candidate_input_result_lineage_invalid:{exc}")
         ready = not local
         minimum_results.append({
             "minimum_id": minimum_id, "state_id": item["state_id"],
@@ -582,7 +618,8 @@ def _build_evidence_receipt(
             "ensemble_manifest_payload_sha256": manifest["payload_sha256"], "selected_candidate_id": selected,
             "conformer_origin": copy.deepcopy(item["conformer_origin"]),
             "selected_candidate_is_reviewed_medoid": selected in handoff["selected_candidate_ids"] and selected in medoids,
-            "candidate_input_result_lineage_status": "unavailable_v2_requires_exact_input_approval_and_result_binding",
+            "candidate_input_result_lineage_status": "owner_validated_minimum_lineage_v2" if lineage_payload else "unavailable_v2_requires_exact_input_approval_and_result_binding",
+            "minimum_lineage_payload_sha256": lineage_payload,
             "open_shell_acceptance": open_shell_projection, "owner_evidence_ready": ready,
             "blockers": sorted(set(local)),
         })

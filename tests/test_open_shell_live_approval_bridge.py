@@ -243,11 +243,10 @@ class OpenShellLiveApprovalBridgeTests(unittest.TestCase):
                     wrapper_args.func(wrapper_args)
                 self.assertFalse(network.called)
             preflight = json.loads((root / "wrapper" / "automation_preflight.json").read_text())
-            self.assertEqual(
-                preflight["live_approval_requirement"]["required_schema"],
-                TRANSPORT.OPEN_SHELL_LIVE_APPROVAL_SCHEMA,
-            )
-            self.assertTrue(preflight["live_approval_requirement"]["proposal_only"])
+            self.assertEqual(preflight["live_approval_requirement"]["status"], "incomplete_non_authorizing_preflight")
+            self.assertIsNone(preflight["live_approval_requirement"]["required_schema"])
+            self.assertIsNone(preflight["live_approval_requirement"]["scope_proposal"])
+            self.assertFalse(preflight["live_approval_requirement"]["proposal_only"])
 
 
 if __name__ == "__main__":

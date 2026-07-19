@@ -2,6 +2,7 @@
 """Offline tests for the TS–Freq–IRC skill; no network or scheduler access."""
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import shutil
@@ -144,9 +145,9 @@ class TsIrcTests(unittest.TestCase):
         return result, output
 
     def _terminal_job(
-        self, project: str, input_path: Path, log_path: Path, *, state: str = "completed"
+        self, project: str, input_path: Path, log_path: Path, *, state: str = "completed", inspection_v2: bool = False,
     ) -> dict:
-        return {
+        job = {
             "schema": "gaussian-rtwin-pbs/1",
             "project": project,
             "job_id": "900.master",
@@ -170,6 +171,15 @@ class TsIrcTests(unittest.TestCase):
                 ),
             },
         }
+        if inspection_v2:
+            inspection = job["last_inspection"]
+            inspection.update({
+                "schema": "gaussian-job-inspection/2", "source": "single_remote_read_only_snapshot",
+                "freshness": "fresh", "transport_classification": "success", "transport_returncode": 0,
+                "termination_counts_known": True, "evidence_conflict": False,
+            })
+            inspection["evidence_sha256"] = TS._transport_digest(inspection)
+        return job
 
     def _terminal_template(
         self, project: str, input_path: Path, task_kind: str, acceptance: dict
@@ -276,6 +286,22 @@ class TsIrcTests(unittest.TestCase):
             )
             self.assertEqual(incomplete["outcome"], "incomplete_frequency_analysis")
             self.assertEqual(incomplete["acceptance_status"], "not_accepted")
+
+    def test_terminal_intake_accepts_exact_inspection_v2_and_rejects_unknown_or_tampered(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); input_path = root / "ts.gjf"; input_path.write_text("%chk=ts.chk\n#p opt=(ts) freq\n\nTS\n\n0 1\nH 0 0 0\nH 1 0 0\n\n")
+            log_path = root / "ts.log"; log_path.write_text(" Charge = 0 Multiplicity = 1\n" + LOG)
+            template = self._terminal_template("test_v2", input_path, "ts_freq", {"expected_frequency_count": 3, "required_raw_imaginary_frequency_count": 1})
+            template_path = root / "template.json"; template_path.write_text(json.dumps(template))
+            job = self._terminal_job("test_v2", input_path, log_path, inspection_v2=True)
+            job_path = root / "job.json"; job_path.write_text(json.dumps(job))
+            self.assertEqual(TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)["outcome"], "ready_for_manual_mode_review")
+            job["last_inspection"]["freshness"] = "stale"; job_path.write_text(json.dumps(job))
+            with self.assertRaisesRegex(ValueError, "stale, malformed, tampered"):
+                TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)
+            job["last_inspection"]["schema"] = "gaussian-job-inspection/99"; job_path.write_text(json.dumps(job))
+            with self.assertRaisesRegex(ValueError, "terminal Gaussian inspection"):
+                TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)
 
     def test_offline_irc_terminal_intake_requires_endpoint_identity_review(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -601,20 +627,13 @@ class TsIrcTests(unittest.TestCase):
             audit_path = root / "checkpoint_audit.json"
             audit_path.write_text(json.dumps(audit))
             output = root / "irc_f.gjf"
-            manifest = TS.build_allcheck_irc_input(
-                audit_path,
-                checkpoint,
-                output,
-                "#p b3lyp/6-31g(d) irc=(rcfc,forward,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read",
-                "forward",
-                "12GB",
-                8,
-            )
-            text = output.read_text()
-            self.assertIn("%oldchk=ts.chk", text)
-            self.assertIn("geom=allcheck", text.lower())
-            self.assertNotIn("\n0 1\n", text)
-            self.assertEqual(manifest["checkpoint_sha256"], TS.sha256(checkpoint))
+            with self.assertRaisesRegex(ValueError, "historical replay only"):
+                TS.build_allcheck_irc_input(
+                    audit_path, checkpoint, output,
+                    "#p b3lyp/6-31g(d) irc=(rcfc,forward,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read",
+                    "forward", "12GB", 8,
+                )
+            self.assertFalse(output.exists())
 
     def test_allcheck_builder_rejects_recorrect_never(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -688,11 +707,22 @@ class TsIrcTests(unittest.TestCase):
                 "status": "completed",
                 "results_fetched": True,
                 "input_sha256": TS.sha256(irc_input),
+                "execution_batch": {"attempt_id": "qsub-attempt-irc-forward"},
                 "gaussian": {
                     "checkpoint": "irc_f.chk",
                     "route": "#p b3lyp/6-31g(d) irc=(rcfc,forward,maxpoints=2) geom=allcheck guess=read",
                 },
             }
+            inspection = {"schema": "gaussian-job-inspection/2", "project": "irc_f", "job_id": "1.master", "state": "completed", "collected_at": "2026-07-19T12:00:00Z", "source": "single_remote_read_only_snapshot", "freshness": "fresh", "transport_classification": "success", "transport_returncode": 0, "termination_counts_known": True, "evidence_conflict": False, "process_alive": False, "log_size": irc_log.stat().st_size, "full_normal_termination_count": irc_log.read_text().count("Normal termination of Gaussian"), "full_error_termination_count": 0}
+            inspection["evidence_sha256"] = TS._transport_digest(inspection)
+            receipt = {"schema": "gaussian-terminal-inspection-receipt/1", "project": "irc_f", "job_id": "1.master", "input_stem": irc_input.stem, "input_sha256": TS.sha256(irc_input), "attempt_id": "qsub-attempt-irc-forward", "terminal_state": "completed", "collected_at": inspection["collected_at"], "inspection_evidence_sha256": inspection["evidence_sha256"], "inspection": inspection, "scientific_acceptance": False}
+            receipt["receipt_sha256"] = TS._transport_digest(receipt); receipt_path = root / "terminal-inspection.json"; receipt_path.write_text(json.dumps(receipt))
+            artifacts = {}; per_hop = {}
+            for source in (irc_log, result_path, checkpoint):
+                digest = TS.sha256(source); artifacts[source.name] = {"sha256": digest, "size": source.stat().st_size}; per_hop[source.name] = {"server_sha256": digest, "rtwin_sha256": digest, "mac_sha256": digest, "size": source.stat().st_size}
+            snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": "irc_f", "job_id": "1.master", "input_stem": irc_input.stem, "input_sha256": TS.sha256(irc_input), "snapshot_complete": True, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "per_hop_sha256_verified": True, "exact_log": irc_log.name, "artifacts": artifacts, "per_hop": per_hop}
+            snapshot["payload_sha256"] = TS._transport_digest(snapshot); snapshot_path = root / "transfer.json"; snapshot_path.write_text(json.dumps(snapshot))
+            job["terminal_inspection_receipt_sha256"] = receipt["receipt_sha256"]; job["fetch_snapshot_sha256"] = TS.sha256(snapshot_path); job["fetch_snapshot_size"] = snapshot_path.stat().st_size
             job_path = root / "job.json"; job_path.write_text(json.dumps(job))
             audit = TS.audit_irc_endpoint_provenance(
                 irc_input, irc_log, result_path, job_path, checkpoint,
@@ -701,14 +731,61 @@ class TsIrcTests(unittest.TestCase):
             self.assertEqual(audit["completed_point"], 2)
             self.assertEqual(audit["reviewed_forming_bond_distances"][0]["distance_angstrom"], 1.5)
             audit_path = root / "endpoint_audit.json"; audit_path.write_text(json.dumps(audit))
+            review_draft = {
+                "schema": "gaussian-endpoint-structure-review-draft/1",
+                "review_id": "synthetic_forward_endpoint_review",
+                "direction": "forward", "chemical_side": "reactant",
+                "stable_atom_ids": ["atom_c1", "atom_c2"],
+                "structure_identity": {
+                    "state_id": "synthetic_reactant_state", "identity_label": "reviewed synthetic C2 endpoint",
+                    "formula": "C2", "connectivity": [{"atom_ids": ["atom_c1", "atom_c2"], "order": 1.0}],
+                    "stereochemistry": [],
+                },
+                "decision": "accepted", "explicit_human_review": True,
+                "reviewer": "synthetic_offline_reviewer",
+                "rationale": "Synthetic connectivity and identity were reviewed against the exact endpoint coordinates.",
+                "reviewed_at": "2026-07-19T12:00:00+08:00",
+            }
+            review_draft_path = root / "endpoint_review.draft.json"; review_draft_path.write_text(json.dumps(review_draft))
+            review_path = root / "endpoint_review.json"
+            family_path = root / "family.json"; family_path.write_text(json.dumps({"schema": TS.SCHEMA_V2, "pilot": False, "project_prefix": "irc"}))
+            sources = {"audit": audit_path, "irc_input": irc_input, "irc_log": irc_log, "irc_result": result_path, "job": job_path, "checkpoint": checkpoint}
+            reviewed = TS.build_endpoint_structure_review_artifact(sources, review_draft_path, review_path)
+            self.assertEqual(reviewed["schema"], TS.ENDPOINT_REVIEW_SCHEMA)
+            self.assertEqual(reviewed["structure_identity"]["formula"], "C2")
+            self.assertEqual(reviewed["endpoint_coordinates"]["records"][0]["atom_id"], "atom_c1")
+            self.assertEqual(reviewed["parser"], TS.PARSER_ID)
+            TS.validate_endpoint_structure_review_artifact(review_path)
+            incomplete_v2 = {**sources, "family": family_path, "terminal_inspection_receipt": receipt_path, "fetch_snapshot": snapshot_path}
+            with self.assertRaisesRegex(ValueError, "fields are invalid"):
+                TS.build_endpoint_structure_review_artifact(incomplete_v2, review_draft_path, root / "incomplete-v2-review.json")
+            immutable_review = review_path.read_bytes()
+            with self.assertRaisesRegex(ValueError, "concurrent or overwrite"):
+                TS.build_endpoint_structure_review_artifact(sources, review_draft_path, review_path)
+            self.assertEqual(review_path.read_bytes(), immutable_review)
+            stale = json.loads(review_path.read_text()); stale["structure_identity"]["formula"] = "C3"; stale["payload_sha256"] = TS._payload_sha256(stale)
+            review_path.write_text(json.dumps(stale))
+            with self.assertRaisesRegex(ValueError, "formula differs"):
+                TS.validate_endpoint_structure_review_artifact(review_path)
+            review_path.write_text(json.dumps(reviewed))
+            original_log = irc_log.read_text()
+            irc_log.write_text(original_log + " stale mutation\n")
+            with self.assertRaisesRegex(ValueError, "reference changed"):
+                TS.validate_endpoint_structure_review_artifact(review_path)
+            irc_log.write_text(original_log)
             endpoint = root / "endpoint.gjf"
-            manifest = TS.build_allcheck_endpoint_input(
-                audit_path, checkpoint, endpoint,
-                "#p b3lyp/6-31g(d) opt freq geom=allcheck guess=read",
-                "12GB", 8,
-            )
-            self.assertEqual(manifest["continuation_kind"], "endpoint_opt_freq")
-            self.assertNotIn("\n0 1\n", endpoint.read_text())
+            with self.assertRaisesRegex(ValueError, "historical /1 is replay-only"):
+                TS.build_allcheck_endpoint_input(
+                    review_path, checkpoint, endpoint,
+                    "#p b3lyp/6-31g(d) opt freq geom=allcheck guess=read", "12GB", 8,
+                )
+            forged_v2 = copy.deepcopy(audit); forged_v2["schema"] = "gaussian-irc-endpoint-audit/2"
+            forged_v2_path = root / "isolated-forged-audit-v2.json"; forged_v2_path.write_text(json.dumps(forged_v2))
+            with self.assertRaises(ValueError):
+                TS.build_allcheck_endpoint_input(
+                    forged_v2_path, checkpoint, endpoint,
+                    "#p b3lyp/6-31g(d) opt freq geom=allcheck guess=read", "12GB", 8,
+                )
 
     def test_endpoint_builder_rejects_ts_or_missing_freq(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

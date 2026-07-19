@@ -134,7 +134,7 @@
       "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
       "properties": {
         "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"},
-        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"const": "gaussian-ts-irc-path-acceptance/1"},
+        "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"enum": ["gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"]},
         "payload_sha256": {"$ref": "#/$defs/sha"}
       }
     },

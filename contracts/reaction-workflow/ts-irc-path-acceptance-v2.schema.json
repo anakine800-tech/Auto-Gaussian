@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/ts-irc-path-acceptance-v2.schema.json",
+  "title": "Auto-G16 TS and reviewed bidirectional IRC path acceptance v2",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "edge_id", "mechanism_network", "mechanism_binding", "family", "ts_result", "mode_review", "mode_decision", "endpoint_reviews", "accepted", "limitations", "validator", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-ts-irc-path-acceptance/2"}, "edge_id": {"type": "string", "minLength": 1}, "mechanism_network": {"$ref": "#/$defs/jsonRef"}, "mechanism_binding": {"$ref": "#/$defs/mechanismBinding"}, "family": {"$ref": "#/$defs/ref"}, "ts_result": {"$ref": "#/$defs/ref"}, "mode_review": {"$ref": "#/$defs/ref"}, "mode_decision": {"$ref": "#/$defs/ref"},
+    "endpoint_reviews": {"type": "object", "additionalProperties": false, "required": ["forward", "reverse"], "properties": {"forward": {"$ref": "#/$defs/ref"}, "reverse": {"$ref": "#/$defs/ref"}}},
+    "accepted": {"const": true}, "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}, "validator": {"$ref": "#/$defs/parser"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "parser": {"type": "object", "additionalProperties": false, "required": ["name", "version", "schema"], "properties": {"name": {"const": "auto-g16-ts-irc"}, "version": {"const": "2.0.0"}, "schema": {"const": "auto-g16-ts-irc-parser/2"}}},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes"], "properties": {"path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}},
+    "jsonRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}, "schema": {"type": "string", "minLength": 1}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "atomMap": {"type": "object", "additionalProperties": false, "required": ["from_atom_id", "to_atom_id"], "properties": {"from_atom_id": {"type": "string", "minLength": 1}, "to_atom_id": {"type": "string", "minLength": 1}}},
+    "stableAtom": {"type": "object", "additionalProperties": false, "required": ["atom_id", "element"], "properties": {"atom_id": {"type": "string", "minLength": 1}, "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"}}},
+    "direction": {"type": "object", "additionalProperties": false, "required": ["chemical_side", "state_id", "formal_charge", "multiplicity", "stable_atoms"], "properties": {"chemical_side": {"enum": ["reactant", "product"]}, "state_id": {"type": "string", "minLength": 1}, "formal_charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1}, "stable_atoms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stableAtom"}}}},
+    "mechanismBinding": {"type": "object", "additionalProperties": false, "required": ["study_id", "edge_id", "from_state_id", "to_state_id", "atom_mapping", "direction_mapping"], "properties": {"study_id": {"type": "string", "minLength": 1}, "edge_id": {"type": "string", "minLength": 1}, "from_state_id": {"type": "string", "minLength": 1}, "to_state_id": {"type": "string", "minLength": 1}, "atom_mapping": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atomMap"}}, "direction_mapping": {"type": "object", "additionalProperties": false, "required": ["forward", "reverse"], "properties": {"forward": {"$ref": "#/$defs/direction"}, "reverse": {"$ref": "#/$defs/direction"}}}}}
+  }
+}

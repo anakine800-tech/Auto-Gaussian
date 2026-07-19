@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/endpoint-structure-review-v2.schema.json",
+  "title": "Auto-G16 source-bound IRC endpoint structure review v2",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "review_id", "direction", "chemical_side", "sources", "endpoint_coordinates", "stable_atom_ids", "charge", "multiplicity", "structure_identity", "decision", "explicit_human_review", "reviewer", "rationale", "reviewed_at", "parser", "immutability", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-endpoint-structure-review/2"}, "review_id": {"type": "string", "minLength": 1}, "direction": {"enum": ["forward", "reverse"]}, "chemical_side": {"enum": ["reactant", "product"]},
+    "sources": {"$ref": "#/$defs/bundle"},
+    "endpoint_coordinates": {"type": "object", "additionalProperties": false, "required": ["records", "sha256"], "properties": {"records": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/coordinate"}}, "sha256": {"$ref": "#/$defs/sha"}}},
+    "stable_atom_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1},
+    "structure_identity": {"$ref": "#/$defs/identity"}, "decision": {"const": "accepted"}, "explicit_human_review": {"const": true}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}, "reviewed_at": {"type": "string", "minLength": 1}, "parser": {"$ref": "#/$defs/parser"}, "immutability": {"const": "append_only_new_revision"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes"], "properties": {"path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}},
+    "bundle": {"type": "object", "additionalProperties": false, "required": ["family", "audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint", "terminal_inspection_receipt", "fetch_snapshot", "ts_checkpoint", "checkpoint_audit", "irc_plan", "allcheck_input_manifest"], "properties": {"family": {"$ref": "#/$defs/ref"}, "audit": {"$ref": "#/$defs/ref"}, "irc_input": {"$ref": "#/$defs/ref"}, "irc_log": {"$ref": "#/$defs/ref"}, "irc_result": {"$ref": "#/$defs/ref"}, "job": {"$ref": "#/$defs/ref"}, "checkpoint": {"$ref": "#/$defs/ref"}, "terminal_inspection_receipt": {"$ref": "#/$defs/ref"}, "fetch_snapshot": {"$ref": "#/$defs/ref"}, "ts_checkpoint": {"$ref": "#/$defs/ref"}, "checkpoint_audit": {"$ref": "#/$defs/ref"}, "irc_plan": {"$ref": "#/$defs/ref"}, "allcheck_input_manifest": {"$ref": "#/$defs/ref"}}},
+    "coordinate": {"type": "object", "additionalProperties": false, "required": ["atom_id", "index", "element", "x", "y", "z"], "properties": {"atom_id": {"type": "string", "minLength": 1}, "index": {"type": "integer", "minimum": 1}, "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"}, "x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}},
+    "bond": {"type": "object", "additionalProperties": false, "required": ["atom_ids", "order"], "properties": {"atom_ids": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string", "minLength": 1}}, "order": {"type": "number", "exclusiveMinimum": 0}}},
+    "stereo": {"type": "object", "additionalProperties": false, "required": ["center_atom_id", "descriptor", "source"], "properties": {"center_atom_id": {"type": "string", "minLength": 1}, "descriptor": {"type": "string", "minLength": 1}, "source": {"type": "string", "minLength": 1}}},
+    "identity": {"type": "object", "additionalProperties": false, "required": ["state_id", "identity_label", "formula", "connectivity", "stereochemistry"], "properties": {"state_id": {"type": "string", "minLength": 1}, "identity_label": {"type": "string", "minLength": 1}, "formula": {"type": "string", "minLength": 1}, "connectivity": {"type": "array", "items": {"$ref": "#/$defs/bond"}}, "stereochemistry": {"type": "array", "items": {"$ref": "#/$defs/stereo"}}}},
+    "parser": {"type": "object", "additionalProperties": false, "required": ["name", "version", "schema"], "properties": {"name": {"const": "auto-g16-ts-irc"}, "version": {"const": "2.0.0"}, "schema": {"const": "auto-g16-ts-irc-parser/2"}}}
+  }
+}

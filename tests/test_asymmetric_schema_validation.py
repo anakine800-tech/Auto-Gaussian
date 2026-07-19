@@ -901,7 +901,7 @@ class AsymmetricSchemaValidationTests(unittest.TestCase):
             reverse="completed_and_identified",
             endpoint_identity_reviewed=True,
         )
-        with self.assertRaisesRegex(CONTRACT.ContractError, "checkpoint_audit artifact required"):
+        with self.assertRaisesRegex(CONTRACT.ContractError, "one allowed schema|canonical path-acceptance /2 artifact required"):
             CONTRACT.validate_result(result, candidate, candidate_path)
 
 

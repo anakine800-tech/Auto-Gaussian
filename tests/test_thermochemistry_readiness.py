@@ -277,6 +277,17 @@ class ThermochemistryReadinessTests(unittest.TestCase):
             self.assertIsNotNone(blocker)
             self.assertEqual(blocker["code"], "ts_result_hash_mismatch")
 
+    def test_historical_path_acceptance_is_replay_only_for_new_readiness(self) -> None:
+        roles = {
+            "ts_attempt": {"source_id": "attempt_owner", "document": {}},
+            "ts_path_acceptance": {
+                "source_id": "historical_path",
+                "document": {"schema": "gaussian-ts-irc-path-acceptance/1"},
+            },
+        }
+        blockers = MODULE._ts_readiness_blockers(ROOT, roles)
+        self.assertEqual([item["code"] for item in blockers], ["path_acceptance_v2_required"])
+
     def test_role_schema_swap_unknown_schema_and_help_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

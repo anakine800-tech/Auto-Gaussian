@@ -53,7 +53,10 @@ class PythonEnvironmentTests(unittest.TestCase):
     def test_environment_variable_precedes_runtime_config(self) -> None:
         registry = ENVIRONMENTS.load_registry()
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            # Runtime configuration intentionally rejects every symlinked
+            # ancestor; macOS exposes /var as an OS alias, so use its canonical
+            # synthetic fixture path rather than weakening the production gate.
+            root = Path(temporary).resolve()
             config = root / "runtime.json"
             config.write_text(json.dumps({"core_python": "/does/not/exist"}), encoding="utf-8")
             selected, source = ENVIRONMENTS.resolve_profile(
