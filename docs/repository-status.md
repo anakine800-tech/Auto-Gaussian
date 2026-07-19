@@ -94,11 +94,11 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
-- Current local review-fix evidence on the core interpreter is 584/584 offline
-  tests in 299.949 seconds for the worktree and 584/584 in 306.965 seconds for
-  a `.git`-free tracked-plus-intended source copy; both runs have one expected
-  RDKit skip in the core profile. The separate locked chemistry profile passed
-  the real RDKit smoke in 1.028 seconds. Timing is machine-local engineering
+- Current hardening-integration evidence on the core interpreter is 653/653
+  offline tests in 273.044 seconds for the worktree and 653/653 in 259.309
+  seconds for a `.git`-free source archive; both runs have one expected RDKit
+  skip in the core profile. The separate locked chemistry profile passed the
+  real RDKit smoke in 0.958 seconds. Timing is machine-local engineering
   evidence, not a CI guarantee or scientific result.
 - No deployment, SSH, RTwin, PBS, Gaussian, live smoke, submission, retry,
   cancellation, server cleanup, or scientific acceptance action is included.
