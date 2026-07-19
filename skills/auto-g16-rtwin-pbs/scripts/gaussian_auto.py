@@ -129,17 +129,20 @@ def command_auto(args) -> None:
         args.execution_batch_ledger, args.scientific_task_id, args.idempotency_key,
         args.estimated_core_hours, args.estimated_core_hours_evidence_source,
         args.estimated_core_hours_evidence_sha256,
+        args.resource_policy, args.resource_gate, args.scheduler_resource_snapshot,
+        args.resource_tier, args.resource_cores, args.resource_memory_gb, args.walltime_seconds,
     )
     if not args.dry_run and any(value is None for value in execution_values):
         fail("live auto submission requires the complete execution-batch reservation binding")
     if all(value is not None for value in execution_values):
         try:
-            ledger = transport.execution_batch.validate_submission_ledger(
-                transport.execution_batch.load_json(
-                    Path(args.execution_batch_ledger).expanduser().resolve()
-                )
+            ledger = transport.resource_efficiency.validate_ledger(
+                transport.resource_efficiency.load(Path(args.execution_batch_ledger).expanduser().resolve())
             )
-        except transport.execution_batch.BatchError as exc:
+            policy = transport.resource_efficiency.validate_policy(transport.resource_efficiency.load(Path(args.resource_policy).expanduser().resolve()))
+            gate = transport.resource_efficiency._validate_gate_binding(transport.resource_efficiency.load(Path(args.resource_gate).expanduser().resolve()), allow_historical=False)
+            scheduler = transport.resource_efficiency.validate_scheduler_snapshot(transport.resource_efficiency.load(Path(args.scheduler_resource_snapshot).expanduser().resolve()))
+        except (transport.execution_batch.BatchError, transport.resource_efficiency.ResourceError) as exc:
             fail(f"execution-batch gate blocked auto submit: {exc}")
         task = next(
             (item for item in ledger["tasks"] if item["scientific_task_id"] == args.scientific_task_id),
@@ -160,7 +163,15 @@ def command_auto(args) -> None:
                 "source": args.estimated_core_hours_evidence_source,
                 "sha256": args.estimated_core_hours_evidence_sha256,
             },
+            "resource_binding": {
+                "policy_id": policy["policy_id"], "policy_sha256": policy["payload_sha256"],
+                "gate_id": gate["gate_id"], "gate_sha256": gate["gate_sha256"],
+                "resource_tier": args.resource_tier, "cores": args.resource_cores,
+                "memory_gb": args.resource_memory_gb, "walltime_seconds": args.walltime_seconds,
+            },
         }
+        if gate["policy_sha256"] != policy["payload_sha256"] or gate["scheduler_snapshot"]["payload_sha256"] != scheduler["payload_sha256"]:
+            fail("auto resource policy/gate/scheduler binding mismatch")
     if "scientific_maturity" in summary and "exact_action_authorization" not in summary["scientific_maturity"]:
         fail("protected auto submission requires an exact offline scientific action authorization before live approval")
     if not args.dry_run and summary["input_approval"]["status"] != "validated_exact_input_approval":
@@ -195,13 +206,18 @@ def command_auto(args) -> None:
         "execution_batch_ledger", "scientific_task_id", "idempotency_key",
         "estimated_core_hours", "estimated_core_hours_evidence_source",
         "estimated_core_hours_evidence_sha256",
+        "resource_policy", "resource_gate", "scheduler_resource_snapshot", "resource_tier",
+        "resource_cores", "resource_memory_gb", "walltime_seconds",
     ):
         value = getattr(args, option, None)
         if value is not None:
             submit_command.extend(["--" + option.replace("_", "-"), str(value)])
     if args.dry_run:
         submit_command.append("--dry-run")
-    submitted = subprocess.run(submit_command)
+    try:
+        submitted = subprocess.run(submit_command, timeout=transport.DEFAULT_COMMAND_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        fail("submit subprocess timed out; physical outcome is uncertain and automatic retry is forbidden", code=3)
     if submitted.returncode:
         raise SystemExit(submitted.returncode)
     if args.dry_run or not args.watch:
@@ -218,9 +234,14 @@ def command_auto(args) -> None:
         "--input-stem", input_stem, "--local-dir", args.local_dir,
         "--output-dir", str(output_dir), "--poll-seconds", str(args.poll_seconds),
         "--timeout-seconds", str(args.timeout_seconds), "--fetch",
+        "--execution-batch-ledger", args.execution_batch_ledger,
+        "--attempt-id", summary["execution"]["attempt_id"],
         *connection_arguments(args),
     ]
-    watched = subprocess.run(watch_command)
+    try:
+        watched = subprocess.run(watch_command, timeout=args.timeout_seconds + 60)
+    except subprocess.TimeoutExpired:
+        fail("watch subprocess exceeded its explicit timeout", code=4)
     raise SystemExit(watched.returncode)
 
 
@@ -250,7 +271,7 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument("--confirmed", action="store_true")
     auto.add_argument(
         "--approval-record",
-        help="time-bounded one-time live approval /6, /7, or /8 for protected submit",
+        help="resource-bound one-time live approval /9, /10, or /11 for protected submit",
     )
     auto.add_argument("--execution-batch-ledger")
     auto.add_argument("--scientific-task-id")
@@ -258,6 +279,13 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument("--estimated-core-hours", type=float)
     auto.add_argument("--estimated-core-hours-evidence-source")
     auto.add_argument("--estimated-core-hours-evidence-sha256")
+    auto.add_argument("--resource-policy")
+    auto.add_argument("--resource-gate")
+    auto.add_argument("--scheduler-resource-snapshot")
+    auto.add_argument("--resource-tier")
+    auto.add_argument("--resource-cores", type=int)
+    auto.add_argument("--resource-memory-gb", type=int)
+    auto.add_argument("--walltime-seconds", type=int)
     auto.add_argument("--watch", action="store_true")
     auto.add_argument("--dry-run", action="store_true")
     auto.add_argument("--output-dir")

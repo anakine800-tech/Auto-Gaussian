@@ -1,11 +1,15 @@
 # Runtime safety compatibility
 
-This hardening keeps submission, execution-batch and scientific TS/IRC
-contracts unchanged. It performs no live action and adds no retry path.
+Package-1 runtime hardening remains historically compatible. Package 4 adds a
+separate `/3` execution ledger and `/9`-`/11` resource-bound approvals for new
+live submissions; it does not rewrite old submission or TS/IRC contracts. It
+performs no live action and adds no mutating-command retry path.
 
 ## Inspection compatibility
 
-`gaussian-job-inspection/1` remains the inspection schema. Existing read-only
+`gaussian-job-inspection/1` remains available for historical replay. New
+single-job polls emit `gaussian-job-inspection/2` from one remote read-only
+snapshot call. Existing read-only
 consumers may continue to read `pbs_record_present` and `process_alive`, but
 both are now true three-state values:
 
@@ -28,6 +32,19 @@ report `Unknown Job Id`. Every transport, command and parse failure is
 The additive `scheduler_record_evidence_status` preserves `present`, `absent`
 or `unknown`; `scheduler_record_present` remains `null` when evidence is
 unknown instead of being coerced to false.
+
+`batch-status` makes one read-only qstat call for the complete active PBS-user
+scope and emits a closed `gaussian-batch-qstat-snapshot/1`. Optional exact IDs
+are expectations, not a filter; rc=0 with zero records is operational, while
+rc=153 is unknown. Combine that fresh observation with
+the exact `/3` ledger using `resource_efficiency.py build-scheduler-snapshot`;
+the offline builder supplies attempt IDs and reviewed resources and rejects
+missing, unknown or conflicting records. It never infers resources from task
+or molecule type.
+
+Fresh exact monitoring can reconcile execution state. Unknown, stale or
+conflicting observations remain append-only. Repeated stable interruption
+proof maps only to failed execution state and never accepts science.
 
 ## Fetch migration
 
@@ -62,8 +79,15 @@ Successful snapshots contain:
 - `server-allowlist.json`: exact project/job/input binding and permitted names;
 - `fetch.sha256`: Mac hashes for copied server files;
 - `transfer.json`: `gaussian-fetch-snapshot/1`, exact-log selection and all
-  server to RTwin to Mac hashes;
+server to RTwin to Mac hashes;
 - `result.json` and any parser outputs generated only after transfer validation.
+
+`--reuse-snapshot` may reuse unchanged allowlisted bytes only after the old
+immutable snapshot and its local/per-hop hashes are replayed. Reuse copies into
+a private no-clobber file, fsyncs and rehashes it; snapshots never share an
+inode. Only changed files cross server to RTwin to Mac, while the new snapshot
+remains a complete independently verifiable collection. A failed or partial
+copy never sets `results_fetched`.
 
 Only `<input_stem>.log` is analyzed. Scratch, arbitrary logs, unrelated JSON and
 other server files are not default fetch content. `job.json.results_fetched`

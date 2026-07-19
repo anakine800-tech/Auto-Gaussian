@@ -1,14 +1,17 @@
 # Auto-G16 Exact Live Submission Approval
 
-## New protected submission contracts `/6`-`/8`
+## Resource-bound protected submission contracts `/9`-`/11`
 
-`/3`-`/5` remain historical/offline replay contracts. They do not satisfy a
-new live submit because they lack time, principal, reservation and consumption
-semantics. Their protected successors are `/6` for generic receipt `/1`, `/7`
-for owner-replayed open-shell receipt `/2`, and `/8` for one open-shell family
-stage receipt `/3`.
+`/3`-`/5` and package-2 `/6`-`/8` remain historical/offline replay contracts.
+They do not satisfy a new package-4 live submit. Their resource-bound
+successors are `/9` for the generic receipt, `/10` for the owner-replayed
+open-shell receipt, and `/11` for one open-shell family stage receipt.
+Generic `/9` ordinary scope is singlet-only. An ordinary multiplicity greater
+than one is blocked by `input_approval_compatibility` before receipt completion
+as `blocked_unsupported_open_shell_ordinary`; no specialist owner/schema is
+currently available, and `/9` must not be extended silently.
 
-Every `/6`-`/8` record is closed and adds these fields:
+Every `/9`-`/11` record is closed, retains these package-2 fields:
 
 ```json
 {
@@ -21,11 +24,13 @@ Every `/6`-`/8` record is closed and adds these fields:
 }
 ```
 
-Its exact scope adds `operation: "submit"` and an `execution` object binding
+Its exact scope includes `operation: "submit"` and an `execution` object binding
 batch/review hash, stable scientific task, deterministic attempt ID,
 idempotency key, estimated core-hours, and the estimate evidence source/hash.
+The execution scope additionally binds the exact resource policy ID/hash, gate
+ID/hash, resource tier, cores, memory and explicitly reviewed walltime.
 Approval validation occurs before reservation; reservation consumes the unique
-approval ID/hash under the `/2` ledger lock and writes an immutable local
+approval ID/hash under the `/3` ledger lock and writes an immutable local
 consumption receipt before network access. Expired, revoked, already consumed,
 reused, future-dated, legacy no-time, or scope-mismatched approvals fail closed.
 The submitter performs a fresh stable file read/hash/scope/time/revocation

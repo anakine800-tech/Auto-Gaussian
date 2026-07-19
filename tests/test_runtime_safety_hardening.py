@@ -30,6 +30,31 @@ def completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> Simple
 
 
 class RuntimeSafetyHardeningTests(unittest.TestCase):
+    @staticmethod
+    def terminal_inspection(project: str = "safe_job", job_id: str = "123.master") -> dict:
+        value = {
+            "schema": "gaussian-job-inspection/2", "project": project, "job_id": job_id,
+            "state": "completed", "collected_at": "2026-01-01T00:00:00Z",
+            "source": "single_remote_read_only_snapshot", "freshness": "fresh", "age_seconds": 0,
+            "transport_classification": "success", "pbs_state": "R", "pbs_record_present": True,
+            "log_size": 100, "log_mtime_epoch": 200, "workflow_expected_stages": None,
+            "full_normal_termination_count": 1, "full_error_termination_count": 0,
+            "scheduler_zombie_candidate": True, "interrupted_candidate": False,
+            "interruption_proof": None, "analysis": PBS.analyze_log_text(""),
+        }
+        value["evidence_sha256"] = PBS.canonical_digest(value)
+        return value
+
+    @staticmethod
+    def initialize_bound_job(local_dir: Path, *, status: str = "completed") -> dict:
+        input_path = local_dir / "safe_job.gjf"
+        if not input_path.exists(): input_path.write_bytes(b"reviewed input\n")
+        return PBS.initialize_job_state(local_dir, {
+            "schema": "gaussian-rtwin-pbs/1", "project": "safe_job", "job_id": "123.master",
+            "status": status, "input": "safe_job.gjf", "input_sha256": PBS.sha256(input_path),
+            "remote_workdir": "/home/user100/SDL/safe_job",
+        })
+
     def test_qstat_and_ps_errors_are_unknown_not_absent(self) -> None:
         qstat = PBS.classify_qstat_evidence(
             completed(255, stderr="ssh: connection reset")
@@ -81,24 +106,18 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             "    session_id = 456\n"
         )
 
-        def fake_run(command, *, input_bytes=None, check=True):
-            if "qstat" in command:
-                return completed(0, qstat_text)
-            if "ps" in command:
-                return completed(255, stderr="ssh transport failed")
-            if "cat" in command:
-                return completed(1, stderr="No such file")
-            if "tail" in command:
-                return completed(0, stdout=" SCF Done: E(RHF) = -1.0\n")
-            if "stat" in command:
-                return completed(0, stdout="100:200\n")
-            if input_bytes and b"normal=$(grep" in input_bytes:
-                return completed(0, stdout="0:0\n")
-            return completed(0)
+        framed = "\n".join([
+            f"COLLECTED_EPOCH\t{int(__import__('time').time())}", "QSTAT_RC\t0",
+            "QSTAT_B64\t" + base64.b64encode(qstat_text.encode()).decode(),
+            "PROCESS_RC\t255", "PROCESS_B64\t" + base64.b64encode(b"ssh transport failed").decode(),
+            "MANIFEST_RC\t1", "MANIFEST_B64\t", "TAIL_RC\t0",
+            "TAIL_B64\t" + base64.b64encode(b" SCF Done: E(RHF) = -1.0\n").decode(),
+            "LOG_STAT\t100:200", "NORMAL_COUNT\t0", "ERROR_COUNT\t0",
+        ]) + "\n"
 
         with (
-            mock.patch.object(PBS, "nested_ssh", side_effect=lambda _args, *cmd: list(cmd)),
-            mock.patch.object(PBS, "run", side_effect=fake_run),
+            mock.patch.object(PBS, "nested_ssh", return_value=["ssh", "-F", "cfg", "rtwin", "ssh", "-F", "wcfg", "server", "bash", "-s"]),
+            mock.patch.object(PBS, "run_read_only", return_value=completed(0, framed)),
         ):
             inspection = PBS.inspect_job(args, "safe_job", "safe_job", "123.master")
         self.assertEqual(inspection["process_evidence_status"], "unknown")
@@ -245,6 +264,9 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             "gaussian": {},
         }
         (local_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+        PBS.publish_terminal_inspection_receipt(
+            local_dir, job, self.terminal_inspection(), "safe_job"
+        )
         args = SimpleNamespace(
             project="safe_job",
             job_id="123.master",
@@ -329,7 +351,9 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                 project="safe_job",
                 output_dir=str(output),
                 local_dir=str(local_dir),
+                job_id="123.master", input_stem="safe_job",
             )
+            self.initialize_bound_job(local_dir)
             with (
                 mock.patch.object(
                     PBS,
@@ -345,7 +369,12 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                 mock.patch.object(
                     PBS,
                     "fetch_results",
-                    return_value={"snapshot_complete": True, "analysis": {}},
+                    side_effect=lambda *_: (
+                        output.mkdir(exist_ok=True),
+                        (output / "transfer.json").write_text("{}"),
+                        (output / "result.json").write_text("{}"),
+                        {"snapshot_complete": True, "analysis": {}},
+                    )[-1],
                 ),
                 mock.patch.object(PBS, "update_job") as update,
             ):
@@ -364,7 +393,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             local_dir = root / "bundle"
             output_dir = root / "results"
             local_dir.mkdir()
-            (local_dir / "job.json").write_text("{}", encoding="utf-8")
+            job = self.initialize_bound_job(local_dir)
             args = parser.parse_args(
                 [
                     "watch", "--project", "safe_job", "--job-id", "123.master",
@@ -372,14 +401,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                     "--output-dir", str(output_dir), "--fetch",
                 ]
             )
-            final = {
-                "state": "completed",
-                "pbs_state": "R",
-                "log_size": 100,
-                "log_mtime_epoch": 200,
-                "scheduler_zombie_candidate": True,
-                "analysis": {},
-            }
+            final = self.terminal_inspection()
             with (
                 mock.patch.object(PBS, "inspect_job", return_value=final),
                 mock.patch.object(
@@ -424,8 +446,9 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                 if call == 3:
                     return completed(0, self.rtwin_hash_text(files))
                 if call == 4:
+                    staging = Path(command[-1])
                     for name, data in files.items():
-                        (output / name).write_bytes(data)
+                        (staging / name).write_bytes(data)
                     return completed()
                 raise AssertionError(f"unexpected command: {command}")
 
@@ -479,8 +502,9 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                     return completed()
                 if call == 3:
                     return completed(0, self.rtwin_hash_text(files))
+                staging = Path(command[-1])
                 for name, data in files.items():
-                    (multiple / name).write_bytes(data)
+                    (staging / name).write_bytes(data)
                 (multiple / "old.log").write_text("stale", encoding="utf-8")
                 return completed()
 
@@ -517,7 +541,8 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                     return completed()
                 if call == 3:
                     return completed(0, self.rtwin_hash_text(files))
-                (partial / "safe_job.log").write_bytes(files["safe_job.log"])
+                staging = Path(command[-1])
+                (staging / "safe_job.log").write_bytes(files["safe_job.log"])
                 raise SystemExit(2)
 
             fake_run.calls = 0

@@ -10,14 +10,19 @@ retry, active cancellation, cleanup, or any TS acceptance change.
 - `gaussian-execution-batch/1` remains valid for package-1 planning and the
   existing v2.5 integration overlay. It is not sufficient for a new live
   submit.
-- New live submit requires `gaussian-execution-batch/2`. Run the offline
+- Package 2 introduced `gaussian-execution-batch/2`; it is now historical
+  replay only for package-4 live submission. Run the offline
   `execution_batch.py migrate-v2` command only for an attempt-free `/1` ledger
   or one whose old attempts are all definitively `reconciled_not_submitted`.
   A physical, active, or uncertain legacy attempt fails migration closed.
-- Historical live approvals `/3`, `/4`, and `/5` remain replayable under their
+- New live submit requires `gaussian-execution-batch/3`, created explicitly by
+  `resource_efficiency.py migrate-ledger`, plus exact policy, fresh scheduler
+  resource snapshot and gate artifacts. No migration itself grants live
+  authorization.
+- Historical live approvals `/3`-`/8` remain replayable under their
   original contracts. They cannot enter a new submit. New protected successors
-  `/6`, `/7`, and `/8` add approver identity, time window, revocation state,
-  one-time approval ID, and exact batch/task/attempt/idempotency binding.
+  `/9`, `/10`, and `/11` retain the package-2 time/principal/one-use semantics
+  and add exact policy/gate/resource binding.
 - Existing `job.json` remains the compatible current-state view. New mutations
   are serialized through `job.json.lock`, appended to `job.events.jsonl`, and
   atomically derive `job.json`. A legacy job without an event log is imported
@@ -44,10 +49,11 @@ active/absent/unknown and never qdel.
 
 ## Package-4 interface
 
-Every `/2` ledger exposes `gaussian-execution-resource-policy-hook/1`, and each
-attempt contains `gaussian-execution-resource-gate/1`. Package 2 records
-evidence-bound estimated/actual core-hours but explicitly leaves hard budget,
-concurrency and resource enforcement as `not_evaluated_by_package_2` for
-package 4. Package 4 must replace that status through a separately versioned,
-hash-bound gate without weakening the reservation, approval, input or server
-boundaries.
+Every `/2` ledger keeps `gaussian-execution-resource-policy-hook/1` and
+`gaussian-execution-resource-gate/1` as historical evidence. Package 4 uses the
+explicit `/3` ledger, `gaussian-execution-resource-policy/1`,
+`gaussian-scheduler-resource-snapshot/1`, and
+`gaussian-execution-resource-gate/2`. Build the scheduler resource snapshot
+from one `gaussian-batch-qstat-snapshot/1` observation and the exact `/3`
+ledger; absent, unknown or conflicting attempts fail closed. This versioned
+chain does not weaken reservation, approval, input or server boundaries.

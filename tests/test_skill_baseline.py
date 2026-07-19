@@ -275,7 +275,13 @@ class RepositoryBaselineTests(unittest.TestCase):
             local_dir = root / "bundle"
             output_dir = root / "results"
             local_dir.mkdir()
-            (local_dir / "job.json").write_text("{}")
+            input_path = local_dir / "safe_job.gjf"; input_path.write_bytes(b"reviewed input\n")
+            PBS.initialize_job_state(local_dir, {
+                "schema": "gaussian-rtwin-pbs/1", "project": "safe_job",
+                "job_id": "123.master", "status": "completed", "input": "safe_job.gjf",
+                "input_sha256": PBS.sha256(input_path),
+                "remote_workdir": "/home/user100/SDL/safe_job",
+            })
             args = parser.parse_args(
                 [
                     "watch",
@@ -294,13 +300,17 @@ class RepositoryBaselineTests(unittest.TestCase):
             )
             self.assertTrue(args.auto_cleanup_zombie)
             final = {
-                "state": "completed",
-                "pbs_state": "R",
-                "log_size": 100,
-                "log_mtime_epoch": 200,
-                "scheduler_zombie_candidate": True,
-                "analysis": {},
+                "schema": "gaussian-job-inspection/2", "project": "safe_job",
+                "job_id": "123.master", "state": "completed",
+                "collected_at": "2026-01-01T00:00:00Z", "source": "single_remote_read_only_snapshot",
+                "freshness": "fresh", "age_seconds": 0, "transport_classification": "success",
+                "pbs_state": "R", "pbs_record_present": True, "log_size": 100,
+                "log_mtime_epoch": 200, "workflow_expected_stages": None,
+                "full_normal_termination_count": 1, "full_error_termination_count": 0,
+                "scheduler_zombie_candidate": True, "interrupted_candidate": False,
+                "interruption_proof": None, "analysis": PBS.analyze_log_text(""),
             }
+            final["evidence_sha256"] = PBS.canonical_digest(final)
             cleanup = {
                 "schema": "pbs-zombie-cleanup/1",
                 "status": "cleared",
@@ -311,7 +321,12 @@ class RepositoryBaselineTests(unittest.TestCase):
                 mock.patch.object(
                     PBS,
                     "fetch_results",
-                    return_value={"analysis": {}, "snapshot_complete": True},
+                    side_effect=lambda *_: (
+                        output_dir.mkdir(exist_ok=True),
+                        (output_dir / "transfer.json").write_text("{}"),
+                        (output_dir / "result.json").write_text("{}"),
+                        {"analysis": {}, "snapshot_complete": True},
+                    )[-1],
                 ),
                 mock.patch.object(PBS, "update_job") as update,
                 mock.patch.object(

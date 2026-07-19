@@ -556,6 +556,10 @@ class GaussianAutoGateTests(unittest.TestCase):
         ordinary = {"route": "#p b3lyp/6-31g(d)", "geometry_source": "explicit_cartesian", "oldcheckpoint": None}
         minimum = {**ordinary, "route": "#p b3lyp/6-31g(d) opt freq"}
         self.assertEqual(AUTO.transport.input_approval_compatibility(ordinary, "ordinary")["status"], "supported_generic_v1")
+        open_shell_ordinary = {**ordinary, "multiplicity": 2}
+        blocked = AUTO.transport.input_approval_compatibility(open_shell_ordinary, "ordinary")
+        self.assertEqual(blocked["status"], "blocked_unsupported_open_shell_ordinary")
+        self.assertIsNone(blocked["required_schema"])
         self.assertEqual(AUTO.transport.input_approval_compatibility(minimum, "minimum")["status"], "supported_generic_v1")
 
     def test_generic_v1_blocks_link1_even_when_first_route_looks_ordinary(self) -> None:

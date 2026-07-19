@@ -519,17 +519,21 @@ class IdempotentExecutionTests(unittest.TestCase):
             root = Path(temp)
             source = root / "input.gjf"
             source.write_text(
-                "%mem=12GB\n%nprocshared=8\n#p hf/sto-3g\n\nTitle\n\n0 1\nH 0 0 0\nH 0 0 0.7\n\n"
+                "%chk=input.chk\n%mem=12GB\n%nprocshared=8\n#p hf/sto-3g\n\nTitle\n\n0 1\nH 0 0 0\nH 0 0 0.7\n\n"
             )
             args = PBS.build_parser().parse_args([
                 "submit", str(source), "--project", "safejob", "--local-dir", str(root / "bundle"),
                 "--work-kind", "ordinary", "--confirmed",
             ])
-            with mock.patch.object(PBS, "run") as run, self.assertRaises(SystemExit):
-                args.func(args)
+            import io
+            from contextlib import redirect_stderr
+            error = io.StringIO()
+            with mock.patch.object(PBS, "run") as run, self.assertRaises(SystemExit), redirect_stderr(error): args.func(args)
             run.assert_not_called()
+            self.assertIn("protected live submit requires --execution-batch-ledger", error.getvalue())
+            self.assertNotIn("%chk", error.getvalue())
 
-    def test_approval_drift_or_revocation_after_preflight_blocks_before_reservation_and_network(self) -> None:
+    def test_legacy_v2_submit_arguments_block_before_reservation_and_network(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "input.gjf"
@@ -559,7 +563,7 @@ class IdempotentExecutionTests(unittest.TestCase):
             ledger = BATCH.validate_submission_ledger(BATCH.load_json(ledger_path))
             self.assertEqual(ledger["attempts"], [])
 
-    def test_approval_expiry_during_transfer_reconciles_not_submitted_before_qsub(self) -> None:
+    def test_legacy_v2_submit_cannot_enter_resource_bound_live_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "input.gjf"
@@ -600,8 +604,8 @@ class IdempotentExecutionTests(unittest.TestCase):
                 args.func(args)
             self.assertFalse(any(input_bytes and b"qsub " in input_bytes for _, input_bytes in calls))
             ledger = BATCH.validate_submission_ledger(BATCH.load_json(ledger_path))
-            self.assertEqual(ledger["attempts"][0]["state"], "reconciled_not_submitted")
-            self.assertEqual(PBS.read_job_state(root / "bundle")["status"], "not_submitted")
+            self.assertEqual(ledger["attempts"], [])
+            self.assertFalse((root / "bundle" / "job.json").exists())
 
     def test_cancel_scope_mismatch_is_blocked_before_qstat_or_qdel(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
