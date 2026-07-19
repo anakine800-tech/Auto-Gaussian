@@ -1,13 +1,20 @@
 # Auto-G16 scientific closure lineage contract
 
-`gaussian-minimum-lineage-handoff/1` is a portable closed-shell minimum
-acceptance that binds one exact chain: a non-authorizing conformer-selection
-receipt; stable candidate/input/result atom mapping; one owner-validated exact
-input approval and its input bytes; the observed job, raw Gaussian log, parsed
-result, checkpoint and optimized XYZ; and a human identity, connectivity and
-stereochemistry review.
+`gaussian-minimum-lineage-handoff/2` is a portable closed-shell minimum
+acceptance that binds one exact project/job/attempt chain. Its mutually
+exclusive source is either a non-authorizing conformer-selection receipt or an
+owner-replayed IRC endpoint-structure review. The endpoint branch additionally
+binds the reviewed endpoint state, stable atom IDs, charge, multiplicity and
+audited checkpoint. Both branches bind one owner-validated exact input
+approval and its input bytes; the observed job, terminal-inspection receipt,
+fetch snapshot, raw Gaussian log, parsed result, checkpoint and optimized XYZ;
+and a human identity, connectivity and stereochemistry review. Evidence from
+different projects, jobs, attempts, endpoints or fetch snapshots cannot be
+combined.
 
-The owner replays the raw log with `auto-g16-gaussian-log-parser/2`. It derives
+The owner replays the raw log with `auto-g16-gaussian-log-parser/2`. A complete
+single-route `Opt Freq` job may explicitly declare one expected stage; staged
+families must declare their exact larger count. The owner derives
 atom count and linearity from the final orientation and requires exactly
 `3N-6` modes for a nonlinear structure or `3N-5` for a linear structure.
 Truncation, missing geometry, malformed or non-finite frequency tokens,
@@ -37,10 +44,13 @@ submit, retry, cancel, fetch, or clean up.
 
 ```bash
 python3 skills/auto-g16-reaction-workflow/scripts/scientific_closure_lineage.py build \
-  --root portable-package --selection selection.json \
+  --root portable-package --source-kind conformer_selection \
+  --selection selection.json \
   --input-approval input-approval.json --input minimum.gjf \
   --job job.json --result result.json --raw-log minimum.log \
   --checkpoint minimum.chk --optimized-coordinates minimum.xyz \
+  --terminal-inspection-receipt terminal-receipt.json \
+  --fetch-snapshot fetch-snapshot.json \
   --review minimum-lineage-review.json --output minimum-lineage.json
 python3 skills/auto-g16-reaction-workflow/scripts/scientific_closure_lineage.py validate \
   portable-package/minimum-lineage.json

@@ -699,6 +699,49 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             with self.assertRaisesRegex(RESOURCE.ResourceError, "exactly"):
                 RESOURCE.build_scheduler_snapshot(ledger, malformed, snapshot_id="extra", max_age_seconds=300)
 
+    def test_new_gate_requires_strictly_positive_finite_core_hour_estimate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); ledger_path, _ = self.make_ledger(root); snapshot = self.snapshot_artifact(root)
+            for estimate in (0, -1, float("nan"), float("inf"), -float("inf")):
+                with self.subTest(estimate=estimate), self.assertRaises((RESOURCE.ResourceError, BATCH.BatchError)):
+                    self.gate(ledger_path, self.policy(), snapshot, estimated_core_hours=estimate)
+            gate = self.gate(ledger_path, self.policy(), snapshot, estimated_core_hours=1e-12)
+            self.assertEqual(gate["requested_resources"]["estimated_core_hours"], 1e-12)
+            with self.assertRaisesRegex(RESOURCE.ResourceError, "resource hard gate failed"):
+                self.gate(ledger_path, self.policy(max_estimated_core_hours=0, max_remaining_core_hours=0), snapshot, estimated_core_hours=1e-12)
+
+    def test_scheduler_future_clock_skew_and_declared_age_are_strict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); ledger_path, task_id = self.make_ledger(root); policy = self.policy()
+            boundary = self.snapshot_artifact(root, collected="2026-01-01T00:05:05Z")
+            self.assertEqual(self.gate(ledger_path, policy, boundary)["status"], "passed")
+            future = self.snapshot_artifact(root, collected="2026-01-01T00:05:05.001Z")
+            with self.assertRaisesRegex(RESOURCE.ResourceError, "future"):
+                self.gate(ledger_path, policy, future)
+            tampered = copy.deepcopy(boundary[0]); tampered["freshness"]["age_seconds"] = 10
+            tampered["payload_sha256"] = BATCH.digest_value({key: value for key, value in tampered.items() if key != "payload_sha256"})
+            with self.assertRaisesRegex(RESOURCE.ResourceError, "declared age"):
+                RESOURCE.validate_scheduler_snapshot(tampered, now="2026-01-01T00:05:00Z")
+            underdeclared = self.snapshot_artifact(root, collected="2026-01-01T00:03:54Z", max_age=60)
+            with self.assertRaisesRegex(RESOURCE.ResourceError, "expired"):
+                RESOURCE.validate_scheduler_snapshot(underdeclared[0], now="2026-01-01T00:05:00Z")
+
+            far_future = self.snapshot_artifact(root, collected="2099-01-01T00:00:00Z")
+            future_gate = self.gate(ledger_path, policy, far_future, evaluated="2099-01-01T00:00:00Z")
+            with self.assertRaisesRegex(RESOURCE.ResourceError, "future"):
+                self.reserve(ledger_path, task_id, policy, future_gate, far_future)
+            policy_path = root / "future-policy.json"; policy_path.write_text(json.dumps(policy, sort_keys=True) + "\n")
+            gate_path = root / "future-gate.json"; gate_path.write_text(json.dumps(future_gate, sort_keys=True) + "\n")
+            _, policy_sha, policy_size = RESOURCE.load_artifact(policy_path)
+            _, gate_sha, gate_size = RESOURCE.load_artifact(gate_path)
+            with mock.patch.object(PBS, "run") as remote, self.assertRaisesRegex(ValueError, "future"):
+                PBS.replay_resource_artifacts_before_qsub(
+                    policy_path=policy_path, gate_path=gate_path, scheduler_path=far_future[3],
+                    expected_policy=policy, expected_gate=future_gate, expected_scheduler=far_future[0],
+                    expected_bindings={"policy": (policy_sha, policy_size), "gate": (gate_sha, gate_size), "scheduler": (far_future[1], far_future[2])},
+                    now="2026-01-01T00:05:00Z",
+                )
+            remote.assert_not_called()
     def test_package4_schemas_are_closed_and_match_owner_validators(self):
         schema_paths = [
             ROOT / "contracts/rtwin-pbs/resource-policy.schema.json",

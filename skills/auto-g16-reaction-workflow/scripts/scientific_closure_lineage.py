@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "gaussian-minimum-lineage-handoff/1"
+SCHEMA_V2 = "gaussian-minimum-lineage-handoff/2"
 REVIEW_SCHEMA = "gaussian-minimum-lineage-review/1"
 SELECTION_SCHEMA = "gaussian-conformer-selection-receipt/1"
 HASH_RE = re.compile(r"^[a-f0-9]{64}$")
@@ -42,6 +43,10 @@ def payload_sha256(value: dict[str, Any]) -> str:
     payload = dict(value)
     payload.pop("payload_sha256", None)
     return hashlib.sha256(canonical_bytes(payload)).hexdigest()
+
+
+def transport_digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
 
 
 def file_sha256(path: Path) -> str:
@@ -240,7 +245,7 @@ def normalize_review(data: dict[str, Any]) -> dict[str, Any]:
     require(data["schema"] == REVIEW_SCHEMA, f"review schema must be {REVIEW_SCHEMA}")
     settings = exact(data["workflow_settings"], {"temperature_k", "standard_state", "expected_stages"}, "workflow settings")
     require(isinstance(settings["temperature_k"], (int, float)) and not isinstance(settings["temperature_k"], bool) and math.isfinite(float(settings["temperature_k"])) and float(settings["temperature_k"]) > 0, "temperature must be positive")
-    require(settings["standard_state"] in {"1atm", "1M"} and isinstance(settings["expected_stages"], int) and settings["expected_stages"] >= 2, "workflow settings are invalid")
+    require(settings["standard_state"] in {"1atm", "1M"} and isinstance(settings["expected_stages"], int) and settings["expected_stages"] >= 1, "workflow settings are invalid")
     atom_ids = data["stable_atom_ids"]
     require(isinstance(atom_ids, list) and atom_ids and len(set(atom_ids)) == len(atom_ids) and all(isinstance(value, str) and value for value in atom_ids), "stable_atom_ids must be non-empty and unique")
     mapping = data["atom_mapping"]
@@ -262,11 +267,25 @@ def normalize_review(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, Any]:
-    source_fields = {"selection", "input_approval", "input", "job", "result", "raw_log", "checkpoint", "optimized_coordinates"}
+    v2 = artifact.get("schema") == SCHEMA_V2
+    source_fields = ({"origin", "input_approval", "input", "job", "result", "raw_log", "checkpoint", "optimized_coordinates", "terminal_inspection_receipt", "fetch_snapshot"} if v2 else {"selection", "input_approval", "input", "job", "result", "raw_log", "checkpoint", "optimized_coordinates"})
     sources = exact(artifact["sources"], source_fields, "minimum lineage sources")
-    selection_path, selection_json = resolve_reference(sources["selection"], root, "selection receipt", json_source=True)
-    selection = validate_selection_receipt(selection_path)
-    require(selection == selection_json, "selection replay returned different content")
+    selection = None
+    endpoint = None
+    if v2:
+        origin_path, origin_json = resolve_reference(sources["origin"], root, "minimum origin", json_source=True)
+        if artifact["source_kind"] == "conformer_selection":
+            selection = validate_selection_receipt(origin_path)
+            require(selection == origin_json, "selection replay returned different content")
+        elif artifact["source_kind"] == "endpoint_structure_review":
+            endpoint = owners()["input"].validate_endpoint_structure_review_artifact(origin_path)
+            require(endpoint == origin_json, "endpoint owner replay returned different content")
+        else:
+            raise LineageError("minimum lineage source_kind is unsupported")
+    else:
+        selection_path, selection_json = resolve_reference(sources["selection"], root, "selection receipt", json_source=True)
+        selection = validate_selection_receipt(selection_path)
+        require(selection == selection_json, "selection replay returned different content")
     approval_path, approval = resolve_reference(sources["input_approval"], root, "input approval", json_source=True)
     input_path, _ = resolve_reference(sources["input"], root, "exact Gaussian input")
     job_path, job = resolve_reference(sources["job"], root, "job record", json_source=True)
@@ -281,6 +300,27 @@ def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, An
     require(approval.get("input", {}).get("sha256") == file_sha256(input_path), "input approval does not bind the exact minimum input")
     require(job.get("schema") == "gaussian-rtwin-pbs/1" and job.get("status") == "completed" and job.get("results_fetched") is True, "minimum job must be completed and fetched")
     require(job.get("input_sha256") == file_sha256(input_path), "minimum job input hash differs from exact input approval")
+    if v2:
+        receipt_path, receipt = resolve_reference(sources["terminal_inspection_receipt"], root, "terminal inspection receipt", json_source=True)
+        snapshot_path, snapshot = resolve_reference(sources["fetch_snapshot"], root, "fetch snapshot", json_source=True)
+        execution = job.get("execution_batch") if isinstance(job.get("execution_batch"), dict) else {}
+        attempt_id = execution.get("attempt_id")
+        require(isinstance(attempt_id, str) and attempt_id.startswith("qsub-attempt-"), "minimum job lacks an exact execution attempt")
+        receipt_fields = {"schema", "project", "job_id", "input_stem", "input_sha256", "attempt_id", "terminal_state", "collected_at", "inspection_evidence_sha256", "inspection", "scientific_acceptance", "receipt_sha256"}
+        require(set(receipt) == receipt_fields and receipt.get("schema") == "gaussian-terminal-inspection-receipt/1", "minimum terminal receipt is malformed")
+        require(receipt.get("project") == job.get("project") and receipt.get("job_id") == job.get("job_id") and receipt.get("attempt_id") == attempt_id and receipt.get("input_sha256") == job.get("input_sha256") and receipt.get("terminal_state") == job.get("status"), "minimum receipt crosses project/job/attempt/input")
+        require(receipt.get("scientific_acceptance") is False and receipt.get("receipt_sha256") == transport_digest({key: value for key, value in receipt.items() if key != "receipt_sha256"}), "minimum terminal receipt hash or authority is invalid")
+        inspection = receipt.get("inspection")
+        require(isinstance(inspection, dict) and inspection.get("schema") == "gaussian-job-inspection/2" and inspection.get("evidence_sha256") == receipt.get("inspection_evidence_sha256") and inspection.get("evidence_sha256") == transport_digest({key: value for key, value in inspection.items() if key != "evidence_sha256"}), "minimum terminal inspection /2 binding is invalid")
+        require(inspection.get("freshness") == "fresh" and inspection.get("transport_classification") == "success" and inspection.get("termination_counts_known") is True and inspection.get("process_alive") is False and inspection.get("evidence_conflict") is False, "minimum terminal inspection is stale or unknown")
+        require(inspection.get("log_size") == log_path.stat().st_size and inspection.get("full_normal_termination_count") == log_path.read_text(encoding="utf-8", errors="replace").count("Normal termination of Gaussian") and inspection.get("full_error_termination_count") == log_path.read_text(encoding="utf-8", errors="replace").count("Error termination"), "minimum terminal inspection differs from raw log")
+        require(snapshot.get("schema") == "gaussian-fetch-snapshot/1" and snapshot.get("snapshot_complete") is True and snapshot.get("payload_sha256") == transport_digest({key: value for key, value in snapshot.items() if key != "payload_sha256"}), "minimum fetch snapshot is incomplete or invalid")
+        require(snapshot.get("project") == job.get("project") and snapshot.get("job_id") == job.get("job_id") and snapshot.get("input_sha256") == job.get("input_sha256") and snapshot.get("terminal_inspection_receipt_sha256") == receipt.get("receipt_sha256"), "minimum fetch snapshot crosses project/job/input/receipt")
+        require(job.get("terminal_inspection_receipt_sha256") == receipt.get("receipt_sha256") and job.get("fetch_snapshot_sha256") == file_sha256(snapshot_path) and job.get("fetch_snapshot_size") == snapshot_path.stat().st_size, "minimum job does not bind the exact receipt/fetch snapshot")
+        require(snapshot_path.parent.resolve() == log_path.parent.resolve() == checkpoint_path.parent.resolve() == result_path.parent.resolve(), "minimum result/log/checkpoint must belong to the exact fetch snapshot")
+        for candidate in (log_path, checkpoint_path, result_path):
+            expected = {"sha256": file_sha256(candidate), "size": candidate.stat().st_size}
+            require(snapshot.get("artifacts", {}).get(candidate.name) == expected, f"minimum fetch snapshot does not bind {candidate.name}")
     settings = artifact["workflow_settings"]
     replay = owner["log"].analyze_workflow_log_text(log_path.read_text(encoding="utf-8", errors="replace"), temperature_k=float(settings["temperature_k"]), standard_state=settings["standard_state"], expected_stages=settings["expected_stages"])
     compare = {
@@ -296,12 +336,15 @@ def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, An
     require(replay["frequency_parse_complete"] is True and replay["expected_frequency_count"] is not None and replay["frequency_count"] == replay["expected_frequency_count"], "minimum frequency evidence is truncated, damaged, or incomplete")
     require(replay["minimum_validated"] is True and replay["imaginary_frequency_count"] == 0 and replay["workflow_success"] is True, "minimum result is not a completed zero-imaginary stationary minimum")
     mapping = artifact["atom_mapping"]
-    candidate_elements = selection.get("candidate_atom_elements")
+    candidate_elements = selection.get("candidate_atom_elements") if selection is not None else [item["element"] for item in endpoint["endpoint_coordinates"]["records"]]
     input_elements = [item["element"] for item in parsed_input["atoms"]]
     result_elements = [item.get("element") for item in replay["final_coordinates"]]
     mapped_elements = [item["element"] for item in mapping]
     require(candidate_elements == input_elements == result_elements == mapped_elements, "candidate, input, result, or stable atom mapping element order differs")
     require(artifact["stable_atom_ids"] == [item["atom_id"] for item in mapping], "stable atom ID mapping changed")
+    if endpoint is not None:
+        require(endpoint["stable_atom_ids"] == artifact["stable_atom_ids"] and endpoint["structure_identity"]["state_id"] == artifact["state_id"], "endpoint state or stable atom mapping differs from minimum lineage")
+        require(endpoint["charge"] == parsed_input["charge"] and endpoint["multiplicity"] == parsed_input["multiplicity"], "endpoint charge or multiplicity differs from Opt/Freq input")
     require(artifact["formula"] == formula(result_elements), "minimum formula differs from exact result composition")
     require(parsed_input["charge"] == artifact["charge"] and parsed_input["multiplicity"] == artifact["multiplicity"], "minimum input charge or multiplicity differs from lineage")
     coordinates = parse_xyz(xyz_path)
@@ -313,8 +356,12 @@ def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, An
 def validate_artifact(path: Path) -> dict[str, Any]:
     artifact = load_json(path)
     required = {"schema", "lineage_id", "minimum_id", "state_id", "sources", "workflow_settings", "stable_atom_ids", "atom_mapping", "formula", "charge", "multiplicity", "structure_review", "review", "workflow_states", "acceptance", "migration_policy", "immutability", "calculation_ready", "no_submission_authorization", "payload_sha256"}
+    if artifact.get("schema") == SCHEMA_V2:
+        required.add("source_kind")
     exact(artifact, required, "minimum lineage handoff")
-    require(artifact["schema"] == SCHEMA and artifact["payload_sha256"] == payload_sha256(artifact), "minimum lineage schema or payload hash is invalid")
+    require(artifact["schema"] in {SCHEMA, SCHEMA_V2} and artifact["payload_sha256"] == payload_sha256(artifact), "minimum lineage schema or payload hash is invalid")
+    if artifact["schema"] == SCHEMA_V2:
+        require(artifact["source_kind"] in {"conformer_selection", "endpoint_structure_review"}, "minimum lineage /2 source_kind is invalid")
     require(artifact["immutability"] == "append_only_new_revision" and artifact["calculation_ready"] is False and artifact["no_submission_authorization"] is True, "minimum lineage authority or immutability boundary changed")
     expected_states = {"human_selected": True, "input_draft_generated": True, "exact_input_approved": True, "job_observed": True, "submission_authorized_by_this_artifact": False, "result_accepted": True}
     require(artifact["workflow_states"] == expected_states, "minimum lineage workflow states are invalid")
@@ -328,22 +375,26 @@ def validate_artifact(path: Path) -> dict[str, Any]:
     return artifact
 
 
-def build(root: Path, paths: dict[str, Path], review_path: Path, output: Path) -> dict[str, Any]:
+def build(root: Path, paths: dict[str, Path], review_path: Path, output: Path, *, source_kind: str = "conformer_selection") -> dict[str, Any]:
     lexical_root = Path(os.path.abspath(root))
     root = secure_root(lexical_root)
     output = Path(os.path.abspath(output))
     require(output.parent.resolve() == root and not output.parent.is_symlink(), "output must be a new file directly inside package root")
     output = root / output.name
     review = normalize_review(load_json(review_path))
-    selection = validate_selection_receipt(paths["selection"])
+    require(source_kind in {"conformer_selection", "endpoint_structure_review"}, "minimum source_kind is invalid")
+    origin_key = "selection" if source_kind == "conformer_selection" else "endpoint_structure_review"
+    selection = validate_selection_receipt(paths[origin_key]) if source_kind == "conformer_selection" else None
+    endpoint = owners()["input"].validate_endpoint_structure_review_artifact(paths[origin_key]) if source_kind == "endpoint_structure_review" else None
     parsed_input = owners()["input"].parse_cartesian_input(paths["input"])
     sources: dict[str, Any] = {}
     for key, path in paths.items():
-        document = load_json(path) if key in {"selection", "input_approval", "job", "result"} else None
-        sources[key] = reference(path, lexical_root, json_document=document)
+        target_key = "origin" if key == origin_key else key
+        document = load_json(path) if key in {origin_key, "input_approval", "job", "result", "terminal_inspection_receipt", "fetch_snapshot"} else None
+        sources[target_key] = reference(path, lexical_root, json_document=document)
     result = load_json(paths["result"])
     artifact = {
-        "schema": SCHEMA, "lineage_id": review["lineage_id"], "minimum_id": review["minimum_id"], "state_id": review["state_id"],
+        "schema": SCHEMA_V2, "source_kind": source_kind, "lineage_id": review["lineage_id"], "minimum_id": review["minimum_id"], "state_id": review["state_id"],
         "sources": sources, "workflow_settings": review["workflow_settings"], "stable_atom_ids": review["stable_atom_ids"], "atom_mapping": review["atom_mapping"],
         "formula": review["structure_review"]["formula"], "charge": parsed_input["charge"], "multiplicity": parsed_input["multiplicity"],
         "structure_review": review["structure_review"],
@@ -353,7 +404,10 @@ def build(root: Path, paths: dict[str, Path], review_path: Path, output: Path) -
         "migration_policy": {"new_bindings": "package_root_relative_only", "absolute_paths": "rejected", "legacy_absolute_artifacts": "owner_controlled_rebuild_or_reviewed_repackage_required", "in_place_rewrite": False},
         "immutability": "append_only_new_revision", "calculation_ready": False, "no_submission_authorization": True, "payload_sha256": None,
     }
-    require(selection.get("formula") == artifact["formula"], "selected conformer formula differs from minimum review")
+    if selection is not None:
+        require(selection.get("formula") == artifact["formula"], "selected conformer formula differs from minimum review")
+    else:
+        require(endpoint["structure_identity"]["formula"] == artifact["formula"], "endpoint formula differs from minimum review")
     require(result.get("parser", {}).get("schema") == "auto-g16-gaussian-log-parser/2", "minimum result must record parser schema/version")
     artifact["payload_sha256"] = payload_sha256(artifact)
     replay_minimum_sources(root, artifact)
@@ -365,7 +419,10 @@ def parser() -> argparse.ArgumentParser:
     commands = root.add_subparsers(dest="command", required=True)
     build_parser = commands.add_parser("build")
     build_parser.add_argument("--root", type=Path, required=True)
-    for name in ("selection", "input-approval", "input", "job", "result", "raw-log", "checkpoint", "optimized-coordinates", "review", "output"):
+    build_parser.add_argument("--source-kind", choices=["conformer_selection", "endpoint_structure_review"], required=True)
+    build_parser.add_argument("--selection", type=Path)
+    build_parser.add_argument("--endpoint-structure-review", type=Path)
+    for name in ("input-approval", "input", "job", "result", "raw-log", "checkpoint", "optimized-coordinates", "terminal-inspection-receipt", "fetch-snapshot", "review", "output"):
         build_parser.add_argument(f"--{name}", type=Path, required=True)
     validate_parser = commands.add_parser("validate")
     validate_parser.add_argument("artifact", type=Path)
@@ -378,8 +435,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate":
             artifact = validate_artifact(args.artifact)
         else:
-            paths = {"selection": args.selection, "input_approval": args.input_approval, "input": args.input, "job": args.job, "result": args.result, "raw_log": args.raw_log, "checkpoint": args.checkpoint, "optimized_coordinates": args.optimized_coordinates}
-            artifact = build(args.root, paths, args.review, args.output)
+            origin = args.selection if args.source_kind == "conformer_selection" else args.endpoint_structure_review
+            require(origin is not None and (args.endpoint_structure_review is None if args.source_kind == "conformer_selection" else args.selection is None), "minimum source kinds are mutually exclusive and require exactly one origin")
+            paths = {("selection" if args.source_kind == "conformer_selection" else "endpoint_structure_review"): origin, "input_approval": args.input_approval, "input": args.input, "job": args.job, "result": args.result, "raw_log": args.raw_log, "checkpoint": args.checkpoint, "optimized_coordinates": args.optimized_coordinates, "terminal_inspection_receipt": args.terminal_inspection_receipt, "fetch_snapshot": args.fetch_snapshot}
+            artifact = build(args.root, paths, args.review, args.output, source_kind=args.source_kind)
         print(json.dumps({"schema": artifact["schema"], "minimum_id": artifact["minimum_id"], "payload_sha256": artifact["payload_sha256"], "live_actions": False}, ensure_ascii=False))
         return 0
     except (LineageError, ValueError, OSError, json.JSONDecodeError) as exc:

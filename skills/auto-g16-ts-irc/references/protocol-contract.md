@@ -144,13 +144,21 @@ or source hash invalidates the draft and requires a new selection.
 
 `gaussian-irc-endpoint-audit/1` binds one direction's final completed point to the fetched IRC checkpoint, input, log, parsed result, and local job record. Require the declared final point, direction-specific completion, corrector convergence evidence for every expected point, normal termination, matching final log/result atom order and coordinates, and reviewed forming-bond distances. A reactant/product label is review evidence, not proof of a minimum.
 
-`gaussian-ts-irc-path-acceptance/1` is the next immutable owner artifact. It
-binds a formal non-pilot TS-family `/2`, TS result, accepted mode review and
-decision, plus both directions' exact audit/input/log/result/job/checkpoint
-bundles. Validation rechecks the family maturity binding, specialist TS mode
-arithmetic and both endpoint audits from their raw sources; it requires one
-reactant and one product side with equal charge, multiplicity and atom order.
-It does not prove either endpoint is a minimum and grants no live authority.
+`gaussian-ts-irc-path-acceptance/2` is the current immutable owner artifact.
+It binds a formal non-pilot TS-family `/2`, an execution-bound TS/Freq result
+`/2`, accepted mode review and decision, both endpoint-structure reviews, and
+the exact owner-validated mechanism network edge. Validation replays the
+family/input/job/attempt/terminal-receipt/fetch-snapshot chain, the mechanism
+edge's from/to states and stable atom map, and the direction-to-endpoint state
+assignment. Swapped directions, stale maps and cross-family or cross-job
+evidence fail closed. Historical path acceptance `/1` remains replayable only
+under its original contract and does not gain `/2` authority. Neither version
+proves either endpoint is a minimum or grants live authority.
+
+`analyze-ts` may publish an incomplete or damaged-log `/2` result without
+execution sources only as non-authorizing negative evidence. A complete
+TS/Freq result requires the exact family, input, job, terminal-inspection
+receipt and fetch snapshot arguments; omitting any member rejects publication.
 
 For an endpoint continuation, reuse `gaussian-allcheck-input-manifest/1` with `continuation_kind: endpoint_opt_freq`. Require an approved route containing `Opt Freq Geom=AllCheck Guess=Read` and forbid IRC or TS optimization keywords. The `%oldchk` hash must match the endpoint audit and the input must contain no explicit molecule specification.
 

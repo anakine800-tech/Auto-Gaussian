@@ -75,6 +75,24 @@ def _load_gaussian_log_owner() -> Any:
     return module
 
 
+def _load_mechanism_network_owner() -> Any:
+    path = Path(__file__).resolve().parents[2] / "auto-g16-reaction-workflow" / "scripts" / "mechanism_network.py"
+    spec = importlib.util.spec_from_file_location("auto_g16_ts_mechanism_network", path)
+    if spec is None or spec.loader is None:
+        raise ValueError("mechanism-network owner validator is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    owner_dir = str(path.parent)
+    added = owner_dir not in sys.path
+    if added:
+        sys.path.insert(0, owner_dir)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if added:
+            sys.path.remove(owner_dir)
+    return module
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -131,6 +149,12 @@ def _payload_sha256(value: dict[str, Any]) -> str:
 
 def _canonical_data_sha256(value: Any) -> str:
     encoded = (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _transport_digest(value: Any) -> str:
+    """Match gaussian_rtwin_pbs.canonical_digest (which has no trailing LF)."""
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -370,7 +394,7 @@ def build_path_acceptance_artifact(
 
 def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
     artifact = _load_json_strict(path)
-    required = {"schema", "edge_id", "family", "ts_result", "mode_review", "mode_decision", "endpoint_reviews", "accepted", "limitations", "validator", "calculation_ready", "no_submission_authorization", "payload_sha256"}
+    required = {"schema", "edge_id", "mechanism_network", "mechanism_binding", "family", "ts_result", "mode_review", "mode_decision", "endpoint_reviews", "accepted", "limitations", "validator", "calculation_ready", "no_submission_authorization", "payload_sha256"}
     if not isinstance(artifact, dict) or set(artifact) != required or artifact.get("schema") != PATH_ACCEPTANCE_SCHEMA_V2:
         raise ValueError("TS/IRC path-acceptance /2 fields or schema are invalid")
     if artifact.get("payload_sha256") != _payload_sha256(artifact):
@@ -378,10 +402,13 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
     if artifact.get("accepted") is not True or artifact.get("calculation_ready") is not False or artifact.get("no_submission_authorization") is not True:
         raise ValueError("TS/IRC path-acceptance /2 authority boundary changed")
     family_path = _closure_resolve_local_ref(artifact["family"], path, "TS family")
+    mechanism_path = _closure_resolve_local_ref(artifact["mechanism_network"], path, "mechanism network")
     result_path = _closure_resolve_local_ref(artifact["ts_result"], path, "TS result")
     review_path = _closure_resolve_local_ref(artifact["mode_review"], path, "TS mode review")
     decision_path = _closure_resolve_local_ref(artifact["mode_decision"], path, "TS mode decision")
     family = _load_json_strict(family_path)
+    mechanism = _load_json_strict(mechanism_path)
+    _load_mechanism_network_owner().validate(mechanism_path)
     result = _load_json_strict(result_path)
     review = _load_json_strict(review_path)
     decision = _load_json_strict(decision_path)
@@ -390,7 +417,9 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
     _revalidate_family_scientific_binding(family_path, family)
     if result.get("schema") != TS_RESULT_SCHEMA_V2:
         raise ValueError("path acceptance /2 requires a source-bound TS/Freq result /2")
-    validate_ts_result_v2(result, result_path)
+    require_accepted_ts_result_v2(result, result_path)
+    if result["execution"]["family"]["sha256"] != artifact["family"]["sha256"]:
+        raise ValueError("TS/Freq execution family differs from path-acceptance family")
     facts = classify_ts_freq_result_facts(result)
     if not facts["first_order_saddle_candidate"] or facts["mode_review_status"] != "pending":
         raise ValueError("path acceptance /2 requires an owner-classified first-order TS candidate")
@@ -416,14 +445,43 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
     forward, reverse = endpoints["forward"], endpoints["reverse"]
     if forward["charge"] != reverse["charge"] or forward["multiplicity"] != reverse["multiplicity"]:
         raise ValueError("bidirectional endpoint charge or multiplicity differs")
-    if forward["stable_atom_ids"] != reverse["stable_atom_ids"]:
-        raise ValueError("bidirectional endpoint stable atom ID/order mapping differs")
     forward_elements = [item["element"] for item in forward["endpoint_coordinates"]["records"]]
     reverse_elements = [item["element"] for item in reverse["endpoint_coordinates"]["records"]]
     if forward_elements != reverse_elements or forward["structure_identity"]["formula"] != reverse["structure_identity"]["formula"]:
         raise ValueError("bidirectional endpoint composition or atom order differs")
     if forward["structure_identity"]["state_id"] == reverse["structure_identity"]["state_id"]:
         raise ValueError("reactant and product endpoint reviews cannot claim the same structure state")
+    edges = {item.get("edge_id"): item for item in mechanism.get("edges", [])}
+    edge = edges.get(artifact["edge_id"])
+    if edge is None:
+        raise ValueError("path-acceptance edge is absent from the mechanism owner")
+    states = {item.get("state_id"): item for item in mechanism.get("states", [])}
+    reactant = forward if forward["chemical_side"] == "reactant" else reverse
+    product = forward if forward["chemical_side"] == "product" else reverse
+    if reactant["structure_identity"]["state_id"] != edge.get("from_state_id") or product["structure_identity"]["state_id"] != edge.get("to_state_id"):
+        raise ValueError("endpoint state identities are swapped, stale, or differ from the exact mechanism edge")
+    from_state, to_state = states.get(edge.get("from_state_id")), states.get(edge.get("to_state_id"))
+    if from_state is None or to_state is None:
+        raise ValueError("mechanism edge endpoint states are unavailable")
+    from_ids = [item.get("atom_id") for item in from_state.get("atoms", [])]
+    to_ids = [item.get("atom_id") for item in to_state.get("atoms", [])]
+    mapping = edge.get("atom_mapping")
+    if not isinstance(mapping, list):
+        raise ValueError("mechanism edge atom mapping is missing")
+    mapping_dict = {item.get("from_atom_id"): item.get("to_atom_id") for item in mapping}
+    if reactant["stable_atom_ids"] != from_ids or product["stable_atom_ids"] != [mapping_dict.get(atom_id) for atom_id in from_ids] or sorted(mapping_dict.values()) != sorted(to_ids):
+        raise ValueError("endpoint stable atom map differs from the exact mechanism edge mapping")
+    binding = {
+        "study_id": mechanism.get("study_id"), "edge_id": edge.get("edge_id"),
+        "from_state_id": edge.get("from_state_id"), "to_state_id": edge.get("to_state_id"),
+        "atom_mapping": mapping,
+        "direction_mapping": {
+            "forward": {"chemical_side": forward["chemical_side"], "state_id": forward["structure_identity"]["state_id"]},
+            "reverse": {"chemical_side": reverse["chemical_side"], "state_id": reverse["structure_identity"]["state_id"]},
+        },
+    }
+    if artifact.get("mechanism_binding") != binding:
+        raise ValueError("path-acceptance mechanism/direction binding differs from owner replay")
     if not isinstance(artifact.get("limitations"), list) or not artifact["limitations"]:
         raise ValueError("path acceptance /2 must retain limitations")
     if artifact.get("validator") != PARSER_ID:
@@ -433,13 +491,30 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
 
 def build_path_acceptance_v2_artifact(
     family: Path, ts_result: Path, mode_review: Path, mode_decision: Path,
-    forward_review: Path, reverse_review: Path, output: Path,
+    forward_review: Path, reverse_review: Path, mechanism_network: Path, output: Path,
 ) -> dict[str, Any]:
     root = output.parent
     _closure_root(root, "path-acceptance output parent")
     family_document = _load_json_strict(family)
+    mechanism = _load_json_strict(mechanism_network)
+    _load_mechanism_network_owner().validate(mechanism_network)
+    edge = next((item for item in mechanism.get("edges", []) if item.get("edge_id") == family_document.get("mechanism_edge_id")), None)
+    if edge is None:
+        raise ValueError("formal TS family edge is absent from the mechanism network")
+    endpoint_docs = {"forward": _load_json_strict(forward_review), "reverse": _load_json_strict(reverse_review)}
+    mechanism_binding = {
+        "study_id": mechanism.get("study_id"), "edge_id": edge.get("edge_id"),
+        "from_state_id": edge.get("from_state_id"), "to_state_id": edge.get("to_state_id"),
+        "atom_mapping": edge.get("atom_mapping"),
+        "direction_mapping": {
+            direction: {"chemical_side": document.get("chemical_side"), "state_id": (document.get("structure_identity") or {}).get("state_id")}
+            for direction, document in endpoint_docs.items()
+        },
+    }
     artifact = {
         "schema": PATH_ACCEPTANCE_SCHEMA_V2, "edge_id": family_document.get("mechanism_edge_id"),
+        "mechanism_network": _closure_local_ref(mechanism_network, root, "mechanism network"),
+        "mechanism_binding": mechanism_binding,
         "family": _closure_local_ref(family, root, "TS family"), "ts_result": _closure_local_ref(ts_result, root, "TS result"),
         "mode_review": _closure_local_ref(mode_review, root, "TS mode review"), "mode_decision": _closure_local_ref(mode_decision, root, "TS mode decision"),
         "endpoint_reviews": {"forward": _closure_local_ref(forward_review, root, "forward endpoint review"), "reverse": _closure_local_ref(reverse_review, root, "reverse endpoint review")},
@@ -2229,7 +2304,7 @@ def audit_fragment_endpoint_results(
     }
 
 
-def audit_fragment_endpoint_results_v2(
+def _make_fragment_endpoint_results_v2(
     plan_path: Path,
     result_paths: dict[str, Path],
     job_paths: dict[str, Path],
@@ -2244,8 +2319,7 @@ def audit_fragment_endpoint_results_v2(
     if set(log_paths) != projects or set(checkpoint_paths) != projects:
         raise ValueError("raw logs and checkpoints must cover every planned fragment exactly once")
     owner = _load_gaussian_log_owner()
-    root = output_path.parent
-    _closure_root(root, "fragment validation output parent")
+    root = _closure_root(output_path.parent, "fragment validation output parent")
     plan = _load_json_strict(plan_path)
     fragments_by_project = {item["project"]: item for item in plan["fragments"]}
     records = []
@@ -2280,9 +2354,9 @@ def audit_fragment_endpoint_results_v2(
             raise ValueError(f"fragment {project} raw-log atom order differs from the reviewed plan")
         record = {
             **accepted,
-            "result": {**_closure_local_ref(result_path, root, f"fragment {project} result"), "schema": result.get("schema")},
-            "job": {**_closure_local_ref(job_path, root, f"fragment {project} job"), "schema": _load_json_strict(job_path).get("schema")},
-            "raw_log": _closure_local_ref(log_path, root, f"fragment {project} raw log"), "checkpoint": _closure_local_ref(checkpoint_path, root, f"fragment {project} checkpoint"),
+            "result": {**_closure_local_ref(result_path.resolve(), root, f"fragment {project} result"), "schema": result.get("schema")},
+            "job": {**_closure_local_ref(job_path.resolve(), root, f"fragment {project} job"), "schema": _load_json_strict(job_path).get("schema")},
+            "raw_log": _closure_local_ref(log_path.resolve(), root, f"fragment {project} raw log"), "checkpoint": _closure_local_ref(checkpoint_path.resolve(), root, f"fragment {project} checkpoint"),
             "parser": dict(replay["parser"]), "frequency_parse_complete": True,
         }
         records.append(record)
@@ -2290,7 +2364,7 @@ def audit_fragment_endpoint_results_v2(
     artifact = {
         "schema": "gaussian-irc-fragment-endpoint-validation/2",
         "validation_status": "passed", "chemical_side": plan.get("chemical_side"),
-        "fragment_plan": {**_closure_local_ref(plan_path, root, "fragment plan"), "schema": plan.get("schema")},
+        "fragment_plan": {**_closure_local_ref(plan_path.resolve(), root, "fragment plan"), "schema": plan.get("schema")},
         "fragment_count": len(records), "fragments": records,
         "isolated_fragment_electronic_energy_sum_hartree": energy_sum,
         "endpoint_minimum_evidence": "passed_as_raw_log_replayed_separately_reviewed_isolated_fragments",
@@ -2299,6 +2373,58 @@ def audit_fragment_endpoint_results_v2(
     }
     artifact["payload_sha256"] = _payload_sha256(artifact)
     return artifact
+
+
+def validate_fragment_endpoint_results_v2(path: Path) -> dict[str, Any]:
+    """Replay one published fragment endpoint /2 from every immutable source."""
+
+    artifact = _load_json_strict(path)
+    if artifact.get("schema") != "gaussian-irc-fragment-endpoint-validation/2":
+        raise ValueError("fragment endpoint validation /2 schema is invalid")
+    if artifact.get("payload_sha256") != _payload_sha256(artifact):
+        raise ValueError("fragment endpoint validation /2 payload hash is invalid")
+    if artifact.get("validation_status") != "passed" or artifact.get("calculation_ready") is not False or artifact.get("no_submission_authorization") is not True:
+        raise ValueError("fragment endpoint validation /2 authority or acceptance boundary changed")
+    def bare(ref: Any) -> dict[str, Any]:
+        return {key: ref.get(key) for key in ("path", "sha256", "size_bytes")} if isinstance(ref, dict) else ref
+    plan_path = _closure_resolve_local_ref(bare(artifact.get("fragment_plan")), path, "fragment plan")
+    records = artifact.get("fragments")
+    if not isinstance(records, list) or not records:
+        raise ValueError("fragment endpoint validation /2 has no fragment records")
+    result_paths: dict[str, Path] = {}
+    job_paths: dict[str, Path] = {}
+    log_paths: dict[str, Path] = {}
+    checkpoint_paths: dict[str, Path] = {}
+    for record in records:
+        project = record.get("project") if isinstance(record, dict) else None
+        if not isinstance(project, str) or not project or project in result_paths:
+            raise ValueError("fragment endpoint validation /2 project set is invalid")
+        result_paths[project] = _closure_resolve_local_ref(bare(record.get("result")), path, f"fragment {project} result")
+        job_paths[project] = _closure_resolve_local_ref(bare(record.get("job")), path, f"fragment {project} job")
+        log_paths[project] = _closure_resolve_local_ref(record.get("raw_log"), path, f"fragment {project} raw log")
+        checkpoint_paths[project] = _closure_resolve_local_ref(record.get("checkpoint"), path, f"fragment {project} checkpoint")
+    replay = _make_fragment_endpoint_results_v2(
+        plan_path, result_paths, job_paths, log_paths, checkpoint_paths, path
+    )
+    if artifact != replay:
+        raise ValueError("fragment endpoint validation /2 differs from owner replay")
+    return artifact
+
+
+def audit_fragment_endpoint_results_v2(
+    plan_path: Path,
+    result_paths: dict[str, Path],
+    job_paths: dict[str, Path],
+    log_paths: dict[str, Path],
+    checkpoint_paths: dict[str, Path],
+    output_path: Path,
+) -> dict[str, Any]:
+    """Build, owner-validate, and atomically publish fragment endpoint /2."""
+
+    artifact = _make_fragment_endpoint_results_v2(
+        plan_path, result_paths, job_paths, log_paths, checkpoint_paths, output_path
+    )
+    return _publish_json_exclusive(output_path, artifact, validate_fragment_endpoint_results_v2)
 
 
 def read_atom_map(path: Path, atom_count: int) -> list[int]:
@@ -2570,7 +2696,112 @@ def _ts_geometry_mode_count(coordinates: list[dict[str, Any]]) -> tuple[int | No
     return 3 * len(points) - (5 if linear else 6), "linear" if linear else "nonlinear"
 
 
-def _make_ts_result_v2(log_path: Path, owner_dir: Path) -> dict[str, Any]:
+def _inspection_v2_is_exact_terminal(
+    inspection: dict[str, Any], *, project: str, job_id: str, log_size: int,
+    normal_count: int, error_count: int,
+) -> bool:
+    evidence = inspection.get("evidence_sha256")
+    return bool(
+        inspection.get("schema") == "gaussian-job-inspection/2"
+        and evidence == _transport_digest({key: value for key, value in inspection.items() if key != "evidence_sha256"})
+        and inspection.get("project") == project and inspection.get("job_id") == job_id
+        and inspection.get("source") == "single_remote_read_only_snapshot"
+        and inspection.get("state") in {"completed", "failed", "interrupted"}
+        and inspection.get("freshness") == "fresh"
+        and inspection.get("transport_classification") == "success"
+        and inspection.get("transport_returncode") == 0
+        and inspection.get("termination_counts_known") is True
+        and inspection.get("evidence_conflict") is False
+        and inspection.get("process_alive") is False
+        and inspection.get("log_size") == log_size
+        and inspection.get("full_normal_termination_count") == normal_count
+        and inspection.get("full_error_termination_count") == error_count
+    )
+
+
+def _validate_ts_execution_evidence(
+    execution: dict[str, Any], owner_path: Path, log_path: Path,
+) -> dict[str, Path]:
+    required = {
+        "project", "job_id", "attempt_id", "family", "input", "job",
+        "terminal_inspection_receipt", "fetch_snapshot",
+    }
+    if not isinstance(execution, dict) or set(execution) != required:
+        raise ValueError("TS/Freq execution evidence fields are invalid")
+    resolved = {
+        key: _closure_resolve_local_ref(execution[key], owner_path, f"TS/Freq {key.replace('_', ' ')}")
+        for key in ("family", "input", "job", "terminal_inspection_receipt", "fetch_snapshot")
+    }
+    project, job_id, attempt_id = execution["project"], execution["job_id"], execution["attempt_id"]
+    if not isinstance(project, str) or not PROJECT_RE.fullmatch(project) or not isinstance(job_id, str) or not job_id or not isinstance(attempt_id, str) or not attempt_id.startswith("qsub-attempt-"):
+        raise ValueError("TS/Freq project, job, or attempt identity is malformed")
+    family = _load_json_strict(resolved["family"])
+    if family.get("schema") != SCHEMA_V2 or family.get("pilot") is not False:
+        raise ValueError("TS/Freq execution evidence requires one formal family /2")
+    job = _load_json_strict(resolved["job"])
+    if (
+        job.get("schema") != "gaussian-rtwin-pbs/1" or job.get("project") != project
+        or job.get("job_id") != job_id or job.get("status") not in {"completed", "failed", "interrupted"}
+        or job.get("results_fetched") is not True
+        or job.get("input_sha256") != sha256(resolved["input"])
+        or not isinstance(job.get("execution_batch"), dict)
+        or job["execution_batch"].get("attempt_id") != attempt_id
+    ):
+        raise ValueError("TS/Freq job does not bind the exact project/attempt/input")
+    receipt = _load_json_strict(resolved["terminal_inspection_receipt"])
+    receipt_fields = {
+        "schema", "project", "job_id", "input_stem", "input_sha256", "attempt_id",
+        "terminal_state", "collected_at", "inspection_evidence_sha256", "inspection",
+        "scientific_acceptance", "receipt_sha256",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != receipt_fields or receipt.get("schema") != "gaussian-terminal-inspection-receipt/1":
+        raise ValueError("TS/Freq terminal inspection receipt is malformed")
+    if (
+        receipt.get("project") != project or receipt.get("job_id") != job_id
+        or receipt.get("input_sha256") != job.get("input_sha256") or receipt.get("attempt_id") != attempt_id
+        or receipt.get("terminal_state") != job.get("status") or receipt.get("scientific_acceptance") is not False
+        or receipt.get("receipt_sha256") != _transport_digest({key: value for key, value in receipt.items() if key != "receipt_sha256"})
+    ):
+        raise ValueError("TS/Freq terminal receipt differs from the exact job/attempt/input")
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    inspection = receipt.get("inspection")
+    if not isinstance(inspection, dict) or receipt.get("inspection_evidence_sha256") != inspection.get("evidence_sha256") or not _inspection_v2_is_exact_terminal(
+        inspection, project=project, job_id=job_id, log_size=log_path.stat().st_size,
+        normal_count=text.count("Normal termination of Gaussian"), error_count=text.count("Error termination"),
+    ):
+        raise ValueError("TS/Freq terminal inspection /2 is stale, malformed, or differs from the raw log")
+    snapshot = _load_json_strict(resolved["fetch_snapshot"])
+    if (
+        snapshot.get("schema") != "gaussian-fetch-snapshot/1" or snapshot.get("snapshot_complete") is not True
+        or snapshot.get("payload_sha256") != _transport_digest({key: value for key, value in snapshot.items() if key != "payload_sha256"})
+        or snapshot.get("project") != project or snapshot.get("job_id") != job_id
+        or snapshot.get("input_sha256") != job.get("input_sha256")
+        or snapshot.get("terminal_inspection_receipt_sha256") != receipt.get("receipt_sha256")
+        or snapshot.get("per_hop_sha256_verified") is not True
+        or job.get("terminal_inspection_receipt_sha256") != receipt.get("receipt_sha256")
+        or job.get("fetch_snapshot_sha256") != sha256(resolved["fetch_snapshot"])
+        or job.get("fetch_snapshot_size") != resolved["fetch_snapshot"].stat().st_size
+    ):
+        raise ValueError("TS/Freq fetch snapshot differs from the exact job/receipt/input")
+    log_name = log_path.name
+    artifact_binding = snapshot.get("artifacts", {}).get(log_name)
+    hop = snapshot.get("per_hop", {}).get(log_name)
+    digest = sha256(log_path)
+    if (
+        snapshot.get("exact_log") != log_name
+        or log_path.parent.resolve() != resolved["fetch_snapshot"].parent.resolve()
+        or artifact_binding != {"sha256": digest, "size": log_path.stat().st_size}
+        or not isinstance(hop, dict) or set(hop) != {"server_sha256", "rtwin_sha256", "mac_sha256", "size"}
+        or hop.get("server_sha256") != digest or hop.get("rtwin_sha256") != digest
+        or hop.get("mac_sha256") != digest or hop.get("size") != log_path.stat().st_size
+    ):
+        raise ValueError("TS/Freq raw log is not the exact hash-verified fetch artifact")
+    return resolved
+
+
+def _make_ts_result_v2(
+    log_path: Path, owner_dir: Path, execution_sources: dict[str, Path] | None = None,
+) -> dict[str, Any]:
     text = log_path.read_text(encoding="utf-8", errors="replace")
     legacy = analyze_ts_log_text(text)
     modes, diagnostics = parse_modes(text)
@@ -2585,6 +2816,7 @@ def _make_ts_result_v2(log_path: Path, owner_dir: Path) -> dict[str, Any]:
         "schema": TS_RESULT_SCHEMA_V2,
         "source_log": _closure_local_ref(log_path, owner_dir, "TS/Freq raw log"),
         "parser": dict(PARSER_ID),
+        "execution": None,
         "atom_count": atom_count,
         "linearity": linearity,
         "expected_frequency_count": expected,
@@ -2594,6 +2826,18 @@ def _make_ts_result_v2(log_path: Path, owner_dir: Path) -> dict[str, Any]:
         "payload_sha256": None,
     }
     artifact.update(classify_ts_freq_result_facts(artifact))
+    if execution_sources is not None:
+        required_sources = {"family", "input", "job", "terminal_inspection_receipt", "fetch_snapshot"}
+        if set(execution_sources) != required_sources:
+            raise ValueError("TS/Freq execution sources must cover family/input/job/receipt/snapshot exactly")
+        job = _load_json_strict(execution_sources["job"])
+        artifact["execution"] = {
+            "project": job.get("project"), "job_id": job.get("job_id"),
+            "attempt_id": (job.get("execution_batch") or {}).get("attempt_id"),
+            **{key: _closure_local_ref(value, owner_dir, f"TS/Freq {key}") for key, value in execution_sources.items()},
+        }
+    elif complete:
+        raise ValueError("complete TS/Freq result /2 requires exact family/job/attempt/input/receipt/fetch evidence")
     artifact["payload_sha256"] = _payload_sha256(artifact)
     return artifact
 
@@ -2602,17 +2846,39 @@ def validate_ts_result_v2(result: dict[str, Any], path: Path) -> dict[str, Any]:
     if result.get("schema") != TS_RESULT_SCHEMA_V2 or result.get("payload_sha256") != _payload_sha256(result):
         raise ValueError("source-bound TS/Freq result /2 schema or payload hash is invalid")
     log_path = _closure_resolve_local_ref(result.get("source_log"), path, "TS/Freq raw log")
-    expected = _make_ts_result_v2(log_path, _closure_root(path.parent))
+    execution = result.get("execution")
+    sources = None
+    if execution is not None:
+        sources = _validate_ts_execution_evidence(execution, path, log_path)
+    expected = _make_ts_result_v2(log_path, _closure_root(path.parent), sources)
     if result != expected:
         raise ValueError("source-bound TS/Freq result differs from raw-log parser replay")
     return result
 
 
-def build_ts_result_v2(log_path: Path, output: Path) -> dict[str, Any]:
+def build_ts_result_v2(
+    log_path: Path, output: Path, execution_sources: dict[str, Path] | None = None,
+) -> dict[str, Any]:
     root = output.parent
     _closure_root(root, "TS/Freq result output parent")
-    artifact = _make_ts_result_v2(log_path, root)
+    artifact = _make_ts_result_v2(log_path, root, execution_sources)
     return _publish_json_exclusive(output, artifact, lambda candidate: validate_ts_result_v2(artifact, candidate))
+
+
+def require_accepted_ts_result_v2(result: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Validate /2 and require complete positive values before scientific consumption."""
+
+    validate_ts_result_v2(result, path)
+    expected = result.get("expected_frequency_count")
+    if (
+        result.get("execution") is None or result.get("frequency_parse_complete") is not True
+        or not isinstance(result.get("atom_count"), int) or result["atom_count"] < 1
+        or result.get("linearity") not in {"linear", "nonlinear"}
+        or not isinstance(expected, int) or expected < 0
+        or result.get("frequency_count") != expected
+    ):
+        raise ValueError("TS/Freq result /2 is negative, incomplete, or lacks exact execution evidence")
+    return result
 
 
 def terminal_template_payload_sha256(template: dict[str, Any]) -> str:
@@ -2700,7 +2966,7 @@ def _audit_terminal_job(
     if job.get("rtwin_sha256_verified") is not True or job.get("server_sha256_verified") is not True:
         raise ValueError("job record lacks verified submission transport hashes")
     inspection = job.get("last_inspection")
-    if not isinstance(inspection, dict) or inspection.get("schema") != "gaussian-job-inspection/1":
+    if not isinstance(inspection, dict) or inspection.get("schema") not in {"gaussian-job-inspection/1", "gaussian-job-inspection/2"}:
         raise ValueError("job record lacks a terminal Gaussian inspection")
     if inspection.get("project") != project or inspection.get("job_id") != job.get("job_id"):
         raise ValueError("terminal inspection is not bound to the job record")
@@ -2715,6 +2981,11 @@ def _audit_terminal_job(
     error_count = text.count("Error termination")
     if inspection.get("full_normal_termination_count") != normal_count or inspection.get("full_error_termination_count") != error_count:
         raise ValueError("fetched log termination counts differ from the terminal inspection")
+    if inspection.get("schema") == "gaussian-job-inspection/2" and not _inspection_v2_is_exact_terminal(
+        inspection, project=project, job_id=str(job.get("job_id")),
+        log_size=log_path.stat().st_size, normal_count=normal_count, error_count=error_count,
+    ):
+        raise ValueError("Gaussian inspection /2 is stale, malformed, tampered, or not exact terminal evidence")
     return job, text
 
 
@@ -2773,6 +3044,8 @@ def ingest_terminal_artifacts(
             expected_frequency_count=acceptance["expected_frequency_count"],
             raw_imaginary_frequency_count=parsed["raw_imaginary_frequency_count"],
         )
+        if job["last_inspection"].get("schema") == "gaussian-job-inspection/2" and classification["next_required_artifacts"]:
+            classification["next_required_artifacts"] = [TS_RESULT_SCHEMA_V2, *classification["next_required_artifacts"][1:]]
         outcome = classification["outcome"]
         common.update(
             {
@@ -3083,6 +3356,8 @@ def main() -> int:
     raw_qst_validate.add_argument("artifact")
     family = sub.add_parser("create-family"); family.add_argument("--input-audit", required=True); family.add_argument("--protocol", required=True); family.add_argument("--scientific-maturity", required=True); family.add_argument("--edge-id", required=True); family.add_argument("--node-id", required=True); family.add_argument("--pilot", action="store_true"); family.add_argument("--output", required=True)
     analyze = sub.add_parser("analyze-ts"); analyze.add_argument("log"); analyze.add_argument("--output", required=True)
+    for option in ("family", "input", "job", "terminal-inspection-receipt", "fetch-snapshot"):
+        analyze.add_argument("--" + option)
     review = sub.add_parser("mode-review"); review.add_argument("result"); review.add_argument("--output-dir", required=True); review.add_argument("--forming", action="append", default=[]); review.add_argument("--breaking", action="append", default=[]); review.add_argument("--amplitude", type=float, default=0.1)
     decide = sub.add_parser("record-mode-decision"); decide.add_argument("mode_review"); decide.add_argument("--decision", choices=["accepted", "rejected", "unclear"], required=True); decide.add_argument("--output", required=True); decide.add_argument("--confirmed", action="store_true")
     plan = sub.add_parser("plan-irc"); plan.add_argument("family"); plan.add_argument("--ts-result", required=True); plan.add_argument("--checkpoint", required=True); plan.add_argument("--mode-review", required=True); plan.add_argument("--mode-decision", required=True); plan.add_argument("--g16-revision", required=True); plan.add_argument("--forward-route", required=True); plan.add_argument("--reverse-route", required=True); plan.add_argument("--forward-project", required=True); plan.add_argument("--reverse-project", required=True); plan.add_argument("--output", required=True); plan.add_argument("--confirmed", action="store_true")
@@ -3097,7 +3372,7 @@ def main() -> int:
     fragment_audit = sub.add_parser("audit-fragment-endpoints"); fragment_audit.add_argument("--plan", required=True); fragment_audit.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit.add_argument("--output", required=True)
     fragment_audit_v2 = sub.add_parser("audit-fragment-endpoints-v2"); fragment_audit_v2.add_argument("--plan", required=True); fragment_audit_v2.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit_v2.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit_v2.add_argument("--log", action="append", required=True, help="PROJECT=/path/to/full.log"); fragment_audit_v2.add_argument("--checkpoint", action="append", required=True, help="PROJECT=/path/to/final.chk"); fragment_audit_v2.add_argument("--output", required=True)
     path_accept = sub.add_parser("build-path-acceptance"); path_accept.add_argument("--family", required=True); path_accept.add_argument("--ts-result", required=True); path_accept.add_argument("--mode-review", required=True); path_accept.add_argument("--mode-decision", required=True); path_accept.add_argument("--forward-audit", required=True); path_accept.add_argument("--forward-input", required=True); path_accept.add_argument("--forward-log", required=True); path_accept.add_argument("--forward-result", required=True); path_accept.add_argument("--forward-job", required=True); path_accept.add_argument("--forward-checkpoint", required=True); path_accept.add_argument("--reverse-audit", required=True); path_accept.add_argument("--reverse-input", required=True); path_accept.add_argument("--reverse-log", required=True); path_accept.add_argument("--reverse-result", required=True); path_accept.add_argument("--reverse-job", required=True); path_accept.add_argument("--reverse-checkpoint", required=True); path_accept.add_argument("--output", required=True)
-    path_accept_v2 = sub.add_parser("build-path-acceptance-v2"); path_accept_v2.add_argument("--family", required=True); path_accept_v2.add_argument("--ts-result", required=True); path_accept_v2.add_argument("--mode-review", required=True); path_accept_v2.add_argument("--mode-decision", required=True); path_accept_v2.add_argument("--forward-endpoint-review", required=True); path_accept_v2.add_argument("--reverse-endpoint-review", required=True); path_accept_v2.add_argument("--output", required=True)
+    path_accept_v2 = sub.add_parser("build-path-acceptance-v2"); path_accept_v2.add_argument("--family", required=True); path_accept_v2.add_argument("--ts-result", required=True); path_accept_v2.add_argument("--mode-review", required=True); path_accept_v2.add_argument("--mode-decision", required=True); path_accept_v2.add_argument("--forward-endpoint-review", required=True); path_accept_v2.add_argument("--reverse-endpoint-review", required=True); path_accept_v2.add_argument("--mechanism-network", required=True); path_accept_v2.add_argument("--output", required=True)
     path_validate = sub.add_parser("validate-path-acceptance"); path_validate.add_argument("artifact")
     terminal = sub.add_parser("ingest-terminal"); terminal.add_argument("--template", required=True); terminal.add_argument("--input", required=True); terminal.add_argument("--job", required=True); terminal.add_argument("--log", required=True); terminal.add_argument("--output", required=True)
     args = parser.parse_args()
@@ -3184,7 +3459,15 @@ def main() -> int:
             )
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "analyze-ts":
-            build_ts_result_v2(Path(args.log), Path(args.output))
+            source_values = {
+                "family": args.family, "input": args.input, "job": args.job,
+                "terminal_inspection_receipt": args.terminal_inspection_receipt,
+                "fetch_snapshot": args.fetch_snapshot,
+            }
+            if any(source_values.values()) and not all(source_values.values()):
+                raise ValueError("analyze-ts execution evidence must provide family/input/job/terminal receipt/fetch snapshot together")
+            sources = {key: Path(value) for key, value in source_values.items()} if all(source_values.values()) else None
+            build_ts_result_v2(Path(args.log), Path(args.output), sources)
         elif args.command == "mode-review":
             pairs = [tuple(map(int, raw.split(","))) for raw in args.forming + args.breaking]
             result_path = Path(args.result)
@@ -3278,14 +3561,14 @@ def main() -> int:
                     parsed[project] = Path(value)
                 assignments[label] = parsed
             result = audit_fragment_endpoint_results_v2(Path(args.plan), assignments["result"], assignments["job"], assignments["log"], assignments["checkpoint"], output_path)
-            _publish_json_exclusive(output_path, result)
+            print(json.dumps({"schema": "gaussian-irc-fragment-endpoint-validation-build/2", "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
         elif args.command == "build-path-acceptance":
             forward = {"audit": Path(args.forward_audit), "irc_input": Path(args.forward_input), "irc_log": Path(args.forward_log), "irc_result": Path(args.forward_result), "job": Path(args.forward_job), "checkpoint": Path(args.forward_checkpoint)}
             reverse = {"audit": Path(args.reverse_audit), "irc_input": Path(args.reverse_input), "irc_log": Path(args.reverse_log), "irc_result": Path(args.reverse_result), "job": Path(args.reverse_job), "checkpoint": Path(args.reverse_checkpoint)}
             result = build_path_acceptance_artifact(Path(args.family), Path(args.ts_result), Path(args.mode_review), Path(args.mode_decision), forward, reverse, Path(args.output))
             print(json.dumps({"schema": "gaussian-ts-irc-path-acceptance-build/1", "edge_id": result["edge_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
         elif args.command == "build-path-acceptance-v2":
-            result = build_path_acceptance_v2_artifact(Path(args.family), Path(args.ts_result), Path(args.mode_review), Path(args.mode_decision), Path(args.forward_endpoint_review), Path(args.reverse_endpoint_review), Path(args.output))
+            result = build_path_acceptance_v2_artifact(Path(args.family), Path(args.ts_result), Path(args.mode_review), Path(args.mode_decision), Path(args.forward_endpoint_review), Path(args.reverse_endpoint_review), Path(args.mechanism_network), Path(args.output))
             print(json.dumps({"schema": "gaussian-ts-irc-path-acceptance-build/2", "edge_id": result["edge_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
         elif args.command == "validate-path-acceptance":
             result = validate_path_acceptance_artifact(Path(args.artifact))

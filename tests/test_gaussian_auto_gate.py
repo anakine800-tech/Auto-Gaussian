@@ -1162,6 +1162,39 @@ class GaussianAutoGateTests(unittest.TestCase):
                 CALC_TEST.ADAPTER.asym_contract.validate_schema_document(schema)
                 CALC_TEST.ADAPTER.asym_contract._validate_schema_instance(document, schema, schema)
 
+    def test_resource_bound_wrapper_dry_run_replaces_stale_proposal_with_exact_v9_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); source = root / "input.gjf"; source.write_text("#p hf/sto-3g\n\nX\n\n0 1\nH 0 0 0\n\n")
+            summary = {
+                "project": "safejob", "remote_workdir": "/home/user100/SDL/safejob", "input_sha256": AUTO.transport.sha256(source),
+                "protocol": {"route": "#p hf/sto-3g", "mem": "12GB", "nproc": 8}, "charge": 0, "multiplicity": 1,
+                "work_kind": "ordinary", "gaussian_input": str(source),
+                "input_approval": {"status": "validated_exact_input_approval", "schema": AUTO.transport.INPUT_APPROVAL_SCHEMA, "sha256": "a" * 64, "payload_sha256": "b" * 64, "input_sha256": AUTO.transport.sha256(source), "work_kind": "ordinary"},
+            }
+            summary["live_approval_requirement"] = AUTO.transport.live_approval_scope_proposal(summary)
+            self.assertEqual(summary["live_approval_requirement"]["required_schema"], AUTO.transport.LIVE_APPROVAL_V3_SCHEMA)
+            args = AUTO.build_parser().parse_args([
+                "auto", str(source), "--project", "safejob", "--local-dir", str(root / "bundle"), "--work-kind", "ordinary", "--confirmed", "--dry-run",
+                "--execution-batch-ledger", str(root / "ledger.json"), "--scientific-task-id", "scientific-task-fixture", "--idempotency-key", "once",
+                "--estimated-core-hours", "0.000001", "--estimated-core-hours-evidence-source", "fixture", "--estimated-core-hours-evidence-sha256", "c" * 64,
+                "--resource-policy", str(root / "policy.json"), "--resource-gate", str(root / "gate.json"), "--scheduler-resource-snapshot", str(root / "scheduler.json"),
+                "--resource-tier", "simple", "--resource-cores", "8", "--resource-memory-gb", "12", "--walltime-seconds", "3600",
+            ])
+            ledger = {"batch": {"batch_id": "batch", "review_sha256": "d" * 64}, "tasks": [{"scientific_task_id": "scientific-task-fixture", "identity": {"relevant_input_sha256": summary["input_sha256"]}}]}
+            policy = {"policy_id": "policy", "payload_sha256": "e" * 64}
+            gate = {"gate_id": "gate", "gate_sha256": "f" * 64, "policy_sha256": "e" * 64, "scheduler_snapshot": {"payload_sha256": "1" * 64}}
+            scheduler = {"payload_sha256": "1" * 64}
+            with mock.patch.object(AUTO, "prepare_source", return_value=copy.deepcopy(summary)), mock.patch.object(AUTO.transport.resource_efficiency, "load", side_effect=[ledger, policy, gate, scheduler]), mock.patch.object(AUTO.transport.resource_efficiency, "validate_ledger", return_value=ledger), mock.patch.object(AUTO.transport.resource_efficiency, "validate_policy", return_value=policy), mock.patch.object(AUTO.transport.resource_efficiency, "_validate_gate_binding", return_value=gate), mock.patch.object(AUTO.transport.resource_efficiency, "validate_scheduler_snapshot", return_value=scheduler), mock.patch.object(AUTO.subprocess, "run", return_value=SimpleNamespace(returncode=0)):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    AUTO.command_auto(args)
+            preflight = json.loads(output.getvalue())["approved_preflight"]
+            proposal = preflight["live_approval_requirement"]
+            self.assertEqual(proposal["required_schema"], AUTO.transport.LIVE_APPROVAL_V9_SCHEMA)
+            required_schema, exact_scope = AUTO.transport.expected_live_approval_scope(preflight)
+            self.assertEqual((required_schema, proposal["scope_proposal"]), (AUTO.transport.LIVE_APPROVAL_V9_SCHEMA, exact_scope))
+            self.assertNotEqual(proposal["scope_proposal"], summary["live_approval_requirement"]["scope_proposal"])
+
 
 if __name__ == "__main__":
     unittest.main()

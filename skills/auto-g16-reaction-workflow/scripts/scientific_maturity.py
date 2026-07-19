@@ -475,7 +475,7 @@ def _normalize_review(value: dict[str, Any], *, require_hash: bool) -> dict[str,
         require(isinstance(upgrade["approved"], bool), "resource upgrade approved must be boolean")
         if upgrade["approved"]:
             binding = _exact(upgrade["successful_pilot_evidence"], {"path", "sha256", "size_bytes", "schema", "payload_sha256"}, "successful pilot evidence")
-            require(binding["schema"] == "gaussian-ts-irc-path-acceptance/1", "resource upgrade requires owner-validated successful same-edge TS/IRC evidence")
+            require(binding["schema"] in {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"}, "resource upgrade requires owner-validated successful same-edge TS/IRC evidence")
             _string(upgrade["scale_memory_cost_rationale"], "resource upgrade rationale")
         else:
             require(upgrade["successful_pilot_evidence"] is None, "unapproved resource upgrade must not claim successful-pilot evidence")
@@ -495,10 +495,11 @@ def _normalize_review(value: dict[str, Any], *, require_hash: bool) -> dict[str,
             require(complete and evidence_refs and not blockers, "accepted path validation requires complete TS/mode/IRC/endpoint evidence refs without blockers")
         if any(item[key] for key in ("ts_exactly_one_imaginary", "mode_confirmed_along_coordinate", "irc_forward_terminated", "irc_reverse_terminated", "irc_endpoints_identified", "endpoint_reopt_freq_zero_imaginary", "endpoint_matches_expected_minima")):
             require(evidence_refs, "recorded TS/IRC/endpoint facts require auditable evidence refs")
-        for field, schema in (("ts_mode_evidence", "gaussian-calculation-attempt-link/1"), ("irc_path_evidence", "gaussian-ts-irc-path-acceptance/1"), ("energy_lineage", "gaussian-energy-lineage/1")):
+        for field, schema in (("ts_mode_evidence", "gaussian-calculation-attempt-link/1"), ("irc_path_evidence", {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"}), ("energy_lineage", "gaussian-energy-lineage/1")):
             if item[field] is not None:
                 _exact(item[field], {"path", "sha256", "size_bytes", "schema", "payload_sha256"}, f"path-validation {field}")
-                require(item[field]["schema"] == schema, f"path {field} must use {schema}")
+                allowed = schema if isinstance(schema, set) else {schema}
+                require(item[field]["schema"] in allowed, f"path {field} must use one of {sorted(allowed)}")
         reopt_ids = _string_list(item["endpoint_reopt_minimum_ids"], "endpoint re-Opt/Freq minimum IDs")
         require(len(reopt_ids) in {0, 2}, "endpoint re-Opt/Freq evidence must bind exactly two minima or remain empty")
         paths.append({**item, "edge_id": _identifier(item["edge_id"], "path-validation edge ID"), "evidence_refs": evidence_refs, "endpoint_reopt_minimum_ids": reopt_ids, "blockers": blockers})
@@ -666,7 +667,8 @@ def _build_gate(plan: dict[str, Any], plan_binding: dict[str, Any], review: dict
         if not upgrade["approved"]:
             continue
         try:
-            evidence, evidence_path = _resolve(upgrade["successful_pilot_evidence"], review_path, "gaussian-ts-irc-path-acceptance/1")
+            evidence, evidence_path = _resolve(upgrade["successful_pilot_evidence"], review_path)
+            require(evidence.get("schema") in {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"}, "successful pilot evidence schema is unsupported")
             _load_ts_irc_owner().validate_path_acceptance_artifact(evidence_path)
             if evidence.get("edge_id") == upgrade["edge_id"]:
                 valid_upgrades.add(key)
@@ -779,7 +781,8 @@ def _build_gate(plan: dict[str, Any], plan_binding: dict[str, Any], review: dict
                 owner_ts_mode_evidence_valid = False
         if path and path.get("irc_path_evidence") is not None:
             try:
-                irc_evidence, irc_evidence_path = _resolve(path["irc_path_evidence"], review_path, "gaussian-ts-irc-path-acceptance/1")
+                irc_evidence, irc_evidence_path = _resolve(path["irc_path_evidence"], review_path)
+                require(irc_evidence.get("schema") in {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"}, "IRC path evidence schema is unsupported")
                 _load_ts_irc_owner().validate_path_acceptance_artifact(irc_evidence_path)
                 owner_irc_path_evidence_valid = irc_evidence.get("accepted") is True and irc_evidence.get("edge_id") == edge_id
             except Exception:

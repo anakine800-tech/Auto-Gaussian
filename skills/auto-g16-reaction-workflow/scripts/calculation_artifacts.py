@@ -906,7 +906,15 @@ def _validate_displacements(rows: Any, label: str, *, require_nonempty: bool = T
             _finite_number(row[axis], f"{label} {axis}")
 
 
-def _validate_specialist_ts_result(result: dict[str, Any]) -> None:
+def _validate_specialist_ts_result(result: dict[str, Any], path: Path | None = None) -> None:
+    if result.get("schema") == "gaussian-ts-freq-result/2":
+        require(path is not None, "source-bound TS/Freq result /2 requires its owner path")
+        try:
+            ts_irc.require_accepted_ts_result_v2(result, path)
+        except (OSError, ValueError) as exc:
+            raise AdapterError(f"TS/Freq result /2 owner replay failed: {exc}") from exc
+        require(result.get("first_order_saddle_candidate") is True, "TS/Freq result /2 is not an accepted first-order candidate")
+        return
     _exact_keys(
         result,
         {
@@ -1028,15 +1036,15 @@ def _validate_mode_decision(
 
 
 def _validate_candidate_result_identity(
-    candidate: dict[str, Any], parsed: dict[str, Any]
+    candidate: dict[str, Any], parsed: dict[str, Any], parsed_path: Path | None = None,
 ) -> None:
     require(candidate.get("schema") == "gaussian-asymmetric-ts-candidate/1", "energy projection requires an asymmetric candidate")
     try:
         asym_contract.validate_structure(candidate, "candidate")
     except ValueError as exc:
         raise AdapterError(f"asymmetric-catalysis specialist validator rejected candidate: {exc}") from exc
-    require(parsed.get("schema") == "gaussian-ts-freq-result/1", "V1 energy projection accepts only specialist TS/Freq JSON, never raw logs")
-    _validate_specialist_ts_result(parsed)
+    require(parsed.get("schema") in {"gaussian-ts-freq-result/1", "gaussian-ts-freq-result/2"}, "energy projection accepts only owner-validated specialist TS/Freq JSON, never raw logs")
+    _validate_specialist_ts_result(parsed, parsed_path)
     atom_map = candidate.get("atom_map")
     require(isinstance(atom_map, list) and atom_map, "energy candidate atom map is missing")
     coordinates = parsed["final_coordinates"]
@@ -1067,7 +1075,7 @@ def _validated_energy_review_chain(
         review["sources"]["parsed_result"], review_path, "energy review parsed result"
     )
     require(candidate is not None and parsed is not None, "energy review candidate and parsed result must be JSON artifacts")
-    _validate_candidate_result_identity(candidate, parsed)
+    _validate_candidate_result_identity(candidate, parsed, parsed_path)
     require(review["candidate_id"] == candidate.get("candidate_id"), "energy review candidate ID mismatch")
     mode_path: Path | None = None
     mode_review: dict[str, Any] | None = None
@@ -1371,7 +1379,7 @@ def build_attempt_link(
     require(input_path.suffix.lower() == ".gjf", "input handoff does not reference a .gjf input")
     _validate_sanitized_job(job)
     _validate_terminal_intake(intake)
-    _validate_specialist_ts_result(parsed)
+    _validate_specialist_ts_result(parsed, parsed_result_path)
     _validate_mode_review(mode_review, parsed_result_path, parsed)
     _validate_mode_decision(decision, parsed_result_path, mode_review_path)
     require(
@@ -1429,9 +1437,10 @@ def build_attempt_link(
         and parsed["first_order_saddle_candidate"] is True,
         "scientific decision is not downstream of a review-eligible TS/Freq intake",
     )
+    expected_result_schema = parsed["schema"]
     require(
         intake["next_required_artifacts"]
-        == ["gaussian-ts-freq-result/1", "gaussian-ts-mode-review/1", "gaussian-ts-mode-decision/1"],
+        == [expected_result_schema, "gaussian-ts-mode-review/1", "gaussian-ts-mode-decision/1"],
         "terminal next-required-artifact list differs from the specialist TS/Freq contract",
     )
     if parsed["imaginary_modes"]:
@@ -1475,8 +1484,8 @@ def _validate_referenced_document(document: dict[str, Any], path: Path, label: s
     if schema in ADAPTER_SCHEMA_PATHS:
         _validate_adapter_document(document)
         _validate_payload(document)
-    elif schema == "gaussian-ts-freq-result/1":
-        _validate_specialist_ts_result(document)
+    elif schema in {"gaussian-ts-freq-result/1", "gaussian-ts-freq-result/2"}:
+        _validate_specialist_ts_result(document, path)
     elif schema == "gaussian-asymmetric-catalysis-study/1":
         try:
             asym_contract.validate_study(document)

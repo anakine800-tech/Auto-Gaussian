@@ -30,7 +30,7 @@ ROLE_SCHEMAS = {
         "gaussian-scientific-maturity-gate/2",
     },
     "ts_attempt": {"gaussian-calculation-attempt-link/1"},
-    "ts_path_acceptance": {"gaussian-ts-irc-path-acceptance/1"},
+    "ts_path_acceptance": {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"},
     "energy_lineage": {"gaussian-energy-lineage/1"},
 }
 VALIDATOR_IMPLEMENTATIONS = {
@@ -38,6 +38,7 @@ VALIDATOR_IMPLEMENTATIONS = {
     "gaussian-scientific-maturity-gate/2": "scientific_maturity_v2.validate_gate",
     "gaussian-calculation-attempt-link/1": "calculation_artifacts.validate_artifact",
     "gaussian-ts-irc-path-acceptance/1": "ts_irc.validate_path_acceptance_artifact",
+    "gaussian-ts-irc-path-acceptance/2": "ts_irc.validate_path_acceptance_v2_artifact",
     "gaussian-energy-lineage/1": "calculation_artifacts.validate_artifact",
 }
 
@@ -158,7 +159,7 @@ def _owner_validate(path: Path, schema: str) -> dict[str, Any]:
         import calculation_artifacts
         calculation_artifacts.validate_artifact(path)
         return rw.load_json(path)
-    if schema == "gaussian-ts-irc-path-acceptance/1":
+    if schema in {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"}:
         ts_path = Path(__file__).resolve().parents[2] / "auto-g16-ts-irc/scripts/ts_irc.py"
         ts_owner = _load_external_module("thermochemistry_readiness_ts_owner", ts_path)
         return ts_owner.validate_path_acceptance_artifact(path)

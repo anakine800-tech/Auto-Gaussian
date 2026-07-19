@@ -20,7 +20,7 @@
   "$defs": {
     "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
     "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"enum": ["gaussian-scientific-maturity-gate/1", "gaussian-scientific-maturity-gate/2", "gaussian-calculation-attempt-link/1", "gaussian-ts-irc-path-acceptance/1", "gaussian-energy-lineage/1"]}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 0}, "schema": {"enum": ["gaussian-scientific-maturity-gate/1", "gaussian-scientific-maturity-gate/2", "gaussian-calculation-attempt-link/1", "gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2", "gaussian-energy-lineage/1"]}, "payload_sha256": {"$ref": "#/$defs/sha"}}},
     "source": {"type": "object", "additionalProperties": false, "required": ["source_id", "role", "artifact"], "properties": {"source_id": {"$ref": "#/$defs/id"}, "role": {"enum": ["minimum_evidence", "ts_attempt", "ts_path_acceptance", "energy_lineage"]}, "artifact": {"$ref": "#/$defs/ref"}}}
   }
 }

@@ -144,9 +144,9 @@ class TsIrcTests(unittest.TestCase):
         return result, output
 
     def _terminal_job(
-        self, project: str, input_path: Path, log_path: Path, *, state: str = "completed"
+        self, project: str, input_path: Path, log_path: Path, *, state: str = "completed", inspection_v2: bool = False,
     ) -> dict:
-        return {
+        job = {
             "schema": "gaussian-rtwin-pbs/1",
             "project": project,
             "job_id": "900.master",
@@ -170,6 +170,15 @@ class TsIrcTests(unittest.TestCase):
                 ),
             },
         }
+        if inspection_v2:
+            inspection = job["last_inspection"]
+            inspection.update({
+                "schema": "gaussian-job-inspection/2", "source": "single_remote_read_only_snapshot",
+                "freshness": "fresh", "transport_classification": "success", "transport_returncode": 0,
+                "termination_counts_known": True, "evidence_conflict": False,
+            })
+            inspection["evidence_sha256"] = TS._transport_digest(inspection)
+        return job
 
     def _terminal_template(
         self, project: str, input_path: Path, task_kind: str, acceptance: dict
@@ -276,6 +285,22 @@ class TsIrcTests(unittest.TestCase):
             )
             self.assertEqual(incomplete["outcome"], "incomplete_frequency_analysis")
             self.assertEqual(incomplete["acceptance_status"], "not_accepted")
+
+    def test_terminal_intake_accepts_exact_inspection_v2_and_rejects_unknown_or_tampered(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); input_path = root / "ts.gjf"; input_path.write_text("%chk=ts.chk\n#p opt=(ts) freq\n\nTS\n\n0 1\nH 0 0 0\nH 1 0 0\n\n")
+            log_path = root / "ts.log"; log_path.write_text(" Charge = 0 Multiplicity = 1\n" + LOG)
+            template = self._terminal_template("test_v2", input_path, "ts_freq", {"expected_frequency_count": 3, "required_raw_imaginary_frequency_count": 1})
+            template_path = root / "template.json"; template_path.write_text(json.dumps(template))
+            job = self._terminal_job("test_v2", input_path, log_path, inspection_v2=True)
+            job_path = root / "job.json"; job_path.write_text(json.dumps(job))
+            self.assertEqual(TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)["outcome"], "ready_for_manual_mode_review")
+            job["last_inspection"]["freshness"] = "stale"; job_path.write_text(json.dumps(job))
+            with self.assertRaisesRegex(ValueError, "stale, malformed, tampered"):
+                TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)
+            job["last_inspection"]["schema"] = "gaussian-job-inspection/99"; job_path.write_text(json.dumps(job))
+            with self.assertRaisesRegex(ValueError, "terminal Gaussian inspection"):
+                TS.ingest_terminal_artifacts(template_path, input_path, job_path, log_path)
 
     def test_offline_irc_terminal_intake_requires_endpoint_identity_review(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

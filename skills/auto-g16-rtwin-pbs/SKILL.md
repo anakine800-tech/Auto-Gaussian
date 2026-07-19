@@ -168,10 +168,13 @@ For a local dry run that performs no SSH, PBS or Gaussian action:
 ```
 
 A dry run may omit the input and live receipts for diagnostic use, but then
-reports `live_submission_ready: false` and the exact missing gates. With a
-validated receipt, prepare/dry-run also reports `required_schema` and a
-non-authorizing `scope_proposal`; it never creates an approved record. A
-supplied
+reports `live_submission_ready: false` and the exact missing gates. The
+`prepare` subcommand is only an input/scientific preflight: even with a valid
+input receipt it emits an `incomplete_non_authorizing_preflight` marker and no
+live-approval scope. Only `auto --dry-run` with the complete execution-batch,
+positive core-hour estimate/evidence, policy, gate, scheduler snapshot and
+exact resource tuple emits the canonical non-authorizing `/9`, `/10`, or `/11`
+scope consumed by the live validator; it never creates an approved record. A supplied
 input receipt is validated; a supplied live receipt is evaluated only after
 the input receipt succeeds. A plain `stage` remains a pure offline packaging
 operation; its `job.json` explicitly

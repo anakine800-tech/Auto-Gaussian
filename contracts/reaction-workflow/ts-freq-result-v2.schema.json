@@ -3,14 +3,20 @@
   "$id": "https://local.invalid/contracts/reaction-workflow/ts-freq-result-v2.schema.json",
   "title": "Auto-G16 source-bound TS frequency result v2",
   "type": "object",
-  "required": ["schema", "source_log", "parser", "atom_count", "linearity", "expected_frequency_count", "frequency_count", "frequency_parse_complete", "frequency_parse_diagnostics", "modes", "first_order_saddle_candidate", "payload_sha256"],
+  "required": ["schema", "source_log", "parser", "execution", "atom_count", "linearity", "expected_frequency_count", "frequency_count", "frequency_parse_complete", "frequency_parse_diagnostics", "modes", "first_order_saddle_candidate", "payload_sha256"],
   "properties": {
     "schema": {"const": "gaussian-ts-freq-result/2"},
     "source_log": {"$ref": "#/$defs/ref"},
     "parser": {"$ref": "#/$defs/parser"},
-    "atom_count": {"type": "integer", "minimum": 1},
-    "linearity": {"enum": ["linear", "nonlinear"]},
-    "expected_frequency_count": {"type": "integer", "minimum": 0},
+    "execution": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/execution"}
+      ]
+    },
+    "atom_count": {"type": "integer", "minimum": 0},
+    "linearity": {"enum": ["linear", "nonlinear", "undetermined"]},
+    "expected_frequency_count": {"type": ["integer", "null"], "minimum": 0},
     "frequency_count": {"type": "integer", "minimum": 0},
     "frequency_parse_complete": {"type": "boolean"},
     "frequency_parse_diagnostics": {"type": "array", "items": {"type": "string"}},
@@ -18,9 +24,32 @@
     "first_order_saddle_candidate": {"type": "boolean"},
     "payload_sha256": {"$ref": "#/$defs/sha"}
   },
+  "anyOf": [
+    {"properties": {"first_order_saddle_candidate": {"const": false}}},
+    {"properties": {
+      "first_order_saddle_candidate": {"const": true},
+      "execution": {"$ref": "#/$defs/execution"},
+      "atom_count": {"type": "integer", "minimum": 1},
+      "linearity": {"enum": ["linear", "nonlinear"]},
+      "expected_frequency_count": {"type": "integer", "minimum": 1},
+      "frequency_parse_complete": {"const": true}
+    }}
+  ],
   "$defs": {
     "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes"], "properties": {"path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}},
-    "parser": {"type": "object", "additionalProperties": false, "required": ["name", "version", "schema"], "properties": {"name": {"const": "auto-g16-ts-irc"}, "version": {"const": "2.0.0"}, "schema": {"const": "auto-g16-ts-irc-parser/2"}}}
+    "parser": {"type": "object", "additionalProperties": false, "required": ["name", "version", "schema"], "properties": {"name": {"const": "auto-g16-ts-irc"}, "version": {"const": "2.0.0"}, "schema": {"const": "auto-g16-ts-irc-parser/2"}}},
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project", "job_id", "attempt_id", "family", "input", "job", "terminal_inspection_receipt", "fetch_snapshot"],
+      "properties": {
+        "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "job_id": {"type": "string", "minLength": 1},
+        "attempt_id": {"type": "string", "pattern": "^qsub-attempt-.+"},
+        "family": {"$ref": "#/$defs/ref"}, "input": {"$ref": "#/$defs/ref"},
+        "job": {"$ref": "#/$defs/ref"}, "terminal_inspection_receipt": {"$ref": "#/$defs/ref"},
+        "fetch_snapshot": {"$ref": "#/$defs/ref"}
+      }
+    }
   }
 }

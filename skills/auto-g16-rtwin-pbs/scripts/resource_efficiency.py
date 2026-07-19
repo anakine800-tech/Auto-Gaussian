@@ -28,6 +28,7 @@ UNRESOLVED_STATES = {"submission_uncertain", "submitted", "queued", "running"}
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$")
 RESOURCE_TIERS = {"simple": (8, 12), "general": (22, 50), "complex": (44, 120)}
+MAX_SCHEDULER_CLOCK_SKEW_SECONDS = 5.0
 
 
 class ResourceError(ValueError):
@@ -164,8 +165,18 @@ def validate_scheduler_snapshot(document: dict[str, Any], *, now: str | None = N
     if freshness["classification"] != "fresh" or age > maximum:
         raise ResourceError("scheduler resource snapshot is stale or freshness is unknown")
     if now is not None:
-        observed_age = max(0.0, (_time(now, "gate evaluated_at") - collected).total_seconds())
-        if observed_age > maximum:
+        gate_time = _time(now, "gate evaluated_at")
+        future_seconds = (collected - gate_time).total_seconds()
+        if future_seconds > MAX_SCHEDULER_CLOCK_SKEW_SECONDS:
+            raise ResourceError("scheduler resource snapshot collected_at is in the future")
+        observed_age = max(0.0, (gate_time - collected).total_seconds())
+        if age - observed_age > MAX_SCHEDULER_CLOCK_SKEW_SECONDS:
+            raise ResourceError("scheduler resource snapshot declared age is inconsistent with collected_at")
+        # Never let a smaller declared age understate freshness at a later
+        # gate/reservation/pre-qsub replay. The immutable declaration may be
+        # older than this replay, so freshness is decided by the larger age.
+        effective_age = max(age, observed_age)
+        if effective_age > maximum:
             raise ResourceError("scheduler resource snapshot expired before gate evaluation")
     if not isinstance(document["attempts"], list):
         raise ResourceError("scheduler attempts must be an array")
@@ -364,7 +375,8 @@ def _validate_gate_binding(gate: Any, *, allow_historical: bool) -> dict[str, An
     for key in ("cores", "memory_gb", "walltime_seconds"):
         if _number(requested[key], key, integer=True) < 1:
             raise ResourceError(f"{key} must be positive")
-    _number(requested["estimated_core_hours"], "estimated_core_hours")
+    if _number(requested["estimated_core_hours"], "estimated_core_hours") <= 0:
+        raise ResourceError("new resource gate estimated_core_hours must be positive")
     aggregate = _exact(gate["aggregate_before"], {
         "estimated_core_hours", "remaining_core_hours", "unresolved_attempts",
         "active_attempts", "total_cores", "total_memory_gb",
@@ -535,6 +547,8 @@ def evaluate_gate(
     }
     if any(request[key] < 1 for key in ("cores", "memory_gb", "walltime_seconds")):
         raise ResourceError("per-job cores, memory, and walltime must be positive")
+    if request["estimated_core_hours"] <= 0:
+        raise ResourceError("new resource gate estimated_core_hours must be positive")
     limits = policy["limits"]
     scheduler_attempts = scheduler["attempts"]
     ledger_unresolved = [item for item in ledger["attempts"] if item["state"] in UNRESOLVED_STATES]

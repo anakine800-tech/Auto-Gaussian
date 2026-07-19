@@ -1976,7 +1976,7 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
             or not isinstance(exact_execution["estimated_core_hours"], (int, float))
             or isinstance(exact_execution["estimated_core_hours"], bool)
             or not math.isfinite(float(exact_execution["estimated_core_hours"]))
-            or float(exact_execution["estimated_core_hours"]) < 0
+            or float(exact_execution["estimated_core_hours"]) <= 0
             or any(
                 not isinstance(exact_execution[key], str)
                 or SHA256_RE.fullmatch(exact_execution[key]) is None

@@ -93,7 +93,13 @@ def prepare_source(args, *, maturity_action: str = "ts_input") -> dict[str, Any]
         project, audit, maturity, requested_work_kind, input_approval
     )
     if input_approval["status"] == "validated_exact_input_approval":
-        summary["live_approval_requirement"] = transport.live_approval_scope_proposal(summary)
+        summary["live_approval_requirement"] = {
+            "status": "incomplete_non_authorizing_preflight",
+            "required_schema": None,
+            "scope_proposal": None,
+            "proposal_only": False,
+            "reason": "prepare has no exact execution/resource binding; use auto --dry-run with the complete resource arguments",
+        }
     summary = {**summary, **detail}
     if workflow is not None:
         summary["workflow"] = workflow
@@ -170,8 +176,19 @@ def command_auto(args) -> None:
                 "memory_gb": args.resource_memory_gb, "walltime_seconds": args.walltime_seconds,
             },
         }
+        if summary["execution"]["estimated_core_hours"] <= 0:
+            fail("new live execution binding requires estimated_core_hours > 0")
         if gate["policy_sha256"] != policy["payload_sha256"] or gate["scheduler_snapshot"]["payload_sha256"] != scheduler["payload_sha256"]:
             fail("auto resource policy/gate/scheduler binding mismatch")
+        # prepare_source can only propose the pre-execution approval generation.
+        # Once the exact attempt and resource tuple exist, replace that proposal
+        # with the canonical owner projection consumed by validate_live_approval.
+        # Keeping the earlier /3-/5 scope here would make the wrapper display a
+        # stale promise while the submitter correctly requires /9-/11.
+        if summary["input_approval"]["status"] == "validated_exact_input_approval":
+            summary["live_approval_requirement"] = transport.live_approval_scope_proposal(summary)
+        if isinstance(summary.get("local_dir"), str):
+            transport.atomic_json(Path(summary["local_dir"]) / "automation_preflight.json", summary)
     if "scientific_maturity" in summary and "exact_action_authorization" not in summary["scientific_maturity"]:
         fail("protected auto submission requires an exact offline scientific action authorization before live approval")
     if not args.dry_run and summary["input_approval"]["status"] != "validated_exact_input_approval":

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/minimum-lineage-handoff-v2.schema.json",
+  "title": "Auto-G16 exact execution-bound minimum lineage handoff v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "source_kind", "lineage_id", "minimum_id", "state_id", "sources", "workflow_settings", "stable_atom_ids", "atom_mapping", "formula", "charge", "multiplicity", "structure_review", "review", "workflow_states", "acceptance", "migration_policy", "immutability", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-minimum-lineage-handoff/2"},
+    "source_kind": {"enum": ["conformer_selection", "endpoint_structure_review"]},
+    "lineage_id": {"type": "string", "minLength": 1},
+    "minimum_id": {"type": "string", "minLength": 1},
+    "state_id": {"type": "string", "minLength": 1},
+    "sources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["origin", "input_approval", "input", "job", "result", "raw_log", "checkpoint", "optimized_coordinates", "terminal_inspection_receipt", "fetch_snapshot"],
+      "properties": {
+        "origin": {"$ref": "#/$defs/jsonRef"}, "input_approval": {"$ref": "#/$defs/jsonRef"},
+        "input": {"$ref": "#/$defs/fileRef"}, "job": {"$ref": "#/$defs/jsonRef"},
+        "result": {"$ref": "#/$defs/jsonRef"}, "raw_log": {"$ref": "#/$defs/fileRef"},
+        "checkpoint": {"$ref": "#/$defs/fileRef"}, "optimized_coordinates": {"$ref": "#/$defs/fileRef"},
+        "terminal_inspection_receipt": {"$ref": "#/$defs/jsonRef"}, "fetch_snapshot": {"$ref": "#/$defs/jsonRef"}
+      }
+    },
+    "workflow_settings": {"type": "object", "additionalProperties": false, "required": ["temperature_k", "standard_state", "expected_stages"], "properties": {"temperature_k": {"type": "number", "exclusiveMinimum": 0}, "standard_state": {"enum": ["1atm", "1M"]}, "expected_stages": {"type": "integer", "minimum": 1}}},
+    "stable_atom_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "atom_mapping": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/atomMap"}},
+    "formula": {"type": "string", "minLength": 1}, "charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1},
+    "structure_review": {"$ref": "#/$defs/structureReview"},
+    "review": {"type": "object", "additionalProperties": false, "required": ["decision", "explicit_human_review", "reviewer", "rationale", "reviewed_at"], "properties": {"decision": {"const": "accepted"}, "explicit_human_review": {"const": true}, "reviewer": {"type": "string", "minLength": 1}, "rationale": {"type": "string", "minLength": 1}, "reviewed_at": {"type": "string", "minLength": 1}}},
+    "workflow_states": {"type": "object", "additionalProperties": false, "required": ["human_selected", "input_draft_generated", "exact_input_approved", "job_observed", "submission_authorized_by_this_artifact", "result_accepted"], "properties": {"human_selected": {"const": true}, "input_draft_generated": {"const": true}, "exact_input_approved": {"const": true}, "job_observed": {"const": true}, "submission_authorized_by_this_artifact": {"const": false}, "result_accepted": {"const": true}}},
+    "acceptance": {"type": "object", "additionalProperties": false, "required": ["status", "raw_log_replayed", "complete_frequency_gate_passed", "zero_imaginary_frequencies", "identity_connectivity_stereochemistry_reviewed"], "properties": {"status": {"const": "minimum_accepted"}, "raw_log_replayed": {"const": true}, "complete_frequency_gate_passed": {"const": true}, "zero_imaginary_frequencies": {"const": true}, "identity_connectivity_stereochemistry_reviewed": {"const": true}}},
+    "migration_policy": {"type": "object", "additionalProperties": false, "required": ["new_bindings", "absolute_paths", "legacy_absolute_artifacts", "in_place_rewrite"], "properties": {"new_bindings": {"const": "package_root_relative_only"}, "absolute_paths": {"const": "rejected"}, "legacy_absolute_artifacts": {"const": "owner_controlled_rebuild_or_reviewed_repackage_required"}, "in_place_rewrite": {"const": false}}},
+    "immutability": {"const": "append_only_new_revision"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "fileRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes"], "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}},
+    "jsonRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}, "schema": {"type": "string", "minLength": 1}, "payload_sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}}},
+    "atomMap": {"type": "object", "additionalProperties": false, "required": ["atom_id", "candidate_index", "input_index", "result_index", "element"], "properties": {"atom_id": {"type": "string", "minLength": 1}, "candidate_index": {"type": "integer", "minimum": 1}, "input_index": {"type": "integer", "minimum": 1}, "result_index": {"type": "integer", "minimum": 1}, "element": {"type": "string", "pattern": "^[A-Z][a-z]?$"}}},
+    "structureReview": {"type": "object", "additionalProperties": false, "required": ["identity_label", "formula", "connectivity", "stereochemistry", "connectivity_reviewed", "stereochemistry_reviewed"], "properties": {"identity_label": {"type": "string", "minLength": 1}, "formula": {"type": "string", "minLength": 1}, "connectivity": {"type": "array"}, "stereochemistry": {"type": "array"}, "connectivity_reviewed": {"const": true}, "stereochemistry_reviewed": {"const": true}}}
+  }
+}

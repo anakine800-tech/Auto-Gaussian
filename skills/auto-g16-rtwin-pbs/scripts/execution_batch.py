@@ -340,7 +340,9 @@ def validate_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
         if approval_hash in approval_hashes:
             raise BatchError("fresh live approval hash must be unique per attempt")
         approval_hashes.add(approval_hash)
-        _core_hours(attempt["estimated_core_hours"], "estimated_core_hours")
+        estimate = _core_hours(attempt["estimated_core_hours"], "estimated_core_hours")
+        if isinstance(attempt.get("resource_gate"), dict) and attempt["resource_gate"].get("status") == "passed" and estimate <= 0:
+            raise BatchError("new resource-bound attempt estimated_core_hours must be positive")
         if attempt["consumed_core_hours"] is not None:
             _core_hours(attempt["consumed_core_hours"], "consumed_core_hours")
         parse_time(attempt["reserved_at"])

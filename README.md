@@ -67,6 +67,12 @@ every component remain non-executable and non-authorizing; exact input review,
 stage dependency evidence, and a fresh live approval per physical attempt are
 still independent requirements. See `docs/v2.5-integration-approval.md`.
 
+`gaussian_auto prepare` is intentionally limited to non-authorizing input and
+scientific preflight and never proposes a usable live approval. Generate an
+exact live `/9`–`/11` scope only with resource-bound `gaussian_auto auto
+--dry-run`; its complete execution/resource arguments are replayed again before
+any protected submit.
+
 ## 2.5.0 release
 
 Auto-Gaussian 2.5.0 is the current stable source release. The annotated
