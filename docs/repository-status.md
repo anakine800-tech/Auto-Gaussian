@@ -4,11 +4,12 @@
 
 Status date: 2026-07-19
 
-Auto-Gaussian 2.5.0 is the current stable source release. `main` and the
-annotated `v2.5.0` tag identify exact commit
-`18d7f62af3b24cdd0fbe5687f4c0e779f243d572`. Earlier tags, checklists, and
-historical evidence remain immutable release records rather than pending
-publication work.
+Auto-Gaussian 2.5.0 is the current stable source release. The annotated
+`v2.5.0` tag permanently identifies exact release commit
+`18d7f62af3b24cdd0fbe5687f4c0e779f243d572`. The engineering-maintenance slice
+started from the then-matching `main` baseline; later `main` development does
+not move that tag. Earlier tags, checklists, and historical evidence remain
+immutable release records rather than pending publication work.
 
 The release scope is the offline human-AI scientific decision,
 method-evidence, bounded hash-bound TS-seed, closure-priority, PBS
@@ -43,13 +44,16 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   still checks symlinks, size, file SHA-256, schema, payload SHA-256, and
   deterministic reconstruction. No persistent trust cache exists.
 - Runtime configuration has an offline closed-schema validator for duplicate
-  keys, unknown fields, path classes, parent traversal, and config symlinks.
+  keys, unknown fields, path classes, parent traversal, and leaf or ancestor
+  config symlinks. Reads are descriptor-bound and do not follow path aliases.
   Progressive static checks cover only an explicit high-risk module list and
   do not impose repository-wide formatting churn.
 - Private study migration is an external operational plan-review-apply copy
   workflow. Its private manifests are refused inside Git; apply requires an
   exact plan hash, owner-only target, no symlinks, no conflicts, and no
-  overwrite. It never deletes source data.
+  overwrite. Apply completes a full preflight before target creation and uses
+  descriptor-relative no-follow I/O. It never deletes source data or
+  automatically removes a partial copy after an unexpected failure.
 - Method-evidence records distinguish reported, internally observed, and
   benchmarked evidence. They do not select or authorize a research method.
 - Mechanism discussions, method decisions, operator action cards, and learning
@@ -90,9 +94,9 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
-- Current local evidence on the core interpreter is 578/578 offline tests in
-  439.450 seconds for the worktree and 578/578 in 287.635 seconds for a
-  `.git`-free tracked-plus-intended source copy; both runs have one expected
+- Current local review-fix evidence on the core interpreter is 584/584 offline
+  tests in 299.949 seconds for the worktree and 584/584 in 306.965 seconds for
+  a `.git`-free tracked-plus-intended source copy; both runs have one expected
   RDKit skip in the core profile. The separate locked chemistry profile passed
   the real RDKit smoke in 1.028 seconds. Timing is machine-local engineering
   evidence, not a CI guarantee or scientific result.

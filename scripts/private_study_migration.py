@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import errno
 import hashlib
 import json
 import os
@@ -56,6 +57,97 @@ class MigrationError(ValueError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise MigrationError(message)
+
+
+DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+SOURCE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+
+
+def _unsafe_path_error(label: str, exc: OSError) -> MigrationError:
+    if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+        return MigrationError(f"{label} contains a symlink or non-directory component")
+    return MigrationError(f"could not safely open {label}: {exc}")
+
+
+def _absolute_parts(path: Path, label: str) -> tuple[str, ...]:
+    require(path.is_absolute(), f"{label} must be absolute")
+    parts = path.parts[1:]
+    require(all(part not in {"", ".", ".."} for part in parts), f"{label} is unsafe")
+    return parts
+
+
+def _relative_parts(path: Path, label: str) -> tuple[str, ...]:
+    require(not path.is_absolute(), f"{label} must be relative")
+    parts = path.parts
+    require(parts and all(part not in {"", ".", ".."} for part in parts), f"{label} is unsafe")
+    return parts
+
+
+def _open_directory_at(parent_fd: int, name: str, label: str, *, create: bool = False) -> int:
+    if create:
+        try:
+            os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        except OSError as exc:
+            raise _unsafe_path_error(label, exc) from exc
+    try:
+        fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    except OSError as exc:
+        raise _unsafe_path_error(label, exc) from exc
+    opened = os.fstat(fd)
+    if not stat.S_ISDIR(opened.st_mode):
+        os.close(fd)
+        raise MigrationError(f"{label} must be a directory")
+    return fd
+
+
+def _open_absolute_directory(path: Path, label: str) -> int:
+    parts = _absolute_parts(path, label)
+    fd = os.open(path.anchor, DIRECTORY_FLAGS)
+    try:
+        for index, part in enumerate(parts):
+            next_fd = _open_directory_at(fd, part, f"{label} component {index + 1}")
+            os.close(fd)
+            fd = next_fd
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _read_fd(fd: int, label: str) -> bytes:
+    chunks: list[bytes] = []
+    try:
+        while True:
+            chunk = os.read(fd, 1024 * 1024)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    except OSError as exc:
+        raise MigrationError(f"could not read {label}: {exc}") from exc
+
+
+def _read_source_at(source_fd: int, relative: Path) -> bytes:
+    parts = _relative_parts(relative, "source relative path")
+    parent_fd = os.dup(source_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            next_fd = _open_directory_at(parent_fd, part, f"source ancestor {index + 1}")
+            os.close(parent_fd)
+            parent_fd = next_fd
+        try:
+            leaf_fd = os.open(parts[-1], SOURCE_FLAGS, dir_fd=parent_fd)
+        except OSError as exc:
+            raise _unsafe_path_error(f"source leaf {relative.as_posix()}", exc) from exc
+        try:
+            opened = os.fstat(leaf_fd)
+            require(stat.S_ISREG(opened.st_mode), f"source leaf is not a regular file: {relative.as_posix()}")
+            return _read_fd(leaf_fd, f"source leaf {relative.as_posix()}")
+        finally:
+            os.close(leaf_fd)
+    finally:
+        os.close(parent_fd)
 
 
 def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -189,28 +281,32 @@ def build_plan(source: Path, target: Path, *, created_at: str | None = None) -> 
     entries: list[dict[str, Any]] = []
     conflicts: list[str] = []
     rewrite_count = 0
-    for path in _iter_source_files(source):
-        relative = path.relative_to(source)
-        require(not relative.is_absolute() and ".." not in relative.parts, "source relative path is unsafe")
-        raw = path.read_bytes()
-        planned = _planned_bytes(raw, source, target)
-        text = _text(raw)
-        references = [] if text is None else _absolute_references(text, source, target)
-        rewrite_count += sum(item["rewrite_to"] is not None for item in references)
-        destination = target / relative
-        conflict = destination.exists() or destination.is_symlink()
-        if conflict:
-            conflicts.append(relative.as_posix())
-        entries.append({
-            "relative_path": relative.as_posix(),
-            "source_size_bytes": len(raw),
-            "source_sha256": hashlib.sha256(raw).hexdigest(),
-            "planned_size_bytes": len(planned),
-            "planned_sha256": hashlib.sha256(planned).hexdigest(),
-            "content_kind": "utf8_text" if text is not None else "binary",
-            "conflict": conflict,
-            "absolute_path_references": references,
-        })
+    source_fd = _open_absolute_directory(source, "source root")
+    try:
+        for path in _iter_source_files(source):
+            relative = path.relative_to(source)
+            require(not relative.is_absolute() and ".." not in relative.parts, "source relative path is unsafe")
+            raw = _read_source_at(source_fd, relative)
+            planned = _planned_bytes(raw, source, target)
+            text = _text(raw)
+            references = [] if text is None else _absolute_references(text, source, target)
+            rewrite_count += sum(item["rewrite_to"] is not None for item in references)
+            destination = target / relative
+            conflict = destination.exists() or destination.is_symlink()
+            if conflict:
+                conflicts.append(relative.as_posix())
+            entries.append({
+                "relative_path": relative.as_posix(),
+                "source_size_bytes": len(raw),
+                "source_sha256": hashlib.sha256(raw).hexdigest(),
+                "planned_size_bytes": len(planned),
+                "planned_sha256": hashlib.sha256(planned).hexdigest(),
+                "content_kind": "utf8_text" if text is not None else "binary",
+                "conflict": conflict,
+                "absolute_path_references": references,
+            })
+    finally:
+        os.close(source_fd)
     plan = {
         "schema": SCHEMA,
         "created_at": created_at or datetime.now(timezone.utc).isoformat(),
@@ -296,6 +392,143 @@ def write_new(path: Path, value: dict[str, Any]) -> None:
     os.chmod(path, 0o600)
 
 
+def _verified_source_bytes(
+    source_fd: int,
+    entry: dict[str, Any],
+    source: Path,
+    target: Path,
+) -> bytes:
+    relative = Path(entry["relative_path"])
+    raw = _read_source_at(source_fd, relative)
+    require(len(raw) == entry["source_size_bytes"], f"source size changed before apply: {relative.as_posix()}")
+    require(hashlib.sha256(raw).hexdigest() == entry["source_sha256"], f"source hash changed before apply: {relative.as_posix()}")
+    planned = _planned_bytes(raw, source, target)
+    require(len(planned) == entry["planned_size_bytes"], f"planned size changed before apply: {relative.as_posix()}")
+    require(hashlib.sha256(planned).hexdigest() == entry["planned_sha256"], f"planned hash changed before apply: {relative.as_posix()}")
+    return planned
+
+
+def _preflight_source_entries(
+    source_fd: int,
+    entries: list[dict[str, Any]],
+    source: Path,
+    target: Path,
+) -> None:
+    for entry in entries:
+        _verified_source_bytes(source_fd, entry, source, target)
+
+
+def _target_root_handles(target: Path) -> tuple[int, int | None, str]:
+    parts = _absolute_parts(target, "target root")
+    require(parts, "target root must not be the filesystem root")
+    parent_fd = _open_absolute_directory(target.parent, "target parent")
+    leaf = parts[-1]
+    try:
+        target_fd = _open_directory_at(parent_fd, leaf, "target root")
+    except MigrationError as exc:
+        try:
+            os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return parent_fd, None, leaf
+        except OSError as stat_exc:
+            os.close(parent_fd)
+            raise _unsafe_path_error("target root", stat_exc) from stat_exc
+        os.close(parent_fd)
+        raise exc
+    target_stat = os.fstat(target_fd)
+    if target_stat.st_uid != os.getuid() or stat.S_IMODE(target_stat.st_mode) != 0o700:
+        os.close(target_fd)
+        os.close(parent_fd)
+        raise MigrationError("target root must be owned by the current user with exact mode 0700")
+    return parent_fd, target_fd, leaf
+
+
+def _destination_exists(target_fd: int, relative: Path) -> bool:
+    parts = _relative_parts(relative, "migration destination path")
+    parent_fd = os.dup(target_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            try:
+                next_fd = _open_directory_at(parent_fd, part, f"destination ancestor {index + 1}")
+            except MigrationError:
+                try:
+                    os.stat(part, dir_fd=parent_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    return False
+                raise
+            os.close(parent_fd)
+            parent_fd = next_fd
+        try:
+            os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise _unsafe_path_error(f"destination leaf {relative.as_posix()}", exc) from exc
+        return True
+    finally:
+        os.close(parent_fd)
+
+
+def _preflight_destination_conflicts(target_fd: int | None, entries: list[dict[str, Any]]) -> None:
+    if target_fd is None:
+        return
+    conflicts = [
+        entry["relative_path"]
+        for entry in entries
+        if _destination_exists(target_fd, Path(entry["relative_path"]))
+    ]
+    require(not conflicts, f"target conflicts appeared before apply: {conflicts}")
+
+
+def _create_target_root(parent_fd: int, target_fd: int | None, leaf: str) -> int:
+    if target_fd is not None:
+        return target_fd
+    try:
+        os.mkdir(leaf, mode=0o700, dir_fd=parent_fd)
+    except OSError as exc:
+        raise MigrationError(f"target root changed after preflight; no files were copied: {exc}") from exc
+    fd = _open_directory_at(parent_fd, leaf, "new target root")
+    os.fchmod(fd, 0o700)
+    return fd
+
+
+def _write_all(fd: int, raw: bytes) -> None:
+    offset = 0
+    while offset < len(raw):
+        written = os.write(fd, raw[offset:])
+        if written <= 0:
+            raise OSError("zero-byte write")
+        offset += written
+
+
+def _write_destination(target_fd: int, relative: Path, raw: bytes) -> None:
+    parts = _relative_parts(relative, "migration destination path")
+    parent_fd = os.dup(target_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            next_fd = _open_directory_at(
+                parent_fd,
+                part,
+                f"destination ancestor {index + 1}",
+                create=True,
+            )
+            os.close(parent_fd)
+            parent_fd = next_fd
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        try:
+            leaf_fd = os.open(parts[-1], flags, 0o600, dir_fd=parent_fd)
+        except OSError as exc:
+            raise MigrationError(f"refusing unsafe or existing migration destination: {relative.as_posix()}: {exc}") from exc
+        try:
+            os.fchmod(leaf_fd, 0o600)
+            _write_all(leaf_fd, raw)
+            os.fsync(leaf_fd)
+        finally:
+            os.close(leaf_fd)
+    finally:
+        os.close(parent_fd)
+
+
 def apply_plan(path: Path, *, confirmation: str, reviewer: str) -> dict[str, Any]:
     require(bool(reviewer.strip()), "apply requires a non-empty reviewer identity")
     plan = review_plan(path)
@@ -303,35 +536,49 @@ def apply_plan(path: Path, *, confirmation: str, reviewer: str) -> dict[str, Any
     source = Path(plan["source_root"])
     target = Path(plan["target_root"])
     _target_state(target)
-    if not target.exists():
-        target.mkdir(mode=0o700)
-    os.chmod(target, 0o700)
-    for entry in plan["entries"]:
-        relative = Path(entry["relative_path"])
-        require(not relative.is_absolute() and ".." not in relative.parts, "migration entry path is unsafe")
-        source_path = source / relative
-        destination = target / relative
-        _reject_symlink_chain(source_path, "apply source")
-        _reject_symlink_chain(destination, "apply destination")
-        require(not os.path.lexists(destination), f"refusing to overwrite migration destination: {relative.as_posix()}")
-        raw = source_path.read_bytes()
-        require(len(raw) == entry["source_size_bytes"], f"source size changed before apply: {relative.as_posix()}")
-        require(hashlib.sha256(raw).hexdigest() == entry["source_sha256"], f"source hash changed before apply: {relative.as_posix()}")
-        planned = _planned_bytes(raw, source, target)
-        require(len(planned) == entry["planned_size_bytes"], f"planned size changed before apply: {relative.as_posix()}")
-        require(hashlib.sha256(planned).hexdigest() == entry["planned_sha256"], f"planned hash changed before apply: {relative.as_posix()}")
-        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with destination.open("xb") as handle:
-            handle.write(planned)
-        os.chmod(destination, 0o600)
+    source_fd = _open_absolute_directory(source, "apply source root")
+    target_parent_fd: int | None = None
+    target_fd: int | None = None
+    copied_file_count = 0
+    copied_size_bytes = 0
+    try:
+        # No target directory or file is created until every source byte/hash and
+        # every destination conflict has passed this descriptor-bound preflight.
+        _preflight_source_entries(source_fd, plan["entries"], source, target)
+        target_parent_fd, target_fd, target_leaf = _target_root_handles(target)
+        _preflight_destination_conflicts(target_fd, plan["entries"])
+        target_fd = _create_target_root(target_parent_fd, target_fd, target_leaf)
+        try:
+            for entry in plan["entries"]:
+                relative = Path(entry["relative_path"])
+                planned = _verified_source_bytes(source_fd, entry, source, target)
+                _write_destination(target_fd, relative, planned)
+                copied_file_count += 1
+                copied_size_bytes += len(planned)
+        except Exception as exc:
+            raise MigrationError(
+                "apply stopped after "
+                f"{copied_file_count} file(s) and {copied_size_bytes} byte(s); "
+                "a partial copy may remain and requires manual inspection; "
+                "automatic rollback deletion is forbidden"
+            ) from exc
+    finally:
+        os.close(source_fd)
+        if target_fd is not None:
+            os.close(target_fd)
+        if target_parent_fd is not None:
+            os.close(target_parent_fd)
     return {
-        "schema": "auto-g16-private-study-migration-apply-result/1",
+        "schema": "auto-g16-private-study-migration-apply-result/2",
         "plan_sha256": plan["plan_sha256"],
         "reviewer": reviewer.strip(),
-        "copied_file_count": plan["file_count"],
-        "copied_size_bytes": plan["planned_size_bytes"],
+        "copied_file_count": copied_file_count,
+        "copied_size_bytes": copied_size_bytes,
         "source_deleted": False,
         "overwrites": 0,
+        "partial_copy": False,
+        "manual_partial_copy_review_required": False,
+        "automatic_rollback_deletion": False,
         "live_actions": False,
     }
 

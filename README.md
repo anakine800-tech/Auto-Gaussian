@@ -69,10 +69,12 @@ still independent requirements. See `docs/v2.5-integration-approval.md`.
 
 ## 2.5.0 release
 
-Auto-Gaussian 2.5.0 is the current stable source release. `main` and the
-annotated `v2.5.0` tag identify exact commit
-`18d7f62af3b24cdd0fbe5687f4c0e779f243d572`; immutable earlier release
-history remains preserved.
+Auto-Gaussian 2.5.0 is the current stable source release. The annotated
+`v2.5.0` tag permanently identifies exact release commit
+`18d7f62af3b24cdd0fbe5687f4c0e779f243d572`. This engineering-maintenance
+slice started from the then-matching `main` baseline; later `main` development
+does not move the release tag. Immutable earlier release history remains
+preserved.
 
 The 2.5.0 scope is the offline human-AI decision, method-evidence, bounded
 TS-seed, closure-priority, execution-batch, and cross-Skill integration layer.
@@ -323,7 +325,11 @@ RDKit, NumPy and Pillow versions, with:
 Validate the ignored runtime file offline before any operational command. The
 closed-schema validator rejects duplicate keys, unknown fields, path-type
 mismatches, parent traversal, relative interpreter/config paths, and config
-symlinks; it performs no SSH, Windows, Gaussian, or PBS access:
+leaf or ancestor symlinks. The loader opens each component with
+`O_DIRECTORY|O_NOFOLLOW` and the leaf with `O_NOFOLLOW`; paths intentionally
+routed through symlinked configuration directories must be changed to their
+canonical absolute path. Validation performs no SSH, Windows, Gaussian, or PBS
+access:
 
 ```bash
 ./scripts/python core scripts/runtime_config.py ~/.config/auto-g16/runtime.json
@@ -392,8 +398,9 @@ Repository-wide operational rules are in `AGENTS.md`.
 - `scripts/private_study_migration.py` implements an operational
   plan-review-apply copy migration into the owner-only external private-study
   root. Plans are private artifacts and are refused inside this checkout;
-  apply requires the exact reviewed plan hash and never overwrites or deletes
-  the source. See `docs/private-data-migration.md`.
+  apply requires the exact reviewed plan hash, completes full source/conflict
+  preflight, binds actual I/O to no-follow directory descriptors, and never
+  overwrites or deletes the source. See `docs/private-data-migration.md`.
 - `scripts/check_skill_sync.py` compares the exact named-Skill deployment
   package, including manifest-mapped authoritative contracts, with installed
   copies.

@@ -17,7 +17,9 @@ The workflow is deliberately plan-review-apply:
    target. Any source change, conflict change, hash drift, symlink, permission
    drift, or plan edit fails closed.
 3. `apply` requires both the exact reviewed `plan_sha256` and a non-empty
-   reviewer identity. It copies with `0600` files into an owner-owned `0700`
+   reviewer identity. Before creating the target, it completes a full
+   descriptor-bound preflight of every source size/hash and every destination
+   conflict. It then copies with `0600` files into an owner-owned `0700`
    target, refuses every overwrite, and checks source and planned hashes again
    immediately before each write.
 
@@ -53,6 +55,11 @@ deployment, or scientific calculation work:
 Safety boundaries:
 
 - source, target, plan output, and every source entry must be symlink-free;
+- apply opens or creates every source and destination component relative to an
+  already-open directory descriptor. Directory components use
+  `O_DIRECTORY|O_NOFOLLOW`; source leaves use `O_RDONLY|O_NOFOLLOW`; destination
+  leaves use `O_NOFOLLOW|O_EXCL`. A path swap therefore cannot redirect actual
+  I/O through a symlink after a lexical check;
 - the target must be outside the public checkout and, if it already exists,
   owned by the current user with exact mode `0700`;
 - plans cannot be written inside the checkout or overwrite an existing plan;
@@ -60,8 +67,12 @@ Safety boundaries:
   confirmation, or empty reviewer;
 - apply is copy-only and never deletes, moves, truncates, cleans up, or
   overwrites the source or an existing destination;
-- partial copies are left visible if an unexpected local I/O failure occurs;
-  the tool performs no automatic rollback deletion;
+- full preflight avoids ordinary stale-source/conflict failures after copying
+  starts. A concurrent post-preflight change or unexpected local I/O failure
+  can still leave a partial collection. The error reports how many files and
+  bytes completed, labels the target for manual inspection, and performs no
+  automatic rollback deletion. An operator must compare the target with the
+  reviewed plan and choose a separate, explicitly authorized recovery action;
 - the tool performs no SSH, RTwin, PBS, Gaussian, scheduler, deployment, or
   network action.
 

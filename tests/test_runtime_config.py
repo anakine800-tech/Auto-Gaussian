@@ -48,17 +48,30 @@ class RuntimeConfigTests(unittest.TestCase):
             ):
                 RUNTIME.validate(value)
 
-    def test_load_rejects_symlink_and_relative_config_path(self) -> None:
+    def test_load_rejects_leaf_and_caller_controlled_ancestor_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             real = root / "runtime.json"
             real.write_text(json.dumps({"core_python": "/opt/python"}), encoding="utf-8")
             link = root / "runtime-link.json"
             link.symlink_to(real)
             with self.assertRaisesRegex(RUNTIME.RuntimeConfigError, "symlink"):
                 RUNTIME.load(link)
+            real_parent = root / "real-config-parent"
+            real_parent.mkdir()
+            nested = real_parent / "runtime.json"
+            nested.write_text(json.dumps({"core_python": "/opt/python"}), encoding="utf-8")
+            linked_parent = root / "linked-config-parent"
+            linked_parent.symlink_to(real_parent, target_is_directory=True)
+            with self.assertRaisesRegex(RUNTIME.RuntimeConfigError, "symlink.*ancestor"):
+                RUNTIME.load(linked_parent / "runtime.json")
         with self.assertRaisesRegex(RUNTIME.RuntimeConfigError, "absolute"):
             RUNTIME.load(Path("runtime.json"))
+
+    def test_missing_optional_config_remains_compatible_without_following_links(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            self.assertEqual(RUNTIME.load(root / "missing" / "runtime.json", missing_ok=True), {})
 
 
 if __name__ == "__main__":

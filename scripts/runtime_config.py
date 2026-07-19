@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
+import stat
 import sys
 from pathlib import Path, PureWindowsPath
 from typing import Any
@@ -99,22 +101,66 @@ def default_path(environ: dict[str, str] | None = None, home: Path | None = None
     return path
 
 
+def _read_regular_nofollow(path: Path, *, missing_ok: bool) -> str | None:
+    parts = path.parts[1:]
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise RuntimeConfigError(f"runtime config path is unsafe: {path}")
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(path.anchor, directory_flags)
+    try:
+        for part in parts[:-1]:
+            try:
+                next_fd = os.open(part, directory_flags, dir_fd=fd)
+            except FileNotFoundError:
+                if missing_ok:
+                    return None
+                raise RuntimeConfigError(f"runtime config is missing: {path}") from None
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    raise RuntimeConfigError(
+                        f"runtime config path contains a symlink or non-directory ancestor: {path}"
+                    ) from exc
+                raise RuntimeConfigError(f"could not open runtime config ancestor {path}: {exc}") from exc
+            os.close(fd)
+            fd = next_fd
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        try:
+            leaf_fd = os.open(parts[-1], flags, dir_fd=fd)
+        except FileNotFoundError:
+            if missing_ok:
+                return None
+            raise RuntimeConfigError(f"runtime config is missing: {path}") from None
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise RuntimeConfigError(f"runtime config must not be a symlink: {path}") from exc
+            raise RuntimeConfigError(f"could not open runtime config {path}: {exc}") from exc
+        try:
+            opened = os.fstat(leaf_fd)
+            if not stat.S_ISREG(opened.st_mode):
+                raise RuntimeConfigError(f"runtime config must be a regular file: {path}")
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(leaf_fd, 1024 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            try:
+                return b"".join(chunks).decode("utf-8")
+            except UnicodeError as exc:
+                raise RuntimeConfigError(f"could not decode runtime config {path}: {exc}") from exc
+        finally:
+            os.close(leaf_fd)
+    finally:
+        os.close(fd)
+
+
 def load(path: Path, *, missing_ok: bool = False) -> dict[str, str]:
     path = path.expanduser()
     if not path.is_absolute():
         raise RuntimeConfigError("runtime config path must be absolute")
-    if path.is_symlink():
-        raise RuntimeConfigError(f"runtime config must not be a symlink: {path}")
-    if not path.exists():
-        if missing_ok:
-            return {}
-        raise RuntimeConfigError(f"runtime config is missing: {path}")
-    if not path.is_file():
-        raise RuntimeConfigError(f"runtime config must be a regular file: {path}")
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        raise RuntimeConfigError(f"could not read runtime config {path}: {exc}") from exc
+    raw = _read_regular_nofollow(path, missing_ok=missing_ok)
+    if raw is None:
+        return {}
     return parse(raw, label=str(path))
 
 

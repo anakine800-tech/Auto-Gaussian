@@ -10,6 +10,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).parents[1]
@@ -76,6 +77,9 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             )
             self.assertEqual(result["copied_file_count"], 2)
             self.assertFalse(result["source_deleted"])
+            self.assertFalse(result["partial_copy"])
+            self.assertFalse(result["manual_partial_copy_review_required"])
+            self.assertFalse(result["automatic_rollback_deletion"])
             self.assertTrue(source.is_dir())
             self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
             for copied in target.rglob("*"):
@@ -120,6 +124,145 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             with self.assertRaisesRegex(MIGRATION.MigrationError, "outside"):
                 MIGRATION.write_new(ROOT / "forbidden-private-plan.json", plan)
             self.assertFalse((ROOT / "forbidden-private-plan.json").exists())
+
+    def test_target_ancestor_swap_is_rejected_by_descriptor_open(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, target, plan_path = self.synthetic_tree(root)
+            target.mkdir(mode=0o700)
+            (target / "nested").mkdir(mode=0o700)
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+            original_preflight = MIGRATION._preflight_destination_conflicts
+            outside = root / "outside"
+            outside.mkdir(mode=0o700)
+
+            def swap_after_preflight(target_fd: int | None, entries: list[dict[str, object]]) -> None:
+                original_preflight(target_fd, entries)
+                os.rename(target / "nested", target / "nested-original")
+                (target / "nested").symlink_to(outside, target_is_directory=True)
+
+            with mock.patch.object(
+                MIGRATION,
+                "_preflight_destination_conflicts",
+                side_effect=swap_after_preflight,
+            ), self.assertRaisesRegex(MIGRATION.MigrationError, "partial copy.*manual inspection"):
+                MIGRATION.apply_plan(
+                    plan_path,
+                    confirmation=plan["plan_sha256"],
+                    reviewer="fixture-reviewer",
+                )
+            self.assertFalse((outside / "notes.txt").exists())
+            self.assertFalse((target / "payload.bin").exists())
+
+    def test_source_leaf_symlink_after_preflight_is_not_followed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, target, plan_path = self.synthetic_tree(root)
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+            original_preflight = MIGRATION._preflight_destination_conflicts
+            decoy = root / "decoy.bin"
+            decoy.write_bytes(b"must-not-be-copied")
+
+            def swap_leaf_after_preflight(target_fd: int | None, entries: list[dict[str, object]]) -> None:
+                original_preflight(target_fd, entries)
+                os.rename(source / "payload.bin", source / "payload-original.bin")
+                (source / "payload.bin").symlink_to(decoy)
+
+            with mock.patch.object(
+                MIGRATION,
+                "_preflight_destination_conflicts",
+                side_effect=swap_leaf_after_preflight,
+            ), self.assertRaisesRegex(MIGRATION.MigrationError, "partial copy.*manual inspection"):
+                MIGRATION.apply_plan(
+                    plan_path,
+                    confirmation=plan["plan_sha256"],
+                    reviewer="fixture-reviewer",
+                )
+            self.assertTrue((target / "nested" / "notes.txt").is_file())
+            self.assertFalse((target / "payload.bin").exists())
+            self.assertEqual(decoy.read_bytes(), b"must-not-be-copied")
+
+    def test_destination_leaf_symlink_after_preflight_is_not_followed_or_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, target, plan_path = self.synthetic_tree(root)
+            target.mkdir(mode=0o700)
+            (target / "nested").mkdir(mode=0o700)
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+            original_preflight = MIGRATION._preflight_destination_conflicts
+            decoy = root / "destination-decoy.txt"
+            decoy.write_text("unchanged", encoding="utf-8")
+
+            def add_leaf_symlink(target_fd: int | None, entries: list[dict[str, object]]) -> None:
+                original_preflight(target_fd, entries)
+                (target / "nested" / "notes.txt").symlink_to(decoy)
+
+            with mock.patch.object(
+                MIGRATION,
+                "_preflight_destination_conflicts",
+                side_effect=add_leaf_symlink,
+            ), self.assertRaisesRegex(MIGRATION.MigrationError, "partial copy.*manual inspection"):
+                MIGRATION.apply_plan(
+                    plan_path,
+                    confirmation=plan["plan_sha256"],
+                    reviewer="fixture-reviewer",
+                )
+            self.assertEqual(decoy.read_text(encoding="utf-8"), "unchanged")
+            self.assertTrue((target / "nested" / "notes.txt").is_symlink())
+            self.assertFalse((target / "payload.bin").exists())
+
+    def test_conflict_appearing_after_review_fails_before_any_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, target, plan_path = self.synthetic_tree(root)
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+            original_preflight = MIGRATION._preflight_source_entries
+
+            def add_conflict_after_source_preflight(*args: object, **kwargs: object) -> None:
+                original_preflight(*args, **kwargs)
+                target.mkdir(mode=0o700)
+                (target / "payload.bin").write_bytes(b"existing")
+
+            with mock.patch.object(
+                MIGRATION,
+                "_preflight_source_entries",
+                side_effect=add_conflict_after_source_preflight,
+            ), self.assertRaisesRegex(MIGRATION.MigrationError, "conflicts appeared"):
+                MIGRATION.apply_plan(
+                    plan_path,
+                    confirmation=plan["plan_sha256"],
+                    reviewer="fixture-reviewer",
+                )
+            self.assertFalse((target / "nested" / "notes.txt").exists())
+            self.assertEqual((target / "payload.bin").read_bytes(), b"existing")
+
+    def test_full_source_preflight_failure_creates_no_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, target, plan_path = self.synthetic_tree(root)
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+            original_read = MIGRATION._read_source_at
+
+            def corrupt_second_source(source_fd: int, relative: Path) -> bytes:
+                raw = original_read(source_fd, relative)
+                return raw + b"preflight-drift" if relative.as_posix() == "payload.bin" else raw
+
+            with mock.patch.object(MIGRATION, "review_plan", return_value=plan), mock.patch.object(
+                MIGRATION,
+                "_read_source_at",
+                side_effect=corrupt_second_source,
+            ), self.assertRaisesRegex(MIGRATION.MigrationError, "source size changed"):
+                MIGRATION.apply_plan(
+                    plan_path,
+                    confirmation=plan["plan_sha256"],
+                    reviewer="fixture-reviewer",
+                )
+            self.assertFalse(target.exists())
 
 
 if __name__ == "__main__":
