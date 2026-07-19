@@ -22,6 +22,72 @@ R_J_MOL_K = 8.31446261815324
 R_L_ATM_MOL_K = 0.082057366080960
 HARTREE_J_MOL = 2625499.6394799
 HARTREE_KCAL_MOL = 627.5094740631
+PARSER_NAME = "auto-g16-gaussian-log"
+PARSER_VERSION = "2.0.0"
+PARSER_SCHEMA = "auto-g16-gaussian-log-parser/2"
+
+
+def _parse_frequencies(text: str) -> tuple[list[float], list[dict[str, Any]]]:
+    """Parse every frequency token without silently discarding corruption."""
+
+    frequencies: list[float] = []
+    diagnostics: list[dict[str, Any]] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        match = re.match(r"^\s*Frequencies\s+--\s*(.*)$", line)
+        if not match:
+            continue
+        tokens = match.group(1).split()
+        if not tokens:
+            diagnostics.append({"code": "empty_frequency_group", "line": line_number, "token": None})
+            continue
+        for token in tokens:
+            try:
+                value = float(token.replace("D", "E").replace("d", "e"))
+            except ValueError:
+                diagnostics.append({"code": "malformed_frequency_token", "line": line_number, "token": token})
+                continue
+            if not math.isfinite(value):
+                diagnostics.append({"code": "nonfinite_frequency_token", "line": line_number, "token": token})
+                continue
+            frequencies.append(value)
+    return frequencies, diagnostics
+
+
+def _geometry_is_linear(coordinates: list[dict[str, Any]]) -> bool | None:
+    """Classify exact parsed Cartesian geometry for the 3N-5/3N-6 gate."""
+
+    if not coordinates:
+        return None
+    if len(coordinates) <= 2:
+        return True
+    points = [(float(atom["x"]), float(atom["y"]), float(atom["z"])) for atom in coordinates]
+    left, right = max(
+        ((a, b) for a in range(len(points)) for b in range(a + 1, len(points))),
+        key=lambda pair: math.dist(points[pair[0]], points[pair[1]]),
+    )
+    span = math.dist(points[left], points[right])
+    if span <= 1e-10:
+        return None
+    origin = points[left]
+    direction = tuple((points[right][axis] - origin[axis]) / span for axis in range(3))
+    tolerance = max(1e-6, span * 1e-7)
+    for point in points:
+        delta = tuple(point[axis] - origin[axis] for axis in range(3))
+        projection = sum(delta[axis] * direction[axis] for axis in range(3))
+        perpendicular = tuple(delta[axis] - projection * direction[axis] for axis in range(3))
+        if math.sqrt(sum(value * value for value in perpendicular)) > tolerance:
+            return False
+    return True
+
+
+def expected_vibrational_mode_count(coordinates: list[dict[str, Any]]) -> tuple[int | None, bool | None]:
+    atom_count = len(coordinates)
+    linear = _geometry_is_linear(coordinates)
+    if atom_count == 0 or linear is None:
+        return None, linear
+    if atom_count == 1:
+        return 0, True
+    return 3 * atom_count - (5 if linear else 6), linear
 
 
 def last_orientation(text: str) -> list[dict[str, Any]]:
@@ -84,13 +150,7 @@ def analyze_log_text(text: str) -> dict[str, Any]:
         for value in re.findall(r"SCF Done:\s+E\([^)]*\)\s*=\s*([-+0-9.DEded]+)", text)
     ]
     steps = [int(value) for value in re.findall(r"Step number\s+(\d+)", text)]
-    frequencies: list[float] = []
-    for group in re.findall(r"(?m)^\s*Frequencies --\s+(.+)$", text):
-        for value in group.split():
-            try:
-                frequencies.append(float(value.replace("D", "E")))
-            except ValueError:
-                pass
+    frequencies, frequency_parse_diagnostics = _parse_frequencies(text)
     normal_count = text.count("Normal termination of Gaussian")
     error_count = text.count("Error termination")
     normal = normal_count > 0
@@ -98,6 +158,7 @@ def analyze_log_text(text: str) -> dict[str, Any]:
     optimization_completed = "Optimization completed" in text
     stationary_point = "Stationary point found" in text
     coordinates = last_orientation(text)
+    expected_frequency_count, linear = expected_vibrational_mode_count(coordinates)
     last_normal = text.rfind("Normal termination of Gaussian")
     last_error = text.rfind("Error termination")
     status = "failed" if last_error > last_normal else "completed" if normal else "incomplete"
@@ -115,10 +176,15 @@ def analyze_log_text(text: str) -> dict[str, Any]:
         "scf_calculations": len(energy_values),
         "final_energy_hartree": energy_values[-1] if energy_values else None,
         "frequency_count": len(frequencies),
+        "expected_frequency_count": expected_frequency_count,
+        "frequency_parse_complete": not frequency_parse_diagnostics,
+        "frequency_parse_diagnostics": frequency_parse_diagnostics,
         "imaginary_frequency_count": sum(value < 0 for value in frequencies),
         "frequencies_cm-1": frequencies,
         "final_coordinate_count": len(coordinates),
         "final_coordinates": coordinates,
+        "linearity": "linear" if linear is True else "nonlinear" if linear is False else "undetermined",
+        "parser": {"name": PARSER_NAME, "version": PARSER_VERSION, "schema": PARSER_SCHEMA},
         "diagnostics": diagnose(text),
     }
 
@@ -197,7 +263,13 @@ def analyze_workflow_log_text(
         base["normal_termination_count"] >= expected_stages
         and base["error_termination_count"] == 0
     )
-    frequency_complete = base["frequency_count"] > 0 and thermal_g is not None
+    expected_frequency_count = base["expected_frequency_count"]
+    frequency_complete = (
+        expected_frequency_count is not None
+        and base["frequency_parse_complete"] is True
+        and base["frequency_count"] == expected_frequency_count
+        and thermal_g is not None
+    )
     minimum_validated = (
         base["optimization_success"]
         and frequency_complete

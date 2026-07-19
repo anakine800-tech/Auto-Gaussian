@@ -428,6 +428,15 @@ fail-closed. IRC and formal reporting additionally require future exact owner
 TS-mode and complete thermochemistry/energy artifacts; `/1` booleans do not
 provide `/2` authority.
 
+For a new portable closed-shell minimum chain, read
+[references/scientific-closure-lineage-contract.md](references/scientific-closure-lineage-contract.md)
+and use `scripts/scientific_closure_lineage.py`. It binds one reviewed conformer
+selection through stable atom mapping, exact input approval, job/result/raw
+log/checkpoint and optimized coordinates. Its parser derives the full 3N-6 or
+3N-5 frequency expectation from the exact final geometry and rejects damaged
+tokens. This is a versioned new owner artifact; it does not rewrite or silently
+promote scientific-maturity `/1` or `/2` records.
+
 ### 7. Preserve the W2 knowledge and literature gates
 
 The second scientific-modeling round must first query a reviewed reusable
@@ -650,6 +659,10 @@ blockers. No comparison, barrier arithmetic or live action is available.
 - `references/scientific-maturity-owner-evidence-v2-contract.md`: exact owner
   replay, conformer/open-shell/manual projection, action interface and `/1`
   compatibility boundary.
+- `scripts/scientific_closure_lineage.py`: portable, raw-log-replayed minimum
+  candidate-to-input-to-result acceptance and stable atom-lineage owner.
+- `references/scientific-closure-lineage-contract.md`: strict frequency,
+  package path, migration, authority-state and minimum-lineage contract.
 - `scripts/calculation_artifacts.py`: standard-library-only target-import,
   exact input-handoff, blocked/electronic-only energy-lineage and immutable
   attempt-link adapters; no live path.

@@ -161,6 +161,15 @@ class HumanScientificDecisionTests(unittest.TestCase):
         with self.assertRaisesRegex(HD.DecisionError, "may not rewrite an approved decision"):
             HD.build_learning(self.root, Path(path.name), Path("discussion.json"), [self.new_evidence], Path("rewrite.json"))
 
+    def test_run_action_card_requires_every_hard_prerequisite_satisfied(self) -> None:
+        discussion = self.build_discussion()
+        for status in ("blocked", "unknown"):
+            draft = self.action_draft(discussion)
+            draft["prerequisites"].append({"name": "exact minimum lineage", "status": status, "evidence": "No accepted lineage is bound."})
+            path = self.root / f"action-{status}.draft.json"; dump(path, draft)
+            with self.assertRaisesRegex(HD.DecisionError, "every hard prerequisite"):
+                HD.build_action(self.root, Path(path.name), Path("discussion.json"), Path(f"action-{status}.json"))
+
     def test_changed_evidence_affecting_approval_requires_new_discussion(self) -> None:
         discussion = self.build_discussion()
         draft = self.learning_draft(discussion); draft["decision_effect"] = "proposal_for_review"

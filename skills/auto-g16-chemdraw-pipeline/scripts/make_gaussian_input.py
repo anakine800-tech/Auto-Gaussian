@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from cdx_stereo import load_chemdraw_molecules
+from cdx_stereo import load_chemdraw_molecules, structure_stereo_invariants
 
 
 DEFAULT_CLOSED_SHELL_ROUTE = "#p b3lyp/6-31g(d) opt"
@@ -217,6 +217,14 @@ def main() -> int:
     route = gaussian_route(route_argument)
     title = args.title or output.stem
     coordinates = coordinate_lines(geometry, Chem)
+    stereo_invariants = structure_stereo_invariants(
+        mol, Chem, rdMolDescriptors, import_diagnostics[0] if import_diagnostics else None
+    )
+    geometry_formula = rdMolDescriptors.CalcMolFormula(geometry)
+    if geometry_formula != stereo_invariants["formula"]:
+        fail("formula changed while adding explicit hydrogens for Cartesian input")
+    if int(geometry.GetNumAtoms()) != len(coordinates):
+        fail("Cartesian atom count differs from the explicit-hydrogen geometry")
     input_text = (
         f"%chk={chk_name}\n"
         f"%mem={args.mem}\n"
@@ -285,6 +293,13 @@ def main() -> int:
         "multiplicity_was_explicit": args.multiplicity is not None,
         "chiral_centers": chiral_centers,
         "cdx_stereo_import": import_diagnostics[0] if import_diagnostics else None,
+        "structure_invariants": {
+            **stereo_invariants,
+            "gaussian_formula": geometry_formula,
+            "gaussian_atom_count": len(coordinates),
+            "formula_conserved": True,
+            "atom_count_conserved": True,
+        },
         "geometry": {
             "embedding": embedding,
             "force_field_optimization": optimization,

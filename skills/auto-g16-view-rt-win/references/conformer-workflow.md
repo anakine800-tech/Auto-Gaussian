@@ -16,7 +16,14 @@ Force-field energies are prescreening values only. They must not appear in a Gau
 
 Every generated manifest must remain `candidate_only: true` and `calculation_ready: false`. Inspect identity, charge/multiplicity, CIP centers, force-field fallback, convergence, and 3D geometry. For BINOL-, SPINOL-, BINAP-, or other atropisomeric structures, inspect axial configuration explicitly because the enumerator does not validate axial chirality.
 
-Use `select --confirmed` to promote a reviewed candidate. Selection copies the immutable GJF/XYZ and records the source ensemble hash. It does not delete other candidates and does not authorize Gaussian submission by itself; method, basis, temperature, standard state, and resources still require calculation approval.
+Use `select --confirmed` to record a reviewed candidate. Selection copies the
+immutable GJF/XYZ and a source-ensemble snapshot into one portable directory
+and emits `gaussian-conformer-selection-receipt/1`. It remains
+`candidate_only: true`, `calculation_ready: false`, and non-authorizing.
+Human-selected, input-draft-generated, exact-input-approved,
+submission-authorized, and result-accepted are separate states. Method, basis,
+temperature, standard state, resources, exact input hash, and later result
+acceptance require their own owner gates.
 
 ## R09 dual-route planning boundary
 

@@ -1,0 +1,9 @@
+{
+  "schema": "auto-g16-sanitized-endpoint-mismatch-fixture/1",
+  "description": "Synthetic count-only fixture; contains no private coordinates or chemical identity.",
+  "reactant": {"label": "synthetic_complex_endpoint", "atom_count": 84, "charge": 0, "multiplicity": 1},
+  "product": {"label": "synthetic_isolated_fragment_endpoint", "atom_count": 36, "charge": 0, "multiplicity": 1},
+  "expected_gate": "endpoint_composition_charge_multiplicity_or_mapping_mismatch",
+  "calculation_ready": false,
+  "no_submission_authorization": true
+}
