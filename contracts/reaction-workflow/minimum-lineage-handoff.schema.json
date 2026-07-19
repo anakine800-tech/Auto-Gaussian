@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/minimum-lineage-handoff.schema.json",
+  "title": "Auto-G16 minimum candidate-input-result lineage handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "lineage_id", "minimum_id", "state_id", "sources", "workflow_settings", "stable_atom_ids", "atom_mapping", "formula", "charge", "multiplicity", "structure_review", "review", "workflow_states", "acceptance", "migration_policy", "immutability", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-minimum-lineage-handoff/1"},
+    "lineage_id": {"type": "string", "minLength": 1}, "minimum_id": {"type": "string", "minLength": 1}, "state_id": {"type": "string", "minLength": 1},
+    "sources": {"type": "object", "additionalProperties": false, "required": ["selection", "input_approval", "input", "job", "result", "raw_log", "checkpoint", "optimized_coordinates"], "properties": {
+      "selection": {"$ref": "#/$defs/jsonRef"}, "input_approval": {"$ref": "#/$defs/jsonRef"}, "input": {"$ref": "#/$defs/blobRef"}, "job": {"$ref": "#/$defs/jsonRef"}, "result": {"$ref": "#/$defs/jsonRef"}, "raw_log": {"$ref": "#/$defs/blobRef"}, "checkpoint": {"$ref": "#/$defs/blobRef"}, "optimized_coordinates": {"$ref": "#/$defs/blobRef"}
+    }},
+    "workflow_settings": {"type": "object"}, "stable_atom_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "atom_mapping": {"type": "array", "minItems": 1, "items": {"type": "object"}}, "formula": {"type": "string", "minLength": 1}, "charge": {"type": "integer"}, "multiplicity": {"type": "integer", "minimum": 1},
+    "structure_review": {"type": "object"}, "review": {"type": "object"},
+    "workflow_states": {"type": "object", "additionalProperties": false, "required": ["human_selected", "input_draft_generated", "exact_input_approved", "job_observed", "submission_authorized_by_this_artifact", "result_accepted"], "properties": {"human_selected": {"const": true}, "input_draft_generated": {"const": true}, "exact_input_approved": {"const": true}, "job_observed": {"const": true}, "submission_authorized_by_this_artifact": {"const": false}, "result_accepted": {"const": true}}},
+    "acceptance": {"type": "object"}, "migration_policy": {"type": "object"}, "immutability": {"const": "append_only_new_revision"}, "calculation_ready": {"const": false}, "no_submission_authorization": {"const": true}, "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "blobRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes"], "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}},
+    "jsonRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"], "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}, "schema": {"type": "string", "minLength": 1}, "payload_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}}}
+  }
+}

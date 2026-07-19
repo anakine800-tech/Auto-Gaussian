@@ -15,6 +15,7 @@ import re
 import shutil
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,10 @@ TERMINAL_TEMPLATE_SCHEMA = "gaussian-terminal-intake-template/1"
 TERMINAL_INTAKE_SCHEMA = "gaussian-terminal-intake/1"
 QST_RAW_AUDIT_SCHEMA = "gaussian-qst-raw-input-syntax-audit/1"
 QST_REVISION_EVIDENCE_SCHEMA = "gaussian-installed-g16-qst-syntax-evidence/1"
+TS_RESULT_SCHEMA_V2 = "gaussian-ts-freq-result/2"
+ENDPOINT_REVIEW_SCHEMA = "gaussian-endpoint-structure-review/1"
+PATH_ACCEPTANCE_SCHEMA_V2 = "gaussian-ts-irc-path-acceptance/2"
+PARSER_ID = {"name": "auto-g16-ts-irc", "version": "2.0.0", "schema": "auto-g16-ts-irc-parser/2"}
 PROJECT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,14}$")
 ELEMENTS = """X H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og""".split()
 COVALENT_RADII_ANGSTROM = {
@@ -51,6 +56,19 @@ def _load_scientific_maturity() -> Any:
     spec = importlib.util.spec_from_file_location("auto_g16_ts_scientific_maturity", path)
     if spec is None or spec.loader is None:
         raise ValueError("scientific-maturity owner validator cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_gaussian_log_owner() -> Any:
+    skills_root = Path(__file__).resolve().parents[2]
+    path = skills_root / "auto-g16-rtwin-pbs" / "scripts" / "gaussian_log.py"
+    if not path.is_file():
+        raise ValueError("Gaussian raw-log parser owner is unavailable")
+    spec = importlib.util.spec_from_file_location("auto_g16_ts_gaussian_log", path)
+    if spec is None or spec.loader is None:
+        raise ValueError("Gaussian raw-log parser owner cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -103,6 +121,15 @@ def _path_acceptance_payload_sha256(value: dict[str, Any]) -> str:
     payload = dict(value)
     payload.pop("payload_sha256", None)
     encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _payload_sha256(value: dict[str, Any]) -> str:
+    return _canonical_payload_sha256(value, "payload_sha256")
+
+
+def _canonical_data_sha256(value: Any) -> str:
+    encoded = (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -173,6 +200,8 @@ def _revalidate_family_scientific_binding(family_path: Path, family: dict[str, A
 
 def validate_path_acceptance_artifact(path: Path) -> dict[str, Any]:
     artifact = json.loads(path.read_text(encoding="utf-8"))
+    if artifact.get("schema") == PATH_ACCEPTANCE_SCHEMA_V2:
+        return validate_path_acceptance_v2_artifact(path)
     required = {"schema", "edge_id", "family", "ts_result", "mode_review", "mode_decision", "forward", "reverse", "accepted", "limitations", "payload_sha256"}
     if not isinstance(artifact, dict) or set(artifact) != required or artifact.get("schema") != "gaussian-ts-irc-path-acceptance/1":
         raise ValueError("TS/IRC path-acceptance artifact fields or schema are invalid")
@@ -238,6 +267,100 @@ def build_path_acceptance_artifact(
     output.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     try:
         return validate_path_acceptance_artifact(output)
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+
+
+def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
+    artifact = _load_json_strict(path)
+    required = {"schema", "edge_id", "family", "ts_result", "mode_review", "mode_decision", "endpoint_reviews", "accepted", "limitations", "validator", "calculation_ready", "no_submission_authorization", "payload_sha256"}
+    if not isinstance(artifact, dict) or set(artifact) != required or artifact.get("schema") != PATH_ACCEPTANCE_SCHEMA_V2:
+        raise ValueError("TS/IRC path-acceptance /2 fields or schema are invalid")
+    if artifact.get("payload_sha256") != _payload_sha256(artifact):
+        raise ValueError("TS/IRC path-acceptance /2 payload hash is invalid")
+    if artifact.get("accepted") is not True or artifact.get("calculation_ready") is not False or artifact.get("no_submission_authorization") is not True:
+        raise ValueError("TS/IRC path-acceptance /2 authority boundary changed")
+    family_path = _resolve_local_ref(artifact["family"], path, "TS family")
+    result_path = _resolve_local_ref(artifact["ts_result"], path, "TS result")
+    review_path = _resolve_local_ref(artifact["mode_review"], path, "TS mode review")
+    decision_path = _resolve_local_ref(artifact["mode_decision"], path, "TS mode decision")
+    family = _load_json_strict(family_path)
+    result = _load_json_strict(result_path)
+    review = _load_json_strict(review_path)
+    decision = _load_json_strict(decision_path)
+    if family.get("schema") != SCHEMA_V2 or family.get("pilot") is not False or family.get("mechanism_edge_id") != artifact["edge_id"]:
+        raise ValueError("path acceptance /2 requires one formal TS-family /2 bound to the same edge")
+    _revalidate_family_scientific_binding(family_path, family)
+    if result.get("schema") != TS_RESULT_SCHEMA_V2:
+        raise ValueError("path acceptance /2 requires a source-bound TS/Freq result /2")
+    validate_ts_result_v2(result, result_path)
+    facts = classify_ts_freq_result_facts(result)
+    if not facts["first_order_saddle_candidate"] or facts["mode_review_status"] != "pending":
+        raise ValueError("path acceptance /2 requires an owner-classified first-order TS candidate")
+    if review.get("schema") != "gaussian-ts-mode-review/1" or review.get("ts_result_sha256") != sha256(result_path):
+        raise ValueError("mode review is not bound to the exact source-bound TS result")
+    validate_mode_review_geometry(result, review)
+    if decision.get("schema") != "gaussian-ts-mode-decision/1" or decision.get("decision") != "accepted" or decision.get("confirmed") is not True:
+        raise ValueError("path acceptance /2 requires an explicitly accepted TS mode decision")
+    if decision.get("ts_result_sha256") != sha256(result_path) or decision.get("mode_review_sha256") != sha256(review_path):
+        raise ValueError("TS mode decision source hashes differ")
+    endpoint_refs = artifact.get("endpoint_reviews")
+    if not isinstance(endpoint_refs, dict) or set(endpoint_refs) != {"forward", "reverse"}:
+        raise ValueError("path acceptance /2 requires exact forward and reverse endpoint reviews")
+    endpoints = {}
+    for direction in ("forward", "reverse"):
+        endpoint_path = _resolve_local_ref(endpoint_refs[direction], path, f"{direction} endpoint structure review")
+        endpoint = validate_endpoint_structure_review_artifact(endpoint_path)
+        if endpoint["direction"] != direction:
+            raise ValueError(f"{direction} endpoint review direction differs")
+        endpoints[direction] = endpoint
+    if {endpoints["forward"]["chemical_side"], endpoints["reverse"]["chemical_side"]} != {"reactant", "product"}:
+        raise ValueError("bidirectional endpoint reviews must identify one reactant and one product side")
+    forward, reverse = endpoints["forward"], endpoints["reverse"]
+    if forward["charge"] != reverse["charge"] or forward["multiplicity"] != reverse["multiplicity"]:
+        raise ValueError("bidirectional endpoint charge or multiplicity differs")
+    if forward["stable_atom_ids"] != reverse["stable_atom_ids"]:
+        raise ValueError("bidirectional endpoint stable atom ID/order mapping differs")
+    forward_elements = [item["element"] for item in forward["endpoint_coordinates"]["records"]]
+    reverse_elements = [item["element"] for item in reverse["endpoint_coordinates"]["records"]]
+    if forward_elements != reverse_elements or forward["structure_identity"]["formula"] != reverse["structure_identity"]["formula"]:
+        raise ValueError("bidirectional endpoint composition or atom order differs")
+    if forward["structure_identity"]["state_id"] == reverse["structure_identity"]["state_id"]:
+        raise ValueError("reactant and product endpoint reviews cannot claim the same structure state")
+    if not isinstance(artifact.get("limitations"), list) or not artifact["limitations"]:
+        raise ValueError("path acceptance /2 must retain limitations")
+    if artifact.get("validator") != PARSER_ID:
+        raise ValueError("path acceptance /2 validator version or schema differs")
+    return artifact
+
+
+def build_path_acceptance_v2_artifact(
+    family: Path, ts_result: Path, mode_review: Path, mode_decision: Path,
+    forward_review: Path, reverse_review: Path, output: Path,
+) -> dict[str, Any]:
+    if output.exists():
+        raise ValueError("refusing to overwrite an existing TS/IRC path-acceptance /2 artifact")
+    root = output.parent.resolve()
+    family_document = _load_json_strict(family)
+    artifact = {
+        "schema": PATH_ACCEPTANCE_SCHEMA_V2, "edge_id": family_document.get("mechanism_edge_id"),
+        "family": _local_ref(family, root), "ts_result": _local_ref(ts_result, root),
+        "mode_review": _local_ref(mode_review, root), "mode_decision": _local_ref(mode_decision, root),
+        "endpoint_reviews": {"forward": _local_ref(forward_review, root), "reverse": _local_ref(reverse_review, root)},
+        "accepted": True,
+        "limitations": [
+            "Acceptance is limited to one exact source-bound TS/Freq result, accepted mode, and two immutable endpoint structure reviews.",
+            "Endpoint minimum status still requires separate complete Opt/Freq acceptance.",
+            "This artifact grants no input, submission, retry, cancellation, cleanup, or live authority.",
+        ],
+        "validator": dict(PARSER_ID),
+        "calculation_ready": False, "no_submission_authorization": True,
+    }
+    artifact["payload_sha256"] = _payload_sha256(artifact)
+    output.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        return validate_path_acceptance_v2_artifact(output)
     except Exception:
         output.unlink(missing_ok=True)
         raise
@@ -1137,8 +1260,10 @@ def audit_checkpoint_provenance(
     result = json.loads(ts_result_path.read_text(encoding="utf-8"))
     review = json.loads(review_path.read_text(encoding="utf-8"))
     decision = json.loads(decision_path.read_text(encoding="utf-8"))
-    if result.get("schema") != "gaussian-ts-freq-result/1" or not result.get("first_order_saddle_candidate"):
+    if result.get("schema") not in {"gaussian-ts-freq-result/1", TS_RESULT_SCHEMA_V2} or not result.get("first_order_saddle_candidate"):
         raise ValueError("checkpoint audit requires an eligible TS/Freq result")
+    if result.get("schema") == TS_RESULT_SCHEMA_V2:
+        validate_ts_result_v2(result, ts_result_path)
     if result.get("log_sha256") != sha256(ts_log_path):
         raise ValueError("TS result is not bound to the supplied TS log")
     if review.get("schema") != "gaussian-ts-mode-review/1" or review.get("ts_result_sha256") != sha256(ts_result_path):
@@ -1404,6 +1529,150 @@ def audit_irc_endpoint_provenance(
             "Chemical-side assignment is a reviewed structural label; endpoint minimum status requires Opt-Freq with zero imaginary frequencies.",
         ],
     }
+
+
+def _formula_from_elements(elements: list[str]) -> str:
+    counts: dict[str, int] = {}
+    for element in elements:
+        counts[element] = counts.get(element, 0) + 1
+    order = (["C"] if "C" in counts else []) + (["H"] if "H" in counts else [])
+    order += sorted(element for element in counts if element not in {"C", "H"})
+    return "".join(element + (str(counts[element]) if counts[element] != 1 else "") for element in order)
+
+
+def _validate_review_timestamp(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("endpoint review time must be a non-empty ISO-8601 timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("endpoint review time must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("endpoint review time must include a timezone")
+    return value
+
+
+def _validate_endpoint_structure_fields(artifact: dict[str, Any], audit: dict[str, Any], result: dict[str, Any]) -> None:
+    if artifact.get("decision") != "accepted" or artifact.get("explicit_human_review") is not True:
+        raise ValueError("endpoint structure review must be explicitly accepted by a human reviewer")
+    if artifact.get("chemical_side") != audit.get("chemical_side") or artifact.get("direction") != audit.get("direction"):
+        raise ValueError("endpoint structure review side or direction differs from the source audit")
+    if artifact.get("charge") != audit.get("charge") or artifact.get("multiplicity") != audit.get("multiplicity"):
+        raise ValueError("endpoint structure review charge or multiplicity differs from the source audit")
+    _validate_review_timestamp(artifact.get("reviewed_at"))
+    if not isinstance(artifact.get("reviewer"), str) or not artifact["reviewer"].strip() or not isinstance(artifact.get("rationale"), str) or not artifact["rationale"].strip():
+        raise ValueError("endpoint structure review requires reviewer and rationale")
+    atom_ids = artifact.get("stable_atom_ids")
+    atom_order = audit.get("atom_order", [])
+    if not isinstance(atom_ids, list) or len(atom_ids) != len(atom_order) or len(set(atom_ids)) != len(atom_ids) or not all(isinstance(value, str) and value for value in atom_ids):
+        raise ValueError("endpoint structure review requires one unique stable atom ID per audited atom")
+    identity = artifact.get("structure_identity")
+    if not isinstance(identity, dict) or set(identity) != {"state_id", "identity_label", "formula", "connectivity", "stereochemistry"}:
+        raise ValueError("endpoint structure identity fields are invalid")
+    if not all(isinstance(identity[key], str) and identity[key].strip() for key in ("state_id", "identity_label", "formula")):
+        raise ValueError("endpoint structure identity requires state, label, and formula")
+    elements = [item.get("element") for item in atom_order]
+    if identity["formula"] != _formula_from_elements(elements):
+        raise ValueError("endpoint structure formula differs from the exact audited composition")
+    connectivity = identity["connectivity"]
+    if not isinstance(connectivity, list):
+        raise ValueError("endpoint connectivity must be an array")
+    seen_bonds: set[tuple[str, str]] = set()
+    for bond in connectivity:
+        if not isinstance(bond, dict) or set(bond) != {"atom_ids", "order"}:
+            raise ValueError("endpoint connectivity record fields are invalid")
+        pair = bond["atom_ids"]
+        if not isinstance(pair, list) or len(pair) != 2 or pair[0] == pair[1] or not set(pair) <= set(atom_ids):
+            raise ValueError("endpoint connectivity references invalid stable atom IDs")
+        key = tuple(sorted(pair))
+        if key in seen_bonds:
+            raise ValueError("endpoint connectivity contains a duplicate bond")
+        seen_bonds.add(key)
+        if not isinstance(bond["order"], (int, float)) or isinstance(bond["order"], bool) or not math.isfinite(float(bond["order"])) or float(bond["order"]) <= 0:
+            raise ValueError("endpoint bond order must be a positive finite number")
+    stereo = identity["stereochemistry"]
+    if not isinstance(stereo, list):
+        raise ValueError("endpoint stereochemistry must be an array")
+    seen_centers: set[str] = set()
+    for item in stereo:
+        if not isinstance(item, dict) or set(item) != {"center_atom_id", "descriptor", "source"}:
+            raise ValueError("endpoint stereochemistry record fields are invalid")
+        center = item["center_atom_id"]
+        if center not in atom_ids or center in seen_centers or not all(isinstance(item[key], str) and item[key].strip() for key in ("descriptor", "source")):
+            raise ValueError("endpoint stereochemistry record is invalid")
+        seen_centers.add(center)
+    coordinates = artifact.get("endpoint_coordinates")
+    result_coordinates = result.get("final_coordinates", [])
+    expected = [
+        {"atom_id": atom_id, "index": source.get("center", source.get("index")), "element": source.get("element"), "x": source.get("x"), "y": source.get("y"), "z": source.get("z")}
+        for atom_id, source in zip(atom_ids, result_coordinates)
+    ]
+    if not isinstance(coordinates, dict) or set(coordinates) != {"records", "sha256"} or coordinates["records"] != expected or coordinates["sha256"] != _canonical_data_sha256(expected):
+        raise ValueError("endpoint coordinate snapshot differs from the exact IRC result")
+
+
+def validate_endpoint_structure_review_artifact(path: Path) -> dict[str, Any]:
+    artifact = _load_json_strict(path)
+    required = {
+        "schema", "review_id", "direction", "chemical_side", "sources", "endpoint_coordinates",
+        "stable_atom_ids", "charge", "multiplicity", "structure_identity", "decision",
+        "explicit_human_review", "reviewer", "rationale", "reviewed_at", "parser", "immutability",
+        "calculation_ready", "no_submission_authorization", "payload_sha256",
+    }
+    if not isinstance(artifact, dict) or set(artifact) != required or artifact.get("schema") != ENDPOINT_REVIEW_SCHEMA:
+        raise ValueError("endpoint structure review fields or schema are invalid")
+    if artifact.get("payload_sha256") != _payload_sha256(artifact):
+        raise ValueError("endpoint structure review payload hash is invalid")
+    if artifact.get("immutability") != "append_only_new_revision" or artifact.get("calculation_ready") is not False or artifact.get("no_submission_authorization") is not True:
+        raise ValueError("endpoint structure review authority or immutability boundary changed")
+    if artifact.get("parser") != PARSER_ID:
+        raise ValueError("endpoint structure review parser version or schema differs")
+    bundle = artifact.get("sources")
+    audits = _validate_endpoint_bundle(bundle, path, artifact["direction"])
+    result_path = _resolve_local_ref(bundle["irc_result"], path, "endpoint review IRC result")
+    result = _load_json_strict(result_path)
+    _validate_endpoint_structure_fields(artifact, audits, result)
+    return artifact
+
+
+def build_endpoint_structure_review_artifact(
+    sources: dict[str, Path], review_path: Path, output: Path,
+) -> dict[str, Any]:
+    if output.exists():
+        raise ValueError("refusing to overwrite an existing endpoint structure review")
+    draft = _load_json_strict(review_path)
+    required = {"schema", "review_id", "direction", "chemical_side", "stable_atom_ids", "structure_identity", "decision", "explicit_human_review", "reviewer", "rationale", "reviewed_at"}
+    if not isinstance(draft, dict) or set(draft) != required or draft.get("schema") != "gaussian-endpoint-structure-review-draft/1":
+        raise ValueError("endpoint structure review draft fields or schema are invalid")
+    root = output.parent.resolve()
+    source_bundle = {key: _local_ref(value, root) for key, value in sources.items()}
+    audit = _validate_endpoint_bundle(source_bundle, output, draft["direction"])
+    result = _load_json_strict(sources["irc_result"])
+    atom_ids = draft["stable_atom_ids"]
+    records = [
+        {"atom_id": atom_id, "index": source.get("center", source.get("index")), "element": source.get("element"), "x": source.get("x"), "y": source.get("y"), "z": source.get("z")}
+        for atom_id, source in zip(atom_ids, result.get("final_coordinates", []))
+    ]
+    artifact = {
+        "schema": ENDPOINT_REVIEW_SCHEMA, "review_id": draft["review_id"],
+        "direction": draft["direction"], "chemical_side": draft["chemical_side"],
+        "sources": source_bundle, "endpoint_coordinates": {"records": records, "sha256": _canonical_data_sha256(records)},
+        "stable_atom_ids": atom_ids, "charge": audit["charge"], "multiplicity": audit["multiplicity"],
+        "structure_identity": draft["structure_identity"], "decision": draft["decision"],
+        "explicit_human_review": draft["explicit_human_review"], "reviewer": draft["reviewer"],
+        "rationale": draft["rationale"], "reviewed_at": draft["reviewed_at"],
+        "parser": dict(PARSER_ID),
+        "immutability": "append_only_new_revision", "calculation_ready": False,
+        "no_submission_authorization": True,
+    }
+    _validate_endpoint_structure_fields(artifact, audit, result)
+    artifact["payload_sha256"] = _payload_sha256(artifact)
+    output.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        return validate_endpoint_structure_review_artifact(output)
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
 
 
 def build_allcheck_endpoint_input(
@@ -1834,6 +2103,9 @@ def audit_fragment_endpoint_results(
         coordinates = result.get("final_coordinates")
         if not isinstance(coordinates, list) or len(coordinates) != fragment.get("atom_count"):
             raise ValueError(f"fragment {project} result atom count differs from the plan")
+        expected_frequency_count, linearity = _ts_geometry_mode_count(coordinates)
+        if expected_frequency_count is None or len(frequencies) != expected_frequency_count:
+            raise ValueError(f"fragment {project} frequency list is incomplete for its exact atom count and linearity")
         if [atom.get("element") for atom in coordinates] != fragment.get("element_order"):
             raise ValueError(f"fragment {project} result element order differs from the plan")
         energy = result.get("final_energy_hartree")
@@ -1850,6 +2122,8 @@ def audit_fragment_endpoint_results(
                 "job_id": job.get("job_id"),
                 "final_energy_hartree": float(energy),
                 "frequency_count": len(frequencies),
+                "expected_frequency_count": expected_frequency_count,
+                "linearity": linearity,
                 "imaginary_frequency_count": 0,
                 "lowest_frequency_cm-1": min(float(value) for value in frequencies),
                 "minimum_accepted": True,
@@ -1869,6 +2143,77 @@ def audit_fragment_endpoint_results(
             "No finite-distance supermolecule minimum is implied for asymptotically separated fragments.",
         ],
     }
+
+
+def audit_fragment_endpoint_results_v2(
+    plan_path: Path,
+    result_paths: dict[str, Path],
+    job_paths: dict[str, Path],
+    log_paths: dict[str, Path],
+    checkpoint_paths: dict[str, Path],
+    output_path: Path,
+) -> dict[str, Any]:
+    """Replay every fragment from its raw log and seal the full result lineage."""
+
+    legacy = audit_fragment_endpoint_results(plan_path, result_paths, job_paths)
+    projects = {item["project"] for item in legacy["fragments"]}
+    if set(log_paths) != projects or set(checkpoint_paths) != projects:
+        raise ValueError("raw logs and checkpoints must cover every planned fragment exactly once")
+    owner = _load_gaussian_log_owner()
+    root = output_path.parent.resolve()
+    plan = _load_json_strict(plan_path)
+    fragments_by_project = {item["project"]: item for item in plan["fragments"]}
+    records = []
+    energy_sum = 0.0
+    for accepted in legacy["fragments"]:
+        project = accepted["project"]
+        result_path, job_path = result_paths[project], job_paths[project]
+        log_path, checkpoint_path = log_paths[project], checkpoint_paths[project]
+        for label, candidate in (("raw log", log_path), ("checkpoint", checkpoint_path)):
+            if not candidate.is_file() or candidate.is_symlink() or candidate.stat().st_size == 0:
+                raise ValueError(f"fragment {project} {label} must be a non-empty non-symlink file")
+        result = _load_json_strict(result_path)
+        replay = owner.analyze_log_text(log_path.read_text(encoding="utf-8", errors="replace"))
+        compare = {
+            "status", "normal_termination", "normal_termination_count", "error_termination",
+            "error_termination_count", "optimization_completed", "stationary_point_found",
+            "optimization_success", "final_energy_hartree", "frequency_count",
+            "expected_frequency_count", "frequency_parse_complete", "frequency_parse_diagnostics",
+            "imaginary_frequency_count", "frequencies_cm-1", "final_coordinate_count",
+            "final_coordinates", "linearity", "parser",
+        }
+        for key in compare:
+            if result.get(key) != replay.get(key):
+                raise ValueError(f"fragment {project} result differs from raw-log parser replay: {key}")
+        expected = replay["expected_frequency_count"]
+        if replay["frequency_parse_complete"] is not True or expected is None or replay["frequency_count"] != expected:
+            raise ValueError(f"fragment {project} raw log has incomplete or damaged frequency evidence")
+        if replay["imaginary_frequency_count"] != 0 or not replay["optimization_success"]:
+            raise ValueError(f"fragment {project} raw log does not prove a stationary zero-imaginary minimum")
+        fragment = fragments_by_project[project]
+        if [atom.get("element") for atom in replay["final_coordinates"]] != fragment["element_order"]:
+            raise ValueError(f"fragment {project} raw-log atom order differs from the reviewed plan")
+        record = {
+            **accepted,
+            "result": {**_local_ref(result_path, root), "schema": result.get("schema")},
+            "job": {**_local_ref(job_path, root), "schema": _load_json_strict(job_path).get("schema")},
+            "raw_log": _local_ref(log_path, root), "checkpoint": _local_ref(checkpoint_path, root),
+            "parser": dict(replay["parser"]), "frequency_parse_complete": True,
+        }
+        records.append(record)
+        energy_sum += accepted["final_energy_hartree"]
+    artifact = {
+        "schema": "gaussian-irc-fragment-endpoint-validation/2",
+        "validation_status": "passed", "chemical_side": plan.get("chemical_side"),
+        "fragment_plan": {**_local_ref(plan_path, root), "schema": plan.get("schema")},
+        "fragment_count": len(records), "fragments": records,
+        "isolated_fragment_electronic_energy_sum_hartree": energy_sum,
+        "endpoint_minimum_evidence": "passed_as_raw_log_replayed_separately_reviewed_isolated_fragments",
+        "limitations": legacy["limitations"], "validator": dict(PARSER_ID), "calculation_ready": False,
+        "no_submission_authorization": True, "payload_sha256": None,
+    }
+    artifact["payload_sha256"] = _payload_sha256(artifact)
+    return artifact
 
 
 def read_atom_map(path: Path, atom_count: int) -> list[int]:
@@ -1988,6 +2333,8 @@ def parse_modes(text: str) -> tuple[list[dict[str, Any]], list[str]]:
             frequencies = [_float(value) for value in match.group(1).split()]
         except ValueError:
             diagnostics.append(f"malformed frequency line {cursor + 1}"); cursor += 1; continue
+        if not frequencies or not all(math.isfinite(value) for value in frequencies):
+            diagnostics.append(f"non-finite or empty frequency line {cursor + 1}"); cursor += 1; continue
         header = cursor + 1
         while header < len(lines) and not re.match(r"^\s*Atom\s+AN\s+", lines[header]):
             if re.match(r"^\s*Frequencies\s+--", lines[header]): break
@@ -2005,6 +2352,9 @@ def parse_modes(text: str) -> tuple[list[dict[str, Any]], list[str]]:
                 atom_index, atomic_number = int(fields[0]), int(fields[1])
                 numbers = [_float(value) for value in fields[2:2 + 3 * len(frequencies)]]
             except ValueError:
+                break
+            if not all(math.isfinite(value) for value in numbers):
+                diagnostics.append(f"non-finite displacement row {row + 1}")
                 break
             for i in range(len(frequencies)):
                 x, y, z = numbers[3 * i:3 * i + 3]
@@ -2029,6 +2379,14 @@ def classify_ts_freq_result_facts(result: dict[str, Any]) -> dict[str, Any]:
         if error_count > 0
         else "incomplete"
     )
+    complete_modes = True
+    if result.get("schema") == TS_RESULT_SCHEMA_V2:
+        complete_modes = bool(
+            result.get("frequency_parse_complete") is True
+            and result.get("frequency_count") == result.get("expected_frequency_count")
+            and result.get("atom_count") == len(result.get("final_coordinates", []))
+            and all(len(mode.get("displacements", [])) == result.get("atom_count") for mode in result.get("modes", []))
+        )
     candidate = bool(
         normal_count > 0
         and error_count == 0
@@ -2036,6 +2394,7 @@ def classify_ts_freq_result_facts(result: dict[str, Any]) -> dict[str, Any]:
         and result["optimization_completed"]
         and frequency_count > 0
         and imaginary_count == 1
+        and complete_modes
     )
     return {
         "status": status,
@@ -2098,6 +2457,84 @@ def analyze_ts_log_text(text: str) -> dict[str, Any]:
     result = {"schema": "gaussian-ts-freq-result/1", "g16_revision": revision.group(1).strip() if revision else None, "normal_termination_count": normal_count, "error_termination_count": error_count, "optimization_completed": optimization, "stationary_point_found": stationary, "final_energy_hartree": _float(energy[-1]) if energy else None, "frequency_count": len(frequencies), "frequencies_cm-1": frequencies, "raw_imaginary_frequency_count": len(negative), "imaginary_modes": negative, "final_coordinates": _last_orientation(text), "diagnostics": diagnostics}
     result.update(classify_ts_freq_result_facts(result))
     return result
+
+
+def _ts_geometry_mode_count(coordinates: list[dict[str, Any]]) -> tuple[int | None, str]:
+    if not coordinates:
+        return None, "undetermined"
+    if len(coordinates) == 1:
+        return 0, "linear"
+    if len(coordinates) == 2:
+        return 1, "linear"
+    points = [(float(item["x"]), float(item["y"]), float(item["z"])) for item in coordinates]
+    left, right = max(((a, b) for a in range(len(points)) for b in range(a + 1, len(points))), key=lambda pair: math.dist(points[pair[0]], points[pair[1]]))
+    span = math.dist(points[left], points[right])
+    if span <= 1e-10:
+        return None, "undetermined"
+    origin = points[left]
+    direction = tuple((points[right][axis] - origin[axis]) / span for axis in range(3))
+    tolerance = max(1e-6, span * 1e-7)
+    linear = True
+    for point in points:
+        delta = tuple(point[axis] - origin[axis] for axis in range(3))
+        projection = sum(delta[axis] * direction[axis] for axis in range(3))
+        perpendicular = tuple(delta[axis] - projection * direction[axis] for axis in range(3))
+        if math.sqrt(sum(value * value for value in perpendicular)) > tolerance:
+            linear = False
+            break
+    return 3 * len(points) - (5 if linear else 6), "linear" if linear else "nonlinear"
+
+
+def _make_ts_result_v2(log_path: Path, owner_dir: Path) -> dict[str, Any]:
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    legacy = analyze_ts_log_text(text)
+    modes, diagnostics = parse_modes(text)
+    expected, linearity = _ts_geometry_mode_count(legacy["final_coordinates"])
+    atom_count = len(legacy["final_coordinates"])
+    complete = bool(
+        expected is not None and len(modes) == expected and not diagnostics
+        and all(len(mode.get("displacements", [])) == atom_count for mode in modes)
+    )
+    artifact = {
+        **legacy,
+        "schema": TS_RESULT_SCHEMA_V2,
+        "source_log": _local_ref(log_path, owner_dir),
+        "parser": dict(PARSER_ID),
+        "atom_count": atom_count,
+        "linearity": linearity,
+        "expected_frequency_count": expected,
+        "frequency_parse_complete": complete,
+        "frequency_parse_diagnostics": diagnostics,
+        "modes": modes,
+        "payload_sha256": None,
+    }
+    artifact.update(classify_ts_freq_result_facts(artifact))
+    artifact["payload_sha256"] = _payload_sha256(artifact)
+    return artifact
+
+
+def validate_ts_result_v2(result: dict[str, Any], path: Path) -> dict[str, Any]:
+    if result.get("schema") != TS_RESULT_SCHEMA_V2 or result.get("payload_sha256") != _payload_sha256(result):
+        raise ValueError("source-bound TS/Freq result /2 schema or payload hash is invalid")
+    log_path = _resolve_local_ref(result.get("source_log"), path, "TS/Freq raw log")
+    expected = _make_ts_result_v2(log_path, path.parent.resolve())
+    if result != expected:
+        raise ValueError("source-bound TS/Freq result differs from raw-log parser replay")
+    return result
+
+
+def build_ts_result_v2(log_path: Path, output: Path) -> dict[str, Any]:
+    if output.exists():
+        raise ValueError("refusing to overwrite an existing source-bound TS/Freq result")
+    if not log_path.is_file() or log_path.is_symlink():
+        raise ValueError("TS/Freq raw log must be an existing non-symlink file")
+    artifact = _make_ts_result_v2(log_path.resolve(), output.parent.resolve())
+    output.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        return validate_ts_result_v2(artifact, output)
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
 
 
 def terminal_template_payload_sha256(template: dict[str, Any]) -> str:
@@ -2574,11 +3011,15 @@ def main() -> int:
     checkpoint_audit = sub.add_parser("audit-checkpoint"); checkpoint_audit.add_argument("--ts-input", required=True); checkpoint_audit.add_argument("--ts-log", required=True); checkpoint_audit.add_argument("--ts-result", required=True); checkpoint_audit.add_argument("--checkpoint", required=True); checkpoint_audit.add_argument("--mode-review", required=True); checkpoint_audit.add_argument("--mode-decision", required=True); checkpoint_audit.add_argument("--output", required=True)
     allcheck = sub.add_parser("build-allcheck-irc"); allcheck.add_argument("--checkpoint-audit", required=True); allcheck.add_argument("--checkpoint", required=True); allcheck.add_argument("--output", required=True); allcheck.add_argument("--route", required=True); allcheck.add_argument("--direction", choices=["forward", "reverse"], required=True); allcheck.add_argument("--memory", required=True); allcheck.add_argument("--nprocshared", type=int, required=True)
     endpoint_audit = sub.add_parser("audit-irc-endpoint"); endpoint_audit.add_argument("--irc-input", required=True); endpoint_audit.add_argument("--irc-log", required=True); endpoint_audit.add_argument("--irc-result", required=True); endpoint_audit.add_argument("--job", required=True); endpoint_audit.add_argument("--checkpoint", required=True); endpoint_audit.add_argument("--direction", choices=["forward", "reverse"], required=True); endpoint_audit.add_argument("--chemical-side", choices=["reactant", "product"], required=True); endpoint_audit.add_argument("--expected-points", type=int, required=True); endpoint_audit.add_argument("--forming", action="append", required=True); endpoint_audit.add_argument("--output", required=True)
+    endpoint_review = sub.add_parser("build-endpoint-structure-review"); endpoint_review.add_argument("--review", required=True); endpoint_review.add_argument("--audit", required=True); endpoint_review.add_argument("--irc-input", required=True); endpoint_review.add_argument("--irc-log", required=True); endpoint_review.add_argument("--irc-result", required=True); endpoint_review.add_argument("--job", required=True); endpoint_review.add_argument("--checkpoint", required=True); endpoint_review.add_argument("--output", required=True)
+    endpoint_review_validate = sub.add_parser("validate-endpoint-structure-review"); endpoint_review_validate.add_argument("artifact")
     endpoint = sub.add_parser("build-allcheck-endpoint"); endpoint.add_argument("--endpoint-audit", required=True); endpoint.add_argument("--checkpoint", required=True); endpoint.add_argument("--output", required=True); endpoint.add_argument("--route", required=True); endpoint.add_argument("--memory", required=True); endpoint.add_argument("--nprocshared", type=int, required=True)
     components = sub.add_parser("propose-endpoint-components"); components.add_argument("--endpoint-audit", required=True); components.add_argument("--irc-result", required=True); components.add_argument("--bond-scale", type=float, default=1.25); components.add_argument("--output", required=True)
     fragment_build = sub.add_parser("build-fragment-endpoints"); fragment_build.add_argument("--component-proposal", required=True); fragment_build.add_argument("--component-review", required=True); fragment_build.add_argument("--output-dir", required=True); fragment_build.add_argument("--route", required=True); fragment_build.add_argument("--memory", required=True); fragment_build.add_argument("--nprocshared", type=int, required=True)
     fragment_audit = sub.add_parser("audit-fragment-endpoints"); fragment_audit.add_argument("--plan", required=True); fragment_audit.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit.add_argument("--output", required=True)
+    fragment_audit_v2 = sub.add_parser("audit-fragment-endpoints-v2"); fragment_audit_v2.add_argument("--plan", required=True); fragment_audit_v2.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit_v2.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit_v2.add_argument("--log", action="append", required=True, help="PROJECT=/path/to/full.log"); fragment_audit_v2.add_argument("--checkpoint", action="append", required=True, help="PROJECT=/path/to/final.chk"); fragment_audit_v2.add_argument("--output", required=True)
     path_accept = sub.add_parser("build-path-acceptance"); path_accept.add_argument("--family", required=True); path_accept.add_argument("--ts-result", required=True); path_accept.add_argument("--mode-review", required=True); path_accept.add_argument("--mode-decision", required=True); path_accept.add_argument("--forward-audit", required=True); path_accept.add_argument("--forward-input", required=True); path_accept.add_argument("--forward-log", required=True); path_accept.add_argument("--forward-result", required=True); path_accept.add_argument("--forward-job", required=True); path_accept.add_argument("--forward-checkpoint", required=True); path_accept.add_argument("--reverse-audit", required=True); path_accept.add_argument("--reverse-input", required=True); path_accept.add_argument("--reverse-log", required=True); path_accept.add_argument("--reverse-result", required=True); path_accept.add_argument("--reverse-job", required=True); path_accept.add_argument("--reverse-checkpoint", required=True); path_accept.add_argument("--output", required=True)
+    path_accept_v2 = sub.add_parser("build-path-acceptance-v2"); path_accept_v2.add_argument("--family", required=True); path_accept_v2.add_argument("--ts-result", required=True); path_accept_v2.add_argument("--mode-review", required=True); path_accept_v2.add_argument("--mode-decision", required=True); path_accept_v2.add_argument("--forward-endpoint-review", required=True); path_accept_v2.add_argument("--reverse-endpoint-review", required=True); path_accept_v2.add_argument("--output", required=True)
     path_validate = sub.add_parser("validate-path-acceptance"); path_validate.add_argument("artifact")
     terminal = sub.add_parser("ingest-terminal"); terminal.add_argument("--template", required=True); terminal.add_argument("--input", required=True); terminal.add_argument("--job", required=True); terminal.add_argument("--log", required=True); terminal.add_argument("--output", required=True)
     args = parser.parse_args()
@@ -2665,7 +3106,7 @@ def main() -> int:
             )
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "analyze-ts":
-            result = analyze_ts_log_text(Path(args.log).read_text(encoding="utf-8", errors="replace")); result["log_sha256"] = sha256(Path(args.log)); Path(args.output).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            build_ts_result_v2(Path(args.log), Path(args.output))
         elif args.command == "mode-review":
             pairs = [tuple(map(int, raw.split(","))) for raw in args.forming + args.breaking]
             result_path = Path(args.result)
@@ -2718,6 +3159,12 @@ def main() -> int:
             if any(len(pair) != 2 for pair in pairs): raise ValueError("forming pairs must use atom1,atom2")
             result = audit_irc_endpoint_provenance(Path(args.irc_input), Path(args.irc_log), Path(args.irc_result), Path(args.job), Path(args.checkpoint), args.direction, args.chemical_side, args.expected_points, pairs)
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        elif args.command == "build-endpoint-structure-review":
+            sources = {"audit": Path(args.audit), "irc_input": Path(args.irc_input), "irc_log": Path(args.irc_log), "irc_result": Path(args.irc_result), "job": Path(args.job), "checkpoint": Path(args.checkpoint)}
+            build_endpoint_structure_review_artifact(sources, Path(args.review), Path(args.output))
+        elif args.command == "validate-endpoint-structure-review":
+            result = validate_endpoint_structure_review_artifact(Path(args.artifact))
+            print(json.dumps({"schema": "gaussian-endpoint-structure-review-validation/1", "review_id": result["review_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
         elif args.command == "build-allcheck-endpoint":
             build_allcheck_endpoint_input(Path(args.endpoint_audit), Path(args.checkpoint), Path(args.output), args.route, args.memory, args.nprocshared)
         elif args.command == "propose-endpoint-components":
@@ -2741,11 +3188,28 @@ def main() -> int:
                 assignments[label] = parsed
             result = audit_fragment_endpoint_results(Path(args.plan), assignments["result"], assignments["job"])
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        elif args.command == "audit-fragment-endpoints-v2":
+            output_path = Path(args.output)
+            if output_path.exists(): raise ValueError("refusing to overwrite an existing fragment endpoint validation /2")
+            assignments: dict[str, dict[str, Path]] = {}
+            for label, values in (("result", args.result), ("job", args.job), ("log", args.log), ("checkpoint", args.checkpoint)):
+                parsed: dict[str, Path] = {}
+                for raw in values:
+                    project, separator, value = raw.partition("=")
+                    if not separator or not PROJECT_RE.fullmatch(project) or not value or project in parsed:
+                        raise ValueError(f"each --{label} must be a unique PROJECT=/path assignment")
+                    parsed[project] = Path(value)
+                assignments[label] = parsed
+            result = audit_fragment_endpoint_results_v2(Path(args.plan), assignments["result"], assignments["job"], assignments["log"], assignments["checkpoint"], output_path)
+            output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "build-path-acceptance":
             forward = {"audit": Path(args.forward_audit), "irc_input": Path(args.forward_input), "irc_log": Path(args.forward_log), "irc_result": Path(args.forward_result), "job": Path(args.forward_job), "checkpoint": Path(args.forward_checkpoint)}
             reverse = {"audit": Path(args.reverse_audit), "irc_input": Path(args.reverse_input), "irc_log": Path(args.reverse_log), "irc_result": Path(args.reverse_result), "job": Path(args.reverse_job), "checkpoint": Path(args.reverse_checkpoint)}
             result = build_path_acceptance_artifact(Path(args.family), Path(args.ts_result), Path(args.mode_review), Path(args.mode_decision), forward, reverse, Path(args.output))
             print(json.dumps({"schema": "gaussian-ts-irc-path-acceptance-build/1", "edge_id": result["edge_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
+        elif args.command == "build-path-acceptance-v2":
+            result = build_path_acceptance_v2_artifact(Path(args.family), Path(args.ts_result), Path(args.mode_review), Path(args.mode_decision), Path(args.forward_endpoint_review), Path(args.reverse_endpoint_review), Path(args.output))
+            print(json.dumps({"schema": "gaussian-ts-irc-path-acceptance-build/2", "edge_id": result["edge_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
         elif args.command == "validate-path-acceptance":
             result = validate_path_acceptance_artifact(Path(args.artifact))
             print(json.dumps({"schema": "gaussian-ts-irc-path-acceptance-validation/1", "edge_id": result["edge_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))

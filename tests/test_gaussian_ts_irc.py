@@ -701,6 +701,39 @@ class TsIrcTests(unittest.TestCase):
             self.assertEqual(audit["completed_point"], 2)
             self.assertEqual(audit["reviewed_forming_bond_distances"][0]["distance_angstrom"], 1.5)
             audit_path = root / "endpoint_audit.json"; audit_path.write_text(json.dumps(audit))
+            review_draft = {
+                "schema": "gaussian-endpoint-structure-review-draft/1",
+                "review_id": "synthetic_forward_endpoint_review",
+                "direction": "forward", "chemical_side": "reactant",
+                "stable_atom_ids": ["atom_c1", "atom_c2"],
+                "structure_identity": {
+                    "state_id": "synthetic_reactant_state", "identity_label": "reviewed synthetic C2 endpoint",
+                    "formula": "C2", "connectivity": [{"atom_ids": ["atom_c1", "atom_c2"], "order": 1.0}],
+                    "stereochemistry": [],
+                },
+                "decision": "accepted", "explicit_human_review": True,
+                "reviewer": "synthetic_offline_reviewer",
+                "rationale": "Synthetic connectivity and identity were reviewed against the exact endpoint coordinates.",
+                "reviewed_at": "2026-07-19T12:00:00+08:00",
+            }
+            review_draft_path = root / "endpoint_review.draft.json"; review_draft_path.write_text(json.dumps(review_draft))
+            review_path = root / "endpoint_review.json"
+            sources = {"audit": audit_path, "irc_input": irc_input, "irc_log": irc_log, "irc_result": result_path, "job": job_path, "checkpoint": checkpoint}
+            reviewed = TS.build_endpoint_structure_review_artifact(sources, review_draft_path, review_path)
+            self.assertEqual(reviewed["structure_identity"]["formula"], "C2")
+            self.assertEqual(reviewed["endpoint_coordinates"]["records"][0]["atom_id"], "atom_c1")
+            self.assertEqual(reviewed["parser"], TS.PARSER_ID)
+            TS.validate_endpoint_structure_review_artifact(review_path)
+            stale = json.loads(review_path.read_text()); stale["structure_identity"]["formula"] = "C3"; stale["payload_sha256"] = TS._payload_sha256(stale)
+            review_path.write_text(json.dumps(stale))
+            with self.assertRaisesRegex(ValueError, "formula differs"):
+                TS.validate_endpoint_structure_review_artifact(review_path)
+            review_path.write_text(json.dumps(reviewed))
+            original_log = irc_log.read_text()
+            irc_log.write_text(original_log + " stale mutation\n")
+            with self.assertRaisesRegex(ValueError, "reference changed"):
+                TS.validate_endpoint_structure_review_artifact(review_path)
+            irc_log.write_text(original_log)
             endpoint = root / "endpoint.gjf"
             manifest = TS.build_allcheck_endpoint_input(
                 audit_path, checkpoint, endpoint,

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/ts-freq-result-v2.schema.json",
+  "title": "Auto-G16 source-bound TS frequency result v2",
+  "type": "object",
+  "required": ["schema", "source_log", "parser", "atom_count", "linearity", "expected_frequency_count", "frequency_count", "frequency_parse_complete", "frequency_parse_diagnostics", "modes", "first_order_saddle_candidate", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-ts-freq-result/2"},
+    "source_log": {"$ref": "#/$defs/ref"},
+    "parser": {"$ref": "#/$defs/parser"},
+    "atom_count": {"type": "integer", "minimum": 1},
+    "linearity": {"enum": ["linear", "nonlinear"]},
+    "expected_frequency_count": {"type": "integer", "minimum": 0},
+    "frequency_count": {"type": "integer", "minimum": 0},
+    "frequency_parse_complete": {"type": "boolean"},
+    "frequency_parse_diagnostics": {"type": "array", "items": {"type": "string"}},
+    "modes": {"type": "array", "items": {"type": "object"}},
+    "first_order_saddle_candidate": {"type": "boolean"},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "ref": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes"], "properties": {"path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}},
+    "parser": {"type": "object", "additionalProperties": false, "required": ["name", "version", "schema"], "properties": {"name": {"const": "auto-g16-ts-irc"}, "version": {"const": "2.0.0"}, "schema": {"const": "auto-g16-ts-irc-parser/2"}}}
+  }
+}

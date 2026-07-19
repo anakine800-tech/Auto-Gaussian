@@ -98,3 +98,29 @@ def molblock_stereo_roundtrip(mol, Chem) -> dict[str, Any]:
         "source_isomeric_smiles": source_smiles,
         "roundtrip_isomeric_smiles": restored_smiles,
     }
+
+
+def structure_stereo_invariants(mol, Chem, rdMolDescriptors, diagnostic: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Project exact identity/stereo invariants for downstream regression gates."""
+
+    Chem.AssignStereochemistry(mol, force=True, cleanIt=True)
+    centers = Chem.FindMolChiralCenters(mol, includeUnassigned=True, useLegacyImplementation=False)
+    explicit_hydrogens = [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() == 1]
+    cfg_records = [] if diagnostic is None else diagnostic.get("restored_bond_cfg", [])
+    conflicts = [] if diagnostic is None else diagnostic.get("conflicting_bond_cfg", [])
+    unsupported = [] if diagnostic is None else diagnostic.get("unsupported_bond_cfg", [])
+    boron_count = sum(atom.GetAtomicNum() == 5 for atom in mol.GetAtoms())
+    return {
+        "canonical_isomeric_smiles": Chem.MolToSmiles(mol, isomericSmiles=True),
+        "formula": rdMolDescriptors.CalcMolFormula(mol),
+        "atom_count": int(mol.GetNumAtoms()),
+        "heavy_atom_count": int(mol.GetNumHeavyAtoms()),
+        "explicit_hydrogen_atom_indices": explicit_hydrogens,
+        "chiral_centers": [{"atom_index": int(index), "cip": cip} for index, cip in centers],
+        "restored_cfg_bond_count": len(cfg_records),
+        "conflicting_cfg_bond_count": len(conflicts),
+        "unsupported_cfg_bond_count": len(unsupported),
+        "boron_atom_count": boron_count,
+        "boron_force_field_fallback_requires_review": boron_count > 0,
+        "stereo_assignment_complete": not conflicts and not unsupported and all(cip != "?" for _, cip in centers),
+    }

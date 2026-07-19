@@ -130,7 +130,7 @@ class ScientificMaturityTests(unittest.TestCase):
         atomic_numbers = [1, 1, 53, 53, 46]
         log_path = root / f"{minimum_id}.log"
         rows = "\n".join(
-            f" {index:5d} {number:10d} {0:11d} {float(index):15.6f} {0.0:12.6f} {0.0:12.6f}"
+            f" {index:5d} {number:10d} {0:11d} {float(index):15.6f} {(1.0 if index == 3 else 0.0):12.6f} {0.0:12.6f}"
             for index, number in enumerate(atomic_numbers, start=1)
         )
         log_text = (
@@ -139,7 +139,9 @@ class ScientificMaturityTests(unittest.TestCase):
             " Standard orientation:\n ----------------------------------------\n header\n ----------------------------------------\n"
             + rows
             + "\n ----------------------------------------\n"
-            " Frequencies --  25.0 50.0 100.0\n"
+            " Frequencies --  25.0 50.0 75.0\n"
+            " Frequencies --  100.0 125.0 150.0\n"
+            " Frequencies --  175.0 200.0 225.0\n"
             " Thermal correction to Gibbs Free Energy= 0.010000\n"
             " Normal termination of Gaussian\n Normal termination of Gaussian\n Normal termination of Gaussian\n"
         )
@@ -154,7 +156,7 @@ class ScientificMaturityTests(unittest.TestCase):
         checkpoint.write_bytes(f"checkpoint:{minimum_id}".encode())
         coordinates.write_text(
             f"{len(atoms)}\n{minimum_id}\n"
-            + "\n".join(f"{element} {float(index)} 0.0 0.0" for index, element in enumerate(elements, start=1))
+            + "\n".join(f"{element} {float(index)} {1.0 if index == 3 else 0.0} 0.0" for index, element in enumerate(elements, start=1))
             + "\n",
             encoding="utf-8",
         )

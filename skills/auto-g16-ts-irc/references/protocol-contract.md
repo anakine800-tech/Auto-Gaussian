@@ -82,7 +82,28 @@ ingested scientific failure is an explicit non-accepted outcome. For TS/Freq,
 minimum, or validated reaction path. The command must never contact PBS or
 perform a live action.
 
-`gaussian-ts-freq-result/1` holds termination/error evidence, stationary-point status, energy, frequencies, raw imaginary count, parsed displacement vectors, final geometry, candidate status, mode-review status, hashes, and diagnostics. Exactly one negative frequency makes `first_order_saddle_candidate` true only when normal/stationary/frequency evidence is also present.
+`gaussian-ts-freq-result/2` is the formal result contract. It binds the exact
+full log by portable relative path, SHA-256 and size, records parser
+name/version/schema, derives the exact linear/nonlinear 3N-5 or 3N-6 mode
+expectation from the final geometry, and replays every displacement row.
+Malformed, non-finite, truncated or atom-incomplete mode evidence is
+ineligible. Historical `/1` can be inspected but cannot satisfy new formal
+path acceptance.
+
+`gaussian-endpoint-structure-review/1` is append-only human review, not a
+reactant/product label shortcut. It binds the endpoint coordinates, audit,
+input, raw log, result, job and checkpoint; records identity, connectivity,
+stereochemistry, stable atom IDs, reviewer, rationale and timestamp; and
+replays the owner endpoint audit. `gaussian-ts-irc-path-acceptance/2` accepts
+only two such reviews plus a source-bound TS result `/2`, and rejects different
+composition, charge, multiplicity or stable atom ID/order. Therefore an
+84-atom complex and a 36-atom isolated product cannot be QST2 endpoints or a
+bidirectional path pair.
+
+`gaussian-irc-fragment-endpoint-validation/2` is the formal disconnected
+endpoint minimum contract. Every fragment result is replayed from its exact
+full log and bound to the exact job and checkpoint. Legacy fragment validation
+`/1` lacks that closure and remains historical replay-only.
 
 `classify_ts_freq_result_facts` and `classify_ts_freq_terminal_facts` are the
 pure specialist replay boundary for parser status, first-order/mode-review
