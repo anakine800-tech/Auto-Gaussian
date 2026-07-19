@@ -833,7 +833,8 @@ class IdempotentExecutionTests(unittest.TestCase):
             ):
                 args.func(args)
             reconcile = PBS.build_parser().parse_args([
-                "reconcile-cancellation", "--job-id", "123.master", "--local-dir", str(local_dir)
+                "reconcile-cancellation", "--job-id", "123.master", "--local-dir", str(local_dir),
+                "--mac-ssh-config", argv[argv.index("--mac-ssh-config") + 1],
             ])
             observed = []
 
