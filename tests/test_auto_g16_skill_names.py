@@ -23,6 +23,7 @@ EXPECTED = {
     "auto-g16-reaction-workflow",
     "auto-g16-rtwin-pbs",
     "auto-g16-ts-irc",
+    "auto-g16-ts-seed",
     "auto-g16-view-rt-win",
 }
 
