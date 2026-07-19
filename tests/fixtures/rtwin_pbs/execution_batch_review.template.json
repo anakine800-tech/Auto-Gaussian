@@ -1,0 +1,16 @@
+{
+  "schema": "gaussian-execution-batch-review/1",
+  "batch_id": "synthetic-execution-batch",
+  "review_id": "synthetic-review-r1",
+  "reviewed_at": "2026-01-01T00:00:00Z",
+  "reviewer": "fixture-reviewer",
+  "max_distinct_scientific_tasks": 10,
+  "tasks": [],
+  "governance": {
+    "automatic_qsub": false,
+    "automatic_retry": false,
+    "automatic_scientific_change": false,
+    "monitoring_is_read_only": true,
+    "fresh_approval_required_per_attempt": true
+  }
+}

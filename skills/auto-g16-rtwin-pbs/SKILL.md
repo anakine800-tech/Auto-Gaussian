@@ -163,6 +163,29 @@ The BF3-TS1 run already in progress predates this gate. Never backdate a
 proposal or selection for it. Apply the gate to every later retry, candidate,
 IRC or endpoint.
 
+## Reviewed execution batches
+
+Use `scripts/execution_batch.py` and
+[references/execution-batch-governance.md](references/execution-batch-governance.md)
+when several reviewed calculations share one operator batch. One immutable
+`gaussian-execution-batch-review/1` initializes one persistent,
+hash-bound `gaussian-execution-batch/1` ledger with a hard limit of ten
+distinct scientific tasks. A task identity binds structure, chemical
+hypothesis, method/protocol, calculation objective and relevant input hashes;
+filenames, PBS names, aliases, splits and retries cannot reset the cap.
+
+Reserve each physical attempt atomically before qsub. The reservation begins
+as `submission_uncertain` and remains counted and blocks another attempt until
+read-only evidence reconciles it. An exact retry consumes no new task slot but
+requires a new live approval and the ordinary exact-input hash replay. Any
+scientific identity change consumes a new reviewed task slot. The ledger may
+classify a failure and support a retry proposal, but it never submits, retries,
+changes chemistry, cancels or expands work automatically.
+
+Monitoring is read-only: important state/error events are immediate and the
+default cumulative operator-summary cadence is 60 minutes. Batch monitoring
+does not broaden the separate repeated-evidence scheduler-zombie qdel policy.
+
 ## Opt-Freq-single-point workflow
 
 Use `scripts/gaussian_workflow.py build` to turn one selected, audited Cartesian input into three linked stages. Require an explicit single-point route and standard state; never infer a research protocol from the molecule.
@@ -266,6 +289,9 @@ Read [references/environment-and-failures.md](references/environment-and-failure
 
 - `scripts/protocol_selection.py`: standard-library-only three-tier proposal,
   explicit selection, hash verification and offline input-draft authorization.
+- `scripts/execution_batch.py`: standard-library-only locked execution-batch
+  ledger, stable scientific-task identity, cap/attempt/core-hour accounting,
+  retry classification and read-only monitoring summaries.
 - `scripts/gaussian_auto.py`: exact-input approval gate and one-command
   submission through analyzed results; raw structure-to-method preparation is
   intentionally unsupported.

@@ -138,7 +138,10 @@ retain their existing names for compatibility and provenance.
   states, metals, TS/IRC, server-directory creation, and all live actions.
 - `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
 - `skills/auto-g16-conformer-search`: offline, hash-bound A/A1/A2 and B/B1/B2 conformer/complex discovery planning, supplied-candidate legality auditing, composite structural cross-validation, negative-evidence preservation, clustering, medoids, and candidate-only handoff. It never executes xTB, CREST, Gaussian, PBS, or SSH.
-- `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring, retrieval, Opt–Freq–SP analysis, and scheduler-state handling.
+- `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring,
+  retrieval, Opt–Freq–SP analysis, scheduler-state handling, and locked
+  ten-task execution-batch governance with separate task/attempt/core-hour
+  accounting.
 - `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks,
   minima-gated prospective `/2` family creation, imaginary-mode review
   artifacts, explicit mode promotion, and hash-bound forward/reverse IRC
