@@ -3375,11 +3375,25 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
         "process_evidence_status": process_evidence["status"], "log_size": size,
         "log_mtime_epoch": mtime, "workflow_expected_stages": expected_stages if workflow_manifest else None,
         "full_normal_termination_count": normal_count, "full_error_termination_count": error_count,
-        "scheduler_record_lingering": bool(qstat_evidence["status"] == "present" and (workflow_complete or analysis["normal_termination"])),
-        "scheduler_zombie_candidate": bool(qstat_evidence["job_name"] == project and qstat_evidence["pbs_state"] == "R" and process_evidence["process_alive"] is False and (workflow_complete or workflow_failed or analysis["normal_termination"] or analysis["error_termination"])),
-        "interrupted_candidate": bool(qstat_evidence["status"] == "absent" and size is not None and normal_count == 0 and error_count == 0 and not (workflow_complete or workflow_failed or analysis["normal_termination"] or analysis["error_termination"])),
         "interruption_proof": None, "evidence_conflict": conflict, "analysis": analysis,
     }
+    terminal_proven = terminal_log_proven(inspection)
+    inspection.update({
+        "scheduler_record_lingering": bool(
+            qstat_evidence["status"] == "present" and terminal_proven
+        ),
+        "scheduler_zombie_candidate": bool(
+            qstat_evidence["job_name"] == project
+            and qstat_evidence["pbs_state"] == "R"
+            and process_evidence["process_alive"] is False
+            and terminal_proven
+        ),
+        "interrupted_candidate": bool(
+            qstat_evidence["status"] == "absent"
+            and size is not None
+            and not terminal_proven
+        ),
+    })
     inspection["evidence_sha256"] = canonical_digest(inspection)
     return inspection
 
@@ -4237,7 +4251,7 @@ def command_submit(args) -> None:
 
     try:
         intent, files, expected, job = prepare_reserved_local_transaction()
-    except (OSError, ValueError, SystemExit) as exc:
+    except (OSError, ValueError, SystemExit, KeyboardInterrupt) as exc:
         evidence = {
             "source": "proven_pre_network_local_transaction_failure",
             "sha256": canonical_digest({
@@ -4259,6 +4273,8 @@ def command_submit(args) -> None:
             fail("pre-network local transaction failed and ledger release also failed", code=5)
         with contextlib.suppress(OSError, ValueError, SystemExit):
             update_job(local_dir, status="not_submitted", qsub_invocation_started=False, submission_reconciliation=evidence)
+        if isinstance(exc, KeyboardInterrupt):
+            raise
         fail(f"local transaction failed before network; reservation released: {exc}")
 
     try:

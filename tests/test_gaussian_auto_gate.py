@@ -203,6 +203,44 @@ class GaussianAutoGateTests(unittest.TestCase):
         self.assertNotEqual(process.returncode, 0)
         self.assertIn("accepts only an existing reviewed", process.stderr)
 
+    def test_submit_wrapper_allows_slow_transport_transaction_without_umbrella_timeout(self) -> None:
+        args = SimpleNamespace(
+            confirmed=True, dry_run=True, work_kind="ordinary", project="safejob",
+            local_dir="/synthetic/local", scientific_maturity=None, edge_id=None,
+            node_id=None, pilot=False, scientific_action_authorization=None,
+            input_approval_record=None, approval_record=None, watch=False,
+            mac_ssh_config=None, rtwin_alias=None, windows_root=None,
+            windows_server_config=None, server_alias=None,
+            execution_batch_ledger=None, scientific_task_id=None, idempotency_key=None,
+            estimated_core_hours=None, estimated_core_hours_evidence_source=None,
+            estimated_core_hours_evidence_sha256=None, resource_policy=None,
+            resource_gate=None, scheduler_resource_snapshot=None, resource_tier=None,
+            resource_cores=None, resource_memory_gb=None, walltime_seconds=None,
+        )
+        summary = {
+            "gaussian_input": "/synthetic/input.gjf",
+            "input_approval": {"status": "validated_exact_input_approval"},
+        }
+        logical_elapsed = {"seconds": 0}
+
+        def slow_submit(command, **kwargs):
+            logical_elapsed["seconds"] = 61
+            self.assertNotIn("timeout", kwargs)
+            return subprocess.CompletedProcess(command, 0)
+
+        with mock.patch.object(AUTO, "prepare_source", return_value=summary), \
+             mock.patch.object(AUTO.subprocess, "run", side_effect=slow_submit) as submit:
+            AUTO.command_auto(args)
+        self.assertEqual(logical_elapsed["seconds"], 61)
+        self.assertEqual(submit.call_count, 1)
+
+        uncertain = subprocess.TimeoutExpired(["synthetic-submit"], 61)
+        with mock.patch.object(AUTO, "prepare_source", return_value=summary), \
+             mock.patch.object(AUTO.subprocess, "run", side_effect=uncertain) as submit, \
+             self.assertRaises(subprocess.TimeoutExpired):
+            AUTO.command_auto(args)
+        self.assertEqual(submit.call_count, 1)
+
     def test_live_approval_must_match_exact_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "approval.json"

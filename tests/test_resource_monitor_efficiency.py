@@ -303,6 +303,28 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
                 self.assertEqual(attempt["state"], "reconciled_not_submitted")
                 self.assertEqual(ledger["tasks"][0]["state"], "reviewed")
 
+    def test_keyboard_interrupt_before_first_network_releases_reservation_and_reraises(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            args, ledger_path, attempt_id, input_approval, live = self.make_live_submit_fixture(root)
+            real_publish = PBS.publish_new_json
+
+            def publish(path, value, validator=None):
+                if Path(path).name == "live-approval-consumption.json":
+                    raise KeyboardInterrupt
+                return real_publish(path, value, validator)
+
+            with mock.patch.object(PBS, "validate_input_approval", return_value=input_approval), \
+                 mock.patch.object(PBS, "validate_live_approval_binding", return_value=(live, "d" * 64)), \
+                 mock.patch.object(PBS, "publish_new_json", side_effect=publish), \
+                 mock.patch.object(PBS, "run") as network, self.assertRaises(KeyboardInterrupt):
+                PBS.command_submit(args)
+            network.assert_not_called()
+            ledger = RESOURCE.load(ledger_path)
+            attempt = next(item for item in ledger["attempts"] if item["attempt_id"] == attempt_id)
+            self.assertEqual(attempt["state"], "reconciled_not_submitted")
+            self.assertEqual(ledger["tasks"][0]["state"], "reviewed")
+
     def test_unresolved_scheduler_omission_wrong_resources_and_state_conflict_close_gate(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); path, task = self.make_ledger(root); policy = self.policy(); empty = self.snapshot_artifact(root); gate = self.gate(path, policy, empty); attempt = self.reserve(path, task, policy, gate, empty)
@@ -495,6 +517,8 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             with mock.patch.object(PBS, "run_read_only", return_value=subprocess.CompletedProcess([], 0, frame(now_epoch, 1), "")):
                 exact = PBS.inspect_job(args, "safejob", "input", "123.master")
             self.assertEqual(exact["session_id"], "77")
+            self.assertTrue(exact["scheduler_record_lingering"])
+            self.assertTrue(exact["scheduler_zombie_candidate"])
             diagnosis = PBS.assess_zombie_observations("safejob", "123.master", [exact, copy.deepcopy(exact)])
             self.assertEqual(diagnosis["classification"], "confirmed_scheduler_zombie")
             self.assertTrue(diagnosis["cleanup_eligible"])

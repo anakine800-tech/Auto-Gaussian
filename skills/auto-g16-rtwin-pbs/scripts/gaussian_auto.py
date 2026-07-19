@@ -214,10 +214,10 @@ def command_auto(args) -> None:
             submit_command.extend(["--" + option.replace("_", "-"), str(value)])
     if args.dry_run:
         submit_command.append("--dry-run")
-    try:
-        submitted = subprocess.run(submit_command, timeout=transport.DEFAULT_COMMAND_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        fail("submit subprocess timed out; physical outcome is uncertain and automatic retry is forbidden", code=3)
+    # The transport owns finite timeouts for each local/SSH/scp phase.  Do not
+    # kill the multi-phase transaction with a shorter wrapper timeout: once a
+    # phase has begun, an outer timeout cannot prove the physical outcome.
+    submitted = subprocess.run(submit_command)
     if submitted.returncode:
         raise SystemExit(submitted.returncode)
     if args.dry_run or not args.watch:
