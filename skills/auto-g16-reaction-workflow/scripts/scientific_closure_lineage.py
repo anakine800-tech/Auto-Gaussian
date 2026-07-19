@@ -11,7 +11,10 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 import re
+import stat
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -66,24 +69,90 @@ def exact(value: Any, keys: set[str], label: str) -> dict[str, Any]:
     return value
 
 
-def safe_file(root: Path, relative: str, label: str) -> Path:
-    raw = Path(relative)
-    require(not raw.is_absolute() and ".." not in raw.parts and str(raw) not in {"", "."}, f"{label} path must be package-root relative")
-    candidate = root / raw
-    require(not candidate.is_symlink() and candidate.is_file(), f"{label} must be an existing non-symlink file")
-    resolved = candidate.resolve()
+def secure_root(root: Path, label: str = "package root") -> Path:
+    lexical = Path(os.path.abspath(root))
+    try:
+        metadata = os.lstat(lexical)
+    except OSError as exc:
+        raise LineageError(f"{label} must be an existing non-symlink directory: {root}") from exc
+    require(not stat.S_ISLNK(metadata.st_mode) and stat.S_ISDIR(metadata.st_mode), f"{label} must be an existing non-symlink directory: {root}")
+    return lexical.resolve()
+
+
+def _file_without_symlink_components(root: Path, relative: Path, label: str) -> Path:
+    root = secure_root(root)
+    current = root
+    for index, part in enumerate(relative.parts):
+        current = current / part
+        try:
+            metadata = os.lstat(current)
+        except OSError as exc:
+            raise LineageError(f"{label} must be an existing regular file: {relative}") from exc
+        require(not stat.S_ISLNK(metadata.st_mode), f"{label} path component must not be a symlink: {current}")
+        if index < len(relative.parts) - 1:
+            require(stat.S_ISDIR(metadata.st_mode), f"{label} ancestor must be a directory: {current}")
+        else:
+            require(stat.S_ISREG(metadata.st_mode), f"{label} must be an existing regular file: {relative}")
+    resolved = current.resolve()
     require(resolved.is_relative_to(root), f"{label} escapes package root")
     return resolved
 
 
+def safe_file(root: Path, relative: str, label: str) -> Path:
+    raw = Path(relative)
+    require(not raw.is_absolute() and ".." not in raw.parts and str(raw) not in {"", "."}, f"{label} path must be package-root relative")
+    return _file_without_symlink_components(root, raw, label)
+
+
 def reference(path: Path, root: Path, *, json_document: dict[str, Any] | None = None) -> dict[str, Any]:
-    resolved = path.resolve()
-    require(resolved.is_file() and not resolved.is_symlink() and resolved.is_relative_to(root), f"source must be a non-symlink file inside package root: {path}")
-    result: dict[str, Any] = {"path": resolved.relative_to(root).as_posix(), "sha256": file_sha256(resolved), "size_bytes": resolved.stat().st_size}
+    lexical_root = Path(os.path.abspath(root))
+    root = secure_root(lexical_root)
+    lexical = Path(os.path.abspath(path))
+    try:
+        relative = lexical.relative_to(lexical_root)
+    except ValueError:
+        raise LineageError(f"source must share the lexical package root: {path}") from None
+    require(relative.parts and ".." not in relative.parts, f"source must be inside package root: {path}")
+    resolved = _file_without_symlink_components(root, relative, "source")
+    result: dict[str, Any] = {"path": relative.as_posix(), "sha256": file_sha256(resolved), "size_bytes": resolved.stat().st_size}
     if json_document is not None:
         result["schema"] = json_document.get("schema")
         result["payload_sha256"] = json_document.get("payload_sha256")
     return result
+
+
+def publish_json_exclusive(output: Path, artifact: dict[str, Any], validator: Any) -> dict[str, Any]:
+    """Validate privately, then publish with an atomic no-clobber hard link."""
+
+    parent = secure_root(output.parent, "output parent")
+    output = parent / output.name
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{output.name}.", suffix=".tmp", dir=parent)
+    temporary = Path(temporary_name)
+    try:
+        payload = (json.dumps(artifact, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
+        with os.fdopen(descriptor, "wb", closefd=True) as handle:
+            descriptor = -1
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        validated = validator(temporary)
+        try:
+            os.link(temporary, output)
+        except FileExistsError as exc:
+            raise LineageError(f"refusing concurrent or overwrite publication: {output.name}") from exc
+        directory_fd = os.open(parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        return validated
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def resolve_reference(ref: dict[str, Any], root: Path, label: str, *, json_source: bool = False) -> tuple[Path, dict[str, Any] | None]:
@@ -260,16 +329,18 @@ def validate_artifact(path: Path) -> dict[str, Any]:
 
 
 def build(root: Path, paths: dict[str, Path], review_path: Path, output: Path) -> dict[str, Any]:
-    root = root.resolve()
-    require(root.is_dir() and not root.is_symlink(), "package root must be an existing non-symlink directory")
-    require(output.parent.resolve() == root and not output.exists(), "output must be a new file directly inside package root")
+    lexical_root = Path(os.path.abspath(root))
+    root = secure_root(lexical_root)
+    output = Path(os.path.abspath(output))
+    require(output.parent.resolve() == root and not output.parent.is_symlink(), "output must be a new file directly inside package root")
+    output = root / output.name
     review = normalize_review(load_json(review_path))
     selection = validate_selection_receipt(paths["selection"])
     parsed_input = owners()["input"].parse_cartesian_input(paths["input"])
     sources: dict[str, Any] = {}
     for key, path in paths.items():
         document = load_json(path) if key in {"selection", "input_approval", "job", "result"} else None
-        sources[key] = reference(path, root, json_document=document)
+        sources[key] = reference(path, lexical_root, json_document=document)
     result = load_json(paths["result"])
     artifact = {
         "schema": SCHEMA, "lineage_id": review["lineage_id"], "minimum_id": review["minimum_id"], "state_id": review["state_id"],
@@ -286,16 +357,7 @@ def build(root: Path, paths: dict[str, Path], review_path: Path, output: Path) -
     require(result.get("parser", {}).get("schema") == "auto-g16-gaussian-log-parser/2", "minimum result must record parser schema/version")
     artifact["payload_sha256"] = payload_sha256(artifact)
     replay_minimum_sources(root, artifact)
-    try:
-        with output.open("x", encoding="utf-8") as handle:
-            handle.write(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n")
-    except FileExistsError as exc:
-        raise LineageError("refusing to overwrite existing minimum lineage output") from exc
-    try:
-        return validate_artifact(output)
-    except Exception:
-        output.unlink(missing_ok=True)
-        raise
+    return publish_json_exclusive(output, artifact, validate_artifact)
 
 
 def parser() -> argparse.ArgumentParser:

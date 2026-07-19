@@ -2,11 +2,14 @@
 """Offline regression tests for strict scientific-closure lineage gates."""
 from __future__ import annotations
 
+import concurrent.futures
 import importlib.util
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).parents[1]
 
@@ -92,6 +95,85 @@ class ScientificClosureLineageTests(unittest.TestCase):
         modes, diagnostics = TS.parse_modes(water_log(" Frequencies -- -100.0 NaN 300.0"))
         self.assertEqual(modes, [])
         self.assertTrue(any("non-finite" in item for item in diagnostics))
+
+    def test_closure_paths_reject_leaf_and_intermediate_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            real_dir = root / "real"; real_dir.mkdir()
+            source = real_dir / "source.log"; source.write_text(water_log())
+            directory_link = root / "linked"; directory_link.symlink_to(real_dir, target_is_directory=True)
+            leaf_link = root / "leaf.log"; leaf_link.symlink_to(source)
+
+            for relative in ("linked/source.log", "leaf.log"):
+                with self.subTest(owner="minimum", relative=relative):
+                    with self.assertRaisesRegex(LINEAGE.LineageError, "path component must not be a symlink"):
+                        LINEAGE.safe_file(root, relative, "minimum source")
+                    with self.assertRaisesRegex(LINEAGE.LineageError, "path component must not be a symlink"):
+                        LINEAGE.reference(root / relative, root)
+                with self.subTest(owner="ts", relative=relative):
+                    with self.assertRaisesRegex(ValueError, "path component must not be a symlink"):
+                        TS._closure_local_ref(root / relative, root, "TS source")
+                    reference = {"path": relative, "sha256": TS.sha256(source), "size_bytes": source.stat().st_size}
+                    with self.assertRaisesRegex(ValueError, "path component must not be a symlink"):
+                        TS._closure_resolve_local_ref(reference, root / "owner.json", "TS source")
+
+    def test_atomic_publish_preserves_existing_and_concurrent_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            existing = root / "existing.json"; existing.write_bytes(b"sentinel\n")
+            with self.assertRaisesRegex(LINEAGE.LineageError, "concurrent or overwrite"):
+                LINEAGE.publish_json_exclusive(existing, {"owner": "minimum"}, lambda path: json.loads(path.read_text()))
+            self.assertEqual(existing.read_bytes(), b"sentinel\n")
+
+            concurrent_target = root / "concurrent.json"
+            def fail_after_concurrent_publish(_: Path) -> dict:
+                concurrent_target.write_bytes(b"concurrent writer\n")
+                raise LINEAGE.LineageError("synthetic validation failure")
+            with self.assertRaisesRegex(LINEAGE.LineageError, "synthetic validation failure"):
+                LINEAGE.publish_json_exclusive(concurrent_target, {"owner": "minimum"}, fail_after_concurrent_publish)
+            self.assertEqual(concurrent_target.read_bytes(), b"concurrent writer\n")
+            self.assertEqual(list(root.glob(".concurrent.json.*.tmp")), [])
+
+            ts_target = root / "ts-concurrent.json"
+            def fail_ts_validation(_: Path) -> dict:
+                ts_target.write_bytes(b"TS concurrent writer\n")
+                raise ValueError("synthetic TS validation failure")
+            with self.assertRaisesRegex(ValueError, "synthetic TS validation failure"):
+                TS._publish_json_exclusive(ts_target, {"owner": "ts"}, fail_ts_validation)
+            self.assertEqual(ts_target.read_bytes(), b"TS concurrent writer\n")
+            self.assertEqual(list(root.glob(".ts-concurrent.json.*.tmp")), [])
+
+    def test_ts_result_v2_concurrent_publication_has_one_winner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            log_path = root / "water-ts.log"; log_path.write_text(water_log(" Frequencies -- -100.0 200.0 300.0"))
+            output = root / "result.json"
+            barrier = threading.Barrier(2)
+            original = TS._publish_json_exclusive
+
+            def gated_publish(*args, **kwargs):
+                barrier.wait(timeout=5)
+                return original(*args, **kwargs)
+
+            def writer() -> str:
+                try:
+                    TS.build_ts_result_v2(log_path, output)
+                    return "published"
+                except ValueError as exc:
+                    self.assertIn("concurrent or overwrite", str(exc))
+                    return "blocked"
+
+            with mock.patch.object(TS, "_publish_json_exclusive", side_effect=gated_publish):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    outcomes = list(pool.map(lambda _: writer(), range(2)))
+            self.assertEqual(sorted(outcomes), ["blocked", "published"])
+            TS.validate_ts_result_v2(json.loads(output.read_text()), output)
+            self.assertEqual(list(root.glob(".result.json.*.tmp")), [])
+
+            immutable_bytes = output.read_bytes()
+            with self.assertRaisesRegex(ValueError, "concurrent or overwrite"):
+                TS.build_ts_result_v2(log_path, output)
+            self.assertEqual(output.read_bytes(), immutable_bytes)
 
     def test_fragment_v2_replays_each_full_log_and_rejects_truncation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

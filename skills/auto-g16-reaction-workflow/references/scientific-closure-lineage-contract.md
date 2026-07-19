@@ -15,10 +15,18 @@ result/log drift, empty checkpoints, atom-order drift, or coordinate drift fail
 closed.
 
 Every new binding is relative to one explicit package root and rejects
-absolute paths, `..`, root escape, and symlinks. Historical artifacts with
+absolute paths, `..`, root escape, the leaf symlink, and every existing
+symlinked ancestor below the package root. The owner checks each lexical path
+component with `lstat` before resolution. Historical artifacts with
 absolute paths are not edited in place. They require an owner-controlled
 rebuild or an explicitly reviewed repackage producing a new immutable lineage
 revision.
+
+Publication is validation-before-publish and atomic no-clobber. The owner
+writes one private same-directory file with exclusive creation, validates that
+inode, and then hard-links it to the final name. An existing or concurrent
+target wins unchanged. Validation failure removes only the private temporary
+file and never unlinks a target path.
 
 The handoff separates human-selected, input-draft-generated,
 exact-input-approved, job-observed, submission-authorized-by-this-artifact,

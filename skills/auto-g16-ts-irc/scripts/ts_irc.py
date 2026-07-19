@@ -13,6 +13,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 from datetime import datetime
@@ -156,11 +157,106 @@ def _resolve_local_ref(ref: Any, owner: Path, label: str) -> Path:
     return path
 
 
-def _validate_endpoint_bundle(bundle: Any, owner: Path, direction: str) -> dict[str, Any]:
+def _closure_root(root: Path, label: str = "artifact root") -> Path:
+    lexical = Path(os.path.abspath(root))
+    try:
+        metadata = os.lstat(lexical)
+    except OSError as exc:
+        raise ValueError(f"{label} must be an existing non-symlink directory") from exc
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(f"{label} must be an existing non-symlink directory")
+    return lexical.resolve()
+
+
+def _closure_file(root: Path, relative: Path, label: str) -> Path:
+    root = _closure_root(root)
+    current = root
+    for index, part in enumerate(relative.parts):
+        current = current / part
+        try:
+            metadata = os.lstat(current)
+        except OSError as exc:
+            raise ValueError(f"{label} must be an existing regular file") from exc
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f"{label} path component must not be a symlink: {current}")
+        if index < len(relative.parts) - 1:
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError(f"{label} ancestor must be a directory: {current}")
+        elif not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"{label} must be an existing regular file")
+    resolved = current.resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"{label} escapes artifact root")
+    return resolved
+
+
+def _closure_local_ref(path: Path, root: Path, label: str = "scientific artifact source") -> dict[str, Any]:
+    lexical_root = Path(os.path.abspath(root))
+    root = _closure_root(lexical_root)
+    lexical = Path(os.path.abspath(path))
+    try:
+        relative = lexical.relative_to(lexical_root)
+    except ValueError:
+        raise ValueError("all scientific artifact sources must share the lexical output artifact root") from None
+    if not relative.parts or ".." in relative.parts:
+        raise ValueError("scientific artifact source must be portable and relative")
+    resolved = _closure_file(root, relative, label)
+    return {"path": relative.as_posix(), "sha256": sha256(resolved), "size_bytes": resolved.stat().st_size}
+
+
+def _closure_resolve_local_ref(ref: Any, owner: Path, label: str) -> Path:
+    if not isinstance(ref, dict) or set(ref) != {"path", "sha256", "size_bytes"}:
+        raise ValueError(f"{label} reference fields are invalid")
+    relative = Path(str(ref["path"]))
+    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+        raise ValueError(f"{label} reference must be portable and relative")
+    path = _closure_file(owner.parent, relative, label)
+    if sha256(path) != ref["sha256"] or path.stat().st_size != ref["size_bytes"]:
+        raise ValueError(f"{label} reference changed")
+    return path
+
+
+def _publish_json_exclusive(output: Path, artifact: dict[str, Any], validator: Any | None = None) -> dict[str, Any]:
+    """Validate a private inode, then atomically no-clobber publish it."""
+
+    parent = _closure_root(output.parent, "artifact output parent")
+    output = parent / output.name
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{output.name}.", suffix=".tmp", dir=parent)
+    temporary = Path(temporary_name)
+    try:
+        payload = (json.dumps(artifact, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
+        with os.fdopen(descriptor, "wb", closefd=True) as handle:
+            descriptor = -1
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        validated = validator(temporary) if validator is not None else artifact
+        try:
+            os.link(temporary, output)
+        except FileExistsError as exc:
+            raise ValueError(f"refusing concurrent or overwrite publication: {output.name}") from exc
+        directory_fd = os.open(parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        return validated
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _validate_endpoint_bundle(
+    bundle: Any, owner: Path, direction: str, resolver: Any = _resolve_local_ref,
+) -> dict[str, Any]:
     fields = {"audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint"}
     if not isinstance(bundle, dict) or set(bundle) != fields:
         raise ValueError(f"{direction} endpoint bundle fields are invalid")
-    paths = {key: _resolve_local_ref(bundle[key], owner, f"{direction} {key}") for key in fields}
+    paths = {key: resolver(bundle[key], owner, f"{direction} {key}") for key in fields}
     audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
     if audit.get("schema") != "gaussian-irc-endpoint-audit/1" or audit.get("direction") != direction:
         raise ValueError(f"{direction} endpoint audit schema/direction differs")
@@ -281,10 +377,10 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
         raise ValueError("TS/IRC path-acceptance /2 payload hash is invalid")
     if artifact.get("accepted") is not True or artifact.get("calculation_ready") is not False or artifact.get("no_submission_authorization") is not True:
         raise ValueError("TS/IRC path-acceptance /2 authority boundary changed")
-    family_path = _resolve_local_ref(artifact["family"], path, "TS family")
-    result_path = _resolve_local_ref(artifact["ts_result"], path, "TS result")
-    review_path = _resolve_local_ref(artifact["mode_review"], path, "TS mode review")
-    decision_path = _resolve_local_ref(artifact["mode_decision"], path, "TS mode decision")
+    family_path = _closure_resolve_local_ref(artifact["family"], path, "TS family")
+    result_path = _closure_resolve_local_ref(artifact["ts_result"], path, "TS result")
+    review_path = _closure_resolve_local_ref(artifact["mode_review"], path, "TS mode review")
+    decision_path = _closure_resolve_local_ref(artifact["mode_decision"], path, "TS mode decision")
     family = _load_json_strict(family_path)
     result = _load_json_strict(result_path)
     review = _load_json_strict(review_path)
@@ -310,7 +406,7 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
         raise ValueError("path acceptance /2 requires exact forward and reverse endpoint reviews")
     endpoints = {}
     for direction in ("forward", "reverse"):
-        endpoint_path = _resolve_local_ref(endpoint_refs[direction], path, f"{direction} endpoint structure review")
+        endpoint_path = _closure_resolve_local_ref(endpoint_refs[direction], path, f"{direction} endpoint structure review")
         endpoint = validate_endpoint_structure_review_artifact(endpoint_path)
         if endpoint["direction"] != direction:
             raise ValueError(f"{direction} endpoint review direction differs")
@@ -339,15 +435,14 @@ def build_path_acceptance_v2_artifact(
     family: Path, ts_result: Path, mode_review: Path, mode_decision: Path,
     forward_review: Path, reverse_review: Path, output: Path,
 ) -> dict[str, Any]:
-    if output.exists():
-        raise ValueError("refusing to overwrite an existing TS/IRC path-acceptance /2 artifact")
-    root = output.parent.resolve()
+    root = output.parent
+    _closure_root(root, "path-acceptance output parent")
     family_document = _load_json_strict(family)
     artifact = {
         "schema": PATH_ACCEPTANCE_SCHEMA_V2, "edge_id": family_document.get("mechanism_edge_id"),
-        "family": _local_ref(family, root), "ts_result": _local_ref(ts_result, root),
-        "mode_review": _local_ref(mode_review, root), "mode_decision": _local_ref(mode_decision, root),
-        "endpoint_reviews": {"forward": _local_ref(forward_review, root), "reverse": _local_ref(reverse_review, root)},
+        "family": _closure_local_ref(family, root, "TS family"), "ts_result": _closure_local_ref(ts_result, root, "TS result"),
+        "mode_review": _closure_local_ref(mode_review, root, "TS mode review"), "mode_decision": _closure_local_ref(mode_decision, root, "TS mode decision"),
+        "endpoint_reviews": {"forward": _closure_local_ref(forward_review, root, "forward endpoint review"), "reverse": _closure_local_ref(reverse_review, root, "reverse endpoint review")},
         "accepted": True,
         "limitations": [
             "Acceptance is limited to one exact source-bound TS/Freq result, accepted mode, and two immutable endpoint structure reviews.",
@@ -358,12 +453,7 @@ def build_path_acceptance_v2_artifact(
         "calculation_ready": False, "no_submission_authorization": True,
     }
     artifact["payload_sha256"] = _payload_sha256(artifact)
-    output.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    try:
-        return validate_path_acceptance_v2_artifact(output)
-    except Exception:
-        output.unlink(missing_ok=True)
-        raise
+    return _publish_json_exclusive(output, artifact, validate_path_acceptance_v2_artifact)
 
 
 def _float(value: str) -> float:
@@ -1628,8 +1718,8 @@ def validate_endpoint_structure_review_artifact(path: Path) -> dict[str, Any]:
     if artifact.get("parser") != PARSER_ID:
         raise ValueError("endpoint structure review parser version or schema differs")
     bundle = artifact.get("sources")
-    audits = _validate_endpoint_bundle(bundle, path, artifact["direction"])
-    result_path = _resolve_local_ref(bundle["irc_result"], path, "endpoint review IRC result")
+    audits = _validate_endpoint_bundle(bundle, path, artifact["direction"], _closure_resolve_local_ref)
+    result_path = _closure_resolve_local_ref(bundle["irc_result"], path, "endpoint review IRC result")
     result = _load_json_strict(result_path)
     _validate_endpoint_structure_fields(artifact, audits, result)
     return artifact
@@ -1638,15 +1728,14 @@ def validate_endpoint_structure_review_artifact(path: Path) -> dict[str, Any]:
 def build_endpoint_structure_review_artifact(
     sources: dict[str, Path], review_path: Path, output: Path,
 ) -> dict[str, Any]:
-    if output.exists():
-        raise ValueError("refusing to overwrite an existing endpoint structure review")
     draft = _load_json_strict(review_path)
     required = {"schema", "review_id", "direction", "chemical_side", "stable_atom_ids", "structure_identity", "decision", "explicit_human_review", "reviewer", "rationale", "reviewed_at"}
     if not isinstance(draft, dict) or set(draft) != required or draft.get("schema") != "gaussian-endpoint-structure-review-draft/1":
         raise ValueError("endpoint structure review draft fields or schema are invalid")
-    root = output.parent.resolve()
-    source_bundle = {key: _local_ref(value, root) for key, value in sources.items()}
-    audit = _validate_endpoint_bundle(source_bundle, output, draft["direction"])
+    root = output.parent
+    _closure_root(root, "endpoint review output parent")
+    source_bundle = {key: _closure_local_ref(value, root, f"endpoint review {key}") for key, value in sources.items()}
+    audit = _validate_endpoint_bundle(source_bundle, output, draft["direction"], _closure_resolve_local_ref)
     result = _load_json_strict(sources["irc_result"])
     atom_ids = draft["stable_atom_ids"]
     records = [
@@ -1667,12 +1756,7 @@ def build_endpoint_structure_review_artifact(
     }
     _validate_endpoint_structure_fields(artifact, audit, result)
     artifact["payload_sha256"] = _payload_sha256(artifact)
-    output.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    try:
-        return validate_endpoint_structure_review_artifact(output)
-    except Exception:
-        output.unlink(missing_ok=True)
-        raise
+    return _publish_json_exclusive(output, artifact, validate_endpoint_structure_review_artifact)
 
 
 def build_allcheck_endpoint_input(
@@ -2160,7 +2244,8 @@ def audit_fragment_endpoint_results_v2(
     if set(log_paths) != projects or set(checkpoint_paths) != projects:
         raise ValueError("raw logs and checkpoints must cover every planned fragment exactly once")
     owner = _load_gaussian_log_owner()
-    root = output_path.parent.resolve()
+    root = output_path.parent
+    _closure_root(root, "fragment validation output parent")
     plan = _load_json_strict(plan_path)
     fragments_by_project = {item["project"]: item for item in plan["fragments"]}
     records = []
@@ -2195,9 +2280,9 @@ def audit_fragment_endpoint_results_v2(
             raise ValueError(f"fragment {project} raw-log atom order differs from the reviewed plan")
         record = {
             **accepted,
-            "result": {**_local_ref(result_path, root), "schema": result.get("schema")},
-            "job": {**_local_ref(job_path, root), "schema": _load_json_strict(job_path).get("schema")},
-            "raw_log": _local_ref(log_path, root), "checkpoint": _local_ref(checkpoint_path, root),
+            "result": {**_closure_local_ref(result_path, root, f"fragment {project} result"), "schema": result.get("schema")},
+            "job": {**_closure_local_ref(job_path, root, f"fragment {project} job"), "schema": _load_json_strict(job_path).get("schema")},
+            "raw_log": _closure_local_ref(log_path, root, f"fragment {project} raw log"), "checkpoint": _closure_local_ref(checkpoint_path, root, f"fragment {project} checkpoint"),
             "parser": dict(replay["parser"]), "frequency_parse_complete": True,
         }
         records.append(record)
@@ -2205,7 +2290,7 @@ def audit_fragment_endpoint_results_v2(
     artifact = {
         "schema": "gaussian-irc-fragment-endpoint-validation/2",
         "validation_status": "passed", "chemical_side": plan.get("chemical_side"),
-        "fragment_plan": {**_local_ref(plan_path, root), "schema": plan.get("schema")},
+        "fragment_plan": {**_closure_local_ref(plan_path, root, "fragment plan"), "schema": plan.get("schema")},
         "fragment_count": len(records), "fragments": records,
         "isolated_fragment_electronic_energy_sum_hartree": energy_sum,
         "endpoint_minimum_evidence": "passed_as_raw_log_replayed_separately_reviewed_isolated_fragments",
@@ -2498,7 +2583,7 @@ def _make_ts_result_v2(log_path: Path, owner_dir: Path) -> dict[str, Any]:
     artifact = {
         **legacy,
         "schema": TS_RESULT_SCHEMA_V2,
-        "source_log": _local_ref(log_path, owner_dir),
+        "source_log": _closure_local_ref(log_path, owner_dir, "TS/Freq raw log"),
         "parser": dict(PARSER_ID),
         "atom_count": atom_count,
         "linearity": linearity,
@@ -2516,25 +2601,18 @@ def _make_ts_result_v2(log_path: Path, owner_dir: Path) -> dict[str, Any]:
 def validate_ts_result_v2(result: dict[str, Any], path: Path) -> dict[str, Any]:
     if result.get("schema") != TS_RESULT_SCHEMA_V2 or result.get("payload_sha256") != _payload_sha256(result):
         raise ValueError("source-bound TS/Freq result /2 schema or payload hash is invalid")
-    log_path = _resolve_local_ref(result.get("source_log"), path, "TS/Freq raw log")
-    expected = _make_ts_result_v2(log_path, path.parent.resolve())
+    log_path = _closure_resolve_local_ref(result.get("source_log"), path, "TS/Freq raw log")
+    expected = _make_ts_result_v2(log_path, _closure_root(path.parent))
     if result != expected:
         raise ValueError("source-bound TS/Freq result differs from raw-log parser replay")
     return result
 
 
 def build_ts_result_v2(log_path: Path, output: Path) -> dict[str, Any]:
-    if output.exists():
-        raise ValueError("refusing to overwrite an existing source-bound TS/Freq result")
-    if not log_path.is_file() or log_path.is_symlink():
-        raise ValueError("TS/Freq raw log must be an existing non-symlink file")
-    artifact = _make_ts_result_v2(log_path.resolve(), output.parent.resolve())
-    output.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    try:
-        return validate_ts_result_v2(artifact, output)
-    except Exception:
-        output.unlink(missing_ok=True)
-        raise
+    root = output.parent
+    _closure_root(root, "TS/Freq result output parent")
+    artifact = _make_ts_result_v2(log_path, root)
+    return _publish_json_exclusive(output, artifact, lambda candidate: validate_ts_result_v2(artifact, candidate))
 
 
 def terminal_template_payload_sha256(template: dict[str, Any]) -> str:
@@ -3190,7 +3268,6 @@ def main() -> int:
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "audit-fragment-endpoints-v2":
             output_path = Path(args.output)
-            if output_path.exists(): raise ValueError("refusing to overwrite an existing fragment endpoint validation /2")
             assignments: dict[str, dict[str, Path]] = {}
             for label, values in (("result", args.result), ("job", args.job), ("log", args.log), ("checkpoint", args.checkpoint)):
                 parsed: dict[str, Path] = {}
@@ -3201,7 +3278,7 @@ def main() -> int:
                     parsed[project] = Path(value)
                 assignments[label] = parsed
             result = audit_fragment_endpoint_results_v2(Path(args.plan), assignments["result"], assignments["job"], assignments["log"], assignments["checkpoint"], output_path)
-            output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            _publish_json_exclusive(output_path, result)
         elif args.command == "build-path-acceptance":
             forward = {"audit": Path(args.forward_audit), "irc_input": Path(args.forward_input), "irc_log": Path(args.forward_log), "irc_result": Path(args.forward_result), "job": Path(args.forward_job), "checkpoint": Path(args.forward_checkpoint)}
             reverse = {"audit": Path(args.reverse_audit), "irc_input": Path(args.reverse_input), "irc_log": Path(args.reverse_log), "irc_result": Path(args.reverse_result), "job": Path(args.reverse_job), "checkpoint": Path(args.reverse_checkpoint)}

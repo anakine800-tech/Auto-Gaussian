@@ -88,7 +88,9 @@ name/version/schema, derives the exact linear/nonlinear 3N-5 or 3N-6 mode
 expectation from the final geometry, and replays every displacement row.
 Malformed, non-finite, truncated or atom-incomplete mode evidence is
 ineligible. Historical `/1` can be inspected but cannot satisfy new formal
-path acceptance.
+path acceptance. Every new closure reference rejects a symlink leaf or any
+existing symlinked ancestor below its artifact root by lexical `lstat` checks
+before resolution.
 
 `gaussian-endpoint-structure-review/1` is append-only human review, not a
 reactant/product label shortcut. It binds the endpoint coordinates, audit,
@@ -104,6 +106,12 @@ bidirectional path pair.
 endpoint minimum contract. Every fragment result is replayed from its exact
 full log and bound to the exact job and checkpoint. Legacy fragment validation
 `/1` lacks that closure and remains historical replay-only.
+
+The new TS result `/2`, endpoint review, path acceptance `/2`, and fragment
+validation `/2` publication paths use same-directory exclusive temporary
+creation followed by an atomic no-clobber hard link. Validation occurs before
+the final name is published. Existing or concurrent targets are preserved, and
+failure cleanup is restricted to the publisher's private temporary file.
 
 `classify_ts_freq_result_facts` and `classify_ts_freq_terminal_facts` are the
 pure specialist replay boundary for parser status, first-order/mode-review

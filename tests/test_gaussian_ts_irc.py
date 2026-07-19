@@ -724,6 +724,10 @@ class TsIrcTests(unittest.TestCase):
             self.assertEqual(reviewed["endpoint_coordinates"]["records"][0]["atom_id"], "atom_c1")
             self.assertEqual(reviewed["parser"], TS.PARSER_ID)
             TS.validate_endpoint_structure_review_artifact(review_path)
+            immutable_review = review_path.read_bytes()
+            with self.assertRaisesRegex(ValueError, "concurrent or overwrite"):
+                TS.build_endpoint_structure_review_artifact(sources, review_draft_path, review_path)
+            self.assertEqual(review_path.read_bytes(), immutable_review)
             stale = json.loads(review_path.read_text()); stale["structure_identity"]["formula"] = "C3"; stale["payload_sha256"] = TS._payload_sha256(stale)
             review_path.write_text(json.dumps(stale))
             with self.assertRaisesRegex(ValueError, "formula differs"):
