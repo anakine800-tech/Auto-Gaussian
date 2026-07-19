@@ -49,15 +49,15 @@ ENTRY_KEYS = {
     "conflict",
     "absolute_path_references",
 }
-REFERENCE_KEYS = {"value", "rewrite_to", "action", "occurrences"}
-POSIX_PATH_RE = re.compile(r"(?<![A-Za-z0-9_.-])/(?:[^/\s\x00\"'<>|]+/)*[^/\s\x00\"'<>|]+")
-WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:\\(?:[^\\\r\n\t\x00\"<>|]+\\)*[^\\\r\n\t\x00\"<>|]+")
+REFERENCE_KEYS = {"value", "rewrite_to", "action", "occurrences", "ambiguity"}
+POSIX_PATH_RE = re.compile(r"/(?:[^\x00\r\n\"'<>|]+)")
+WINDOWS_PATH_RE = re.compile(r"[A-Za-z]:\\(?:[^\x00\r\n\"'<>|]+)")
 DESTINATION_RECEIPT_NAME = ".auto-g16-migration-destination-receipt.json"
 STREAM_CHUNK_SIZE = 1024 * 1024
 MAX_AUDITED_REFERENCE_CHARS = 64 * 1024
-REFERENCE_TERMINATORS = frozenset(" \t\r\n\x00\"'<>|")
-REFERENCE_TERMINATOR_BYTES = frozenset(ord(value) for value in REFERENCE_TERMINATORS)
+REFERENCE_TERMINATORS = frozenset(" \t\r\n\x00\"'<>|,;[]{}()")
 SOURCE_PREFIX_DISALLOWED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-")
+UNQUOTED_REFERENCE_TERMINATORS = frozenset("\t\r\n\x00\"'<>|,;[]{}()")
 
 
 class MigrationError(ValueError):
@@ -67,6 +67,10 @@ class MigrationError(ValueError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise MigrationError(message)
+
+
+def _nonnegative_int(value: Any) -> bool:
+    return type(value) is int and value >= 0
 
 
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -340,18 +344,38 @@ def _validate_plan_shape(plan: dict[str, Any]) -> None:
     require(plan.get("plan_sha256") == plan_digest(plan), "migration plan SHA-256 mismatch")
     require(isinstance(plan["entries"], list), "migration plan entries must be an array")
     require(isinstance(plan["conflicts"], list), "migration plan conflicts must be an array")
+    for key in ("file_count", "source_size_bytes", "planned_size_bytes", "rewrite_count"):
+        require(_nonnegative_int(plan[key]), f"migration plan {key.replace('_', ' ')} is invalid")
     require(plan["file_count"] == len(plan["entries"]), "migration plan file count mismatch")
     expected_plan_rewrites = 0
+    expected_source_size = 0
+    expected_planned_size = 0
     for entry in plan["entries"]:
         require(isinstance(entry, dict) and set(entry) == ENTRY_KEYS, "migration entry is not closed-schema")
         require(entry["content_kind"] in {"utf8_text", "binary"}, "migration entry content kind is invalid")
-        expected_scan = "complete_utf8" if entry["content_kind"] == "utf8_text" else "not_applicable_binary"
-        require(entry["reference_scan_status"] == expected_scan, "migration entry reference scan status is invalid")
-        require(isinstance(entry["rewrite_occurrence_count"], int) and entry["rewrite_occurrence_count"] >= 0, "migration entry rewrite occurrence count is invalid")
+        for key in ("source_size_bytes", "planned_size_bytes", "rewrite_occurrence_count"):
+            require(_nonnegative_int(entry[key]), f"migration entry {key.replace('_', ' ')} is invalid")
+        expected_source_size += entry["source_size_bytes"]
+        expected_planned_size += entry["planned_size_bytes"]
+        if entry["content_kind"] == "binary":
+            require(entry["reference_scan_status"] == "not_applicable_binary", "migration entry reference scan status is invalid")
+        else:
+            require(entry["reference_scan_status"] in {"complete_utf8", "review_required_ambiguous"}, "migration entry reference scan status is invalid")
         require(isinstance(entry["absolute_path_references"], list), "absolute-path references must be an array")
+        has_ambiguity = False
         for reference in entry["absolute_path_references"]:
             require(isinstance(reference, dict) and set(reference) == REFERENCE_KEYS, "absolute-path reference is not closed-schema")
-            require(isinstance(reference["occurrences"], int) and reference["occurrences"] >= 1, "absolute-path reference occurrence count is invalid")
+            require(type(reference["occurrences"]) is int and reference["occurrences"] >= 1, "absolute-path reference occurrence count is invalid")
+            require(reference["ambiguity"] in {None, "unquoted_space_boundary", "unterminated_quoted_path"}, "absolute-path reference ambiguity is invalid")
+            if reference["ambiguity"] is not None:
+                has_ambiguity = True
+                require(reference["action"] == "review_ambiguous_absolute_reference" and reference["rewrite_to"] is None, "ambiguous absolute-path reference cannot be rewritten")
+            elif reference["rewrite_to"] is None:
+                require(reference["action"] == "review_external_absolute_reference", "external absolute-path reference action is invalid")
+            else:
+                require(reference["action"] == "rewrite_source_root_to_target_root", "source-root absolute-path reference action is invalid")
+        if entry["content_kind"] == "utf8_text":
+            require((entry["reference_scan_status"] == "review_required_ambiguous") == has_ambiguity, "migration entry ambiguity status differs from audited references")
         expected_rewrites = sum(
             reference["occurrences"] for reference in entry["absolute_path_references"]
             if reference["rewrite_to"] is not None
@@ -361,6 +385,8 @@ def _validate_plan_shape(plan: dict[str, Any]) -> None:
         if entry["content_kind"] == "binary":
             require(not entry["absolute_path_references"] and entry["rewrite_occurrence_count"] == 0, "binary migration entry cannot claim a completed text reference scan")
     require(plan["rewrite_count"] == expected_plan_rewrites, "migration plan rewrite count differs from entries")
+    require(plan["source_size_bytes"] == expected_source_size, "migration plan source size differs from entries")
+    require(plan["planned_size_bytes"] == expected_planned_size, "migration plan planned size differs from entries")
     require(plan["safety"] == {
         "dry_run": True,
         "copy_only": True,
@@ -393,6 +419,10 @@ def review_plan(path: Path) -> dict[str, Any]:
     )
     require(fresh == plan, "migration plan is stale: source, target, hashes, paths, or conflicts changed")
     require(not plan["conflicts"], "migration plan has target conflicts and cannot be applied")
+    require(
+        all(entry["reference_scan_status"] != "review_required_ambiguous" for entry in plan["entries"]),
+        "migration plan contains review-required ambiguous or unterminated absolute paths; quote or escape them and rebuild/review a /2 plan",
+    )
     return plan
 
 
@@ -438,6 +468,149 @@ def _identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
     return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
 
 
+def _decode_path_candidate(raw: str) -> str:
+    """Decode only path-safe textual escapes; do not interpret general strings."""
+    decoded: list[str] = []
+    index = 0
+    while index < len(raw):
+        if raw[index] == "\\" and index + 1 < len(raw) and raw[index + 1] in {" ", "\\", "/"}:
+            decoded.append(raw[index + 1])
+            index += 2
+        else:
+            decoded.append(raw[index])
+            index += 1
+    return "".join(decoded)
+
+
+def _source_reference(value: str, source_text: str) -> bool:
+    return value == source_text or value.startswith(source_text + os.sep)
+
+
+def _raw_source_prefix_end(raw: str, source_text: str) -> int | None:
+    """Return the raw offset after an exact possibly-space-escaped source root."""
+    raw_index = 0
+    source_index = 0
+    while source_index < len(source_text) and raw_index < len(raw):
+        if (
+            raw[raw_index] == "\\"
+            and raw_index + 1 < len(raw)
+            and raw[raw_index + 1] in {" ", "\\", "/"}
+            and raw[raw_index + 1] == source_text[source_index]
+        ):
+            raw_index += 2
+        elif raw[raw_index] == source_text[source_index]:
+            raw_index += 1
+        else:
+            return None
+        source_index += 1
+    return raw_index if source_index == len(source_text) else None
+
+
+def _rewrite_source_reference(raw: str, source_text: str, target_text: str) -> str:
+    prefix_end = _raw_source_prefix_end(raw, source_text)
+    require(prefix_end is not None, "source reference raw spelling does not match its decoded path")
+    raw_prefix = raw[:prefix_end]
+    replacement = target_text
+    if "\\ " in raw_prefix:
+        replacement = replacement.replace(" ", "\\ ")
+    return replacement + raw[prefix_end:]
+
+
+class _ReferenceScanner:
+    """Incrementally retain exact occurrence spans and quoting ambiguity."""
+
+    def __init__(self, source_text: str) -> None:
+        self.source_text = source_text
+        self.offset = 0
+        self.history = ""
+        self.quote: str | None = None
+        self.candidate: list[str] | None = None
+        self.candidate_start = 0
+        self.candidate_quote: str | None = None
+        self.candidate_unquoted_space = False
+        self.candidate_trailing_backslashes = 0
+        self.occurrences: list[dict[str, Any]] = []
+
+    def _append(self, character: str) -> None:
+        require(self.candidate is not None, "internal absolute-path scanner state is invalid")
+        self.candidate.append(character)
+        self.candidate_trailing_backslashes = (
+            self.candidate_trailing_backslashes + 1 if character == "\\" else 0
+        )
+        require(len(self.candidate) <= MAX_AUDITED_REFERENCE_CHARS, "absolute-path reference exceeds the bounded audit limit")
+
+    def _finish(self, end: int, *, forced_ambiguity: str | None = None) -> None:
+        if self.candidate is None:
+            return
+        joined = "".join(self.candidate)
+        raw = joined.rstrip(" ")
+        end -= len(joined) - len(raw)
+        normalized = _decode_path_candidate(raw)
+        valid = bool(POSIX_PATH_RE.fullmatch(normalized) or WINDOWS_PATH_RE.fullmatch(normalized))
+        if valid and normalized not in {"/"}:
+            source_match = _source_reference(normalized, self.source_text)
+            ambiguity = forced_ambiguity
+            if ambiguity is None and self.candidate_quote is None and self.candidate_unquoted_space and not source_match:
+                ambiguity = "unquoted_space_boundary"
+            self.occurrences.append({
+                "raw": raw,
+                "normalized": normalized,
+                "start": self.candidate_start,
+                "end": end,
+                "ambiguity": ambiguity,
+            })
+        self.candidate = None
+        self.candidate_quote = None
+        self.candidate_unquoted_space = False
+        self.candidate_trailing_backslashes = 0
+
+    def feed(self, decoded: str) -> None:
+        for character in decoded:
+            if self.candidate is not None:
+                if self.candidate_quote is not None:
+                    if character == self.candidate_quote and self.candidate_trailing_backslashes % 2 == 0:
+                        self._finish(self.offset)
+                        self.quote = None
+                    else:
+                        self._append(character)
+                elif character in UNQUOTED_REFERENCE_TERMINATORS:
+                    self._finish(self.offset)
+                    if character in {"\"", "'"}:
+                        self.quote = character
+                else:
+                    if character == " " and (not self.candidate or self.candidate[-1] != "\\"):
+                        self.candidate_unquoted_space = True
+                    self._append(character)
+                self.history = (self.history + character)[-3:]
+                self.offset += 1
+                continue
+
+            if character in {"\"", "'"}:
+                self.quote = None if self.quote == character else character
+            elif character == "/" and (not self.history or self.history[-1] not in SOURCE_PREFIX_DISALLOWED):
+                self.candidate = ["/"]
+                self.candidate_start = self.offset
+                self.candidate_quote = self.quote
+                self.candidate_trailing_backslashes = 0
+            elif (
+                character == "\\" and len(self.history) >= 2 and self.history[-1] == ":"
+                and self.history[-2].isalpha() and (len(self.history) < 3 or not self.history[-3].isalnum())
+            ):
+                self.candidate = [self.history[-2], ":", "\\"]
+                self.candidate_start = self.offset - 2
+                self.candidate_quote = self.quote
+                self.candidate_trailing_backslashes = 1
+            self.history = (self.history + character)[-3:]
+            self.offset += 1
+
+    def finish(self) -> list[dict[str, Any]]:
+        self._finish(
+            self.offset,
+            forced_ambiguity="unterminated_quoted_path" if self.candidate_quote is not None else None,
+        )
+        return self.occurrences
+
+
 def _stream_planned_entry(
     source_fd: int,
     entry: dict[str, Any],
@@ -453,14 +626,20 @@ def _stream_planned_entry(
     source_hash = hashlib.sha256(); planned_hash = hashlib.sha256()
     source_size = 0; planned_size = 0
     before = os.fstat(leaf_fd)
-    needle = str(source).encode("utf-8")
-    replacement = str(target).encode("utf-8")
     text_mode = entry["content_kind"] == "utf8_text"
+    rewrite_pairs = sorted(
+        [
+            (reference["value"].encode("utf-8"), reference["rewrite_to"].encode("utf-8"), reference["value"])
+            for reference in entry["absolute_path_references"]
+            if reference["rewrite_to"] is not None
+        ],
+        key=lambda item: (-len(item[0]), item[0]),
+    )
+    maximum_needle = max((len(item[0]) for item in rewrite_pairs), default=1)
     pending = b""
     previous_source_byte: int | None = None
     replacement_count = 0
     rewritten_references: collections.Counter[str] = collections.Counter()
-    active_reference: bytearray | None = None
 
     def emit(raw: bytes) -> None:
         nonlocal planned_size
@@ -470,29 +649,8 @@ def _stream_planned_entry(
         if destination_fd is not None:
             _write_all(destination_fd, raw)
 
-    def finish_reference() -> None:
-        nonlocal active_reference
-        if active_reference is None:
-            return
-        value = active_reference.decode("utf-8")
-        require(len(value) <= MAX_AUDITED_REFERENCE_CHARS, "source-path reference exceeds the bounded audit limit")
-        rewritten_references[value] += 1
-        active_reference = None
-
-    def observe_reference_suffix(raw: bytes) -> None:
-        nonlocal active_reference
-        if active_reference is None:
-            return
-        for value in raw:
-            if value in REFERENCE_TERMINATOR_BYTES:
-                finish_reference()
-                return
-            active_reference.append(value)
-            require(len(active_reference) <= MAX_AUDITED_REFERENCE_CHARS * 4, "source-path reference exceeds the bounded audit limit")
-
     def emit_original(raw: bytes) -> None:
         nonlocal previous_source_byte
-        observe_reference_suffix(raw)
         emit(raw)
         if raw:
             previous_source_byte = raw[-1]
@@ -501,18 +659,23 @@ def _stream_planned_entry(
         return value is None or chr(value) not in SOURCE_PREFIX_DISALLOWED
 
     def source_boundary_after(value: int | None) -> bool:
-        return value is None or value == ord("/") or chr(value) in REFERENCE_TERMINATORS
+        return value is None or chr(value) in REFERENCE_TERMINATORS
 
     def flush_text(*, final: bool) -> None:
-        nonlocal pending, previous_source_byte, replacement_count, active_reference
+        nonlocal pending, previous_source_byte, replacement_count
         while pending:
-            index = pending.find(needle)
-            if index < 0:
-                retained = 0 if final else min(len(needle) - 1, len(pending))
+            matches = [
+                (pending.find(needle), -len(needle), needle, replacement, value)
+                for needle, replacement, value in rewrite_pairs
+                if pending.find(needle) >= 0
+            ]
+            if not matches:
+                retained = 0 if final else min(maximum_needle - 1, len(pending))
                 emitted = pending[:-retained] if retained else pending
                 emit_original(emitted)
                 pending = pending[-retained:] if retained else b""
                 return
+            index, _negative_length, needle, replacement, reference_value = min(matches)
             end = index + len(needle)
             if end == len(pending) and not final:
                 emit_original(pending[:index])
@@ -525,8 +688,7 @@ def _stream_planned_entry(
             if source_boundary_before(previous) and source_boundary_after(following):
                 emit(replacement)
                 replacement_count += 1
-                require(active_reference is None, "overlapping source-path references are ambiguous")
-                active_reference = bytearray(needle)
+                rewritten_references[reference_value] += 1
                 previous_source_byte = needle[-1]
                 pending = pending[end:]
             else:
@@ -545,7 +707,6 @@ def _stream_planned_entry(
             flush_text(final=False)
         if text_mode:
             flush_text(final=True)
-            finish_reference()
         after = os.fstat(leaf_fd)
     finally:
         os.close(leaf_fd)
@@ -559,23 +720,32 @@ def _stream_planned_entry(
     if validate_expected:
         for key in ("source_size_bytes", "source_sha256", "planned_size_bytes", "planned_sha256", "rewrite_occurrence_count"):
             require(observed[key] == entry[key], f"{key.replace('_', ' ')} changed before apply: {relative.as_posix()}")
+        expected_references = collections.Counter({
+            reference["value"]: reference["occurrences"]
+            for reference in entry["absolute_path_references"]
+            if reference["rewrite_to"] is not None
+        })
+        require(rewritten_references == expected_references, f"source-path rewrite occurrences changed before apply: {relative.as_posix()}")
     return observed
 
 
-def _reference_records(found: collections.Counter[str], source: Path, target: Path) -> list[dict[str, Any]]:
+def _reference_records(occurrences: list[dict[str, Any]], source: Path, target: Path) -> list[dict[str, Any]]:
     source_text = str(source); target_text = str(target)
-    records = []
-    for value, occurrences in sorted(found.items()):
-        if value == source_text or value.startswith(source_text + os.sep):
-            records.append({"value": value, "rewrite_to": target_text + value[len(source_text):], "action": "rewrite_source_root_to_target_root", "occurrences": occurrences})
+    grouped: collections.Counter[tuple[str, str | None, str, str | None]] = collections.Counter()
+    for occurrence in occurrences:
+        value = occurrence["raw"]
+        ambiguity = occurrence["ambiguity"]
+        if ambiguity is not None:
+            key = (value, None, "review_ambiguous_absolute_reference", ambiguity)
+        elif _source_reference(occurrence["normalized"], source_text):
+            key = (value, _rewrite_source_reference(value, source_text, target_text), "rewrite_source_root_to_target_root", None)
         else:
-            records.append({"value": value, "rewrite_to": None, "action": "review_external_absolute_reference", "occurrences": occurrences})
-    return records
-
-
-def _record_absolute_reference(candidate: str, found: collections.Counter[str]) -> None:
-    if POSIX_PATH_RE.fullmatch(candidate) or WINDOWS_PATH_RE.fullmatch(candidate):
-        found[candidate] += 1
+            key = (value, None, "review_external_absolute_reference", None)
+        grouped[key] += 1
+    return [
+        {"value": value, "rewrite_to": rewrite_to, "action": action, "occurrences": count, "ambiguity": ambiguity}
+        for (value, rewrite_to, action, ambiguity), count in sorted(grouped.items())
+    ]
 
 
 def _inspect_plan_entry(
@@ -585,73 +755,64 @@ def _inspect_plan_entry(
     leaf_fd = _open_regular_source_at(source_fd, relative)
     before = os.fstat(leaf_fd)
     source_hash = hashlib.sha256(); source_size = 0
-    found: collections.Counter[str] = collections.Counter()
     decoder = codecs.getincrementaldecoder("utf-8")("strict")
-    valid_utf8 = True; saw_nul = False; candidate: str | None = None; history = ""
-
-    def scan_text(decoded: str, *, final: bool = False) -> None:
-        nonlocal candidate, history
-        for character in decoded:
-            if candidate is not None:
-                if character in REFERENCE_TERMINATORS:
-                    _record_absolute_reference(candidate, found)
-                    candidate = None
-                else:
-                    candidate += character
-                    require(len(candidate) <= MAX_AUDITED_REFERENCE_CHARS, "absolute-path reference exceeds the bounded audit limit")
-                    history = (history + character)[-3:]
-                    continue
-            if character == "/" and (not history or history[-1] not in SOURCE_PREFIX_DISALLOWED):
-                candidate = "/"
-            elif (
-                character == "\\" and len(history) >= 2 and history[-1] == ":"
-                and history[-2].isalpha() and (len(history) < 3 or not history[-3].isalnum())
-            ):
-                candidate = history[-2:] + "\\"
-            history = (history + character)[-3:]
-        if final and candidate is not None:
-            _record_absolute_reference(candidate, found)
-            candidate = None
+    valid_utf8 = True; saw_nul = False
 
     try:
         while True:
             chunk = os.read(leaf_fd, STREAM_CHUNK_SIZE)
             if not chunk: break
-            source_hash.update(chunk); source_size += len(chunk); saw_nul = saw_nul or b"\x00" in chunk
-            if valid_utf8:
-                try: scan_text(decoder.decode(chunk))
+            source_hash.update(chunk); source_size += len(chunk)
+            if b"\x00" in chunk:
+                saw_nul = True
+            if valid_utf8 and not saw_nul:
+                try: decoder.decode(chunk)
                 except UnicodeDecodeError:
-                    valid_utf8 = False; found.clear(); candidate = None
-        if valid_utf8:
-            try: scan_text(decoder.decode(b"", final=True), final=True)
+                    valid_utf8 = False
+        if valid_utf8 and not saw_nul:
+            try: decoder.decode(b"", final=True)
             except UnicodeDecodeError:
-                valid_utf8 = False; found.clear(); candidate = None
+                valid_utf8 = False
         after = os.fstat(leaf_fd)
     finally:
         os.close(leaf_fd)
     require(_identity(before) == _identity(after), f"source identity changed while planning: {relative.as_posix()}")
     content_kind = "utf8_text" if valid_utf8 and not saw_nul else "binary"
-    references = _reference_records(found, source, target) if content_kind == "utf8_text" else []
+    occurrences: list[dict[str, Any]] = []
+    if content_kind == "utf8_text":
+        scan_fd = _open_regular_source_at(source_fd, relative)
+        scanner = _ReferenceScanner(str(source))
+        scan_decoder = codecs.getincrementaldecoder("utf-8")("strict")
+        try:
+            scan_before = os.fstat(scan_fd)
+            while True:
+                chunk = os.read(scan_fd, STREAM_CHUNK_SIZE)
+                if not chunk:
+                    break
+                scanner.feed(scan_decoder.decode(chunk))
+            scanner.feed(scan_decoder.decode(b"", final=True))
+            occurrences = scanner.finish()
+            scan_after = os.fstat(scan_fd)
+        finally:
+            os.close(scan_fd)
+        require(_identity(scan_before) == _identity(scan_after) == _identity(before), f"source identity changed while scanning references: {relative.as_posix()}")
+    references = _reference_records(occurrences, source, target) if content_kind == "utf8_text" else []
+    scan_status = (
+        "not_applicable_binary" if content_kind == "binary"
+        else "review_required_ambiguous" if any(item["ambiguity"] is not None for item in references)
+        else "complete_utf8"
+    )
     entry = {
         "relative_path": relative.as_posix(), "source_size_bytes": source_size,
         "source_sha256": source_hash.hexdigest(), "planned_size_bytes": 0,
         "planned_sha256": "", "content_kind": content_kind,
-        "reference_scan_status": "complete_utf8" if content_kind == "utf8_text" else "not_applicable_binary",
+        "reference_scan_status": scan_status,
         "rewrite_occurrence_count": 0,
         "conflict": conflict, "absolute_path_references": references,
     }
     observed = _stream_planned_entry(source_fd, entry, source, target, validate_expected=False)
     require(observed["identity"] == _identity(before), f"source identity changed between planning passes: {relative.as_posix()}")
     require(observed["source_size_bytes"] == source_size and observed["source_sha256"] == entry["source_sha256"], f"source changed between planning passes: {relative.as_posix()}")
-    if content_kind == "utf8_text":
-        source_text = str(source)
-        found = collections.Counter({
-            value: occurrences for value, occurrences in found.items()
-            if not (value == source_text or value.startswith(source_text + os.sep) or source_text.startswith(value + " "))
-        })
-        found.update(observed["rewritten_references"])
-        references = _reference_records(found, source, target)
-        entry["absolute_path_references"] = references
     require(
         sum(item["occurrences"] for item in references if item["rewrite_to"] is not None)
         == observed["rewrite_occurrence_count"],

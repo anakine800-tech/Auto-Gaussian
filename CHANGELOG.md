@@ -21,6 +21,10 @@ All notable public release changes are recorded here. The project follows
   source identity checks, destination rehashing and a persisted destination
   receipt. Skill-local runtime configuration remains source-archive
   self-contained while enforcing the root strict loader contract.
+- Made private migration `/2` path auditing quote/escape aware and
+  occurrence-positioned, retained same-prefix external references, blocked
+  ambiguous unquoted-space candidates, rejected Boolean count substitutions,
+  and classified NUL-bearing binaries before text-candidate limits.
 - Made prospective TS/IRC qualification require endpoint review and path
   acceptance `/2`, including one shared accepted TS `%oldchk` lineage, while
   keeping `/1` artifacts strictly historical and non-qualifying.

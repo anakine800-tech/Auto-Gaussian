@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 import os
 import stat
@@ -335,7 +336,7 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             prefix_length = MIGRATION.STREAM_CHUNK_SIZE - max(1, len(needle) // 2)
             prefix = b"x" * (prefix_length - 1) + b" "
             crossing = source / "crossing.txt"
-            crossing.write_bytes(prefix + needle + b"/outputs/result.json\n" + needle + b"-archive/must-not-rewrite\n")
+            crossing.write_bytes(prefix + needle + b"/outputs/result.json\n\"" + needle + b"-archive/must-not-rewrite\"\n")
             old_threshold = 8 * 1024 * 1024
             large_tail = needle + b"/result.json\n" + needle + b"/result.json\n"
             large_text = source / "large-valid.txt"
@@ -392,6 +393,144 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             self.assertEqual((target / "large.chk").stat().st_size, binary.stat().st_size)
             self.assertEqual((target / "invalid-utf8.bin").read_bytes(), invalid.read_bytes())
             self.assertEqual((target / "nul.bin").read_bytes(), nul_binary.read_bytes())
+
+    def test_space_aware_scanner_preserves_quoted_escaped_cross_chunk_and_positioned_occurrences(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source = root / "SamePrefix Project"
+            source.mkdir(mode=0o700)
+            target = root / "Private Target"
+            plan_path = root / "safe.plan.json"
+            source_text = str(source)
+            external_prefix = source_text.removesuffix(" Project")
+            escaped_source = source_text.replace(" ", "\\ ")
+            quoted_posix = "/tmp/Other Project/results/file.log"
+            quoted_punctuation = "/tmp/Other Project/results/(file,1).log"
+            quoted_windows = r"C:\Other Project\results\file.log"
+            escaped_external = r"/tmp/Other\ Project/results/file.log"
+            json_record = json.dumps({"posix": quoted_posix, "windows": quoted_windows})
+            safe_text = (
+                f"external-prefix={external_prefix}\n"
+                f"source={source_text}/results/source.log\n"
+                f"escaped-source={escaped_source}/results/escaped.log\n"
+                f'posix="{quoted_posix}"\n'
+                f'punctuation="{quoted_punctuation}"\n'
+                f'windows="{quoted_windows}"\n'
+                f"escaped={escaped_external}\n"
+                f"json={json_record}\n"
+                f'not-source="{source_text}-archive/results/keep.log"\n'
+            )
+            crossing = source / "references.txt"
+            crossing.write_text(("x" * 29) + safe_text + f'cross="{quoted_posix}"\n', encoding="utf-8")
+
+            with mock.patch.object(MIGRATION, "STREAM_CHUNK_SIZE", 31):
+                plan = MIGRATION.build_plan(source, target, created_at="2026-07-20T00:00:00+00:00")
+                MIGRATION.write_new(plan_path, plan)
+                self.assertEqual(MIGRATION.review_plan(plan_path), plan)
+                result = MIGRATION.apply_plan(plan_path, confirmation=plan["plan_sha256"], reviewer="fixture-reviewer")
+
+            entry = plan["entries"][0]
+            self.assertEqual(entry["reference_scan_status"], "complete_utf8")
+            by_value = {item["value"]: item for item in entry["absolute_path_references"]}
+            self.assertEqual(by_value[external_prefix]["action"], "review_external_absolute_reference")
+            self.assertEqual(by_value[external_prefix]["occurrences"], 1)
+            self.assertEqual(by_value[quoted_posix]["occurrences"], 3)
+            self.assertEqual(by_value[quoted_punctuation]["occurrences"], 1)
+            self.assertEqual(by_value[quoted_windows]["occurrences"], 1)
+            self.assertEqual(by_value[quoted_windows.replace('\\', '\\\\')]["occurrences"], 1)
+            self.assertEqual(by_value[escaped_external]["occurrences"], 1)
+            self.assertIsNone(by_value[f"{source_text}-archive/results/keep.log"]["rewrite_to"])
+            source_records = [item for item in entry["absolute_path_references"] if item["rewrite_to"] is not None]
+            self.assertEqual(sum(item["occurrences"] for item in source_records), 2)
+            copied = (target / "references.txt").read_text(encoding="utf-8")
+            escaped_target = str(target).replace(" ", "\\ ")
+            self.assertIn(f"{target}/results/source.log", copied)
+            self.assertIn(f"{escaped_target}/results/escaped.log", copied)
+            self.assertIn(f"{source_text}-archive/results/keep.log", copied)
+            self.assertEqual(result["copied_file_count"], 1)
+
+    def test_unquoted_space_path_is_complete_but_review_required_and_cannot_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source = root / "source"
+            source.mkdir(mode=0o700)
+            target = root / "target"
+            plan_path = root / "ambiguous.plan.json"
+            ambiguous = "/tmp/Other Project/results/file.log"
+            (source / "ambiguous.txt").write_text(f"external={ambiguous}\n", encoding="utf-8")
+            unterminated = "/tmp/Quoted Project/results/file.log"
+            (source / "unterminated.txt").write_text(f'external="{unterminated}', encoding="utf-8")
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-20T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+
+            entry = next(item for item in plan["entries"] if item["relative_path"] == "ambiguous.txt")
+            self.assertEqual(entry["reference_scan_status"], "review_required_ambiguous")
+            self.assertEqual(entry["absolute_path_references"], [{
+                "value": ambiguous,
+                "rewrite_to": None,
+                "action": "review_ambiguous_absolute_reference",
+                "occurrences": 1,
+                "ambiguity": "unquoted_space_boundary",
+            }])
+            unterminated_entry = next(item for item in plan["entries"] if item["relative_path"] == "unterminated.txt")
+            self.assertEqual(unterminated_entry["reference_scan_status"], "review_required_ambiguous")
+            self.assertEqual(unterminated_entry["absolute_path_references"][0]["value"], unterminated)
+            self.assertEqual(unterminated_entry["absolute_path_references"][0]["ambiguity"], "unterminated_quoted_path")
+            with self.assertRaisesRegex(MIGRATION.MigrationError, "review-required"):
+                MIGRATION.review_plan(plan_path)
+            with self.assertRaisesRegex(MIGRATION.MigrationError, "review-required"):
+                MIGRATION.apply_plan(plan_path, confirmation=plan["plan_sha256"], reviewer="fixture-reviewer")
+            self.assertFalse(target.exists())
+
+    def test_nul_classification_precedes_candidate_limit_for_early_cross_chunk_and_long_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source = root / "source"
+            source.mkdir(mode=0o700)
+            target = root / "target"
+            (source / "early.bin").write_bytes(b"/" + (b"a" * 100) + b"\x00tail")
+            (source / "cross.bin").write_bytes(b"/" + (b"b" * 80) + b"\x00" + (b"c" * 80))
+            (source / "long.bin").write_bytes(b"\x00/" + (b"d" * 65537))
+
+            with mock.patch.object(MIGRATION, "STREAM_CHUNK_SIZE", 32), mock.patch.object(
+                MIGRATION, "MAX_AUDITED_REFERENCE_CHARS", 8
+            ):
+                plan = MIGRATION.build_plan(source, target, created_at="2026-07-20T00:00:00+00:00")
+
+            for entry in plan["entries"]:
+                self.assertEqual(entry["content_kind"], "binary")
+                self.assertEqual(entry["reference_scan_status"], "not_applicable_binary")
+                self.assertEqual(entry["absolute_path_references"], [])
+
+    def test_all_plan_count_fields_reject_bool_and_legacy_v1_cannot_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, target, plan_path = self.synthetic_tree(root)
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-20T00:00:00+00:00")
+            count_paths = [
+                ("file_count",), ("source_size_bytes",), ("planned_size_bytes",), ("rewrite_count",),
+                ("entries", 0, "source_size_bytes"), ("entries", 0, "planned_size_bytes"),
+                ("entries", 0, "rewrite_occurrence_count"),
+                ("entries", 0, "absolute_path_references", 0, "occurrences"),
+            ]
+            for path in count_paths:
+                tampered = copy.deepcopy(plan)
+                holder: object = tampered
+                for key in path[:-1]:
+                    holder = holder[key]  # type: ignore[index]
+                holder[path[-1]] = True  # type: ignore[index]
+                tampered["plan_sha256"] = MIGRATION.plan_digest(tampered)
+                with self.subTest(path=path), self.assertRaises(MIGRATION.MigrationError):
+                    MIGRATION._validate_plan_shape(tampered)
+
+            legacy = copy.deepcopy(plan)
+            legacy["schema"] = "auto-g16-private-study-migration-plan/1"
+            legacy["plan_sha256"] = MIGRATION.plan_digest(legacy)
+            plan_path.write_bytes(MIGRATION.canonical_bytes(legacy))
+            os.chmod(plan_path, 0o600)
+            with self.assertRaisesRegex(MIGRATION.MigrationError, "unsupported migration plan schema"):
+                MIGRATION.apply_plan(plan_path, confirmation=legacy["plan_sha256"], reviewer="fixture-reviewer")
+            self.assertFalse(target.exists())
 
 
 if __name__ == "__main__":

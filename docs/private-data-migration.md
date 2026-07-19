@@ -11,12 +11,21 @@ The workflow is deliberately plan-review-apply:
 
 1. `plan` walks regular files without following links, hashes source and
    planned bytes, identifies existing destinations, and incrementally validates
-   UTF-8 for every file regardless of size. Text files receive a complete,
-   bounded-stream scan of absolute POSIX/Windows references with occurrence
-   counts; source-root references are rewritten only at matching path/literal
-   boundaries. Invalid UTF-8 or NUL-bearing files are explicitly classified as
-   binary, marked `not_applicable_binary`, and copied byte-for-byte rather than
-   being reported as text with an empty scan. The plan schema is
+   UTF-8 for every file regardless of size. NUL and invalid-UTF-8 classification
+   is completed before the bounded path-candidate pass, so even a long binary
+   prefix cannot trigger a text-reference length error. Text files receive a
+   bounded-stream, occurrence-position-aware scan of absolute POSIX/Windows
+   references. Quoted and JSON-string paths may contain spaces and JSON
+   backslash escaping is retained; an unquoted POSIX space must be encoded as
+   `\ ` to be unambiguous. A known exact source root may contain
+   literal spaces and is matched as one root. Other unquoted space-bearing
+   candidates are retained in full through the next structural delimiter,
+   marked `review_required_ambiguous`, and cannot pass review or apply. Invalid
+   or unterminated quoting is likewise review-required rather than being
+   treated as a complete quoted reference. Invalid UTF-8 or NUL-bearing files
+   are explicitly classified as binary, marked
+   `not_applicable_binary`, and copied byte-for-byte rather than being reported
+   as text with an empty scan. The plan schema is
    `auto-g16-private-study-migration-plan/2`. Planning creates no target
    directory and copies no study file.
 2. `review` reloads the closed-schema plan and fully rescans the source and
@@ -47,6 +56,20 @@ file count, byte totals, source/planned tree hashes, per-file hashes,
 content kind and scan status, conflicts, every absolute-path reference and
 occurrence count, and every proposed rewrite. External absolute references are
 reported for review but are not rewritten.
+
+Source-root rewrites use the exact audited occurrence spelling and span. A
+separate external reference whose text happens to be a prefix of a source root
+is preserved; it is never removed by a global value-prefix filter. Quoted and
+escaped-space source references retain their spelling style in the proposed
+target reference. If any entry is `review_required_ambiguous`, quote or escape
+the path in the source data as appropriate, then create and review a new plan.
+There is no flag that converts an ambiguous occurrence into an automatic
+rewrite.
+
+Historical `auto-g16-private-study-migration-plan/1` files are not valid apply
+authority. They cannot be reviewed or applied by this tool. Rebuild the plan
+from the current source and target, inspect the new `/2` occurrence evidence,
+and review that exact `/2` hash before any apply.
 
 Apply is a later, separately authorized operational action. It is intentionally
 not performed during feature development, testing against real data, release,

@@ -55,7 +55,10 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   descriptor-relative no-follow I/O. Destination files are atomically created
   with mode 0600, rehashed after writing, and recorded in an immutable
   destination receipt. It never deletes source data or automatically removes
-  a partial copy after an unexpected failure.
+  a partial copy after an unexpected failure. Plan `/2` scans quoted and
+  escaped-space paths incrementally, preserves exact occurrence evidence, and
+  blocks ambiguous unquoted-space paths; historical `/1` plans must be rebuilt
+  and reviewed and cannot be applied.
 - Method-evidence records distinguish reported, internally observed, and
   benchmarked evidence. They do not select or authorize a research method.
 - Mechanism discussions, method decisions, operator action cards, and learning
@@ -96,7 +99,7 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
-- Current hardening-integration evidence on the core interpreter is 686/686
+- Current hardening-integration evidence on the core interpreter is 690/690
   offline tests for both the worktree and a `.git`-free source archive; both
   runs have one expected RDKit skip in the core profile. The separate locked
   chemistry profile previously passed the real RDKit smoke. These are
