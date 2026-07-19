@@ -255,10 +255,9 @@ def command_auto(args) -> None:
         "--attempt-id", summary["execution"]["attempt_id"],
         *connection_arguments(args),
     ]
-    try:
-        watched = subprocess.run(watch_command, timeout=args.timeout_seconds + 60)
-    except subprocess.TimeoutExpired:
-        fail("watch subprocess exceeded its explicit timeout", code=4)
+    # The child enforces the finite monitor deadline and audited per-transfer
+    # budgets.  An outer deadline+60 umbrella would kill a valid large fetch.
+    watched = subprocess.run(watch_command)
     raise SystemExit(watched.returncode)
 
 

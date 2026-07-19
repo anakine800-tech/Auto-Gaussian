@@ -13,6 +13,7 @@ import importlib.util
 import json
 import math
 import os
+import random
 import re
 import shutil
 import stat
@@ -79,9 +80,18 @@ INPUT_APPROVAL_WORK_KINDS = {"ordinary", "minimum", "ts_pilot", "formal_ts"}
 SPECIALIST_INPUT_WORK_KINDS = {"ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"}
 ALL_WORK_KINDS = INPUT_APPROVAL_WORK_KINDS | SPECIALIST_INPUT_WORK_KINDS
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 60
+STREAM_COPY_CHUNK_SIZE = 1024 * 1024
+MAX_IN_MEMORY_READ_BYTES = 16 * 1024 * 1024
+TRANSFER_RATE_FLOOR_BYTES_PER_SECOND = 1024 * 1024
+TRANSFER_FIXED_OVERHEAD_SECONDS = 30
+MIN_TRANSFER_TIMEOUT_SECONDS = 60
+MAX_TRANSFER_TIMEOUT_SECONDS = 3600
 MAX_READ_ONLY_RETRIES = 2
 MAX_REMOTE_CLOCK_SKEW_SECONDS = 5
 MIN_INTERRUPTION_STABLE_SECONDS = 60
+WATCH_HEARTBEAT_SECONDS = 3600
+WATCH_MAX_POLL_SECONDS = 300
+WATCH_JITTER_FRACTION = 0.10
 
 
 def fail(message: str, code: int = 2) -> None:
@@ -122,6 +132,16 @@ def run(
         detail = (stderr or stdout).strip()
         fail(f"command failed ({result.returncode}): {detail}")
     return result
+
+
+def transfer_timeout_seconds(total_bytes: int) -> int:
+    """Return one finite transfer budget from an exact known byte count."""
+    if not isinstance(total_bytes, int) or isinstance(total_bytes, bool) or total_bytes < 0:
+        fail("transfer timeout requires an exact non-negative byte count")
+    calculated = TRANSFER_FIXED_OVERHEAD_SECONDS + math.ceil(
+        total_bytes / TRANSFER_RATE_FLOOR_BYTES_PER_SECOND
+    )
+    return max(MIN_TRANSFER_TIMEOUT_SECONDS, min(MAX_TRANSFER_TIMEOUT_SECONDS, calculated))
 
 
 class _ReadOnlyCapability:
@@ -222,22 +242,121 @@ def read_stable_bytes(path: Path, label: str) -> tuple[Path, bytes, str]:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ValueError(f"{label} must be a regular file")
-        chunks: list[bytes] = []
+        if before.st_size > MAX_IN_MEMORY_READ_BYTES:
+            raise ValueError(f"{label} exceeds the bounded in-memory read limit; use streaming copy/hash")
+        data = bytearray()
+        digest = hashlib.sha256()
         while True:
-            chunk = os.read(descriptor, 1024 * 1024)
+            chunk = os.read(descriptor, STREAM_COPY_CHUNK_SIZE)
             if not chunk:
                 break
-            chunks.append(chunk)
+            data.extend(chunk); digest.update(chunk)
         after = os.fstat(descriptor)
     finally:
         os.close(descriptor)
     identity = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
     if identity != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
         raise ValueError(f"{label} changed while it was being read")
-    data = b"".join(chunks)
     if len(data) != before.st_size:
         raise ValueError(f"{label} size changed while it was being read")
-    return resolved, data, hashlib.sha256(data).hexdigest()
+    return resolved, bytes(data), digest.hexdigest()
+
+
+def stable_file_metadata(path: Path, label: str) -> tuple[Path, str, int]:
+    """Hash a descriptor-bound regular file without retaining its bytes."""
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    resolved = expanded.resolve(strict=True)
+    descriptor = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError(f"{label} must be a regular file")
+        digest = hashlib.sha256(); size = 0
+        while True:
+            chunk = os.read(descriptor, STREAM_COPY_CHUNK_SIZE)
+            if not chunk:
+                break
+            digest.update(chunk); size += len(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    if _descriptor_identity(before) != _descriptor_identity(after) or _nofollow_path_identity(resolved, label) != _descriptor_identity(before) or size != before.st_size:
+        raise ValueError(f"{label} changed while it was hashed")
+    return resolved, digest.hexdigest(), size
+
+
+def _descriptor_identity(value: os.stat_result) -> tuple[int, int, int, int]:
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+
+
+def _nofollow_path_identity(path: Path, label: str) -> tuple[int, int, int, int]:
+    try:
+        value = os.stat(path, follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError(f"{label} path identity is unavailable: {exc}") from exc
+    if not stat.S_ISREG(value.st_mode):
+        raise ValueError(f"{label} must remain a regular non-symlink file")
+    return _descriptor_identity(value)
+
+
+def atomic_stable_file_copy(
+    source: Path, destination: Path, label: str, *, expected: dict[str, Any] | None = None,
+    mode: int = 0o400,
+) -> dict[str, Any]:
+    """Descriptor-bound chunked copy with private no-clobber publication."""
+    expanded = source.expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    resolved = expanded.resolve(strict=True)
+    source_fd = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    temporary = destination.with_name(f".{destination.name}.copy-{os.getpid()}-{time.time_ns()}.tmp")
+    destination_fd = -1
+    try:
+        before = os.fstat(source_fd)
+        if not stat.S_ISREG(before.st_mode) or _nofollow_path_identity(resolved, label) != _descriptor_identity(before):
+            raise ValueError(f"{label} descriptor/path identity differs")
+        destination_fd = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), mode
+        )
+        os.fchmod(destination_fd, mode)
+        digest = hashlib.sha256(); size = 0
+        while True:
+            chunk = os.read(source_fd, STREAM_COPY_CHUNK_SIZE)
+            if not chunk: break
+            digest.update(chunk); size += len(chunk)
+            offset = 0
+            while offset < len(chunk):
+                written = os.write(destination_fd, chunk[offset:])
+                if written <= 0: raise OSError("zero-byte stable copy write")
+                offset += written
+        os.fsync(destination_fd)
+        after = os.fstat(source_fd)
+        identity = _descriptor_identity(before)
+        if identity != _descriptor_identity(after) or _nofollow_path_identity(resolved, label) != identity or size != before.st_size:
+            raise ValueError(f"{label} changed while it was copied")
+        observed = {"sha256": digest.hexdigest(), "size": size}
+        if expected is not None and observed != {"sha256": expected.get("sha256"), "size": expected.get("size")}:
+            raise ValueError(f"{label} changed after manifest validation")
+        os.close(destination_fd); destination_fd = -1
+        copied = os.stat(temporary, follow_symlinks=False)
+        if not stat.S_ISREG(copied.st_mode) or copied.st_size != size or sha256(temporary) != observed["sha256"]:
+            raise ValueError(f"{label} private copy failed pre-publication verification")
+        try:
+            os.link(temporary, destination)
+        except FileExistsError as exc:
+            raise ValueError(f"{label} destination already exists") from exc
+        directory_fd = os.open(destination.parent, os.O_RDONLY)
+        try: os.fsync(directory_fd)
+        finally: os.close(directory_fd)
+        if _nofollow_path_identity(destination, f"published {label}")[2] != size or sha256(destination) != observed["sha256"]:
+            raise ValueError(f"published {label} failed verification")
+        return {**observed, "source": resolved}
+    finally:
+        os.close(source_fd)
+        if destination_fd >= 0: os.close(destination_fd)
+        with contextlib.suppress(FileNotFoundError): temporary.unlink()
 
 
 def atomic_text(path: Path, text: str) -> None:
@@ -374,19 +493,10 @@ def capture_submission_snapshot(source: Path, local_dir: Path) -> tuple[Path, st
             raise ValueError("%oldchk must be a local basename inside the snapshot")
         companion_sources.append(resolved.parent / oldchk_name)
     for companion_source in companion_sources:
-        companion_resolved, companion_data, companion_digest = read_stable_bytes(
-            companion_source, f"submission companion {companion_source.name}"
+        companion_snapshot = snapshot_dir / companion_source.name
+        atomic_stable_file_copy(
+            companion_source, companion_snapshot, f"submission companion {companion_source.name}", mode=0o400
         )
-        companion_snapshot = snapshot_dir / companion_resolved.name
-        companion_descriptor = os.open(
-            companion_snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400
-        )
-        with os.fdopen(companion_descriptor, "wb") as handle:
-            handle.write(companion_data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        if read_stable_bytes(companion_snapshot, "submission companion snapshot")[2] != companion_digest:
-            raise ValueError("submission companion snapshot hash mismatch")
     return snapshot, digest
 
 
@@ -416,14 +526,14 @@ def verify_staged_submission(
         fail("staged Gaussian input no longer matches the exact input and live approval chain")
     expected: dict[str, str] = {}
     for path in files:
-        _, _, digest = read_stable_bytes(path, f"staged upload file {path.name}")
+        _, digest, _ = stable_file_metadata(path, f"staged upload file {path.name}")
         expected[path.name] = digest
     return expected
 
 
 def assert_file_bindings_unchanged(files: list[Path], expected: dict[str, str]) -> None:
     for path in files:
-        _, _, digest = read_stable_bytes(path, f"staged upload file {path.name}")
+        _, digest, _ = stable_file_metadata(path, f"staged upload file {path.name}")
         if digest != expected.get(path.name):
             fail(f"staged upload file changed before transfer: {path.name}")
 
@@ -3240,20 +3350,25 @@ def server_job_snapshot_script(project: str, input_stem: str, job_id: str) -> st
     return remote_existing_directory_guard(project) + fr"""
 qstat_out=$(qstat -f '{job_id}' 2>&1); qrc=$?
 session=$(printf '%s\n' "$qstat_out" | sed -n 's/^[[:space:]]*session_id[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
+qstate=$(printf '%s\n' "$qstat_out" | sed -n 's/^[[:space:]]*job_state[[:space:]]*=[[:space:]]*\([A-Z]\).*/\1/p' | head -n 1)
 if [ -n "$session" ]; then process_out=$(ps -s "$session" -o pid= 2>&1); prc=$?; else process_out=''; prc=125; fi
 if [ -f '{manifest_path}' ] && [ ! -L '{manifest_path}' ]; then manifest_out=$(cat -- '{manifest_path}'); mrc=$?; else manifest_out=''; mrc=1; fi
 if [ -f '{log_path}' ] && [ ! -L '{log_path}' ]; then
   tail_out=$(tail -n 500 -- '{log_path}' 2>&1); trc=$?
   stat_value=$(stat -c '%s:%Y' -- '{log_path}' 2>/dev/null || true)
-  normal_count=$(grep -c 'Normal termination of Gaussian' -- '{log_path}' 2>/dev/null || true)
-  error_count=$(grep -c 'Error termination' -- '{log_path}' 2>/dev/null || true)
+  if [ "$qstate" = Q ] || {{ [ "$qstate" = R ] && [ "$prc" -eq 0 ] && [ -n "$process_out" ]; }}; then
+    normal_count=''; error_count=''; scan_scope='bounded_tail_only'
+  else
+    counts=$(awk '/Normal termination of Gaussian/{{n++}} /Error termination/{{e++}} END{{printf "%d:%d", n+0, e+0}}' -- '{log_path}' 2>/dev/null || true)
+    normal_count=${{counts%%:*}}; error_count=${{counts#*:}}; scan_scope='exact_whole_log_once'
+  fi
 else tail_out=''; trc=1; stat_value=''; normal_count=''; error_count=''; fi
 printf 'COLLECTED_EPOCH\t%s\n' "$(date +%s)"
 printf 'QSTAT_RC\t%s\nQSTAT_B64\t' "$qrc"; printf '%s' "$qstat_out" | base64 -w0; printf '\n'
 printf 'PROCESS_RC\t%s\nPROCESS_B64\t' "$prc"; printf '%s' "$process_out" | base64 -w0; printf '\n'
 printf 'MANIFEST_RC\t%s\nMANIFEST_B64\t' "$mrc"; printf '%s' "$manifest_out" | base64 -w0; printf '\n'
 printf 'TAIL_RC\t%s\nTAIL_B64\t' "$trc"; printf '%s' "$tail_out" | base64 -w0; printf '\n'
-printf 'LOG_STAT\t%s\nNORMAL_COUNT\t%s\nERROR_COUNT\t%s\n' "$stat_value" "$normal_count" "$error_count"
+printf 'LOG_STAT\t%s\nNORMAL_COUNT\t%s\nERROR_COUNT\t%s\nSCAN_SCOPE\t%s\n' "$stat_value" "$normal_count" "$error_count" "${{scan_scope:-no_log}}"
 """
 
 
@@ -3273,7 +3388,7 @@ def parse_job_snapshot_output(text: str) -> dict[str, Any]:
         "MANIFEST_RC", "MANIFEST_B64", "TAIL_RC", "TAIL_B64", "LOG_STAT",
         "NORMAL_COUNT", "ERROR_COUNT",
     }
-    if set(values) != required:
+    if set(values) not in {frozenset(required), frozenset(required | {"SCAN_SCOPE"})}:
         raise ValueError("remote snapshot fields are missing or unknown")
 
     def integer(key: str) -> int:
@@ -3295,6 +3410,7 @@ def parse_job_snapshot_output(text: str) -> dict[str, Any]:
         "tail_rc": integer("TAIL_RC"), "tail_text": decoded("TAIL_B64"),
         "log_stat": values["LOG_STAT"], "normal_count": values["NORMAL_COUNT"],
         "error_count": values["ERROR_COUNT"],
+        "scan_scope": values.get("SCAN_SCOPE", "exact_whole_log_once"),
     }
 
 
@@ -3356,7 +3472,12 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
     analysis = analyze_log_text(snapshot["tail_text"] if snapshot["tail_rc"] == 0 else "")
     stat_match = re.fullmatch(r"(\d+):(\d+)", snapshot["log_stat"])
     size, mtime = (map(int, stat_match.groups()) if stat_match else (None, None))
+    scan_scope = snapshot["scan_scope"]
+    if scan_scope not in {"bounded_tail_only", "exact_whole_log_once", "no_log"}:
+        scan_scope = "invalid"
     counts_known = bool(
+        scan_scope == "exact_whole_log_once"
+        and
         re.fullmatch(r"\d+", snapshot["normal_count"])
         and re.fullmatch(r"\d+", snapshot["error_count"])
     )
@@ -3368,9 +3489,10 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
         full_error_count=error_count or 0, analysis=analysis, qstate=qstat_evidence["pbs_state"],
         process_alive=process_evidence["process_alive"], pbs_evidence_status=qstat_evidence["status"],
     )
-    if conflict or not counts_known: state = "unknown"
+    malformed_full_scan = scan_scope in {"exact_whole_log_once", "invalid"} and not counts_known
+    if conflict or malformed_full_scan: state = "unknown"
     age_seconds = max(0, int(local_received_epoch - remote_epoch))
-    freshness = "unknown" if not counts_known else ("fresh" if age_seconds <= 120 else "stale")
+    freshness = "unknown" if malformed_full_scan else ("fresh" if age_seconds <= 120 else "stale")
     if freshness != "fresh": state = "unknown"
     inspection = {
         "schema": "gaussian-job-inspection/2", "project": project, "job_id": job_id,
@@ -3378,7 +3500,7 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
         "local_request_epoch": local_request_epoch, "local_received_epoch": local_received_epoch,
         "remote_collected_epoch": remote_epoch,
         "freshness": freshness, "age_seconds": age_seconds,
-        "transport_classification": "success" if counts_known else "parse_failed",
+        "transport_classification": "parse_failed" if malformed_full_scan else "success",
         "transport_returncode": result.returncode, "pbs_job_name": qstat_evidence["job_name"],
         "pbs_state": qstat_evidence["pbs_state"], "pbs_record_present": qstat_evidence["record_present"],
         "pbs_evidence_status": qstat_evidence["status"], "process_alive": process_evidence["process_alive"],
@@ -3386,10 +3508,11 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
         "process_evidence_status": process_evidence["status"], "log_size": size,
         "log_mtime_epoch": mtime, "workflow_expected_stages": expected_stages if workflow_manifest else None,
         "full_normal_termination_count": normal_count, "full_error_termination_count": error_count,
-        "termination_counts_known": counts_known, "interruption_proof": None,
-        "evidence_conflict": conflict or not counts_known, "analysis": analysis,
+        "termination_counts_known": counts_known, "termination_scan_scope": scan_scope,
+        "interruption_proof": None,
+        "evidence_conflict": conflict or malformed_full_scan, "analysis": analysis,
     }
-    if not counts_known:
+    if malformed_full_scan:
         inspection["error"] = "whole-log termination counts are malformed or unavailable"
     terminal_proven = terminal_log_proven(inspection)
     inspection.update({
@@ -3583,29 +3706,10 @@ def reusable_snapshot_files(
 
 def atomic_private_reuse_copy(source: Path, destination: Path, expected: dict[str, Any]) -> None:
     """Publish a private no-clobber copy; never share an inode with the old snapshot."""
-    _, data, source_digest = read_stable_bytes(source, "reusable immutable snapshot file")
-    if source_digest != expected["sha256"] or len(data) != expected["size"]:
-        fail("reusable snapshot bytes changed after manifest validation")
-    temporary = destination.with_name(f".{destination.name}.reuse-{os.getpid()}-{time.time_ns()}.tmp")
-    descriptor = os.open(
-        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o400
-    )
     try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(data); handle.flush(); os.fsync(handle.fileno())
-        if temporary.stat().st_size != expected["size"] or sha256(temporary) != expected["sha256"]:
-            fail("private reuse copy failed its pre-publication hash/size check")
-        try:
-            os.link(temporary, destination)
-        except FileExistsError:
-            fail("atomic reuse destination already exists")
-        directory = os.open(destination.parent, os.O_RDONLY)
-        try: os.fsync(directory)
-        finally: os.close(directory)
-        if destination.stat().st_size != expected["size"] or sha256(destination) != expected["sha256"]:
-            fail("published private reuse copy failed hash/size verification")
-    finally:
-        with contextlib.suppress(FileNotFoundError): temporary.unlink()
+        atomic_stable_file_copy(source, destination, "reusable immutable snapshot file", expected=expected, mode=0o400)
+    except (OSError, ValueError) as exc:
+        fail(str(exc))
 
 
 def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
@@ -3655,6 +3759,8 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         getattr(args, "reuse_snapshot", None), binding, server_files
     )
     changed_names = sorted(set(server_files) - set(reusable))
+    changed_size_bytes = sum(server_files[name]["size"] for name in changed_names)
+    fetch_transfer_timeout = transfer_timeout_seconds(changed_size_bytes)
 
     snapshot_tag = f"fetch-{project}-{job_id}-{input_stem}-{snapshot_id}"
     windows_results = f"{args.windows_root}\\{project}\\{snapshot_tag}"
@@ -3676,7 +3782,7 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         run([
             *ssh_base(args), "scp", "-F", args.windows_server_config,
             *remote_sources, windows_results + "\\",
-        ])
+        ], timeout_seconds=fetch_transfer_timeout)
     ps_paths = ",".join(
         "'" + f"{windows_results}\\{name}".replace("'", "''") + "'"
         for name in changed_names
@@ -3719,7 +3825,7 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         run([
             "scp", "-F", str(Path(args.mac_ssh_config).expanduser()),
             *rtwin_sources, str(local_network_stage) + "/",
-        ])
+        ], timeout_seconds=fetch_transfer_timeout)
         for name in changed_names:
             staged = local_network_stage / name
             if staged.is_symlink() or not staged.is_file() or sha256(staged) != server_files[name]["sha256"] or staged.stat().st_size != server_files[name]["size"]:
@@ -3813,6 +3919,13 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
             "source_snapshot": str(getattr(args, "reuse_snapshot", None)) if reusable else None,
             "reused_files": sorted(reusable), "transferred_files": changed_names,
             "complete_independent_snapshot": True,
+        },
+        "transfer_timeout_evidence": {
+            "known_changed_size_bytes": changed_size_bytes,
+            "server_to_rtwin_timeout_seconds": fetch_transfer_timeout,
+            "rtwin_to_mac_timeout_seconds": fetch_transfer_timeout,
+            "rate_floor_bytes_per_second": TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
+            "fixed_overhead_seconds": TRANSFER_FIXED_OVERHEAD_SECONDS,
         },
         "per_hop": per_hop,
         "analysis": analysis,
@@ -4209,7 +4322,7 @@ def command_submit(args) -> None:
         )
     except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
         fail(f"attempt reservation blocked submit before network: {exc}")
-    def prepare_reserved_local_transaction() -> tuple[dict[str, Any], list[Path], dict[str, str], dict[str, Any]]:
+    def prepare_reserved_local_transaction() -> tuple[dict[str, Any], list[Path], dict[str, str], dict[str, Any], int]:
         """Publish every post-reservation local artifact before the first network call."""
         intent = {
             "schema": "gaussian-submission-intent/1",
@@ -4246,6 +4359,8 @@ def command_submit(args) -> None:
             "".join(f"{sha256(item)}  {item.name}\n" for item in upload_files),
         )
         transaction_files = [*upload_files, checksums_path]
+        transfer_size_bytes = sum(path.stat().st_size for path in transaction_files)
+        upload_timeout_seconds = transfer_timeout_seconds(transfer_size_bytes)
         transaction_job = update_job(
             local_dir,
             status="submission_uncertain",
@@ -4258,14 +4373,21 @@ def command_submit(args) -> None:
                 "reservation_sha256": canonical_digest(reservation),
             },
             submission_intent_sha256=intent["intent_sha256"],
+            transfer_timeout_evidence={
+                "known_upload_size_bytes": transfer_size_bytes,
+                "mac_to_rtwin_timeout_seconds": upload_timeout_seconds,
+                "rtwin_to_server_timeout_seconds": upload_timeout_seconds,
+                "rate_floor_bytes_per_second": TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
+                "fixed_overhead_seconds": TRANSFER_FIXED_OVERHEAD_SECONDS,
+            },
         )
         transaction_expected = verify_staged_submission(
             local_dir, transaction_job, input_report, input_approval, transaction_files
         )
-        return intent, transaction_files, transaction_expected, transaction_job
+        return intent, transaction_files, transaction_expected, transaction_job, upload_timeout_seconds
 
     try:
-        intent, files, expected, job = prepare_reserved_local_transaction()
+        intent, files, expected, job, upload_timeout_seconds = prepare_reserved_local_transaction()
     except (OSError, ValueError, SystemExit, KeyboardInterrupt) as exc:
         evidence = {
             "source": "proven_pre_network_local_transaction_failure",
@@ -4304,7 +4426,7 @@ def command_submit(args) -> None:
             "scp", "-F", str(Path(args.mac_ssh_config).expanduser()), *map(str, files),
             f"{args.rtwin_alias}:{windows_dir_scp}/",
         ]
-        run(scp_to_windows)
+        run(scp_to_windows, timeout_seconds=upload_timeout_seconds)
 
         ps_paths = ",".join(f"'{windows_dir}\\{name}'" for name in expected)
         hash_script = (
@@ -4329,7 +4451,10 @@ def command_submit(args) -> None:
             input_bytes=remote_empty_directory_guard(project).encode("utf-8"),
         )
         windows_files = [f"{windows_dir}\\{path.name}" for path in files]
-        run([*ssh_base(args), "scp", "-F", args.windows_server_config, *windows_files, f"{args.server_alias}:{remote_dir}/"])
+        run(
+            [*ssh_base(args), "scp", "-F", args.windows_server_config, *windows_files, f"{args.server_alias}:{remote_dir}/"],
+            timeout_seconds=upload_timeout_seconds,
+        )
     except SystemExit:
         evidence = {
             "source": "local_transaction_stopped_before_qsub",
@@ -4408,8 +4533,14 @@ def command_submit(args) -> None:
                 reason="approval drift, revocation, or expiry was detected before qsub invocation",
                 reconciliation_evidence=evidence,
             )
-        except execution_batch.BatchError as exc:
-            update_job(local_dir, status="submission_uncertain", approval_replay_error=str(exc))
+        except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
+            update_job(
+                local_dir, status="submission_uncertain", qsub_invocation_started=False,
+                approval_replay_reconciliation_error={
+                    "error_type": type(exc).__name__, "message": str(exc),
+                    "attempt_id": reservation["attempt_id"], "evidence_sha256": evidence["sha256"],
+                },
+            )
             fail("approval replay failed before qsub and ledger reconciliation also failed", code=5)
         update_job(
             local_dir,
@@ -4944,12 +5075,21 @@ def command_watch(args) -> None:
         fail("--timeout-seconds must be between 10 seconds and 7 days")
     local_dir = checked_local_path(Path(args.local_dir), "watch local job directory")
     output_dir = checked_local_path(Path(args.output_dir), "watch output directory")
-    deadline = time.monotonic() + args.timeout_seconds
+    clock = getattr(args, "_watch_monotonic", time.monotonic)
+    sleeper = getattr(args, "_watch_sleep", time.sleep)
+    random_value = getattr(args, "_watch_random", random.random)
+    deadline = clock() + args.timeout_seconds
     previous_stale_signature = None
     stale_repeats = 0
     stable_since_epoch: float | None = None
     final: dict[str, Any] | None = None
-    while time.monotonic() < deadline:
+    last_persist_signature: tuple[Any, ...] | None = None
+    last_persisted_at: float | None = None
+    poll_interval = float(args.poll_seconds)
+    while True:
+        loop_now = clock()
+        if loop_now >= deadline:
+            break
         inspection = inspect_job(args, args.project, args.input_stem, args.job_id)
         signature = (inspection.get("log_size"), inspection.get("log_mtime_epoch"))
         if (
@@ -4987,14 +5127,29 @@ def command_watch(args) -> None:
             stale_repeats = 0
             previous_stale_signature = None
             stable_since_epoch = None
-        if (local_dir / "job.json").is_file():
+        persistence_signature = (
+            inspection.get("state"), inspection.get("pbs_state"), inspection.get("freshness"),
+            inspection.get("transport_classification"), inspection.get("pbs_record_present"),
+            inspection.get("process_alive"), inspection.get("log_size"), inspection.get("log_mtime_epoch"),
+            inspection.get("full_normal_termination_count"), inspection.get("full_error_termination_count"),
+            canonical_digest(inspection.get("interruption_proof")) if inspection.get("interruption_proof") else None,
+        )
+        urgent = (
+            inspection.get("state") not in {"queued", "running"}
+            or inspection.get("transport_classification") != "success"
+            or inspection.get("freshness") != "fresh"
+        )
+        stable_unchanged = persistence_signature == last_persist_signature
+        heartbeat_due = last_persisted_at is None or loop_now - last_persisted_at >= WATCH_HEARTBEAT_SECONDS
+        persist = urgent or not stable_unchanged or heartbeat_due
+        if persist and (local_dir / "job.json").is_file():
             job = validate_local_job_binding(local_dir, args.project, args.job_id, args.input_stem, require_fetched=False, expected_attempt_id=args.attempt_id)
             updates = {"status": inspection["state"], "monitor_observation": inspection}
             if inspection["state"] in {"completed", "failed", "interrupted"} and inspection["freshness"] == "fresh" and inspection["transport_classification"] == "success":
                 receipt = publish_terminal_inspection_receipt(local_dir, job, inspection, args.input_stem)
                 updates["terminal_inspection_receipt_sha256"] = receipt["receipt_sha256"]
             update_job(local_dir, **updates)
-        if args.execution_batch_ledger or args.attempt_id:
+        if persist and (args.execution_batch_ledger or args.attempt_id):
             if not args.execution_batch_ledger or not args.attempt_id:
                 fail("watch ledger recording requires both --execution-batch-ledger and --attempt-id")
             try:
@@ -5013,6 +5168,9 @@ def command_watch(args) -> None:
                 )
             except resource_efficiency.ResourceError as exc:
                 fail(f"watch ledger append failed closed: {exc}")
+        if persist:
+            last_persist_signature = persistence_signature
+            last_persisted_at = loop_now
         print(
             json.dumps(
                 {
@@ -5026,7 +5184,12 @@ def command_watch(args) -> None:
         if inspection["state"] in {"completed", "failed", "interrupted"}:
             final = inspection
             break
-        time.sleep(args.poll_seconds)
+        if not urgent and stable_unchanged:
+            poll_interval = min(float(WATCH_MAX_POLL_SECONDS), max(float(args.poll_seconds), poll_interval * 2.0))
+        else:
+            poll_interval = float(args.poll_seconds)
+        jitter = (float(random_value()) * 2.0 - 1.0) * WATCH_JITTER_FRACTION
+        sleeper(max(float(args.poll_seconds), min(float(WATCH_MAX_POLL_SECONDS), poll_interval * (1.0 + jitter))))
     if final is None:
         fail("watch timeout reached while job is still non-terminal", code=4)
     transfer = fetch_results(args, args.project, output_dir) if args.fetch else None

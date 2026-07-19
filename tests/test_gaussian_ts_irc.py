@@ -626,20 +626,13 @@ class TsIrcTests(unittest.TestCase):
             audit_path = root / "checkpoint_audit.json"
             audit_path.write_text(json.dumps(audit))
             output = root / "irc_f.gjf"
-            manifest = TS.build_allcheck_irc_input(
-                audit_path,
-                checkpoint,
-                output,
-                "#p b3lyp/6-31g(d) irc=(rcfc,forward,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read",
-                "forward",
-                "12GB",
-                8,
-            )
-            text = output.read_text()
-            self.assertIn("%oldchk=ts.chk", text)
-            self.assertIn("geom=allcheck", text.lower())
-            self.assertNotIn("\n0 1\n", text)
-            self.assertEqual(manifest["checkpoint_sha256"], TS.sha256(checkpoint))
+            with self.assertRaisesRegex(ValueError, "historical replay only"):
+                TS.build_allcheck_irc_input(
+                    audit_path, checkpoint, output,
+                    "#p b3lyp/6-31g(d) irc=(rcfc,forward,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read",
+                    "forward", "12GB", 8,
+                )
+            self.assertFalse(output.exists())
 
     def test_allcheck_builder_rejects_recorrect_never(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -755,17 +748,16 @@ class TsIrcTests(unittest.TestCase):
             review_draft_path = root / "endpoint_review.draft.json"; review_draft_path.write_text(json.dumps(review_draft))
             review_path = root / "endpoint_review.json"
             family_path = root / "family.json"; family_path.write_text(json.dumps({"schema": TS.SCHEMA_V2, "pilot": False, "project_prefix": "irc"}))
-            sources = {"family": family_path, "audit": audit_path, "irc_input": irc_input, "irc_log": irc_log, "irc_result": result_path, "job": job_path, "checkpoint": checkpoint, "terminal_inspection_receipt": receipt_path, "fetch_snapshot": snapshot_path}
+            sources = {"audit": audit_path, "irc_input": irc_input, "irc_log": irc_log, "irc_result": result_path, "job": job_path, "checkpoint": checkpoint}
             reviewed = TS.build_endpoint_structure_review_artifact(sources, review_draft_path, review_path)
-            self.assertEqual(reviewed["schema"], TS.ENDPOINT_REVIEW_SCHEMA_V2)
+            self.assertEqual(reviewed["schema"], TS.ENDPOINT_REVIEW_SCHEMA)
             self.assertEqual(reviewed["structure_identity"]["formula"], "C2")
             self.assertEqual(reviewed["endpoint_coordinates"]["records"][0]["atom_id"], "atom_c1")
             self.assertEqual(reviewed["parser"], TS.PARSER_ID)
             TS.validate_endpoint_structure_review_artifact(review_path)
-            receipt_original = receipt_path.read_bytes(); crossed = json.loads(receipt_path.read_text()); crossed["attempt_id"] = "qsub-attempt-other"; crossed["receipt_sha256"] = TS._transport_digest({key: value for key, value in crossed.items() if key != "receipt_sha256"}); receipt_path.write_text(json.dumps(crossed))
-            with self.assertRaisesRegex(ValueError, "exact project/job/attempt/input"):
-                TS.build_endpoint_structure_review_artifact(sources, review_draft_path, root / "cross-attempt-review.json")
-            receipt_path.write_bytes(receipt_original)
+            incomplete_v2 = {**sources, "family": family_path, "terminal_inspection_receipt": receipt_path, "fetch_snapshot": snapshot_path}
+            with self.assertRaisesRegex(ValueError, "fields are invalid"):
+                TS.build_endpoint_structure_review_artifact(incomplete_v2, review_draft_path, root / "incomplete-v2-review.json")
             immutable_review = review_path.read_bytes()
             with self.assertRaisesRegex(ValueError, "concurrent or overwrite"):
                 TS.build_endpoint_structure_review_artifact(sources, review_draft_path, review_path)

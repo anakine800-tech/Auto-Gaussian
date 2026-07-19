@@ -73,6 +73,14 @@ exact live `/9`–`/11` scope only with resource-bound `gaussian_auto auto
 --dry-run`; its complete execution/resource arguments are replayed again before
 any protected submit.
 
+New TS/IRC qualification requires `gaussian-ts-irc-path-acceptance/2` built
+from two owner-replayed `gaussian-endpoint-structure-review/2` artifacts. Both
+directions must bind the same accepted TS checkpoint/audit lineage and exact
+IRC plan, AllCheck input, attempt, terminal receipt and fetch snapshot.
+Historical endpoint review or path acceptance `/1` remains readable for
+display/replay only and cannot open maturity, thermochemistry, asymmetric
+comparison or any live gate.
+
 ## 2.5.0 release
 
 Auto-Gaussian 2.5.0 is the current stable source release. The annotated

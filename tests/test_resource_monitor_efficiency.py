@@ -475,6 +475,79 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             result = PBS.run_read_only(command, input_bytes=script, capability=capability)
         self.assertEqual(result.returncode, 0); self.assertEqual(run.call_count, 2)
 
+    def test_large_checkpoint_copy_and_oldchk_snapshot_use_bounded_reads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            source = root / "large.chk"; source.write_bytes(b"x" * (3 * 1024 * 1024 + 17))
+            original_read = PBS.os.read; requested = []
+            def bounded_read(fd, size):
+                requested.append(size)
+                self.assertLessEqual(size, PBS.STREAM_COPY_CHUNK_SIZE)
+                return original_read(fd, size)
+            with mock.patch.object(PBS.os, "read", side_effect=bounded_read):
+                copied = root / "copied.chk"
+                evidence = PBS.atomic_stable_file_copy(source, copied, "large checkpoint")
+            self.assertEqual(evidence["size"], source.stat().st_size)
+            self.assertEqual(copied.read_bytes(), source.read_bytes())
+            self.assertTrue(requested)
+
+            input_path = root / "continuation.gjf"
+            input_path.write_text("%oldchk=large.chk\n%chk=next.chk\n#p hf/sto-3g geom=allcheck guess=read\n\n")
+            requested.clear()
+            with mock.patch.object(PBS.os, "read", side_effect=bounded_read):
+                snapshot, _ = PBS.capture_submission_snapshot(input_path, root / "snapshot")
+            frozen = snapshot.parent / source.name
+            self.assertEqual(PBS.sha256(frozen), PBS.sha256(source))
+            self.assertTrue(requested)
+
+    def test_transfer_timeout_is_finite_size_derived_and_control_default_stays_short(self):
+        self.assertEqual(PBS.transfer_timeout_seconds(0), PBS.MIN_TRANSFER_TIMEOUT_SECONDS)
+        large = 120 * 1024 * 1024
+        budget = PBS.transfer_timeout_seconds(large)
+        self.assertGreater(budget, 60)
+        self.assertLessEqual(budget, PBS.MAX_TRANSFER_TIMEOUT_SECONDS)
+        with self.assertRaises(SystemExit):
+            PBS.transfer_timeout_seconds(-1)
+        completed = [subprocess.CompletedProcess([], 0, b"", b""), subprocess.CompletedProcess([], 0, b"", b"")]
+        with mock.patch.object(PBS.subprocess, "run", side_effect=completed) as invoked:
+            PBS.run(["scp", "source", "target"], timeout_seconds=budget)
+            self.assertEqual(invoked.call_args.kwargs["timeout"], budget)
+            PBS.run(["true"])
+            self.assertEqual(invoked.call_args.kwargs["timeout"], PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS)
+
+    def test_active_snapshot_builder_avoids_whole_log_scan(self):
+        script = PBS.server_job_snapshot_script("safejob", "input", "123.master")
+        self.assertNotIn("grep -c", script)
+        self.assertIn("scan_scope='bounded_tail_only'", script)
+        self.assertIn("scan_scope='exact_whole_log_once'", script)
+        self.assertEqual(script.count("counts=$(awk"), 1)
+
+    def test_seven_day_stable_watch_has_bounded_backoff_and_persistence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve(); ledger_path, attempt, _ = self.make_submitted_bundle(root)
+            args = self.watch_args(root, ledger_path, attempt["attempt_id"])
+            args.timeout_seconds = 7 * 24 * 3600
+            now = [0.0]; sleeps = []
+            args._watch_monotonic = lambda: now[0]
+            def advance(seconds):
+                sleeps.append(seconds); now[0] += seconds
+            args._watch_sleep = advance; args._watch_random = lambda: 0.5
+            queued = self.inspection("queued", pbs_state="Q", pbs_present=True)
+            real_record = PBS.resource_efficiency.record_monitor_observation
+            persisted = []
+            def record(*call_args, **call_kwargs):
+                persisted.append(call_kwargs["observation"])
+                return real_record(*call_args, **call_kwargs)
+            with mock.patch.object(PBS, "inspect_job", return_value=queued) as polls, \
+                 mock.patch.object(PBS.resource_efficiency, "record_monitor_observation", side_effect=record), \
+                 mock.patch("builtins.print"), self.assertRaises(SystemExit):
+                PBS.command_watch(args)
+            self.assertGreater(polls.call_count, len(persisted))
+            self.assertLessEqual(len(persisted), 170)
+            self.assertLessEqual(max(sleeps), PBS.WATCH_MAX_POLL_SECONDS)
+            self.assertEqual(sleeps[:3], [2.0, 4.0, 8.0])
+            RESOURCE.validate_ledger(RESOURCE.load(ledger_path))
+
     def test_single_job_snapshot_and_batch_status_each_use_one_remote_call(self):
         def b64(text): return base64.b64encode(text.encode()).decode()
         now_epoch = int(time.time())

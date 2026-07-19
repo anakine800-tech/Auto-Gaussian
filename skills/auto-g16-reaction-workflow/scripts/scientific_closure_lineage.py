@@ -312,15 +312,29 @@ def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, An
         require(receipt.get("scientific_acceptance") is False and receipt.get("receipt_sha256") == transport_digest({key: value for key, value in receipt.items() if key != "receipt_sha256"}), "minimum terminal receipt hash or authority is invalid")
         inspection = receipt.get("inspection")
         require(isinstance(inspection, dict) and inspection.get("schema") == "gaussian-job-inspection/2" and inspection.get("evidence_sha256") == receipt.get("inspection_evidence_sha256") and inspection.get("evidence_sha256") == transport_digest({key: value for key, value in inspection.items() if key != "evidence_sha256"}), "minimum terminal inspection /2 binding is invalid")
+        require(
+            inspection.get("project") == job.get("project") and inspection.get("job_id") == job.get("job_id")
+            and inspection.get("state") == receipt.get("terminal_state")
+            and inspection.get("source") == "single_remote_read_only_snapshot"
+            and inspection.get("transport_returncode") == 0,
+            "minimum terminal inspection crosses project/job/state/source/returncode",
+        )
         require(inspection.get("freshness") == "fresh" and inspection.get("transport_classification") == "success" and inspection.get("termination_counts_known") is True and inspection.get("process_alive") is False and inspection.get("evidence_conflict") is False, "minimum terminal inspection is stale or unknown")
         require(inspection.get("log_size") == log_path.stat().st_size and inspection.get("full_normal_termination_count") == log_path.read_text(encoding="utf-8", errors="replace").count("Normal termination of Gaussian") and inspection.get("full_error_termination_count") == log_path.read_text(encoding="utf-8", errors="replace").count("Error termination"), "minimum terminal inspection differs from raw log")
-        require(snapshot.get("schema") == "gaussian-fetch-snapshot/1" and snapshot.get("snapshot_complete") is True and snapshot.get("payload_sha256") == transport_digest({key: value for key, value in snapshot.items() if key != "payload_sha256"}), "minimum fetch snapshot is incomplete or invalid")
+        require(snapshot.get("schema") == "gaussian-fetch-snapshot/1" and snapshot.get("snapshot_complete") is True and snapshot.get("per_hop_sha256_verified") is True and snapshot.get("payload_sha256") == transport_digest({key: value for key, value in snapshot.items() if key != "payload_sha256"}), "minimum fetch snapshot is incomplete or invalid")
         require(snapshot.get("project") == job.get("project") and snapshot.get("job_id") == job.get("job_id") and snapshot.get("input_sha256") == job.get("input_sha256") and snapshot.get("terminal_inspection_receipt_sha256") == receipt.get("receipt_sha256"), "minimum fetch snapshot crosses project/job/input/receipt")
         require(job.get("terminal_inspection_receipt_sha256") == receipt.get("receipt_sha256") and job.get("fetch_snapshot_sha256") == file_sha256(snapshot_path) and job.get("fetch_snapshot_size") == snapshot_path.stat().st_size, "minimum job does not bind the exact receipt/fetch snapshot")
         require(snapshot_path.parent.resolve() == log_path.parent.resolve() == checkpoint_path.parent.resolve() == result_path.parent.resolve(), "minimum result/log/checkpoint must belong to the exact fetch snapshot")
         for candidate in (log_path, checkpoint_path, result_path):
             expected = {"sha256": file_sha256(candidate), "size": candidate.stat().st_size}
             require(snapshot.get("artifacts", {}).get(candidate.name) == expected, f"minimum fetch snapshot does not bind {candidate.name}")
+            hop = snapshot.get("per_hop", {}).get(candidate.name)
+            require(
+                isinstance(hop, dict) and set(hop) == {"server_sha256", "rtwin_sha256", "mac_sha256", "size"}
+                and all(hop.get(key) == expected["sha256"] for key in ("server_sha256", "rtwin_sha256", "mac_sha256"))
+                and hop.get("size") == expected["size"],
+                f"minimum fetch per-hop evidence does not bind {candidate.name}",
+            )
     settings = artifact["workflow_settings"]
     replay = owner["log"].analyze_workflow_log_text(log_path.read_text(encoding="utf-8", errors="replace"), temperature_k=float(settings["temperature_k"]), standard_state=settings["standard_state"], expected_stages=settings["expected_stages"])
     compare = {

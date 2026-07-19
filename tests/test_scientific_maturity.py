@@ -58,6 +58,12 @@ assert TS_MODULE_SPEC and TS_MODULE_SPEC.loader
 TS_MODULE = importlib.util.module_from_spec(TS_MODULE_SPEC)
 TS_MODULE_SPEC.loader.exec_module(TS_MODULE)
 
+ASYM_TOOL = ROOT / "skills" / "auto-g16-asymmetric-catalysis" / "scripts" / "asymmetric_catalysis.py"
+ASYM_SPEC = importlib.util.spec_from_file_location("scientific_maturity_asymmetric_consumer", ASYM_TOOL)
+assert ASYM_SPEC and ASYM_SPEC.loader
+ASYM_MODULE = importlib.util.module_from_spec(ASYM_SPEC)
+ASYM_SPEC.loader.exec_module(ASYM_MODULE)
+
 PBS_MODULE_SPEC = importlib.util.spec_from_file_location("scientific_maturity_pbs_owner", PBS_TOOL)
 assert PBS_MODULE_SPEC and PBS_MODULE_SPEC.loader
 PBS_MODULE = importlib.util.module_from_spec(PBS_MODULE_SPEC)
@@ -548,7 +554,9 @@ class ScientificMaturityTests(unittest.TestCase):
             route = "#p hf/sto-3g opt=(ts,calcfc) freq"
             ts_input = root / "formal_ts.gjf"; ts_input.write_text("%chk=formal_ts.chk\n" + route + "\n\nformal fixture\n\n0 1\n" + "\n".join(f"{element} {x} {y} {z}" for element, (x, y, z) in zip(elements, coordinates)) + "\n\n")
             input_audit = root / "formal-v2-input-audit.json"; write_json(input_audit, TS_MODULE.validate_input_family("single_guess", {"ts": TS_MODULE.parse_cartesian_input(ts_input)}, [1, 2, 3, 4, 5]))
-            protocol = root / "formal-v2-protocol.json"; write_json(protocol, {"workflow_id": "formal_fixture", "project_prefix": "formal", "expected_reactant_identity": "fixture reactants", "expected_product_identity": "fixture activated", "coordinate_changes": [{"forming": [1, 5]}], "routes": {"ts_freq": route, "irc_forward": "#p hf/sto-3g irc=(forward)", "irc_reverse": "#p hf/sto-3g irc=(reverse)", "endpoint_opt_freq": "#p hf/sto-3g opt freq"}, "resource_tiers": {"ts_freq": "simple", "irc": "simple", "endpoint": "simple"}, "temperature_k": 298.15, "standard_state": "1M"})
+            forward_route = "#p hf/sto-3g irc=(rcfc,forward,maxpoints=2) geom=allcheck guess=read"
+            reverse_route = "#p hf/sto-3g irc=(rcfc,reverse,maxpoints=2) geom=allcheck guess=read"
+            protocol = root / "formal-v2-protocol.json"; write_json(protocol, {"workflow_id": "formal_fixture", "project_prefix": "formal", "expected_reactant_identity": "fixture reactants", "expected_product_identity": "fixture activated", "coordinate_changes": [{"forming": [1, 5]}], "routes": {"ts_freq": route, "irc_forward": forward_route, "irc_reverse": reverse_route, "endpoint_opt_freq": "#p hf/sto-3g opt freq"}, "resource_tiers": {"ts_freq": "simple", "irc": "simple", "endpoint": "simple"}, "temperature_k": 298.15, "standard_state": "1M"})
             family = root / "formal-v2-family.json"; created = self.run_cli(TS_TOOL, "create-family", "--input-audit", str(input_audit), "--protocol", str(protocol), "--scientific-maturity", str(initial_gate), "--edge-id", "edge_activation", "--node-id", "ts_freq_activation", "--output", str(family)); self.assertEqual(created.returncode, 0, created.stderr)
 
             orientation = "\n".join(f" {index} {numbers[element]} 0 {x:.6f} {y:.6f} {z:.6f}" for index, (element, (x, y, z)) in enumerate(zip(elements, coordinates), 1))
@@ -558,20 +566,25 @@ class ScientificMaturityTests(unittest.TestCase):
                 values = frequencies[offset:offset + 3]
                 displacement = "\n".join(f" {index} {numbers[element]} 0.1 0 0 0 0.1 0 0 0 0.1" for index, element in enumerate(elements, 1))
                 blocks.append(" Frequencies -- " + " ".join(str(value) for value in values) + "\n Red. masses -- 1 1 1\n Atom AN X Y Z X Y Z X Y Z\n" + displacement)
-            ts_log = root / "formal_ts.log"; ts_log.write_text(" Gaussian 16, Revision C.01,\n Optimization completed.\n Stationary point found.\n Standard orientation:\n ----------------------------------------\n header\n ----------------------------------------\n" + orientation + "\n ----------------------------------------\n" + "\n".join(blocks) + "\n SCF Done: E(RHF) = -100.0 A.U.\n Normal termination of Gaussian\n")
+            ts_log = root / "formal_ts.log"; ts_log.write_text(" Gaussian 16, Revision C.01,\n Charge = 0 Multiplicity = 1\n Optimization completed.\n Stationary point found.\n Standard orientation:\n ----------------------------------------\n header\n ----------------------------------------\n" + orientation + "\n ----------------------------------------\n" + "\n".join(blocks) + "\n SCF Done: E(RHF) = -100.0 A.U.\n Normal termination of Gaussian\n")
             project, job_id, attempt_id = "formal_ts", "20.master", "qsub-attempt-formal-ts"
             inspection = {"schema": "gaussian-job-inspection/2", "project": project, "job_id": job_id, "state": "completed", "collected_at": "2026-07-19T12:00:00Z", "source": "single_remote_read_only_snapshot", "freshness": "fresh", "transport_classification": "success", "transport_returncode": 0, "termination_counts_known": True, "evidence_conflict": False, "process_alive": False, "log_size": ts_log.stat().st_size, "full_normal_termination_count": 1, "full_error_termination_count": 0}; inspection["evidence_sha256"] = TS_MODULE._transport_digest(inspection)
             receipt = {"schema": "gaussian-terminal-inspection-receipt/1", "project": project, "job_id": job_id, "input_stem": ts_input.stem, "input_sha256": TS_MODULE.sha256(ts_input), "attempt_id": attempt_id, "terminal_state": "completed", "collected_at": inspection["collected_at"], "inspection_evidence_sha256": inspection["evidence_sha256"], "inspection": inspection, "scientific_acceptance": False}; receipt["receipt_sha256"] = TS_MODULE._transport_digest(receipt)
             receipt_path = root / "formal-ts-terminal.json"; write_json(receipt_path, receipt)
-            log_digest = TS_MODULE.sha256(ts_log); snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": project, "job_id": job_id, "input_stem": ts_input.stem, "input_sha256": TS_MODULE.sha256(ts_input), "snapshot_complete": True, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "per_hop_sha256_verified": True, "exact_log": ts_log.name, "artifacts": {ts_log.name: {"sha256": log_digest, "size": ts_log.stat().st_size}}, "per_hop": {ts_log.name: {"server_sha256": log_digest, "rtwin_sha256": log_digest, "mac_sha256": log_digest, "size": ts_log.stat().st_size}}}; snapshot["payload_sha256"] = TS_MODULE._transport_digest(snapshot)
+            ts_checkpoint = root / "formal_ts.chk"; ts_checkpoint.write_bytes(b"accepted formal TS checkpoint")
+            log_digest = TS_MODULE.sha256(ts_log); checkpoint_digest = TS_MODULE.sha256(ts_checkpoint); snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": project, "job_id": job_id, "input_stem": ts_input.stem, "input_sha256": TS_MODULE.sha256(ts_input), "snapshot_complete": True, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "per_hop_sha256_verified": True, "exact_log": ts_log.name, "artifacts": {ts_log.name: {"sha256": log_digest, "size": ts_log.stat().st_size}, ts_checkpoint.name: {"sha256": checkpoint_digest, "size": ts_checkpoint.stat().st_size}}, "per_hop": {ts_log.name: {"server_sha256": log_digest, "rtwin_sha256": log_digest, "mac_sha256": log_digest, "size": ts_log.stat().st_size}, ts_checkpoint.name: {"server_sha256": checkpoint_digest, "rtwin_sha256": checkpoint_digest, "mac_sha256": checkpoint_digest, "size": ts_checkpoint.stat().st_size}}}; snapshot["payload_sha256"] = TS_MODULE._transport_digest(snapshot)
             snapshot_path = root / "formal-ts-transfer.json"; write_json(snapshot_path, snapshot)
             job = {"schema": "gaussian-rtwin-pbs/1", "project": project, "job_id": job_id, "status": "completed", "results_fetched": True, "input_sha256": TS_MODULE.sha256(ts_input), "execution_batch": {"attempt_id": attempt_id}, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "fetch_snapshot_sha256": TS_MODULE.sha256(snapshot_path), "fetch_snapshot_size": snapshot_path.stat().st_size}
             job_path = root / "formal-ts-job.json"; write_json(job_path, job)
             ts_result_path = root / "formal-ts-result.json"; ts_result = TS_MODULE.build_ts_result_v2(ts_log, ts_result_path, {"family": family, "input": ts_input, "job": job_path, "terminal_inspection_receipt": receipt_path, "fetch_snapshot": snapshot_path})
             mode_dir = root / "formal-mode"; TS_MODULE.create_mode_review(ts_result, [(1, 5)], mode_dir, 0.1, TS_MODULE.sha256(ts_result_path)); mode_review = mode_dir / "mode_review.json"; mode_decision = root / "formal-mode-decision.json"; TS_MODULE.record_mode_decision(mode_review, "accepted", mode_decision)
+            checkpoint_audit = root / "formal-ts-checkpoint-audit.json"; write_json(checkpoint_audit, TS_MODULE.audit_checkpoint_provenance(ts_input, ts_log, ts_result_path, ts_checkpoint, mode_review, mode_decision, owner_dir=root))
+            irc_plan = root / "formal-irc-plan.json"; write_json(irc_plan, TS_MODULE.build_irc_plan(load_json(family), ts_result_path, ts_checkpoint, mode_review, mode_decision, "C.01", forward_route, reverse_route, "formal_forward", "formal_reverse"))
 
             def endpoint(direction: str, side: str, state: dict[str, object], serial: int) -> Path:
-                stem = f"formal_{direction}"; irc_input = root / f"{stem}.gjf"; irc_input.write_text(f"%chk={stem}.chk\n#p hf/sto-3g irc=(rcfc,{direction},maxpoints=2) geom=allcheck guess=read\n\n")
+                stem = f"formal_{direction}"; irc_input = root / f"{stem}.gjf"; exact_route = forward_route if direction == "forward" else reverse_route
+                TS_MODULE.build_allcheck_irc_input(checkpoint_audit, ts_checkpoint, irc_input, exact_route, direction, "12GB", 8)
+                allcheck_manifest = irc_input.with_suffix(".json")
                 rows = "\n".join(f" {index} {numbers[element]} 0 {x:.6f} {y:.6f} {z:.6f}" for index, (element, (x, y, z)) in enumerate(zip(elements, coordinates), 1))
                 log = root / f"{stem}.log"; log.write_text(" Charge = 0 Multiplicity = 1\n Delta-x Convergence Met\n Point Number: 1 Path Number: 1\n Delta-x Convergence Met\n Point Number: 2 Path Number: 1\n Standard orientation:\n ----------------------------------------\n header\n ----------------------------------------\n" + rows + "\n ----------------------------------------\n" + f" Calculation of {direction.upper()} path complete.\n Normal termination of Gaussian 16\n")
                 result_path = root / f"{stem}-result.json"; write_json(result_path, {"schema": "gaussian-result/1", "status": "completed", "normal_termination": True, "error_termination": False, "final_energy_hartree": -100.0, "final_coordinates": [{"center": index, "atomic_number": numbers[element], "element": element, "x": x, "y": y, "z": z} for index, (element, (x, y, z)) in enumerate(zip(elements, coordinates), 1)]})
@@ -584,20 +597,44 @@ class ScientificMaturityTests(unittest.TestCase):
                     digest = TS_MODULE.sha256(source); artifacts[source.name] = {"sha256": digest, "size": source.stat().st_size}; hops[source.name] = {"server_sha256": digest, "rtwin_sha256": digest, "mac_sha256": digest, "size": source.stat().st_size}
                 endpoint_snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": stem, "job_id": endpoint_job_id, "input_stem": irc_input.stem, "input_sha256": TS_MODULE.sha256(irc_input), "snapshot_complete": True, "terminal_inspection_receipt_sha256": endpoint_receipt["receipt_sha256"], "per_hop_sha256_verified": True, "exact_log": log.name, "artifacts": artifacts, "per_hop": hops}; endpoint_snapshot["payload_sha256"] = TS_MODULE._transport_digest(endpoint_snapshot)
                 endpoint_snapshot_path = root / f"{stem}-transfer.json"; write_json(endpoint_snapshot_path, endpoint_snapshot)
-                endpoint_job = {"schema": "gaussian-rtwin-pbs/1", "project": stem, "job_id": endpoint_job_id, "status": "completed", "results_fetched": True, "input_sha256": TS_MODULE.sha256(irc_input), "execution_batch": {"attempt_id": endpoint_attempt}, "terminal_inspection_receipt_sha256": endpoint_receipt["receipt_sha256"], "fetch_snapshot_sha256": TS_MODULE.sha256(endpoint_snapshot_path), "fetch_snapshot_size": endpoint_snapshot_path.stat().st_size, "gaussian": {"checkpoint": checkpoint.name, "route": f"#p hf/sto-3g irc=(rcfc,{direction},maxpoints=2) geom=allcheck guess=read"}}
+                endpoint_job = {"schema": "gaussian-rtwin-pbs/1", "project": stem, "job_id": endpoint_job_id, "status": "completed", "results_fetched": True, "input_sha256": TS_MODULE.sha256(irc_input), "execution_batch": {"attempt_id": endpoint_attempt}, "terminal_inspection_receipt_sha256": endpoint_receipt["receipt_sha256"], "fetch_snapshot_sha256": TS_MODULE.sha256(endpoint_snapshot_path), "fetch_snapshot_size": endpoint_snapshot_path.stat().st_size, "gaussian": {"checkpoint": checkpoint.name, "route": exact_route}}
                 endpoint_job_path = root / f"{stem}-job.json"; write_json(endpoint_job_path, endpoint_job)
-                audit_value = TS_MODULE.audit_irc_endpoint_provenance(irc_input, log, result_path, endpoint_job_path, checkpoint, direction, side, 2, [(1, 5)]); audit_path = root / f"{stem}-audit.json"; write_json(audit_path, audit_value)
+                audit_value = TS_MODULE.audit_irc_endpoint_provenance(irc_input, log, result_path, endpoint_job_path, checkpoint, direction, side, 2, [(1, 5)], ts_checkpoint_path=ts_checkpoint, checkpoint_audit_path=checkpoint_audit, irc_plan_path=irc_plan, allcheck_manifest_path=allcheck_manifest); audit_path = root / f"{stem}-audit.json"; write_json(audit_path, audit_value)
                 stable_ids = [atom["atom_id"] for atom in state["atoms"]]; draft = {"schema": "gaussian-endpoint-structure-review-draft/1", "review_id": f"{stem}_review", "direction": direction, "chemical_side": side, "stable_atom_ids": stable_ids, "structure_identity": {"state_id": state["state_id"], "identity_label": f"reviewed {side} fixture", "formula": "H2I2Pd", "connectivity": [], "stereochemistry": []}, "decision": "accepted", "explicit_human_review": True, "reviewer": "offline fixture reviewer", "rationale": "Exact endpoint structure reviewed.", "reviewed_at": "2026-07-19T12:00:00Z"}; draft_path = root / f"{stem}-review.draft.json"; write_json(draft_path, draft)
-                output = root / f"{stem}-review.json"; TS_MODULE.build_endpoint_structure_review_artifact({"family": family, "audit": audit_path, "irc_input": irc_input, "irc_log": log, "irc_result": result_path, "job": endpoint_job_path, "checkpoint": checkpoint, "terminal_inspection_receipt": endpoint_receipt_path, "fetch_snapshot": endpoint_snapshot_path}, draft_path, output); return output
+                output = root / f"{stem}-review.json"; TS_MODULE.build_endpoint_structure_review_artifact({"family": family, "audit": audit_path, "irc_input": irc_input, "irc_log": log, "irc_result": result_path, "job": endpoint_job_path, "checkpoint": checkpoint, "terminal_inspection_receipt": endpoint_receipt_path, "fetch_snapshot": endpoint_snapshot_path, "ts_checkpoint": ts_checkpoint, "checkpoint_audit": checkpoint_audit, "irc_plan": irc_plan, "allcheck_input_manifest": allcheck_manifest}, draft_path, output); return output
 
             forward_review = endpoint("forward", "reactant", from_state, 21); reverse_review = endpoint("reverse", "product", to_state, 22)
             acceptance = root / "formal-path-v2.json"; path_value = TS_MODULE.build_path_acceptance_v2_artifact(family, ts_result_path, mode_review, mode_decision, forward_review, reverse_review, mechanism_path, acceptance)
+            asymmetric_candidate = load_json(ROOT / "tests/fixtures/asymmetric_catalysis/boron_candidate_r.json")
+            asymmetric_candidate["study_id"] = mechanism["study_id"]
+            asymmetric_candidate_path = root / "asymmetric-candidate.json"; write_json(asymmetric_candidate_path, asymmetric_candidate)
+            asymmetric_energy = {
+                "schema": "gaussian-asymmetric-energy-record/1", "result_id": "res_real_path_v2",
+                "candidate_id": asymmetric_candidate["candidate_id"], "energy_unit": "kcal_mol",
+                "electronic_energy": -100.0, "thermal_gibbs_correction": 10.0,
+                "comparison_free_energy": 10.0, "comparison_energy_definition": "offline real owner-chain fixture",
+                "temperature_k": 298.15, "standard_state": "1M",
+                "low_frequency_policy": "raw harmonic fixture values; no correction",
+                "inventory_key": asymmetric_candidate["atom_inventory"]["inventory_key"], "degeneracy": 1,
+            }
+            asymmetric_energy_path = root / "asymmetric-energy.json"; write_json(asymmetric_energy_path, asymmetric_energy)
+            asymmetric_output = root / "asymmetric-path-result.json"
+            asymmetric_result = ASYM_MODULE.ingest_result(
+                asymmetric_candidate_path, ts_result_path, asymmetric_energy_path, asymmetric_output,
+                mode_review, mode_decision, path_acceptance_path=acceptance,
+            )
+            self.assertEqual(asymmetric_result["validation_level"], "path_validated")
+            self.assertTrue(asymmetric_result["comparison_eligibility"]["eligible"])
             payload = self.review(root, plan, path_accepted=True); payload["path_validation"][0]["irc_path_evidence"] = {"path": acceptance.name, "sha256": TS_MODULE.sha256(acceptance), "size_bytes": acceptance.stat().st_size, "schema": path_value["schema"], "payload_sha256": path_value["payload_sha256"]}
             draft = root / "path-v2-maturity.draft.json"; review_path = root / "path-v2-maturity.json"; gate_path = root / "path-v2-gate.json"; write_json(draft, payload)
             self.assertEqual(self.run_cli(TOOL, "finalize-review", str(draft), "--output", str(review_path)).returncode, 0)
             built = self.run_cli(TOOL, "build", str(plan), "--review", str(review_path), "--output", str(gate_path)); self.assertEqual(built.returncode, 0, built.stderr)
             edge_gate = next(item for item in load_json(gate_path)["edge_gates"] if item["edge_id"] == "edge_activation")
             self.assertTrue(edge_gate["owner_irc_path_evidence_valid"])
+            self.assertFalse(MATURITY_MODULE._path_acceptance_matches_current_mechanism(
+                {"schema": "gaussian-ts-irc-path-acceptance/1", "edge_id": "edge_activation"},
+                plan_document["mechanism_network"], mechanism, plan_document["study_id"], "edge_activation",
+            ))
 
             def resolve_bound(owner: Path, reference: dict[str, object]) -> Path:
                 candidate = Path(str(reference["path"]))

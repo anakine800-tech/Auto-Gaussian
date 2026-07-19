@@ -21,6 +21,12 @@ All notable public release changes are recorded here. The project follows
   source identity checks, destination rehashing and a persisted destination
   receipt. Skill-local runtime configuration remains source-archive
   self-contained while enforcing the root strict loader contract.
+- Made prospective TS/IRC qualification require endpoint review and path
+  acceptance `/2`, including one shared accepted TS `%oldchk` lineage, while
+  keeping `/1` artifacts strictly historical and non-qualifying.
+- Added bounded streaming for Gaussian log parsing, private migration and
+  checkpoint/result snapshots, plus size-derived finite transfer budgets and
+  bounded adaptive monitoring persistence without active-state whole-log scans.
 
 ### Safety
 

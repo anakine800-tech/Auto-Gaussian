@@ -39,7 +39,8 @@
         "checkpoint_audit": {"$ref": "#/$defs/nullableArtifact"},
         "irc_plan": {"$ref": "#/$defs/nullableArtifact"},
         "forward_path": {"$ref": "#/$defs/nullableArtifact"},
-        "reverse_path": {"$ref": "#/$defs/nullableArtifact"}
+        "reverse_path": {"$ref": "#/$defs/nullableArtifact"},
+        "path_acceptance": {"$ref": "#/$defs/nullableArtifact"}
       }
     },
     "termination": {

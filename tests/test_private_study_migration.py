@@ -227,10 +227,11 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             MIGRATION.write_new(plan_path, plan)
             original_preflight = MIGRATION._preflight_source_entries
 
-            def add_conflict_after_source_preflight(*args: object, **kwargs: object) -> None:
-                original_preflight(*args, **kwargs)
+            def add_conflict_after_source_preflight(*args: object, **kwargs: object) -> object:
+                result = original_preflight(*args, **kwargs)
                 target.mkdir(mode=0o700)
                 (target / "payload.bin").write_bytes(b"existing")
+                return result
 
             with mock.patch.object(
                 MIGRATION,
@@ -251,23 +252,77 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             source, target, plan_path = self.synthetic_tree(root)
             plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
             MIGRATION.write_new(plan_path, plan)
-            original_read = MIGRATION._read_source_at
+            (source / "payload.bin").write_bytes(b"preflight-drift")
 
-            def corrupt_second_source(source_fd: int, relative: Path) -> bytes:
-                raw = original_read(source_fd, relative)
-                return raw + b"preflight-drift" if relative.as_posix() == "payload.bin" else raw
-
-            with mock.patch.object(MIGRATION, "review_plan", return_value=plan), mock.patch.object(
-                MIGRATION,
-                "_read_source_at",
-                side_effect=corrupt_second_source,
-            ), self.assertRaisesRegex(MIGRATION.MigrationError, "source size changed"):
+            with mock.patch.object(MIGRATION, "review_plan", return_value=plan), self.assertRaisesRegex(
+                MIGRATION.MigrationError, "source size bytes changed"
+            ):
                 MIGRATION.apply_plan(
                     plan_path,
                     confirmation=plan["plan_sha256"],
                     reviewer="fixture-reviewer",
                 )
             self.assertFalse(target.exists())
+
+    def test_reserved_destination_receipt_conflicts_before_any_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(); source, target, plan_path = self.synthetic_tree(root)
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+            target.mkdir(mode=0o700)
+            receipt = target / MIGRATION.DESTINATION_RECEIPT_NAME
+            receipt.write_bytes(b"immutable-old-receipt")
+            with mock.patch.object(MIGRATION, "review_plan", return_value=plan), self.assertRaisesRegex(
+                MIGRATION.MigrationError, "conflicts appeared"
+            ):
+                MIGRATION.apply_plan(plan_path, confirmation=plan["plan_sha256"], reviewer="fixture-reviewer")
+            self.assertEqual(receipt.read_bytes(), b"immutable-old-receipt")
+            self.assertFalse((target / "nested" / "notes.txt").exists())
+            self.assertFalse((target / "payload.bin").exists())
+
+    def test_reserved_source_receipt_name_blocks_plan_and_apply_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(); source, target, plan_path = self.synthetic_tree(root)
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+            reserved = source / MIGRATION.DESTINATION_RECEIPT_NAME
+            reserved.write_bytes(b"source collision")
+            with self.assertRaisesRegex(MIGRATION.MigrationError, "reserved destination receipt"):
+                MIGRATION.build_plan(source, target)
+            with self.assertRaisesRegex(MIGRATION.MigrationError, "reserved destination receipt"):
+                MIGRATION.apply_plan(plan_path, confirmation=plan["plan_sha256"], reviewer="fixture-reviewer")
+            self.assertFalse(target.exists())
+
+    def test_apply_streams_large_and_many_files_without_full_source_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(); source, target, plan_path = self.synthetic_tree(root)
+            large = source / "large.chk"; large.write_bytes((b"0123456789abcdef" * 200_000) + b"tail")
+            many = source / "many"; many.mkdir()
+            for index in range(32):
+                (many / f"entry-{index:02d}.txt").write_text(f"{source}/artifact-{index}\n", encoding="utf-8")
+            plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+            MIGRATION.write_new(plan_path, plan)
+            original_read = MIGRATION._read_source_at
+            read_requests: list[int] = []
+            original_os_read = MIGRATION.os.read
+
+            def guarded_full_read(fd: int, relative: Path) -> bytes:
+                if relative.as_posix() != MIGRATION.DESTINATION_RECEIPT_NAME:
+                    raise AssertionError("apply attempted an unbounded whole-file source read")
+                return original_read(fd, relative)
+
+            def observed_read(fd: int, size: int) -> bytes:
+                read_requests.append(size)
+                return original_os_read(fd, size)
+
+            with mock.patch.object(MIGRATION, "review_plan", return_value=plan), mock.patch.object(
+                MIGRATION, "_read_source_at", side_effect=guarded_full_read
+            ), mock.patch.object(MIGRATION.os, "read", side_effect=observed_read):
+                result = MIGRATION.apply_plan(plan_path, confirmation=plan["plan_sha256"], reviewer="fixture-reviewer")
+            self.assertEqual(result["copied_file_count"], plan["file_count"])
+            self.assertLessEqual(max(read_requests), MIGRATION.STREAM_CHUNK_SIZE)
+            self.assertEqual((target / "large.chk").read_bytes(), large.read_bytes())
+            self.assertIn(str(target), (target / "many" / "entry-00.txt").read_text())
 
 
 if __name__ == "__main__":

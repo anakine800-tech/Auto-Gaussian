@@ -429,7 +429,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             args, _, files = self.make_fetch_case(root)
             output = root / "snapshot"
 
-            def fake_run(command, *, input_bytes=None, check=True):
+            def fake_run(command, *, input_bytes=None, check=True, timeout_seconds=PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS):
                 call = fake_run.calls
                 fake_run.calls += 1
                 if call == 0:
@@ -441,12 +441,14 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                     self.assertNotIn("-Force", script)
                     return completed()
                 if call == 2:
+                    self.assertEqual(timeout_seconds, PBS.transfer_timeout_seconds(sum(len(data) for data in files.values())))
                     self.assertFalse(any("*" in part for part in command))
                     self.assertFalse(any("scratch" in part for part in command))
                     return completed()
                 if call == 3:
                     return completed(0, self.rtwin_hash_text(files))
                 if call == 4:
+                    self.assertEqual(timeout_seconds, PBS.transfer_timeout_seconds(sum(len(data) for data in files.values())))
                     staging = Path(command[-1])
                     for name, data in files.items():
                         (staging / name).write_bytes(data)
@@ -494,7 +496,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
 
             multiple = root / "multiple"
 
-            def fake_run(command, *, input_bytes=None, check=True):
+            def fake_run(command, *, input_bytes=None, check=True, timeout_seconds=PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS):
                 call = fake_run.calls
                 fake_run.calls += 1
                 if call == 0:
@@ -533,7 +535,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
 
             partial = root / "partial"
 
-            def fake_run(command, *, input_bytes=None, check=True):
+            def fake_run(command, *, input_bytes=None, check=True, timeout_seconds=PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS):
                 call = fake_run.calls
                 fake_run.calls += 1
                 if call == 0:

@@ -96,8 +96,8 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
-- Current hardening-integration evidence on the core interpreter is 669/669
-  offline tests in 333.308 seconds for the worktree and 669/669 in 328.389
+- Current hardening-integration evidence on the core interpreter is 678/678
+  offline tests in 286.684 seconds for the worktree and 678/678 in 300.380
   seconds for a `.git`-free source archive; both runs have one expected RDKit
   skip in the core profile. The separate locked chemistry profile passed the
   real RDKit smoke in 0.958 seconds. Timing is machine-local engineering

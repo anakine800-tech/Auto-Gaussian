@@ -53,6 +53,16 @@ def water_log(frequency_line: str = " Frequencies --  100.0 200.0 300.0") -> str
     )
 
 
+def atomic_minimum_log() -> str:
+    return (
+        " Gaussian 16, Revision C.01\n SCF Done: E(RHF) = -2.0 A.U.\n"
+        " Optimization completed.\n Stationary point found.\n Standard orientation:\n"
+        " ----------------------------------------\n header\n ----------------------------------------\n"
+        " 1 2 0 0.000000 0.000000 0.000000\n ----------------------------------------\n"
+        " Normal termination of Gaussian\n"
+    )
+
+
 def ts_execution_sources(root: Path, log_path: Path) -> dict[str, Path]:
     route = "#p hf/sto-3g opt=(ts,calcfc) freq"
     input_path = root / "water-ts.gjf"; input_path.write_text(f"%chk=water-ts.chk\n{route}\n\nTS\n\n0 1\nO 0 0 0\nH .95 0 0\nH -.25 .92 0\n\n")
@@ -102,6 +112,31 @@ def ts_execution_sources(root: Path, log_path: Path) -> dict[str, Path]:
 
 
 class ScientificClosureLineageTests(unittest.TestCase):
+    def test_gaussian_log_file_api_is_streaming_and_text_equivalent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); text = water_log(); log_path = root / "small.log"; log_path.write_text(text)
+            expected = LOG.analyze_log_text(text)
+            requests: list[int] = []; original_read = LOG.os.read
+            def observed(fd: int, size: int) -> bytes:
+                requests.append(size); return original_read(fd, size)
+            with mock.patch.object(Path, "read_text", side_effect=AssertionError("file API used read_text")), mock.patch.object(LOG.os, "read", side_effect=observed):
+                actual = LOG.analyze_log_file(log_path)
+            actual.pop("log")
+            self.assertEqual(actual, expected)
+            self.assertLessEqual(max(requests), LOG.FILE_READ_CHUNK_SIZE)
+
+            sparse = root / "sparse-large.log"
+            with sparse.open("w", encoding="utf-8") as handle:
+                handle.write("filler line\n" * 400_000)
+                handle.write(text)
+            requests.clear()
+            with mock.patch.object(Path, "read_text", side_effect=AssertionError("file API used read_text")), mock.patch.object(LOG.os, "read", side_effect=observed):
+                large = LOG.analyze_workflow_log_file(sparse, None, temperature_k=298.15, standard_state="1M", expected_stages=3)
+            expected_workflow = LOG.analyze_workflow_log_text("filler line\n" * 2 + text, temperature_k=298.15, standard_state="1M", expected_stages=3)
+            large.pop("log")
+            self.assertEqual(large, expected_workflow)
+            self.assertLessEqual(max(requests), LOG.FILE_READ_CHUNK_SIZE)
+
     def test_new_contract_schemas_use_supported_offline_subset(self) -> None:
         names = (
             "endpoint-structure-review.schema.json", "endpoint-structure-review-v2.schema.json", "minimum-lineage-handoff.schema.json",
@@ -171,7 +206,8 @@ class ScientificClosureLineageTests(unittest.TestCase):
             receipt = {"schema": "gaussian-terminal-inspection-receipt/1", "project": project, "job_id": job_id, "input_stem": input_path.stem, "input_sha256": LINEAGE.file_sha256(input_path), "attempt_id": attempt_id, "terminal_state": "completed", "collected_at": inspection["collected_at"], "inspection_evidence_sha256": inspection["evidence_sha256"], "inspection": inspection, "scientific_acceptance": False}
             receipt["receipt_sha256"] = LINEAGE.transport_digest(receipt); receipt_path = root / "terminal-inspection.json"; receipt_path.write_text(json.dumps(receipt))
             artifacts = {source.name: {"sha256": LINEAGE.file_sha256(source), "size": source.stat().st_size} for source in (log_path, result_path, checkpoint)}
-            snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": project, "job_id": job_id, "input_sha256": LINEAGE.file_sha256(input_path), "snapshot_complete": True, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "artifacts": artifacts}
+            per_hop = {name: {"server_sha256": value["sha256"], "rtwin_sha256": value["sha256"], "mac_sha256": value["sha256"], "size": value["size"]} for name, value in artifacts.items()}
+            snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": project, "job_id": job_id, "input_sha256": LINEAGE.file_sha256(input_path), "snapshot_complete": True, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "per_hop_sha256_verified": True, "artifacts": artifacts, "per_hop": per_hop}
             snapshot["payload_sha256"] = LINEAGE.transport_digest(snapshot); snapshot_path = root / "transfer.json"; snapshot_path.write_text(json.dumps(snapshot))
             job = {"schema": "gaussian-rtwin-pbs/1", "project": project, "job_id": job_id, "status": "completed", "results_fetched": True, "input_sha256": LINEAGE.file_sha256(input_path), "execution_batch": {"attempt_id": attempt_id}, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "fetch_snapshot_sha256": LINEAGE.file_sha256(snapshot_path), "fetch_snapshot_size": snapshot_path.stat().st_size}
             job_path = root / "job.json"; job_path.write_text(json.dumps(job))
@@ -185,6 +221,29 @@ class ScientificClosureLineageTests(unittest.TestCase):
             self.assertEqual(consumed["payload_sha256"], built["payload_sha256"])
             with self.assertRaisesRegex(MATURITY_V2.EvidenceOverlayError, "another mechanism state"):
                 MATURITY_V2.consume_minimum_lineage_v2(binding, root / "maturity-review.json", minimum_id="minimum_ch3", state_id="stale_state", formula="CH3", formal_charge=0, multiplicity=2, stable_atom_ids=["c", "h1", "h2", "h3"])
+
+            original_snapshot = json.loads(snapshot_path.read_text()); original_job = json.loads(job_path.read_text())
+            def replay_with_snapshot_mutation(mutator, message: str) -> None:
+                changed_snapshot = json.loads(json.dumps(original_snapshot)); mutator(changed_snapshot)
+                changed_snapshot["payload_sha256"] = LINEAGE.transport_digest({key: value for key, value in changed_snapshot.items() if key != "payload_sha256"})
+                snapshot_path.write_text(json.dumps(changed_snapshot))
+                changed_job = json.loads(json.dumps(original_job)); changed_job["fetch_snapshot_sha256"] = LINEAGE.file_sha256(snapshot_path); changed_job["fetch_snapshot_size"] = snapshot_path.stat().st_size
+                job_path.write_text(json.dumps(changed_job))
+                replay = json.loads(json.dumps(built)); replay["sources"]["fetch_snapshot"] = LINEAGE.reference(snapshot_path, root, json_document=changed_snapshot); replay["sources"]["job"] = LINEAGE.reference(job_path, root, json_document=changed_job); replay["payload_sha256"] = LINEAGE.payload_sha256(replay)
+                with self.assertRaisesRegex(LINEAGE.LineageError, message):
+                    LINEAGE.replay_minimum_sources(root, replay)
+                snapshot_path.write_text(json.dumps(original_snapshot)); job_path.write_text(json.dumps(original_job))
+            replay_with_snapshot_mutation(lambda value: value.__setitem__("per_hop_sha256_verified", False), "incomplete or invalid")
+            replay_with_snapshot_mutation(lambda value: value.pop("per_hop"), "per-hop")
+            replay_with_snapshot_mutation(lambda value: value["per_hop"][log_path.name].__setitem__("rtwin_sha256", "f" * 64), "per-hop")
+
+            original_receipt = json.loads(receipt_path.read_text())
+            changed_receipt = json.loads(json.dumps(original_receipt)); changed_receipt["inspection"]["state"] = "failed"; changed_receipt["inspection"]["evidence_sha256"] = LINEAGE.transport_digest({key: value for key, value in changed_receipt["inspection"].items() if key != "evidence_sha256"}); changed_receipt["inspection_evidence_sha256"] = changed_receipt["inspection"]["evidence_sha256"]; changed_receipt["receipt_sha256"] = LINEAGE.transport_digest({key: value for key, value in changed_receipt.items() if key != "receipt_sha256"}); receipt_path.write_text(json.dumps(changed_receipt))
+            changed_snapshot = json.loads(json.dumps(original_snapshot)); changed_snapshot["terminal_inspection_receipt_sha256"] = changed_receipt["receipt_sha256"]; changed_snapshot["payload_sha256"] = LINEAGE.transport_digest({key: value for key, value in changed_snapshot.items() if key != "payload_sha256"}); snapshot_path.write_text(json.dumps(changed_snapshot))
+            changed_job = json.loads(json.dumps(original_job)); changed_job["terminal_inspection_receipt_sha256"] = changed_receipt["receipt_sha256"]; changed_job["fetch_snapshot_sha256"] = LINEAGE.file_sha256(snapshot_path); changed_job["fetch_snapshot_size"] = snapshot_path.stat().st_size; job_path.write_text(json.dumps(changed_job))
+            replay = json.loads(json.dumps(built)); replay["sources"]["terminal_inspection_receipt"] = LINEAGE.reference(receipt_path, root, json_document=changed_receipt); replay["sources"]["fetch_snapshot"] = LINEAGE.reference(snapshot_path, root, json_document=changed_snapshot); replay["sources"]["job"] = LINEAGE.reference(job_path, root, json_document=changed_job); replay["payload_sha256"] = LINEAGE.payload_sha256(replay)
+            with self.assertRaisesRegex(LINEAGE.LineageError, "project/job/state/source/returncode"):
+                LINEAGE.replay_minimum_sources(root, replay)
 
     def test_source_bound_ts_result_replays_log_and_rejects_damage(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -397,7 +456,7 @@ class ScientificClosureLineageTests(unittest.TestCase):
     def test_fragment_v2_replays_each_full_log_and_rejects_truncation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            projects = ("frag_a", "frag_b")
+            projects = ("frag_a", "frag_b", "frag_atom")
             plan = {
                 "schema": "gaussian-irc-fragment-endpoint-plan/1", "status": "planned_not_submitted",
                 "chemical_side": "product", "fragments": [],
@@ -406,13 +465,14 @@ class ScientificClosureLineageTests(unittest.TestCase):
             logs: dict[str, Path] = {}; checkpoints: dict[str, Path] = {}; receipts: dict[str, Path] = {}; snapshots: dict[str, Path] = {}
             for index, project in enumerate(projects, start=1):
                 project_dir = root / project; project_dir.mkdir()
-                input_path = project_dir / f"{project}.gjf"; input_path.write_text("#p hf/sto-3g opt freq\n\nfragment\n\n0 1\nO 0 0 0\nH .95 0 0\nH -.25 .92 0\n\n")
+                atomic = project == "frag_atom"
+                input_path = project_dir / f"{project}.gjf"; input_path.write_text("#p hf/sto-3g opt freq\n\nfragment\n\n0 1\n" + ("He 0 0 0\n\n" if atomic else "O 0 0 0\nH .95 0 0\nH -.25 .92 0\n\n"))
                 input_sha = TS.sha256(input_path)
                 plan["fragments"].append({
-                    "project": project, "identity": f"synthetic fragment {index}", "formula": "H2O",
-                    "atom_count": 3, "element_order": ["O", "H", "H"], "input_sha256": input_sha,
+                    "project": project, "identity": f"synthetic fragment {index}", "formula": "He" if atomic else "H2O",
+                    "atom_count": 1 if atomic else 3, "element_order": ["He"] if atomic else ["O", "H", "H"], "input_sha256": input_sha,
                 })
-                log_path = project_dir / f"{project}.log"; log_path.write_text(water_log())
+                log_path = project_dir / f"{project}.log"; log_path.write_text(atomic_minimum_log() if atomic else water_log())
                 result_path = project_dir / f"{project}.result.json"; result_path.write_text(json.dumps(LOG.analyze_log_text(log_path.read_text())))
                 checkpoint = project_dir / f"{project}.chk"; checkpoint.write_bytes(f"synthetic {project}".encode())
                 job_id, attempt_id = f"{index}.master", f"qsub-attempt-{project}"
@@ -430,7 +490,11 @@ class ScientificClosureLineageTests(unittest.TestCase):
             plan_path = root / "plan.json"; plan_path.write_text(json.dumps(plan))
             artifact = TS.audit_fragment_endpoint_results_v2(plan_path, results, jobs, inputs, logs, checkpoints, receipts, snapshots, root / "accepted.json")
             self.assertEqual(artifact["validator"], TS.PARSER_ID)
-            self.assertTrue(all(item["frequency_count"] == item["expected_frequency_count"] == 3 for item in artifact["fragments"]))
+            atom = next(item for item in artifact["fragments"] if item["project"] == "frag_atom")
+            self.assertEqual((atom["frequency_count"], atom["expected_frequency_count"], atom["lowest_frequency_cm-1"]), (0, 0, None))
+            self.assertTrue(all(item["frequency_count"] == item["expected_frequency_count"] == 3 for item in artifact["fragments"] if item["project"] != "frag_atom"))
+            schema = json.loads((ROOT / "contracts/reaction-workflow/fragment-endpoint-validation-v2.schema.json").read_text())
+            SCHEMA_VALIDATOR._validate_schema_instance(artifact, schema, schema)
             TS.validate_fragment_endpoint_results_v2(root / "accepted.json")
             cli_output = root / "accepted-cli.json"; command = ["python3", str(ROOT / "skills/auto-g16-ts-irc/scripts/ts_irc.py"), "audit-fragment-endpoints-v2", "--plan", str(plan_path), "--output", str(cli_output)]
             for option, values in (("result", results), ("job", jobs), ("input", inputs), ("log", logs), ("checkpoint", checkpoints), ("terminal-inspection-receipt", receipts), ("fetch-snapshot", snapshots)):
@@ -442,6 +506,14 @@ class ScientificClosureLineageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exact project/job/attempt/input"):
                 TS.audit_fragment_endpoint_results_v2(plan_path, results, jobs, inputs, logs, checkpoints, receipts, snapshots, root / "cross-attempt.json")
             receipts["frag_a"].write_bytes(receipt_original)
+            forged_atom = json.loads(json.dumps(artifact)); forged_record = next(item for item in forged_atom["fragments"] if item["project"] == "frag_atom"); forged_record["frequency_count"] = 1; forged_record["expected_frequency_count"] = 1; forged_record["lowest_frequency_cm-1"] = 100.0; forged_atom["payload_sha256"] = TS._payload_sha256(forged_atom)
+            forged_atom_path = root / "forged-atom.json"; forged_atom_path.write_text(json.dumps(forged_atom))
+            with self.assertRaisesRegex(ValueError, "owner replay"):
+                TS.validate_fragment_endpoint_results_v2(forged_atom_path)
+            forged_lowest = json.loads(json.dumps(artifact)); next(item for item in forged_lowest["fragments"] if item["project"] == "frag_atom")["lowest_frequency_cm-1"] = 0.0; forged_lowest["payload_sha256"] = TS._payload_sha256(forged_lowest)
+            forged_lowest_path = root / "forged-atom-lowest.json"; forged_lowest_path.write_text(json.dumps(forged_lowest))
+            with self.assertRaisesRegex(ValueError, "owner replay"):
+                TS.validate_fragment_endpoint_results_v2(forged_lowest_path)
             forged = json.loads(json.dumps(artifact)); forged["fragments"][0]["minimum_accepted"] = False; forged["payload_sha256"] = TS._payload_sha256(forged)
             forged_path = root / "forged.json"; forged_path.write_text(json.dumps(forged))
             with self.assertRaisesRegex(ValueError, "owner replay"):
@@ -524,9 +596,17 @@ class ScientificClosureLineageTests(unittest.TestCase):
             mechanism_path = root / "mechanism.json"; mechanism_path.write_text(json.dumps(mechanism))
             for name in ("forward", "reverse"):
                 (root / f"{name}.json").write_text("{}")
-            family_source = {"family": {"sha256": TS.sha256(family_path)}}
-            forward = {"schema": TS.ENDPOINT_REVIEW_SCHEMA_V2, "sources": family_source, "direction": "forward", "chemical_side": "reactant", "charge": 0, "multiplicity": 1, "stable_atom_ids": ["a1", "a2"], "structure_identity": {"state_id": "A", "formula": "H2"}, "endpoint_coordinates": {"records": [{"element": "H"}, {"element": "H"}]}}
-            reverse = {"schema": TS.ENDPOINT_REVIEW_SCHEMA_V2, "sources": family_source, "direction": "reverse", "chemical_side": "product", "charge": 0, "multiplicity": 1, "stable_atom_ids": ["b2", "b1"], "structure_identity": {"state_id": "B", "formula": "H2"}, "endpoint_coordinates": {"records": [{"element": "H"}, {"element": "H"}]}}
+            for name in ("forward", "reverse"):
+                (root / f"{name}-audit.json").write_text(json.dumps({
+                    "schema": "gaussian-irc-endpoint-audit/2",
+                    "ts_checkpoint_sha256": "1" * 64,
+                    "checkpoint_audit_sha256": "2" * 64,
+                    "irc_plan_sha256": "3" * 64,
+                }))
+            forward_sources = {"family": {"sha256": TS.sha256(family_path)}, "audit": TS._closure_local_ref(root / "forward-audit.json", root, "forward audit")}
+            reverse_sources = {"family": {"sha256": TS.sha256(family_path)}, "audit": TS._closure_local_ref(root / "reverse-audit.json", root, "reverse audit")}
+            forward = {"schema": TS.ENDPOINT_REVIEW_SCHEMA_V2, "sources": forward_sources, "direction": "forward", "chemical_side": "reactant", "charge": 0, "multiplicity": 1, "stable_atom_ids": ["a1", "a2"], "structure_identity": {"state_id": "A", "formula": "H2"}, "endpoint_coordinates": {"records": [{"element": "H"}, {"element": "H"}]}}
+            reverse = {"schema": TS.ENDPOINT_REVIEW_SCHEMA_V2, "sources": reverse_sources, "direction": "reverse", "chemical_side": "product", "charge": 0, "multiplicity": 1, "stable_atom_ids": ["b2", "b1"], "structure_identity": {"state_id": "B", "formula": "H2"}, "endpoint_coordinates": {"records": [{"element": "H"}, {"element": "H"}]}}
             binding = {"study_id": "study", "edge_id": "edge1", "from_state_id": "A", "to_state_id": "B", "atom_mapping": mechanism["edges"][0]["atom_mapping"], "direction_mapping": {"forward": {"chemical_side": "reactant", "state_id": "A", "formal_charge": 0, "multiplicity": 1, "stable_atoms": [{"atom_id": "a1", "element": "H"}, {"atom_id": "a2", "element": "H"}]}, "reverse": {"chemical_side": "product", "state_id": "B", "formal_charge": 0, "multiplicity": 1, "stable_atoms": [{"atom_id": "b2", "element": "H"}, {"atom_id": "b1", "element": "H"}]}}}
             artifact = {"schema": TS.PATH_ACCEPTANCE_SCHEMA_V2, "edge_id": "edge1", "mechanism_network": TS._closure_json_ref(mechanism_path, root, "mechanism"), "mechanism_binding": binding, "family": TS._closure_local_ref(family_path, root, "family"), "ts_result": TS._closure_local_ref(result_path, root, "result"), "mode_review": TS._closure_local_ref(review_path, root, "review"), "mode_decision": TS._closure_local_ref(decision_path, root, "decision"), "endpoint_reviews": {"forward": TS._closure_local_ref(root / "forward.json", root, "forward"), "reverse": TS._closure_local_ref(root / "reverse.json", root, "reverse")}, "accepted": True, "limitations": ["offline fixture"], "validator": TS.PARSER_ID, "calculation_ready": False, "no_submission_authorization": True}
             artifact["payload_sha256"] = TS._payload_sha256(artifact); path = root / "path.json"; path.write_text(json.dumps(artifact))
@@ -550,7 +630,14 @@ class ScientificClosureLineageTests(unittest.TestCase):
                 reverse["multiplicity"] = 1; forward["endpoint_coordinates"]["records"][0]["element"] = "He"; reverse["endpoint_coordinates"]["records"][0]["element"] = "He"
                 with self.assertRaisesRegex(ValueError, "element/order"):
                     TS.validate_path_acceptance_v2_artifact(path)
-                forward["endpoint_coordinates"]["records"][0]["element"] = "H"; reverse["endpoint_coordinates"]["records"][0]["element"] = "H"; forward["sources"]["family"]["sha256"] = "0" * 64
+                forward["endpoint_coordinates"]["records"][0]["element"] = "H"; reverse["endpoint_coordinates"]["records"][0]["element"] = "H"
+                reverse_audit_path = root / "reverse-audit.json"
+                reverse_audit = json.loads(reverse_audit_path.read_text()); reverse_audit["ts_checkpoint_sha256"] = "9" * 64
+                reverse_audit_path.write_text(json.dumps(reverse_audit)); reverse["sources"]["audit"] = TS._closure_local_ref(reverse_audit_path, root, "reverse audit")
+                with self.assertRaisesRegex(ValueError, "same accepted TS lineage"):
+                    TS.validate_path_acceptance_v2_artifact(path)
+                reverse_audit["ts_checkpoint_sha256"] = "1" * 64; reverse_audit_path.write_text(json.dumps(reverse_audit)); reverse["sources"]["audit"] = TS._closure_local_ref(reverse_audit_path, root, "reverse audit")
+                forward["sources"]["family"]["sha256"] = "0" * 64
                 with self.assertRaisesRegex(ValueError, "another TS family"):
                     TS.validate_path_acceptance_v2_artifact(path)
 

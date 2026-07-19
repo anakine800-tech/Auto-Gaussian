@@ -633,8 +633,10 @@ def _path_acceptance_matches_current_mechanism(
     evidence: dict[str, Any], current_binding: dict[str, Any], mechanism: dict[str, Any],
     plan_study_id: str, edge_id: str,
 ) -> bool:
+    # Historical /1 records do not bind a study or exact mechanism payload.  They
+    # remain owner-replayable for display, but can never authorize new maturity.
     if evidence.get("schema") != "gaussian-ts-irc-path-acceptance/2":
-        return evidence.get("schema") == "gaussian-ts-irc-path-acceptance/1" and evidence.get("edge_id") == edge_id
+        return False
     ref = evidence.get("mechanism_network")
     binding = evidence.get("mechanism_binding")
     identity_fields = ("sha256", "size_bytes", "schema", "payload_sha256")

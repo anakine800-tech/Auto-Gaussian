@@ -725,7 +725,7 @@ def _validate_checkpoint_lineage(
     log_path: Path,
     checkpoint_path: Path,
 ) -> None:
-    require(audit.get("schema") in {"gaussian-checkpoint-geometry-audit/1", "gaussian-checkpoint-geometry-audit/2"} and audit.get("audit_status") == "passed", "path validation requires a passed checkpoint-geometry audit")
+    require(audit.get("schema") == "gaussian-checkpoint-geometry-audit/2" and audit.get("audit_status") == "passed", "new path validation requires owner-replayed checkpoint-geometry audit /2; /1 is historical only")
     bindings = {
         "ts_input_sha256": input_path,
         "ts_log_sha256": log_path,
@@ -837,6 +837,7 @@ def ingest_result(
     checkpoint_path: Path | None = None,
     checkpoint_audit_path: Path | None = None,
     irc_plan_path: Path | None = None,
+    path_acceptance_path: Path | None = None,
 ) -> dict[str, Any]:
     supplied_paths = {
         "candidate": candidate_path, "TS result": ts_result_path, "energy record": energy_path,
@@ -844,6 +845,7 @@ def ingest_result(
         "forward endpoint audit": forward_path, "reverse endpoint audit": reverse_path,
         "TS input": input_path, "TS log": log_path, "TS checkpoint": checkpoint_path,
         "checkpoint audit": checkpoint_audit_path, "IRC plan": irc_plan_path,
+        "path acceptance": path_acceptance_path,
     }
     for label, path in supplied_paths.items():
         if path is not None:
@@ -902,40 +904,25 @@ def ingest_result(
     path_reverse = "not_run"
     endpoint_reviewed = False
     if forward_path is not None or reverse_path is not None:
-        require(forward_path is not None and reverse_path is not None, "both endpoint audits are required")
-        require(mode_reviewed and mode_review_path is not None and mode_decision_path is not None, "endpoint ingestion requires an accepted hash-bound mode decision")
-        require(all(path is not None for path in (input_path, log_path, checkpoint_path, checkpoint_audit_path, irc_plan_path)), "endpoint ingestion requires TS input, log, checkpoint, checkpoint audit, and IRC plan")
-        ts_log_sha256 = ts.get("source_log", {}).get("sha256") if ts.get("schema") == "gaussian-ts-freq-result/2" else ts.get("log_sha256")
-        require(ts_log_sha256 == sha256_file(log_path), "TS result log hash mismatch")  # type: ignore[arg-type]
-        _require_matching_atom_order(ts.get("final_coordinates"), expected_order, "TS result")
-        imaginary_modes = ts.get("imaginary_modes", [])
-        require(len(imaginary_modes) == 1, "path validation requires exactly one parsed imaginary mode")
-        _require_matching_atom_order(imaginary_modes[0].get("displacements"), expected_order, "TS imaginary-mode displacement")
-        forward = load_json(forward_path)
-        reverse = load_json(reverse_path)
-        require(forward.get("direction") == "forward" and reverse.get("direction") == "reverse", "forward/reverse endpoint arguments are swapped")
-        endpoint_by_direction = {str(item.get("direction")): item for item in (forward, reverse)}
-        require(set(endpoint_by_direction) == {"forward", "reverse"}, "endpoint directions are incomplete")
-        for direction, endpoint in endpoint_by_direction.items():
-            _validate_endpoint_audit(endpoint, direction, candidate, expected_order)
-        require({forward.get("chemical_side"), reverse.get("chemical_side")} == {"reactant", "product"}, "endpoint identities are not complementary")
-        checkpoint_audit = load_json(checkpoint_audit_path)  # type: ignore[arg-type]
-        if checkpoint_audit.get("schema") == "gaussian-checkpoint-geometry-audit/2":
-            require(ts_owner is not None, "checkpoint audit /2 requires TS/Freq result /2 owner replay")
-            try:
-                ts_owner.validate_checkpoint_audit_artifact(checkpoint_audit_path)
-            except (OSError, ValueError) as exc:
-                raise OfflineError(f"checkpoint audit /2 owner validator rejected the evidence: {exc}") from exc
-        _validate_checkpoint_lineage(
-            checkpoint_audit, checkpoint_audit_path, candidate, expected_order, ts_result_path,
-            mode_review_path, mode_decision_path, input_path, log_path, checkpoint_path,  # type: ignore[arg-type]
-        )
-        plan = load_json(irc_plan_path)  # type: ignore[arg-type]
-        _validate_irc_plan(plan, ts_result_path, mode_decision_path, checkpoint_path, endpoint_by_direction)  # type: ignore[arg-type]
+        raise OfflineError("historical endpoint-audit /1 evidence is replay-only and cannot open path_validated or comparison eligibility")
+    if path_acceptance_path is not None:
+        require(mode_reviewed, "path-acceptance ingestion requires an accepted hash-bound mode decision")
+        if ts_owner is None:
+            owner_path = Path(__file__).resolve().parents[2] / "auto-g16-ts-irc" / "scripts" / "ts_irc.py"
+            spec = importlib.util.spec_from_file_location("auto_g16_asymmetric_path_owner", owner_path)
+            require(spec is not None and spec.loader is not None, "path-acceptance /2 owner validator is unavailable")
+            ts_owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(ts_owner)
+        try:
+            acceptance = ts_owner.validate_path_acceptance_v2_artifact(path_acceptance_path)
+        except (OSError, ValueError) as exc:
+            raise OfflineError(f"path-acceptance /2 owner validator rejected the evidence: {exc}") from exc
+        require(acceptance.get("schema") == "gaussian-ts-irc-path-acceptance/2", "new asymmetric path qualification requires path acceptance /2")
+        require(acceptance.get("mechanism_binding", {}).get("study_id") == candidate.get("study_id"), "path acceptance belongs to another study")
+        bound_result = ts_owner._closure_resolve_local_ref(acceptance["ts_result"], path_acceptance_path, "asymmetric TS result")
+        require(bound_result.resolve() == ts_result_path.resolve(), "path acceptance does not bind the exact asymmetric TS result")
         path_forward = path_reverse = "completed_and_identified"
         endpoint_reviewed = True
-        if mode_reviewed:
-            level = "path_validated"
+        level = "path_validated"
     energies = {key: energy[key] for key in ("energy_unit", "electronic_energy", "thermal_gibbs_correction", "comparison_free_energy", "comparison_energy_definition", "temperature_k", "standard_state", "low_frequency_policy", "inventory_key", "degeneracy")}
     reasons: list[str] = []
     if VALIDATION_RANK[level] < 2:
@@ -960,6 +947,7 @@ def ingest_result(
             "parsed_ts_result": artifact(ts_result_path), "mode_review": _nullable_artifact(mode_review_path), "mode_decision": _nullable_artifact(mode_decision_path),
             "checkpoint_audit": _nullable_artifact(checkpoint_audit_path), "irc_plan": _nullable_artifact(irc_plan_path),
             "forward_path": _nullable_artifact(forward_path), "reverse_path": _nullable_artifact(reverse_path),
+            "path_acceptance": _nullable_artifact(path_acceptance_path),
         },
         "termination": {
             "normal_termination": ts.get("normal_termination_count", 0) >= 1,
@@ -3061,7 +3049,7 @@ def parser() -> argparse.ArgumentParser:
     enum = sub.add_parser("enumerate-boron"); enum.add_argument("study"); enum.add_argument("space"); enum.add_argument("--output", required=True)
     literature = sub.add_parser("build-literature-benchmark"); literature.add_argument("source"); literature.add_argument("--output", required=True)
     materialize = sub.add_parser("build-candidates"); materialize.add_argument("study"); materialize.add_argument("ledger"); materialize.add_argument("materializations"); materialize.add_argument("--output-dir", required=True)
-    ingest = sub.add_parser("ingest-result"); ingest.add_argument("candidate"); ingest.add_argument("ts_result"); ingest.add_argument("energy_record"); ingest.add_argument("--mode-review"); ingest.add_argument("--mode-decision"); ingest.add_argument("--forward-audit"); ingest.add_argument("--reverse-audit"); ingest.add_argument("--input"); ingest.add_argument("--log"); ingest.add_argument("--checkpoint"); ingest.add_argument("--checkpoint-audit"); ingest.add_argument("--irc-plan"); ingest.add_argument("--output", required=True)
+    ingest = sub.add_parser("ingest-result"); ingest.add_argument("candidate"); ingest.add_argument("ts_result"); ingest.add_argument("energy_record"); ingest.add_argument("--mode-review"); ingest.add_argument("--mode-decision"); ingest.add_argument("--forward-audit"); ingest.add_argument("--reverse-audit"); ingest.add_argument("--input"); ingest.add_argument("--log"); ingest.add_argument("--checkpoint"); ingest.add_argument("--checkpoint-audit"); ingest.add_argument("--irc-plan"); ingest.add_argument("--path-acceptance"); ingest.add_argument("--output", required=True)
     agg = sub.add_parser("aggregate"); agg.add_argument("study"); agg.add_argument("ledger"); agg.add_argument("results", nargs="+"); agg.add_argument("--energy-shift-kcal", type=float, default=1.0); agg.add_argument("--output", required=True)
     metal = sub.add_parser("design-metal-support"); metal.add_argument("study"); metal.add_argument("--output", required=True)
     metal_audit = sub.add_parser("build-metal-ts-audit-template"); metal_audit.add_argument("metal_support"); metal_audit.add_argument("candidate"); metal_audit.add_argument("--output", required=True)
@@ -3080,7 +3068,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "enumerate-boron": enumerate_boron(Path(args.study), Path(args.space), Path(args.output))
         elif args.command == "build-literature-benchmark": build_literature_benchmark(Path(args.source), Path(args.output))
         elif args.command == "build-candidates": materialize_candidates(Path(args.study), Path(args.ledger), Path(args.materializations), Path(args.output_dir))
-        elif args.command == "ingest-result": ingest_result(Path(args.candidate), Path(args.ts_result), Path(args.energy_record), Path(args.output), Path(args.mode_review) if args.mode_review else None, Path(args.mode_decision) if args.mode_decision else None, Path(args.forward_audit) if args.forward_audit else None, Path(args.reverse_audit) if args.reverse_audit else None, Path(args.input) if args.input else None, Path(args.log) if args.log else None, Path(args.checkpoint) if args.checkpoint else None, Path(args.checkpoint_audit) if args.checkpoint_audit else None, Path(args.irc_plan) if args.irc_plan else None)
+        elif args.command == "ingest-result": ingest_result(Path(args.candidate), Path(args.ts_result), Path(args.energy_record), Path(args.output), Path(args.mode_review) if args.mode_review else None, Path(args.mode_decision) if args.mode_decision else None, Path(args.forward_audit) if args.forward_audit else None, Path(args.reverse_audit) if args.reverse_audit else None, Path(args.input) if args.input else None, Path(args.log) if args.log else None, Path(args.checkpoint) if args.checkpoint else None, Path(args.checkpoint_audit) if args.checkpoint_audit else None, Path(args.irc_plan) if args.irc_plan else None, Path(args.path_acceptance) if args.path_acceptance else None)
         elif args.command == "aggregate": aggregate(Path(args.study), Path(args.ledger), [Path(item) for item in args.results], Path(args.output), args.energy_shift_kcal)
         elif args.command == "design-metal-support": design_metal_support(Path(args.study), Path(args.output))
         elif args.command == "build-metal-ts-audit-template": build_metal_ts_audit_template(Path(args.metal_support), Path(args.candidate), Path(args.output))

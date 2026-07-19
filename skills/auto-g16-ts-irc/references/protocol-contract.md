@@ -92,13 +92,17 @@ path acceptance. Every new closure reference rejects a symlink leaf or any
 existing symlinked ancestor below its artifact root by lexical `lstat` checks
 before resolution.
 
-`gaussian-endpoint-structure-review/1` is append-only human review, not a
-reactant/product label shortcut. It binds the endpoint coordinates, audit,
-input, raw log, result, job and checkpoint; records identity, connectivity,
-stereochemistry, stable atom IDs, reviewer, rationale and timestamp; and
-replays the owner endpoint audit. `gaussian-ts-irc-path-acceptance/2` accepts
-only two such reviews plus a source-bound TS result `/2`, and rejects different
-composition, charge, multiplicity or stable atom ID/order. Therefore an
+`gaussian-endpoint-structure-review/2` is the prospective append-only human
+review, not a reactant/product label shortcut. It binds the endpoint
+coordinates, audit, input, raw log, result, job, attempt, terminal receipt,
+fetch snapshot, IRC checkpoint, IRC plan, AllCheck manifest and the same
+accepted TS-checkpoint audit `/2`; it records identity, connectivity,
+stereochemistry, stable atom IDs, reviewer, rationale and timestamp and replays
+the owner endpoint audit. `gaussian-ts-irc-path-acceptance/2` accepts only two
+such `/2` reviews plus a source-bound TS result `/2`, and rejects different TS
+checkpoint lineages, composition, charge, multiplicity or stable atom ID/order.
+Historical endpoint review `/1` remains display/replay-only and cannot open a
+new path-acceptance, maturity, thermochemistry or comparison gate. Therefore an
 84-atom complex and a 36-atom isolated product cannot be QST2 endpoints or a
 bidirectional path pair.
 
@@ -142,7 +146,14 @@ or source hash invalidates the draft and requires a new selection.
 
 `gaussian-allcheck-input-manifest/1` accompanies a coordinate-free continuation input of the same stem. Require `%oldchk` to match the audited checkpoint basename and hash, `%chk` to be distinct, and the route to contain the approved direction plus `RCFC Geom=AllCheck Guess=Read`. Put no title, charge/multiplicity line, or coordinates after the route. Reject changed input/checkpoint hashes, `ReCorrect=Never`, unresolved warnings, and atom-order records that are not contiguous and one-based.
 
-`gaussian-irc-endpoint-audit/1` binds one direction's final completed point to the fetched IRC checkpoint, input, log, parsed result, and local job record. Require the declared final point, direction-specific completion, corrector convergence evidence for every expected point, normal termination, matching final log/result atom order and coordinates, and reviewed forming-bond distances. A reactant/product label is review evidence, not proof of a minimum.
+`gaussian-irc-endpoint-audit/2` is required for prospective closure and binds
+one direction's final completed point to the fetched IRC checkpoint, exact
+attempt/terminal/fetch chain, IRC plan and AllCheck manifest, plus the accepted
+TS checkpoint and checkpoint audit `/2` named by `%oldchk`. Require the declared
+final point, direction-specific completion, corrector convergence evidence for
+every expected point, normal termination, matching final log/result atom order
+and coordinates, and reviewed forming-bond distances. Historical audit `/1` is
+replay-only. A reactant/product label is review evidence, not proof of a minimum.
 
 `gaussian-ts-irc-path-acceptance/2` is the current immutable owner artifact.
 It binds a formal non-pilot TS-family `/2`, an execution-bound TS/Freq result

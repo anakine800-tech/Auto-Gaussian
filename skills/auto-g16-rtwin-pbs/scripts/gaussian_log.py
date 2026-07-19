@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import json
+import codecs
 import math
+import os
 import re
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,7 @@ HARTREE_KCAL_MOL = 627.5094740631
 PARSER_NAME = "auto-g16-gaussian-log"
 PARSER_VERSION = "2.0.0"
 PARSER_SCHEMA = "auto-g16-gaussian-log-parser/2"
+FILE_READ_CHUNK_SIZE = 1024 * 1024
 
 
 def _parse_frequencies(text: str) -> tuple[list[float], list[dict[str, Any]]]:
@@ -324,9 +328,146 @@ def _write_result_files(result: dict[str, Any], log_path: Path, output_dir: Path
     return result
 
 
+def _bounded_file_lines(path: Path):
+    """Yield decoded lines from one stable no-follow descriptor using fixed chunks."""
+    if path.is_symlink():
+        raise ValueError("Gaussian log file must not be a symlink")
+    resolved = path.resolve(strict=True)
+    fd = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    pending = ""
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("Gaussian log must be a regular file")
+        while True:
+            raw = os.read(fd, FILE_READ_CHUNK_SIZE)
+            if not raw: break
+            pending += decoder.decode(raw)
+            lines = pending.splitlines(keepends=True)
+            pending = ""
+            if lines and not lines[-1].endswith(("\n", "\r")):
+                pending = lines.pop()
+            yield from lines
+        pending += decoder.decode(b"", final=True)
+        if pending: yield pending
+        after = os.fstat(fd)
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+        if identity(before) != identity(after):
+            raise ValueError("Gaussian log changed during bounded parsing")
+    finally:
+        os.close(fd)
+
+
+def _scan_log_file(path: Path) -> dict[str, Any]:
+    frequencies: list[float] = []; frequency_diagnostics: list[dict[str, Any]] = []
+    energy_count = 0; final_energy = None; max_step = 0
+    normal_count = 0; error_count = 0; last_terminal = None
+    optimization_completed = False; stationary_point = False
+    diagnostic_rules = [
+        ("zsymb_eof", "end of file in zsymb", "End of file in ZSymb", "Repair Gaussian section termination and trailing blank lines; do not retry unchanged."),
+        ("scf_convergence", "convergence failure", "Convergence failure", "Review the wavefunction and consider an explicitly approved SCF=XQC restart."),
+        ("irc_corrector_convergence", "maximum number of corrector steps exceded", "Maximum number of corrector steps exceded", "Preserve both directional results and require a new scientific approval before changing IRC integration settings or retrying."),
+        ("optimization_steps", "number of steps exceeded", "Number of steps exceeded", "Review geometry and convergence; consider an explicitly approved Opt=Restart from checkpoint."),
+        ("memory", "out-of-memory", "Out-of-memory", "Reduce memory demand or resource use; never exceed the 120 GB server ceiling."),
+        ("memory", "galloc", "galloc", "Inspect the final Link error and reduce memory demand if confirmed."),
+        ("disk", "erroneous write", "Erroneous write", "Check free space inside the SDL project and scratch directories; do not write elsewhere."),
+        ("termination", "error termination", "Error termination", "Inspect the final 80–120 log lines before changing chemistry or resubmitting."),
+    ]
+    found_diagnostics: dict[str, dict[str, str]] = {}
+    thermo_patterns = {
+        "zero_point_correction_hartree": re.compile(r"Zero-point correction=\s*([-+0-9.DEded]+)", re.I),
+        "thermal_correction_energy_hartree": re.compile(r"Thermal correction to Energy=\s*([-+0-9.DEded]+)", re.I),
+        "thermal_correction_enthalpy_hartree": re.compile(r"Thermal correction to Enthalpy=\s*([-+0-9.DEded]+)", re.I),
+        "thermal_correction_gibbs_hartree": re.compile(r"Thermal correction to Gibbs Free Energy=\s*([-+0-9.DEded]+)", re.I),
+        "frequency_sum_electronic_zpe_hartree": re.compile(r"Sum of electronic and zero-point Energies=\s*([-+0-9.DEded]+)", re.I),
+        "frequency_sum_electronic_enthalpy_hartree": re.compile(r"Sum of electronic and thermal Enthalpies=\s*([-+0-9.DEded]+)", re.I),
+        "frequency_sum_electronic_gibbs_hartree": re.compile(r"Sum of electronic and thermal Free Energies=\s*([-+0-9.DEded]+)", re.I),
+    }
+    thermo = {key: None for key in thermo_patterns}
+    orientation_stage = -1; orientation_coordinates: list[dict[str, Any]] = []; last_coordinates: list[dict[str, Any]] = []
+    for line_number, line in enumerate(_bounded_file_lines(path), start=1):
+        lowered = line.lower()
+        for code, needle, evidence, recommendation in diagnostic_rules:
+            if code not in found_diagnostics and needle in lowered:
+                found_diagnostics[code] = {"code": code, "evidence": evidence, "recommendation": recommendation}
+        energies = re.findall(r"SCF Done:\s+E\([^)]*\)\s*=\s*([-+0-9.DEded]+)", line)
+        for value in energies:
+            final_energy = float(value.replace("D", "E")); energy_count += 1
+        for value in re.findall(r"Step number\s+(\d+)", line): max_step = max(max_step, int(value))
+        frequency = re.match(r"^\s*Frequencies\s+--\s*(.*)$", line)
+        if frequency:
+            tokens = frequency.group(1).split()
+            if not tokens: frequency_diagnostics.append({"code": "empty_frequency_group", "line": line_number, "token": None})
+            for token in tokens:
+                try: value = float(token.replace("D", "E").replace("d", "e"))
+                except ValueError:
+                    frequency_diagnostics.append({"code": "malformed_frequency_token", "line": line_number, "token": token}); continue
+                if not math.isfinite(value):
+                    frequency_diagnostics.append({"code": "nonfinite_frequency_token", "line": line_number, "token": token}); continue
+                frequencies.append(value)
+        n = line.count("Normal termination of Gaussian"); e = line.count("Error termination")
+        normal_count += n; error_count += e
+        if n or e:
+            last_terminal = "failed" if line.rfind("Error termination") > line.rfind("Normal termination of Gaussian") else "completed"
+        optimization_completed = optimization_completed or "Optimization completed" in line
+        stationary_point = stationary_point or "Stationary point found" in line
+        for key, pattern in thermo_patterns.items():
+            values = pattern.findall(line)
+            if values: thermo[key] = float(values[-1].replace("D", "E"))
+        if re.match(r"^\s*(?:Standard|Input) orientation:\s*$", line):
+            orientation_stage = 0; orientation_coordinates = []; continue
+        if orientation_stage >= 0 and re.match(r"^\s*-{10,}\s*$", line):
+            orientation_stage += 1
+            if orientation_stage == 3:
+                if orientation_coordinates: last_coordinates = orientation_coordinates
+                orientation_stage = -1
+            continue
+        if orientation_stage == 2:
+            fields = line.split()
+            if len(fields) >= 6:
+                try:
+                    center, atomic_number = int(fields[0]), int(fields[1]); x, y, z = map(float, fields[3:6])
+                except ValueError: pass
+                else:
+                    symbol = ELEMENTS[atomic_number] if 0 < atomic_number < len(ELEMENTS) else f"X{atomic_number}"
+                    orientation_coordinates.append({"center": center, "atomic_number": atomic_number, "element": symbol, "x": x, "y": y, "z": z})
+    expected_count, linear = expected_vibrational_mode_count(last_coordinates)
+    base = {
+        "schema": "gaussian-result/1", "status": last_terminal or ("completed" if normal_count else "incomplete"),
+        "normal_termination": normal_count > 0, "normal_termination_count": normal_count,
+        "error_termination": error_count > 0, "error_termination_count": error_count,
+        "optimization_completed": optimization_completed, "stationary_point_found": stationary_point,
+        "optimization_success": normal_count > 0 and optimization_completed and stationary_point,
+        "optimization_steps": max_step, "scf_calculations": energy_count, "final_energy_hartree": final_energy,
+        "frequency_count": len(frequencies), "expected_frequency_count": expected_count,
+        "frequency_parse_complete": not frequency_diagnostics, "frequency_parse_diagnostics": frequency_diagnostics,
+        "imaginary_frequency_count": sum(value < 0 for value in frequencies), "frequencies_cm-1": frequencies,
+        "final_coordinate_count": len(last_coordinates), "final_coordinates": last_coordinates,
+        "linearity": "linear" if linear is True else "nonlinear" if linear is False else "undetermined",
+        "parser": {"name": PARSER_NAME, "version": PARSER_VERSION, "schema": PARSER_SCHEMA},
+        "diagnostics": [found_diagnostics[code] for code in dict.fromkeys(item[0] for item in diagnostic_rules) if code in found_diagnostics],
+    }
+    return {"base": base, "thermochemistry": thermo}
+
+
+def _workflow_from_scan(base: dict[str, Any], thermochemistry: dict[str, Any], *, temperature_k: float, standard_state: str, expected_stages: int) -> dict[str, Any]:
+    thermo = dict(thermochemistry); state_correction = standard_state_correction_hartree(temperature_k, standard_state)
+    sp_energy = base["final_energy_hartree"]; thermal_g = thermo["thermal_correction_gibbs_hartree"]
+    composite_1atm = sp_energy + thermal_g if sp_energy is not None and thermal_g is not None else None
+    composite_target = composite_1atm + state_correction if composite_1atm is not None else None
+    thermo.update({"single_point_energy_hartree": sp_energy, "temperature_k": temperature_k, "standard_state": standard_state, "standard_state_correction_hartree_per_species": state_correction, "standard_state_correction_kcal_mol_per_species": state_correction * HARTREE_KCAL_MOL, "composite_gibbs_1atm_hartree": composite_1atm, "composite_gibbs_target_hartree": composite_target, "quasi_harmonic_correction_applied": False})
+    execution_complete = base["normal_termination_count"] >= expected_stages and base["error_termination_count"] == 0
+    frequency_complete = base["expected_frequency_count"] is not None and base["frequency_parse_complete"] is True and base["frequency_count"] == base["expected_frequency_count"] and thermal_g is not None
+    minimum_validated = base["optimization_success"] and frequency_complete and base["imaginary_frequency_count"] == 0
+    workflow_success = execution_complete and minimum_validated and composite_target is not None
+    low = [value for value in base["frequencies_cm-1"] if 0 <= value < 100]
+    result = dict(base); result.update({"schema": "gaussian-opt-freq-sp-result/1", "status": "completed" if workflow_success else "validation_failed" if execution_complete else base["status"], "expected_stage_count": expected_stages, "execution_complete": execution_complete, "frequency_complete": frequency_complete, "minimum_validated": minimum_validated, "single_point_complete": execution_complete and sp_energy is not None, "workflow_success": workflow_success, "low_frequency_count_below_100_cm-1": len(low), "low_frequencies_cm-1": low, "thermochemistry": thermo, "scientific_notes": ["No quasi-harmonic correction was applied.", "The 1 atm to 1 M correction is per independently treated species; reaction corrections depend on stoichiometry."]})
+    return result
+
+
 def analyze_log_file(log_path: Path, output_dir: Path | None = None) -> dict[str, Any]:
-    text = log_path.read_text(encoding="utf-8", errors="replace")
-    result = analyze_log_text(text)
+    result = _scan_log_file(log_path)["base"]
     result["log"] = str(log_path.resolve())
     if output_dir is not None:
         _write_result_files(result, log_path, output_dir)
@@ -341,13 +482,8 @@ def analyze_workflow_log_file(
     standard_state: str,
     expected_stages: int = 3,
 ) -> dict[str, Any]:
-    text = log_path.read_text(encoding="utf-8", errors="replace")
-    result = analyze_workflow_log_text(
-        text,
-        temperature_k=temperature_k,
-        standard_state=standard_state,
-        expected_stages=expected_stages,
-    )
+    scan = _scan_log_file(log_path)
+    result = _workflow_from_scan(scan["base"], scan["thermochemistry"], temperature_k=temperature_k, standard_state=standard_state, expected_stages=expected_stages)
     result["log"] = str(log_path.resolve())
     if output_dir is not None:
         _write_result_files(result, log_path, output_dir)

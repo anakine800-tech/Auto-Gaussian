@@ -1713,8 +1713,7 @@ def validate_result(result: dict[str, Any], candidate: dict[str, Any], candidate
         require(path.get("reverse") == "completed_and_identified", f"result {result_id}: reverse path incomplete")
         require(path.get("endpoint_identity_reviewed") is True, f"result {result_id}: endpoints not reviewed")
         artifacts = result.get("artifacts", {})
-        for artifact_name in ("checkpoint_audit", "irc_plan", "forward_path", "reverse_path"):
-            require(artifacts.get(artifact_name) is not None, f"result {result_id}: {artifact_name} artifact required for path validation")
+        require(artifacts.get("path_acceptance") is not None, f"result {result_id}: canonical path-acceptance /2 artifact required for path validation")
 
     eligible = result.get("comparison_eligibility", {}).get("eligible")
     if eligible:

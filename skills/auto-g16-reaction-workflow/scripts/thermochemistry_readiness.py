@@ -226,6 +226,12 @@ def _ts_readiness_blockers(root: Path, roles: dict[str, dict[str, Any]]) -> list
         return [_blocker("ts_attempt_missing", "ts_evidence", [path_acceptance["source_id"]], "Path acceptance is not bound to a supplied calculation attempt.", "calculation attempt link sharing the exact TS result")]
     if path_acceptance is None:
         return [_blocker("attempt_link_only_ts", "ts_evidence", [attempt["source_id"]], "Attempt-link-only TS evidence is insufficient.", "ts_irc.validate_path_acceptance_artifact owner chain")]
+    if path_acceptance["document"].get("schema") != "gaussian-ts-irc-path-acceptance/2":
+        return [_blocker(
+            "path_acceptance_v2_required", "ts_evidence", [path_acceptance["source_id"]],
+            "Historical path acceptance /1 is replay-only and cannot open new thermochemistry qualification.",
+            "gaussian-ts-irc-path-acceptance/2 with endpoint review /2 owner replay",
+        )]
     mismatch = _exact_ts_result_blocker(root, attempt, path_acceptance)
     return [] if mismatch is None else [mismatch]
 

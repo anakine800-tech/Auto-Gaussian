@@ -302,17 +302,23 @@ def _validate_endpoint_bundle(
     bundle: Any, owner: Path, direction: str, resolver: Any = _resolve_local_ref,
 ) -> dict[str, Any]:
     legacy_fields = {"audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint"}
-    v2_fields = legacy_fields | {"family", "terminal_inspection_receipt", "fetch_snapshot"}
+    v2_fields = legacy_fields | {
+        "family", "terminal_inspection_receipt", "fetch_snapshot", "ts_checkpoint",
+        "checkpoint_audit", "irc_plan", "allcheck_input_manifest",
+    }
     if not isinstance(bundle, dict) or frozenset(bundle) not in {frozenset(legacy_fields), frozenset(v2_fields)}:
         raise ValueError(f"{direction} endpoint bundle fields are invalid")
     paths = {key: resolver(bundle[key], owner, f"{direction} {key}") for key in bundle}
     audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
-    if audit.get("schema") != "gaussian-irc-endpoint-audit/1" or audit.get("direction") != direction:
+    expected_audit_schema = "gaussian-irc-endpoint-audit/2" if set(bundle) == v2_fields else "gaussian-irc-endpoint-audit/1"
+    if audit.get("schema") != expected_audit_schema or audit.get("direction") != direction:
         raise ValueError(f"{direction} endpoint audit schema/direction differs")
     pairs = [tuple(item["pair"]) for item in audit.get("reviewed_forming_bond_distances", [])]
     replay = audit_irc_endpoint_provenance(
         paths["irc_input"], paths["irc_log"], paths["irc_result"], paths["job"], paths["checkpoint"],
         direction, audit.get("chemical_side"), audit.get("completed_point"), pairs,
+        ts_checkpoint_path=paths.get("ts_checkpoint"), checkpoint_audit_path=paths.get("checkpoint_audit"),
+        irc_plan_path=paths.get("irc_plan"), allcheck_manifest_path=paths.get("allcheck_input_manifest"),
     )
     if replay != audit:
         raise ValueError(f"{direction} endpoint audit differs from owner reconstruction")
@@ -325,6 +331,17 @@ def _validate_endpoint_bundle(
             or not (job.get("project") == family["project_prefix"] or str(job.get("project", "")).startswith(family["project_prefix"] + "_"))
         ):
             raise ValueError(f"{direction} endpoint execution is not bound to one formal TS family/project prefix")
+        checkpoint_audit = validate_checkpoint_audit_artifact(paths["checkpoint_audit"])
+        ts_result_path = _closure_resolve_local_ref(
+            checkpoint_audit["sources"]["ts_result"], paths["checkpoint_audit"], "endpoint TS result"
+        )
+        ts_result = _load_json_strict(ts_result_path)
+        result_family_path = _closure_resolve_local_ref(ts_result["execution"]["family"], ts_result_path, "endpoint TS family")
+        if result_family_path.resolve() != paths["family"].resolve():
+            raise ValueError(f"{direction} endpoint TS checkpoint lineage belongs to another family")
+        protocol_route = (family.get("protocol") or {}).get("routes", {}).get(f"irc_{direction}")
+        if protocol_route != audit.get("planned_route"):
+            raise ValueError(f"{direction} endpoint route differs from the exact family protocol")
         _validate_endpoint_execution_evidence(paths, audit, direction)
     return audit
 
@@ -349,6 +366,7 @@ def _validate_endpoint_execution_evidence(paths: dict[str, Path], audit: dict[st
     if not isinstance(inspection, dict) or receipt.get("inspection_evidence_sha256") != inspection.get("evidence_sha256") or not _inspection_v2_is_exact_terminal(
         inspection, project=project, job_id=job_id, log_size=paths["irc_log"].stat().st_size,
         normal_count=text.count("Normal termination of Gaussian"), error_count=text.count("Error termination"),
+        expected_terminal_state=str(receipt.get("terminal_state")),
     ):
         raise ValueError(f"{direction} endpoint terminal inspection is stale or malformed")
     snapshot = _load_json_strict(paths["fetch_snapshot"])
@@ -518,6 +536,7 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
     if not isinstance(endpoint_refs, dict) or set(endpoint_refs) != {"forward", "reverse"}:
         raise ValueError("path acceptance /2 requires exact forward and reverse endpoint reviews")
     endpoints = {}
+    endpoint_audits = {}
     for direction in ("forward", "reverse"):
         endpoint_path = _closure_resolve_local_ref(endpoint_refs[direction], path, f"{direction} endpoint structure review")
         endpoint = validate_endpoint_structure_review_artifact(endpoint_path)
@@ -528,6 +547,17 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
         if endpoint["direction"] != direction:
             raise ValueError(f"{direction} endpoint review direction differs")
         endpoints[direction] = endpoint
+        audit_path = _closure_resolve_local_ref(
+            endpoint["sources"]["audit"], endpoint_path,
+            f"{direction} endpoint checkpoint-lineage audit",
+        )
+        audit = _load_json_strict(audit_path)
+        if audit.get("schema") != "gaussian-irc-endpoint-audit/2":
+            raise ValueError("path acceptance /2 requires endpoint audit /2 checkpoint lineage")
+        endpoint_audits[direction] = audit
+    for field in ("ts_checkpoint_sha256", "checkpoint_audit_sha256", "irc_plan_sha256"):
+        if endpoint_audits["forward"].get(field) != endpoint_audits["reverse"].get(field):
+            raise ValueError(f"both IRC directions must start from the same accepted TS lineage: {field}")
     if {endpoints["forward"]["chemical_side"], endpoints["reverse"]["chemical_side"]} != {"reactant", "product"}:
         raise ValueError("bidirectional endpoint reviews must identify one reactant and one product side")
     forward, reverse = endpoints["forward"], endpoints["reverse"]
@@ -1721,8 +1751,8 @@ def build_allcheck_irc_input(
     if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
         raise ValueError("checkpoint must be an existing non-symlink file")
     audit = validate_checkpoint_audit_artifact(checkpoint_audit_path)
-    if audit.get("schema") not in {"gaussian-checkpoint-geometry-audit/1", "gaussian-checkpoint-geometry-audit/2"} or audit.get("audit_status") != "passed":
-        raise ValueError("AllCheck input requires a passed checkpoint-geometry audit")
+    if audit.get("schema") != "gaussian-checkpoint-geometry-audit/2" or audit.get("audit_status") != "passed":
+        raise ValueError("new AllCheck IRC input requires owner-validated checkpoint-geometry audit /2; /1 is historical replay only")
     if audit.get("checkpoint_file") != checkpoint_path.name or audit.get("checkpoint_sha256") != sha256(checkpoint_path):
         raise ValueError("checkpoint file or hash differs from the reviewed checkpoint audit")
     if direction not in {"forward", "reverse"}:
@@ -1792,6 +1822,11 @@ def audit_irc_endpoint_provenance(
     chemical_side: str,
     expected_points: int,
     forming_pairs: list[tuple[int, int]],
+    *,
+    ts_checkpoint_path: Path | None = None,
+    checkpoint_audit_path: Path | None = None,
+    irc_plan_path: Path | None = None,
+    allcheck_manifest_path: Path | None = None,
 ) -> dict[str, Any]:
     """Bind a successful final IRC point to its exact continuation checkpoint."""
     for label, path in {
@@ -1865,7 +1900,7 @@ def audit_irc_endpoint_provenance(
             raise ValueError(f"forming pair {first},{second} is outside the endpoint geometry")
         distances.append({"pair": [first, second], "distance_angstrom": _distance(geometry_by_index[first], geometry_by_index[second])})
 
-    return {
+    artifact = {
         "schema": "gaussian-irc-endpoint-audit/1",
         "audit_status": "passed",
         "project": job.get("project"),
@@ -1900,6 +1935,58 @@ def audit_irc_endpoint_provenance(
             "Chemical-side assignment is a reviewed structural label; endpoint minimum status requires Opt-Freq with zero imaginary frequencies.",
         ],
     }
+    lineage_paths = (ts_checkpoint_path, checkpoint_audit_path, irc_plan_path, allcheck_manifest_path)
+    if any(path is not None for path in lineage_paths):
+        if not all(path is not None and path.is_file() and not path.is_symlink() for path in lineage_paths):
+            raise ValueError("endpoint audit /2 requires TS checkpoint, checkpoint audit, IRC plan, and AllCheck manifest together")
+        assert ts_checkpoint_path is not None and checkpoint_audit_path is not None
+        assert irc_plan_path is not None and allcheck_manifest_path is not None
+        checkpoint_audit = validate_checkpoint_audit_artifact(checkpoint_audit_path)
+        if checkpoint_audit.get("schema") != "gaussian-checkpoint-geometry-audit/2":
+            raise ValueError("endpoint audit /2 requires checkpoint-geometry audit /2")
+        if checkpoint_audit.get("checkpoint_file") != ts_checkpoint_path.name or checkpoint_audit.get("checkpoint_sha256") != sha256(ts_checkpoint_path):
+            raise ValueError("endpoint audit TS checkpoint differs from checkpoint owner lineage")
+        if _link0_value(irc_input_path, "oldchk") != ts_checkpoint_path.name:
+            raise ValueError("IRC %oldchk does not name the accepted TS checkpoint")
+        plan = _load_json_strict(irc_plan_path)
+        if plan.get("schema") != "gaussian-irc-plan/1" or plan.get("submission_status") != "planned_not_submitted" or plan.get("checkpoint_sha256") != sha256(ts_checkpoint_path):
+            raise ValueError("IRC plan is not bound to the accepted TS checkpoint")
+        if (
+            plan.get("ts_result_sha256") != checkpoint_audit.get("ts_result_sha256")
+            or plan.get("mode_decision_sha256") != checkpoint_audit.get("mode_decision_sha256")
+        ):
+            raise ValueError("IRC plan TS result/mode decision differs from the checkpoint audit lineage")
+        directions = [item for item in plan.get("directions", []) if isinstance(item, dict) and item.get("direction") == direction]
+        if len(directions) != 1:
+            raise ValueError("IRC plan does not contain the exact direction once")
+        planned = directions[0]
+        manifest = _load_json_strict(allcheck_manifest_path)
+        exact_route = str(job.get("gaussian", {}).get("route", "")).strip()
+        input_route = next((line.strip() for line in input_text.splitlines() if line.lstrip().startswith("#")), None)
+        if (
+            planned.get("project") != job.get("project") or planned.get("route") != exact_route
+            or input_route != exact_route or manifest.get("schema") != "gaussian-allcheck-input-manifest/1"
+            or manifest.get("direction") != direction or manifest.get("route") != exact_route
+            or manifest.get("input_sha256") != sha256(irc_input_path)
+            or manifest.get("checkpoint_geometry_audit_sha256") != sha256(checkpoint_audit_path)
+            or manifest.get("checkpoint_file") != ts_checkpoint_path.name
+            or manifest.get("checkpoint_sha256") != sha256(ts_checkpoint_path)
+        ):
+            raise ValueError("IRC plan/route/project/input/AllCheck manifest binding differs")
+        artifact["schema"] = "gaussian-irc-endpoint-audit/2"
+        artifact["ts_checkpoint_file"] = ts_checkpoint_path.name
+        artifact["ts_checkpoint_sha256"] = sha256(ts_checkpoint_path)
+        artifact["checkpoint_audit_sha256"] = sha256(checkpoint_audit_path)
+        artifact["irc_plan_sha256"] = sha256(irc_plan_path)
+        artifact["allcheck_input_manifest_sha256"] = sha256(allcheck_manifest_path)
+        artifact["planned_route"] = exact_route
+        artifact["checks"].update({
+            "oldchk_matches_accepted_ts_checkpoint": True,
+            "checkpoint_audit_v2_owner_replayed": True,
+            "irc_plan_project_route_input_match": True,
+            "allcheck_manifest_matches": True,
+        })
+    return artifact
 
 
 def _formula_from_elements(elements: list[str]) -> str:
@@ -1999,8 +2086,8 @@ def validate_endpoint_structure_review_artifact(path: Path) -> dict[str, Any]:
     if artifact.get("parser") != PARSER_ID:
         raise ValueError("endpoint structure review parser version or schema differs")
     bundle = artifact.get("sources")
-    if artifact["schema"] == ENDPOINT_REVIEW_SCHEMA_V2 and set(bundle or {}) != {"family", "audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint", "terminal_inspection_receipt", "fetch_snapshot"}:
-        raise ValueError("endpoint structure review /2 requires the exact attempt/receipt/fetch source bundle")
+    if artifact["schema"] == ENDPOINT_REVIEW_SCHEMA_V2 and set(bundle or {}) != {"family", "audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint", "terminal_inspection_receipt", "fetch_snapshot", "ts_checkpoint", "checkpoint_audit", "irc_plan", "allcheck_input_manifest"}:
+        raise ValueError("endpoint structure review /2 requires the exact TS/IRC plan/checkpoint/attempt source bundle")
     if artifact["schema"] == ENDPOINT_REVIEW_SCHEMA and set(bundle or {}) != {"audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint"}:
         raise ValueError("historical endpoint structure review /1 source bundle changed")
     audits = _validate_endpoint_bundle(bundle, path, artifact["direction"], _closure_resolve_local_ref)
@@ -2028,7 +2115,7 @@ def build_endpoint_structure_review_artifact(
         for atom_id, source in zip(atom_ids, result.get("final_coordinates", []))
     ]
     artifact = {
-        "schema": ENDPOINT_REVIEW_SCHEMA_V2 if {"family", "terminal_inspection_receipt", "fetch_snapshot"} <= set(sources) else ENDPOINT_REVIEW_SCHEMA,
+        "schema": ENDPOINT_REVIEW_SCHEMA_V2 if {"family", "terminal_inspection_receipt", "fetch_snapshot", "ts_checkpoint", "checkpoint_audit", "irc_plan", "allcheck_input_manifest"} <= set(sources) else ENDPOINT_REVIEW_SCHEMA,
         "review_id": draft["review_id"],
         "direction": draft["direction"], "chemical_side": draft["chemical_side"],
         "sources": source_bundle, "endpoint_coordinates": {"records": records, "sha256": _canonical_data_sha256(records)},
@@ -2061,7 +2148,7 @@ def build_allcheck_endpoint_input(
     if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
         raise ValueError("endpoint checkpoint must be an existing non-symlink file")
     audit = json.loads(endpoint_audit_path.read_text(encoding="utf-8"))
-    if audit.get("schema") != "gaussian-irc-endpoint-audit/1" or audit.get("audit_status") != "passed":
+    if audit.get("schema") not in {"gaussian-irc-endpoint-audit/1", "gaussian-irc-endpoint-audit/2"} or audit.get("audit_status") != "passed":
         raise ValueError("endpoint input requires a passed IRC endpoint audit")
     if audit.get("checkpoint_file") != checkpoint_path.name or audit.get("checkpoint_sha256") != sha256(checkpoint_path):
         raise ValueError("endpoint checkpoint file or hash differs from the audit")
@@ -2465,17 +2552,17 @@ def audit_fragment_endpoint_results(
             or result.get("stationary_point_found") is not True
         ):
             raise ValueError(f"fragment {project} lacks completed stationary-point optimization evidence")
-        frequencies = result.get("frequencies_cm-1")
-        if not isinstance(frequencies, list) or not frequencies or result.get("frequency_count") != len(frequencies):
-            raise ValueError(f"fragment {project} lacks a complete frequency result")
-        if result.get("imaginary_frequency_count") != 0 or any(float(value) < 0 for value in frequencies):
-            raise ValueError(f"fragment {project} is not a zero-imaginary-frequency minimum")
         coordinates = result.get("final_coordinates")
         if not isinstance(coordinates, list) or len(coordinates) != fragment.get("atom_count"):
             raise ValueError(f"fragment {project} result atom count differs from the plan")
         expected_frequency_count, linearity = _ts_geometry_mode_count(coordinates)
+        frequencies = result.get("frequencies_cm-1")
+        if not isinstance(frequencies, list) or result.get("frequency_count") != len(frequencies):
+            raise ValueError(f"fragment {project} lacks a complete frequency result")
         if expected_frequency_count is None or len(frequencies) != expected_frequency_count:
             raise ValueError(f"fragment {project} frequency list is incomplete for its exact atom count and linearity")
+        if result.get("imaginary_frequency_count") != 0 or any(float(value) < 0 for value in frequencies):
+            raise ValueError(f"fragment {project} is not a zero-imaginary-frequency minimum")
         if [atom.get("element") for atom in coordinates] != fragment.get("element_order"):
             raise ValueError(f"fragment {project} result element order differs from the plan")
         energy = result.get("final_energy_hartree")
@@ -2495,7 +2582,7 @@ def audit_fragment_endpoint_results(
                 "expected_frequency_count": expected_frequency_count,
                 "linearity": linearity,
                 "imaginary_frequency_count": 0,
-                "lowest_frequency_cm-1": min(float(value) for value in frequencies),
+                "lowest_frequency_cm-1": min((float(value) for value in frequencies), default=None),
                 "minimum_accepted": True,
             }
         )
@@ -2936,7 +3023,7 @@ def _ts_geometry_mode_count(coordinates: list[dict[str, Any]]) -> tuple[int | No
 
 def _inspection_v2_is_exact_terminal(
     inspection: dict[str, Any], *, project: str, job_id: str, log_size: int,
-    normal_count: int, error_count: int,
+    normal_count: int, error_count: int, expected_terminal_state: str,
 ) -> bool:
     evidence = inspection.get("evidence_sha256")
     return bool(
@@ -2944,7 +3031,8 @@ def _inspection_v2_is_exact_terminal(
         and evidence == _transport_digest({key: value for key, value in inspection.items() if key != "evidence_sha256"})
         and inspection.get("project") == project and inspection.get("job_id") == job_id
         and inspection.get("source") == "single_remote_read_only_snapshot"
-        and inspection.get("state") in {"completed", "failed", "interrupted"}
+        and expected_terminal_state in {"completed", "failed", "interrupted"}
+        and inspection.get("state") == expected_terminal_state
         and inspection.get("freshness") == "fresh"
         and inspection.get("transport_classification") == "success"
         and inspection.get("transport_returncode") == 0
@@ -3041,6 +3129,7 @@ def _validate_ts_execution_evidence(
     if not isinstance(inspection, dict) or receipt.get("inspection_evidence_sha256") != inspection.get("evidence_sha256") or not _inspection_v2_is_exact_terminal(
         inspection, project=project, job_id=job_id, log_size=log_path.stat().st_size,
         normal_count=text.count("Normal termination of Gaussian"), error_count=text.count("Error termination"),
+        expected_terminal_state=str(receipt.get("terminal_state")),
     ):
         raise ValueError("TS/Freq terminal inspection /2 is stale, malformed, or differs from the raw log")
     snapshot = _load_json_strict(resolved["fetch_snapshot"])
@@ -3257,6 +3346,7 @@ def _audit_terminal_job(
     if inspection.get("schema") == "gaussian-job-inspection/2" and not _inspection_v2_is_exact_terminal(
         inspection, project=project, job_id=str(job.get("job_id")),
         log_size=log_path.stat().st_size, normal_count=normal_count, error_count=error_count,
+        expected_terminal_state=str(job.get("status")),
     ):
         raise ValueError("Gaussian inspection /2 is stale, malformed, tampered, or not exact terminal evidence")
     return job, text
@@ -3636,8 +3726,8 @@ def main() -> int:
     plan = sub.add_parser("plan-irc"); plan.add_argument("family"); plan.add_argument("--ts-result", required=True); plan.add_argument("--checkpoint", required=True); plan.add_argument("--mode-review", required=True); plan.add_argument("--mode-decision", required=True); plan.add_argument("--g16-revision", required=True); plan.add_argument("--forward-route", required=True); plan.add_argument("--reverse-route", required=True); plan.add_argument("--forward-project", required=True); plan.add_argument("--reverse-project", required=True); plan.add_argument("--output", required=True); plan.add_argument("--confirmed", action="store_true")
     checkpoint_audit = sub.add_parser("audit-checkpoint"); checkpoint_audit.add_argument("--ts-input", required=True); checkpoint_audit.add_argument("--ts-log", required=True); checkpoint_audit.add_argument("--ts-result", required=True); checkpoint_audit.add_argument("--checkpoint", required=True); checkpoint_audit.add_argument("--mode-review", required=True); checkpoint_audit.add_argument("--mode-decision", required=True); checkpoint_audit.add_argument("--output", required=True)
     allcheck = sub.add_parser("build-allcheck-irc"); allcheck.add_argument("--checkpoint-audit", required=True); allcheck.add_argument("--checkpoint", required=True); allcheck.add_argument("--output", required=True); allcheck.add_argument("--route", required=True); allcheck.add_argument("--direction", choices=["forward", "reverse"], required=True); allcheck.add_argument("--memory", required=True); allcheck.add_argument("--nprocshared", type=int, required=True)
-    endpoint_audit = sub.add_parser("audit-irc-endpoint"); endpoint_audit.add_argument("--irc-input", required=True); endpoint_audit.add_argument("--irc-log", required=True); endpoint_audit.add_argument("--irc-result", required=True); endpoint_audit.add_argument("--job", required=True); endpoint_audit.add_argument("--checkpoint", required=True); endpoint_audit.add_argument("--direction", choices=["forward", "reverse"], required=True); endpoint_audit.add_argument("--chemical-side", choices=["reactant", "product"], required=True); endpoint_audit.add_argument("--expected-points", type=int, required=True); endpoint_audit.add_argument("--forming", action="append", required=True); endpoint_audit.add_argument("--output", required=True)
-    endpoint_review = sub.add_parser("build-endpoint-structure-review"); endpoint_review.add_argument("--review", required=True); endpoint_review.add_argument("--family", required=True); endpoint_review.add_argument("--audit", required=True); endpoint_review.add_argument("--irc-input", required=True); endpoint_review.add_argument("--irc-log", required=True); endpoint_review.add_argument("--irc-result", required=True); endpoint_review.add_argument("--job", required=True); endpoint_review.add_argument("--checkpoint", required=True); endpoint_review.add_argument("--terminal-inspection-receipt", required=True); endpoint_review.add_argument("--fetch-snapshot", required=True); endpoint_review.add_argument("--output", required=True)
+    endpoint_audit = sub.add_parser("audit-irc-endpoint"); endpoint_audit.add_argument("--irc-input", required=True); endpoint_audit.add_argument("--irc-log", required=True); endpoint_audit.add_argument("--irc-result", required=True); endpoint_audit.add_argument("--job", required=True); endpoint_audit.add_argument("--checkpoint", required=True); endpoint_audit.add_argument("--ts-checkpoint", required=True); endpoint_audit.add_argument("--checkpoint-audit", required=True); endpoint_audit.add_argument("--irc-plan", required=True); endpoint_audit.add_argument("--allcheck-input-manifest", required=True); endpoint_audit.add_argument("--direction", choices=["forward", "reverse"], required=True); endpoint_audit.add_argument("--chemical-side", choices=["reactant", "product"], required=True); endpoint_audit.add_argument("--expected-points", type=int, required=True); endpoint_audit.add_argument("--forming", action="append", required=True); endpoint_audit.add_argument("--output", required=True)
+    endpoint_review = sub.add_parser("build-endpoint-structure-review"); endpoint_review.add_argument("--review", required=True); endpoint_review.add_argument("--family", required=True); endpoint_review.add_argument("--audit", required=True); endpoint_review.add_argument("--irc-input", required=True); endpoint_review.add_argument("--irc-log", required=True); endpoint_review.add_argument("--irc-result", required=True); endpoint_review.add_argument("--job", required=True); endpoint_review.add_argument("--checkpoint", required=True); endpoint_review.add_argument("--terminal-inspection-receipt", required=True); endpoint_review.add_argument("--fetch-snapshot", required=True); endpoint_review.add_argument("--ts-checkpoint", required=True); endpoint_review.add_argument("--checkpoint-audit", required=True); endpoint_review.add_argument("--irc-plan", required=True); endpoint_review.add_argument("--allcheck-input-manifest", required=True); endpoint_review.add_argument("--output", required=True)
     endpoint_review_validate = sub.add_parser("validate-endpoint-structure-review"); endpoint_review_validate.add_argument("artifact")
     endpoint = sub.add_parser("build-allcheck-endpoint"); endpoint.add_argument("--endpoint-audit", required=True); endpoint.add_argument("--checkpoint", required=True); endpoint.add_argument("--output", required=True); endpoint.add_argument("--route", required=True); endpoint.add_argument("--memory", required=True); endpoint.add_argument("--nprocshared", type=int, required=True)
     components = sub.add_parser("propose-endpoint-components"); components.add_argument("--endpoint-audit", required=True); components.add_argument("--irc-result", required=True); components.add_argument("--bond-scale", type=float, default=1.25); components.add_argument("--output", required=True)
@@ -3791,10 +3881,10 @@ def main() -> int:
             if output_path.exists(): raise ValueError("refusing to overwrite an existing IRC endpoint audit")
             pairs = [tuple(map(int, raw.split(","))) for raw in args.forming]
             if any(len(pair) != 2 for pair in pairs): raise ValueError("forming pairs must use atom1,atom2")
-            result = audit_irc_endpoint_provenance(Path(args.irc_input), Path(args.irc_log), Path(args.irc_result), Path(args.job), Path(args.checkpoint), args.direction, args.chemical_side, args.expected_points, pairs)
+            result = audit_irc_endpoint_provenance(Path(args.irc_input), Path(args.irc_log), Path(args.irc_result), Path(args.job), Path(args.checkpoint), args.direction, args.chemical_side, args.expected_points, pairs, ts_checkpoint_path=Path(args.ts_checkpoint), checkpoint_audit_path=Path(args.checkpoint_audit), irc_plan_path=Path(args.irc_plan), allcheck_manifest_path=Path(args.allcheck_input_manifest))
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "build-endpoint-structure-review":
-            sources = {"family": Path(args.family), "audit": Path(args.audit), "irc_input": Path(args.irc_input), "irc_log": Path(args.irc_log), "irc_result": Path(args.irc_result), "job": Path(args.job), "checkpoint": Path(args.checkpoint), "terminal_inspection_receipt": Path(args.terminal_inspection_receipt), "fetch_snapshot": Path(args.fetch_snapshot)}
+            sources = {"family": Path(args.family), "audit": Path(args.audit), "irc_input": Path(args.irc_input), "irc_log": Path(args.irc_log), "irc_result": Path(args.irc_result), "job": Path(args.job), "checkpoint": Path(args.checkpoint), "terminal_inspection_receipt": Path(args.terminal_inspection_receipt), "fetch_snapshot": Path(args.fetch_snapshot), "ts_checkpoint": Path(args.ts_checkpoint), "checkpoint_audit": Path(args.checkpoint_audit), "irc_plan": Path(args.irc_plan), "allcheck_input_manifest": Path(args.allcheck_input_manifest)}
             build_endpoint_structure_review_artifact(sources, Path(args.review), Path(args.output))
         elif args.command == "validate-endpoint-structure-review":
             result = validate_endpoint_structure_review_artifact(Path(args.artifact))

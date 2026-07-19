@@ -188,16 +188,12 @@ class AsymmetricProvenanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ASYM.OfflineError, "promoted_offline"):
                 self.ingest(paths, root / "result.json")
 
-    def test_complete_hash_bound_path_lineage_is_preserved(self) -> None:
+    def test_legacy_endpoint_audits_are_replay_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             paths = self.make_ingest_chain(root)
-            result = self.ingest(paths, root / "result.json")
-            self.assertEqual(result["validation_level"], "path_validated")
-            self.assertTrue(result["path_evidence"]["endpoint_identity_reviewed"])
-            self.assertEqual(result["artifacts"]["checkpoint_audit"]["sha256"], digest(paths["audit"]))
-            self.assertEqual(result["artifacts"]["irc_plan"]["sha256"], digest(paths["plan"]))
-            self.assertFalse(result["calculation_ready"])
+            with self.assertRaisesRegex(ASYM.OfflineError, "historical endpoint-audit /1"):
+                self.ingest(paths, root / "result.json")
 
     def test_ts_result_v2_allowlist_invokes_the_canonical_owner_validator(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -222,14 +218,14 @@ class AsymmetricProvenanceTests(unittest.TestCase):
             self.assertEqual(result["validation_level"], "first_order_saddle_candidate")
             self.assertFalse(result["calculation_ready"])
 
-    def test_ingest_rejects_endpoint_atom_order_and_project_tampering(self) -> None:
+    def test_legacy_endpoint_audit_tampering_cannot_bypass_replay_only_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             paths = self.make_ingest_chain(root)
             endpoint = json.loads(paths["forward"].read_text())
             endpoint["atom_order"][0], endpoint["atom_order"][1] = endpoint["atom_order"][1], endpoint["atom_order"][0]
             dump(paths["forward"], endpoint)
-            with self.assertRaisesRegex(ASYM.OfflineError, "atom order differs"):
+            with self.assertRaisesRegex(ASYM.OfflineError, "historical endpoint-audit /1"):
                 self.ingest(paths, root / "bad-order.json")
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -238,7 +234,7 @@ class AsymmetricProvenanceTests(unittest.TestCase):
             endpoint = json.loads(paths["forward"].read_text())
             endpoint["project"] = "forged_project"
             dump(paths["forward"], endpoint)
-            with self.assertRaisesRegex(ASYM.OfflineError, "differs from IRC plan"):
+            with self.assertRaisesRegex(ASYM.OfflineError, "historical endpoint-audit /1"):
                 self.ingest(paths, root / "bad-project.json")
 
     def test_aggregate_binds_results_to_ledger_candidates(self) -> None:

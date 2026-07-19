@@ -248,6 +248,7 @@ class SkillPackagingTests(unittest.TestCase):
                 "auto-g16-ts-irc",
                 "auto-g16-ts-seed",
                 "auto-g16-rtwin-pbs",
+                "auto-g16-view-rt-win",
             )
             for name in names:
                 dry = sync.sync_skill(ROOT, installed, name, apply=False, confirmed=False)
@@ -407,6 +408,43 @@ class SkillPackagingTests(unittest.TestCase):
             )
             self.assertEqual(owner_loaders.returncode, 0, owner_loaders.stdout + owner_loaders.stderr)
             self.assertIn("deployed-owner-loaders-ok", owner_loaders.stdout)
+            runtime_loader_smoke = "\n".join(
+                (
+                    "import importlib.util, os, pathlib, sys, tempfile",
+                    "installed = pathlib.Path(sys.argv[1])",
+                    "for name in ('auto-g16-rtwin-pbs', 'auto-g16-view-rt-win'):",
+                    "    path = installed / name / 'scripts/runtime_config.py'",
+                    "    with tempfile.TemporaryDirectory() as temporary:",
+                    "        base = pathlib.Path(temporary).resolve()",
+                    "        missing = base / 'missing/runtime.json'",
+                    "        os.environ['AUTO_G16_RUNTIME_CONFIG'] = str(missing)",
+                    "        spec = importlib.util.spec_from_file_location('packaged_runtime_' + name, path)",
+                    "        module = importlib.util.module_from_spec(spec)",
+                    "        spec.loader.exec_module(module)",
+                    "        assert module.VALUES == {} and module.load() == {}",
+                    "        real = base / 'real'",
+                    "        real.mkdir()",
+                    "        linked = base / 'linked'",
+                    "        linked.symlink_to(real, target_is_directory=True)",
+                    "        os.environ['AUTO_G16_RUNTIME_CONFIG'] = str(linked / 'runtime.json')",
+                    "        try:",
+                    "            module.load()",
+                    "        except ValueError as exc:",
+                    "            assert 'symlink or non-directory' in str(exc)",
+                    "        else:",
+                    "            raise AssertionError('ancestor symlink was accepted')",
+                    "print('deployed-runtime-loaders-ok')",
+                )
+            )
+            runtime_loaders = subprocess.run(
+                [sys.executable, "-c", runtime_loader_smoke, str(installed)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(runtime_loaders.returncode, 0, runtime_loaders.stdout + runtime_loaders.stderr)
+            self.assertIn("deployed-runtime-loaders-ok", runtime_loaders.stdout)
             rtwin_cli = installed / "auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
             rtwin_help = subprocess.run(
                 [sys.executable, str(rtwin_cli), "--help"],

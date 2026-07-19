@@ -48,6 +48,8 @@ ENTRY_KEYS = {
 REFERENCE_KEYS = {"value", "rewrite_to", "action"}
 POSIX_PATH_RE = re.compile(r"(?<![A-Za-z0-9_.-])/(?:[^/\s\x00\"'<>|]+/)*[^/\s\x00\"'<>|]+")
 WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:\\(?:[^\\\r\n\t\x00\"<>|]+\\)*[^\\\r\n\t\x00\"<>|]+")
+DESTINATION_RECEIPT_NAME = ".auto-g16-migration-destination-receipt.json"
+STREAM_CHUNK_SIZE = 1024 * 1024
 
 
 class MigrationError(ValueError):
@@ -120,7 +122,7 @@ def _read_fd(fd: int, label: str) -> bytes:
     chunks: list[bytes] = []
     try:
         while True:
-            chunk = os.read(fd, 1024 * 1024)
+            chunk = os.read(fd, STREAM_CHUNK_SIZE)
             if not chunk:
                 return b"".join(chunks)
             chunks.append(chunk)
@@ -315,6 +317,7 @@ def build_plan(source: Path, target: Path, *, created_at: str | None = None) -> 
         for path in _iter_source_files(source):
             relative = path.relative_to(source)
             require(not relative.is_absolute() and ".." not in relative.parts, "source relative path is unsafe")
+            require(relative.as_posix() != DESTINATION_RECEIPT_NAME, "source contains the reserved destination receipt path")
             raw = _read_source_at(source_fd, relative)
             planned = _planned_bytes(raw, source, target)
             text = _text(raw)
@@ -336,6 +339,9 @@ def build_plan(source: Path, target: Path, *, created_at: str | None = None) -> 
             })
     finally:
         os.close(source_fd)
+    receipt_destination = target / DESTINATION_RECEIPT_NAME
+    if os.path.lexists(receipt_destination):
+        conflicts.append(DESTINATION_RECEIPT_NAME)
     plan = {
         "schema": SCHEMA,
         "created_at": created_at or datetime.now(timezone.utc).isoformat(),
@@ -426,20 +432,91 @@ def write_new(path: Path, value: dict[str, Any]) -> None:
         os.close(fd)
 
 
-def _verified_source_bytes(
+def _open_regular_source_at(source_fd: int, relative: Path) -> int:
+    """Open one source leaf through no-follow directory descriptors."""
+    parts = _relative_parts(relative, "source relative path")
+    parent_fd = os.dup(source_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            next_fd = _open_directory_at(parent_fd, part, f"source ancestor {index + 1}")
+            os.close(parent_fd)
+            parent_fd = next_fd
+        try:
+            leaf_fd = os.open(parts[-1], SOURCE_FLAGS, dir_fd=parent_fd)
+        except OSError as exc:
+            raise _unsafe_path_error(f"source leaf {relative.as_posix()}", exc) from exc
+        opened = os.fstat(leaf_fd)
+        if not stat.S_ISREG(opened.st_mode):
+            os.close(leaf_fd)
+            raise MigrationError(f"source leaf is not a regular file: {relative.as_posix()}")
+        return leaf_fd
+    finally:
+        os.close(parent_fd)
+
+
+def _identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def _stream_planned_entry(
     source_fd: int,
     entry: dict[str, Any],
     source: Path,
     target: Path,
-) -> bytes:
+    destination_fd: int | None = None,
+) -> dict[str, Any]:
+    """Hash and optionally copy one entry using bounded buffers."""
     relative = Path(entry["relative_path"])
-    raw = _read_source_at(source_fd, relative)
-    require(len(raw) == entry["source_size_bytes"], f"source size changed before apply: {relative.as_posix()}")
-    require(hashlib.sha256(raw).hexdigest() == entry["source_sha256"], f"source hash changed before apply: {relative.as_posix()}")
-    planned = _planned_bytes(raw, source, target)
-    require(len(planned) == entry["planned_size_bytes"], f"planned size changed before apply: {relative.as_posix()}")
-    require(hashlib.sha256(planned).hexdigest() == entry["planned_sha256"], f"planned hash changed before apply: {relative.as_posix()}")
-    return planned
+    leaf_fd = _open_regular_source_at(source_fd, relative)
+    source_hash = hashlib.sha256(); planned_hash = hashlib.sha256()
+    source_size = 0; planned_size = 0
+    before = os.fstat(leaf_fd)
+    needle = str(source).encode("utf-8")
+    replacement = str(target).encode("utf-8")
+    text_mode = entry["content_kind"] == "utf8_text"
+    pending = b""
+
+    def emit(raw: bytes) -> None:
+        nonlocal planned_size
+        if not raw:
+            return
+        planned_hash.update(raw); planned_size += len(raw)
+        if destination_fd is not None:
+            _write_all(destination_fd, raw)
+
+    try:
+        while True:
+            chunk = os.read(leaf_fd, STREAM_CHUNK_SIZE)
+            if not chunk:
+                break
+            source_hash.update(chunk); source_size += len(chunk)
+            if not text_mode:
+                emit(chunk); continue
+            pending += chunk
+            while True:
+                index = pending.find(needle)
+                if index >= 0:
+                    emit(pending[:index]); emit(replacement)
+                    pending = pending[index + len(needle):]
+                    continue
+                retained = min(max(len(needle) - 1, 0), len(pending))
+                emit(pending[:-retained] if retained else pending)
+                pending = pending[-retained:] if retained else b""
+                break
+        if text_mode:
+            emit(pending)
+        after = os.fstat(leaf_fd)
+    finally:
+        os.close(leaf_fd)
+    require(_identity(before) == _identity(after), f"source identity changed while streaming: {relative.as_posix()}")
+    observed = {
+        "identity": _identity(before), "source_size_bytes": source_size,
+        "source_sha256": source_hash.hexdigest(), "planned_size_bytes": planned_size,
+        "planned_sha256": planned_hash.hexdigest(),
+    }
+    for key in ("source_size_bytes", "source_sha256", "planned_size_bytes", "planned_sha256"):
+        require(observed[key] == entry[key], f"{key.replace('_', ' ')} changed before apply: {relative.as_posix()}")
+    return observed
 
 
 def _preflight_source_entries(
@@ -447,14 +524,8 @@ def _preflight_source_entries(
     entries: list[dict[str, Any]],
     source: Path,
     target: Path,
-) -> dict[str, tuple[bytes, tuple[int, int, int, int, int]]]:
-    return {
-        entry["relative_path"]: (
-            _verified_source_bytes(source_fd, entry, source, target),
-            _source_identity_at(source_fd, Path(entry["relative_path"])),
-        )
-        for entry in entries
-    }
+) -> dict[str, dict[str, Any]]:
+    return {entry["relative_path"]: _stream_planned_entry(source_fd, entry, source, target) for entry in entries}
 
 
 def _target_root_handles(target: Path) -> tuple[int, int | None, str]:
@@ -516,6 +587,8 @@ def _preflight_destination_conflicts(target_fd: int | None, entries: list[dict[s
         for entry in entries
         if _destination_exists(target_fd, Path(entry["relative_path"]))
     ]
+    if _destination_exists(target_fd, Path(DESTINATION_RECEIPT_NAME)):
+        conflicts.append(DESTINATION_RECEIPT_NAME)
     require(not conflicts, f"target conflicts appeared before apply: {conflicts}")
 
 
@@ -568,6 +641,48 @@ def _write_destination(target_fd: int, relative: Path, raw: bytes) -> None:
         os.close(parent_fd)
 
 
+def _stream_destination(
+    source_fd: int, target_fd: int, entry: dict[str, Any], source: Path, target: Path,
+    expected_identity: tuple[int, int, int, int, int],
+) -> dict[str, Any]:
+    relative = Path(entry["relative_path"])
+    require(_source_identity_at(source_fd, relative) == expected_identity, f"source identity changed after preflight: {relative.as_posix()}")
+    parts = _relative_parts(relative, "migration destination path")
+    parent_fd = os.dup(target_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            next_fd = _open_directory_at(parent_fd, part, f"destination ancestor {index + 1}", create=True)
+            os.close(parent_fd); parent_fd = next_fd
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        try:
+            destination_fd = os.open(parts[-1], flags, 0o600, dir_fd=parent_fd)
+        except OSError as exc:
+            raise MigrationError(f"refusing unsafe or existing migration destination: {relative.as_posix()}: {exc}") from exc
+        try:
+            os.fchmod(destination_fd, 0o600)
+            observed = _stream_planned_entry(source_fd, entry, source, target, destination_fd)
+            os.fsync(destination_fd)
+        finally:
+            os.close(destination_fd)
+    finally:
+        os.close(parent_fd)
+    # Re-read the source after the write and reject any in-flight replacement or drift.
+    after = _stream_planned_entry(source_fd, entry, source, target)
+    require(after["identity"] == expected_identity, f"source identity changed after copy: {relative.as_posix()}")
+    destination_fd = _open_regular_source_at(target_fd, relative)
+    try:
+        destination_hash = hashlib.sha256(); destination_size = 0
+        while True:
+            chunk = os.read(destination_fd, STREAM_CHUNK_SIZE)
+            if not chunk: break
+            destination_hash.update(chunk); destination_size += len(chunk)
+    finally:
+        os.close(destination_fd)
+    digest = destination_hash.hexdigest()
+    require(destination_size == entry["planned_size_bytes"] and digest == entry["planned_sha256"], f"destination rehash differs after apply: {relative.as_posix()}")
+    return {"relative_path": relative.as_posix(), "sha256": digest, "size_bytes": destination_size, "mode": "0600"}
+
+
 def apply_plan(path: Path, *, confirmation: str, reviewer: str) -> dict[str, Any]:
     require(bool(reviewer.strip()), "apply requires a non-empty reviewer identity")
     plan = review_plan(path)
@@ -585,25 +700,17 @@ def apply_plan(path: Path, *, confirmation: str, reviewer: str) -> dict[str, Any
     try:
         # No target directory or file is created until every source byte/hash and
         # every destination conflict has passed this descriptor-bound preflight.
-        planned_bytes = _preflight_source_entries(source_fd, plan["entries"], source, target)
+        source_metadata = _preflight_source_entries(source_fd, plan["entries"], source, target)
         target_parent_fd, target_fd, target_leaf = _target_root_handles(target)
         _preflight_destination_conflicts(target_fd, plan["entries"])
         target_fd = _create_target_root(target_parent_fd, target_fd, target_leaf)
         try:
             for entry in plan["entries"]:
                 relative = Path(entry["relative_path"])
-                planned, source_identity = planned_bytes[entry["relative_path"]]
-                require(
-                    _source_identity_at(source_fd, relative) == source_identity,
-                    f"source identity changed after preflight: {relative.as_posix()}",
-                )
-                _write_destination(target_fd, relative, planned)
-                destination = _read_source_at(target_fd, relative)
-                destination_sha = hashlib.sha256(destination).hexdigest()
-                require(len(destination) == entry["planned_size_bytes"] and destination_sha == entry["planned_sha256"], f"destination rehash differs after apply: {relative.as_posix()}")
-                destination_receipts.append({"relative_path": relative.as_posix(), "sha256": destination_sha, "size_bytes": len(destination), "mode": "0600"})
+                metadata = source_metadata[entry["relative_path"]]
+                destination_receipts.append(_stream_destination(source_fd, target_fd, entry, source, target, metadata["identity"]))
                 copied_file_count += 1
-                copied_size_bytes += len(planned)
+                copied_size_bytes += entry["planned_size_bytes"]
             receipt_document = {
                 "schema": "auto-g16-private-study-migration-destination-receipt/1",
                 "plan_sha256": plan["plan_sha256"], "reviewer": reviewer.strip(),
@@ -611,8 +718,7 @@ def apply_plan(path: Path, *, confirmation: str, reviewer: str) -> dict[str, Any
                 "payload_sha256": None,
             }
             receipt_document["payload_sha256"] = hashlib.sha256(canonical_bytes({key: value for key, value in receipt_document.items() if key != "payload_sha256"})).hexdigest()
-            receipt_relative = Path(".auto-g16-migration-destination-receipt.json")
-            require(not _destination_exists(target_fd, receipt_relative), "destination migration receipt already exists")
+            receipt_relative = Path(DESTINATION_RECEIPT_NAME)
             receipt_bytes = canonical_bytes(receipt_document); _write_destination(target_fd, receipt_relative, receipt_bytes)
             persisted = _read_source_at(target_fd, receipt_relative)
             require(persisted == receipt_bytes, "persisted destination migration receipt rehash differs")
