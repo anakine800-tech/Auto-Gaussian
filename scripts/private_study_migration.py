@@ -568,7 +568,10 @@ class _ReferenceScanner:
         for character in decoded:
             if self.candidate is not None:
                 if self.candidate_quote is not None:
-                    if character == self.candidate_quote and self.candidate_trailing_backslashes % 2 == 0:
+                    if character in {"\r", "\n"}:
+                        self._finish(self.offset, forced_ambiguity="unterminated_quoted_path")
+                        self.quote = None
+                    elif character == self.candidate_quote and self.candidate_trailing_backslashes % 2 == 0:
                         self._finish(self.offset)
                         self.quote = None
                     else:

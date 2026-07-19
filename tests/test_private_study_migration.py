@@ -459,7 +459,11 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             ambiguous = "/tmp/Other Project/results/file.log"
             (source / "ambiguous.txt").write_text(f"external={ambiguous}\n", encoding="utf-8")
             unterminated = "/tmp/Quoted Project/results/file.log"
-            (source / "unterminated.txt").write_text(f'external="{unterminated}', encoding="utf-8")
+            (source / "unterminated.txt").write_text(f'external="{unterminated}\n', encoding="utf-8")
+            unterminated_windows = r"C:\Quoted Project\results\file.log"
+            (source / "unterminated-windows.txt").write_text(
+                f'external="{unterminated_windows}\r\n', encoding="utf-8"
+            )
             plan = MIGRATION.build_plan(source, target, created_at="2026-07-20T00:00:00+00:00")
             MIGRATION.write_new(plan_path, plan)
 
@@ -476,6 +480,17 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             self.assertEqual(unterminated_entry["reference_scan_status"], "review_required_ambiguous")
             self.assertEqual(unterminated_entry["absolute_path_references"][0]["value"], unterminated)
             self.assertEqual(unterminated_entry["absolute_path_references"][0]["ambiguity"], "unterminated_quoted_path")
+            unterminated_windows_entry = next(
+                item for item in plan["entries"] if item["relative_path"] == "unterminated-windows.txt"
+            )
+            self.assertEqual(unterminated_windows_entry["reference_scan_status"], "review_required_ambiguous")
+            self.assertEqual(
+                unterminated_windows_entry["absolute_path_references"][0]["value"], unterminated_windows
+            )
+            self.assertEqual(
+                unterminated_windows_entry["absolute_path_references"][0]["ambiguity"],
+                "unterminated_quoted_path",
+            )
             with self.assertRaisesRegex(MIGRATION.MigrationError, "review-required"):
                 MIGRATION.review_plan(plan_path)
             with self.assertRaisesRegex(MIGRATION.MigrationError, "review-required"):
