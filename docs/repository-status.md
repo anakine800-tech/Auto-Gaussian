@@ -2,21 +2,25 @@
 
 ## Current mainline state
 
-Status date: 2026-07-19
+Status date: 2026-07-20
 
-Auto-Gaussian 2.5.0 is the current stable source release. The annotated
-`v2.5.0` tag permanently identifies exact release commit
-`18d7f62af3b24cdd0fbe5687f4c0e779f243d572`. The engineering-maintenance slice
-started from the then-matching `main` baseline; later `main` development does
-not move that tag. Earlier tags, checklists, and historical evidence remain
-immutable release records rather than pending publication work.
+Auto-Gaussian 2.5.2 is the prepared source-release candidate from clean
+`main` baseline `4063929df0c4aa97aefbde1f8c73e20c8272aa97`. The planned
+annotated `v2.5.2` tag will identify the exact reviewed merge commit only after
+separate publication authorization and green post-merge CI. Until then,
+`v2.5.0` remains the latest published release and its tag permanently
+identifies `18d7f62af3b24cdd0fbe5687f4c0e779f243d572`. No public
+`v2.5.1` tag or release exists. Earlier tags, checklists, and historical
+evidence remain immutable release records rather than pending work.
 
-The release scope is the offline human-AI scientific decision,
-method-evidence, bounded hash-bound TS-seed, closure-priority, PBS
-execution-batch governance, and cross-Skill non-authorizing integration layer.
-It records evidence and human decisions, prioritizes reviewed closure work, and
-accounts for at most ten stable scientific tasks with separate physical-attempt
-and core-hour ledgers plus read-only immediate and 60-minute summaries.
+The 2.5.2 candidate adds compatibility-preserving safety and operational
+hardening around the offline human-AI scientific decision layer: tri-state
+runtime evidence and immutable fetch snapshots, idempotent submit/cancel
+transactions, exact resource policy and monitoring, owner-replayed
+TS/Freq/IRC and minimum-result lineage, strict runtime configuration,
+private-study migration, calculation-DAG performance and release validation.
+Historical schemas retain their replay meaning; new protected work requires
+the newer exact owner, approval and resource contracts.
 
 Every planning/review artifact remains `calculation_ready: false`; calculation
 nodes remain `executable: false`; the integration overlay remains
@@ -99,7 +103,8 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
-- Current hardening-integration evidence on the core interpreter is 690/690
+- Pre-release hardening-integration evidence at baseline commit `4063929` on
+  the core interpreter is 690/690
   offline tests for both the worktree and a `.git`-free source archive; both
   runs have one expected RDKit skip in the core profile. The separate locked
   chemistry profile previously passed the real RDKit smoke. These are
