@@ -308,6 +308,113 @@ def validate_transfer_name(name: str) -> str:
     return name
 
 
+def command_detail(result: subprocess.CompletedProcess) -> str | None:
+    """Return one bounded diagnostic without turning an error into evidence."""
+
+    detail = " ".join(str(result.stderr or result.stdout).strip().split())
+    return detail[:500] if detail else None
+
+
+def is_unknown_job_id(result: subprocess.CompletedProcess) -> bool:
+    """Recognize only PBS' explicit statement that one exact record is absent."""
+
+    text = f"{result.stdout}\n{result.stderr}"
+    return bool(re.search(r"\bunknown\s+job(?:\s+identifier|\s+id)?\b", text, re.I))
+
+
+def classify_qstat_evidence(result: subprocess.CompletedProcess) -> dict[str, Any]:
+    """Classify qstat as present/absent/unknown; command errors stay unknown."""
+
+    text = str(result.stdout or result.stderr)
+    if result.returncode == 0:
+        qstate_match = re.search(r"(?m)^\s*job_state\s*=\s*(\S+)", text)
+        job_name_match = re.search(r"(?m)^\s*Job_Name\s*=\s*(\S+)", text)
+        session_match = re.search(r"(?m)^\s*session_id\s*=\s*(\d+)", text)
+        if qstate_match and job_name_match:
+            return {
+                "status": "present",
+                "record_present": True,
+                "pbs_state": qstate_match.group(1),
+                "job_name": job_name_match.group(1),
+                "session_id": session_match.group(1) if session_match else None,
+                "returncode": result.returncode,
+                "error": None,
+            }
+        return {
+            "status": "unknown",
+            "record_present": None,
+            "pbs_state": None,
+            "job_name": None,
+            "session_id": None,
+            "returncode": result.returncode,
+            "error": "qstat succeeded but its exact job record could not be parsed",
+        }
+    if result.returncode != 255 and is_unknown_job_id(result):
+        return {
+            "status": "absent",
+            "record_present": False,
+            "pbs_state": None,
+            "job_name": None,
+            "session_id": None,
+            "returncode": result.returncode,
+            "error": None,
+        }
+    return {
+        "status": "unknown",
+        "record_present": None,
+        "pbs_state": None,
+        "job_name": None,
+        "session_id": None,
+        "returncode": result.returncode,
+        "error": command_detail(result) or "qstat failed without an explicit Unknown Job Id response",
+    }
+
+
+def classify_process_evidence(result: subprocess.CompletedProcess) -> dict[str, Any]:
+    """Classify an exact PBS session process observation without guessing."""
+
+    output = str(result.stdout).strip()
+    if result.returncode == 0:
+        present = bool(output)
+        return {
+            "status": "present" if present else "absent",
+            "process_alive": present,
+            "returncode": result.returncode,
+            "error": None,
+        }
+    if result.returncode == 1 and not output and not str(result.stderr).strip():
+        return {
+            "status": "absent",
+            "process_alive": False,
+            "returncode": result.returncode,
+            "error": None,
+        }
+    return {
+        "status": "unknown",
+        "process_alive": None,
+        "returncode": result.returncode,
+        "error": command_detail(result) or "ps failed, so session-process presence is unknown",
+    }
+
+
+def classify_qdel_outcome(result: subprocess.CompletedProcess) -> dict[str, Any]:
+    """Classify the one allowed qdel without treating transport failure as success."""
+
+    if result.returncode == 0:
+        return {"status": "success", "returncode": 0, "error": None}
+    if result.returncode != 255 and is_unknown_job_id(result):
+        return {
+            "status": "unknown_job_id",
+            "returncode": result.returncode,
+            "error": None,
+        }
+    return {
+        "status": "failed",
+        "returncode": result.returncode,
+        "error": command_detail(result) or "qdel failed without an explicit Unknown Job Id response",
+    }
+
+
 def remote_empty_directory_guard(project: str) -> str:
     """Create one empty, non-symlink project directory inside the fixed root."""
 
@@ -2182,16 +2289,23 @@ def classify_inspection_state(
     analysis: dict[str, Any],
     qstate: str | None,
     process_alive: bool | None,
+    pbs_evidence_status: str | None = None,
 ) -> tuple[str, int, bool, bool]:
     expected_stages = int(workflow_manifest.get("expected_stage_count", 3)) if workflow_manifest else 1
     workflow_complete = bool(
         workflow_manifest and full_normal_count >= expected_stages and full_error_count == 0
     )
     workflow_failed = bool(workflow_manifest and full_error_count > 0)
+    if pbs_evidence_status is None:
+        pbs_evidence_status = "present" if qstate is not None else "unknown"
+    if pbs_evidence_status not in {"present", "absent", "unknown"}:
+        raise ValueError("pbs_evidence_status must be present, absent, or unknown")
     # A single input can contain sequential work (for example, Opt followed by
     # Freq).  An earlier "Normal termination" does not make the overall job
     # terminal while PBS still has a live Gaussian session.
-    if qstate == "R" and process_alive is True:
+    if pbs_evidence_status == "unknown":
+        state = "unknown"
+    elif qstate == "R" and process_alive is True:
         state = "running"
     elif qstate == "Q":
         state = "queued"
@@ -2211,12 +2325,6 @@ def classify_inspection_state(
         state = "failed"
     elif qstate == "R" and process_alive is False:
         state = "stale"
-    elif qstate is None and (
-        analysis.get("scf_calculations", 0) > 0
-        or analysis.get("final_coordinate_count", 0) > 0
-        or analysis.get("normal_termination_count", 0) + analysis.get("error_termination_count", 0) > 0
-    ):
-        state = "interrupted"
     else:
         state = "unknown"
     return state, expected_stages, workflow_complete, workflow_failed
@@ -2239,12 +2347,30 @@ def terminal_log_proven(inspection: dict[str, Any]) -> bool:
 def zombie_snapshot(inspection: dict[str, Any]) -> dict[str, Any]:
     """Keep only scheduler-safety evidence needed for zombie diagnosis."""
 
+    pbs_record_present = inspection.get("pbs_record_present")
+    pbs_evidence_status = inspection.get("pbs_evidence_status")
+    if pbs_evidence_status not in {"present", "absent", "unknown"}:
+        pbs_evidence_status = (
+            "present" if pbs_record_present is True
+            else "absent" if pbs_record_present is False
+            else "unknown"
+        )
+    process_alive = inspection.get("process_alive")
+    process_evidence_status = inspection.get("process_evidence_status")
+    if process_evidence_status not in {"present", "absent", "unknown"}:
+        process_evidence_status = (
+            "present" if process_alive is True
+            else "absent" if process_alive is False
+            else "unknown"
+        )
     return {
         "pbs_job_name": inspection.get("pbs_job_name"),
         "pbs_state": inspection.get("pbs_state"),
         "pbs_record_present": inspection.get("pbs_record_present"),
+        "pbs_evidence_status": pbs_evidence_status,
         "session_id": inspection.get("session_id"),
         "process_alive": inspection.get("process_alive"),
+        "process_evidence_status": process_evidence_status,
         "log_size": inspection.get("log_size"),
         "log_mtime_epoch": inspection.get("log_mtime_epoch"),
         "workflow_expected_stages": inspection.get("workflow_expected_stages"),
@@ -2276,7 +2402,7 @@ def assess_zombie_observations(
             "failed_checks": ["at least two observations are required"],
             "observations": snapshots,
         }
-    if not snapshots[-1]["pbs_record_present"]:
+    if snapshots[-1]["pbs_evidence_status"] == "absent":
         return {
             **base,
             "classification": "self_purged",
@@ -2286,10 +2412,16 @@ def assess_zombie_observations(
         }
 
     checks = {
+        "pbs_evidence_present": all(
+            value["pbs_evidence_status"] == "present" for value in snapshots
+        ),
         "exact_job_name": all(value["pbs_job_name"] == project for value in snapshots),
         "pbs_running_record": all(value["pbs_state"] == "R" for value in snapshots),
         "session_id_present": all(bool(value["session_id"]) for value in snapshots),
-        "session_process_absent": all(value["process_alive"] is False for value in snapshots),
+        "session_process_absent": all(
+            value["process_evidence_status"] == "absent" and value["process_alive"] is False
+            for value in snapshots
+        ),
         "terminal_log_proven": all(value["terminal_log_proven"] for value in snapshots),
         "log_metadata_present": all(
             value["log_size"] is not None and value["log_mtime_epoch"] is not None
@@ -2324,7 +2456,7 @@ def validate_local_job_binding(
     """Bind a cleanup request to the immutable local job audit record."""
 
     job_path = local_dir.expanduser().resolve() / "job.json"
-    if not job_path.is_file():
+    if not job_path.is_file() or job_path.is_symlink():
         fail(f"local job audit record does not exist: {job_path}")
     try:
         job = json.loads(job_path.read_text(encoding="utf-8"))
@@ -2353,17 +2485,21 @@ def inspect_job(args, project: str, input_stem: str, job_id: str) -> dict[str, A
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", input_stem):
         fail("invalid input stem")
     qstat = run(nested_ssh(args, "qstat", "-f", job_id), check=False)
-    qstat_text = str(qstat.stdout or qstat.stderr)
-    qstate_match = re.search(r"(?m)^\s*job_state\s*=\s*(\S+)", qstat_text)
-    qstate = qstate_match.group(1) if qstate_match else None
-    job_name_match = re.search(r"(?m)^\s*Job_Name\s*=\s*(\S+)", qstat_text)
-    pbs_job_name = job_name_match.group(1) if job_name_match else None
-    session_match = re.search(r"(?m)^\s*session_id\s*=\s*(\d+)", qstat_text)
-    session_id = session_match.group(1) if session_match else None
+    qstat_evidence = classify_qstat_evidence(qstat)
+    qstate = qstat_evidence["pbs_state"]
+    pbs_job_name = qstat_evidence["job_name"]
+    session_id = qstat_evidence["session_id"]
     process_alive: bool | None = None
+    process_evidence = {
+        "status": "unknown",
+        "process_alive": None,
+        "returncode": None,
+        "error": "no parsed PBS session id was available",
+    }
     if session_id:
         process = run(nested_ssh(args, "ps", "-s", session_id, "-o", "pid="), check=False)
-        process_alive = bool(str(process.stdout).strip())
+        process_evidence = classify_process_evidence(process)
+        process_alive = process_evidence["process_alive"]
 
     remote_dir = remote_project_dir(project)
     guard = run(
@@ -2420,9 +2556,11 @@ printf '%s:%s\\n' "$normal" "$error"
         analysis=analysis,
         qstate=qstate,
         process_alive=process_alive,
+        pbs_evidence_status=qstat_evidence["status"],
     )
     scheduler_record_lingering = bool(
-        qstate is not None
+        qstat_evidence["status"] == "present"
+        and qstate is not None
         and (workflow_execution_complete or (not workflow_manifest and analysis["normal_termination"]))
     )
     terminal_proven = bool(
@@ -2437,6 +2575,18 @@ printf '%s:%s\\n' "$normal" "$error"
         and process_alive is False
         and terminal_proven
     )
+    incomplete_log_observed = bool(
+        analysis.get("scf_calculations", 0) > 0
+        or analysis.get("final_coordinate_count", 0) > 0
+        or analysis.get("normal_termination_count", 0) + analysis.get("error_termination_count", 0) > 0
+    )
+    interrupted_candidate = bool(
+        qstat_evidence["status"] == "absent"
+        and incomplete_log_observed
+        and not terminal_proven
+        and size is not None
+        and mtime is not None
+    )
 
     inspection = {
         "schema": "gaussian-job-inspection/1",
@@ -2445,9 +2595,15 @@ printf '%s:%s\\n' "$normal" "$error"
         "state": state,
         "pbs_job_name": pbs_job_name,
         "pbs_state": qstate,
-        "pbs_record_present": qstate is not None,
+        "pbs_record_present": qstat_evidence["record_present"],
+        "pbs_evidence_status": qstat_evidence["status"],
+        "pbs_returncode": qstat_evidence["returncode"],
+        "pbs_evidence_error": qstat_evidence["error"],
         "session_id": session_id,
         "process_alive": process_alive,
+        "process_evidence_status": process_evidence["status"],
+        "process_returncode": process_evidence["returncode"],
+        "process_evidence_error": process_evidence["error"],
         "log": log_path,
         "log_size": size,
         "log_mtime_epoch": mtime,
@@ -2456,6 +2612,7 @@ printf '%s:%s\\n' "$normal" "$error"
         "full_error_termination_count": full_error_count,
         "scheduler_record_lingering": scheduler_record_lingering,
         "scheduler_zombie_candidate": zombie_candidate,
+        "interrupted_candidate": interrupted_candidate,
         "analysis": analysis,
     }
     if scheduler_record_lingering:
@@ -2466,46 +2623,260 @@ printf '%s:%s\\n' "$normal" "$error"
     return inspection
 
 
+def load_fetch_allowlist(
+    local_dir: Path,
+    job: dict[str, Any],
+    input_stem: str,
+) -> tuple[list[str], list[str], dict[str, str]]:
+    """Build the exact server allowlist from the staged local audit bundle."""
+
+    checksums_name = validate_transfer_name(str(job.get("checksums", "")))
+    checksums_path = local_dir / checksums_name
+    if not checksums_path.is_file() or checksums_path.is_symlink():
+        fail("local staged checksums file is missing or is a symlink")
+    expected_hashes: dict[str, str] = {}
+    for line in checksums_path.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"([a-f0-9]{64})\s{2}([^/\\]+)", line)
+        if not match:
+            fail("local staged checksums file contains a malformed entry")
+        digest, name = match.groups()
+        name = validate_transfer_name(name)
+        if name in expected_hashes:
+            fail(f"local staged checksums file repeats {name}")
+        expected_hashes[name] = digest
+    expected_hashes[checksums_name] = sha256(checksums_path)
+    input_name = validate_transfer_name(str(job.get("input", "")))
+    if input_name not in expected_hashes:
+        fail("local staged checksums do not bind the exact Gaussian input")
+    if expected_hashes[input_name] != job.get("input_sha256"):
+        fail("local staged input hash does not match job.json")
+    local_input = local_dir / input_name
+    if not local_input.is_file() or local_input.is_symlink():
+        fail("local staged Gaussian input is missing or is a symlink")
+    if sha256(local_input) != job.get("input_sha256"):
+        fail("local staged Gaussian input bytes no longer match job.json")
+    required = sorted({*expected_hashes, validate_transfer_name(f"{input_stem}.log")})
+    optional = {validate_transfer_name(f"{job['project']}.pbs.out")}
+    checkpoint = (job.get("gaussian") or {}).get("checkpoint")
+    if checkpoint:
+        optional.add(validate_transfer_name(str(checkpoint)))
+    optional.difference_update(required)
+    return required, sorted(optional), expected_hashes
+
+
+def server_fetch_inventory_script(
+    project: str,
+    required: list[str],
+    optional: list[str],
+) -> str:
+    """Return a read-only exact-file inventory; no glob or scratch traversal."""
+
+    lines = [remote_existing_directory_guard(project), f"cd '{remote_project_dir(project)}'"]
+    for status, names in (("REQUIRED", required), ("OPTIONAL", optional)):
+        for name in names:
+            validate_transfer_name(name)
+            lines.append(
+                f"if [ -L '{name}' ]; then echo 'REFUSING_SYMLINK\t{name}' >&2; exit 51; "
+                f"elif [ -f '{name}' ]; then digest=$(sha256sum -- '{name}'); digest=${{digest%% *}}; "
+                f"size=$(stat -c %s -- '{name}'); printf 'FILE\\t{name}\\t%s\\t%s\\n' \"$digest\" \"$size\"; "
+                f"else printf 'MISSING_{status}\\t{name}\\n'; fi"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def parse_server_fetch_inventory(
+    text: str,
+    required: list[str],
+    optional: list[str],
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    allowed = set(required) | set(optional)
+    files: dict[str, dict[str, Any]] = {}
+    missing_required: list[str] = []
+    missing_optional: list[str] = []
+    reported: set[str] = set()
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if fields[0] == "FILE" and len(fields) == 4:
+            _, name, digest, size_text = fields
+            if name not in allowed or name in reported or not SHA256_RE.fullmatch(digest):
+                fail("server fetch inventory contains an unexpected or duplicate file")
+            try:
+                size = int(size_text)
+            except ValueError:
+                fail("server fetch inventory contains an invalid file size")
+            if size < 0:
+                fail("server fetch inventory contains a negative file size")
+            files[name] = {"sha256": digest, "size": size}
+            reported.add(name)
+        elif fields[0] in {"MISSING_REQUIRED", "MISSING_OPTIONAL"} and len(fields) == 2:
+            name = fields[1]
+            if name not in allowed or name in reported:
+                fail("server fetch inventory reports an unexpected missing file")
+            (missing_required if fields[0] == "MISSING_REQUIRED" else missing_optional).append(name)
+            reported.add(name)
+        elif line.strip():
+            fail("server fetch inventory could not be parsed exactly")
+    unreported = allowed - set(files) - set(missing_required) - set(missing_optional)
+    if unreported:
+        fail("server fetch inventory omitted allowlisted entries: " + ", ".join(sorted(unreported)))
+    if missing_required:
+        fail("server fetch is missing required files: " + ", ".join(sorted(missing_required)))
+    return files, sorted(missing_optional)
+
+
+def begin_fetch_snapshot(output_dir: Path, binding: dict[str, str]) -> Path:
+    """Reserve one empty local snapshot; partial snapshots remain visibly blocked."""
+
+    expanded = output_dir.expanduser()
+    if expanded.is_symlink():
+        fail("fetch output directory must not be a symlink")
+    output_dir = expanded.resolve()
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            fail("fetch output path already exists and is not a directory")
+        if any(output_dir.iterdir()):
+            fail("refusing to mix fetch results with a non-empty or partial target")
+    else:
+        output_dir.mkdir()
+    marker = output_dir / ".fetch-in-progress"
+    try:
+        descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+    except FileExistsError:
+        fail("another or partial fetch already owns this snapshot target")
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump({"schema": "gaussian-fetch-in-progress/1", **binding}, handle, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return marker
+
+
 def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
-    """Fetch a complete project tree without changing server data."""
+    """Create one exact, hash-verified, immutable fetch snapshot."""
 
     project = validate_project(project)
+    job_id = validate_job_id(str(getattr(args, "job_id", "")))
+    input_stem = str(getattr(args, "input_stem", ""))
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", input_stem):
+        fail("fetch requires a valid exact --input-stem")
+    local_dir_value = getattr(args, "local_dir", None)
+    if not local_dir_value:
+        fail("fetch requires --local-dir with the exact job.json audit bundle")
+    local_dir = Path(local_dir_value).expanduser().resolve()
+    job = validate_local_job_binding(
+        local_dir, project, job_id, input_stem, require_fetched=False
+    )
+    if job.get("status") not in {"completed", "failed", "interrupted"}:
+        fail("refusing fetch before the exact local job record is terminal")
+    required, optional, expected_hashes = load_fetch_allowlist(local_dir, job, input_stem)
     output_dir = output_dir.expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    windows_results = f"{args.windows_root}\\{project}\\results"
-    mkdir_script = f"New-Item -ItemType Directory -Force -Path '{windows_results}' | Out-Null"
-    run([*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(mkdir_script)])
-    guard = run(
+    snapshot_id = hashlib.sha256(
+        f"{project}\0{job_id}\0{input_stem}\0{time.time_ns()}\0{os.getpid()}".encode("utf-8")
+    ).hexdigest()[:16]
+    binding = {
+        "project": project,
+        "job_id": job_id,
+        "input_stem": input_stem,
+        "snapshot_id": snapshot_id,
+    }
+    marker = begin_fetch_snapshot(output_dir, binding)
+
+    inventory_result = run(
         nested_ssh(args, "bash", "-s"),
-        input_bytes=remote_existing_directory_guard(project).encode("utf-8"),
-        check=False,
+        input_bytes=server_fetch_inventory_script(project, required, optional).encode("utf-8"),
     )
-    if guard.returncode:
-        fail(str(guard.stderr or guard.stdout).strip())
-    remote_glob = f"{args.server_alias}:{remote_project_dir(project)}/*"
-    run([*ssh_base(args), "scp", "-r", "-F", args.windows_server_config, remote_glob, windows_results + "\\"])
-    windows_results_scp = windows_results.replace("\\", "/")
+    server_files, missing_optional = parse_server_fetch_inventory(
+        str(inventory_result.stdout), required, optional
+    )
+    staged_mismatches = [
+        name for name, digest in expected_hashes.items()
+        if server_files.get(name, {}).get("sha256") != digest
+    ]
+    if staged_mismatches:
+        fail("server staged-file SHA-256 mismatch: " + ", ".join(staged_mismatches))
+
+    snapshot_tag = f"fetch-{project}-{job_id}-{input_stem}-{snapshot_id}"
+    windows_results = f"{args.windows_root}\\{project}\\{snapshot_tag}"
+    escaped_windows_results = windows_results.replace("'", "''")
+    mkdir_script = (
+        f"if (Test-Path -LiteralPath '{escaped_windows_results}') "
+        "{ throw 'REFUSING_EXISTING_FETCH_SNAPSHOT' }; "
+        f"New-Item -ItemType Directory -Path '{escaped_windows_results}' | Out-Null"
+    )
     run([
-        "scp", "-r", "-F", str(Path(args.mac_ssh_config).expanduser()),
-        f"{args.rtwin_alias}:{windows_results_scp}/*",
-        str(output_dir) + "/",
+        *ssh_base(args), "powershell", "-NoProfile", "-NonInteractive",
+        "-EncodedCommand", powershell_encoded(mkdir_script),
     ])
-    fetched = sorted(
-        str(path.relative_to(output_dir)) for path in output_dir.rglob("*") if path.is_file()
+
+    present_names = sorted(server_files)
+    remote_sources = [
+        f"{args.server_alias}:{remote_project_dir(project)}/{name}" for name in present_names
+    ]
+    run([
+        *ssh_base(args), "scp", "-F", args.windows_server_config,
+        *remote_sources, windows_results + "\\",
+    ])
+    ps_paths = ",".join(
+        "'" + f"{windows_results}\\{name}".replace("'", "''") + "'"
+        for name in present_names
     )
-    logs = sorted(output_dir.glob("*.log"))
-    workflow_manifest = None
-    for candidate in sorted(output_dir.glob("*.json")):
+    hash_script = (
+        f"$files=@({ps_paths}); foreach($f in $files){{"
+        "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
+        "$s=(Get-Item -LiteralPath $f).Length;"
+        "Write-Output ((Split-Path $f -Leaf)+\"`t\"+$h+\"`t\"+$s)}"
+    )
+    rtwin_hash_result = run([
+        *ssh_base(args), "powershell", "-NoProfile", "-NonInteractive",
+        "-EncodedCommand", powershell_encoded(hash_script),
+    ])
+    rtwin_hashes: dict[str, dict[str, Any]] = {}
+    for line in str(rtwin_hash_result.stdout).splitlines():
+        fields = line.strip().split("\t")
+        if len(fields) != 3 or fields[0] not in server_files or not SHA256_RE.fullmatch(fields[1]):
+            fail("RTwin fetch hash inventory could not be parsed exactly")
+        if fields[0] in rtwin_hashes:
+            fail("RTwin fetch hash inventory repeats a file")
         try:
-            value = json.loads(candidate.read_text(encoding="utf-8"))
+            size = int(fields[2])
+        except ValueError:
+            fail("RTwin fetch hash inventory contains an invalid size")
+        rtwin_hashes[fields[0]] = {"sha256": fields[1], "size": size}
+    if rtwin_hashes != server_files:
+        fail("server to RTwin fetch verification failed")
+
+    windows_results_scp = windows_results.replace("\\", "/")
+    rtwin_sources = [f"{args.rtwin_alias}:{windows_results_scp}/{name}" for name in present_names]
+    run([
+        "scp", "-F", str(Path(args.mac_ssh_config).expanduser()),
+        *rtwin_sources, str(output_dir) + "/",
+    ])
+    actual_entries = {path.name for path in output_dir.iterdir() if path.name != marker.name}
+    if actual_entries != set(present_names):
+        fail("Mac fetch snapshot contains missing, extra, nested, or partial transfer entries")
+    mac_hashes: dict[str, dict[str, Any]] = {}
+    for name in present_names:
+        path = output_dir / name
+        if not path.is_file() or path.is_symlink():
+            fail(f"Mac fetch snapshot entry is not one regular file: {name}")
+        mac_hashes[name] = {"sha256": sha256(path), "size": path.stat().st_size}
+    if mac_hashes != server_files:
+        fail("RTwin to Mac fetch verification failed")
+
+    exact_log = output_dir / f"{input_stem}.log"
+    workflow_manifest = None
+    exact_manifest = output_dir / f"{input_stem}.json"
+    if exact_manifest.name in present_names:
+        try:
+            manifest_value = json.loads(exact_manifest.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            continue
-        if value.get("schema") == "gaussian-opt-freq-sp/1":
-            workflow_manifest = value
-            break
-    if logs and workflow_manifest:
+            manifest_value = None
+        if isinstance(manifest_value, dict) and manifest_value.get("schema") == "gaussian-opt-freq-sp/1":
+            workflow_manifest = manifest_value
+    if workflow_manifest:
         analysis = analyze_workflow_log_file(
-            logs[0], output_dir,
+            exact_log, output_dir,
             temperature_k=float(workflow_manifest["temperature_k"]),
             standard_state=str(workflow_manifest["standard_state"]),
             expected_stages=int(workflow_manifest.get("expected_stage_count", 3)),
@@ -2519,14 +2890,53 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         }
         atomic_json(output_dir / "result.json", analysis)
     else:
-        analysis = analyze_log_file(logs[0], output_dir) if logs else None
+        analysis = analyze_log_file(exact_log, output_dir)
+
+    per_hop = {
+        name: {
+            "server_sha256": server_files[name]["sha256"],
+            "rtwin_sha256": rtwin_hashes[name]["sha256"],
+            "mac_sha256": mac_hashes[name]["sha256"],
+            "size": mac_hashes[name]["size"],
+        }
+        for name in present_names
+    }
+    allowlist_record = {
+        "schema": "gaussian-server-fetch-allowlist/1",
+        **binding,
+        "remote_workdir": remote_project_dir(project),
+        "required": required,
+        "optional": optional,
+        "missing_optional": missing_optional,
+        "present": present_names,
+        "scratch_included": False,
+        "unrelated_files_included": False,
+    }
+    publish_new_json(output_dir / "server-allowlist.json", allowlist_record)
+    atomic_text(
+        output_dir / "fetch.sha256",
+        "".join(f"{mac_hashes[name]['sha256']}  {name}\n" for name in present_names),
+    )
+    files = sorted(
+        path.name for path in output_dir.iterdir()
+        if path.is_file() and path.name != marker.name
+    )
     transfer = {
-        "project": project,
+        "schema": "gaussian-fetch-snapshot/1",
+        **binding,
+        "input_sha256": job["input_sha256"],
         "output_dir": str(output_dir),
-        "files": fetched,
+        "snapshot_complete": True,
+        "files": files,
+        "exact_log": exact_log.name,
+        "server_allowlist": "server-allowlist.json",
+        "sha256_manifest": "fetch.sha256",
+        "per_hop_sha256_verified": True,
+        "per_hop": per_hop,
         "analysis": analysis,
     }
-    atomic_json(output_dir / "transfer.json", transfer)
+    publish_new_json(output_dir / "transfer.json", transfer)
+    marker.unlink()
     return transfer
 
 
@@ -2811,6 +3221,14 @@ def command_tail(args) -> None:
 
 def command_fetch(args) -> None:
     transfer = fetch_results(args, args.project, Path(args.output_dir))
+    if transfer.get("snapshot_complete") is True:
+        output_dir = Path(args.output_dir).expanduser().resolve()
+        update_job(
+            Path(args.local_dir).expanduser().resolve(),
+            results_fetched=True,
+            fetch_snapshot=str(output_dir / "transfer.json"),
+            result_file=str(output_dir / "result.json"),
+        )
     print(json.dumps(transfer, ensure_ascii=False, indent=2))
 
 
@@ -2837,12 +3255,14 @@ def command_watch(args) -> None:
     while time.monotonic() < deadline:
         inspection = inspect_job(args, args.project, args.input_stem, args.job_id)
         signature = (inspection.get("log_size"), inspection.get("log_mtime_epoch"))
-        if inspection["state"] == "stale":
+        if inspection["state"] == "stale" or inspection.get("interrupted_candidate") is True:
             stale_repeats = stale_repeats + 1 if signature == previous_stale_signature else 1
             previous_stale_signature = signature
             if stale_repeats >= 2:
                 inspection["state"] = "interrupted"
-                inspection["note"] = "PBS record is stale; session is absent and log stopped changing"
+                inspection["note"] = (
+                    "explicit scheduler-record absence and a stable incomplete log prove interruption"
+                )
         else:
             stale_repeats = 0
             previous_stale_signature = None
@@ -2867,18 +3287,19 @@ def command_watch(args) -> None:
     transfer = fetch_results(args, args.project, output_dir) if args.fetch else None
     if transfer and transfer.get("analysis"):
         final["analysis"] = transfer["analysis"]
+    fetch_complete = bool(transfer and transfer.get("snapshot_complete") is True)
     if (local_dir / "job.json").is_file():
         update_job(
             local_dir,
             status=final["state"],
             last_inspection=final,
-            results_fetched=bool(transfer),
-            result_file=str(output_dir / "result.json") if transfer else None,
+            results_fetched=fetch_complete,
+            result_file=str(output_dir / "result.json") if fetch_complete else None,
         )
     scheduler_cleanup = None
     if (
         args.auto_cleanup_zombie
-        and transfer
+        and fetch_complete
         and final.get("scheduler_zombie_candidate") is True
     ):
         cleanup_args = argparse.Namespace(**vars(args))
@@ -2898,7 +3319,7 @@ def command_watch(args) -> None:
                 )
             )
             fail(
-                "automatic qdel was issued once but the PBS record still exists; do not retry automatically",
+                "automatic qdel was issued once but cleanup could not be verified; do not retry automatically",
                 code=5,
             )
     print(
@@ -2996,11 +3417,15 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
     # This is deliberately the only qdel in the zombie cleanup path. It changes
     # PBS-owned state only; it never removes, truncates, or rewrites server data.
     qdel = run(nested_ssh(args, "qdel", validate_job_id(args.job_id)), check=False)
+    qdel_outcome = classify_qdel_outcome(qdel)
     time.sleep(args.verify_seconds)
     after = run(nested_ssh(args, "qstat", "-f", validate_job_id(args.job_id)), check=False)
-    after_text = str(after.stdout or after.stderr)
-    record_present = bool(re.search(r"(?m)^\s*job_state\s*=\s*\S+", after_text))
-    cleared = not record_present
+    verification = classify_qstat_evidence(after)
+    record_present = verification["record_present"]
+    cleared = bool(
+        qdel_outcome["status"] in {"success", "unknown_job_id"}
+        and verification["status"] == "absent"
+    )
     cleanup = {
         "schema": "pbs-zombie-cleanup/1",
         "project": args.project,
@@ -3008,6 +3433,11 @@ def cleanup_zombie_record(args) -> dict[str, Any]:
         "status": "cleared" if cleared else "cleanup_unverified",
         "qdel_issued": True,
         "qdel_returncode": qdel.returncode,
+        "qdel_outcome": qdel_outcome["status"],
+        "qdel_error": qdel_outcome["error"],
+        "verification_outcome": verification["status"],
+        "verification_returncode": verification["returncode"],
+        "verification_error": verification["error"],
         "scheduler_record_present": record_present,
         "server_project_files_changed": False,
         "diagnosis": diagnosis,
@@ -3024,7 +3454,7 @@ def command_cleanup_zombie(args) -> None:
     if cleanup["status"] == "not_eligible":
         fail("refusing qdel because repeated observations did not prove a scheduler zombie")
     if cleanup["status"] == "cleanup_unverified":
-        fail("qdel was issued once but the PBS record still exists; do not retry automatically", code=5)
+        fail("qdel was issued once but cleanup could not be verified; do not retry automatically", code=5)
 
 
 def command_cancel(args) -> None:
@@ -3134,8 +3564,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_connection_options(tail)
     tail.set_defaults(func=command_tail)
 
-    fetch = sub.add_parser("fetch", help="copy all server job files through RTwin to the Mac")
+    fetch = sub.add_parser("fetch", help="create one exact immutable fetch snapshot through RTwin")
     fetch.add_argument("--project", required=True)
+    fetch.add_argument("--job-id", required=True)
+    fetch.add_argument("--input-stem", required=True)
+    fetch.add_argument("--local-dir", required=True)
     fetch.add_argument("--output-dir", required=True)
     add_connection_options(fetch)
     fetch.set_defaults(func=command_fetch)

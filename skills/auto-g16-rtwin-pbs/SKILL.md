@@ -112,7 +112,7 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
    submission chain. The low-level `submit` command
    independently validates the same shared receipt; `--confirmed` is only an
    additional command confirmation.
-5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` without a process is not a running calculation, but one observation is only a zombie candidate. After terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
+5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. PBS and process evidence are fail-closed three-state observations: `present`, `absent`, or `unknown`. SSH failures, non-recognized command return codes and parse failures are `unknown`; they never prove interruption, self-purge, process absence or a zombie. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` with explicitly absent process evidence is not a running calculation, but one observation is only a zombie candidate. After a verified terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
 6. On failure, stop after analysis. Do not silently add SCF options, change geometry, change method/basis, or resubmit. Report diagnostics and create a new proposal and selection for any changed restart.
 
 ```bash
@@ -249,6 +249,9 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" watch --project example --job-id 563.master \
   --input-stem example_cartesian --local-dir /path/to/bundle \
   --output-dir /path/to/results --fetch
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" fetch \
+  --project example --job-id 563.master --input-stem example_cartesian \
+  --local-dir /path/to/bundle --output-dir /path/to/new-results-snapshot
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" analyze /path/to/results/example_cartesian.log \
   --output-dir /path/to/results
 ```
@@ -262,7 +265,7 @@ Treat terminal scheduler-zombie cleanup as an automatic evidence-gated operation
 1. Run `diagnose-zombie` first. It binds the request to local `job.json`, requires `results_fetched: true`, and observes the same job twice at least 5 seconds apart.
 2. Classify `confirmed_scheduler_zombie` only when both observations show the exact PBS job name, PBS `R`, a present session ID with no session process, unchanged log size and mtime, and terminal Gaussian evidence. A Link1 workflow must have all expected normal terminations or a definite error termination.
 3. Record the exact project, job ID, evidence, and the fact that only scheduler state will change. No per-job confirmation is required after every eligibility check passes.
-4. Run `cleanup-zombie`, or let `watch --fetch` invoke it automatically. It diagnoses again, issues at most one exact `qdel <job-id>`, and verifies with `qstat`. Never retry `qdel` automatically.
+4. Run `cleanup-zombie`, or let `watch --fetch` invoke it automatically. It diagnoses again, issues at most one exact `qdel <job-id>`, and verifies with `qstat`. `cleared` requires an accepted qdel outcome (`0` or explicit `Unknown Job Id`) and an explicit post-qdel `Unknown Job Id`; qdel, qstat, transport or parse failure is `cleanup_unverified`. Never retry `qdel` automatically.
 5. If the record self-purges during diagnosis, report `self_purged` and issue no `qdel`. Refuse cleanup for `Q`, `H`, `E`, a live or unknown session, a changing log, a job-name mismatch, missing terminal evidence, or results not yet fetched.
 
 ```bash
@@ -286,11 +289,13 @@ Zombie cleanup changes only a PBS-owned record. It never deletes or modifies `/h
 
 - For optimization success, require `Normal termination` and optimization/stationary-point evidence. For a same-input `Opt ... Freq` job, require the expected final frequency output and a terminal process/PBS observation; the first normal termination can belong only to the Opt stage.
 - Preserve input, manifest, PBS file, checksums, log, checkpoint, local `job.json`, `result.json`, and optimized XYZ.
-- Fetch only after terminal classification, then parse the newly fetched log. If a prior fetch ended during a running second stage, fetch again before reporting frequencies, thermochemistry, or a TS conclusion.
+- Fetch only after terminal classification. Bind the request to the exact local `job.json` project/job/input stem, generate a server allowlist from staged checksums plus the exact log and named outputs, and copy only those basenames. Scratch and unrelated files are excluded. Verify SHA-256 on server, RTwin and Mac before parsing only `<input_stem>.log`.
+- Every fetch target is one immutable snapshot. It must be new or empty; an old, concurrent or partially transferred target is rejected. A failed attempt leaves its local in-progress marker for audit. Retry transfer into a new output directory; no retry submits, qdel, deletes or overwrites anything.
 - Report final SCF energy only from a completed log.
 - If frequencies were requested, report imaginary-frequency count; never imply a minimum without a frequency calculation.
 
 Read [references/environment-and-failures.md](references/environment-and-failures.md) for connection, stale PBS, fetch, and restart decisions.
+Read [references/runtime-safety-compatibility.md](references/runtime-safety-compatibility.md) for additive inspection fields and the direct-fetch migration.
 
 ## Bundled scripts
 

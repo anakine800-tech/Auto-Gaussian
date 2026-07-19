@@ -303,7 +303,11 @@ class RepositoryBaselineTests(unittest.TestCase):
             }
             with (
                 mock.patch.object(PBS, "inspect_job", return_value=final),
-                mock.patch.object(PBS, "fetch_results", return_value={"analysis": {}}),
+                mock.patch.object(
+                    PBS,
+                    "fetch_results",
+                    return_value={"analysis": {}, "snapshot_complete": True},
+                ),
                 mock.patch.object(PBS, "update_job"),
                 mock.patch.object(
                     PBS, "cleanup_zombie_record", return_value=cleanup
