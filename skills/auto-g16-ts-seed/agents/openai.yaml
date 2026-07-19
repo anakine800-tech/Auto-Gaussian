@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 TS Seed"
+  short_description: "Build hash-bound scientific TS seed portfolios"
+  default_prompt: "Use $auto-g16-ts-seed to build and review a non-executable, hash-bound transition-state seed portfolio."
