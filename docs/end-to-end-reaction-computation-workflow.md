@@ -726,15 +726,16 @@ reaction workflow.
 | reusable group structure, method, and literature/book databases | W2A through W2B-2 offline foundation implemented | canonical contracts, store/object verification, deterministic SQLite, exact access filtering, reviewed import, lawful-object ingestion, redacted JSON export, typed links and snapshot verification exist; chemical search and authenticated service enforcement remain missing |
 | general literature search, evidence extraction and TS-precedent mapping | offline query, evidence, support and planning slices implemented | exact claim/location binding, decomposed applicability, independent exploration/claim gates, source-to-target mapping and de novo planning exist; full-text automation and geometry construction remain missing |
 | mechanism network and catalyst-cycle DAG | general offline network/cycle-closure audit plus non-executable calculation dependency DAG implemented | no executable scheduler or project-level mutable execution state machine |
-| reaction calculation plan and study index | 2.3.0 first offline slice implemented | deterministic non-executable DAG and immutable resume view bind exact W1/network/support/precedent artifacts, preserve alternatives/supersession/history and separate readiness dimensions; no geometry, protocol, input, server job, evidence adapter or live authority |
-| deterministic asymmetric study/candidate ledgers | implemented offline in repository | `auto-g16-asymmetric-catalysis` is deployed; geometry construction still requires reviewed XYZ/atom maps |
+| reaction calculation plan and study index | offline slice implemented and deep-chain replay optimized | deterministic non-executable DAG and immutable resume view bind exact W1/network/support/precedent artifacts, preserve alternatives/supersession/history and separate readiness dimensions; process-local immutable-content caching never skips binding hashes or fail-closed reconstruction and grants no geometry, protocol, input, server job, evidence adapter or live authority |
+| deterministic asymmetric study/candidate ledgers | implemented offline in repository | deployment state is external to this checkout; geometry construction still requires reviewed XYZ/atom maps |
+| engineering validation and private-data migration | timed offline tests, three-version Python compatibility, single-version full source-archive pressure, real RDKit smoke, progressive static checks, strict runtime-config validation, and private plan-review-apply copy tooling implemented | private manifests and apply operations remain outside Git; no source deletion, overwrite, deployment, server access, scientific approval, or live authority |
 | calculation-artifact adapters | first narrow offline slice implemented in repository source | stable candidate-target imports, one exact reviewed closed-shell main-group single-guess TS/Freq handoff, blocked/electronic-only energy lineage and observation-only attempt links; no DAG mutation, live approval, staging or submission |
 | chiral-boron center/coordination/binding/conformer/approach enumeration | implemented at logical-ledger level | chemistry-aware complex construction, conformer generation, and broader real-system validation are missing |
 | transition-metal state/search design | M0, candidate-bound M1 review sidecar, M2a, M2b result observer, M2c existing-input observer and M2d four-section manual-decision sidecar implemented offline | the real M1/M2 scientific example, runtime/promotion boundary, path model and all live submission remain intentionally refused; bounded M2d section decisions grant no top-level authority |
 | protocol `loose`/`standard`/`strict` proposal and selection | implemented as a standalone gate | does not choose a protocol or authorize input submission; the current generic automatic execution entry does not yet require and consume the selection artifact end to end |
 | guarded PBS submit/watch/fetch/analyze | implemented per approved job | the offline plan/index does not schedule or update jobs; no whole-study executable dependency scheduler, finite-batch approval manifest or specialist result adapter exists |
 | minimum Opt/Freq/single-point parsing and conformer aggregation | implemented per reviewed structure/family | no reaction-wide species registry, post-optimization identity clustering, or balanced free-energy network |
-| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | 2.3.0 candidate source and the read-only compared deployed copy are synchronized; specialist classification/mode-geometry replay helpers are included | no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
+| TS/Freq parsing, manual mode decision, checkpoint audit, bidirectional IRC and endpoints | specialist classification and mode-geometry replay helpers are implemented in repository source | deployment state is external; no TS discovery engine; QST raw input generation remains disabled; metal remains refused |
 | TS candidate-space result ingestion and two-channel Boltzmann/ee sensitivity | implemented offline | only `boltzmann_ts_ensemble`; no general kinetic network, energetic-span engine, or protocol-matrix uncertainty propagation |
 | final project report and claim-state engine | missing | current documents and analyses are study-specific rather than generated from one top-level evidence index |
 
@@ -762,15 +763,16 @@ whole workflow without hand-editing JSON.
 
 ### P0 — Repository and runtime integrity
 
-- reconcile `auto-g16-chemdraw-structures` so the richer deployed reaction intake is
-  reviewed, tested, and version-controlled rather than existing only in the
-  installed copy;
-- deploy the repository `auto-g16-asymmetric-catalysis` Skill only after named
-  validation and exact diff review;
-- synchronize the repository `auto-g16-ts-irc` terminal-intake/protocol changes
-  into its deployed copy; and
-- keep all further work on a feature branch with offline validation before a
-  live smoke test.
+- keep `skills/` authoritative and treat every deployed-copy state as an
+  external fact that requires a fresh read-only comparison before any separate
+  named deployment;
+- retain Python 3.11/3.12/3.13 compatibility while concentrating the complete
+  source-archive and oversized pressure replay on one release interpreter;
+- keep runtime configuration closed-schema and machine-local, and keep private
+  study manifests and data outside the public checkout under owner-only
+  permissions; and
+- keep all further work on an isolated feature branch with proportional
+  offline validation before any separately approved live smoke test.
 
 ### P1 — Incomplete top-level scientific model
 
@@ -884,22 +886,16 @@ calculation/submission authority.
 
 ### W0 — Reconcile and freeze the baseline
 
-Bring the repository and named deployed Skills back into one reviewed state.
-Acceptance requires exact diff review, structural validation, existing tests,
-new tests for imported reaction-intake behavior, no secrets, and zero unrelated
-files.
+The versioned repository baseline is established: repository-owned Skills live
+under `skills/`, current release history is immutable, and deployment is a
+separate named plan-hash/apply operation. Acceptance for later maintenance
+requires exact diff review, structural validation, proportional offline tests,
+no secrets, no private operational manifests, and zero unrelated files.
 
-Feature status on 2026-07-14: the 116-file deployed `auto-g16-chemdraw-structures`
-reaction-package implementation has been recovered into repository source and
-its built-in common/ligand catalogs plus imported package behavior pass offline
-tests. Repository-new `auto-g16-ts-irc`, `auto-g16-asymmetric-catalysis` and the
-W1 Skill have been synchronized individually after named validation and exact
-dry-run diff review. The W1 and strict ChemDraw pairs match their deployed
-copies; unrelated pre-existing drift in four baseline Skills remains a separate
-deployment-maintenance task and is not overwritten by this integration. The
-new `auto-g16-reaction-literature` pair was synchronized separately after an
-explicitly approved live OpenAlex reaction search, source-evidence review, full
-offline regression, sensitive-string scan, and exact named-directory diff.
+Historical deployment comparisons are retained as dated evidence only. They
+are not a current synchronization gap, current deployment fact, or authority
+to write installed copies. A fresh read-only comparison is required whenever a
+later task needs deployment status.
 
 ### W1 — Reaction intake foundation
 

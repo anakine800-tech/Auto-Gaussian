@@ -69,12 +69,10 @@ still independent requirements. See `docs/v2.5-integration-approval.md`.
 
 ## 2.5.0 release
 
-Auto-Gaussian 2.5.0 release metadata was prepared on 2026-07-19 from confirmed
-`origin/main` content baseline
-`c46301bdcfc08fef4292abf17cfed256963cc5f1`. The immutable 2.4.0 release
-history is preserved. Publication is authorized only through a clean release
-PR, passing required and post-merge CI, an annotated `v2.5.0` tag on the exact
-merge commit, and a normal GitHub Release.
+Auto-Gaussian 2.5.0 is the current stable source release. `main` and the
+annotated `v2.5.0` tag identify exact commit
+`18d7f62af3b24cdd0fbe5687f4c0e779f243d572`; immutable earlier release
+history remains preserved.
 
 The 2.5.0 scope is the offline human-AI decision, method-evidence, bounded
 TS-seed, closure-priority, execution-batch, and cross-Skill integration layer.
@@ -85,13 +83,12 @@ accepted TS/IRC closure, or real PBS/Gaussian validation. Future execution
 still requires exact structure, method, input, resource, server-directory, and
 live approvals.
 
-## 2.4.0 release preparation record
+## 2.4.0 historical release
 
 Auto-Gaussian 2.4.0 release metadata was prepared on 2026-07-18 from confirmed
 `origin/main` commit `69222eb40fc4485392c753b240989719fcec56a4`. The immutable
-2.3.0 release history is preserved. An annotated `v2.4.0` tag, GitHub Release,
-Skill deployment, and live smoke are separate actions and are not authorized
-or performed by this release-preparation change.
+2.3.0 release history is preserved. This is historical source evidence only;
+it grants no current Skill deployment or live-smoke authority.
 
 The 2.4.0 source adds offline transition-metal P0–P5 readiness and candidate
 closure, dual-route conformer discovery and cross-validation, reviewed
@@ -102,13 +99,12 @@ receipts `/2` and `/3` and distinct prospective live approvals `/4` and `/5`
 for single-stage and two-stage open-shell minimum paths. All remain fail-closed
 and preserve separate scientific, input-review, and live-action authority.
 
-## 2.3.0 release candidate
+## 2.3.0 historical release
 
 Auto-Gaussian 2.3.0 release metadata was prepared on 2026-07-16 from reviewed
 `main` commit `1d730218048c52a395b379cbe4653c9e2b8def97`. The immutable
-`v2.2.0` release remains published history. An annotated `v2.3.0` tag and
-GitHub Release are separate publication actions and have not been authorized
-or created by this release-preparation change.
+`v2.2.0` release remains historical evidence. This section does not describe
+the current release state or authorize deployment or live work.
 
 As of 2026-07-16, the 2.3.0 candidate source includes the guarded RTwin/PBS
 workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
@@ -280,10 +276,17 @@ version; and then replaces itself with that interpreter. It never chooses
 `python3` from `PATH`:
 
 ```bash
-./scripts/python core -m unittest discover -s tests -v
+./scripts/python core scripts/run_tests.py
 ./scripts/python chem -m pip install --requirement requirements/chemistry.txt
 ./scripts/python chem path/to/rdkit_script.py --help
 ```
+
+The timed runner preserves normal `unittest` pass/fail behavior and prints a
+readable slow-test table. Local full runs include the 1101-node/128-level DAG
+pressure test. CI runs ordinary compatibility coverage on Python 3.11, 3.12,
+and 3.13, then runs the complete pressure and source-archive replay once on
+Python 3.13. The chemistry job separately executes a real RDKit structure,
+3D-conformer, and 2D-depiction smoke.
 
 The Python-file shebangs remain portable compatibility metadata. Repository
 and deployed Skill commands must invoke scripts with the selected interpreter
@@ -315,6 +318,15 @@ RDKit, NumPy and Pillow versions, with:
 
 ```bash
 ./scripts/python check
+```
+
+Validate the ignored runtime file offline before any operational command. The
+closed-schema validator rejects duplicate keys, unknown fields, path-type
+mismatches, parent traversal, relative interpreter/config paths, and config
+symlinks; it performs no SSH, Windows, Gaussian, or PBS access:
+
+```bash
+./scripts/python core scripts/runtime_config.py ~/.config/auto-g16/runtime.json
 ```
 
 Add `--skill-sync` to compare every repository Skill deployment package with
@@ -371,7 +383,17 @@ Repository-wide operational rules are in `AGENTS.md`.
 - `config/*.example` contains placeholders only; real SSH/server configuration stays ignored.
 - `scripts/python` is the only documented repository Python entry point;
   `scripts/python_environment.py` resolves absolute interpreters and rejects
-  version or chemistry-package drift before normal execution.
+  version, chemistry-package, or strict runtime-config drift before normal
+  execution.
+- `scripts/run_tests.py` preserves `unittest` semantics and reports the slowest
+  offline tests; `scripts/static_quality.py` applies a small dependency-free
+  AST rule set only to the explicitly listed high-risk modules in
+  `config/static-quality.json`, avoiding repository-wide formatting churn.
+- `scripts/private_study_migration.py` implements an operational
+  plan-review-apply copy migration into the owner-only external private-study
+  root. Plans are private artifacts and are refused inside this checkout;
+  apply requires the exact reviewed plan hash and never overwrites or deletes
+  the source. See `docs/private-data-migration.md`.
 - `scripts/check_skill_sync.py` compares the exact named-Skill deployment
   package, including manifest-mapped authoritative contracts, with installed
   copies.
