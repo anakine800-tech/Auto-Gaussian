@@ -5,6 +5,19 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- Added immutable reviewed `gaussian-execution-batch/1` governance with stable
+  scientific-task identities, a ten-task cap, separate physical-attempt and
+  core-hour accounting, fail-closed retry classification, uncertain-submission
+  reservation, atomic locking, and read-only immediate/60-minute monitoring.
+
+### Safety
+
+- Execution-batch planning and tests are standard-library and offline only.
+  They add no automatic qsub, retry, scientific change, cancellation, search
+  expansion, scheduler cleanup, deployment, SSH, PBS or Gaussian action.
+
 ## [2.4.0] - 2026-07-18
 
 ### Added

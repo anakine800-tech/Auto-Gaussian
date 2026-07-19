@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/execution-batch-review.schema.json",
+  "title": "Auto-G16 immutable Gaussian execution-batch review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "batch_id", "review_id", "reviewed_at", "reviewer", "max_distinct_scientific_tasks", "tasks", "governance", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-execution-batch-review/1"},
+    "batch_id": {"type": "string", "minLength": 1},
+    "review_id": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "minLength": 1},
+    "reviewer": {"type": "string", "minLength": 1},
+    "max_distinct_scientific_tasks": {"const": 10},
+    "tasks": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {"$ref": "#/$defs/reviewedTask"}
+    },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["automatic_qsub", "automatic_retry", "automatic_scientific_change", "monitoring_is_read_only", "fresh_approval_required_per_attempt"],
+      "properties": {
+        "automatic_qsub": {"const": false},
+        "automatic_retry": {"const": false},
+        "automatic_scientific_change": {"const": false},
+        "monitoring_is_read_only": {"const": true},
+        "fresh_approval_required_per_attempt": {"const": true}
+      }
+    },
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["structure_sha256", "chemical_hypothesis_sha256", "method_protocol_sha256", "calculation_objective_sha256", "relevant_input_sha256"],
+      "properties": {
+        "structure_sha256": {"$ref": "#/$defs/sha"},
+        "chemical_hypothesis_sha256": {"$ref": "#/$defs/sha"},
+        "method_protocol_sha256": {"$ref": "#/$defs/sha"},
+        "calculation_objective_sha256": {"$ref": "#/$defs/sha"},
+        "relevant_input_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "reviewedTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scientific_task_id", "identity", "estimated_core_hours", "reason"],
+      "properties": {
+        "scientific_task_id": {"type": "string", "pattern": "^scientific-task-[a-f0-9]{64}$"},
+        "identity": {"$ref": "#/$defs/identity"},
+        "estimated_core_hours": {"type": "number", "minimum": 0},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
