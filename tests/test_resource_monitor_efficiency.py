@@ -326,6 +326,29 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             self.assertEqual(attempt["state"], "reconciled_not_submitted")
             self.assertEqual(ledger["tasks"][0]["state"], "reviewed")
 
+    def test_submit_rtwin_hash_uses_exact_byte_budget_and_timeout_reconciles_without_qsub(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve(); args, ledger_path, attempt_id, input_approval, live = self.make_live_submit_fixture(root)
+            observed_hash_timeout = []
+            def network(command, *, input_bytes=None, check=True, timeout_seconds=PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS):
+                if "-EncodedCommand" in command:
+                    script = base64.b64decode(command[-1]).decode("utf-16le")
+                    if "Get-FileHash" in script:
+                        observed_hash_timeout.append(timeout_seconds)
+                        raise SystemExit(2)
+                return subprocess.CompletedProcess(command, 0, "", "")
+            with mock.patch.object(PBS, "validate_input_approval", return_value=input_approval), \
+                 mock.patch.object(PBS, "validate_live_approval_binding", return_value=(live, "d" * 64)), \
+                 mock.patch.object(PBS, "run", side_effect=network), self.assertRaises(SystemExit):
+                PBS.command_submit(args)
+            job = PBS.read_job_state(root / "bundle")
+            evidence = job["upload_hash_timeout_evidence"]
+            self.assertEqual(observed_hash_timeout, [evidence["rtwin_sha256_timeout_seconds"]])
+            self.assertEqual(evidence["status"], "pending")
+            ledger = RESOURCE.load(ledger_path); attempt = next(item for item in ledger["attempts"] if item["attempt_id"] == attempt_id)
+            self.assertEqual(attempt["state"], "reconciled_not_submitted")
+            self.assertFalse(job.get("qsub_invocation_started", False))
+
     def test_unresolved_scheduler_omission_wrong_resources_and_state_conflict_close_gate(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); path, task = self.make_ledger(root); policy = self.policy(); empty = self.snapshot_artifact(root); gate = self.gate(path, policy, empty); attempt = self.reserve(path, task, policy, gate, empty)
@@ -508,6 +531,21 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
         self.assertLessEqual(budget, PBS.MAX_TRANSFER_TIMEOUT_SECONDS)
         with self.assertRaises(SystemExit):
             PBS.transfer_timeout_seconds(-1)
+        beyond_old_cap = 8 * 1024 * 1024 * 1024
+        larger_budget = PBS.transfer_timeout_seconds(beyond_old_cap)
+        self.assertGreater(larger_budget, budget)
+        self.assertGreaterEqual(
+            larger_budget,
+            PBS.TRANSFER_FIXED_OVERHEAD_SECONDS
+            + __import__("math").ceil(beyond_old_cap / PBS.TRANSFER_RATE_FLOOR_BYTES_PER_SECOND),
+        )
+        hash_budget = PBS.hash_timeout_seconds(120 * 1024 * 1024)
+        self.assertGreater(hash_budget, 60)
+        self.assertGreater(PBS.hash_timeout_seconds(beyond_old_cap), hash_budget)
+        with self.assertRaises(SystemExit):
+            PBS.transfer_timeout_seconds(PBS.MAX_TRANSFER_BYTES + 1)
+        with self.assertRaises(SystemExit):
+            PBS.hash_timeout_seconds(PBS.MAX_HASH_BYTES + 1)
         completed = [subprocess.CompletedProcess([], 0, b"", b""), subprocess.CompletedProcess([], 0, b"", b"")]
         with mock.patch.object(PBS.subprocess, "run", side_effect=completed) as invoked:
             PBS.run(["scp", "source", "target"], timeout_seconds=budget)
@@ -520,6 +558,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
         self.assertNotIn("grep -c", script)
         self.assertIn("scan_scope='bounded_tail_only'", script)
         self.assertIn("scan_scope='exact_whole_log_once'", script)
+        self.assertIn('[ "$qstate" = H ]', script)
         self.assertEqual(script.count("counts=$(awk"), 1)
 
     def test_seven_day_stable_watch_has_bounded_backoff_and_persistence(self):
@@ -546,6 +585,76 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             self.assertLessEqual(len(persisted), 170)
             self.assertLessEqual(max(sleeps), PBS.WATCH_MAX_POLL_SECONDS)
             self.assertEqual(sleeps[:3], [2.0, 4.0, 8.0])
+            RESOURCE.validate_ledger(RESOURCE.load(ledger_path))
+
+    def test_seven_day_growing_running_log_is_telemetry_not_a_ledger_event(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve(); ledger_path, attempt, _ = self.make_submitted_bundle(root)
+            args = self.watch_args(root, ledger_path, attempt["attempt_id"]); args.timeout_seconds = 7 * 24 * 3600
+            now = [0.0]; sleeps = []; polls = [0]
+            args._watch_monotonic = lambda: now[0]
+            def advance(seconds): sleeps.append(seconds); now[0] += seconds
+            args._watch_sleep = advance; args._watch_random = lambda: 0.5
+            def growing(*_args):
+                polls[0] += 1
+                value = self.inspection("running", pbs_state="R", pbs_present=True)
+                value["log_size"] = 100 + polls[0] * 4096; value["log_mtime_epoch"] = polls[0]
+                value["evidence_sha256"] = PBS.canonical_digest({key: item for key, item in value.items() if key != "evidence_sha256"})
+                return value
+            real_record = PBS.resource_efficiency.record_monitor_observation; persisted = []
+            def record(*call_args, **call_kwargs):
+                persisted.append(call_kwargs["observation"]); return real_record(*call_args, **call_kwargs)
+            with mock.patch.object(PBS, "inspect_job", side_effect=growing), \
+                 mock.patch.object(PBS.resource_efficiency, "record_monitor_observation", side_effect=record), \
+                 mock.patch("builtins.print"), self.assertRaises(SystemExit):
+                PBS.command_watch(args)
+            self.assertGreater(polls[0], len(persisted)); self.assertLessEqual(len(persisted), 170)
+            self.assertEqual(sleeps[:3], [2.0, 4.0, 8.0]); self.assertEqual(max(sleeps), PBS.WATCH_MAX_POLL_SECONDS)
+            RESOURCE.validate_ledger(RESOURCE.load(ledger_path))
+
+    def test_stable_held_and_timeout_are_deduplicated_with_bounded_backoff(self):
+        cases = (
+            ("held", self.inspection("held", pbs_state="H", pbs_present=True)),
+            ("timeout", {**self.inspection("unknown"), "freshness": "unknown", "transport_classification": "timeout"}),
+        )
+        for label, observation in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve(); ledger_path, attempt, _ = self.make_submitted_bundle(root)
+                args = self.watch_args(root, ledger_path, attempt["attempt_id"]); args.timeout_seconds = 24 * 3600
+                now = [0.0]; sleeps = []; args._watch_monotonic = lambda: now[0]
+                def advance(seconds): sleeps.append(seconds); now[0] += seconds
+                args._watch_sleep = advance; args._watch_random = lambda: 0.5
+                observation["evidence_sha256"] = PBS.canonical_digest({key: item for key, item in observation.items() if key != "evidence_sha256"})
+                persisted = []
+                with mock.patch.object(PBS, "inspect_job", return_value=copy.deepcopy(observation)) as polls, \
+                     mock.patch.object(PBS.resource_efficiency, "record_monitor_observation", side_effect=lambda *a, **kw: persisted.append(kw["observation"])), \
+                     mock.patch("builtins.print"), self.assertRaises(SystemExit):
+                    PBS.command_watch(args)
+                self.assertGreater(polls.call_count, len(persisted)); self.assertLessEqual(len(persisted), 26)
+                self.assertEqual(sleeps[:3], [2.0, 4.0, 8.0]); self.assertEqual(max(sleeps), PBS.WATCH_MAX_POLL_SECONDS)
+
+    def test_watch_persists_deterioration_recovery_and_exact_terminal_immediately(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve(); ledger_path, attempt, _ = self.make_submitted_bundle(root)
+            args = self.watch_args(root, ledger_path, attempt["attempt_id"]); args.timeout_seconds = 100
+            now = [0.0]; args._watch_monotonic = lambda: now[0]
+            args._watch_sleep = lambda seconds: now.__setitem__(0, now[0] + seconds); args._watch_random = lambda: 0.5
+            running = self.inspection("running", pbs_state="R", pbs_present=True)
+            timeout = {**self.inspection("unknown"), "freshness": "unknown", "transport_classification": "timeout"}
+            recovered = copy.deepcopy(running); recovered["log_size"] = 200; recovered["log_mtime_epoch"] = 2
+            terminal = self.inspection("completed", normal=1); terminal.update({"termination_scan_scope": "exact_whole_log_once", "transport_returncode": 0, "process_alive": False, "evidence_conflict": False})
+            sequence = [running, timeout, copy.deepcopy(timeout), recovered, terminal]
+            for item in sequence:
+                item["evidence_sha256"] = PBS.canonical_digest({key: value for key, value in item.items() if key != "evidence_sha256"})
+            real_record = PBS.resource_efficiency.record_monitor_observation; persisted = []
+            def record(*call_args, **call_kwargs):
+                persisted.append(call_kwargs["observation"]); return real_record(*call_args, **call_kwargs)
+            with mock.patch.object(PBS, "inspect_job", side_effect=sequence), \
+                 mock.patch.object(PBS.resource_efficiency, "record_monitor_observation", side_effect=record), \
+                 mock.patch("builtins.print"):
+                PBS.command_watch(args)
+            self.assertEqual([item["state"] for item in persisted], ["running", "unknown", "running", "completed"])
+            self.assertEqual(persisted[-1]["state"], "completed")
             RESOURCE.validate_ledger(RESOURCE.load(ledger_path))
 
     def test_single_job_snapshot_and_batch_status_each_use_one_remote_call(self):

@@ -2,6 +2,7 @@
 """Offline tests for the TS–Freq–IRC skill; no network or scheduler access."""
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import shutil
@@ -773,13 +774,18 @@ class TsIrcTests(unittest.TestCase):
                 TS.validate_endpoint_structure_review_artifact(review_path)
             irc_log.write_text(original_log)
             endpoint = root / "endpoint.gjf"
-            manifest = TS.build_allcheck_endpoint_input(
-                audit_path, checkpoint, endpoint,
-                "#p b3lyp/6-31g(d) opt freq geom=allcheck guess=read",
-                "12GB", 8,
-            )
-            self.assertEqual(manifest["continuation_kind"], "endpoint_opt_freq")
-            self.assertNotIn("\n0 1\n", endpoint.read_text())
+            with self.assertRaisesRegex(ValueError, "historical /1 is replay-only"):
+                TS.build_allcheck_endpoint_input(
+                    review_path, checkpoint, endpoint,
+                    "#p b3lyp/6-31g(d) opt freq geom=allcheck guess=read", "12GB", 8,
+                )
+            forged_v2 = copy.deepcopy(audit); forged_v2["schema"] = "gaussian-irc-endpoint-audit/2"
+            forged_v2_path = root / "isolated-forged-audit-v2.json"; forged_v2_path.write_text(json.dumps(forged_v2))
+            with self.assertRaises(ValueError):
+                TS.build_allcheck_endpoint_input(
+                    forged_v2_path, checkpoint, endpoint,
+                    "#p b3lyp/6-31g(d) opt freq geom=allcheck guess=read", "12GB", 8,
+                )
 
     def test_endpoint_builder_rejects_ts_or_missing_freq(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

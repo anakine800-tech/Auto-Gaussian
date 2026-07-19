@@ -324,6 +324,46 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             self.assertEqual((target / "large.chk").read_bytes(), large.read_bytes())
             self.assertIn(str(target), (target / "many" / "entry-00.txt").read_text())
 
+    def test_plan_review_and_apply_bound_every_read_and_rewrite_across_chunk_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(); source, target, plan_path = self.synthetic_tree(root)
+            needle = str(source).encode("utf-8")
+            prefix = b"x" * (MIGRATION.STREAM_CHUNK_SIZE - max(1, len(needle) // 2))
+            crossing = source / "crossing.txt"
+            crossing.write_bytes(prefix + needle + b"/outputs/result.json\n")
+            opaque = source / "large.chk"
+            with opaque.open("wb") as handle:
+                handle.truncate(MIGRATION.MAX_TEXT_REWRITE_BYTES + (2 * MIGRATION.STREAM_CHUNK_SIZE) + 17)
+            invalid = source / "invalid-utf8.bin"; invalid.write_bytes(b"\xff" + needle + b"/must-not-decode")
+            read_requests: list[int] = []
+            original_os_read = MIGRATION.os.read
+
+            def observed_read(fd: int, size: int) -> bytes:
+                read_requests.append(size)
+                self.assertLessEqual(size, MIGRATION.STREAM_CHUNK_SIZE)
+                return original_os_read(fd, size)
+
+            with mock.patch.object(MIGRATION.os, "read", side_effect=observed_read):
+                plan = MIGRATION.build_plan(source, target, created_at="2026-07-19T00:00:00+00:00")
+                MIGRATION.write_new(plan_path, plan)
+                self.assertEqual(MIGRATION.review_plan(plan_path), plan)
+                result = MIGRATION.apply_plan(
+                    plan_path, confirmation=plan["plan_sha256"], reviewer="fixture-reviewer"
+                )
+
+            entries = {item["relative_path"]: item for item in plan["entries"]}
+            self.assertEqual(entries["large.chk"]["content_kind"], "opaque_large")
+            self.assertEqual(entries["invalid-utf8.bin"]["content_kind"], "binary")
+            self.assertEqual(entries["large.chk"]["source_sha256"], entries["large.chk"]["planned_sha256"])
+            self.assertEqual(entries["invalid-utf8.bin"]["source_sha256"], entries["invalid-utf8.bin"]["planned_sha256"])
+            self.assertEqual(result["copied_file_count"], plan["file_count"])
+            self.assertTrue(read_requests)
+            rewritten = (target / "crossing.txt").read_bytes()
+            self.assertIn(str(target).encode("utf-8") + b"/outputs/result.json", rewritten)
+            self.assertNotIn(needle + b"/outputs/result.json", rewritten)
+            self.assertEqual((target / "large.chk").stat().st_size, opaque.stat().st_size)
+            self.assertEqual((target / "invalid-utf8.bin").read_bytes(), invalid.read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()

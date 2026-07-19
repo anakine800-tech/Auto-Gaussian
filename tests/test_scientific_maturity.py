@@ -597,11 +597,77 @@ class ScientificMaturityTests(unittest.TestCase):
                     digest = TS_MODULE.sha256(source); artifacts[source.name] = {"sha256": digest, "size": source.stat().st_size}; hops[source.name] = {"server_sha256": digest, "rtwin_sha256": digest, "mac_sha256": digest, "size": source.stat().st_size}
                 endpoint_snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": stem, "job_id": endpoint_job_id, "input_stem": irc_input.stem, "input_sha256": TS_MODULE.sha256(irc_input), "snapshot_complete": True, "terminal_inspection_receipt_sha256": endpoint_receipt["receipt_sha256"], "per_hop_sha256_verified": True, "exact_log": log.name, "artifacts": artifacts, "per_hop": hops}; endpoint_snapshot["payload_sha256"] = TS_MODULE._transport_digest(endpoint_snapshot)
                 endpoint_snapshot_path = root / f"{stem}-transfer.json"; write_json(endpoint_snapshot_path, endpoint_snapshot)
-                endpoint_job = {"schema": "gaussian-rtwin-pbs/1", "project": stem, "job_id": endpoint_job_id, "status": "completed", "results_fetched": True, "input_sha256": TS_MODULE.sha256(irc_input), "execution_batch": {"attempt_id": endpoint_attempt}, "terminal_inspection_receipt_sha256": endpoint_receipt["receipt_sha256"], "fetch_snapshot_sha256": TS_MODULE.sha256(endpoint_snapshot_path), "fetch_snapshot_size": endpoint_snapshot_path.stat().st_size, "gaussian": {"checkpoint": checkpoint.name, "route": exact_route}}
+                endpoint_job = {"schema": "gaussian-rtwin-pbs/1", "project": stem, "job_id": endpoint_job_id, "status": "completed", "results_fetched": True, "input_sha256": TS_MODULE.sha256(irc_input), "execution_batch": {"attempt_id": endpoint_attempt}, "terminal_inspection_receipt_sha256": endpoint_receipt["receipt_sha256"], "fetch_snapshot_sha256": TS_MODULE.sha256(endpoint_snapshot_path), "fetch_snapshot_size": endpoint_snapshot_path.stat().st_size, "gaussian": {"checkpoint": checkpoint.name, "oldcheckpoint": ts_checkpoint.name, "oldcheckpoint_sha256": TS_MODULE.sha256(ts_checkpoint), "manifest": str(allcheck_manifest), "manifest_sha256": TS_MODULE.sha256(allcheck_manifest), "manifest_size": allcheck_manifest.stat().st_size, "route": exact_route}}
                 endpoint_job_path = root / f"{stem}-job.json"; write_json(endpoint_job_path, endpoint_job)
                 audit_value = TS_MODULE.audit_irc_endpoint_provenance(irc_input, log, result_path, endpoint_job_path, checkpoint, direction, side, 2, [(1, 5)], ts_checkpoint_path=ts_checkpoint, checkpoint_audit_path=checkpoint_audit, irc_plan_path=irc_plan, allcheck_manifest_path=allcheck_manifest); audit_path = root / f"{stem}-audit.json"; write_json(audit_path, audit_value)
+                if direction == "forward":
+                    for label, mutate in (
+                        ("missing-oldchk", lambda value: value["gaussian"].pop("oldcheckpoint")),
+                        ("missing-oldchk-sha", lambda value: value["gaussian"].pop("oldcheckpoint_sha256")),
+                        ("missing-manifest-sha", lambda value: value["gaussian"].pop("manifest_sha256")),
+                        ("missing-terminal-receipt", lambda value: value.pop("terminal_inspection_receipt_sha256")),
+                        ("missing-fetch-snapshot", lambda value: value.pop("fetch_snapshot_sha256")),
+                        ("wrong-oldchk-hash", lambda value: value["gaussian"].__setitem__("oldcheckpoint_sha256", "0" * 64)),
+                        ("wrong-manifest-hash", lambda value: value["gaussian"].__setitem__("manifest_sha256", "1" * 64)),
+                    ):
+                        bad_job = copy.deepcopy(endpoint_job); mutate(bad_job); bad_job_path = root / f"{label}-job.json"; write_json(bad_job_path, bad_job)
+                        with self.assertRaisesRegex(ValueError, "transported TS checkpoint"):
+                            TS_MODULE.audit_irc_endpoint_provenance(irc_input, log, result_path, bad_job_path, checkpoint, direction, side, 2, [(1, 5)], ts_checkpoint_path=ts_checkpoint, checkpoint_audit_path=checkpoint_audit, irc_plan_path=irc_plan, allcheck_manifest_path=allcheck_manifest)
                 stable_ids = [atom["atom_id"] for atom in state["atoms"]]; draft = {"schema": "gaussian-endpoint-structure-review-draft/1", "review_id": f"{stem}_review", "direction": direction, "chemical_side": side, "stable_atom_ids": stable_ids, "structure_identity": {"state_id": state["state_id"], "identity_label": f"reviewed {side} fixture", "formula": "H2I2Pd", "connectivity": [], "stereochemistry": []}, "decision": "accepted", "explicit_human_review": True, "reviewer": "offline fixture reviewer", "rationale": "Exact endpoint structure reviewed.", "reviewed_at": "2026-07-19T12:00:00Z"}; draft_path = root / f"{stem}-review.draft.json"; write_json(draft_path, draft)
-                output = root / f"{stem}-review.json"; TS_MODULE.build_endpoint_structure_review_artifact({"family": family, "audit": audit_path, "irc_input": irc_input, "irc_log": log, "irc_result": result_path, "job": endpoint_job_path, "checkpoint": checkpoint, "terminal_inspection_receipt": endpoint_receipt_path, "fetch_snapshot": endpoint_snapshot_path, "ts_checkpoint": ts_checkpoint, "checkpoint_audit": checkpoint_audit, "irc_plan": irc_plan, "allcheck_input_manifest": allcheck_manifest}, draft_path, output); return output
+                output = root / f"{stem}-review.json"; TS_MODULE.build_endpoint_structure_review_artifact({"family": family, "audit": audit_path, "irc_input": irc_input, "irc_log": log, "irc_result": result_path, "job": endpoint_job_path, "checkpoint": checkpoint, "terminal_inspection_receipt": endpoint_receipt_path, "fetch_snapshot": endpoint_snapshot_path, "ts_checkpoint": ts_checkpoint, "checkpoint_audit": checkpoint_audit, "irc_plan": irc_plan, "allcheck_input_manifest": allcheck_manifest}, draft_path, output)
+                if direction == "forward":
+                    accepted_review = load_json(output)
+                    resolved_sources = {
+                        key: TS_MODULE._closure_resolve_local_ref(reference, output, f"negative fixture {key}")
+                        for key, reference in accepted_review["sources"].items()
+                    }
+                    mixed_receipt = copy.deepcopy(endpoint_receipt)
+                    mixed_receipt["attempt_id"] = "qsub-attempt-from-another-irc-run"
+                    mixed_receipt["receipt_sha256"] = TS_MODULE._transport_digest(
+                        {key: value for key, value in mixed_receipt.items() if key != "receipt_sha256"}
+                    )
+                    mixed_receipt_path = root / "mixed-attempt-terminal.json"; write_json(mixed_receipt_path, mixed_receipt)
+                    mixed_paths = dict(resolved_sources); mixed_paths["terminal_inspection_receipt"] = mixed_receipt_path
+                    with self.assertRaisesRegex(ValueError, "exact project/job/attempt/input"):
+                        TS_MODULE._validate_endpoint_execution_evidence(mixed_paths, audit_value, direction)
+                    mixed_snapshot = copy.deepcopy(endpoint_snapshot)
+                    mixed_snapshot["job_id"] = "999.master"
+                    mixed_snapshot["payload_sha256"] = TS_MODULE._transport_digest(
+                        {key: value for key, value in mixed_snapshot.items() if key != "payload_sha256"}
+                    )
+                    mixed_snapshot_path = root / "mixed-fetch-snapshot.json"; write_json(mixed_snapshot_path, mixed_snapshot)
+                    mixed_paths = dict(resolved_sources); mixed_paths["fetch_snapshot"] = mixed_snapshot_path
+                    with self.assertRaisesRegex(ValueError, "exact attempt/receipt/input"):
+                        TS_MODULE._validate_endpoint_execution_evidence(mixed_paths, audit_value, direction)
+                    endpoint_input = root / "formal_forward_minimum.gjf"
+                    manifest = TS_MODULE.build_allcheck_endpoint_input(output, checkpoint, endpoint_input, "#p hf/sto-3g opt freq geom=allcheck guess=read", "12GB", 8)
+                    self.assertTrue(manifest["calculation_ready"]); self.assertEqual(manifest["endpoint_structure_review_sha256"], TS_MODULE.sha256(output))
+                    cli_endpoint = root / "formal_forward_minimum_cli.gjf"
+                    cli = subprocess.run(
+                        [sys.executable, str(TS_TOOL), "build-allcheck-endpoint", "--endpoint-review", str(output),
+                         "--checkpoint", str(checkpoint), "--output", str(cli_endpoint),
+                         "--route", "#p hf/sto-3g opt freq geom=allcheck guess=read",
+                         "--memory", "12GB", "--nprocshared", "8"],
+                        cwd=root, capture_output=True, text=True,
+                    )
+                    self.assertEqual(cli.returncode, 0, cli.stderr)
+                    self.assertTrue(load_json(cli_endpoint.with_suffix(".json"))["calculation_ready"])
+                    wrong_dir = root / "wrong-checkpoint"; wrong_dir.mkdir(); wrong_checkpoint = wrong_dir / checkpoint.name; wrong_checkpoint.write_bytes(b"different endpoint checkpoint")
+                    with self.assertRaisesRegex(ValueError, "exact owner-validated"):
+                        TS_MODULE.build_allcheck_endpoint_input(output, wrong_checkpoint, root / "wrong-endpoint.gjf", "#p hf/sto-3g opt freq geom=allcheck guess=read", "12GB", 8)
+                    accepted = load_json(output)
+                    for label, mutate in (
+                        ("charge", lambda value: value.__setitem__("charge", 1)),
+                        ("spin", lambda value: value.__setitem__("multiplicity", 3)),
+                        ("atom-order", lambda value: value["stable_atom_ids"].reverse()),
+                    ):
+                        forged = copy.deepcopy(accepted); mutate(forged); forged["payload_sha256"] = TS_MODULE._payload_sha256(forged)
+                        forged_path = root / f"forged-{label}-review.json"; write_json(forged_path, forged)
+                        with self.assertRaises(ValueError):
+                            TS_MODULE.build_allcheck_endpoint_input(forged_path, checkpoint, root / f"forged-{label}.gjf", "#p hf/sto-3g opt freq geom=allcheck guess=read", "12GB", 8)
+                    with self.assertRaises(ValueError):
+                        TS_MODULE.build_allcheck_endpoint_input(audit_path, checkpoint, root / "isolated-audit-v2.gjf", "#p hf/sto-3g opt freq geom=allcheck guess=read", "12GB", 8)
+                return output
 
             forward_review = endpoint("forward", "reactant", from_state, 21); reverse_review = endpoint("reverse", "product", to_state, 22)
             acceptance = root / "formal-path-v2.json"; path_value = TS_MODULE.build_path_acceptance_v2_artifact(family, ts_result_path, mode_review, mode_decision, forward_review, reverse_review, mechanism_path, acceptance)

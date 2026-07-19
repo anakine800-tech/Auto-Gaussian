@@ -149,7 +149,10 @@ or source hash invalidates the draft and requires a new selection.
 `gaussian-irc-endpoint-audit/2` is required for prospective closure and binds
 one direction's final completed point to the fetched IRC checkpoint, exact
 attempt/terminal/fetch chain, IRC plan and AllCheck manifest, plus the accepted
-TS checkpoint and checkpoint audit `/2` named by `%oldchk`. Require the declared
+TS checkpoint and checkpoint audit `/2` named by `%oldchk`. The completed job's
+`gaussian.oldcheckpoint` basename/hash and companion-manifest hash/size must
+match that accepted checkpoint and exact AllCheck manifest; input declarations
+alone are insufficient. Require the declared
 final point, direction-specific completion, corrector convergence evidence for
 every expected point, normal termination, matching final log/result atom order
 and coordinates, and reviewed forming-bond distances. Historical audit `/1` is
@@ -171,13 +174,13 @@ execution sources only as non-authorizing negative evidence. A complete
 TS/Freq result requires the exact family, input, job, terminal-inspection
 receipt and fetch snapshot arguments; omitting any member rejects publication.
 
-For an endpoint continuation, reuse `gaussian-allcheck-input-manifest/1` with `continuation_kind: endpoint_opt_freq`. Require an approved route containing `Opt Freq Geom=AllCheck Guess=Read` and forbid IRC or TS optimization keywords. The `%oldchk` hash must match the endpoint audit and the input must contain no explicit molecule specification.
+For an endpoint continuation, reuse `gaussian-allcheck-input-manifest/1` with `continuation_kind: endpoint_opt_freq`. New construction requires canonical owner replay of `gaussian-endpoint-structure-review/2` and its complete family/audit/input/log/result/job/attempt/terminal/fetch/IRC-checkpoint/TS-checkpoint/plan/AllCheck source bundle. Historical review/audit `/1` and a standalone handwritten audit `/2` cannot authorize a new input. Require an approved route containing `Opt Freq Geom=AllCheck Guess=Read` and forbid IRC or TS optimization keywords. The `%oldchk` hash must match the exact review-bound endpoint checkpoint and the input must contain no explicit molecule specification.
 
 `gaussian-irc-component-proposal/1` binds a distance-based disconnected-component proposal to the endpoint-audit and IRC-result hashes. Restrict automatic detection to supported main-group organic elements and record the exact covalent radii, scale, proposed bonds, coordinates, formulas, and source atom indices. Mark it `calculation_ready: false`; never infer chemical identities, fragment charges, fragment multiplicities, or spin coupling.
 
 `gaussian-irc-component-review/1` must bind the proposal SHA-256, record `decision: accepted` and `confirmed: true`, preserve each proposed atom partition exactly, and explicitly supply every identity, PBS-safe fresh project, integer charge, positive multiplicity, and a non-empty spin-coupling note. Require fragment charges to sum to the audited total charge.
 
-`gaussian-irc-fragment-endpoint-plan/1` records the reviewed explicit Cartesian input hashes, atom maps, route, resources, and remote SDL directories. It grants no submission authorization. Forbid `IRC`, `Geom=AllCheck`, `Guess=Read`, and TS optimization keywords in fragment routes. `gaussian-irc-fragment-endpoint-validation/1` binds each fetched `job.json` to the planned input SHA-256 and requires completed stationary-point optimization, a complete frequency list, unchanged element order, and zero imaginary frequencies for every planned fragment. Label the energy sum as isolated-fragment electronic energy only; it is not a reaction Gibbs energy.
+`gaussian-irc-fragment-endpoint-plan/1` records the reviewed explicit Cartesian input hashes, atom maps, route, resources, and remote SDL directories. It grants no submission authorization. Forbid `IRC`, `Geom=AllCheck`, `Guess=Read`, and TS optimization keywords in fragment routes. `gaussian-irc-fragment-endpoint-validation/1` binds each fetched `job.json` to the planned input SHA-256 and requires completed stationary-point optimization, unchanged element order, and zero imaginary frequencies for every planned fragment. A single atom has zero vibrational modes and must carry `expected_frequency_count=0`, `frequencies=[]`, and `lowest_frequency_cm-1=null`; for `N>1`, retain the complete 3N-6 (or linear 3N-5) list and lowest-frequency hard gate. Label the energy sum as isolated-fragment electronic energy only; it is not a reaction Gibbs energy.
 
 Final validation needs both complete IRC direction results plus endpoint Opt/Freq evidence. A connected endpoint uses one reviewed continuation. A disconnected asymptotic endpoint may use separately reviewed isolated fragments after preserving the failed or bypassed combined-supermolecule evidence and documenting why no finite-distance minimum is claimed. A failed IRC does not by itself disprove the stationary point; it means the intended connection was not established.
 

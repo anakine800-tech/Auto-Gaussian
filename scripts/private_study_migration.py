@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 import copy
 import errno
 import hashlib
@@ -50,6 +51,8 @@ POSIX_PATH_RE = re.compile(r"(?<![A-Za-z0-9_.-])/(?:[^/\s\x00\"'<>|]+/)*[^/\s\x0
 WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:\\(?:[^\\\r\n\t\x00\"<>|]+\\)*[^\\\r\n\t\x00\"<>|]+")
 DESTINATION_RECEIPT_NAME = ".auto-g16-migration-destination-receipt.json"
 STREAM_CHUNK_SIZE = 1024 * 1024
+MAX_TEXT_REWRITE_BYTES = 8 * 1024 * 1024
+REFERENCE_SCAN_OVERLAP_CHARS = 8192
 
 
 class MigrationError(ValueError):
@@ -259,37 +262,6 @@ def _iter_source_files(source: Path) -> list[Path]:
     return files
 
 
-def _text(raw: bytes) -> str | None:
-    if b"\x00" in raw:
-        return None
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-
-
-def _absolute_references(text: str, source: Path, target: Path) -> list[dict[str, Any]]:
-    found = sorted(set(POSIX_PATH_RE.findall(text)) | set(WINDOWS_PATH_RE.findall(text)))
-    references: list[dict[str, Any]] = []
-    source_text = str(source)
-    target_text = str(target)
-    for value in found:
-        if value == source_text or value.startswith(source_text + os.sep):
-            rewrite_to = target_text + value[len(source_text):]
-            action = "rewrite_source_root_to_target_root"
-        else:
-            rewrite_to = None
-            action = "review_external_absolute_reference"
-        references.append({"value": value, "rewrite_to": rewrite_to, "action": action})
-    return references
-
-
-def _planned_bytes(raw: bytes, source: Path, target: Path) -> bytes:
-    if _text(raw) is None:
-        return raw
-    return raw.replace(str(source).encode("utf-8"), str(target).encode("utf-8"))
-
-
 def _tree_digest(entries: list[dict[str, Any]], *, planned: bool) -> str:
     prefix = "planned" if planned else "source"
     manifest = [
@@ -318,25 +290,13 @@ def build_plan(source: Path, target: Path, *, created_at: str | None = None) -> 
             relative = path.relative_to(source)
             require(not relative.is_absolute() and ".." not in relative.parts, "source relative path is unsafe")
             require(relative.as_posix() != DESTINATION_RECEIPT_NAME, "source contains the reserved destination receipt path")
-            raw = _read_source_at(source_fd, relative)
-            planned = _planned_bytes(raw, source, target)
-            text = _text(raw)
-            references = [] if text is None else _absolute_references(text, source, target)
-            rewrite_count += sum(item["rewrite_to"] is not None for item in references)
             destination = target / relative
             conflict = destination.exists() or destination.is_symlink()
             if conflict:
                 conflicts.append(relative.as_posix())
-            entries.append({
-                "relative_path": relative.as_posix(),
-                "source_size_bytes": len(raw),
-                "source_sha256": hashlib.sha256(raw).hexdigest(),
-                "planned_size_bytes": len(planned),
-                "planned_sha256": hashlib.sha256(planned).hexdigest(),
-                "content_kind": "utf8_text" if text is not None else "binary",
-                "conflict": conflict,
-                "absolute_path_references": references,
-            })
+            entry = _inspect_plan_entry(source_fd, relative, source, target, conflict)
+            rewrite_count += sum(item["rewrite_to"] is not None for item in entry["absolute_path_references"])
+            entries.append(entry)
     finally:
         os.close(source_fd)
     receipt_destination = target / DESTINATION_RECEIPT_NAME
@@ -464,6 +424,8 @@ def _stream_planned_entry(
     source: Path,
     target: Path,
     destination_fd: int | None = None,
+    *,
+    validate_expected: bool = True,
 ) -> dict[str, Any]:
     """Hash and optionally copy one entry using bounded buffers."""
     relative = Path(entry["relative_path"])
@@ -514,9 +476,73 @@ def _stream_planned_entry(
         "source_sha256": source_hash.hexdigest(), "planned_size_bytes": planned_size,
         "planned_sha256": planned_hash.hexdigest(),
     }
-    for key in ("source_size_bytes", "source_sha256", "planned_size_bytes", "planned_sha256"):
-        require(observed[key] == entry[key], f"{key.replace('_', ' ')} changed before apply: {relative.as_posix()}")
+    if validate_expected:
+        for key in ("source_size_bytes", "source_sha256", "planned_size_bytes", "planned_sha256"):
+            require(observed[key] == entry[key], f"{key.replace('_', ' ')} changed before apply: {relative.as_posix()}")
     return observed
+
+
+def _reference_records(found: set[str], source: Path, target: Path) -> list[dict[str, Any]]:
+    source_text = str(source); target_text = str(target)
+    records = []
+    for value in sorted(found):
+        if value == source_text or value.startswith(source_text + os.sep):
+            records.append({"value": value, "rewrite_to": target_text + value[len(source_text):], "action": "rewrite_source_root_to_target_root"})
+        else:
+            records.append({"value": value, "rewrite_to": None, "action": "review_external_absolute_reference"})
+    return records
+
+
+def _inspect_plan_entry(
+    source_fd: int, relative: Path, source: Path, target: Path, conflict: bool,
+) -> dict[str, Any]:
+    """Plan one entry with bounded reads and no resident whole-file bytes."""
+    leaf_fd = _open_regular_source_at(source_fd, relative)
+    before = os.fstat(leaf_fd)
+    source_hash = hashlib.sha256(); source_size = 0; found: set[str] = set()
+    text_candidate = before.st_size <= MAX_TEXT_REWRITE_BYTES
+    decoder = codecs.getincrementaldecoder("utf-8")("strict") if text_candidate else None
+    scan_tail = ""; saw_nul = False
+
+    def scan_text(decoded: str, *, final: bool = False) -> None:
+        nonlocal scan_tail
+        combined = scan_tail + decoded
+        cutoff = len(combined) if final else max(0, len(combined) - REFERENCE_SCAN_OVERLAP_CHARS)
+        searchable = combined[:cutoff]
+        found.update(POSIX_PATH_RE.findall(searchable)); found.update(WINDOWS_PATH_RE.findall(searchable))
+        scan_tail = combined[cutoff:]
+
+    try:
+        while True:
+            chunk = os.read(leaf_fd, STREAM_CHUNK_SIZE)
+            if not chunk: break
+            source_hash.update(chunk); source_size += len(chunk); saw_nul = saw_nul or b"\x00" in chunk
+            if decoder is not None:
+                try: scan_text(decoder.decode(chunk))
+                except UnicodeDecodeError:
+                    decoder = None; found.clear(); scan_tail = ""
+        if decoder is not None:
+            try: scan_text(decoder.decode(b"", final=True), final=True)
+            except UnicodeDecodeError:
+                decoder = None; found.clear(); scan_tail = ""
+        after = os.fstat(leaf_fd)
+    finally:
+        os.close(leaf_fd)
+    require(_identity(before) == _identity(after), f"source identity changed while planning: {relative.as_posix()}")
+    content_kind = "utf8_text" if decoder is not None and not saw_nul else ("opaque_large" if before.st_size > MAX_TEXT_REWRITE_BYTES else "binary")
+    references = _reference_records(found, source, target) if content_kind == "utf8_text" else []
+    entry = {
+        "relative_path": relative.as_posix(), "source_size_bytes": source_size,
+        "source_sha256": source_hash.hexdigest(), "planned_size_bytes": 0,
+        "planned_sha256": "", "content_kind": content_kind,
+        "conflict": conflict, "absolute_path_references": references,
+    }
+    observed = _stream_planned_entry(source_fd, entry, source, target, validate_expected=False)
+    require(observed["identity"] == _identity(before), f"source identity changed between planning passes: {relative.as_posix()}")
+    require(observed["source_size_bytes"] == source_size and observed["source_sha256"] == entry["source_sha256"], f"source changed between planning passes: {relative.as_posix()}")
+    entry["planned_size_bytes"] = observed["planned_size_bytes"]
+    entry["planned_sha256"] = observed["planned_sha256"]
+    return entry
 
 
 def _preflight_source_entries(

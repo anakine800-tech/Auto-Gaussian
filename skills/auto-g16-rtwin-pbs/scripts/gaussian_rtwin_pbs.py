@@ -85,7 +85,20 @@ MAX_IN_MEMORY_READ_BYTES = 16 * 1024 * 1024
 TRANSFER_RATE_FLOOR_BYTES_PER_SECOND = 1024 * 1024
 TRANSFER_FIXED_OVERHEAD_SECONDS = 30
 MIN_TRANSFER_TIMEOUT_SECONDS = 60
-MAX_TRANSFER_TIMEOUT_SECONDS = 3600
+# Seven days is a finite operational ceiling shared with watch.  Requests
+# above the corresponding byte capacity fail closed instead of silently
+# violating the declared minimum sustained rate.
+MAX_TRANSFER_TIMEOUT_SECONDS = 7 * 24 * 3600
+MAX_TRANSFER_BYTES = (
+    MAX_TRANSFER_TIMEOUT_SECONDS - TRANSFER_FIXED_OVERHEAD_SECONDS
+) * TRANSFER_RATE_FLOOR_BYTES_PER_SECOND
+HASH_RATE_FLOOR_BYTES_PER_SECOND = 1024 * 1024
+HASH_FIXED_OVERHEAD_SECONDS = 30
+MIN_HASH_TIMEOUT_SECONDS = 60
+MAX_HASH_TIMEOUT_SECONDS = 7 * 24 * 3600
+MAX_HASH_BYTES = (
+    MAX_HASH_TIMEOUT_SECONDS - HASH_FIXED_OVERHEAD_SECONDS
+) * HASH_RATE_FLOOR_BYTES_PER_SECOND
 MAX_READ_ONLY_RETRIES = 2
 MAX_REMOTE_CLOCK_SKEW_SECONDS = 5
 MIN_INTERRUPTION_STABLE_SECONDS = 60
@@ -134,14 +147,38 @@ def run(
     return result
 
 
-def transfer_timeout_seconds(total_bytes: int) -> int:
-    """Return one finite transfer budget from an exact known byte count."""
+def _size_derived_timeout_seconds(
+    total_bytes: int, *, rate_floor: int, fixed_overhead: int,
+    minimum: int, maximum: int, maximum_bytes: int, label: str,
+) -> int:
     if not isinstance(total_bytes, int) or isinstance(total_bytes, bool) or total_bytes < 0:
-        fail("transfer timeout requires an exact non-negative byte count")
-    calculated = TRANSFER_FIXED_OVERHEAD_SECONDS + math.ceil(
-        total_bytes / TRANSFER_RATE_FLOOR_BYTES_PER_SECOND
+        fail(f"{label} timeout requires an exact non-negative byte count")
+    if total_bytes > maximum_bytes:
+        fail(f"{label} byte count exceeds the finite audited timeout capacity")
+    calculated = fixed_overhead + math.ceil(total_bytes / rate_floor)
+    if calculated > maximum:
+        fail(f"{label} timeout exceeds the finite audited ceiling")
+    return max(minimum, calculated)
+
+
+def transfer_timeout_seconds(total_bytes: int) -> int:
+    """Return a finite transfer budget that preserves the declared rate floor."""
+    return _size_derived_timeout_seconds(
+        total_bytes, rate_floor=TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
+        fixed_overhead=TRANSFER_FIXED_OVERHEAD_SECONDS,
+        minimum=MIN_TRANSFER_TIMEOUT_SECONDS, maximum=MAX_TRANSFER_TIMEOUT_SECONDS,
+        maximum_bytes=MAX_TRANSFER_BYTES, label="transfer",
     )
-    return max(MIN_TRANSFER_TIMEOUT_SECONDS, min(MAX_TRANSFER_TIMEOUT_SECONDS, calculated))
+
+
+def hash_timeout_seconds(total_bytes: int) -> int:
+    """Return a finite exact-byte hashing budget with no hidden 60 s umbrella."""
+    return _size_derived_timeout_seconds(
+        total_bytes, rate_floor=HASH_RATE_FLOOR_BYTES_PER_SECOND,
+        fixed_overhead=HASH_FIXED_OVERHEAD_SECONDS,
+        minimum=MIN_HASH_TIMEOUT_SECONDS, maximum=MAX_HASH_TIMEOUT_SECONDS,
+        maximum_bytes=MAX_HASH_BYTES, label="hash",
+    )
 
 
 class _ReadOnlyCapability:
@@ -2538,6 +2575,8 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         "trailing_blank_line": True,
     }
     report["manifest"] = None
+    report["manifest_sha256"] = None
+    report["manifest_size"] = None
     report["manifest_warnings"] = []
     if manifest is not None:
         warnings = manifest.get("warnings", [])
@@ -2561,6 +2600,8 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         if manifest_atoms is not None and manifest_atoms != coordinate_count:
             fail("atom count differs between Gaussian input and companion manifest")
         report["manifest"] = str(manifest_path.resolve())
+        report["manifest_sha256"] = sha256(manifest_path)
+        report["manifest_size"] = manifest_path.stat().st_size
     return report
 
 
@@ -3356,7 +3397,7 @@ if [ -f '{manifest_path}' ] && [ ! -L '{manifest_path}' ]; then manifest_out=$(c
 if [ -f '{log_path}' ] && [ ! -L '{log_path}' ]; then
   tail_out=$(tail -n 500 -- '{log_path}' 2>&1); trc=$?
   stat_value=$(stat -c '%s:%Y' -- '{log_path}' 2>/dev/null || true)
-  if [ "$qstate" = Q ] || {{ [ "$qstate" = R ] && [ "$prc" -eq 0 ] && [ -n "$process_out" ]; }}; then
+  if [ "$qstate" = Q ] || [ "$qstate" = H ] || {{ [ "$qstate" = R ] && [ "$prc" -eq 0 ] && [ -n "$process_out" ]; }}; then
     normal_count=''; error_count=''; scan_scope='bounded_tail_only'
   else
     counts=$(awk '/Normal termination of Gaussian/{{n++}} /Error termination/{{e++}} END{{printf "%d:%d", n+0, e+0}}' -- '{log_path}' 2>/dev/null || true)
@@ -3582,7 +3623,7 @@ def server_fetch_inventory_script(
     required: list[str],
     optional: list[str],
 ) -> str:
-    """Return a read-only exact-file inventory; no glob or scratch traversal."""
+    """Return a fast size-only exact-file inventory; never hash under 60 s."""
 
     lines = [remote_existing_directory_guard(project), f"cd '{remote_project_dir(project)}'"]
     for status, names in (("REQUIRED", required), ("OPTIONAL", optional)):
@@ -3590,8 +3631,8 @@ def server_fetch_inventory_script(
             validate_transfer_name(name)
             lines.append(
                 f"if [ -L '{name}' ]; then echo 'REFUSING_SYMLINK\t{name}' >&2; exit 51; "
-                f"elif [ -f '{name}' ]; then digest=$(sha256sum -- '{name}'); digest=${{digest%% *}}; "
-                f"size=$(stat -c %s -- '{name}'); printf 'FILE\\t{name}\\t%s\\t%s\\n' \"$digest\" \"$size\"; "
+                f"elif [ -f '{name}' ]; then size=$(stat -c %s -- '{name}') || exit 52; "
+                f"printf 'FILE\\t{name}\\t%s\\n' \"$size\"; "
                 f"else printf 'MISSING_{status}\\t{name}\\n'; fi"
             )
     return "\n".join(lines) + "\n"
@@ -3601,17 +3642,17 @@ def parse_server_fetch_inventory(
     text: str,
     required: list[str],
     optional: list[str],
-) -> tuple[dict[str, dict[str, Any]], list[str]]:
+) -> tuple[dict[str, int], list[str]]:
     allowed = set(required) | set(optional)
-    files: dict[str, dict[str, Any]] = {}
+    files: dict[str, int] = {}
     missing_required: list[str] = []
     missing_optional: list[str] = []
     reported: set[str] = set()
     for line in text.splitlines():
         fields = line.split("\t")
-        if fields[0] == "FILE" and len(fields) == 4:
-            _, name, digest, size_text = fields
-            if name not in allowed or name in reported or not SHA256_RE.fullmatch(digest):
+        if fields[0] == "FILE" and len(fields) == 3:
+            _, name, size_text = fields
+            if name not in allowed or name in reported:
                 fail("server fetch inventory contains an unexpected or duplicate file")
             try:
                 size = int(size_text)
@@ -3619,7 +3660,7 @@ def parse_server_fetch_inventory(
                 fail("server fetch inventory contains an invalid file size")
             if size < 0:
                 fail("server fetch inventory contains a negative file size")
-            files[name] = {"sha256": digest, "size": size}
+            files[name] = size
             reported.add(name)
         elif fields[0] in {"MISSING_REQUIRED", "MISSING_OPTIONAL"} and len(fields) == 2:
             name = fields[1]
@@ -3635,6 +3676,45 @@ def parse_server_fetch_inventory(
     if missing_required:
         fail("server fetch is missing required files: " + ", ".join(sorted(missing_required)))
     return files, sorted(missing_optional)
+
+
+def server_fetch_hash_script(project: str, sizes: dict[str, int]) -> str:
+    """Hash the exact size-inventoried files with before/after identity checks."""
+    lines = [remote_existing_directory_guard(project), f"cd '{remote_project_dir(project)}'"]
+    for name in sorted(sizes):
+        validate_transfer_name(name)
+        expected_size = sizes[name]
+        if not isinstance(expected_size, int) or isinstance(expected_size, bool) or expected_size < 0:
+            fail("server fetch hash requires exact non-negative file sizes")
+        lines.append(
+            f"if [ -L '{name}' ] || [ ! -f '{name}' ]; then echo 'HASH_SOURCE_CHANGED\\t{name}' >&2; exit 53; fi; "
+            f"before=$(stat -c '%d:%i:%s:%Y' -- '{name}') || exit 54; "
+            f"size=${{before#*:*:}}; size=${{size%%:*}}; [ \"$size\" = '{expected_size}' ] || exit 55; "
+            f"digest=$(sha256sum -- '{name}') || exit 56; digest=${{digest%% *}}; "
+            f"after=$(stat -c '%d:%i:%s:%Y' -- '{name}') || exit 57; [ \"$before\" = \"$after\" ] || exit 58; "
+            f"printf 'FILE\\t{name}\\t%s\\t%s\\n' \"$digest\" \"$size\""
+        )
+    return "\n".join(lines) + "\n"
+
+
+def parse_server_fetch_hashes(text: str, sizes: dict[str, int]) -> dict[str, dict[str, Any]]:
+    files: dict[str, dict[str, Any]] = {}
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if len(fields) != 4 or fields[0] != "FILE":
+            if line.strip(): fail("server fetch hash inventory could not be parsed exactly")
+            continue
+        _, name, digest, size_text = fields
+        if name not in sizes or name in files or not SHA256_RE.fullmatch(digest):
+            fail("server fetch hash inventory contains an unexpected or duplicate file")
+        try: observed_size = int(size_text)
+        except ValueError: fail("server fetch hash inventory contains an invalid size")
+        if observed_size != sizes[name]:
+            fail("server fetch hash inventory size differs from size-only inventory")
+        files[name] = {"sha256": digest, "size": observed_size}
+    if set(files) != set(sizes):
+        fail("server fetch hash inventory omitted an inventoried file")
+    return files
 
 
 def begin_fetch_snapshot(output_dir: Path, binding: dict[str, str]) -> Path:
@@ -3745,9 +3825,17 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         nested_ssh(args, "bash", "-s"),
         input_bytes=server_fetch_inventory_script(project, required, optional).encode("utf-8"),
     )
-    server_files, missing_optional = parse_server_fetch_inventory(
+    inventory_sizes, missing_optional = parse_server_fetch_inventory(
         str(inventory_result.stdout), required, optional
     )
+    server_hash_size_bytes = sum(inventory_sizes.values())
+    server_hash_timeout = hash_timeout_seconds(server_hash_size_bytes)
+    server_hash_result = run(
+        nested_ssh(args, "bash", "-s"),
+        input_bytes=server_fetch_hash_script(project, inventory_sizes).encode("utf-8"),
+        timeout_seconds=server_hash_timeout,
+    )
+    server_files = parse_server_fetch_hashes(str(server_hash_result.stdout), inventory_sizes)
     staged_mismatches = [
         name for name, digest in expected_hashes.items()
         if server_files.get(name, {}).get("sha256") != digest
@@ -3761,6 +3849,7 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
     changed_names = sorted(set(server_files) - set(reusable))
     changed_size_bytes = sum(server_files[name]["size"] for name in changed_names)
     fetch_transfer_timeout = transfer_timeout_seconds(changed_size_bytes)
+    rtwin_hash_timeout = hash_timeout_seconds(changed_size_bytes)
 
     snapshot_tag = f"fetch-{project}-{job_id}-{input_stem}-{snapshot_id}"
     windows_results = f"{args.windows_root}\\{project}\\{snapshot_tag}"
@@ -3796,11 +3885,12 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
     rtwin_hashes: dict[str, dict[str, Any]] = {
         name: copy.deepcopy(server_files[name]) for name in reusable
     }
+    rtwin_hash_result: subprocess.CompletedProcess | None = None
     if changed_names:
         rtwin_hash_result = run([
             *ssh_base(args), "powershell", "-NoProfile", "-NonInteractive",
             "-EncodedCommand", powershell_encoded(hash_script),
-        ])
+        ], timeout_seconds=rtwin_hash_timeout)
         for line in str(rtwin_hash_result.stdout).splitlines():
             fields = line.strip().split("\t")
             if len(fields) != 3 or fields[0] not in changed_names or not SHA256_RE.fullmatch(fields[1]):
@@ -3926,6 +4016,27 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
             "rtwin_to_mac_timeout_seconds": fetch_transfer_timeout,
             "rate_floor_bytes_per_second": TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
             "fixed_overhead_seconds": TRANSFER_FIXED_OVERHEAD_SECONDS,
+        },
+        "hash_timeout_evidence": {
+            "size_inventory": {
+                "known_size_bytes": server_hash_size_bytes,
+                "timeout_seconds": DEFAULT_COMMAND_TIMEOUT_SECONDS,
+                "returncode": inventory_result.returncode, "status": "passed",
+            },
+            "server_sha256": {
+                "known_size_bytes": server_hash_size_bytes,
+                "timeout_seconds": server_hash_timeout,
+                "returncode": server_hash_result.returncode, "status": "passed",
+            },
+            "rtwin_sha256": {
+                "known_size_bytes": changed_size_bytes,
+                "timeout_seconds": rtwin_hash_timeout,
+                "returncode": rtwin_hash_result.returncode if rtwin_hash_result is not None else None,
+                "status": "passed" if changed_names else "not_needed",
+            },
+            "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
+            "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
+            "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
         },
         "per_hop": per_hop,
         "analysis": analysis,
@@ -4322,7 +4433,7 @@ def command_submit(args) -> None:
         )
     except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
         fail(f"attempt reservation blocked submit before network: {exc}")
-    def prepare_reserved_local_transaction() -> tuple[dict[str, Any], list[Path], dict[str, str], dict[str, Any], int]:
+    def prepare_reserved_local_transaction() -> tuple[dict[str, Any], list[Path], dict[str, str], dict[str, Any], int, int]:
         """Publish every post-reservation local artifact before the first network call."""
         intent = {
             "schema": "gaussian-submission-intent/1",
@@ -4361,6 +4472,7 @@ def command_submit(args) -> None:
         transaction_files = [*upload_files, checksums_path]
         transfer_size_bytes = sum(path.stat().st_size for path in transaction_files)
         upload_timeout_seconds = transfer_timeout_seconds(transfer_size_bytes)
+        upload_hash_timeout_seconds = hash_timeout_seconds(transfer_size_bytes)
         transaction_job = update_job(
             local_dir,
             status="submission_uncertain",
@@ -4380,14 +4492,22 @@ def command_submit(args) -> None:
                 "rate_floor_bytes_per_second": TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
                 "fixed_overhead_seconds": TRANSFER_FIXED_OVERHEAD_SECONDS,
             },
+            upload_hash_timeout_evidence={
+                "known_upload_size_bytes": transfer_size_bytes,
+                "rtwin_sha256_timeout_seconds": upload_hash_timeout_seconds,
+                "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
+                "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
+                "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
+                "status": "pending",
+            },
         )
         transaction_expected = verify_staged_submission(
             local_dir, transaction_job, input_report, input_approval, transaction_files
         )
-        return intent, transaction_files, transaction_expected, transaction_job, upload_timeout_seconds
+        return intent, transaction_files, transaction_expected, transaction_job, upload_timeout_seconds, upload_hash_timeout_seconds
 
     try:
-        intent, files, expected, job, upload_timeout_seconds = prepare_reserved_local_transaction()
+        intent, files, expected, job, upload_timeout_seconds, upload_hash_timeout_seconds = prepare_reserved_local_transaction()
     except (OSError, ValueError, SystemExit, KeyboardInterrupt) as exc:
         evidence = {
             "source": "proven_pre_network_local_transaction_failure",
@@ -4434,7 +4554,10 @@ def command_submit(args) -> None:
             "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
             "Write-Output ((Split-Path $f -Leaf)+' '+$h)}"
         )
-        hash_result = run([*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(hash_script)])
+        hash_result = run(
+            [*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(hash_script)],
+            timeout_seconds=upload_hash_timeout_seconds,
+        )
         observed: dict[str, str] = {}
         for line in str(hash_result.stdout).splitlines():
             match = re.fullmatch(r"(.+?)\s+([0-9a-fA-F]{64})", line.strip())
@@ -4443,6 +4566,18 @@ def command_submit(args) -> None:
         mismatches = [name for name, digest in expected.items() if observed.get(name) != digest]
         if mismatches:
             fail("RTwin SHA-256 mismatch or missing hash: " + ", ".join(mismatches))
+        job = update_job(
+            local_dir,
+            upload_hash_timeout_evidence={
+                "known_upload_size_bytes": sum(path.stat().st_size for path in files),
+                "rtwin_sha256_timeout_seconds": upload_hash_timeout_seconds,
+                "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
+                "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
+                "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
+                "returncode": hash_result.returncode,
+                "status": "passed",
+            },
+        )
 
         # This is the only server-side directory creation path. It is one
         # atomic claim and rejects every pre-existing path, including empty.
@@ -5068,6 +5203,28 @@ def command_inspect(args) -> None:
     print(json.dumps(inspection, ensure_ascii=False, indent=2))
 
 
+def _watch_critical_signature(inspection: dict[str, Any]) -> tuple[Any, ...]:
+    """Separate durable state/evidence changes from high-rate log telemetry."""
+    analysis = inspection.get("analysis") if isinstance(inspection.get("analysis"), dict) else {}
+    interruption = inspection.get("interruption_proof")
+    return (
+        inspection.get("state"), inspection.get("pbs_state"),
+        inspection.get("pbs_record_present"), inspection.get("pbs_evidence_status"),
+        inspection.get("process_alive"), inspection.get("process_evidence_status"),
+        inspection.get("transport_classification"), inspection.get("transport_returncode"),
+        inspection.get("freshness"), inspection.get("termination_counts_known"),
+        inspection.get("termination_scan_scope"),
+        inspection.get("full_normal_termination_count"),
+        inspection.get("full_error_termination_count"),
+        bool(analysis.get("normal_termination")), bool(analysis.get("error_termination")),
+        analysis.get("normal_termination_count"), analysis.get("error_termination_count"),
+        inspection.get("evidence_conflict"), inspection.get("interrupted_candidate"),
+        inspection.get("scheduler_record_lingering"), inspection.get("scheduler_zombie_candidate"),
+        str(inspection.get("error", "")),
+        canonical_digest(interruption) if interruption else None,
+    )
+
+
 def command_watch(args) -> None:
     if not 2 <= args.poll_seconds <= 300:
         fail("--poll-seconds must be between 2 and 300")
@@ -5127,21 +5284,16 @@ def command_watch(args) -> None:
             stale_repeats = 0
             previous_stale_signature = None
             stable_since_epoch = None
-        persistence_signature = (
-            inspection.get("state"), inspection.get("pbs_state"), inspection.get("freshness"),
-            inspection.get("transport_classification"), inspection.get("pbs_record_present"),
-            inspection.get("process_alive"), inspection.get("log_size"), inspection.get("log_mtime_epoch"),
-            inspection.get("full_normal_termination_count"), inspection.get("full_error_termination_count"),
-            canonical_digest(inspection.get("interruption_proof")) if inspection.get("interruption_proof") else None,
-        )
-        urgent = (
-            inspection.get("state") not in {"queued", "running"}
-            or inspection.get("transport_classification") != "success"
-            or inspection.get("freshness") != "fresh"
-        )
+        persistence_signature = _watch_critical_signature(inspection)
         stable_unchanged = persistence_signature == last_persist_signature
+        terminal = inspection.get("state") in {"completed", "failed", "interrupted"}
         heartbeat_due = last_persisted_at is None or loop_now - last_persisted_at >= WATCH_HEARTBEAT_SECONDS
-        persist = urgent or not stable_unchanged or heartbeat_due
+        # Log size/mtime are progress telemetry.  The latest values are retained
+        # in memory and written on a bounded heartbeat, but growth alone never
+        # rewrites the job or append-only ledger.  Critical deterioration,
+        # recovery, scheduler/process transitions and terminal evidence persist
+        # immediately; stable abnormal classifications are deduplicated.
+        persist = terminal or not stable_unchanged or heartbeat_due
         if persist and (local_dir / "job.json").is_file():
             job = validate_local_job_binding(local_dir, args.project, args.job_id, args.input_stem, require_fetched=False, expected_attempt_id=args.attempt_id)
             updates = {"status": inspection["state"], "monitor_observation": inspection}
@@ -5181,10 +5333,10 @@ def command_watch(args) -> None:
             ),
             flush=True,
         )
-        if inspection["state"] in {"completed", "failed", "interrupted"}:
+        if terminal:
             final = inspection
             break
-        if not urgent and stable_unchanged:
+        if stable_unchanged:
             poll_interval = min(float(WATCH_MAX_POLL_SECONDS), max(float(args.poll_seconds), poll_interval * 2.0))
         else:
             poll_interval = float(args.poll_seconds)

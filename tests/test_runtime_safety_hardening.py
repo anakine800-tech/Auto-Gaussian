@@ -287,9 +287,16 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             if name == "safe_job.log" and missing_log:
                 lines.append("MISSING_REQUIRED\tsafe_job.log")
             else:
-                digest = __import__("hashlib").sha256(files[name]).hexdigest()
-                lines.append(f"FILE\t{name}\t{digest}\t{len(files[name])}")
+                lines.append(f"FILE\t{name}\t{len(files[name])}")
         lines.append("MISSING_OPTIONAL\tsafe_job.pbs.out")
+        return "\n".join(lines) + "\n"
+
+    def server_hash_text(self, files: dict[str, bytes], *, mismatch: bool = False) -> str:
+        lines = []
+        for name in sorted(files):
+            digest = __import__("hashlib").sha256(files[name]).hexdigest()
+            if mismatch and name == "safe_job.log": digest = "0" * 64
+            lines.append(f"FILE\t{name}\t{digest}\t{len(files[name])}")
         return "\n".join(lines) + "\n"
 
     def rtwin_hash_text(self, files: dict[str, bytes], *, mismatch: bool = False) -> str:
@@ -435,19 +442,23 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                 if call == 0:
                     return completed(0, self.inventory_text(files))
                 if call == 1:
+                    self.assertEqual(timeout_seconds, PBS.hash_timeout_seconds(sum(len(data) for data in files.values())))
+                    return completed(0, self.server_hash_text(files))
+                if call == 2:
                     encoded = command[-1]
                     script = base64.b64decode(encoded).decode("utf-16le")
                     self.assertIn("REFUSING_EXISTING_FETCH_SNAPSHOT", script)
                     self.assertNotIn("-Force", script)
                     return completed()
-                if call == 2:
+                if call == 3:
                     self.assertEqual(timeout_seconds, PBS.transfer_timeout_seconds(sum(len(data) for data in files.values())))
                     self.assertFalse(any("*" in part for part in command))
                     self.assertFalse(any("scratch" in part for part in command))
                     return completed()
-                if call == 3:
-                    return completed(0, self.rtwin_hash_text(files))
                 if call == 4:
+                    self.assertEqual(timeout_seconds, PBS.hash_timeout_seconds(sum(len(data) for data in files.values())))
+                    return completed(0, self.rtwin_hash_text(files))
+                if call == 5:
                     self.assertEqual(timeout_seconds, PBS.transfer_timeout_seconds(sum(len(data) for data in files.values())))
                     staging = Path(command[-1])
                     for name, data in files.items():
@@ -473,6 +484,43 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             allowlist = json.loads((output / "server-allowlist.json").read_text())
             self.assertFalse(allowlist["scratch_included"])
             self.assertFalse(allowlist["unrelated_files_included"])
+
+    def test_fetch_server_and_rtwin_hash_timeouts_are_size_derived_and_leave_no_snapshot(self) -> None:
+        for failed_phase in ("server", "rtwin", "mac_after_hash"):
+            with self.subTest(failed_phase=failed_phase), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve(); args, _, files = self.make_fetch_case(root); output = root / "snapshot"
+                declared_sizes = {name: (180 * 1024 * 1024 if name.endswith(".log") else len(data)) for name, data in files.items()}
+                inventory = "\n".join([*(f"FILE\t{name}\t{declared_sizes[name]}" for name in sorted(files)), "MISSING_OPTIONAL\tsafe_job.pbs.out"]) + "\n"
+                server_hash = "\n".join(
+                    f"FILE\t{name}\t{__import__('hashlib').sha256(data).hexdigest()}\t{declared_sizes[name]}"
+                    for name, data in sorted(files.items())
+                ) + "\n"
+                rtwin_hash = "\n".join(
+                    f"{name}\t{__import__('hashlib').sha256(data).hexdigest()}\t{declared_sizes[name]}"
+                    for name, data in sorted(files.items())
+                ) + "\n"
+                seen = []
+                def fake_run(command, *, input_bytes=None, check=True, timeout_seconds=PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS):
+                    call = len(seen); seen.append(timeout_seconds)
+                    if call == 0: return completed(0, inventory)
+                    if call == 1:
+                        self.assertGreater(timeout_seconds, 60)
+                        if failed_phase == "server": raise SystemExit(2)
+                        return completed(0, server_hash)
+                    if call in {2, 3}: return completed()
+                    if call == 4:
+                        self.assertGreater(timeout_seconds, 60)
+                        if failed_phase == "rtwin": raise SystemExit(2)
+                        return completed(0, rtwin_hash)
+                    if call == 5 and failed_phase == "mac_after_hash":
+                        self.assertGreater(timeout_seconds, 60)
+                        raise SystemExit(2)
+                    raise AssertionError(command)
+                with mock.patch.object(PBS, "run", side_effect=fake_run), self.assertRaises(SystemExit):
+                    PBS.fetch_results(args, "safe_job", output)
+                self.assertTrue((output / ".fetch-in-progress").is_file())
+                self.assertFalse((output / "transfer.json").exists())
+                self.assertEqual(seen[0], PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS)
 
     def test_fetch_rejects_old_target_multiple_logs_and_missing_required_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -501,9 +549,11 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                 fake_run.calls += 1
                 if call == 0:
                     return completed(0, self.inventory_text(files))
-                if call in {1, 2}:
+                if call == 1:
+                    return completed(0, self.server_hash_text(files))
+                if call in {2, 3}:
                     return completed()
-                if call == 3:
+                if call == 4:
                     return completed(0, self.rtwin_hash_text(files))
                 staging = Path(command[-1])
                 for name, data in files.items():
@@ -525,7 +575,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                 PBS,
                 "run",
                 side_effect=[
-                    completed(0, self.inventory_text(files)), completed(), completed(),
+                    completed(0, self.inventory_text(files)), completed(0, self.server_hash_text(files)), completed(), completed(),
                     completed(0, self.rtwin_hash_text(files, mismatch=True)),
                 ],
             ):
@@ -540,9 +590,11 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                 fake_run.calls += 1
                 if call == 0:
                     return completed(0, self.inventory_text(files))
-                if call in {1, 2}:
+                if call == 1:
+                    return completed(0, self.server_hash_text(files))
+                if call in {2, 3}:
                     return completed()
-                if call == 3:
+                if call == 4:
                     return completed(0, self.rtwin_hash_text(files))
                 staging = Path(command[-1])
                 (staging / "safe_job.log").write_bytes(files["safe_job.log"])

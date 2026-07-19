@@ -25,8 +25,12 @@ All notable public release changes are recorded here. The project follows
   acceptance `/2`, including one shared accepted TS `%oldchk` lineage, while
   keeping `/1` artifacts strictly historical and non-qualifying.
 - Added bounded streaming for Gaussian log parsing, private migration and
-  checkpoint/result snapshots, plus size-derived finite transfer budgets and
-  bounded adaptive monitoring persistence without active-state whole-log scans.
+  checkpoint/result snapshots, including plan/review migration passes, plus
+  separate size-derived finite transfer and hash budgets and bounded adaptive
+  monitoring persistence without active-state whole-log scans.
+- Required new endpoint Opt/Freq inputs to replay an endpoint-structure review
+  `/2` and the completed IRC job's exact transported TS checkpoint and companion
+  manifest; standalone or historical endpoint audits remain non-authorizing.
 
 ### Safety
 

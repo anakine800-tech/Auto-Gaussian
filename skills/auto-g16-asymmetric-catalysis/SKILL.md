@@ -314,14 +314,21 @@ thermochemistry, and whether one missing candidate could reverse the ordering.
 Label lowest-TS-only results as sensitivity analyses.
 
 Use `ingest-result` only for a `promoted_offline` candidate. It binds the
-existing `auto-g16-ts-irc` TS result, mode review and explicit mode decision to
-an energy record. When endpoint audits are supplied, also require the exact TS
-input, log, checkpoint, passed checkpoint-geometry audit and bidirectional IRC
-plan. The candidate atom order, charge and multiplicity must match the TS,
-checkpoint audit and both endpoint audits; the IRC plan must bind the same TS,
-mode decision and checkpoint hashes and map each direction to the endpoint's
-exact project. Passed direction/side labels alone never grant
-`path_validated` status.
+existing `auto-g16-ts-irc` TS result `/2`, mode review and explicit mode
+decision to an energy record. New `path_validated` and comparison eligibility
+require `--path-acceptance` with canonical owner replay of
+`gaussian-ts-irc-path-acceptance/2`, including both endpoint-structure reviews
+`/2`, the current study/mechanism states, attempt/terminal/fetch evidence and
+shared TS-checkpoint lineage. Historical endpoint-audit `/1`, direct
+`--forward-audit`/`--reverse-audit`, or direction/side labels are display-only
+and never grant eligibility.
+
+```bash
+python skills/auto-g16-asymmetric-catalysis/scripts/asymmetric_catalysis.py ingest-result \
+  CANDIDATE.json TS_RESULT_V2.json ENERGY.json \
+  --mode-review MODE_REVIEW.json --mode-decision MODE_DECISION.json \
+  --path-acceptance PATH_ACCEPTANCE_V2.json --output RESULT.json
+```
 
 Use `aggregate` for log-sum-exp Boltzmann aggregation, two-
 channel ee, lowest-TS-only, adversarial energy-shift and leave-one-out

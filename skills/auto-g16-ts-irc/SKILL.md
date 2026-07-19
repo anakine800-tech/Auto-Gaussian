@@ -89,9 +89,9 @@ adapter. The open-shell adapter has no transport or execution surface.
     one product side with identical composition, charge, multiplicity and stable atom ID/order. This opens
     only the next endpoint-minimum gate; it is not endpoint Opt/Freq or barrier
     acceptance.
-13. For a connected endpoint, build the job with `build-allcheck-endpoint`. Require a separately approved route containing `Opt Freq Geom=AllCheck Guess=Read`, a fresh project, and an exact audited IRC checkpoint.
+13. For a connected endpoint, build the job with `build-allcheck-endpoint`. It accepts only an owner-replayed `gaussian-endpoint-structure-review/2` and the exact IRC checkpoint in that review's complete source bundle; historical review/audit `/1` and a standalone handwritten audit `/2` are replay-only and cannot create a runnable input. Require a separately approved route containing `Opt Freq Geom=AllCheck Guess=Read` and a fresh project.
 14. For a disconnected endpoint, run `propose-endpoint-components`. Treat its covalent-radius connectivity as a review proposal only. Require a hash-bound `gaussian-irc-component-review/1` that explicitly accepts every atom partition and supplies each identity, fresh project, charge, multiplicity, and a spin-coupling note. Then run `build-fragment-endpoints`; it emits explicit Cartesian inputs and no submission authorization.
-15. Submit each fragment only after exact per-project approval. For formal acceptance use `audit-fragment-endpoints-v2` with every exact raw log and checkpoint. It replays each log, derives the exact 3N-6/3N-5 count from its final geometry, rejects malformed/non-finite/truncated frequencies, and records result/job/log/checkpoint references plus parser version/schema. Historical `/1` is replay-only for formal closure. Report the electronic-energy sum only as an isolated-fragment electronic energy, never as a reaction Gibbs energy.
+15. Submit each fragment only after exact per-project approval. For formal acceptance use `audit-fragment-endpoints-v2` with every exact raw log and checkpoint. It replays each log and records result/job/log/checkpoint references plus parser version/schema. A single-atom minimum has zero vibrational modes and must report `expected_frequency_count=0`, `frequencies=[]`, `lowest_frequency_cm-1=null`, and zero imaginary frequencies. Every fragment with `N>1` retains the complete 3N-6 (or 3N-5 when linear) mode-count hard gate and rejects malformed, non-finite or truncated frequencies. Historical `/1` is replay-only for formal closure. Report the electronic-energy sum only as an isolated-fragment electronic energy, never as a reaction Gibbs energy.
 
 ## Offline commands
 
@@ -147,11 +147,22 @@ TOOL="$HOME/.codex/skills/auto-g16-ts-irc/scripts/ts_irc.py"
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" audit-irc-endpoint \
   --irc-input irc_forward.gjf --irc-log irc_forward.log \
   --irc-result result.json --job job.json --checkpoint irc_forward.chk \
+  --ts-checkpoint accepted_ts.chk --checkpoint-audit checkpoint_audit_v2.json \
+  --irc-plan irc_plan.json --allcheck-input-manifest irc_forward.json \
   --direction forward --chemical-side reactant --expected-points 30 \
   --forming 1,7 --output endpoint_audit.json
 
+"${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-endpoint-structure-review \
+  --review endpoint_review_draft.json --family ts_family_v2.json \
+  --audit endpoint_audit.json --irc-input irc_forward.gjf --irc-log irc_forward.log \
+  --irc-result result.json --job job.json --checkpoint irc_forward.chk \
+  --terminal-inspection-receipt terminal-inspection-receipt.json \
+  --fetch-snapshot transfer.json --ts-checkpoint accepted_ts.chk \
+  --checkpoint-audit checkpoint_audit_v2.json --irc-plan irc_plan.json \
+  --allcheck-input-manifest irc_forward.json --output endpoint_structure_review_v2.json
+
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$TOOL" build-allcheck-endpoint \
-  --endpoint-audit endpoint_audit.json --checkpoint irc_forward.chk \
+  --endpoint-review endpoint_structure_review_v2.json --checkpoint irc_forward.chk \
   --output endpoint_opt_freq.gjf \
   --route '#p <approved endpoint Opt Freq route including Geom=AllCheck Guess=Read>' \
   --memory 12GB --nprocshared 8

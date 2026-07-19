@@ -222,7 +222,9 @@ def _closure_local_ref(path: Path, root: Path, label: str = "scientific artifact
     try:
         relative = lexical.relative_to(lexical_root)
     except ValueError:
-        raise ValueError("all scientific artifact sources must share the lexical output artifact root") from None
+        raise ValueError(
+            f"{label} must share the lexical output artifact root: {lexical} is outside {lexical_root}"
+        ) from None
     if not relative.parts or ".." in relative.parts:
         raise ValueError("scientific artifact source must be portable and relative")
     resolved = _closure_file(root, relative, label)
@@ -1948,6 +1950,20 @@ def audit_irc_endpoint_provenance(
             raise ValueError("endpoint audit TS checkpoint differs from checkpoint owner lineage")
         if _link0_value(irc_input_path, "oldchk") != ts_checkpoint_path.name:
             raise ValueError("IRC %oldchk does not name the accepted TS checkpoint")
+        terminal_receipt_sha256 = job.get("terminal_inspection_receipt_sha256")
+        fetch_snapshot_sha256 = job.get("fetch_snapshot_sha256")
+        fetch_snapshot_size = job.get("fetch_snapshot_size")
+        if (
+            gaussian.get("oldcheckpoint") != ts_checkpoint_path.name
+            or gaussian.get("oldcheckpoint_sha256") != sha256(ts_checkpoint_path)
+            or Path(str(gaussian.get("manifest", ""))).name != allcheck_manifest_path.name
+            or gaussian.get("manifest_sha256") != sha256(allcheck_manifest_path)
+            or gaussian.get("manifest_size") != allcheck_manifest_path.stat().st_size
+            or not isinstance(terminal_receipt_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", terminal_receipt_sha256) is None
+            or not isinstance(fetch_snapshot_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", fetch_snapshot_sha256) is None
+            or not isinstance(fetch_snapshot_size, int) or isinstance(fetch_snapshot_size, bool) or fetch_snapshot_size < 1
+        ):
+            raise ValueError("completed IRC job does not bind the exact transported TS checkpoint, companion manifest, receipt, and fetch snapshot")
         plan = _load_json_strict(irc_plan_path)
         if plan.get("schema") != "gaussian-irc-plan/1" or plan.get("submission_status") != "planned_not_submitted" or plan.get("checkpoint_sha256") != sha256(ts_checkpoint_path):
             raise ValueError("IRC plan is not bound to the accepted TS checkpoint")
@@ -1979,9 +1995,15 @@ def audit_irc_endpoint_provenance(
         artifact["checkpoint_audit_sha256"] = sha256(checkpoint_audit_path)
         artifact["irc_plan_sha256"] = sha256(irc_plan_path)
         artifact["allcheck_input_manifest_sha256"] = sha256(allcheck_manifest_path)
+        artifact["transported_oldcheckpoint_sha256"] = gaussian["oldcheckpoint_sha256"]
+        artifact["terminal_inspection_receipt_sha256"] = terminal_receipt_sha256
+        artifact["fetch_snapshot_sha256"] = fetch_snapshot_sha256
+        artifact["fetch_snapshot_size"] = fetch_snapshot_size
         artifact["planned_route"] = exact_route
         artifact["checks"].update({
             "oldchk_matches_accepted_ts_checkpoint": True,
+            "completed_job_oldchk_transport_matches": True,
+            "completed_job_manifest_receipt_fetch_bound": True,
             "checkpoint_audit_v2_owner_replayed": True,
             "irc_plan_project_route_input_match": True,
             "allcheck_manifest_matches": True,
@@ -2133,25 +2155,34 @@ def build_endpoint_structure_review_artifact(
 
 
 def build_allcheck_endpoint_input(
-    endpoint_audit_path: Path,
+    endpoint_review_path: Path,
     checkpoint_path: Path,
     output_path: Path,
     route: str,
     memory: str,
     nprocshared: int,
 ) -> dict[str, Any]:
-    """Build a coordinate-free endpoint Opt-Freq input from a reviewed IRC checkpoint."""
+    """Build endpoint Opt-Freq only after endpoint-review /2 owner replay."""
     if output_path.exists() or output_path.with_suffix(".json").exists():
         raise ValueError("refusing to overwrite an existing endpoint input or manifest")
     if output_path.suffix.lower() not in {".gjf", ".com"}:
         raise ValueError("endpoint output must end in .gjf or .com")
     if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
         raise ValueError("endpoint checkpoint must be an existing non-symlink file")
-    audit = json.loads(endpoint_audit_path.read_text(encoding="utf-8"))
-    if audit.get("schema") not in {"gaussian-irc-endpoint-audit/1", "gaussian-irc-endpoint-audit/2"} or audit.get("audit_status") != "passed":
-        raise ValueError("endpoint input requires a passed IRC endpoint audit")
+    review = validate_endpoint_structure_review_artifact(endpoint_review_path)
+    if review.get("schema") != ENDPOINT_REVIEW_SCHEMA_V2:
+        raise ValueError("new endpoint input requires owner-validated endpoint structure review /2; historical /1 is replay-only")
+    source_paths = {
+        key: _closure_resolve_local_ref(reference, endpoint_review_path, f"endpoint input source {key}")
+        for key, reference in review["sources"].items()
+    }
+    audit = _load_json_strict(source_paths["audit"])
+    if audit.get("schema") != "gaussian-irc-endpoint-audit/2" or audit.get("audit_status") != "passed":
+        raise ValueError("endpoint review /2 does not reconstruct one passed endpoint audit /2")
+    if checkpoint_path.resolve() != source_paths["checkpoint"].resolve():
+        raise ValueError("endpoint input checkpoint is not the exact owner-validated IRC endpoint checkpoint")
     if audit.get("checkpoint_file") != checkpoint_path.name or audit.get("checkpoint_sha256") != sha256(checkpoint_path):
-        raise ValueError("endpoint checkpoint file or hash differs from the audit")
+        raise ValueError("endpoint checkpoint file or hash differs from the owner-replayed review")
     if not route_is_complete(route):
         raise ValueError("endpoint route must be complete")
     lowered = route.lower()
@@ -2188,6 +2219,7 @@ def build_allcheck_endpoint_input(
         else:
             shutil.copy2(checkpoint_path, staged_checkpoint)
     output_path.write_text(text, encoding="utf-8")
+    artifact_root = output_path.parent.resolve()
     manifest = {
         "schema": "gaussian-allcheck-input-manifest/1",
         "calculation_ready": True,
@@ -2200,7 +2232,16 @@ def build_allcheck_endpoint_input(
         "source_irc_direction": audit["direction"],
         "route": route.strip(),
         "input_sha256": sha256(output_path),
-        "irc_endpoint_audit_sha256": sha256(endpoint_audit_path),
+        "endpoint_structure_review": _closure_local_ref(
+            endpoint_review_path.resolve(), artifact_root, "endpoint structure review /2"
+        ),
+        "endpoint_structure_review_sha256": sha256(endpoint_review_path),
+        "endpoint_structure_review_payload_sha256": review["payload_sha256"],
+        "endpoint_source_bundle": {
+            key: _closure_local_ref(path.resolve(), artifact_root, f"endpoint source {key}")
+            for key, path in source_paths.items()
+        },
+        "irc_endpoint_audit_sha256": sha256(source_paths["audit"]),
         "checkpoint_file": audit["checkpoint_file"],
         "checkpoint_sha256": audit["checkpoint_sha256"],
         "charge": audit["charge"],
@@ -3729,7 +3770,7 @@ def main() -> int:
     endpoint_audit = sub.add_parser("audit-irc-endpoint"); endpoint_audit.add_argument("--irc-input", required=True); endpoint_audit.add_argument("--irc-log", required=True); endpoint_audit.add_argument("--irc-result", required=True); endpoint_audit.add_argument("--job", required=True); endpoint_audit.add_argument("--checkpoint", required=True); endpoint_audit.add_argument("--ts-checkpoint", required=True); endpoint_audit.add_argument("--checkpoint-audit", required=True); endpoint_audit.add_argument("--irc-plan", required=True); endpoint_audit.add_argument("--allcheck-input-manifest", required=True); endpoint_audit.add_argument("--direction", choices=["forward", "reverse"], required=True); endpoint_audit.add_argument("--chemical-side", choices=["reactant", "product"], required=True); endpoint_audit.add_argument("--expected-points", type=int, required=True); endpoint_audit.add_argument("--forming", action="append", required=True); endpoint_audit.add_argument("--output", required=True)
     endpoint_review = sub.add_parser("build-endpoint-structure-review"); endpoint_review.add_argument("--review", required=True); endpoint_review.add_argument("--family", required=True); endpoint_review.add_argument("--audit", required=True); endpoint_review.add_argument("--irc-input", required=True); endpoint_review.add_argument("--irc-log", required=True); endpoint_review.add_argument("--irc-result", required=True); endpoint_review.add_argument("--job", required=True); endpoint_review.add_argument("--checkpoint", required=True); endpoint_review.add_argument("--terminal-inspection-receipt", required=True); endpoint_review.add_argument("--fetch-snapshot", required=True); endpoint_review.add_argument("--ts-checkpoint", required=True); endpoint_review.add_argument("--checkpoint-audit", required=True); endpoint_review.add_argument("--irc-plan", required=True); endpoint_review.add_argument("--allcheck-input-manifest", required=True); endpoint_review.add_argument("--output", required=True)
     endpoint_review_validate = sub.add_parser("validate-endpoint-structure-review"); endpoint_review_validate.add_argument("artifact")
-    endpoint = sub.add_parser("build-allcheck-endpoint"); endpoint.add_argument("--endpoint-audit", required=True); endpoint.add_argument("--checkpoint", required=True); endpoint.add_argument("--output", required=True); endpoint.add_argument("--route", required=True); endpoint.add_argument("--memory", required=True); endpoint.add_argument("--nprocshared", type=int, required=True)
+    endpoint = sub.add_parser("build-allcheck-endpoint"); endpoint.add_argument("--endpoint-review", required=True); endpoint.add_argument("--checkpoint", required=True); endpoint.add_argument("--output", required=True); endpoint.add_argument("--route", required=True); endpoint.add_argument("--memory", required=True); endpoint.add_argument("--nprocshared", type=int, required=True)
     components = sub.add_parser("propose-endpoint-components"); components.add_argument("--endpoint-audit", required=True); components.add_argument("--irc-result", required=True); components.add_argument("--bond-scale", type=float, default=1.25); components.add_argument("--output", required=True)
     fragment_build = sub.add_parser("build-fragment-endpoints"); fragment_build.add_argument("--component-proposal", required=True); fragment_build.add_argument("--component-review", required=True); fragment_build.add_argument("--output-dir", required=True); fragment_build.add_argument("--route", required=True); fragment_build.add_argument("--memory", required=True); fragment_build.add_argument("--nprocshared", type=int, required=True)
     fragment_audit = sub.add_parser("audit-fragment-endpoints"); fragment_audit.add_argument("--plan", required=True); fragment_audit.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit.add_argument("--output", required=True)
@@ -3890,7 +3931,7 @@ def main() -> int:
             result = validate_endpoint_structure_review_artifact(Path(args.artifact))
             print(json.dumps({"schema": "gaussian-endpoint-structure-review-validation/1", "review_id": result["review_id"], "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
         elif args.command == "build-allcheck-endpoint":
-            build_allcheck_endpoint_input(Path(args.endpoint_audit), Path(args.checkpoint), Path(args.output), args.route, args.memory, args.nprocshared)
+            build_allcheck_endpoint_input(Path(args.endpoint_review), Path(args.checkpoint), Path(args.output), args.route, args.memory, args.nprocshared)
         elif args.command == "propose-endpoint-components":
             output_path = Path(args.output)
             if output_path.exists(): raise ValueError("refusing to overwrite an existing endpoint component proposal")
