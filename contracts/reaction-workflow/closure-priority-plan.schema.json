@@ -1,0 +1,355 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/closure-priority-plan.schema.json",
+  "title": "Auto-G16 Gaussian closure-priority plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "study_id",
+    "plan_id",
+    "goal",
+    "request_binding",
+    "planning_policy",
+    "selection_policy",
+    "ranking_dimensions",
+    "routes",
+    "ranked_route_ids",
+    "selected_bundle_ids",
+    "decision_dag",
+    "deferred_or_rejected_paths",
+    "executable",
+    "calculation_ready",
+    "no_submission_authorization",
+    "no_automatic_retry",
+    "no_automatic_search_expansion",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-closure-priority-plan/1"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "plan_id": {"$ref": "#/$defs/id"},
+    "goal": {
+      "const": "use as few PBS jobs as practical while answering the most important scientific questions and pursuing a reliable closure."
+    },
+    "request_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "sha256"],
+      "properties": {
+        "schema": {"const": "gaussian-closure-priority-request/1"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "planning_policy": {"$ref": "#/$defs/planningPolicy"},
+    "selection_policy": {"$ref": "#/$defs/selectionPolicy"},
+    "ranking_dimensions": {
+      "const": [
+        "scientific_value_information_gain",
+        "evidence_strength",
+        "mapping_clarity",
+        "initial_guess_quality",
+        "convergence_likelihood",
+        "expected_closure_likelihood",
+        "dependency_reuse",
+        "estimated_pbs_and_core_hour_cost"
+      ]
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/route"}
+    },
+    "ranked_route_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "selected_bundle_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "decision_dag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "topological_order"],
+      "properties": {
+        "nodes": {"type": "array", "items": {"$ref": "#/$defs/stage"}},
+        "topological_order": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        }
+      }
+    },
+    "deferred_or_rejected_paths": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/pathDecision"}
+    },
+    "executable": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "no_automatic_retry": {"const": true},
+    "no_automatic_search_expansion": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "nonemptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/nonempty"}
+    },
+    "idArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "planningPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selection_rule",
+        "absolute_mathematical_job_minimum",
+        "necessary_evidence_may_be_omitted",
+        "hard_gates_precede_ranking",
+        "simple_cartesian_combination_enumeration",
+        "automatic_search_expansion_after_failure",
+        "automatic_retry",
+        "low_probability_exploration_requires_remaining_budget_and_explicit_review"
+      ],
+      "properties": {
+        "selection_rule": {"const": "smallest_practical_complete_or_conditionally_complete_bundle"},
+        "absolute_mathematical_job_minimum": {"const": false},
+        "necessary_evidence_may_be_omitted": {"const": false},
+        "hard_gates_precede_ranking": {"const": true},
+        "simple_cartesian_combination_enumeration": {"const": false},
+        "automatic_search_expansion_after_failure": {"const": false},
+        "automatic_retry": {"const": false},
+        "low_probability_exploration_requires_remaining_budget_and_explicit_review": {"const": true}
+      }
+    },
+    "selectionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["budget", "include_low_probability_exploration", "reviewed_by", "reviewed_at", "review_rationale"],
+      "properties": {
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pbs_jobs", "core_hours"],
+          "properties": {
+            "pbs_jobs": {"type": "integer", "minimum": 0},
+            "core_hours": {"type": "number", "minimum": 0}
+          }
+        },
+        "include_low_probability_exploration": {"type": "boolean"},
+        "reviewed_by": {"$ref": "#/$defs/nonempty"},
+        "reviewed_at": {"$ref": "#/$defs/nonempty"},
+        "review_rationale": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["basis", "provenance"],
+      "properties": {
+        "basis": {
+          "enum": ["direct_evidence", "analogous_evidence", "reviewed_judgment", "historical_outcomes", "unavailable"]
+        },
+        "provenance": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "band": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["band", "calibration"],
+      "properties": {
+        "band": {"enum": ["high", "medium", "low", "unknown"]},
+        "calibration": {"$ref": "#/$defs/calibration"}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "evidence_refs"],
+      "properties": {
+        "status": {"enum": ["pass", "block"]},
+        "reason": {"$ref": "#/$defs/nonempty"},
+        "evidence_refs": {"$ref": "#/$defs/nonemptyStrings"}
+      }
+    },
+    "hardGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewed_mechanism_and_active_state",
+        "exact_atom_mapping_and_state",
+        "accepted_endpoint_minima_where_required",
+        "method_evidence_and_explicit_method_decision",
+        "user_confirmation",
+        "budget",
+        "duplicate_and_state_collapse_checks"
+      ],
+      "properties": {
+        "reviewed_mechanism_and_active_state": {"$ref": "#/$defs/gate"},
+        "exact_atom_mapping_and_state": {"$ref": "#/$defs/gate"},
+        "accepted_endpoint_minima_where_required": {"$ref": "#/$defs/gate"},
+        "method_evidence_and_explicit_method_decision": {"$ref": "#/$defs/gate"},
+        "user_confirmation": {"$ref": "#/$defs/gate"},
+        "budget": {"$ref": "#/$defs/gate"},
+        "duplicate_and_state_collapse_checks": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scientific_value_information_gain",
+        "evidence_strength",
+        "mapping_clarity",
+        "initial_guess_quality",
+        "convergence_likelihood",
+        "expected_closure_likelihood",
+        "dependency_reuse"
+      ],
+      "properties": {
+        "scientific_value_information_gain": {"$ref": "#/$defs/band"},
+        "evidence_strength": {"$ref": "#/$defs/band"},
+        "mapping_clarity": {"$ref": "#/$defs/band"},
+        "initial_guess_quality": {"$ref": "#/$defs/band"},
+        "convergence_likelihood": {"$ref": "#/$defs/band"},
+        "expected_closure_likelihood": {"$ref": "#/$defs/band"},
+        "dependency_reuse": {"$ref": "#/$defs/band"}
+      }
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum"],
+      "properties": {
+        "minimum": {"type": "number", "minimum": 0},
+        "maximum": {"type": "number", "minimum": 0}
+      }
+    },
+    "jobRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum"],
+      "properties": {
+        "minimum": {"type": "integer", "minimum": 0},
+        "maximum": {"type": "integer", "minimum": 0}
+      }
+    },
+    "estimatedCost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pbs_jobs", "core_hours", "estimate_confidence"],
+      "properties": {
+        "pbs_jobs": {"$ref": "#/$defs/jobRange"},
+        "core_hours": {"$ref": "#/$defs/range"},
+        "estimate_confidence": {"$ref": "#/$defs/band"}
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "stage_kind",
+        "depends_on",
+        "condition",
+        "separate_approval_required",
+        "evidence_requirement",
+        "continue_conditions",
+        "stop_conditions",
+        "executable"
+      ],
+      "properties": {
+        "node_id": {"$ref": "#/$defs/id"},
+        "stage_kind": {
+          "enum": ["ts_freq", "imaginary_mode_review", "irc_forward", "irc_reverse", "endpoint_identification", "endpoint_opt_freq"]
+        },
+        "depends_on": {"$ref": "#/$defs/idArray"},
+        "condition": {
+          "enum": [
+            "always_after_separate_approval",
+            "after_accepted_ts_freq",
+            "after_reviewed_intended_imaginary_mode",
+            "after_both_irc_directions_terminate",
+            "when_scientifically_necessary"
+          ]
+        },
+        "separate_approval_required": {"type": "boolean"},
+        "evidence_requirement": {"$ref": "#/$defs/nonempty"},
+        "continue_conditions": {"$ref": "#/$defs/nonemptyStrings"},
+        "stop_conditions": {"$ref": "#/$defs/nonemptyStrings"},
+        "executable": {"const": false}
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundle_id", "completeness", "stages"],
+      "properties": {
+        "bundle_id": {"$ref": "#/$defs/id"},
+        "completeness": {"enum": ["complete", "conditionally_complete", "partial"]},
+        "stages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stage"}}
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_id",
+        "label",
+        "scientific_question",
+        "path_class",
+        "review_disposition",
+        "disposition_reason",
+        "explicit_low_probability_review",
+        "hard_gates",
+        "dimensions",
+        "estimated_cost",
+        "bundle",
+        "eligible_for_ranking",
+        "eligibility_reasons",
+        "rank",
+        "selected",
+        "selection_reason"
+      ],
+      "properties": {
+        "route_id": {"$ref": "#/$defs/id"},
+        "label": {"$ref": "#/$defs/nonempty"},
+        "scientific_question": {"$ref": "#/$defs/nonempty"},
+        "path_class": {"enum": ["primary", "low_probability_exploration"]},
+        "review_disposition": {"enum": ["candidate", "deferred", "rejected"]},
+        "disposition_reason": {"type": ["string", "null"]},
+        "explicit_low_probability_review": {"type": "boolean"},
+        "hard_gates": {"$ref": "#/$defs/hardGates"},
+        "dimensions": {"$ref": "#/$defs/dimensions"},
+        "estimated_cost": {"$ref": "#/$defs/estimatedCost"},
+        "bundle": {"$ref": "#/$defs/bundle"},
+        "eligible_for_ranking": {"type": "boolean"},
+        "eligibility_reasons": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "rank": {"type": ["integer", "null"], "minimum": 1},
+        "selected": {"type": "boolean"},
+        "selection_reason": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "pathDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route_id", "disposition", "reasons"],
+      "properties": {
+        "route_id": {"$ref": "#/$defs/id"},
+        "disposition": {"enum": ["deferred", "rejected"]},
+        "reasons": {"$ref": "#/$defs/nonemptyStrings"}
+      }
+    }
+  }
+}
