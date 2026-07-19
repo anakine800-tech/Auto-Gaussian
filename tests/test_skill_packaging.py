@@ -79,6 +79,18 @@ class SkillPackagingTests(unittest.TestCase):
             ROOT / "contracts/reaction-workflow/scientific-evidence-receipt.schema.json",
         )
         self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/v25-integration-review.schema.json")],
+            ROOT / "contracts/reaction-workflow/v25-integration-review.schema.json",
+        )
+        self.assertEqual(
+            reaction[Path("scripts/v25_integration.py")],
+            ROOT / "skills/auto-g16-reaction-workflow/scripts/v25_integration.py",
+        )
+        self.assertEqual(
+            reaction[Path("references/v25-integration-contract.md")],
+            ROOT / "skills/auto-g16-reaction-workflow/references/v25-integration-contract.md",
+        )
+        self.assertEqual(
             conformer[Path("scripts/conformer_core.py")],
             ROOT / "skills/auto-g16-conformer-search/scripts/conformer_core.py",
         )
@@ -311,6 +323,20 @@ class SkillPackagingTests(unittest.TestCase):
                 self.assertTrue(
                     (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow" / schema_name).is_file()
                 )
+            v25 = installed / "auto-g16-reaction-workflow/scripts/v25_integration.py"
+            v25_help = subprocess.run(
+                [sys.executable, str(v25), "--help"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(v25_help.returncode, 0, v25_help.stdout + v25_help.stderr)
+            self.assertIn("finalize", v25_help.stdout)
+            self.assertIn("validate", v25_help.stdout)
+            self.assertTrue(
+                (installed / "auto-g16-reaction-workflow/contracts/reaction-workflow/v25-integration-review.schema.json").is_file()
+            )
             conformer = installed / "auto-g16-conformer-search/scripts/conformer_search.py"
             conformer_help = subprocess.run(
                 [sys.executable, str(conformer), "--help"], cwd=root, text=True, capture_output=True, check=False,

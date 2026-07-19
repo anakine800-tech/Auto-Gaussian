@@ -186,6 +186,13 @@ Monitoring is read-only: important state/error events are immediate and the
 default cumulative operator-summary cadence is 60 minutes. Batch monitoring
 does not broaden the separate repeated-evidence scheduler-zombie qdel policy.
 
+For the v2.5 cross-Skill chain, initialize the reviewed ledger first and then
+validate it with `auto-g16-reaction-workflow/scripts/v25_integration.py`. The
+overlay requires the immutable review and ledger task sets to equal the
+selected closure calculation nodes and preserves the ten-task cap. This is an
+offline planning binding only; every attempt still needs the ordinary exact
+input review, dependency evidence, and a fresh live approval.
+
 ## Opt-Freq-single-point workflow
 
 Use `scripts/gaussian_workflow.py build` to turn one selected, audited Cartesian input into three linked stages. Require an explicit single-point route and standard state; never infer a research protocol from the molecule.

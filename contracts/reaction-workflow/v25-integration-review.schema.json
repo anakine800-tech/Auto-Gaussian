@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/v25-integration-review.schema.json",
+  "title": "Auto-G16 v2.5 non-authorizing integration review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "integration_id", "study_id", "artifacts", "method_decision", "route_bindings", "review", "authority", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-v25-integration-review/1"},
+    "integration_id": {"$ref": "#/$defs/id"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_evidence_brief", "mechanism_discussion", "closure_priority_plan", "ts_seed_portfolios", "execution_batch_review", "execution_batch_ledger"],
+      "properties": {
+        "method_evidence_brief": {"$ref": "#/$defs/methodBinding"},
+        "mechanism_discussion": {"$ref": "#/$defs/discussionBinding"},
+        "closure_priority_plan": {"$ref": "#/$defs/closureBinding"},
+        "ts_seed_portfolios": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/portfolioBinding"}},
+        "execution_batch_review": {"$ref": "#/$defs/executionReviewBinding"},
+        "execution_batch_ledger": {"$ref": "#/$defs/executionLedgerBinding"}
+      }
+    },
+    "method_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "alternative_id", "method_protocol_sha256"],
+      "properties": {
+        "claim_id": {"$ref": "#/$defs/id"},
+        "alternative_id": {"$ref": "#/$defs/id"},
+        "method_protocol_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "route_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["route_id", "mechanism_discussion_payload_sha256", "method_evidence_brief_payload_sha256", "ts_seed_portfolio_payload_sha256", "node_task_bindings"],
+        "properties": {
+          "route_id": {"$ref": "#/$defs/id"},
+          "mechanism_discussion_payload_sha256": {"$ref": "#/$defs/sha"},
+          "method_evidence_brief_payload_sha256": {"$ref": "#/$defs/sha"},
+          "ts_seed_portfolio_payload_sha256": {"$ref": "#/$defs/sha"},
+          "node_task_bindings": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["node_id", "scientific_task_id"],
+              "properties": {
+                "node_id": {"$ref": "#/$defs/id"},
+                "scientific_task_id": {"type": "string", "pattern": "^scientific-task-[a-f0-9]{64}$"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reviewer", "reviewed_at", "notes"],
+      "properties": {
+        "status": {"const": "reviewed_non_authorizing"},
+        "reviewer": {"type": "string", "minLength": 1},
+        "reviewed_at": {"type": "string", "minLength": 1},
+        "notes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calculation_ready", "executable", "no_submission_authorization", "no_automatic_promotion", "live_actions", "separate_input_review_required", "fresh_live_approval_required_per_attempt"],
+      "properties": {
+        "calculation_ready": {"const": false},
+        "executable": {"const": false},
+        "no_submission_authorization": {"const": true},
+        "no_automatic_promotion": {"const": true},
+        "live_actions": {"const": false},
+        "separate_input_review_required": {"const": true},
+        "fresh_live_approval_required_per_attempt": {"const": true}
+      }
+    },
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "artifact_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "schema": {"type": "string", "minLength": 1},
+        "artifact_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "methodBinding": {"allOf": [{"$ref": "#/$defs/binding"}, {"properties": {"schema": {"const": "auto-g16-method-evidence-brief/1"}}}]},
+    "discussionBinding": {"allOf": [{"$ref": "#/$defs/binding"}, {"properties": {"schema": {"const": "gaussian-mechanism-discussion/1"}}}]},
+    "closureBinding": {"allOf": [{"$ref": "#/$defs/binding"}, {"properties": {"schema": {"const": "gaussian-closure-priority-plan/1"}}}]},
+    "portfolioBinding": {"allOf": [{"$ref": "#/$defs/binding"}, {"properties": {"schema": {"const": "gaussian-ts-seed-portfolio/1"}}}]},
+    "executionReviewBinding": {"allOf": [{"$ref": "#/$defs/binding"}, {"properties": {"schema": {"const": "gaussian-execution-batch-review/1"}}}]},
+    "executionLedgerBinding": {"allOf": [{"$ref": "#/$defs/binding"}, {"properties": {"schema": {"const": "gaussian-execution-batch/1"}}}]}
+  }
+}

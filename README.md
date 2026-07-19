@@ -58,6 +58,15 @@ artifacts are added. Complete owner-chain relocation is also unsupported because
 historical conformer paths may be absolute and open-shell paths may be
 working-directory-relative.
 
+The unreleased v2.5 integration layer now adds explicit human scientific
+decisions, evidence-only method briefs, bounded TS-seed portfolios, practical
+closure-priority planning, and persistent ten-task execution-batch governance.
+`gaussian-v25-integration-review/1` replays those owner contracts and binds the
+selected closure nodes to the exact batch review and ledger. The overlay and
+every component remain non-executable and non-authorizing; exact input review,
+stage dependency evidence, and a fresh live approval per physical attempt are
+still independent requirements. See `docs/v2.5-integration-approval.md`.
+
 ## 2.4.0 release preparation
 
 Auto-Gaussian 2.4.0 release metadata was prepared on 2026-07-18 from confirmed

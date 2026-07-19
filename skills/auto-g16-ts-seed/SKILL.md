@@ -36,6 +36,11 @@ execute a calculation, authorize PBS submission, or treat a seed as a TS.
 8. Treat both contracts as candidate-only evidence. Use later specialist and
    `auto-g16-ts-irc` gates for downstream review; use `auto-g16-rtwin-pbs` only
    after its separate exact approvals. This Skill grants none.
+9. When a portfolio supports a selected v2.5 closure route, validate the chain
+   with `auto-g16-reaction-workflow/scripts/v25_integration.py`. The portfolio
+   target must equal the closure route ID and the closure initial-guess
+   provenance must bind the exact portfolio payload. This still grants no
+   input or execution authority.
 
 ## Commands
 

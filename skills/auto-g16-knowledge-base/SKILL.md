@@ -125,6 +125,12 @@ a success probability, approves a protocol, creates an input, or authorizes a
 calculation or submission. Missing dimensions remain `unknown`, and inadequate
 evidence produces `insufficient`.
 
+When a reviewed brief is used in the v2.5 planning chain, route it through
+`auto-g16-reaction-workflow`'s `v25_integration.py`. That overlay requires the
+exact brief to appear in a mechanism discussion followed by a distinct,
+explicit human `method` decision. A brief never selects or approves the method
+by itself.
+
 ## Review workflow
 
 1. Choose exactly one supported record schema.
