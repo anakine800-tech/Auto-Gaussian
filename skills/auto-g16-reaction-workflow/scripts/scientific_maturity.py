@@ -629,10 +629,33 @@ def _minimum_status(record: dict[str, Any], owner_path: Path) -> tuple[bool, lis
     return not blockers, sorted(set(blockers))
 
 
+def _path_acceptance_matches_current_mechanism(
+    evidence: dict[str, Any], current_binding: dict[str, Any], mechanism: dict[str, Any],
+    plan_study_id: str, edge_id: str,
+) -> bool:
+    if evidence.get("schema") != "gaussian-ts-irc-path-acceptance/2":
+        return evidence.get("schema") == "gaussian-ts-irc-path-acceptance/1" and evidence.get("edge_id") == edge_id
+    ref = evidence.get("mechanism_network")
+    binding = evidence.get("mechanism_binding")
+    identity_fields = ("sha256", "size_bytes", "schema", "payload_sha256")
+    return bool(
+        isinstance(ref, dict) and isinstance(binding, dict)
+        and all(ref.get(key) == current_binding.get(key) for key in identity_fields)
+        and binding.get("study_id") == plan_study_id == mechanism.get("study_id")
+        and binding.get("edge_id") == edge_id and evidence.get("edge_id") == edge_id
+    )
+
+
 def _build_gate(plan: dict[str, Any], plan_binding: dict[str, Any], review: dict[str, Any], review_binding: dict[str, Any], review_path: Path) -> dict[str, Any]:
     require(plan["study_id"] == review["study_id"], "review and calculation plan study_id differ")
     require(plan["payload_sha256"] == review["calculation_plan_payload_sha256"], "review is not bound to the exact calculation plan")
     mechanism, _ = _resolve(plan["mechanism_network"], Path(plan["__path"] if "__path" in plan else review_path))
+    current_mechanism_binding = plan["mechanism_network"]
+
+    def path_matches_current_mechanism(evidence: dict[str, Any], edge_id: str) -> bool:
+        return _path_acceptance_matches_current_mechanism(
+            evidence, current_mechanism_binding, mechanism, plan["study_id"], edge_id
+        )
     edge_sources = {item["edge_id"]: item for item in mechanism["edges"]}
     state_sources = {item["state_id"]: item for item in mechanism["states"]}
     edge_reviews = {item["edge_id"]: item for item in review["edge_reviews"]}
@@ -670,7 +693,7 @@ def _build_gate(plan: dict[str, Any], plan_binding: dict[str, Any], review: dict
             evidence, evidence_path = _resolve(upgrade["successful_pilot_evidence"], review_path)
             require(evidence.get("schema") in {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"}, "successful pilot evidence schema is unsupported")
             _load_ts_irc_owner().validate_path_acceptance_artifact(evidence_path)
-            if evidence.get("edge_id") == upgrade["edge_id"]:
+            if path_matches_current_mechanism(evidence, upgrade["edge_id"]):
                 valid_upgrades.add(key)
         except Exception:
             continue
@@ -784,7 +807,10 @@ def _build_gate(plan: dict[str, Any], plan_binding: dict[str, Any], review: dict
                 irc_evidence, irc_evidence_path = _resolve(path["irc_path_evidence"], review_path)
                 require(irc_evidence.get("schema") in {"gaussian-ts-irc-path-acceptance/1", "gaussian-ts-irc-path-acceptance/2"}, "IRC path evidence schema is unsupported")
                 _load_ts_irc_owner().validate_path_acceptance_artifact(irc_evidence_path)
-                owner_irc_path_evidence_valid = irc_evidence.get("accepted") is True and irc_evidence.get("edge_id") == edge_id
+                owner_irc_path_evidence_valid = bool(
+                    irc_evidence.get("accepted") is True
+                    and path_matches_current_mechanism(irc_evidence, edge_id)
+                )
             except Exception:
                 owner_irc_path_evidence_valid = False
         if path and path.get("energy_lineage") is not None:

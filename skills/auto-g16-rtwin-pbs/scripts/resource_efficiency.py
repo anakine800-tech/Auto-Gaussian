@@ -447,7 +447,21 @@ def validate_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
     except execution_batch.BatchError as exc:
         raise ResourceError(str(exc)) from exc
     for attempt in ledger["attempts"]:
-        _validate_gate_binding(attempt["resource_gate"], allow_historical=True)
+        gate = _validate_gate_binding(attempt["resource_gate"], allow_historical=True)
+        if gate["status"] == "passed":
+            attempt_estimate = float(_number(
+                attempt["estimated_core_hours"], "attempt.estimated_core_hours"
+            ))
+            gate_estimate = float(_number(
+                gate["requested_resources"]["estimated_core_hours"],
+                "resource_gate.requested_resources.estimated_core_hours",
+            ))
+            if attempt_estimate <= 0 or gate_estimate <= 0 or attempt_estimate != gate_estimate:
+                raise ResourceError(
+                    "active attempt estimated core-hours must equal the exact positive resource-gate estimate"
+                )
+        elif gate["status"] != "historical_unbound_v2_replay_only":
+            raise ResourceError("unknown historical resource-gate status")
         accounting = attempt["resource_accounting"]
         if accounting is not None:
             validate_accounting(accounting)

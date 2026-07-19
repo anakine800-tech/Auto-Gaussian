@@ -78,6 +78,20 @@ class SkillPackagingTests(unittest.TestCase):
             reaction[Path("contracts/reaction-workflow/scientific-evidence-receipt.schema.json")],
             ROOT / "contracts/reaction-workflow/scientific-evidence-receipt.schema.json",
         )
+        for contract in (
+            "minimum-lineage-handoff-v2.schema.json",
+            "ts-freq-result-v2.schema.json",
+            "ts-irc-path-acceptance-v2.schema.json",
+            "endpoint-structure-review-v2.schema.json",
+            "fragment-endpoint-validation-v2.schema.json",
+            "checkpoint-geometry-audit-v2.schema.json",
+        ):
+            with self.subTest(contract=contract):
+                installed = Path("contracts/reaction-workflow") / contract
+                self.assertEqual(
+                    reaction[installed],
+                    ROOT / "contracts" / "reaction-workflow" / contract,
+                )
         self.assertEqual(
             reaction[Path("contracts/reaction-workflow/v25-integration-review.schema.json")],
             ROOT / "contracts/reaction-workflow/v25-integration-review.schema.json",

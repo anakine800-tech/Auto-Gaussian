@@ -52,8 +52,10 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   workflow. Its private manifests are refused inside Git; apply requires an
   exact plan hash, owner-only target, no symlinks, no conflicts, and no
   overwrite. Apply completes a full preflight before target creation and uses
-  descriptor-relative no-follow I/O. It never deletes source data or
-  automatically removes a partial copy after an unexpected failure.
+  descriptor-relative no-follow I/O. Destination files are atomically created
+  with mode 0600, rehashed after writing, and recorded in an immutable
+  destination receipt. It never deletes source data or automatically removes
+  a partial copy after an unexpected failure.
 - Method-evidence records distinguish reported, internally observed, and
   benchmarked evidence. They do not select or authorize a research method.
 - Mechanism discussions, method decisions, operator action cards, and learning
@@ -94,8 +96,8 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
-- Current hardening-integration evidence on the core interpreter is 653/653
-  offline tests in 273.044 seconds for the worktree and 653/653 in 259.309
+- Current hardening-integration evidence on the core interpreter is 669/669
+  offline tests in 333.308 seconds for the worktree and 669/669 in 328.389
   seconds for a `.git`-free source archive; both runs have one expected RDKit
   skip in the core profile. The separate locked chemistry profile passed the
   real RDKit smoke in 0.958 seconds. Timing is machine-local engineering

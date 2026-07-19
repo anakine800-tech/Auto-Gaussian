@@ -10,17 +10,20 @@ state.
 
 Minimum evidence explicitly dispatches by schema to
 `gaussian-scientific-maturity-gate/1` or `/2`. Successful `/1` replay always
-produces `minimum_owner_evidence_v2_required`. Successful `/2` replay always
-produces `minimum_candidate_input_result_lineage_unavailable_v2` because the
-current owner chain still does not bind the selected candidate through exact
-input approval to the accepted minimum result/log. Neither version grants
+produces `minimum_owner_evidence_v2_required`. Successful `/2` replay consumes
+each supplied `gaussian-minimum-lineage-handoff/2` through its public owner;
+only minima lacking an exact replayed candidate/endpoint-to-input/job/attempt/
+receipt/fetch/result lineage produce
+`minimum_candidate_input_result_lineage_unavailable_v2`. Neither version grants
 comparison or submission authority.
 
 The TS readiness slice requires both a validated
 `gaussian-calculation-attempt-link/1` and a validated
-`gaussian-ts-irc-path-acceptance/1`. The latter is replayed through
-`ts_irc.validate_path_acceptance_artifact`, including its family, mode and both
-IRC directions. The two chains must bind the same exact TS-result hash.
+`gaussian-ts-irc-path-acceptance/1` or `/2`. New evidence uses `/2`, replayed
+through `ts_irc.validate_path_acceptance_v2_artifact`, including exact
+mechanism study/edge, family, mode, direction endpoint execution lineage,
+charge/multiplicity and stable atom-element mapping. Historical `/1` is
+replay-only compatibility. The two chains must bind the same exact TS-result hash.
 Attempt-link-only evidence remains a blocker.
 
 `gaussian-energy-lineage/1` is replayable but remains electronic-only. It does

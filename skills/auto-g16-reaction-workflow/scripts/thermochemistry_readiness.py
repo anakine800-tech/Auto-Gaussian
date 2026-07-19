@@ -277,12 +277,17 @@ def _derive(root: Path, request_path: Path, request: dict[str, Any]) -> dict[str
     elif roles["minimum_evidence"]["document"]["schema"] == "gaussian-scientific-maturity-gate/1":
         blockers.append(_blocker("minimum_owner_evidence_v2_required", "minimum_evidence", [roles["minimum_evidence"]["source_id"]], "Scientific-maturity gate /1 does not close conformer and electronic-state ownership for formal thermochemistry.", "owner-evidence scientific-maturity gate /2"))
     else:
-        blockers.append(_blocker(
-            "minimum_candidate_input_result_lineage_unavailable_v2", "minimum_evidence",
-            [roles["minimum_evidence"]["source_id"]],
-            "Scientific-maturity gate /2 replays, but its current minimum chain does not bind the selected candidate through exact input approval to the accepted minimum result/log.",
-            "owner-validated minimum candidate/input/result lineage",
-        ))
+        incomplete = [
+            item["minimum_id"] for item in roles["minimum_evidence"]["document"].get("minimum_gates", [])
+            if item.get("owner_evidence_ready") is not True
+        ]
+        if incomplete:
+            blockers.append(_blocker(
+                "minimum_candidate_input_result_lineage_unavailable_v2", "minimum_evidence",
+                [roles["minimum_evidence"]["source_id"]],
+                "Scientific-maturity gate /2 has minima without replayed exact candidate/input/job/result lineage: " + ", ".join(incomplete),
+                "owner-validated minimum candidate/input/result lineage",
+            ))
 
     blockers.extend(_ts_readiness_blockers(root, roles))
 

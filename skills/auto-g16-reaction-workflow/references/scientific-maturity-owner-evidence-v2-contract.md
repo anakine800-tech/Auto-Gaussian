@@ -43,14 +43,15 @@ For every minimum, the receipt replays
 review, and requires the selected candidate to be a reviewed cluster medoid
 with the exact mechanism state, atom order, composition, charge, and
 multiplicity. It also requires the exact base `/1` `conformer_origin` projection,
-`scope == minimum_search`, and `source_id == selected_candidate_id`. This removes
-an obvious substitution but does not establish candidate-to-input-to-result
-lineage: the conformer handoff explicitly ends before exact Gaussian structure,
-protocol, resource, and input-hash approval. Because no current owner artifact
-closes that chain through the exact minimum result/log, every minimum carries
-`minimum_candidate_input_result_lineage_unavailable_v2` and remains not ready.
-No TS input or submission action can pass until a later owner contract closes
-that lineage.
+`scope == minimum_search`, and `source_id == selected_candidate_id`. A supplied
+`gaussian-minimum-lineage-handoff/2` is then replayed by its public owner and
+must bind that exact state and stable atom order through either the conformer
+selection or endpoint-structure-review source, exact input, project/job/attempt,
+terminal inspection receipt, fetch snapshot, raw log, result, checkpoint and
+optimized coordinates. Missing lineage or any cross-source/attempt substitution
+retains `minimum_candidate_input_result_lineage_unavailable_v2`; only the exact
+owner-replayed chain sets `owner_evidence_ready`. This remains scientific
+evidence and grants neither input nor live authority.
 
 Supported main-group doublets and high-spin triplets additionally require an
 exact accepted `auto-g16-main-group-open-shell-result-acceptance/1`. The overlay

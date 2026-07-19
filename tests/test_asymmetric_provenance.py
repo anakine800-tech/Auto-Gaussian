@@ -199,6 +199,29 @@ class AsymmetricProvenanceTests(unittest.TestCase):
             self.assertEqual(result["artifacts"]["irc_plan"]["sha256"], digest(paths["plan"]))
             self.assertFalse(result["calculation_ready"])
 
+    def test_ts_result_v2_allowlist_invokes_the_canonical_owner_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self.make_ingest_chain(root)
+            malformed = json.loads(paths["ts"].read_text(encoding="utf-8"))
+            malformed["schema"] = "gaussian-ts-freq-result/2"
+            dump(paths["ts"], malformed)
+            with self.assertRaisesRegex(ASYM.OfflineError, r"TS/Freq result /2|source_log|unknown or missing"):
+                self.ingest(paths, root / "malformed-v2.json")
+
+        from tests.test_scientific_closure_lineage import TS, ts_execution_sources, water_log
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self.make_ingest_chain(root)
+            log_path = root / "owner-ts.log"
+            log_path.write_text(water_log(" Frequencies -- -100.0 200.0 300.0").replace(" SCF Done:", " Charge = 0 Multiplicity = 1\n SCF Done:"), encoding="utf-8")
+            sources = ts_execution_sources(root, log_path)
+            paths["ts"] = root / "owner-ts-result.json"
+            TS.build_ts_result_v2(log_path, paths["ts"], sources)
+            result = ASYM.ingest_result(paths["candidate"], paths["ts"], paths["energy"], root / "accepted-v2.json")
+            self.assertEqual(result["validation_level"], "first_order_saddle_candidate")
+            self.assertFalse(result["calculation_ready"])
+
     def test_ingest_rejects_endpoint_atom_order_and_project_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

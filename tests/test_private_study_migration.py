@@ -80,6 +80,11 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             self.assertFalse(result["partial_copy"])
             self.assertFalse(result["manual_partial_copy_review_required"])
             self.assertFalse(result["automatic_rollback_deletion"])
+            receipt_path = target / result["destination_receipt"]["relative_path"]
+            self.assertTrue(receipt_path.is_file())
+            self.assertEqual(MIGRATION.file_sha256(receipt_path) if hasattr(MIGRATION, "file_sha256") else __import__("hashlib").sha256(receipt_path.read_bytes()).hexdigest(), result["destination_receipt"]["sha256"])
+            receipt = json.loads(receipt_path.read_text())
+            self.assertEqual({item["relative_path"] for item in receipt["entries"]}, {"nested/notes.txt", "payload.bin"})
             self.assertTrue(source.is_dir())
             self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
             for copied in target.rglob("*"):

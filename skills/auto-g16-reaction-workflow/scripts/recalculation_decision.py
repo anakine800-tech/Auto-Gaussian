@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -98,6 +99,7 @@ _OWNED_PAYLOAD_FIELDS = {
     "gaussian-input-draft-review/1": "payload_sha256",
     "gaussian-calculation-attempt-link/1": "payload_sha256",
     "gaussian-sanitized-job-observation/1": "payload_sha256",
+    "gaussian-ts-freq-result/2": "payload_sha256",
 }
 ROLE_SCHEMAS = {
     "attempt": {
@@ -122,6 +124,7 @@ ROLE_SCHEMAS = {
         "gaussian-result/1",
         "gaussian-opt-freq-sp-result/1",
         "gaussian-ts-freq-result/1",
+        "gaussian-ts-freq-result/2",
         "gaussian-asymmetric-ts-result/1",
         "gaussian-asymmetric-metal-result-observation/1",
     },
@@ -339,6 +342,17 @@ def _artifact_ref(root: Path, role: str, path: Path, document: dict[str, Any] | 
         require(schema in ROLE_SCHEMAS[role], f"{role} evidence schema is not allowlisted for this role: {schema}")
         require(media_type == "application/json", f"schema-bearing {role} evidence must use application/json")
     payload = _declared_payload(document) if document is not None else None
+    owner_validation = "not_performed_no_semantic_acceptance"
+    if schema == "gaussian-ts-freq-result/2":
+        owner_path = SKILLS_ROOT / "auto-g16-ts-irc" / "scripts" / "ts_irc.py"
+        spec = importlib.util.spec_from_file_location("auto_g16_recalculation_ts_result_owner", owner_path)
+        require(spec is not None and spec.loader is not None, "TS/Freq result /2 owner validator is unavailable")
+        owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
+        try:
+            owner.validate_ts_result_v2(document, path)
+        except (OSError, ValueError) as exc:
+            raise DecisionError(f"TS/Freq result /2 owner validator rejected the evidence: {exc}") from exc
+        owner_validation = "auto-g16-ts-irc.validate_ts_result_v2"
     return {
         "path": str(path.relative_to(root)),
         "sha256": rw.sha256_file(path),
@@ -347,7 +361,7 @@ def _artifact_ref(root: Path, role: str, path: Path, document: dict[str, Any] | 
         "schema": schema,
         "payload_sha256": payload,
         "integrity_validation": "bytes_and_declared_payload_replayed" if payload is not None else "bytes_only",
-        "owner_validation": "not_performed_no_semantic_acceptance",
+        "owner_validation": owner_validation,
     }
 
 

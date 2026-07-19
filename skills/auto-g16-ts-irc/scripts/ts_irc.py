@@ -28,6 +28,7 @@ QST_RAW_AUDIT_SCHEMA = "gaussian-qst-raw-input-syntax-audit/1"
 QST_REVISION_EVIDENCE_SCHEMA = "gaussian-installed-g16-qst-syntax-evidence/1"
 TS_RESULT_SCHEMA_V2 = "gaussian-ts-freq-result/2"
 ENDPOINT_REVIEW_SCHEMA = "gaussian-endpoint-structure-review/1"
+ENDPOINT_REVIEW_SCHEMA_V2 = "gaussian-endpoint-structure-review/2"
 PATH_ACCEPTANCE_SCHEMA_V2 = "gaussian-ts-irc-path-acceptance/2"
 PARSER_ID = {"name": "auto-g16-ts-irc", "version": "2.0.0", "schema": "auto-g16-ts-irc-parser/2"}
 PROJECT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,14}$")
@@ -240,6 +241,29 @@ def _closure_resolve_local_ref(ref: Any, owner: Path, label: str) -> Path:
     return path
 
 
+def _closure_json_ref(path: Path, root: Path, label: str) -> dict[str, Any]:
+    ref = _closure_local_ref(path, root, label)
+    document = _load_json_strict(path)
+    schema = document.get("schema") if isinstance(document, dict) else None
+    payload_sha256 = document.get("payload_sha256") if isinstance(document, dict) else None
+    if not isinstance(schema, str) or not schema or not isinstance(payload_sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", payload_sha256):
+        raise ValueError(f"{label} is not an immutable payload-bound JSON owner artifact")
+    return {**ref, "schema": schema, "payload_sha256": payload_sha256}
+
+
+def _closure_resolve_json_ref(ref: Any, owner: Path, label: str) -> tuple[Path, dict[str, Any]]:
+    fields = {"path", "sha256", "size_bytes", "schema", "payload_sha256"}
+    if not isinstance(ref, dict) or set(ref) != fields:
+        raise ValueError(f"{label} JSON reference fields are invalid")
+    path = _closure_resolve_local_ref(
+        {key: ref[key] for key in ("path", "sha256", "size_bytes")}, owner, label
+    )
+    document = _load_json_strict(path)
+    if document.get("schema") != ref["schema"] or document.get("payload_sha256") != ref["payload_sha256"]:
+        raise ValueError(f"{label} schema or payload binding changed")
+    return path, document
+
+
 def _publish_json_exclusive(output: Path, artifact: dict[str, Any], validator: Any | None = None) -> dict[str, Any]:
     """Validate a private inode, then atomically no-clobber publish it."""
 
@@ -277,10 +301,11 @@ def _publish_json_exclusive(output: Path, artifact: dict[str, Any], validator: A
 def _validate_endpoint_bundle(
     bundle: Any, owner: Path, direction: str, resolver: Any = _resolve_local_ref,
 ) -> dict[str, Any]:
-    fields = {"audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint"}
-    if not isinstance(bundle, dict) or set(bundle) != fields:
+    legacy_fields = {"audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint"}
+    v2_fields = legacy_fields | {"family", "terminal_inspection_receipt", "fetch_snapshot"}
+    if not isinstance(bundle, dict) or frozenset(bundle) not in {frozenset(legacy_fields), frozenset(v2_fields)}:
         raise ValueError(f"{direction} endpoint bundle fields are invalid")
-    paths = {key: resolver(bundle[key], owner, f"{direction} {key}") for key in fields}
+    paths = {key: resolver(bundle[key], owner, f"{direction} {key}") for key in bundle}
     audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
     if audit.get("schema") != "gaussian-irc-endpoint-audit/1" or audit.get("direction") != direction:
         raise ValueError(f"{direction} endpoint audit schema/direction differs")
@@ -291,7 +316,67 @@ def _validate_endpoint_bundle(
     )
     if replay != audit:
         raise ValueError(f"{direction} endpoint audit differs from owner reconstruction")
+    if set(bundle) == v2_fields:
+        family = _load_json_strict(paths["family"])
+        job = _load_json_strict(paths["job"])
+        if (
+            family.get("schema") != SCHEMA_V2 or family.get("pilot") is not False
+            or not isinstance(family.get("project_prefix"), str)
+            or not (job.get("project") == family["project_prefix"] or str(job.get("project", "")).startswith(family["project_prefix"] + "_"))
+        ):
+            raise ValueError(f"{direction} endpoint execution is not bound to one formal TS family/project prefix")
+        _validate_endpoint_execution_evidence(paths, audit, direction)
     return audit
+
+
+def _validate_endpoint_execution_evidence(paths: dict[str, Path], audit: dict[str, Any], direction: str) -> None:
+    job = _load_json_strict(paths["job"])
+    attempt_id = (job.get("execution_batch") or {}).get("attempt_id")
+    project, job_id = job.get("project"), job.get("job_id")
+    if not isinstance(attempt_id, str) or not attempt_id.startswith("qsub-attempt-"):
+        raise ValueError(f"{direction} endpoint job lacks an exact execution attempt")
+    receipt = _load_json_strict(paths["terminal_inspection_receipt"])
+    if (
+        receipt.get("schema") != "gaussian-terminal-inspection-receipt/1"
+        or receipt.get("project") != project or receipt.get("job_id") != job_id
+        or receipt.get("attempt_id") != attempt_id or receipt.get("input_sha256") != sha256(paths["irc_input"])
+        or receipt.get("terminal_state") != job.get("status") or receipt.get("scientific_acceptance") is not False
+        or receipt.get("receipt_sha256") != _transport_digest({key: value for key, value in receipt.items() if key != "receipt_sha256"})
+    ):
+        raise ValueError(f"{direction} endpoint terminal receipt differs from the exact project/job/attempt/input")
+    text = paths["irc_log"].read_text(encoding="utf-8", errors="replace")
+    inspection = receipt.get("inspection")
+    if not isinstance(inspection, dict) or receipt.get("inspection_evidence_sha256") != inspection.get("evidence_sha256") or not _inspection_v2_is_exact_terminal(
+        inspection, project=project, job_id=job_id, log_size=paths["irc_log"].stat().st_size,
+        normal_count=text.count("Normal termination of Gaussian"), error_count=text.count("Error termination"),
+    ):
+        raise ValueError(f"{direction} endpoint terminal inspection is stale or malformed")
+    snapshot = _load_json_strict(paths["fetch_snapshot"])
+    if (
+        snapshot.get("schema") != "gaussian-fetch-snapshot/1" or snapshot.get("snapshot_complete") is not True
+        or snapshot.get("payload_sha256") != _transport_digest({key: value for key, value in snapshot.items() if key != "payload_sha256"})
+        or snapshot.get("project") != project or snapshot.get("job_id") != job_id
+        or snapshot.get("input_sha256") != sha256(paths["irc_input"])
+        or snapshot.get("terminal_inspection_receipt_sha256") != receipt.get("receipt_sha256")
+        or snapshot.get("per_hop_sha256_verified") is not True
+        or job.get("terminal_inspection_receipt_sha256") != receipt.get("receipt_sha256")
+        or job.get("fetch_snapshot_sha256") != sha256(paths["fetch_snapshot"])
+        or job.get("fetch_snapshot_size") != paths["fetch_snapshot"].stat().st_size
+    ):
+        raise ValueError(f"{direction} endpoint fetch snapshot differs from the exact attempt/receipt/input")
+    for key in ("irc_log", "irc_result", "checkpoint"):
+        source = paths[key]
+        digest = sha256(source); size = source.stat().st_size
+        artifact = (snapshot.get("artifacts") or {}).get(source.name)
+        hop = (snapshot.get("per_hop") or {}).get(source.name)
+        if (
+            source.parent.resolve() != paths["fetch_snapshot"].parent.resolve()
+            or artifact != {"sha256": digest, "size": size}
+            or not isinstance(hop, dict) or set(hop) != {"server_sha256", "rtwin_sha256", "mac_sha256", "size"}
+            or any(hop.get(name) != digest for name in ("server_sha256", "rtwin_sha256", "mac_sha256"))
+            or hop.get("size") != size
+        ):
+            raise ValueError(f"{direction} endpoint {key} is not an exact hash-verified fetch artifact")
 
 
 def _revalidate_family_scientific_binding(family_path: Path, family: dict[str, Any]) -> dict[str, Any]:
@@ -402,12 +487,11 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
     if artifact.get("accepted") is not True or artifact.get("calculation_ready") is not False or artifact.get("no_submission_authorization") is not True:
         raise ValueError("TS/IRC path-acceptance /2 authority boundary changed")
     family_path = _closure_resolve_local_ref(artifact["family"], path, "TS family")
-    mechanism_path = _closure_resolve_local_ref(artifact["mechanism_network"], path, "mechanism network")
+    mechanism_path, mechanism = _closure_resolve_json_ref(artifact["mechanism_network"], path, "mechanism network")
     result_path = _closure_resolve_local_ref(artifact["ts_result"], path, "TS result")
     review_path = _closure_resolve_local_ref(artifact["mode_review"], path, "TS mode review")
     decision_path = _closure_resolve_local_ref(artifact["mode_decision"], path, "TS mode decision")
     family = _load_json_strict(family_path)
-    mechanism = _load_json_strict(mechanism_path)
     _load_mechanism_network_owner().validate(mechanism_path)
     result = _load_json_strict(result_path)
     review = _load_json_strict(review_path)
@@ -437,6 +521,10 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
     for direction in ("forward", "reverse"):
         endpoint_path = _closure_resolve_local_ref(endpoint_refs[direction], path, f"{direction} endpoint structure review")
         endpoint = validate_endpoint_structure_review_artifact(endpoint_path)
+        if endpoint.get("schema") != ENDPOINT_REVIEW_SCHEMA_V2:
+            raise ValueError("path acceptance /2 requires source-bound endpoint structure review /2")
+        if endpoint["sources"]["family"]["sha256"] != artifact["family"]["sha256"]:
+            raise ValueError(f"{direction} endpoint review belongs to another TS family")
         if endpoint["direction"] != direction:
             raise ValueError(f"{direction} endpoint review direction differs")
         endpoints[direction] = endpoint
@@ -471,13 +559,35 @@ def validate_path_acceptance_v2_artifact(path: Path) -> dict[str, Any]:
     mapping_dict = {item.get("from_atom_id"): item.get("to_atom_id") for item in mapping}
     if reactant["stable_atom_ids"] != from_ids or product["stable_atom_ids"] != [mapping_dict.get(atom_id) for atom_id in from_ids] or sorted(mapping_dict.values()) != sorted(to_ids):
         raise ValueError("endpoint stable atom map differs from the exact mechanism edge mapping")
+    endpoint_state_pairs = ((reactant, from_state, "reactant"), (product, to_state, "product"))
+    for endpoint, state, side in endpoint_state_pairs:
+        if endpoint["charge"] != state.get("formal_charge") or endpoint["multiplicity"] != state.get("multiplicity"):
+            raise ValueError(f"{side} endpoint charge or multiplicity differs from the exact mechanism state")
+        state_elements = {atom.get("atom_id"): atom.get("element") for atom in state.get("atoms", [])}
+        endpoint_pairs = list(zip(
+            endpoint["stable_atom_ids"],
+            [record.get("element") for record in endpoint["endpoint_coordinates"]["records"]],
+        ))
+        if len(endpoint_pairs) != len(endpoint["stable_atom_ids"]) or any(state_elements.get(atom_id) != element for atom_id, element in endpoint_pairs):
+            raise ValueError(f"{side} endpoint stable atom element/order differs from the exact mechanism state")
+    def direction_projection(endpoint: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "chemical_side": endpoint["chemical_side"],
+            "state_id": endpoint["structure_identity"]["state_id"],
+            "formal_charge": endpoint["charge"],
+            "multiplicity": endpoint["multiplicity"],
+            "stable_atoms": [
+                {"atom_id": atom_id, "element": record["element"]}
+                for atom_id, record in zip(endpoint["stable_atom_ids"], endpoint["endpoint_coordinates"]["records"])
+            ],
+        }
     binding = {
         "study_id": mechanism.get("study_id"), "edge_id": edge.get("edge_id"),
         "from_state_id": edge.get("from_state_id"), "to_state_id": edge.get("to_state_id"),
         "atom_mapping": mapping,
         "direction_mapping": {
-            "forward": {"chemical_side": forward["chemical_side"], "state_id": forward["structure_identity"]["state_id"]},
-            "reverse": {"chemical_side": reverse["chemical_side"], "state_id": reverse["structure_identity"]["state_id"]},
+            "forward": direction_projection(forward),
+            "reverse": direction_projection(reverse),
         },
     }
     if artifact.get("mechanism_binding") != binding:
@@ -502,18 +612,29 @@ def build_path_acceptance_v2_artifact(
     if edge is None:
         raise ValueError("formal TS family edge is absent from the mechanism network")
     endpoint_docs = {"forward": _load_json_strict(forward_review), "reverse": _load_json_strict(reverse_review)}
+    def direction_projection(document: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "chemical_side": document.get("chemical_side"),
+            "state_id": (document.get("structure_identity") or {}).get("state_id"),
+            "formal_charge": document.get("charge"),
+            "multiplicity": document.get("multiplicity"),
+            "stable_atoms": [
+                {"atom_id": atom_id, "element": record.get("element")}
+                for atom_id, record in zip(document.get("stable_atom_ids", []), (document.get("endpoint_coordinates") or {}).get("records", []))
+            ],
+        }
     mechanism_binding = {
         "study_id": mechanism.get("study_id"), "edge_id": edge.get("edge_id"),
         "from_state_id": edge.get("from_state_id"), "to_state_id": edge.get("to_state_id"),
         "atom_mapping": edge.get("atom_mapping"),
         "direction_mapping": {
-            direction: {"chemical_side": document.get("chemical_side"), "state_id": (document.get("structure_identity") or {}).get("state_id")}
+            direction: direction_projection(document)
             for direction, document in endpoint_docs.items()
         },
     }
     artifact = {
         "schema": PATH_ACCEPTANCE_SCHEMA_V2, "edge_id": family_document.get("mechanism_edge_id"),
-        "mechanism_network": _closure_local_ref(mechanism_network, root, "mechanism network"),
+        "mechanism_network": _closure_json_ref(mechanism_network, root, "mechanism network"),
         "mechanism_binding": mechanism_binding,
         "family": _closure_local_ref(family, root, "TS family"), "ts_result": _closure_local_ref(ts_result, root, "TS result"),
         "mode_review": _closure_local_ref(mode_review, root, "TS mode review"), "mode_decision": _closure_local_ref(mode_decision, root, "TS mode decision"),
@@ -1401,6 +1522,7 @@ def audit_checkpoint_provenance(
     checkpoint_path: Path,
     review_path: Path,
     decision_path: Path,
+    owner_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Bind a checkpoint hash to the reviewed TS atom order without decoding the binary file."""
     for label, path in {
@@ -1427,9 +1549,34 @@ def audit_checkpoint_provenance(
     decision = json.loads(decision_path.read_text(encoding="utf-8"))
     if result.get("schema") not in {"gaussian-ts-freq-result/1", TS_RESULT_SCHEMA_V2} or not result.get("first_order_saddle_candidate"):
         raise ValueError("checkpoint audit requires an eligible TS/Freq result")
+    fetch_snapshot_sha256 = None
     if result.get("schema") == TS_RESULT_SCHEMA_V2:
         validate_ts_result_v2(result, ts_result_path)
-    if result.get("log_sha256") != sha256(ts_log_path):
+        source_log_path = _closure_resolve_local_ref(result["source_log"], ts_result_path, "TS/Freq source log")
+        execution_input_path = _closure_resolve_local_ref(result["execution"]["input"], ts_result_path, "TS/Freq execution input")
+        if source_log_path.resolve() != ts_log_path.resolve():
+            raise ValueError("TS/Freq /2 source_log is not the supplied TS log")
+        if execution_input_path.resolve() != ts_input_path.resolve():
+            raise ValueError("TS/Freq /2 execution input is not the supplied TS input")
+        snapshot_path = _closure_resolve_local_ref(result["execution"]["fetch_snapshot"], ts_result_path, "TS/Freq fetch snapshot")
+        snapshot = _load_json_strict(snapshot_path)
+        checkpoint_digest = sha256(checkpoint_path)
+        checkpoint_size = checkpoint_path.stat().st_size
+        artifact = (snapshot.get("artifacts") or {}).get(checkpoint_path.name)
+        hop = (snapshot.get("per_hop") or {}).get(checkpoint_path.name)
+        if (
+            checkpoint_path.parent.resolve() != snapshot_path.parent.resolve()
+            or artifact != {"sha256": checkpoint_digest, "size": checkpoint_size}
+            or not isinstance(hop, dict) or set(hop) != {"server_sha256", "rtwin_sha256", "mac_sha256", "size"}
+            or any(hop.get(key) != checkpoint_digest for key in ("server_sha256", "rtwin_sha256", "mac_sha256"))
+            or hop.get("size") != checkpoint_size
+        ):
+            raise ValueError("TS checkpoint is not the exact hash-verified fetch artifact")
+        fetch_snapshot_sha256 = sha256(snapshot_path)
+        result_log_sha256 = result["source_log"]["sha256"]
+    else:
+        result_log_sha256 = result.get("log_sha256")
+    if result_log_sha256 != sha256(ts_log_path):
         raise ValueError("TS result is not bound to the supplied TS log")
     if review.get("schema") != "gaussian-ts-mode-review/1" or review.get("ts_result_sha256") != sha256(ts_result_path):
         raise ValueError("mode review is not bound to the supplied TS result")
@@ -1468,7 +1615,7 @@ def audit_checkpoint_provenance(
         {"index": index, "atomic_number": number, "element": ELEMENTS[number]}
         for index, number in enumerate(input_numbers, start=1)
     ]
-    return {
+    artifact = {
         "schema": "gaussian-checkpoint-geometry-audit/1",
         "audit_status": "passed",
         "geometry_source": "reviewed_ts_checkpoint",
@@ -1479,6 +1626,7 @@ def audit_checkpoint_provenance(
         "ts_result_sha256": sha256(ts_result_path),
         "mode_review_sha256": sha256(review_path),
         "mode_decision_sha256": sha256(decision_path),
+        "fetch_snapshot_sha256": fetch_snapshot_sha256,
         "charge": charge,
         "multiplicity": multiplicity,
         "atom_count": len(atom_order),
@@ -1490,12 +1638,70 @@ def audit_checkpoint_provenance(
             "input_log_result_atom_order_matches": True,
             "imaginary_mode_atom_order_matches": True,
             "accepted_mode_decision_hashes_match": True,
+            "source_log_is_exact_supplied_log": True,
+            "execution_input_is_exact_supplied_input": True,
+            "checkpoint_is_exact_hash_verified_fetch_artifact": result.get("schema") == TS_RESULT_SCHEMA_V2,
         },
         "limitations": [
             "The binary checkpoint is identified by SHA-256; its internal records are not decoded.",
             "Atom order is established from the reviewed TS input/log/result provenance chain used to create the checkpoint.",
         ],
     }
+    if result.get("schema") == TS_RESULT_SCHEMA_V2:
+        owner_dir = Path(os.path.abspath(owner_dir or ts_result_path.parent))
+        artifact["schema"] = "gaussian-checkpoint-geometry-audit/2"
+        artifact["sources"] = {
+            "ts_input": _closure_local_ref(ts_input_path, owner_dir, "checkpoint audit TS input"),
+            "ts_log": _closure_local_ref(ts_log_path, owner_dir, "checkpoint audit TS log"),
+            "ts_result": _closure_local_ref(ts_result_path, owner_dir, "checkpoint audit TS result"),
+            "checkpoint": _closure_local_ref(checkpoint_path, owner_dir, "checkpoint audit checkpoint"),
+            "mode_review": _closure_local_ref(review_path, owner_dir, "checkpoint audit mode review"),
+            "mode_decision": _closure_local_ref(decision_path, owner_dir, "checkpoint audit mode decision"),
+            "fetch_snapshot": _closure_local_ref(
+                ts_result_path.parent / result["execution"]["fetch_snapshot"]["path"],
+                owner_dir, "checkpoint audit fetch snapshot",
+            ),
+        }
+        artifact["payload_sha256"] = _payload_sha256(artifact)
+    return artifact
+
+
+def validate_checkpoint_audit_artifact(path: Path) -> dict[str, Any]:
+    audit = _load_json_strict(path)
+    if audit.get("schema") == "gaussian-checkpoint-geometry-audit/1":
+        if audit.get("audit_status") != "passed":
+            raise ValueError("historical checkpoint audit is not passed")
+        return audit
+    required = {
+        "schema", "audit_status", "geometry_source", "checkpoint_file", "checkpoint_sha256",
+        "ts_input_sha256", "ts_log_sha256", "ts_result_sha256", "mode_review_sha256",
+        "mode_decision_sha256", "fetch_snapshot_sha256", "charge", "multiplicity", "atom_count",
+        "atom_order", "checks", "limitations", "sources", "payload_sha256",
+    }
+    if set(audit) != required or audit.get("schema") != "gaussian-checkpoint-geometry-audit/2":
+        raise ValueError("checkpoint-geometry audit /2 fields or schema are invalid")
+    if audit.get("payload_sha256") != _payload_sha256(audit):
+        raise ValueError("checkpoint-geometry audit /2 payload hash is invalid")
+    sources = audit.get("sources")
+    source_keys = {"ts_input", "ts_log", "ts_result", "checkpoint", "mode_review", "mode_decision", "fetch_snapshot"}
+    if not isinstance(sources, dict) or set(sources) != source_keys:
+        raise ValueError("checkpoint-geometry audit /2 sources are invalid")
+    resolved = {
+        key: _closure_resolve_local_ref(sources[key], path, f"checkpoint audit {key}")
+        for key in source_keys
+    }
+    rebuilt = audit_checkpoint_provenance(
+        resolved["ts_input"], resolved["ts_log"], resolved["ts_result"], resolved["checkpoint"],
+        resolved["mode_review"], resolved["mode_decision"], owner_dir=path.parent.resolve(),
+    )
+    if resolved["fetch_snapshot"] != _closure_resolve_local_ref(
+        _load_json_strict(resolved["ts_result"])["execution"]["fetch_snapshot"],
+        resolved["ts_result"], "TS/Freq fetch snapshot",
+    ):
+        raise ValueError("checkpoint audit fetch snapshot is not the TS-result execution snapshot")
+    if rebuilt != audit:
+        raise ValueError("checkpoint-geometry audit /2 differs from owner reconstruction")
+    return audit
 
 
 def build_allcheck_irc_input(
@@ -1514,8 +1720,8 @@ def build_allcheck_irc_input(
         raise ValueError("AllCheck output must end in .gjf or .com")
     if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
         raise ValueError("checkpoint must be an existing non-symlink file")
-    audit = json.loads(checkpoint_audit_path.read_text(encoding="utf-8"))
-    if audit.get("schema") != "gaussian-checkpoint-geometry-audit/1" or audit.get("audit_status") != "passed":
+    audit = validate_checkpoint_audit_artifact(checkpoint_audit_path)
+    if audit.get("schema") not in {"gaussian-checkpoint-geometry-audit/1", "gaussian-checkpoint-geometry-audit/2"} or audit.get("audit_status") != "passed":
         raise ValueError("AllCheck input requires a passed checkpoint-geometry audit")
     if audit.get("checkpoint_file") != checkpoint_path.name or audit.get("checkpoint_sha256") != sha256(checkpoint_path):
         raise ValueError("checkpoint file or hash differs from the reviewed checkpoint audit")
@@ -1784,7 +1990,7 @@ def validate_endpoint_structure_review_artifact(path: Path) -> dict[str, Any]:
         "explicit_human_review", "reviewer", "rationale", "reviewed_at", "parser", "immutability",
         "calculation_ready", "no_submission_authorization", "payload_sha256",
     }
-    if not isinstance(artifact, dict) or set(artifact) != required or artifact.get("schema") != ENDPOINT_REVIEW_SCHEMA:
+    if not isinstance(artifact, dict) or set(artifact) != required or artifact.get("schema") not in {ENDPOINT_REVIEW_SCHEMA, ENDPOINT_REVIEW_SCHEMA_V2}:
         raise ValueError("endpoint structure review fields or schema are invalid")
     if artifact.get("payload_sha256") != _payload_sha256(artifact):
         raise ValueError("endpoint structure review payload hash is invalid")
@@ -1793,6 +1999,10 @@ def validate_endpoint_structure_review_artifact(path: Path) -> dict[str, Any]:
     if artifact.get("parser") != PARSER_ID:
         raise ValueError("endpoint structure review parser version or schema differs")
     bundle = artifact.get("sources")
+    if artifact["schema"] == ENDPOINT_REVIEW_SCHEMA_V2 and set(bundle or {}) != {"family", "audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint", "terminal_inspection_receipt", "fetch_snapshot"}:
+        raise ValueError("endpoint structure review /2 requires the exact attempt/receipt/fetch source bundle")
+    if artifact["schema"] == ENDPOINT_REVIEW_SCHEMA and set(bundle or {}) != {"audit", "irc_input", "irc_log", "irc_result", "job", "checkpoint"}:
+        raise ValueError("historical endpoint structure review /1 source bundle changed")
     audits = _validate_endpoint_bundle(bundle, path, artifact["direction"], _closure_resolve_local_ref)
     result_path = _closure_resolve_local_ref(bundle["irc_result"], path, "endpoint review IRC result")
     result = _load_json_strict(result_path)
@@ -1818,7 +2028,8 @@ def build_endpoint_structure_review_artifact(
         for atom_id, source in zip(atom_ids, result.get("final_coordinates", []))
     ]
     artifact = {
-        "schema": ENDPOINT_REVIEW_SCHEMA, "review_id": draft["review_id"],
+        "schema": ENDPOINT_REVIEW_SCHEMA_V2 if {"family", "terminal_inspection_receipt", "fetch_snapshot"} <= set(sources) else ENDPOINT_REVIEW_SCHEMA,
+        "review_id": draft["review_id"],
         "direction": draft["direction"], "chemical_side": draft["chemical_side"],
         "sources": source_bundle, "endpoint_coordinates": {"records": records, "sha256": _canonical_data_sha256(records)},
         "stable_atom_ids": atom_ids, "charge": audit["charge"], "multiplicity": audit["multiplicity"],
@@ -2308,16 +2519,19 @@ def _make_fragment_endpoint_results_v2(
     plan_path: Path,
     result_paths: dict[str, Path],
     job_paths: dict[str, Path],
+    input_paths: dict[str, Path],
     log_paths: dict[str, Path],
     checkpoint_paths: dict[str, Path],
+    receipt_paths: dict[str, Path],
+    snapshot_paths: dict[str, Path],
     output_path: Path,
 ) -> dict[str, Any]:
     """Replay every fragment from its raw log and seal the full result lineage."""
 
     legacy = audit_fragment_endpoint_results(plan_path, result_paths, job_paths)
     projects = {item["project"] for item in legacy["fragments"]}
-    if set(log_paths) != projects or set(checkpoint_paths) != projects:
-        raise ValueError("raw logs and checkpoints must cover every planned fragment exactly once")
+    if any(set(values) != projects for values in (input_paths, log_paths, checkpoint_paths, receipt_paths, snapshot_paths)):
+        raise ValueError("inputs, raw logs, checkpoints, receipts, and snapshots must cover every planned fragment exactly once")
     owner = _load_gaussian_log_owner()
     root = _closure_root(output_path.parent, "fragment validation output parent")
     plan = _load_json_strict(plan_path)
@@ -2327,7 +2541,7 @@ def _make_fragment_endpoint_results_v2(
     for accepted in legacy["fragments"]:
         project = accepted["project"]
         result_path, job_path = result_paths[project], job_paths[project]
-        log_path, checkpoint_path = log_paths[project], checkpoint_paths[project]
+        input_path, log_path, checkpoint_path = input_paths[project], log_paths[project], checkpoint_paths[project]
         for label, candidate in (("raw log", log_path), ("checkpoint", checkpoint_path)):
             if not candidate.is_file() or candidate.is_symlink() or candidate.stat().st_size == 0:
                 raise ValueError(f"fragment {project} {label} must be a non-empty non-symlink file")
@@ -2350,12 +2564,25 @@ def _make_fragment_endpoint_results_v2(
         if replay["imaginary_frequency_count"] != 0 or not replay["optimization_success"]:
             raise ValueError(f"fragment {project} raw log does not prove a stationary zero-imaginary minimum")
         fragment = fragments_by_project[project]
+        if sha256(input_path) != fragment["input_sha256"]:
+            raise ValueError(f"fragment {project} exact input differs from the reviewed fragment plan")
+        execution_paths = {
+            "irc_input": input_path, "irc_log": log_path, "irc_result": result_path,
+            "job": job_path, "checkpoint": checkpoint_path,
+            "terminal_inspection_receipt": receipt_paths[project], "fetch_snapshot": snapshot_paths[project],
+        }
+        _validate_endpoint_execution_evidence(execution_paths, {}, f"fragment {project}")
+        job = _load_json_strict(job_path)
         if [atom.get("element") for atom in replay["final_coordinates"]] != fragment["element_order"]:
             raise ValueError(f"fragment {project} raw-log atom order differs from the reviewed plan")
         record = {
             **accepted,
             "result": {**_closure_local_ref(result_path.resolve(), root, f"fragment {project} result"), "schema": result.get("schema")},
             "job": {**_closure_local_ref(job_path.resolve(), root, f"fragment {project} job"), "schema": _load_json_strict(job_path).get("schema")},
+            "attempt_id": job["execution_batch"]["attempt_id"],
+            "input": _closure_local_ref(input_path.resolve(), root, f"fragment {project} input"),
+            "terminal_inspection_receipt": _closure_local_ref(receipt_paths[project].resolve(), root, f"fragment {project} terminal receipt"),
+            "fetch_snapshot": _closure_local_ref(snapshot_paths[project].resolve(), root, f"fragment {project} fetch snapshot"),
             "raw_log": _closure_local_ref(log_path.resolve(), root, f"fragment {project} raw log"), "checkpoint": _closure_local_ref(checkpoint_path.resolve(), root, f"fragment {project} checkpoint"),
             "parser": dict(replay["parser"]), "frequency_parse_complete": True,
         }
@@ -2393,18 +2620,25 @@ def validate_fragment_endpoint_results_v2(path: Path) -> dict[str, Any]:
         raise ValueError("fragment endpoint validation /2 has no fragment records")
     result_paths: dict[str, Path] = {}
     job_paths: dict[str, Path] = {}
+    input_paths: dict[str, Path] = {}
     log_paths: dict[str, Path] = {}
     checkpoint_paths: dict[str, Path] = {}
+    receipt_paths: dict[str, Path] = {}
+    snapshot_paths: dict[str, Path] = {}
     for record in records:
         project = record.get("project") if isinstance(record, dict) else None
         if not isinstance(project, str) or not project or project in result_paths:
             raise ValueError("fragment endpoint validation /2 project set is invalid")
         result_paths[project] = _closure_resolve_local_ref(bare(record.get("result")), path, f"fragment {project} result")
         job_paths[project] = _closure_resolve_local_ref(bare(record.get("job")), path, f"fragment {project} job")
+        input_paths[project] = _closure_resolve_local_ref(record.get("input"), path, f"fragment {project} input")
         log_paths[project] = _closure_resolve_local_ref(record.get("raw_log"), path, f"fragment {project} raw log")
         checkpoint_paths[project] = _closure_resolve_local_ref(record.get("checkpoint"), path, f"fragment {project} checkpoint")
+        receipt_paths[project] = _closure_resolve_local_ref(record.get("terminal_inspection_receipt"), path, f"fragment {project} terminal receipt")
+        snapshot_paths[project] = _closure_resolve_local_ref(record.get("fetch_snapshot"), path, f"fragment {project} fetch snapshot")
     replay = _make_fragment_endpoint_results_v2(
-        plan_path, result_paths, job_paths, log_paths, checkpoint_paths, path
+        plan_path, result_paths, job_paths, input_paths, log_paths, checkpoint_paths,
+        receipt_paths, snapshot_paths, path
     )
     if artifact != replay:
         raise ValueError("fragment endpoint validation /2 differs from owner replay")
@@ -2415,14 +2649,18 @@ def audit_fragment_endpoint_results_v2(
     plan_path: Path,
     result_paths: dict[str, Path],
     job_paths: dict[str, Path],
+    input_paths: dict[str, Path],
     log_paths: dict[str, Path],
     checkpoint_paths: dict[str, Path],
+    receipt_paths: dict[str, Path],
+    snapshot_paths: dict[str, Path],
     output_path: Path,
 ) -> dict[str, Any]:
     """Build, owner-validate, and atomically publish fragment endpoint /2."""
 
     artifact = _make_fragment_endpoint_results_v2(
-        plan_path, result_paths, job_paths, log_paths, checkpoint_paths, output_path
+        plan_path, result_paths, job_paths, input_paths, log_paths, checkpoint_paths,
+        receipt_paths, snapshot_paths, output_path
     )
     return _publish_json_exclusive(output_path, artifact, validate_fragment_endpoint_results_v2)
 
@@ -2738,6 +2976,41 @@ def _validate_ts_execution_evidence(
     family = _load_json_strict(resolved["family"])
     if family.get("schema") != SCHEMA_V2 or family.get("pilot") is not False:
         raise ValueError("TS/Freq execution evidence requires one formal family /2")
+    input_document = parse_cartesian_input(resolved["input"])
+    input_audit = family.get("input_audit")
+    protocol = family.get("protocol")
+    prefix = family.get("project_prefix")
+    if (
+        not isinstance(input_audit, dict) or input_audit.get("schema") != SCHEMA or input_audit.get("valid") is not True
+        or not isinstance(protocol, dict) or protocol.get("project_prefix") != prefix
+        or not isinstance(prefix, str) or not (project == prefix or project.startswith(prefix + "_"))
+    ):
+        raise ValueError("TS/Freq execution project is not bound to the family input audit/protocol/project prefix")
+    structures = input_audit.get("structures")
+    if not isinstance(structures, dict) or not structures:
+        raise ValueError("TS/Freq family input audit has no exact structure set")
+    audited = structures.get("ts") if "ts" in structures else next(iter(structures.values()))
+    if (
+        not isinstance(audited, dict)
+        or audited.get("sha256") != sha256(resolved["input"])
+        or input_document["charge"] != audited.get("charge")
+        or input_document["multiplicity"] != audited.get("multiplicity")
+        or input_document["atoms"] != audited.get("atoms")
+    ):
+        raise ValueError("TS/Freq exact input bytes, coordinates, charge, spin, or atom order differ from the family input audit")
+    lines = resolved["input"].read_text(encoding="utf-8", errors="replace").splitlines()
+    route_lines: list[str] = []
+    collecting = False
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            collecting = True
+        if collecting:
+            if not line.strip():
+                break
+            route_lines.append(line.strip())
+    exact_route = " ".join(route_lines)
+    if exact_route != (protocol.get("routes") or {}).get("ts_freq"):
+        raise ValueError("TS/Freq exact input route differs from the family protocol")
     job = _load_json_strict(resolved["job"])
     if (
         job.get("schema") != "gaussian-rtwin-pbs/1" or job.get("project") != project
@@ -3364,13 +3637,13 @@ def main() -> int:
     checkpoint_audit = sub.add_parser("audit-checkpoint"); checkpoint_audit.add_argument("--ts-input", required=True); checkpoint_audit.add_argument("--ts-log", required=True); checkpoint_audit.add_argument("--ts-result", required=True); checkpoint_audit.add_argument("--checkpoint", required=True); checkpoint_audit.add_argument("--mode-review", required=True); checkpoint_audit.add_argument("--mode-decision", required=True); checkpoint_audit.add_argument("--output", required=True)
     allcheck = sub.add_parser("build-allcheck-irc"); allcheck.add_argument("--checkpoint-audit", required=True); allcheck.add_argument("--checkpoint", required=True); allcheck.add_argument("--output", required=True); allcheck.add_argument("--route", required=True); allcheck.add_argument("--direction", choices=["forward", "reverse"], required=True); allcheck.add_argument("--memory", required=True); allcheck.add_argument("--nprocshared", type=int, required=True)
     endpoint_audit = sub.add_parser("audit-irc-endpoint"); endpoint_audit.add_argument("--irc-input", required=True); endpoint_audit.add_argument("--irc-log", required=True); endpoint_audit.add_argument("--irc-result", required=True); endpoint_audit.add_argument("--job", required=True); endpoint_audit.add_argument("--checkpoint", required=True); endpoint_audit.add_argument("--direction", choices=["forward", "reverse"], required=True); endpoint_audit.add_argument("--chemical-side", choices=["reactant", "product"], required=True); endpoint_audit.add_argument("--expected-points", type=int, required=True); endpoint_audit.add_argument("--forming", action="append", required=True); endpoint_audit.add_argument("--output", required=True)
-    endpoint_review = sub.add_parser("build-endpoint-structure-review"); endpoint_review.add_argument("--review", required=True); endpoint_review.add_argument("--audit", required=True); endpoint_review.add_argument("--irc-input", required=True); endpoint_review.add_argument("--irc-log", required=True); endpoint_review.add_argument("--irc-result", required=True); endpoint_review.add_argument("--job", required=True); endpoint_review.add_argument("--checkpoint", required=True); endpoint_review.add_argument("--output", required=True)
+    endpoint_review = sub.add_parser("build-endpoint-structure-review"); endpoint_review.add_argument("--review", required=True); endpoint_review.add_argument("--family", required=True); endpoint_review.add_argument("--audit", required=True); endpoint_review.add_argument("--irc-input", required=True); endpoint_review.add_argument("--irc-log", required=True); endpoint_review.add_argument("--irc-result", required=True); endpoint_review.add_argument("--job", required=True); endpoint_review.add_argument("--checkpoint", required=True); endpoint_review.add_argument("--terminal-inspection-receipt", required=True); endpoint_review.add_argument("--fetch-snapshot", required=True); endpoint_review.add_argument("--output", required=True)
     endpoint_review_validate = sub.add_parser("validate-endpoint-structure-review"); endpoint_review_validate.add_argument("artifact")
     endpoint = sub.add_parser("build-allcheck-endpoint"); endpoint.add_argument("--endpoint-audit", required=True); endpoint.add_argument("--checkpoint", required=True); endpoint.add_argument("--output", required=True); endpoint.add_argument("--route", required=True); endpoint.add_argument("--memory", required=True); endpoint.add_argument("--nprocshared", type=int, required=True)
     components = sub.add_parser("propose-endpoint-components"); components.add_argument("--endpoint-audit", required=True); components.add_argument("--irc-result", required=True); components.add_argument("--bond-scale", type=float, default=1.25); components.add_argument("--output", required=True)
     fragment_build = sub.add_parser("build-fragment-endpoints"); fragment_build.add_argument("--component-proposal", required=True); fragment_build.add_argument("--component-review", required=True); fragment_build.add_argument("--output-dir", required=True); fragment_build.add_argument("--route", required=True); fragment_build.add_argument("--memory", required=True); fragment_build.add_argument("--nprocshared", type=int, required=True)
     fragment_audit = sub.add_parser("audit-fragment-endpoints"); fragment_audit.add_argument("--plan", required=True); fragment_audit.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit.add_argument("--output", required=True)
-    fragment_audit_v2 = sub.add_parser("audit-fragment-endpoints-v2"); fragment_audit_v2.add_argument("--plan", required=True); fragment_audit_v2.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit_v2.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit_v2.add_argument("--log", action="append", required=True, help="PROJECT=/path/to/full.log"); fragment_audit_v2.add_argument("--checkpoint", action="append", required=True, help="PROJECT=/path/to/final.chk"); fragment_audit_v2.add_argument("--output", required=True)
+    fragment_audit_v2 = sub.add_parser("audit-fragment-endpoints-v2"); fragment_audit_v2.add_argument("--plan", required=True); fragment_audit_v2.add_argument("--result", action="append", required=True, help="PROJECT=/path/to/result.json"); fragment_audit_v2.add_argument("--job", action="append", required=True, help="PROJECT=/path/to/job.json"); fragment_audit_v2.add_argument("--input", action="append", required=True, help="PROJECT=/path/to/input.gjf"); fragment_audit_v2.add_argument("--log", action="append", required=True, help="PROJECT=/path/to/full.log"); fragment_audit_v2.add_argument("--checkpoint", action="append", required=True, help="PROJECT=/path/to/final.chk"); fragment_audit_v2.add_argument("--terminal-inspection-receipt", action="append", required=True, help="PROJECT=/path/to/receipt.json"); fragment_audit_v2.add_argument("--fetch-snapshot", action="append", required=True, help="PROJECT=/path/to/transfer.json"); fragment_audit_v2.add_argument("--output", required=True)
     path_accept = sub.add_parser("build-path-acceptance"); path_accept.add_argument("--family", required=True); path_accept.add_argument("--ts-result", required=True); path_accept.add_argument("--mode-review", required=True); path_accept.add_argument("--mode-decision", required=True); path_accept.add_argument("--forward-audit", required=True); path_accept.add_argument("--forward-input", required=True); path_accept.add_argument("--forward-log", required=True); path_accept.add_argument("--forward-result", required=True); path_accept.add_argument("--forward-job", required=True); path_accept.add_argument("--forward-checkpoint", required=True); path_accept.add_argument("--reverse-audit", required=True); path_accept.add_argument("--reverse-input", required=True); path_accept.add_argument("--reverse-log", required=True); path_accept.add_argument("--reverse-result", required=True); path_accept.add_argument("--reverse-job", required=True); path_accept.add_argument("--reverse-checkpoint", required=True); path_accept.add_argument("--output", required=True)
     path_accept_v2 = sub.add_parser("build-path-acceptance-v2"); path_accept_v2.add_argument("--family", required=True); path_accept_v2.add_argument("--ts-result", required=True); path_accept_v2.add_argument("--mode-review", required=True); path_accept_v2.add_argument("--mode-decision", required=True); path_accept_v2.add_argument("--forward-endpoint-review", required=True); path_accept_v2.add_argument("--reverse-endpoint-review", required=True); path_accept_v2.add_argument("--mechanism-network", required=True); path_accept_v2.add_argument("--output", required=True)
     path_validate = sub.add_parser("validate-path-acceptance"); path_validate.add_argument("artifact")
@@ -3509,7 +3782,7 @@ def main() -> int:
         elif args.command == "audit-checkpoint":
             output_path = Path(args.output)
             if output_path.exists(): raise ValueError("refusing to overwrite an existing checkpoint audit")
-            result = audit_checkpoint_provenance(Path(args.ts_input), Path(args.ts_log), Path(args.ts_result), Path(args.checkpoint), Path(args.mode_review), Path(args.mode_decision))
+            result = audit_checkpoint_provenance(Path(args.ts_input), Path(args.ts_log), Path(args.ts_result), Path(args.checkpoint), Path(args.mode_review), Path(args.mode_decision), owner_dir=output_path.parent)
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "build-allcheck-irc":
             build_allcheck_irc_input(Path(args.checkpoint_audit), Path(args.checkpoint), Path(args.output), args.route, args.direction, args.memory, args.nprocshared)
@@ -3521,7 +3794,7 @@ def main() -> int:
             result = audit_irc_endpoint_provenance(Path(args.irc_input), Path(args.irc_log), Path(args.irc_result), Path(args.job), Path(args.checkpoint), args.direction, args.chemical_side, args.expected_points, pairs)
             output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         elif args.command == "build-endpoint-structure-review":
-            sources = {"audit": Path(args.audit), "irc_input": Path(args.irc_input), "irc_log": Path(args.irc_log), "irc_result": Path(args.irc_result), "job": Path(args.job), "checkpoint": Path(args.checkpoint)}
+            sources = {"family": Path(args.family), "audit": Path(args.audit), "irc_input": Path(args.irc_input), "irc_log": Path(args.irc_log), "irc_result": Path(args.irc_result), "job": Path(args.job), "checkpoint": Path(args.checkpoint), "terminal_inspection_receipt": Path(args.terminal_inspection_receipt), "fetch_snapshot": Path(args.fetch_snapshot)}
             build_endpoint_structure_review_artifact(sources, Path(args.review), Path(args.output))
         elif args.command == "validate-endpoint-structure-review":
             result = validate_endpoint_structure_review_artifact(Path(args.artifact))
@@ -3552,7 +3825,7 @@ def main() -> int:
         elif args.command == "audit-fragment-endpoints-v2":
             output_path = Path(args.output)
             assignments: dict[str, dict[str, Path]] = {}
-            for label, values in (("result", args.result), ("job", args.job), ("log", args.log), ("checkpoint", args.checkpoint)):
+            for label, values in (("result", args.result), ("job", args.job), ("input", args.input), ("log", args.log), ("checkpoint", args.checkpoint), ("terminal_inspection_receipt", args.terminal_inspection_receipt), ("fetch_snapshot", args.fetch_snapshot)):
                 parsed: dict[str, Path] = {}
                 for raw in values:
                     project, separator, value = raw.partition("=")
@@ -3560,7 +3833,7 @@ def main() -> int:
                         raise ValueError(f"each --{label} must be a unique PROJECT=/path assignment")
                     parsed[project] = Path(value)
                 assignments[label] = parsed
-            result = audit_fragment_endpoint_results_v2(Path(args.plan), assignments["result"], assignments["job"], assignments["log"], assignments["checkpoint"], output_path)
+            result = audit_fragment_endpoint_results_v2(Path(args.plan), assignments["result"], assignments["job"], assignments["input"], assignments["log"], assignments["checkpoint"], assignments["terminal_inspection_receipt"], assignments["fetch_snapshot"], output_path)
             print(json.dumps({"schema": "gaussian-irc-fragment-endpoint-validation-build/2", "payload_sha256": result["payload_sha256"], "live_actions": False}, indent=2))
         elif args.command == "build-path-acceptance":
             forward = {"audit": Path(args.forward_audit), "irc_input": Path(args.forward_input), "irc_log": Path(args.forward_log), "irc_result": Path(args.forward_result), "job": Path(args.forward_job), "checkpoint": Path(args.forward_checkpoint)}

@@ -298,6 +298,7 @@ class ScientificMaturityV2Tests(unittest.TestCase):
                 "conformer_origin": copy.deepcopy(minimum["conformer_origin"]),
                 "selected_candidate_id": "unreviewed_handfilled_candidate" if handfill and not minima else selected,
                 "conformer_handoff": binding(handoff_path, root), "open_shell_acceptance": None,
+                "minimum_lineage": None,
             })
         return {
             "schema": V2.REVIEW_SCHEMA, "review_id": "owner_evidence_fixture", "study_id": base_review["study_id"],

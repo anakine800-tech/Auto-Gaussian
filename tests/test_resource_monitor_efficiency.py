@@ -710,6 +710,21 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             with self.assertRaisesRegex(RESOURCE.ResourceError, "resource hard gate failed"):
                 self.gate(ledger_path, self.policy(max_estimated_core_hours=0, max_remaining_core_hours=0), snapshot, estimated_core_hours=1e-12)
 
+    def test_active_attempt_estimate_is_exactly_bound_to_positive_gate_after_reseal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); ledger_path, task_id = self.make_ledger(root); policy = self.policy(); snapshot = self.snapshot_artifact(root)
+            gate = self.gate(ledger_path, policy, snapshot, estimated_core_hours=0.1)
+            self.reserve(ledger_path, task_id, policy, gate, snapshot)
+            self.assertEqual(RESOURCE.validate_ledger(RESOURCE.load(ledger_path))["attempts"][0]["estimated_core_hours"], 0.1)
+            for forged_value in (0, 0.10000000000000002):
+                forged = copy.deepcopy(RESOURCE.load(ledger_path)); forged["attempts"][0]["estimated_core_hours"] = forged_value
+                RESOURCE._seal(forged, resource_changed=True)
+                with self.subTest(forged_value=forged_value), self.assertRaisesRegex(RESOURCE.ResourceError, "exact positive resource-gate estimate"):
+                    RESOURCE.validate_ledger(forged)
+            forged = copy.deepcopy(RESOURCE.load(ledger_path)); forged["attempts"][0]["estimated_core_hours"] = float("nan")
+            with self.assertRaises((RESOURCE.ResourceError, BATCH.BatchError, ValueError)):
+                RESOURCE.validate_ledger(forged)
+
     def test_scheduler_future_clock_skew_and_declared_age_are_strict(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); ledger_path, task_id = self.make_ledger(root); policy = self.policy()

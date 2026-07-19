@@ -229,6 +229,15 @@ class RecalculationDecisionTests(unittest.TestCase):
         with self.assertRaisesRegex(DECISION.DecisionError, "protocol evidence schema is not allowlisted"):
             self.finalize(output="unknown-owner.json")
 
+    def test_ts_result_v2_allowlist_invokes_the_canonical_owner_validator(self) -> None:
+        result_path = self.root / self.source_paths["result"]
+        malformed = json.loads(result_path.read_text(encoding="utf-8"))
+        malformed["schema"] = "gaussian-ts-freq-result/2"
+        malformed["payload_sha256"] = DECISION.rw.sha256_data(malformed)
+        dump(result_path, malformed)
+        with self.assertRaisesRegex(DECISION.DecisionError, r"TS/Freq result /2|source_log|unknown or missing"):
+            self.finalize(output="malformed-v2.json")
+
     def test_schema_null_raw_evidence_stays_integrity_only(self) -> None:
         protocol_path = self.root / self.source_paths["protocol"]
         raw = json.loads(protocol_path.read_text(encoding="utf-8"))

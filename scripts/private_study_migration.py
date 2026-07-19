@@ -150,6 +150,35 @@ def _read_source_at(source_fd: int, relative: Path) -> bytes:
         os.close(parent_fd)
 
 
+def _source_identity_at(source_fd: int, relative: Path) -> tuple[int, int, int, int, int]:
+    """Return a no-follow identity without repeating the full source read."""
+    parts = _relative_parts(relative, "source relative path")
+    parent_fd = os.dup(source_fd)
+    try:
+        for index, part in enumerate(parts[:-1]):
+            next_fd = _open_directory_at(parent_fd, part, f"source ancestor {index + 1}")
+            os.close(parent_fd)
+            parent_fd = next_fd
+        try:
+            leaf_fd = os.open(parts[-1], SOURCE_FLAGS, dir_fd=parent_fd)
+        except OSError as exc:
+            raise _unsafe_path_error(f"source leaf {relative.as_posix()}", exc) from exc
+        try:
+            opened = os.fstat(leaf_fd)
+            require(stat.S_ISREG(opened.st_mode), f"source leaf is not a regular file: {relative.as_posix()}")
+            return (
+                opened.st_dev,
+                opened.st_ino,
+                opened.st_size,
+                opened.st_mtime_ns,
+                opened.st_ctime_ns,
+            )
+        finally:
+            os.close(leaf_fd)
+    finally:
+        os.close(parent_fd)
+
+
 def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -387,9 +416,14 @@ def write_new(path: Path, value: dict[str, Any]) -> None:
     _outside_checkout(path, "plan output")
     require(path.parent.exists() and path.parent.is_dir(), "plan output parent must already exist")
     require(not os.path.lexists(path), "refusing to overwrite an existing plan output")
-    with path.open("xb") as handle:
-        handle.write(canonical_bytes(value))
-    os.chmod(path, 0o600)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        _write_all(fd, canonical_bytes(value))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _verified_source_bytes(
@@ -413,9 +447,14 @@ def _preflight_source_entries(
     entries: list[dict[str, Any]],
     source: Path,
     target: Path,
-) -> None:
-    for entry in entries:
-        _verified_source_bytes(source_fd, entry, source, target)
+) -> dict[str, tuple[bytes, tuple[int, int, int, int, int]]]:
+    return {
+        entry["relative_path"]: (
+            _verified_source_bytes(source_fd, entry, source, target),
+            _source_identity_at(source_fd, Path(entry["relative_path"])),
+        )
+        for entry in entries
+    }
 
 
 def _target_root_handles(target: Path) -> tuple[int, int | None, str]:
@@ -541,20 +580,43 @@ def apply_plan(path: Path, *, confirmation: str, reviewer: str) -> dict[str, Any
     target_fd: int | None = None
     copied_file_count = 0
     copied_size_bytes = 0
+    destination_receipts: list[dict[str, Any]] = []
+    persisted_receipt: dict[str, Any] | None = None
     try:
         # No target directory or file is created until every source byte/hash and
         # every destination conflict has passed this descriptor-bound preflight.
-        _preflight_source_entries(source_fd, plan["entries"], source, target)
+        planned_bytes = _preflight_source_entries(source_fd, plan["entries"], source, target)
         target_parent_fd, target_fd, target_leaf = _target_root_handles(target)
         _preflight_destination_conflicts(target_fd, plan["entries"])
         target_fd = _create_target_root(target_parent_fd, target_fd, target_leaf)
         try:
             for entry in plan["entries"]:
                 relative = Path(entry["relative_path"])
-                planned = _verified_source_bytes(source_fd, entry, source, target)
+                planned, source_identity = planned_bytes[entry["relative_path"]]
+                require(
+                    _source_identity_at(source_fd, relative) == source_identity,
+                    f"source identity changed after preflight: {relative.as_posix()}",
+                )
                 _write_destination(target_fd, relative, planned)
+                destination = _read_source_at(target_fd, relative)
+                destination_sha = hashlib.sha256(destination).hexdigest()
+                require(len(destination) == entry["planned_size_bytes"] and destination_sha == entry["planned_sha256"], f"destination rehash differs after apply: {relative.as_posix()}")
+                destination_receipts.append({"relative_path": relative.as_posix(), "sha256": destination_sha, "size_bytes": len(destination), "mode": "0600"})
                 copied_file_count += 1
                 copied_size_bytes += len(planned)
+            receipt_document = {
+                "schema": "auto-g16-private-study-migration-destination-receipt/1",
+                "plan_sha256": plan["plan_sha256"], "reviewer": reviewer.strip(),
+                "entries": destination_receipts, "source_deleted": False, "overwrites": 0,
+                "payload_sha256": None,
+            }
+            receipt_document["payload_sha256"] = hashlib.sha256(canonical_bytes({key: value for key, value in receipt_document.items() if key != "payload_sha256"})).hexdigest()
+            receipt_relative = Path(".auto-g16-migration-destination-receipt.json")
+            require(not _destination_exists(target_fd, receipt_relative), "destination migration receipt already exists")
+            receipt_bytes = canonical_bytes(receipt_document); _write_destination(target_fd, receipt_relative, receipt_bytes)
+            persisted = _read_source_at(target_fd, receipt_relative)
+            require(persisted == receipt_bytes, "persisted destination migration receipt rehash differs")
+            persisted_receipt = {"relative_path": receipt_relative.as_posix(), "sha256": hashlib.sha256(persisted).hexdigest(), "size_bytes": len(persisted), "payload_sha256": receipt_document["payload_sha256"]}
         except Exception as exc:
             raise MigrationError(
                 "apply stopped after "
@@ -579,6 +641,7 @@ def apply_plan(path: Path, *, confirmation: str, reviewer: str) -> dict[str, Any
         "partial_copy": False,
         "manual_partial_copy_review_required": False,
         "automatic_rollback_deletion": False,
+        "destination_receipt": persisted_receipt,
         "live_actions": False,
     }
 

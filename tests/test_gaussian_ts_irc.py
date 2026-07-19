@@ -713,11 +713,22 @@ class TsIrcTests(unittest.TestCase):
                 "status": "completed",
                 "results_fetched": True,
                 "input_sha256": TS.sha256(irc_input),
+                "execution_batch": {"attempt_id": "qsub-attempt-irc-forward"},
                 "gaussian": {
                     "checkpoint": "irc_f.chk",
                     "route": "#p b3lyp/6-31g(d) irc=(rcfc,forward,maxpoints=2) geom=allcheck guess=read",
                 },
             }
+            inspection = {"schema": "gaussian-job-inspection/2", "project": "irc_f", "job_id": "1.master", "state": "completed", "collected_at": "2026-07-19T12:00:00Z", "source": "single_remote_read_only_snapshot", "freshness": "fresh", "transport_classification": "success", "transport_returncode": 0, "termination_counts_known": True, "evidence_conflict": False, "process_alive": False, "log_size": irc_log.stat().st_size, "full_normal_termination_count": irc_log.read_text().count("Normal termination of Gaussian"), "full_error_termination_count": 0}
+            inspection["evidence_sha256"] = TS._transport_digest(inspection)
+            receipt = {"schema": "gaussian-terminal-inspection-receipt/1", "project": "irc_f", "job_id": "1.master", "input_stem": irc_input.stem, "input_sha256": TS.sha256(irc_input), "attempt_id": "qsub-attempt-irc-forward", "terminal_state": "completed", "collected_at": inspection["collected_at"], "inspection_evidence_sha256": inspection["evidence_sha256"], "inspection": inspection, "scientific_acceptance": False}
+            receipt["receipt_sha256"] = TS._transport_digest(receipt); receipt_path = root / "terminal-inspection.json"; receipt_path.write_text(json.dumps(receipt))
+            artifacts = {}; per_hop = {}
+            for source in (irc_log, result_path, checkpoint):
+                digest = TS.sha256(source); artifacts[source.name] = {"sha256": digest, "size": source.stat().st_size}; per_hop[source.name] = {"server_sha256": digest, "rtwin_sha256": digest, "mac_sha256": digest, "size": source.stat().st_size}
+            snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": "irc_f", "job_id": "1.master", "input_stem": irc_input.stem, "input_sha256": TS.sha256(irc_input), "snapshot_complete": True, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "per_hop_sha256_verified": True, "exact_log": irc_log.name, "artifacts": artifacts, "per_hop": per_hop}
+            snapshot["payload_sha256"] = TS._transport_digest(snapshot); snapshot_path = root / "transfer.json"; snapshot_path.write_text(json.dumps(snapshot))
+            job["terminal_inspection_receipt_sha256"] = receipt["receipt_sha256"]; job["fetch_snapshot_sha256"] = TS.sha256(snapshot_path); job["fetch_snapshot_size"] = snapshot_path.stat().st_size
             job_path = root / "job.json"; job_path.write_text(json.dumps(job))
             audit = TS.audit_irc_endpoint_provenance(
                 irc_input, irc_log, result_path, job_path, checkpoint,
@@ -743,12 +754,18 @@ class TsIrcTests(unittest.TestCase):
             }
             review_draft_path = root / "endpoint_review.draft.json"; review_draft_path.write_text(json.dumps(review_draft))
             review_path = root / "endpoint_review.json"
-            sources = {"audit": audit_path, "irc_input": irc_input, "irc_log": irc_log, "irc_result": result_path, "job": job_path, "checkpoint": checkpoint}
+            family_path = root / "family.json"; family_path.write_text(json.dumps({"schema": TS.SCHEMA_V2, "pilot": False, "project_prefix": "irc"}))
+            sources = {"family": family_path, "audit": audit_path, "irc_input": irc_input, "irc_log": irc_log, "irc_result": result_path, "job": job_path, "checkpoint": checkpoint, "terminal_inspection_receipt": receipt_path, "fetch_snapshot": snapshot_path}
             reviewed = TS.build_endpoint_structure_review_artifact(sources, review_draft_path, review_path)
+            self.assertEqual(reviewed["schema"], TS.ENDPOINT_REVIEW_SCHEMA_V2)
             self.assertEqual(reviewed["structure_identity"]["formula"], "C2")
             self.assertEqual(reviewed["endpoint_coordinates"]["records"][0]["atom_id"], "atom_c1")
             self.assertEqual(reviewed["parser"], TS.PARSER_ID)
             TS.validate_endpoint_structure_review_artifact(review_path)
+            receipt_original = receipt_path.read_bytes(); crossed = json.loads(receipt_path.read_text()); crossed["attempt_id"] = "qsub-attempt-other"; crossed["receipt_sha256"] = TS._transport_digest({key: value for key, value in crossed.items() if key != "receipt_sha256"}); receipt_path.write_text(json.dumps(crossed))
+            with self.assertRaisesRegex(ValueError, "exact project/job/attempt/input"):
+                TS.build_endpoint_structure_review_artifact(sources, review_draft_path, root / "cross-attempt-review.json")
+            receipt_path.write_bytes(receipt_original)
             immutable_review = review_path.read_bytes()
             with self.assertRaisesRegex(ValueError, "concurrent or overwrite"):
                 TS.build_endpoint_structure_review_artifact(sources, review_draft_path, review_path)

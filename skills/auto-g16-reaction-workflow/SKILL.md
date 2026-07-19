@@ -422,11 +422,13 @@ main-group open-shell, and manual-receipt validators. It emits a separate
 evidence receipt, gate, and exact-scope science action; it does not alter `/1`
 semantics. Manual evidence remains supporting-only, and `ts_input`,
 `ts_submission`, and `irc_input` still require separate input review. The
-current owner set cannot bind a selected conformer through exact input approval
-to the accepted minimum result/log, so all `/2` minimum gates and actions remain
-fail-closed. IRC and formal reporting additionally require future exact owner
-TS-mode and complete thermochemistry/energy artifacts; `/1` booleans do not
-provide `/2` authority.
+overlay can consume `gaussian-minimum-lineage-handoff/2`. It replays the owner
+and binds an exact conformer-selection or endpoint-review source through input,
+project/job/attempt, terminal receipt, fetch snapshot, raw log, result,
+checkpoint and optimized structure. Missing, stale or wrong-state lineage
+remains fail-closed. IRC and formal reporting additionally require exact owner
+TS-mode/path `/2` and complete thermochemistry/energy artifacts; `/1` booleans
+do not provide `/2` authority.
 
 For a new portable closed-shell minimum chain, read
 [references/scientific-closure-lineage-contract.md](references/scientific-closure-lineage-contract.md)
@@ -577,10 +579,12 @@ It replays supplied public owner validators, requires all direct and transitive
 bindings to be relative to the explicit readiness package root, and emits only
 structured blockers. Historical artifacts using another path convention need
 a separately reviewed owner rebuild/repackage; the audit does not rewrite or
-promote them. Maturity `/1` remains insufficient. Maturity `/2` now replays
-through its public owner validator but retains the exact minimum candidate-to-
-input-to-result lineage blocker, along with TS/IRC and formal thermochemistry
-blockers. No comparison, barrier arithmetic or live action is available.
+promote them. Maturity `/1` remains insufficient. Maturity `/2` replays through
+its public owner validator and can consume exact minimum-lineage `/2`; any
+minimum without that replayed lineage remains blocked. TS readiness accepts
+path-acceptance `/2` only through its owner validator and exact TS-result
+binding. Formal thermochemistry quantities and coverage remain blocked. No
+comparison, barrier arithmetic or live action is available.
 
 ## Scientific boundaries
 

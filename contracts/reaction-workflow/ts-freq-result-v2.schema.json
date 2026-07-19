@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://local.invalid/contracts/reaction-workflow/ts-freq-result-v2.schema.json",
   "title": "Auto-G16 source-bound TS frequency result v2",
-  "type": "object",
-  "required": ["schema", "source_log", "parser", "execution", "atom_count", "linearity", "expected_frequency_count", "frequency_count", "frequency_parse_complete", "frequency_parse_diagnostics", "modes", "first_order_saddle_candidate", "payload_sha256"],
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "status", "g16_revision", "normal_termination_count", "error_termination_count", "optimization_completed", "stationary_point_found", "final_energy_hartree", "frequency_count", "raw_imaginary_frequency_count", "frequencies_cm-1", "imaginary_modes", "final_coordinates", "diagnostics", "first_order_saddle_candidate", "mode_review_status", "source_log", "parser", "execution", "atom_count", "linearity", "expected_frequency_count", "frequency_parse_complete", "frequency_parse_diagnostics", "modes", "payload_sha256"],
   "properties": {
     "schema": {"const": "gaussian-ts-freq-result/2"},
+    "status": {"type": "string", "minLength": 1}, "g16_revision": {"type": ["string", "null"]}, "normal_termination_count": {"type": "integer", "minimum": 0}, "error_termination_count": {"type": "integer", "minimum": 0}, "optimization_completed": {"type": "boolean"}, "stationary_point_found": {"type": "boolean"}, "final_energy_hartree": {"type": ["number", "null"]}, "raw_imaginary_frequency_count": {"type": "integer", "minimum": 0}, "frequencies_cm-1": {"type": "array", "items": {"type": "number"}}, "imaginary_modes": {"type": "array", "items": {"type": "object"}}, "final_coordinates": {"type": "array", "items": {"type": "object"}}, "diagnostics": {"type": "array", "items": {"type": "string"}}, "mode_review_status": {"type": "string", "minLength": 1},
     "source_log": {"$ref": "#/$defs/ref"},
     "parser": {"$ref": "#/$defs/parser"},
     "execution": {

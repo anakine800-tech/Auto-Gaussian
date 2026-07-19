@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import itertools
 import json
 import math
@@ -724,7 +725,7 @@ def _validate_checkpoint_lineage(
     log_path: Path,
     checkpoint_path: Path,
 ) -> None:
-    require(audit.get("schema") == "gaussian-checkpoint-geometry-audit/1" and audit.get("audit_status") == "passed", "path validation requires a passed checkpoint-geometry audit")
+    require(audit.get("schema") in {"gaussian-checkpoint-geometry-audit/1", "gaussian-checkpoint-geometry-audit/2"} and audit.get("audit_status") == "passed", "path validation requires a passed checkpoint-geometry audit")
     bindings = {
         "ts_input_sha256": input_path,
         "ts_log_sha256": log_path,
@@ -854,7 +855,18 @@ def ingest_result(
     require(candidate.get("support_status") == "supported_main_group_closed_shell", "result ingestion refuses unsupported electronic structures")
     require(candidate.get("review_status") == "promoted_offline" and candidate.get("review", {}).get("decision") == "promoted_offline", "result ingestion requires a promoted_offline candidate")
     require(candidate.get("calculation_ready") is False and candidate.get("no_submission_authorization") is True, "candidate violates offline safety flags")
-    require(ts.get("schema") == "gaussian-ts-freq-result/1", "unrecognized TS result schema")
+    require(ts.get("schema") in {"gaussian-ts-freq-result/1", "gaussian-ts-freq-result/2"}, "unrecognized TS result schema")
+    ts_owner = None
+    if ts.get("schema") == "gaussian-ts-freq-result/2":
+        owner_path = Path(__file__).resolve().parents[2] / "auto-g16-ts-irc" / "scripts" / "ts_irc.py"
+        spec = importlib.util.spec_from_file_location("auto_g16_asymmetric_ts_result_owner", owner_path)
+        require(spec is not None and spec.loader is not None, "TS/Freq result /2 owner validator is unavailable")
+        owner = importlib.util.module_from_spec(spec); spec.loader.exec_module(owner)
+        ts_owner = owner
+        try:
+            owner.require_accepted_ts_result_v2(ts, ts_result_path)
+        except (OSError, ValueError) as exc:
+            raise OfflineError(f"TS/Freq result /2 owner validator rejected the evidence: {exc}") from exc
     require(energy.get("schema") == "gaussian-asymmetric-energy-record/1", "unrecognized energy record schema")
     require(energy.get("candidate_id") == candidate.get("candidate_id"), "energy candidate mismatch")
     expected_order = _candidate_atom_order(candidate)
@@ -893,7 +905,8 @@ def ingest_result(
         require(forward_path is not None and reverse_path is not None, "both endpoint audits are required")
         require(mode_reviewed and mode_review_path is not None and mode_decision_path is not None, "endpoint ingestion requires an accepted hash-bound mode decision")
         require(all(path is not None for path in (input_path, log_path, checkpoint_path, checkpoint_audit_path, irc_plan_path)), "endpoint ingestion requires TS input, log, checkpoint, checkpoint audit, and IRC plan")
-        require(ts.get("log_sha256") == sha256_file(log_path), "TS result log hash mismatch")  # type: ignore[arg-type]
+        ts_log_sha256 = ts.get("source_log", {}).get("sha256") if ts.get("schema") == "gaussian-ts-freq-result/2" else ts.get("log_sha256")
+        require(ts_log_sha256 == sha256_file(log_path), "TS result log hash mismatch")  # type: ignore[arg-type]
         _require_matching_atom_order(ts.get("final_coordinates"), expected_order, "TS result")
         imaginary_modes = ts.get("imaginary_modes", [])
         require(len(imaginary_modes) == 1, "path validation requires exactly one parsed imaginary mode")
@@ -907,6 +920,12 @@ def ingest_result(
             _validate_endpoint_audit(endpoint, direction, candidate, expected_order)
         require({forward.get("chemical_side"), reverse.get("chemical_side")} == {"reactant", "product"}, "endpoint identities are not complementary")
         checkpoint_audit = load_json(checkpoint_audit_path)  # type: ignore[arg-type]
+        if checkpoint_audit.get("schema") == "gaussian-checkpoint-geometry-audit/2":
+            require(ts_owner is not None, "checkpoint audit /2 requires TS/Freq result /2 owner replay")
+            try:
+                ts_owner.validate_checkpoint_audit_artifact(checkpoint_audit_path)
+            except (OSError, ValueError) as exc:
+                raise OfflineError(f"checkpoint audit /2 owner validator rejected the evidence: {exc}") from exc
         _validate_checkpoint_lineage(
             checkpoint_audit, checkpoint_audit_path, candidate, expected_order, ts_result_path,
             mode_review_path, mode_decision_path, input_path, log_path, checkpoint_path,  # type: ignore[arg-type]

@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +22,30 @@ SPEC.loader.exec_module(RUNTIME)
 
 
 class RuntimeConfigTests(unittest.TestCase):
+    SKILL_LOCAL_MODULES = (
+        ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts" / "runtime_config.py",
+        ROOT / "skills" / "auto-g16-view-rt-win" / "scripts" / "runtime_config.py",
+    )
+
+    @staticmethod
+    def _load_skill_local(module: Path, config: Path) -> subprocess.CompletedProcess[str]:
+        code = (
+            "import importlib.util, json; "
+            f"s=importlib.util.spec_from_file_location('skill_runtime', {str(module)!r}); "
+            "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+            "print(json.dumps(m.VALUES, sort_keys=True))"
+        )
+        environment = os.environ.copy()
+        environment["AUTO_G16_RUNTIME_CONFIG"] = str(config)
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
     def test_example_matches_closed_schema(self) -> None:
         example = ROOT / "config" / "runtime.example.json"
         value = RUNTIME.load(example)
@@ -72,6 +99,42 @@ class RuntimeConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             self.assertEqual(RUNTIME.load(root / "missing" / "runtime.json", missing_ok=True), {})
+
+    def test_skill_local_loaders_match_strict_closed_contract_offline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            valid = root / "runtime.json"
+            value = {
+                "core_python": "/opt/auto-g16/python",
+                "windows_project_root": r"C:\\GaussianProjects",
+                "windows_server_config": r".config\\auto-g16\\server.json",
+            }
+            valid.write_text(json.dumps(value), encoding="utf-8")
+            for module in self.SKILL_LOCAL_MODULES:
+                with self.subTest(module=module.name, case="valid"):
+                    result = self._load_skill_local(module, valid)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(result.stdout), value)
+
+            invalid_cases = {
+                "duplicate": '{"core_python":"/a","core_python":"/b"}',
+                "unknown": '{"unknown":"/a"}',
+                "relative": '{"core_python":"relative/python"}',
+            }
+            for label, raw in invalid_cases.items():
+                candidate = root / f"{label}.json"
+                candidate.write_text(raw, encoding="utf-8")
+                for module in self.SKILL_LOCAL_MODULES:
+                    with self.subTest(module=module.name, case=label):
+                        result = self._load_skill_local(module, candidate)
+                        self.assertNotEqual(result.returncode, 0)
+
+            linked = root / "runtime-link.json"
+            linked.symlink_to(valid)
+            for module in self.SKILL_LOCAL_MODULES:
+                with self.subTest(module=module.name, case="symlink"):
+                    result = self._load_skill_local(module, linked)
+                    self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":
