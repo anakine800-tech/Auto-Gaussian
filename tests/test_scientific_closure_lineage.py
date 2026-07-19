@@ -137,6 +137,21 @@ class ScientificClosureLineageTests(unittest.TestCase):
             self.assertEqual(large, expected_workflow)
             self.assertLessEqual(max(requests), LOG.FILE_READ_CHUNK_SIZE)
 
+    def test_gaussian_log_file_diagnostic_uses_rule_priority_not_first_evidence(self) -> None:
+        text = "galloc: allocation warning\nother evidence\nOut-of-memory\nError termination\n"
+        expected = LOG.analyze_log_text(text)
+        self.assertEqual(next(item for item in expected["diagnostics"] if item["code"] == "memory")["evidence"], "Out-of-memory")
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "priority.log"; path.write_text(text, encoding="utf-8")
+            actual = LOG.analyze_log_file(path); actual.pop("log")
+        self.assertEqual(actual, expected)
+
+        reverse = "Out-of-memory\ngalloc: later lower-priority evidence\nError termination\n"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "priority-reverse.log"; path.write_text(reverse, encoding="utf-8")
+            actual = LOG.analyze_log_file(path); actual.pop("log")
+        self.assertEqual(actual, LOG.analyze_log_text(reverse))
+
     def test_new_contract_schemas_use_supported_offline_subset(self) -> None:
         names = (
             "endpoint-structure-review.schema.json", "endpoint-structure-review-v2.schema.json", "minimum-lineage-handoff.schema.json",

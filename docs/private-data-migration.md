@@ -10,9 +10,15 @@ plan itself outside this public checkout in an owner-only directory.
 The workflow is deliberately plan-review-apply:
 
 1. `plan` walks regular files without following links, hashes source and
-   planned bytes, identifies existing destinations, records absolute POSIX and
-   Windows references, and proposes only source-root-to-target-root rewrites.
-   It creates no target directory and copies no study file.
+   planned bytes, identifies existing destinations, and incrementally validates
+   UTF-8 for every file regardless of size. Text files receive a complete,
+   bounded-stream scan of absolute POSIX/Windows references with occurrence
+   counts; source-root references are rewritten only at matching path/literal
+   boundaries. Invalid UTF-8 or NUL-bearing files are explicitly classified as
+   binary, marked `not_applicable_binary`, and copied byte-for-byte rather than
+   being reported as text with an empty scan. The plan schema is
+   `auto-g16-private-study-migration-plan/2`. Planning creates no target
+   directory and copies no study file.
 2. `review` reloads the closed-schema plan and fully rescans the source and
    target. Any source change, conflict change, hash drift, symlink, permission
    drift, or plan edit fails closed.
@@ -38,8 +44,9 @@ mkdir -m 700 ~/Documents/Auto-G16-Migration-Plans
 
 Review the private JSON plan directly. Confirm its source and target roots,
 file count, byte totals, source/planned tree hashes, per-file hashes,
-conflicts, every absolute-path reference, and every proposed rewrite. External
-absolute references are reported for review but are not rewritten.
+content kind and scan status, conflicts, every absolute-path reference and
+occurrence count, and every proposed rewrite. External absolute references are
+reported for review but are not rewritten.
 
 Apply is a later, separately authorized operational action. It is intentionally
 not performed during feature development, testing against real data, release,

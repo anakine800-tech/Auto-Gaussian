@@ -413,8 +413,10 @@ Repository-wide operational rules are in `AGENTS.md`.
   plan-review-apply copy migration into the owner-only external private-study
   root. Plans are private artifacts and are refused inside this checkout;
   apply requires the exact reviewed plan hash, completes full source/conflict
-  preflight, binds actual I/O to no-follow directory descriptors, and never
-  overwrites or deletes the source. See `docs/private-data-migration.md`.
+  preflight, incrementally validates and scans UTF-8 files of any size for
+  source-path rewrites, explicitly classifies binary files, binds actual I/O
+  to no-follow directory descriptors, and never overwrites or deletes the
+  source. See `docs/private-data-migration.md`.
 - `scripts/check_skill_sync.py` compares the exact named-Skill deployment
   package, including manifest-mapped authoritative contracts, with installed
   copies.

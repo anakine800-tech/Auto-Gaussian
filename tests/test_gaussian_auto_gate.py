@@ -241,6 +241,98 @@ class GaussianAutoGateTests(unittest.TestCase):
             AUTO.command_auto(args)
         self.assertEqual(submit.call_count, 1)
 
+    def test_watch_near_deadline_allows_audited_slow_fetch_and_propagates_fetch_budget_failure(self) -> None:
+        for outcome in ("completed", "fetch_timeout"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve(); bundle = root / "bundle"; bundle.mkdir(); output = root / "results"
+                args = SimpleNamespace(
+                    confirmed=True, dry_run=False, work_kind="ordinary", project="safejob",
+                    local_dir=str(bundle), scientific_maturity=None, edge_id=None, node_id=None,
+                    pilot=False, scientific_action_authorization=None,
+                    input_approval_record=str(root / "input-approval.json"), approval_record=str(root / "live.json"),
+                    watch=True, output_dir=str(output), poll_seconds=30, timeout_seconds=120,
+                    mac_ssh_config=None, rtwin_alias=None, windows_root=None,
+                    windows_server_config=None, server_alias=None,
+                    execution_batch_ledger=str(root / "ledger.json"), scientific_task_id="scientific-task-fixture",
+                    idempotency_key="near-deadline", estimated_core_hours=1.0,
+                    estimated_core_hours_evidence_source="offline fixture",
+                    estimated_core_hours_evidence_sha256="c" * 64,
+                    resource_policy=str(root / "policy.json"), resource_gate=str(root / "gate.json"),
+                    scheduler_resource_snapshot=str(root / "scheduler.json"), resource_tier="simple",
+                    resource_cores=8, resource_memory_gb=12, walltime_seconds=3600,
+                )
+                summary = self.approval_summary()
+                summary.update({
+                    "project": "safejob", "remote_workdir": "/home/user100/SDL/safejob",
+                    "gaussian_input": str(root / "input.gjf"), "local_dir": str(bundle),
+                    "work_kind": "ordinary",
+                })
+                summary["input_approval"] = self.fake_input_approval(summary, "ordinary")
+                ledger = {"batch": {"batch_id": "batch", "review_sha256": "d" * 64}, "tasks": [{"scientific_task_id": "scientific-task-fixture", "identity": {"relevant_input_sha256": summary["input_sha256"]}}]}
+                policy = {"policy_id": "policy", "payload_sha256": "e" * 64}
+                gate = {"gate_id": "gate", "gate_sha256": "f" * 64, "policy_sha256": "e" * 64, "scheduler_snapshot": {"payload_sha256": "1" * 64}}
+                scheduler = {"payload_sha256": "1" * 64}
+                known_bytes = 180 * 1024 * 1024
+                fetch_budget = AUTO.transport.transfer_timeout_seconds(known_bytes)
+                self.assertGreater(fetch_budget, 60)
+                calls: list[list[str]] = []
+
+                def child(command, **kwargs):
+                    self.assertNotIn("timeout", kwargs)
+                    calls.append(command)
+                    if len(calls) == 1:
+                        (bundle / "job.json").write_text(json.dumps({"job_id": "123.master", "input": "input.gjf"}), encoding="utf-8")
+                        return subprocess.CompletedProcess(command, 0)
+                    self.assertIn("watch", command); self.assertIn("--fetch", command)
+                    deadline_index = command.index("--timeout-seconds") + 1
+                    self.assertEqual(command[deadline_index], "120")
+                    output.mkdir()
+                    (output / "terminal-inspection.json").write_text(json.dumps({"state": "completed", "monitor_elapsed_seconds": 119}), encoding="utf-8")
+                    if outcome == "completed":
+                        (output / "transfer.json").write_text(json.dumps({
+                            "snapshot_complete": True,
+                            "monitor_elapsed_seconds": 119,
+                            "fetch_elapsed_seconds": 90,
+                            "transfer_timeout_evidence": {
+                                "known_changed_size_bytes": known_bytes,
+                                "server_to_rtwin_timeout_seconds": fetch_budget,
+                                "rtwin_to_mac_timeout_seconds": fetch_budget,
+                            },
+                        }), encoding="utf-8")
+                        return subprocess.CompletedProcess(command, 0)
+                    (output / ".fetch-in-progress").write_text("incomplete\n", encoding="utf-8")
+                    (output / "fetch-failure.json").write_text(json.dumps({
+                        "known_changed_size_bytes": known_bytes,
+                        "timeout_seconds": fetch_budget,
+                        "elapsed_seconds": fetch_budget + 1,
+                        "snapshot_published": False,
+                    }), encoding="utf-8")
+                    return subprocess.CompletedProcess(command, 2)
+
+                with mock.patch.object(AUTO, "prepare_source", return_value=summary), \
+                     mock.patch.object(AUTO.transport.resource_efficiency, "load", side_effect=[ledger, policy, gate, scheduler]), \
+                     mock.patch.object(AUTO.transport.resource_efficiency, "validate_ledger", return_value=ledger), \
+                     mock.patch.object(AUTO.transport.resource_efficiency, "validate_policy", return_value=policy), \
+                     mock.patch.object(AUTO.transport.resource_efficiency, "_validate_gate_binding", return_value=gate), \
+                     mock.patch.object(AUTO.transport.resource_efficiency, "validate_scheduler_snapshot", return_value=scheduler), \
+                     mock.patch.object(AUTO, "validate_live_approval", return_value={"decision": "approved"}), \
+                     mock.patch.object(AUTO.subprocess, "run", side_effect=child):
+                    with redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as stopped:
+                        AUTO.command_auto(args)
+                self.assertEqual(stopped.exception.code, 0 if outcome == "completed" else 2)
+                self.assertEqual(len(calls), 2)
+                if outcome == "completed":
+                    transfer = json.loads((output / "transfer.json").read_text(encoding="utf-8"))
+                    self.assertLess(transfer["monitor_elapsed_seconds"], args.timeout_seconds)
+                    self.assertGreater(transfer["fetch_elapsed_seconds"], 60)
+                    self.assertLess(transfer["fetch_elapsed_seconds"], fetch_budget)
+                else:
+                    self.assertTrue((output / ".fetch-in-progress").is_file())
+                    self.assertFalse((output / "transfer.json").exists())
+                    failure = json.loads((output / "fetch-failure.json").read_text(encoding="utf-8"))
+                    self.assertGreater(failure["elapsed_seconds"], failure["timeout_seconds"])
+                    self.assertFalse(failure["snapshot_published"])
+
     def test_live_approval_must_match_exact_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "approval.json"

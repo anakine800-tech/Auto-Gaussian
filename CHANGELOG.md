@@ -31,6 +31,10 @@ All notable public release changes are recorded here. The project follows
 - Required new endpoint Opt/Freq inputs to replay an endpoint-structure review
   `/2` and the completed IRC job's exact transported TS checkpoint and companion
   manifest; standalone or historical endpoint audits remain non-authorizing.
+- Upgraded private migration planning to `/2`: UTF-8 classification and
+  absolute-path scanning now cover files of every size with bounded reads,
+  occurrence-counted boundary-safe rewrites, while true binary files are
+  explicitly classified and copied unchanged.
 
 ### Safety
 

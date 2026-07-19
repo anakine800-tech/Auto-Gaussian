@@ -29,6 +29,16 @@ PARSER_NAME = "auto-g16-gaussian-log"
 PARSER_VERSION = "2.0.0"
 PARSER_SCHEMA = "auto-g16-gaussian-log-parser/2"
 FILE_READ_CHUNK_SIZE = 1024 * 1024
+DIAGNOSTIC_RULES = (
+    ("zsymb_eof", "End of file in ZSymb", "Repair Gaussian section termination and trailing blank lines; do not retry unchanged."),
+    ("scf_convergence", "Convergence failure", "Review the wavefunction and consider an explicitly approved SCF=XQC restart."),
+    ("irc_corrector_convergence", "Maximum number of corrector steps exceded", "Preserve both directional results and require a new scientific approval before changing IRC integration settings or retrying."),
+    ("optimization_steps", "Number of steps exceeded", "Review geometry and convergence; consider an explicitly approved Opt=Restart from checkpoint."),
+    ("memory", "Out-of-memory", "Reduce memory demand or resource use; never exceed the 120 GB server ceiling."),
+    ("memory", "galloc", "Inspect the final Link error and reduce memory demand if confirmed."),
+    ("disk", "Erroneous write", "Check free space inside the SDL project and scratch directories; do not write elsewhere."),
+    ("termination", "Error termination", "Inspect the final 80–120 log lines before changing chemistry or resubmitting."),
+)
 
 
 def _parse_frequencies(text: str) -> tuple[list[float], list[dict[str, Any]]]:
@@ -129,20 +139,11 @@ def last_orientation(text: str) -> list[dict[str, Any]]:
 
 
 def diagnose(text: str) -> list[dict[str, str]]:
-    rules = [
-        ("zsymb_eof", "End of file in ZSymb", "Repair Gaussian section termination and trailing blank lines; do not retry unchanged."),
-        ("scf_convergence", "Convergence failure", "Review the wavefunction and consider an explicitly approved SCF=XQC restart."),
-        ("irc_corrector_convergence", "Maximum number of corrector steps exceded", "Preserve both directional results and require a new scientific approval before changing IRC integration settings or retrying."),
-        ("optimization_steps", "Number of steps exceeded", "Review geometry and convergence; consider an explicitly approved Opt=Restart from checkpoint."),
-        ("memory", "Out-of-memory", "Reduce memory demand or resource use; never exceed the 120 GB server ceiling."),
-        ("memory", "galloc", "Inspect the final Link error and reduce memory demand if confirmed."),
-        ("disk", "Erroneous write", "Check free space inside the SDL project and scratch directories; do not write elsewhere."),
-        ("termination", "Error termination", "Inspect the final 80–120 log lines before changing chemistry or resubmitting."),
-    ]
+    lowered = text.lower()
     found: list[dict[str, str]] = []
     seen: set[str] = set()
-    for code, needle, recommendation in rules:
-        if needle.lower() in text.lower() and code not in seen:
+    for code, needle, recommendation in DIAGNOSTIC_RULES:
+        if needle.lower() in lowered and code not in seen:
             found.append({"code": code, "evidence": needle, "recommendation": recommendation})
             seen.add(code)
     return found
@@ -364,17 +365,7 @@ def _scan_log_file(path: Path) -> dict[str, Any]:
     energy_count = 0; final_energy = None; max_step = 0
     normal_count = 0; error_count = 0; last_terminal = None
     optimization_completed = False; stationary_point = False
-    diagnostic_rules = [
-        ("zsymb_eof", "end of file in zsymb", "End of file in ZSymb", "Repair Gaussian section termination and trailing blank lines; do not retry unchanged."),
-        ("scf_convergence", "convergence failure", "Convergence failure", "Review the wavefunction and consider an explicitly approved SCF=XQC restart."),
-        ("irc_corrector_convergence", "maximum number of corrector steps exceded", "Maximum number of corrector steps exceded", "Preserve both directional results and require a new scientific approval before changing IRC integration settings or retrying."),
-        ("optimization_steps", "number of steps exceeded", "Number of steps exceeded", "Review geometry and convergence; consider an explicitly approved Opt=Restart from checkpoint."),
-        ("memory", "out-of-memory", "Out-of-memory", "Reduce memory demand or resource use; never exceed the 120 GB server ceiling."),
-        ("memory", "galloc", "galloc", "Inspect the final Link error and reduce memory demand if confirmed."),
-        ("disk", "erroneous write", "Erroneous write", "Check free space inside the SDL project and scratch directories; do not write elsewhere."),
-        ("termination", "error termination", "Error termination", "Inspect the final 80–120 log lines before changing chemistry or resubmitting."),
-    ]
-    found_diagnostics: dict[str, dict[str, str]] = {}
+    found_diagnostics: dict[str, tuple[int, dict[str, str]]] = {}
     thermo_patterns = {
         "zero_point_correction_hartree": re.compile(r"Zero-point correction=\s*([-+0-9.DEded]+)", re.I),
         "thermal_correction_energy_hartree": re.compile(r"Thermal correction to Energy=\s*([-+0-9.DEded]+)", re.I),
@@ -388,9 +379,9 @@ def _scan_log_file(path: Path) -> dict[str, Any]:
     orientation_stage = -1; orientation_coordinates: list[dict[str, Any]] = []; last_coordinates: list[dict[str, Any]] = []
     for line_number, line in enumerate(_bounded_file_lines(path), start=1):
         lowered = line.lower()
-        for code, needle, evidence, recommendation in diagnostic_rules:
-            if code not in found_diagnostics and needle in lowered:
-                found_diagnostics[code] = {"code": code, "evidence": evidence, "recommendation": recommendation}
+        for priority, (code, evidence, recommendation) in enumerate(DIAGNOSTIC_RULES):
+            if evidence.lower() in lowered and (code not in found_diagnostics or priority < found_diagnostics[code][0]):
+                found_diagnostics[code] = (priority, {"code": code, "evidence": evidence, "recommendation": recommendation})
         energies = re.findall(r"SCF Done:\s+E\([^)]*\)\s*=\s*([-+0-9.DEded]+)", line)
         for value in energies:
             final_energy = float(value.replace("D", "E")); energy_count += 1
@@ -446,7 +437,7 @@ def _scan_log_file(path: Path) -> dict[str, Any]:
         "final_coordinate_count": len(last_coordinates), "final_coordinates": last_coordinates,
         "linearity": "linear" if linear is True else "nonlinear" if linear is False else "undetermined",
         "parser": {"name": PARSER_NAME, "version": PARSER_VERSION, "schema": PARSER_SCHEMA},
-        "diagnostics": [found_diagnostics[code] for code in dict.fromkeys(item[0] for item in diagnostic_rules) if code in found_diagnostics],
+        "diagnostics": [found_diagnostics[code][1] for code in dict.fromkeys(item[0] for item in DIAGNOSTIC_RULES) if code in found_diagnostics],
     }
     return {"base": base, "thermochemistry": thermo}
 

@@ -23,7 +23,7 @@ SPEC.loader.exec_module(MIGRATION)
 
 class PrivateStudyMigrationTests(unittest.TestCase):
     def synthetic_tree(self, root: Path) -> tuple[Path, Path, Path]:
-        source = root / "source-study"
+        source = root / "source study"
         source.mkdir(mode=0o700)
         nested = source / "nested"
         nested.mkdir(mode=0o700)
@@ -44,6 +44,7 @@ class PrivateStudyMigrationTests(unittest.TestCase):
             MIGRATION.write_new(plan_path, plan)
 
             self.assertFalse(target.exists())
+            self.assertEqual(plan["schema"], "auto-g16-private-study-migration-plan/2")
             self.assertEqual(plan["file_count"], 2)
             self.assertEqual(plan["conflicts"], [])
             self.assertEqual(plan["rewrite_count"], 1)
@@ -56,6 +57,9 @@ class PrivateStudyMigrationTests(unittest.TestCase):
                 actions,
                 {"rewrite_source_root_to_target_root", "review_external_absolute_reference"},
             )
+            rewritten = next(item for item in notes["absolute_path_references"] if item["rewrite_to"] is not None)
+            self.assertEqual(rewritten["value"], f"{source}/outputs/result.json")
+            self.assertEqual(rewritten["occurrences"], 1)
             self.assertEqual(MIGRATION.review_plan(plan_path), plan)
             self.assertTrue(source.exists())
 
@@ -328,13 +332,20 @@ class PrivateStudyMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve(); source, target, plan_path = self.synthetic_tree(root)
             needle = str(source).encode("utf-8")
-            prefix = b"x" * (MIGRATION.STREAM_CHUNK_SIZE - max(1, len(needle) // 2))
+            prefix_length = MIGRATION.STREAM_CHUNK_SIZE - max(1, len(needle) // 2)
+            prefix = b"x" * (prefix_length - 1) + b" "
             crossing = source / "crossing.txt"
-            crossing.write_bytes(prefix + needle + b"/outputs/result.json\n")
-            opaque = source / "large.chk"
-            with opaque.open("wb") as handle:
-                handle.truncate(MIGRATION.MAX_TEXT_REWRITE_BYTES + (2 * MIGRATION.STREAM_CHUNK_SIZE) + 17)
-            invalid = source / "invalid-utf8.bin"; invalid.write_bytes(b"\xff" + needle + b"/must-not-decode")
+            crossing.write_bytes(prefix + needle + b"/outputs/result.json\n" + needle + b"-archive/must-not-rewrite\n")
+            old_threshold = 8 * 1024 * 1024
+            large_tail = needle + b"/result.json\n" + needle + b"/result.json\n"
+            large_text = source / "large-valid.txt"
+            large_text.write_bytes((b"filler line\n" * ((old_threshold + 1) // 12 + 1)) + large_tail)
+            binary = source / "large.chk"
+            with binary.open("wb") as handle:
+                handle.truncate(old_threshold + (2 * MIGRATION.STREAM_CHUNK_SIZE) + 17)
+            invalid = source / "invalid-utf8.bin"
+            invalid.write_bytes(b"x" * (MIGRATION.STREAM_CHUNK_SIZE - 1) + b"\xc3(" + needle + b"/must-not-decode")
+            nul_binary = source / "nul.bin"; nul_binary.write_bytes(b"valid-prefix\x00" + needle + b"/must-not-rewrite")
             read_requests: list[int] = []
             original_os_read = MIGRATION.os.read
 
@@ -352,17 +363,35 @@ class PrivateStudyMigrationTests(unittest.TestCase):
                 )
 
             entries = {item["relative_path"]: item for item in plan["entries"]}
-            self.assertEqual(entries["large.chk"]["content_kind"], "opaque_large")
+            self.assertEqual(entries["large-valid.txt"]["content_kind"], "utf8_text")
+            self.assertEqual(entries["large-valid.txt"]["reference_scan_status"], "complete_utf8")
+            self.assertEqual(entries["large-valid.txt"]["rewrite_occurrence_count"], 2)
+            large_source_refs = [item for item in entries["large-valid.txt"]["absolute_path_references"] if item["rewrite_to"] is not None]
+            self.assertEqual(sum(item["occurrences"] for item in large_source_refs), 2)
+            self.assertNotEqual(entries["large-valid.txt"]["source_sha256"], entries["large-valid.txt"]["planned_sha256"])
+            self.assertEqual(entries["large.chk"]["content_kind"], "binary")
             self.assertEqual(entries["invalid-utf8.bin"]["content_kind"], "binary")
-            self.assertEqual(entries["large.chk"]["source_sha256"], entries["large.chk"]["planned_sha256"])
-            self.assertEqual(entries["invalid-utf8.bin"]["source_sha256"], entries["invalid-utf8.bin"]["planned_sha256"])
+            self.assertEqual(entries["nul.bin"]["content_kind"], "binary")
+            for name in ("large.chk", "invalid-utf8.bin", "nul.bin"):
+                self.assertEqual(entries[name]["reference_scan_status"], "not_applicable_binary")
+                self.assertEqual(entries[name]["absolute_path_references"], [])
+                self.assertEqual(entries[name]["source_sha256"], entries[name]["planned_sha256"])
             self.assertEqual(result["copied_file_count"], plan["file_count"])
             self.assertTrue(read_requests)
             rewritten = (target / "crossing.txt").read_bytes()
             self.assertIn(str(target).encode("utf-8") + b"/outputs/result.json", rewritten)
             self.assertNotIn(needle + b"/outputs/result.json", rewritten)
-            self.assertEqual((target / "large.chk").stat().st_size, opaque.stat().st_size)
+            self.assertIn(needle + b"-archive/must-not-rewrite", rewritten)
+            large_rewritten = (target / "large-valid.txt").read_bytes()
+            self.assertTrue(large_rewritten.endswith((str(target).encode("utf-8") + b"/result.json\n") * 2))
+            self.assertNotIn(needle + b"/result.json", large_rewritten[-len(large_tail) - 256:])
+            receipt = json.loads((target / MIGRATION.DESTINATION_RECEIPT_NAME).read_text(encoding="utf-8"))
+            receipt_entry = next(item for item in receipt["entries"] if item["relative_path"] == "large-valid.txt")
+            self.assertEqual(receipt_entry["sha256"], entries["large-valid.txt"]["planned_sha256"])
+            self.assertEqual(receipt_entry["size_bytes"], entries["large-valid.txt"]["planned_size_bytes"])
+            self.assertEqual((target / "large.chk").stat().st_size, binary.stat().st_size)
             self.assertEqual((target / "invalid-utf8.bin").read_bytes(), invalid.read_bytes())
+            self.assertEqual((target / "nul.bin").read_bytes(), nul_binary.read_bytes())
 
 
 if __name__ == "__main__":

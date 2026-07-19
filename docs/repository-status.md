@@ -96,7 +96,7 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
-- Current hardening-integration evidence on the core interpreter is 684/684
+- Current hardening-integration evidence on the core interpreter is 686/686
   offline tests for both the worktree and a `.git`-free source archive; both
   runs have one expected RDKit skip in the core profile. The separate locked
   chemistry profile previously passed the real RDKit smoke. These are

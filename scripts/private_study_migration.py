@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import codecs
+import collections
 import copy
 import errno
 import hashlib
@@ -19,7 +20,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = "auto-g16-private-study-migration-plan/1"
+SCHEMA = "auto-g16-private-study-migration-plan/2"
 PLAN_KEYS = {
     "schema",
     "created_at",
@@ -43,16 +44,20 @@ ENTRY_KEYS = {
     "planned_size_bytes",
     "planned_sha256",
     "content_kind",
+    "reference_scan_status",
+    "rewrite_occurrence_count",
     "conflict",
     "absolute_path_references",
 }
-REFERENCE_KEYS = {"value", "rewrite_to", "action"}
+REFERENCE_KEYS = {"value", "rewrite_to", "action", "occurrences"}
 POSIX_PATH_RE = re.compile(r"(?<![A-Za-z0-9_.-])/(?:[^/\s\x00\"'<>|]+/)*[^/\s\x00\"'<>|]+")
 WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:\\(?:[^\\\r\n\t\x00\"<>|]+\\)*[^\\\r\n\t\x00\"<>|]+")
 DESTINATION_RECEIPT_NAME = ".auto-g16-migration-destination-receipt.json"
 STREAM_CHUNK_SIZE = 1024 * 1024
-MAX_TEXT_REWRITE_BYTES = 8 * 1024 * 1024
-REFERENCE_SCAN_OVERLAP_CHARS = 8192
+MAX_AUDITED_REFERENCE_CHARS = 64 * 1024
+REFERENCE_TERMINATORS = frozenset(" \t\r\n\x00\"'<>|")
+REFERENCE_TERMINATOR_BYTES = frozenset(ord(value) for value in REFERENCE_TERMINATORS)
+SOURCE_PREFIX_DISALLOWED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-")
 
 
 class MigrationError(ValueError):
@@ -295,7 +300,7 @@ def build_plan(source: Path, target: Path, *, created_at: str | None = None) -> 
             if conflict:
                 conflicts.append(relative.as_posix())
             entry = _inspect_plan_entry(source_fd, relative, source, target, conflict)
-            rewrite_count += sum(item["rewrite_to"] is not None for item in entry["absolute_path_references"])
+            rewrite_count += entry["rewrite_occurrence_count"]
             entries.append(entry)
     finally:
         os.close(source_fd)
@@ -336,11 +341,26 @@ def _validate_plan_shape(plan: dict[str, Any]) -> None:
     require(isinstance(plan["entries"], list), "migration plan entries must be an array")
     require(isinstance(plan["conflicts"], list), "migration plan conflicts must be an array")
     require(plan["file_count"] == len(plan["entries"]), "migration plan file count mismatch")
+    expected_plan_rewrites = 0
     for entry in plan["entries"]:
         require(isinstance(entry, dict) and set(entry) == ENTRY_KEYS, "migration entry is not closed-schema")
+        require(entry["content_kind"] in {"utf8_text", "binary"}, "migration entry content kind is invalid")
+        expected_scan = "complete_utf8" if entry["content_kind"] == "utf8_text" else "not_applicable_binary"
+        require(entry["reference_scan_status"] == expected_scan, "migration entry reference scan status is invalid")
+        require(isinstance(entry["rewrite_occurrence_count"], int) and entry["rewrite_occurrence_count"] >= 0, "migration entry rewrite occurrence count is invalid")
         require(isinstance(entry["absolute_path_references"], list), "absolute-path references must be an array")
         for reference in entry["absolute_path_references"]:
             require(isinstance(reference, dict) and set(reference) == REFERENCE_KEYS, "absolute-path reference is not closed-schema")
+            require(isinstance(reference["occurrences"], int) and reference["occurrences"] >= 1, "absolute-path reference occurrence count is invalid")
+        expected_rewrites = sum(
+            reference["occurrences"] for reference in entry["absolute_path_references"]
+            if reference["rewrite_to"] is not None
+        )
+        require(entry["rewrite_occurrence_count"] == expected_rewrites, "migration entry rewrite occurrence count differs from audited references")
+        expected_plan_rewrites += expected_rewrites
+        if entry["content_kind"] == "binary":
+            require(not entry["absolute_path_references"] and entry["rewrite_occurrence_count"] == 0, "binary migration entry cannot claim a completed text reference scan")
+    require(plan["rewrite_count"] == expected_plan_rewrites, "migration plan rewrite count differs from entries")
     require(plan["safety"] == {
         "dry_run": True,
         "copy_only": True,
@@ -437,6 +457,10 @@ def _stream_planned_entry(
     replacement = str(target).encode("utf-8")
     text_mode = entry["content_kind"] == "utf8_text"
     pending = b""
+    previous_source_byte: int | None = None
+    replacement_count = 0
+    rewritten_references: collections.Counter[str] = collections.Counter()
+    active_reference: bytearray | None = None
 
     def emit(raw: bytes) -> None:
         nonlocal planned_size
@@ -445,6 +469,69 @@ def _stream_planned_entry(
         planned_hash.update(raw); planned_size += len(raw)
         if destination_fd is not None:
             _write_all(destination_fd, raw)
+
+    def finish_reference() -> None:
+        nonlocal active_reference
+        if active_reference is None:
+            return
+        value = active_reference.decode("utf-8")
+        require(len(value) <= MAX_AUDITED_REFERENCE_CHARS, "source-path reference exceeds the bounded audit limit")
+        rewritten_references[value] += 1
+        active_reference = None
+
+    def observe_reference_suffix(raw: bytes) -> None:
+        nonlocal active_reference
+        if active_reference is None:
+            return
+        for value in raw:
+            if value in REFERENCE_TERMINATOR_BYTES:
+                finish_reference()
+                return
+            active_reference.append(value)
+            require(len(active_reference) <= MAX_AUDITED_REFERENCE_CHARS * 4, "source-path reference exceeds the bounded audit limit")
+
+    def emit_original(raw: bytes) -> None:
+        nonlocal previous_source_byte
+        observe_reference_suffix(raw)
+        emit(raw)
+        if raw:
+            previous_source_byte = raw[-1]
+
+    def source_boundary_before(value: int | None) -> bool:
+        return value is None or chr(value) not in SOURCE_PREFIX_DISALLOWED
+
+    def source_boundary_after(value: int | None) -> bool:
+        return value is None or value == ord("/") or chr(value) in REFERENCE_TERMINATORS
+
+    def flush_text(*, final: bool) -> None:
+        nonlocal pending, previous_source_byte, replacement_count, active_reference
+        while pending:
+            index = pending.find(needle)
+            if index < 0:
+                retained = 0 if final else min(len(needle) - 1, len(pending))
+                emitted = pending[:-retained] if retained else pending
+                emit_original(emitted)
+                pending = pending[-retained:] if retained else b""
+                return
+            end = index + len(needle)
+            if end == len(pending) and not final:
+                emit_original(pending[:index])
+                pending = pending[index:]
+                return
+            prefix = pending[:index]
+            previous = prefix[-1] if prefix else previous_source_byte
+            following = pending[end] if end < len(pending) else None
+            emit_original(prefix)
+            if source_boundary_before(previous) and source_boundary_after(following):
+                emit(replacement)
+                replacement_count += 1
+                require(active_reference is None, "overlapping source-path references are ambiguous")
+                active_reference = bytearray(needle)
+                previous_source_byte = needle[-1]
+                pending = pending[end:]
+            else:
+                emit_original(pending[index:index + 1])
+                pending = pending[index + 1:]
 
     try:
         while True:
@@ -455,18 +542,10 @@ def _stream_planned_entry(
             if not text_mode:
                 emit(chunk); continue
             pending += chunk
-            while True:
-                index = pending.find(needle)
-                if index >= 0:
-                    emit(pending[:index]); emit(replacement)
-                    pending = pending[index + len(needle):]
-                    continue
-                retained = min(max(len(needle) - 1, 0), len(pending))
-                emit(pending[:-retained] if retained else pending)
-                pending = pending[-retained:] if retained else b""
-                break
+            flush_text(final=False)
         if text_mode:
-            emit(pending)
+            flush_text(final=True)
+            finish_reference()
         after = os.fstat(leaf_fd)
     finally:
         os.close(leaf_fd)
@@ -474,23 +553,29 @@ def _stream_planned_entry(
     observed = {
         "identity": _identity(before), "source_size_bytes": source_size,
         "source_sha256": source_hash.hexdigest(), "planned_size_bytes": planned_size,
-        "planned_sha256": planned_hash.hexdigest(),
+        "planned_sha256": planned_hash.hexdigest(), "rewrite_occurrence_count": replacement_count,
+        "rewritten_references": rewritten_references,
     }
     if validate_expected:
-        for key in ("source_size_bytes", "source_sha256", "planned_size_bytes", "planned_sha256"):
+        for key in ("source_size_bytes", "source_sha256", "planned_size_bytes", "planned_sha256", "rewrite_occurrence_count"):
             require(observed[key] == entry[key], f"{key.replace('_', ' ')} changed before apply: {relative.as_posix()}")
     return observed
 
 
-def _reference_records(found: set[str], source: Path, target: Path) -> list[dict[str, Any]]:
+def _reference_records(found: collections.Counter[str], source: Path, target: Path) -> list[dict[str, Any]]:
     source_text = str(source); target_text = str(target)
     records = []
-    for value in sorted(found):
+    for value, occurrences in sorted(found.items()):
         if value == source_text or value.startswith(source_text + os.sep):
-            records.append({"value": value, "rewrite_to": target_text + value[len(source_text):], "action": "rewrite_source_root_to_target_root"})
+            records.append({"value": value, "rewrite_to": target_text + value[len(source_text):], "action": "rewrite_source_root_to_target_root", "occurrences": occurrences})
         else:
-            records.append({"value": value, "rewrite_to": None, "action": "review_external_absolute_reference"})
+            records.append({"value": value, "rewrite_to": None, "action": "review_external_absolute_reference", "occurrences": occurrences})
     return records
+
+
+def _record_absolute_reference(candidate: str, found: collections.Counter[str]) -> None:
+    if POSIX_PATH_RE.fullmatch(candidate) or WINDOWS_PATH_RE.fullmatch(candidate):
+        found[candidate] += 1
 
 
 def _inspect_plan_entry(
@@ -499,47 +584,80 @@ def _inspect_plan_entry(
     """Plan one entry with bounded reads and no resident whole-file bytes."""
     leaf_fd = _open_regular_source_at(source_fd, relative)
     before = os.fstat(leaf_fd)
-    source_hash = hashlib.sha256(); source_size = 0; found: set[str] = set()
-    text_candidate = before.st_size <= MAX_TEXT_REWRITE_BYTES
-    decoder = codecs.getincrementaldecoder("utf-8")("strict") if text_candidate else None
-    scan_tail = ""; saw_nul = False
+    source_hash = hashlib.sha256(); source_size = 0
+    found: collections.Counter[str] = collections.Counter()
+    decoder = codecs.getincrementaldecoder("utf-8")("strict")
+    valid_utf8 = True; saw_nul = False; candidate: str | None = None; history = ""
 
     def scan_text(decoded: str, *, final: bool = False) -> None:
-        nonlocal scan_tail
-        combined = scan_tail + decoded
-        cutoff = len(combined) if final else max(0, len(combined) - REFERENCE_SCAN_OVERLAP_CHARS)
-        searchable = combined[:cutoff]
-        found.update(POSIX_PATH_RE.findall(searchable)); found.update(WINDOWS_PATH_RE.findall(searchable))
-        scan_tail = combined[cutoff:]
+        nonlocal candidate, history
+        for character in decoded:
+            if candidate is not None:
+                if character in REFERENCE_TERMINATORS:
+                    _record_absolute_reference(candidate, found)
+                    candidate = None
+                else:
+                    candidate += character
+                    require(len(candidate) <= MAX_AUDITED_REFERENCE_CHARS, "absolute-path reference exceeds the bounded audit limit")
+                    history = (history + character)[-3:]
+                    continue
+            if character == "/" and (not history or history[-1] not in SOURCE_PREFIX_DISALLOWED):
+                candidate = "/"
+            elif (
+                character == "\\" and len(history) >= 2 and history[-1] == ":"
+                and history[-2].isalpha() and (len(history) < 3 or not history[-3].isalnum())
+            ):
+                candidate = history[-2:] + "\\"
+            history = (history + character)[-3:]
+        if final and candidate is not None:
+            _record_absolute_reference(candidate, found)
+            candidate = None
 
     try:
         while True:
             chunk = os.read(leaf_fd, STREAM_CHUNK_SIZE)
             if not chunk: break
             source_hash.update(chunk); source_size += len(chunk); saw_nul = saw_nul or b"\x00" in chunk
-            if decoder is not None:
+            if valid_utf8:
                 try: scan_text(decoder.decode(chunk))
                 except UnicodeDecodeError:
-                    decoder = None; found.clear(); scan_tail = ""
-        if decoder is not None:
+                    valid_utf8 = False; found.clear(); candidate = None
+        if valid_utf8:
             try: scan_text(decoder.decode(b"", final=True), final=True)
             except UnicodeDecodeError:
-                decoder = None; found.clear(); scan_tail = ""
+                valid_utf8 = False; found.clear(); candidate = None
         after = os.fstat(leaf_fd)
     finally:
         os.close(leaf_fd)
     require(_identity(before) == _identity(after), f"source identity changed while planning: {relative.as_posix()}")
-    content_kind = "utf8_text" if decoder is not None and not saw_nul else ("opaque_large" if before.st_size > MAX_TEXT_REWRITE_BYTES else "binary")
+    content_kind = "utf8_text" if valid_utf8 and not saw_nul else "binary"
     references = _reference_records(found, source, target) if content_kind == "utf8_text" else []
     entry = {
         "relative_path": relative.as_posix(), "source_size_bytes": source_size,
         "source_sha256": source_hash.hexdigest(), "planned_size_bytes": 0,
         "planned_sha256": "", "content_kind": content_kind,
+        "reference_scan_status": "complete_utf8" if content_kind == "utf8_text" else "not_applicable_binary",
+        "rewrite_occurrence_count": 0,
         "conflict": conflict, "absolute_path_references": references,
     }
     observed = _stream_planned_entry(source_fd, entry, source, target, validate_expected=False)
     require(observed["identity"] == _identity(before), f"source identity changed between planning passes: {relative.as_posix()}")
     require(observed["source_size_bytes"] == source_size and observed["source_sha256"] == entry["source_sha256"], f"source changed between planning passes: {relative.as_posix()}")
+    if content_kind == "utf8_text":
+        source_text = str(source)
+        found = collections.Counter({
+            value: occurrences for value, occurrences in found.items()
+            if not (value == source_text or value.startswith(source_text + os.sep) or source_text.startswith(value + " "))
+        })
+        found.update(observed["rewritten_references"])
+        references = _reference_records(found, source, target)
+        entry["absolute_path_references"] = references
+    require(
+        sum(item["occurrences"] for item in references if item["rewrite_to"] is not None)
+        == observed["rewrite_occurrence_count"],
+        f"audited source-path references differ from streamed rewrites: {relative.as_posix()}",
+    )
+    entry["rewrite_occurrence_count"] = observed["rewrite_occurrence_count"]
     entry["planned_size_bytes"] = observed["planned_size_bytes"]
     entry["planned_sha256"] = observed["planned_sha256"]
     return entry
