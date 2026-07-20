@@ -5,8 +5,31 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-07-20
+
+### Added
+
+- Added hash-bound `/2` and `/3` execution ledgers, one-shot live-approval
+  successors `/6`–`/11`, exact cancellation approval, and read-only submission
+  and cancellation reconciliation without automatic qsub or qdel retry.
+- Added resource policy, scheduler snapshot, resource-gate, accounting and
+  terminal-receipt contracts that bind exact task, attempt, estimate, cores,
+  memory and reviewed walltime before any protected live submission.
+- Added owner-replayed `/2` endpoint, checkpoint, minimum-lineage, TS-result and
+  IRC-path contracts, plus strict runtime configuration, timed test execution,
+  progressive static checks and the private-study migration `/2` workflow.
+
 ### Changed
 
+- Classified scheduler, process and transport evidence as explicit
+  present/absent/unknown states; unknown evidence cannot prove interruption,
+  terminal cleanup or resource release. Result fetching now uses exact
+  allowlists, immutable snapshots, no-follow path checks and server-to-Mac
+  hash verification.
+- Consolidated active monitoring into bounded read-only snapshots, separated
+  retryable observations from non-retryable mutations, retained append-only
+  freshness/transport evidence and allowed only hash-verified immutable files
+  to be reused by incremental fetches.
 - Hardened the offline TS/Freq/IRC evidence chain with owner-replayed `/2`
   contracts for exact family/input/job/attempt/terminal/fetch provenance,
   checkpoint continuity, endpoint execution, and mechanism study, charge,
@@ -39,6 +62,13 @@ All notable public release changes are recorded here. The project follows
   absolute-path scanning now cover files of every size with bounded reads,
   occurrence-counted boundary-safe rewrites, while true binary files are
   explicitly classified and copied unchanged.
+
+### Performance
+
+- Reused only deterministic in-process calculation-DAG owner replay for exact
+  immutable content identities, retained full path/size/hash/schema checks and
+  moved the oversized DAG pressure case to the single source-archive release
+  path while preserving Python 3.11–3.13 compatibility coverage.
 
 ### Safety
 
@@ -419,7 +449,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.2...HEAD
+[2.5.2]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.0...v2.5.2
 [2.5.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.2.0...v2.3.0

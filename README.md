@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.5.0
+# Auto-G16 — Auto-Gaussian 2.5.2
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -81,9 +81,28 @@ Historical endpoint review or path acceptance `/1` remains readable for
 display/replay only and cannot open maturity, thermochemistry, asymmetric
 comparison or any live gate.
 
-## 2.5.0 release
+## 2.5.2 release candidate
 
-Auto-Gaussian 2.5.0 is the current stable source release. The annotated
+Auto-Gaussian 2.5.2 is the prepared compatibility and safety-hardening source
+release candidate. The planned annotated `v2.5.2` tag will identify the exact
+reviewed merge commit after release authorization and green post-merge CI.
+Until that tag and GitHub Release exist, `v2.5.0` remains the latest published
+release. No public `v2.5.1` tag or release exists; the 2.5.2 identifier is an
+explicitly selected patch-line release number rather than evidence of a
+missing public artifact.
+
+The candidate strengthens fail-closed runtime evidence, immutable result
+fetching, idempotent execution and cancellation transactions, exact resource
+gates, bounded monitoring, TS/Freq/IRC and minimum-result lineage, runtime
+configuration, private-study migration and release validation. Historical
+schemas remain replayable under their original contracts, while new protected
+live work requires the newer exact owner, approval and resource bindings. The
+release candidate itself grants no deployment, submission, cancellation,
+cleanup or scientific acceptance authority.
+
+## 2.5.0 historical release
+
+Auto-Gaussian 2.5.0 is the preceding published release. The annotated
 `v2.5.0` tag permanently identifies exact release commit
 `18d7f62af3b24cdd0fbe5687f4c0e779f243d572`. This engineering-maintenance
 slice started from the then-matching `main` baseline; later `main` development
