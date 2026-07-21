@@ -136,6 +136,8 @@ def load_contract(path: Path) -> dict[str, Any]:
     for key in ("observed_at", "status", "note"):
         if not isinstance(snapshot[key], str) or not snapshot[key].strip():
             raise ContractError(f"snapshot {key} must be a non-empty string")
+    if snapshot["status"] not in {"aligned", "known_mismatch"}:
+        raise ContractError("snapshot status must be aligned or known_mismatch")
     for key in ("strict", "enforce_admins", "required_conversation_resolution", "allow_force_pushes", "allow_deletions"):
         if not isinstance(snapshot[key], bool):
             raise ContractError(f"snapshot {key} must be boolean")
@@ -359,10 +361,21 @@ def audit(root: Path, contract: dict[str, Any]) -> dict[str, Any]:
     if any(item["workflow_name"] != evidence_name for item in contract["required_checks"]):
         errors.append("source evidence workflow_name does not match every required check")
 
-    snapshot_contexts = set(contract["remote_branch_protection_snapshot"]["required_contexts"])
+    snapshot = contract["remote_branch_protection_snapshot"]
+    snapshot_context_list = snapshot["required_contexts"]
+    snapshot_contexts = set(snapshot_context_list)
     missing_in_snapshot = sorted(set(expected) - snapshot_contexts)
     extra_in_snapshot = sorted(snapshot_contexts - set(expected))
-    if missing_in_snapshot or extra_in_snapshot:
+    snapshot_differs = bool(missing_in_snapshot or extra_in_snapshot)
+    if not snapshot_differs and snapshot_context_list != list(expected):
+        errors.append("recorded remote snapshot context order differs from the expected contract")
+    if snapshot["status"] == "aligned" and snapshot_differs:
+        errors.append("recorded remote snapshot is labelled aligned but differs from the expected contract")
+    elif snapshot["status"] == "known_mismatch" and not snapshot_differs:
+        errors.append(
+            "recorded remote snapshot is labelled known_mismatch but matches the expected contract"
+        )
+    elif snapshot_differs:
         warnings.append(
             "recorded remote snapshot differs from the expected contract; it is historical evidence and requires live read-only re-verification before merge or release"
         )
@@ -370,7 +383,7 @@ def audit(root: Path, contract: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema": RESULT_SCHEMA,
         "status": status,
-        "claim": "local workflow declarations are compatible with the required-check contract" if not errors else "local workflow declarations are not compatible with the required-check contract",
+        "claim": "local workflow declarations and snapshot metadata are compatible with the required-check contract" if not errors else "local workflow declarations or snapshot metadata are not compatible with the required-check contract",
         "remote_branch_protection_verified": False,
         "actual_ci_success_verified": False,
         "summary": {"errors": len(errors), "warnings": len(warnings), "declared_contexts": len(declared)},

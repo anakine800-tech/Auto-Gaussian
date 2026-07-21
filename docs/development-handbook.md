@@ -199,11 +199,12 @@ protection, permissions, required contexts, or actual CI success.
 Before merge, independently verify current GitHub settings and successful
 checks. The expected stable contexts are `python-compatibility (3.11)`,
 `python-compatibility (3.12)`, `python-compatibility (3.13)`,
-`source-archive-release`, and `chemistry-dependencies`. The dated snapshot in
-the contract records that only the first two were protected on 2026-07-20;
-that known mismatch remains a P1 merge/release blocker until corrected and
-re-verified with separate GitHub authority. CI permission failure is a
-blocker/limitation to report, never a reason to claim green status.
+`source-archive-release`, and `chemistry-dependencies`. The date-bound
+2026-07-21 read-only snapshot in the contract records those five contexts as
+aligned at that time. It remains historical evidence: the static audit cannot
+prove current branch protection or CI success, which must be independently
+verified before merge. CI permission failure is a blocker/limitation to report,
+never a reason to claim green status.
 
 ## 9. Merge and local synchronization
 

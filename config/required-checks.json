@@ -52,20 +52,23 @@
     }
   ],
   "remote_branch_protection_snapshot": {
-    "observed_at": "2026-07-20",
+    "observed_at": "2026-07-21",
     "strict": true,
     "app_id": 15368,
     "required_contexts": [
       "python-compatibility (3.11)",
-      "python-compatibility (3.12)"
+      "python-compatibility (3.12)",
+      "python-compatibility (3.13)",
+      "source-archive-release",
+      "chemistry-dependencies"
     ],
     "enforce_admins": true,
     "required_conversation_resolution": true,
     "allow_force_pushes": false,
     "allow_deletions": false,
     "rulesets_count": 0,
-    "status": "known_mismatch",
-    "note": "Historical read-only snapshot only. It omitted three expected contexts and is a merge/release blocker until current remote settings are independently re-verified and corrected under separate GitHub authority."
+    "status": "aligned",
+    "note": "Date-bound read-only snapshot observed on 2026-07-21. It records the five expected contexts as aligned at that time; static audit does not prove current remote settings or CI success."
   },
   "limitations": [
     "A local static audit cannot prove current GitHub branch protection or permissions.",

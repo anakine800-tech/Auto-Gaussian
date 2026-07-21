@@ -80,16 +80,16 @@ def contract() -> dict[str, object]:
         },
         "required_checks": checks,
         "remote_branch_protection_snapshot": {
-            "observed_at": "2026-07-20",
+            "observed_at": "2026-07-21",
             "strict": True,
             "app_id": 15368,
-            "required_contexts": ["python-compatibility (3.11)", "python-compatibility (3.12)"],
+            "required_contexts": [item["context"] for item in checks],
             "enforce_admins": True,
             "required_conversation_resolution": True,
             "allow_force_pushes": False,
             "allow_deletions": False,
             "rulesets_count": 0,
-            "status": "known_mismatch",
+            "status": "aligned",
             "note": "fixture snapshot",
         },
         "limitations": ["static only"],
@@ -117,10 +117,26 @@ class CIContractAuditTests(unittest.TestCase):
     def test_simple_matrix_expands_to_exact_actual_check_names(self) -> None:
         value = AUDIT.load_contract(self.config)
         report = AUDIT.audit(self.root, value)
-        self.assertEqual(report["status"], "pass_with_warnings")
+        self.assertEqual(report["status"], "pass")
         self.assertEqual(report["summary"]["errors"], 0)
+        self.assertEqual(report["summary"]["warnings"], 0)
         self.assertEqual(report["declared_contexts"], sorted(item["context"] for item in value["required_checks"]))
         self.assertFalse(report["remote_branch_protection_verified"])
+        self.assertEqual(report["snapshot_difference"]["missing_expected_contexts"], [])
+        self.assertEqual(report["snapshot_difference"]["unexpected_contexts"], [])
+
+    def test_synthetic_snapshot_mismatch_remains_a_warning(self) -> None:
+        value = contract()
+        snapshot = value["remote_branch_protection_snapshot"]  # type: ignore[assignment]
+        snapshot["required_contexts"] = [  # type: ignore[index]
+            "python-compatibility (3.11)",
+            "python-compatibility (3.12)",
+        ]
+        snapshot["status"] = "known_mismatch"  # type: ignore[index]
+        report = AUDIT.audit(self.root, value)
+        self.assertEqual(report["status"], "pass_with_warnings")
+        self.assertEqual(report["summary"]["errors"], 0)
+        self.assertEqual(report["summary"]["warnings"], 1)
         self.assertEqual(
             report["snapshot_difference"]["missing_expected_contexts"],
             ["chemistry-dependencies", "python-compatibility (3.13)", "source-archive-release"],
@@ -139,6 +155,34 @@ class CIContractAuditTests(unittest.TestCase):
         self.write_contract(value)
         with self.assertRaisesRegex(AUDIT.ContractError, "must be boolean"):
             AUDIT.load_contract(self.config)
+
+    def test_snapshot_status_is_closed_and_consistent_with_content(self) -> None:
+        value = contract()
+        value["remote_branch_protection_snapshot"]["status"] = "stale"  # type: ignore[index]
+        self.write_contract(value)
+        with self.assertRaisesRegex(AUDIT.ContractError, "snapshot status"):
+            AUDIT.load_contract(self.config)
+
+        for status, contexts in (
+            ("aligned", ["python-compatibility (3.11)"]),
+            ("known_mismatch", [item["context"] for item in contract()["required_checks"]]),  # type: ignore[index]
+        ):
+            with self.subTest(status=status):
+                changed = contract()
+                snapshot = changed["remote_branch_protection_snapshot"]  # type: ignore[assignment]
+                snapshot["status"] = status  # type: ignore[index]
+                snapshot["required_contexts"] = contexts  # type: ignore[index]
+                report = AUDIT.audit(self.root, changed)
+                self.assertEqual(report["status"], "fail")
+                self.assertTrue(any("labelled" in item for item in report["errors"]))
+
+    def test_aligned_snapshot_requires_contract_order(self) -> None:
+        value = contract()
+        snapshot = value["remote_branch_protection_snapshot"]  # type: ignore[assignment]
+        snapshot["required_contexts"] = list(reversed(snapshot["required_contexts"]))  # type: ignore[index]
+        report = AUDIT.audit(self.root, value)
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("context order" in item for item in report["errors"]))
 
     def test_boolean_run_id_and_nonstandard_json_number_are_rejected(self) -> None:
         value = contract()
