@@ -303,7 +303,34 @@ class PythonContractAuditTests(unittest.TestCase):
         )
         report = AUDIT.audit(self.root)
         self.assertEqual(report["status"], "fail")
-        self.assertTrue(any("chemistry requirements install" in item for item in report["errors"]))
+        self.assertTrue(any("chemistry job run commands" in item for item in report["errors"]))
+
+    def test_ci_chemistry_job_rejects_every_extra_run_command(self) -> None:
+        workflow = self.path(".github/workflows/offline-tests.yml")
+        original = workflow.read_text(encoding="utf-8")
+        anchor = (
+            "      - name: Import and report optional chemistry dependencies\n"
+            "        run: python -c \"import numpy, PIL, rdkit;"
+        )
+        self.assertIn(anchor, original)
+        for command in (
+            "python -m pip --quiet install requests",
+            "python -m pip --index-url https://example.invalid/simple install requests",
+            "uv pip install requests",
+        ):
+            with self.subTest(command=command):
+                changed = original.replace(
+                    anchor,
+                    f"      - name: Unreviewed installer\n        run: {command}\n{anchor}",
+                    1,
+                )
+                workflow.write_text(changed, encoding="utf-8")
+                report = AUDIT.audit(self.root)
+                self.assertEqual(report["status"], "fail")
+                self.assertTrue(
+                    any("chemistry job run commands" in item for item in report["errors"])
+                )
+        workflow.write_text(original, encoding="utf-8")
 
     def test_chemistry_lock_cannot_move_away_from_its_entrypoint(self) -> None:
         moved = self.path("requirements/locks/chemistry.lock.txt")

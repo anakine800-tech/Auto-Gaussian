@@ -364,22 +364,21 @@ def audit(root: Path) -> dict[str, Any]:
         _compare(errors, selectors.get(job_id), expected, f"CI {job_id} setup-python selector")
 
     run_commands = CI_CONTRACT.parse_run_commands(workflow)
-    chemistry_installs = [
-        (job_id, command)
-        for job_id, commands in run_commands.items()
-        for command in commands
-        if re.search(r"\bpip\s+install\b", command)
+    expected_chemistry_commands = [
+        "python -m pip install --requirement requirements/chemistry.txt",
+        (
+            'python -c "import numpy, PIL, rdkit; '
+            "print(f'numpy={numpy.__version__}'); "
+            "print(f'Pillow={PIL.__version__}'); "
+            "print(f'rdkit={rdkit.__version__}')\""
+        ),
+        "python -m unittest tests.test_rdkit_smoke -v",
     ]
     _compare(
         errors,
-        chemistry_installs,
-        [
-            (
-                "chemistry-dependencies",
-                "python -m pip install --requirement requirements/chemistry.txt",
-            )
-        ],
-        "CI chemistry requirements install invocation",
+        run_commands.get("chemistry-dependencies"),
+        expected_chemistry_commands,
+        "CI chemistry job run commands",
     )
     audit_invocations = [
         (job_id, command)
