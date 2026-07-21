@@ -36,6 +36,13 @@ These rules apply to the entire repository.
 
 ## Development and testing
 
+- Use `docs/development-handbook.md` as the mandatory operation-order entry
+  point for task classification, preflight, validation, review, CI, integration,
+  cleanup and release handoff; it does not override any rule in this file.
+- Before feature edits, run the read-only `scripts/dev_preflight.py`; before PR
+  or release handoff, run `scripts/audit_ci_contract.py`. Treat either nonzero
+  result as a blocker, and never claim that static CI audit proves remote
+  branch protection or a successful run.
 - Prefer offline builders, parsers, fixtures, and dry runs before any live PBS test.
 - Use the `simple` resource tier (12 GB, 8 cores) for approved smoke tests unless a smaller custom test is explicitly approved. Use `general` (50 GB, 22 cores) and `complex` (120 GB, 44 cores) only under the established resource policy.
 - Never run live SSH, PBS, Gaussian, cancellation, or deployment tests merely because a unit test is being executed.

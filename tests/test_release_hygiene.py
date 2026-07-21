@@ -129,6 +129,7 @@ class ReleaseHygieneTests(unittest.TestCase):
         versions = set(re.findall(r'"(3\.1[123])"', workflow))
         self.assertEqual(versions, {"3.11", "3.12", "3.13"})
         self.assertEqual(workflow.count("git archive HEAD"), 1)
+        self.assertEqual(workflow.count("python scripts/audit_python_contract.py"), 1)
         self.assertIn("scripts/static_quality.py", workflow)
 
     def test_chemistry_ci_resolution_is_constrained(self) -> None:
