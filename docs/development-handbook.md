@@ -82,6 +82,14 @@ move the new task to a clean isolated worktree if ownership is unclear.
 - Use `./scripts/python core ...` for standard-library development and the
   explicit `chem` profile only when RDKit/NumPy/Pillow coverage is required.
   Record any coverage modifiers such as `AUTO_G16_SKIP_PRESSURE_TESTS`.
+- Run `./scripts/python check --profile core` (and `--profile chem` when that
+  profile is in scope) to prove an installed local profile. Run
+  `./scripts/python core scripts/audit_python_contract.py` separately to audit
+  the static supported-minor, registry, environment, lock, CI, and required-
+  check declarations. The static audit does not prove interpreter availability,
+  remote protection, or a successful CI run. If Python 3.12 is unavailable
+  locally, record that gap explicitly and require the 3.12 PR matrix result;
+  do not install it from the network solely to complete local evidence.
 - Tests and fixtures must be offline and synthetic or release-cleared. A unit
   test must never contact SSH/RTwin/PBS/Gaussian, deploy, submit, cancel,
   migrate private data, or clean a server.
@@ -114,6 +122,7 @@ Typical commands are:
 ./scripts/python core -m compileall -q scripts tests
 ./scripts/python core scripts/static_quality.py
 ./scripts/python core scripts/audit_ci_contract.py
+./scripts/python core scripts/audit_python_contract.py
 ./scripts/python core scripts/run_tests.py tests.test_dev_preflight tests.test_audit_ci_contract
 ./scripts/python core scripts/run_tests.py --top-slow 20 --slow-threshold 1.0
 bash -n scripts/check_rtwin_connection.sh scripts/probe_gaussian_server.sh templates/g16_job.pbs.template

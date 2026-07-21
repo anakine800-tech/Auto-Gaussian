@@ -150,8 +150,8 @@ def _scalar(raw: str, label: str) -> str:
     return value
 
 
-def parse_workflow(path: Path) -> tuple[str, dict[str, set[tuple[str, tuple[tuple[str, str], ...]]]]]:
-    """Parse the repository's deliberately small YAML subset, failing closed."""
+def _workflow_job_blocks(path: Path) -> tuple[str, list[tuple[str, list[str]]]]:
+    """Return explicit job blocks from the repository's restricted YAML subset."""
     if path.is_symlink() or not path.is_file():
         raise ContractError(f"{path.name}: workflow must be a regular non-symlink file")
     text = path.read_text(encoding="utf-8")
@@ -175,10 +175,25 @@ def parse_workflow(path: Path) -> tuple[str, dict[str, set[tuple[str, tuple[tupl
             break
     if not job_starts:
         raise ContractError(f"{path.name}: no supported jobs were found")
+    blocks = [
+        (
+            job_id,
+            lines[
+                start + 1 : job_starts[position + 1][0]
+                if position + 1 < len(job_starts)
+                else len(lines)
+            ],
+        )
+        for position, (start, job_id) in enumerate(job_starts)
+    ]
+    return workflow_name, blocks
+
+
+def parse_workflow(path: Path) -> tuple[str, dict[str, set[tuple[str, tuple[tuple[str, str], ...]]]]]:
+    """Parse and expand the repository's deliberately small YAML subset."""
+    workflow_name, job_blocks = _workflow_job_blocks(path)
     expanded: dict[str, set[tuple[str, tuple[tuple[str, str], ...]]]] = {}
-    for position, (start, job_id) in enumerate(job_starts):
-        end = job_starts[position + 1][0] if position + 1 < len(job_starts) else len(lines)
-        block = lines[start + 1 : end]
+    for job_id, block in job_blocks:
         names = [match.group(1) for line in block if (match := re.fullmatch(r"    name:\s*(.+)", line))]
         if len(names) != 1:
             raise ContractError(f"{path.name}:{job_id}: one explicit job name is required")
@@ -223,6 +238,47 @@ def parse_workflow(path: Path) -> tuple[str, dict[str, set[tuple[str, tuple[tupl
                 raise ContractError(f"{path.name}: duplicate expanded check name: {context}")
             expanded[context] = {(job_id, tuple(sorted(binding.items())))}
     return workflow_name, expanded
+
+
+def parse_setup_python_versions(path: Path) -> dict[str, list[str]]:
+    """Extract setup-python selectors without introducing another YAML parser."""
+    _workflow_name, job_blocks = _workflow_job_blocks(path)
+    result: dict[str, list[str]] = {}
+    for job_id, block in job_blocks:
+        selectors: list[str] = []
+        step_starts = [
+            index
+            for index, line in enumerate(block)
+            if re.fullmatch(r"      - (?:uses|name|run):.*", line)
+        ]
+        for position, start in enumerate(step_starts):
+            line = block[start]
+            if not re.fullmatch(r"      - uses:\s*actions/setup-python@[0-9a-f]{40}\s*", line):
+                continue
+            end = step_starts[position + 1] if position + 1 < len(step_starts) else len(block)
+            step = block[start + 1 : end]
+            with_headers = [index for index, item in enumerate(step) if item == "        with:"]
+            if len(with_headers) != 1:
+                raise ContractError(
+                    f"{path.name}:{job_id}: setup-python requires one explicit with mapping"
+                )
+            python_versions = [
+                match.group(1)
+                for item in step[with_headers[0] + 1 :]
+                if (match := re.fullmatch(r"          python-version:\s*(.+)", item))
+            ]
+            if len(python_versions) != 1:
+                raise ContractError(
+                    f"{path.name}:{job_id}: setup-python requires one explicit python-version"
+                )
+            selectors.append(
+                _scalar(
+                    python_versions[0],
+                    f"{path.name}:{job_id}: setup-python python-version",
+                )
+            )
+        result[job_id] = selectors
+    return result
 
 
 def audit(root: Path, contract: dict[str, Any]) -> dict[str, Any]:

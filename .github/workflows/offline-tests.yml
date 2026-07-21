@@ -47,6 +47,8 @@ jobs:
           python-version: "3.13"
       - name: Audit required-check declarations
         run: python scripts/audit_ci_contract.py
+      - name: Audit static Python version contract
+        run: python scripts/audit_python_contract.py
       - name: Test the GitHub source archive including pressure coverage
         run: |
           archive_dir="$(mktemp -d)"

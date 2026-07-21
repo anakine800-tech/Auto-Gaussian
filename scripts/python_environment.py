@@ -7,6 +7,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,31 @@ from typing import Any, Optional
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "config" / "python-environments.json"
 PACKAGE_IMPORTS = {"numpy": "numpy", "Pillow": "PIL", "rdkit": "rdkit"}
+REGISTRY_KEYS = {"schema", "default_profile", "profiles"}
+PROFILE_KEYS = {
+    "python_version",
+    "environment_variable",
+    "runtime_config_key",
+    "fallback",
+    "requirements",
+    "packages",
+}
+PYTHON_VERSION = re.compile(r"[1-9][0-9]*\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+PACKAGE_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[A-Za-z0-9._+-]*)")
+ENVIRONMENT_VARIABLE = re.compile(r"AUTO_G16_[A-Z][A-Z0-9_]*_PYTHON")
+PROFILE_SEMANTICS = {
+    "core": {
+        "environment_variable": "AUTO_G16_CORE_PYTHON",
+        "runtime_config_key": "core_python",
+        "requirements": None,
+        "package_names": set(),
+    },
+    "chem": {
+        "environment_variable": "AUTO_G16_RDKIT_PYTHON",
+        "runtime_config_key": "rdkit_python",
+        "package_names": set(PACKAGE_IMPORTS),
+    },
+}
 RUNTIME_CONFIG_PATH = ROOT / "scripts" / "runtime_config.py"
 RUNTIME_CONFIG_SPEC = importlib.util.spec_from_file_location(
     "auto_g16_strict_runtime_config",
@@ -44,13 +70,15 @@ def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def load_json(path: Path) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise EnvironmentError(f"JSON configuration must be a regular non-symlink file: {path}")
     try:
         value = json.loads(
             path.read_text(encoding="utf-8"),
             parse_constant=_reject_constant,
             object_pairs_hook=_object,
         )
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise EnvironmentError(f"invalid JSON configuration {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise EnvironmentError(f"JSON configuration must be an object: {path}")
@@ -59,22 +87,81 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
     value = load_json(path)
-    if value.get("schema") != "auto-g16-python-environments/1":
+    if set(value) != REGISTRY_KEYS:
+        raise EnvironmentError("Python environment registry must be a closed object")
+    if value["schema"] != "auto-g16-python-environments/1":
         raise EnvironmentError("unsupported Python environment registry schema")
-    profiles = value.get("profiles")
+    profiles = value["profiles"]
     if not isinstance(profiles, dict) or set(profiles) != {"core", "chem"}:
         raise EnvironmentError("Python environment registry must define exactly core and chem")
-    if value.get("default_profile") != "core":
+    if value["default_profile"] != "core":
         raise EnvironmentError("core must remain the default Python profile")
     for name, profile in profiles.items():
-        required = {
-            "python_version", "environment_variable", "runtime_config_key",
-            "fallback", "requirements", "packages",
-        }
-        if not isinstance(profile, dict) or set(profile) != required:
+        if not isinstance(profile, dict) or set(profile) != PROFILE_KEYS:
             raise EnvironmentError(f"Python profile {name!r} is not a closed object")
-        if not isinstance(profile["packages"], dict):
+        if not isinstance(profile["python_version"], str) or not PYTHON_VERSION.fullmatch(
+            profile["python_version"]
+        ):
+            raise EnvironmentError(
+                f"Python profile {name!r} python_version must be an exact X.Y.Z version"
+            )
+        environment_variable = profile["environment_variable"]
+        expected = PROFILE_SEMANTICS[name]
+        if (
+            not isinstance(environment_variable, str)
+            or not ENVIRONMENT_VARIABLE.fullmatch(environment_variable)
+            or environment_variable != expected["environment_variable"]
+        ):
+            raise EnvironmentError(
+                f"Python profile {name!r} environment_variable is incompatible with schema v1"
+            )
+        runtime_key = profile["runtime_config_key"]
+        if (
+            not isinstance(runtime_key, str)
+            or runtime_key != expected["runtime_config_key"]
+            or runtime_key not in RUNTIME_CONFIG.ALLOWED_KEYS
+        ):
+            raise EnvironmentError(
+                f"Python profile {name!r} runtime_config_key is incompatible with schema v1"
+            )
+        fallback = profile["fallback"]
+        if (
+            not isinstance(fallback, str)
+            or fallback != fallback.strip()
+            or not fallback.startswith("~/")
+            or "\x00" in fallback
+            or not fallback[2:]
+            or any(part in {"", ".", ".."} for part in fallback[2:].split("/"))
+        ):
+            raise EnvironmentError(
+                f"Python profile {name!r} fallback must be a safe non-empty home-relative path"
+            )
+        requirements = profile["requirements"]
+        if name == "core" and requirements is not None:
+            raise EnvironmentError("Python profile 'core' requirements must remain null")
+        if name == "chem":
+            if (
+                not isinstance(requirements, str)
+                or requirements != requirements.strip()
+                or Path(requirements).is_absolute()
+                or ".." in Path(requirements).parts
+                or Path(requirements).suffix != ".txt"
+            ):
+                raise EnvironmentError(
+                    "Python profile 'chem' requirements must be a safe repository-relative text path"
+                )
+        packages = profile["packages"]
+        if not isinstance(packages, dict):
             raise EnvironmentError(f"Python profile {name!r} packages must be an object")
+        if set(packages) != expected["package_names"]:
+            raise EnvironmentError(
+                f"Python profile {name!r} packages are incompatible with schema v1"
+            )
+        for package, version in packages.items():
+            if not isinstance(version, str) or not PACKAGE_VERSION.fullmatch(version):
+                raise EnvironmentError(
+                    f"Python profile {name!r} package {package!r} must use an exact version pin"
+                )
     return value
 
 
