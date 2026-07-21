@@ -140,6 +140,16 @@ class CIContractAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(AUDIT.ContractError, "must be boolean"):
             AUDIT.load_contract(self.config)
 
+    def test_boolean_run_id_and_nonstandard_json_number_are_rejected(self) -> None:
+        value = contract()
+        value["source_evidence"]["successful_run_id"] = True  # type: ignore[index]
+        self.write_contract(value)
+        with self.assertRaisesRegex(AUDIT.ContractError, "successful_run_id"):
+            AUDIT.load_contract(self.config)
+        self.config.write_text('{"value": NaN}', encoding="utf-8")
+        with self.assertRaisesRegex(AUDIT.ContractError, "non-standard JSON"):
+            AUDIT.load_contract(self.config)
+
     def test_workflow_job_or_context_mismatch_fails(self) -> None:
         value = contract()
         value["required_checks"][0]["job_id"] = "wrong-job"  # type: ignore[index]

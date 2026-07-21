@@ -37,9 +37,13 @@ def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise ContractError(f"duplicate JSON key is forbidden: {key}")
+            raise ContractError(f"duplicate JSON key is forbidden: {ascii(key)}")
         result[key] = value
     return result
+
+
+def _reject_constant(value: str) -> None:
+    raise ContractError(f"non-standard JSON numeric constant is forbidden: {value}")
 
 
 def find_root(start: Path) -> Path:
@@ -58,9 +62,15 @@ def find_root(start: Path) -> Path:
 
 
 def load_contract(path: Path) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise ContractError("required-check contract must be a regular non-symlink file")
     try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_object)
-    except (OSError, json.JSONDecodeError) as exc:
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=_reject_constant,
+            object_pairs_hook=_object,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ContractError(f"invalid required-check contract: {exc}") from exc
     if not isinstance(value, dict) or set(value) != TOP_LEVEL_KEYS:
         raise ContractError("required-check contract must be a closed object")
@@ -101,7 +111,11 @@ def load_contract(path: Path) -> dict[str, Any]:
     for key in ("observed_at", "workflow_name", "basis"):
         if not isinstance(evidence[key], str) or not evidence[key].strip():
             raise ContractError(f"source_evidence.{key} must be a non-empty string")
-    if not isinstance(evidence["successful_run_id"], int) or evidence["successful_run_id"] <= 0:
+    if (
+        not isinstance(evidence["successful_run_id"], int)
+        or isinstance(evidence["successful_run_id"], bool)
+        or evidence["successful_run_id"] <= 0
+    ):
         raise ContractError("source_evidence.successful_run_id must be positive")
     snapshot = value["remote_branch_protection_snapshot"]
     snapshot_keys = {
@@ -278,6 +292,34 @@ def parse_setup_python_versions(path: Path) -> dict[str, list[str]]:
                 )
             )
         result[job_id] = selectors
+    return result
+
+
+def parse_run_commands(path: Path) -> dict[str, list[str]]:
+    """Extract explicit run payloads from the repository's restricted workflow form."""
+    _workflow_name, job_blocks = _workflow_job_blocks(path)
+    result: dict[str, list[str]] = {}
+    for job_id, block in job_blocks:
+        commands: list[str] = []
+        for index, line in enumerate(block):
+            match = re.fullmatch(r"        run:\s*(.*)", line)
+            if not match:
+                continue
+            raw = match.group(1)
+            if raw in {"|", "|-", "|+", ">", ">-", ">+"}:
+                payload: list[str] = []
+                cursor = index + 1
+                while cursor < len(block) and (
+                    not block[cursor] or block[cursor].startswith("          ")
+                ):
+                    payload.append(block[cursor][10:] if block[cursor] else "")
+                    cursor += 1
+                commands.append("\n".join(payload))
+            elif raw:
+                commands.append(_scalar(raw, f"{path.name}:{job_id}: run command"))
+            else:
+                raise ContractError(f"{path.name}:{job_id}: empty run command is unsupported")
+        result[job_id] = commands
     return result
 
 

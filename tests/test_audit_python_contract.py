@@ -83,11 +83,15 @@ class PythonContractAuditTests(unittest.TestCase):
         self.assertFalse(report["remote_branch_protection_verified"])
         self.assertFalse(report["actual_ci_success_verified"])
 
-    def test_pyproject_range_expansion_to_314_is_contract_drift(self) -> None:
-        self.replace("pyproject.toml", 'requires-python = ">=3.11,<3.14"', 'requires-python = ">=3.11,<3.15"')
-        report = AUDIT.audit(self.root)
-        self.assertEqual(report["status"], "fail")
-        self.assertIn("3.14", "\n".join(report["errors"]))
+    def test_pyproject_range_expansion_outside_311_to_313_is_contract_drift(self) -> None:
+        for value in (">=3.9,<3.14", ">=3.10,<3.14", ">=3.11,<3.15"):
+            with self.subTest(value=value):
+                original = self.path("pyproject.toml").read_text(encoding="utf-8")
+                changed = original.replace(">=3.11,<3.14", value)
+                self.path("pyproject.toml").write_text(changed, encoding="utf-8")
+                report = AUDIT.audit(self.root)
+                self.assertEqual(report["status"], "fail")
+                self.path("pyproject.toml").write_text(original, encoding="utf-8")
 
     def test_unsupported_or_empty_pyproject_range_fails_closed(self) -> None:
         for value in (">=3.11", ">=3.13,<3.13", "~=3.11"):
@@ -109,6 +113,60 @@ class PythonContractAuditTests(unittest.TestCase):
                 self.assertEqual(report["status"], "fail")
                 self.assertTrue(any("CI" in item for item in report["errors"]))
                 self.path(".github/workflows/offline-tests.yml").write_text(original, encoding="utf-8")
+
+    def test_duplicate_ci_matrix_minor_fails_closed(self) -> None:
+        self.replace(
+            ".github/workflows/offline-tests.yml",
+            '["3.11", "3.12", "3.13"]',
+            '["3.11", "3.12", "3.12", "3.13"]',
+        )
+        with self.assertRaisesRegex(AUDIT.CI_CONTRACT.ContractError, "duplicate matrix"):
+            AUDIT.audit(self.root)
+
+    def test_ci_matrix_and_required_context_order_are_exact(self) -> None:
+        self.replace(
+            ".github/workflows/offline-tests.yml",
+            '["3.11", "3.12", "3.13"]',
+            '["3.13", "3.12", "3.11"]',
+        )
+        self.assertTrue(
+            any("matrix" in item for item in AUDIT.audit(self.root)["errors"])
+        )
+        shutil.copy2(
+            ROOT / ".github/workflows/offline-tests.yml",
+            self.path(".github/workflows/offline-tests.yml"),
+        )
+        value = self.load_required()
+        checks = value["required_checks"]
+        assert isinstance(checks, list)
+        checks[0], checks[2] = checks[2], checks[0]
+        self.write_required(value)
+        self.assertTrue(
+            any("required Python compatibility contexts" in item for item in AUDIT.audit(self.root)["errors"])
+        )
+
+    def test_python_contract_audit_runs_once_outside_matrix(self) -> None:
+        workflow = self.path(".github/workflows/offline-tests.yml")
+        original = workflow.read_text(encoding="utf-8")
+        source_step = """      - name: Audit static Python version contract
+        run: python scripts/audit_python_contract.py
+"""
+        self.assertIn(source_step, original)
+        matrix_anchor = """      - name: Compile Python sources
+        run: python -m compileall -q scripts skills tests
+"""
+        moved = original.replace(source_step, "", 1).replace(
+            matrix_anchor, source_step + matrix_anchor, 1
+        )
+        workflow.write_text(moved, encoding="utf-8")
+        self.assertTrue(
+            any("audit invocation" in item for item in AUDIT.audit(self.root)["errors"])
+        )
+        duplicated = original.replace(matrix_anchor, source_step + matrix_anchor, 1)
+        workflow.write_text(duplicated, encoding="utf-8")
+        self.assertTrue(
+            any("audit invocation" in item for item in AUDIT.audit(self.root)["errors"])
+        )
 
     def test_core_python_version_and_conda_drift_are_detected(self) -> None:
         self.path(".python-version").write_text("3.13.12\n", encoding="utf-8")
@@ -270,6 +328,31 @@ class PythonContractAuditTests(unittest.TestCase):
                 AUDIT.audit(self.root)
         finally:
             external.unlink()
+
+    def test_missing_non_utf8_and_malformed_contract_files_fail_closed(self) -> None:
+        cases = (
+            ("pyproject.toml", b"[project\n", "invalid pyproject"),
+            ("environment.yml", b"name:\tbad\n", "unsupported"),
+            (".python-version", b"\xff\n", "could not read"),
+        )
+        for relative, payload, message in cases:
+            with self.subTest(relative=relative):
+                original = self.path(relative).read_bytes()
+                self.path(relative).write_bytes(payload)
+                with self.assertRaisesRegex(AUDIT.ContractError, message):
+                    AUDIT.audit(self.root)
+                self.path(relative).write_bytes(original)
+        self.path("requirements/chemistry.lock.txt").unlink()
+        with self.assertRaisesRegex(AUDIT.ContractError, "unavailable"):
+            AUDIT.audit(self.root)
+
+    def test_symlinked_workflow_ancestor_is_rejected(self) -> None:
+        github = self.path(".github")
+        external = self.root / "external-github"
+        github.rename(external)
+        github.symlink_to(external, target_is_directory=True)
+        with self.assertRaisesRegex(AUDIT.ContractError, "symlink"):
+            AUDIT.audit(self.root)
 
 
 if __name__ == "__main__":

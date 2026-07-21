@@ -79,6 +79,24 @@ def _repo_file(root: Path, relative: str | Path) -> Path:
     return current
 
 
+def _repo_directory(root: Path, relative: str | Path) -> Path:
+    candidate = Path(relative)
+    if candidate.is_absolute() or not candidate.parts or ".." in candidate.parts:
+        raise ContractError(f"repository path is unsafe: {relative}")
+    current = root
+    for part in candidate.parts:
+        current = current / part
+        try:
+            mode = current.lstat().st_mode
+        except OSError as exc:
+            raise ContractError(f"required repository path is unavailable: {candidate}") from exc
+        if stat.S_ISLNK(mode):
+            raise ContractError(f"repository contract path must not contain a symlink: {candidate}")
+    if not stat.S_ISDIR(current.lstat().st_mode):
+        raise ContractError(f"repository contract path must be a directory: {candidate}")
+    return current
+
+
 def _read(root: Path, relative: str | Path) -> str:
     path = _repo_file(root, relative)
     try:
@@ -264,13 +282,16 @@ def audit(root: Path) -> dict[str, Any]:
 
     required_path = _repo_file(root, "config/required-checks.json")
     required = CI_CONTRACT.load_contract(required_path)
+    workflow_directory = _repo_directory(root, ".github/workflows")
+    for path in workflow_directory.glob("*.y*ml"):
+        _repo_file(root, path.relative_to(root))
     ci_report = CI_CONTRACT.audit(root, required)
     errors.extend(f"CI contract: {item}" for item in ci_report["errors"])
     compatibility = [
         item for item in required["required_checks"] if item["job_id"] == "python-compatibility"
     ]
-    expected_contexts = {f"python-compatibility ({minor})" for minor in supported}
-    actual_contexts = {item["context"] for item in compatibility}
+    expected_contexts = [f"python-compatibility ({minor})" for minor in supported]
+    actual_contexts = [item["context"] for item in compatibility]
     _compare(errors, actual_contexts, expected_contexts, "required Python compatibility contexts")
     for item in compatibility:
         context_match = re.fullmatch(r"python-compatibility \((3\.[0-9]+)\)", item["context"])
@@ -292,7 +313,7 @@ def audit(root: Path) -> dict[str, Any]:
     workflow_relative = next(iter(workflow_paths))
     workflow = _repo_file(root, workflow_relative)
     _workflow_name, expanded = CI_CONTRACT.parse_workflow(workflow)
-    matrix_versions: set[str] = set()
+    matrix_versions: list[str] = []
     for context, mappings in expanded.items():
         job_id, binding = next(iter(mappings))
         if job_id != "python-compatibility":
@@ -302,8 +323,8 @@ def audit(root: Path) -> dict[str, Any]:
         if set(binding_map) != {"python-version"} or version is None:
             errors.append(f"CI compatibility matrix binding is ambiguous: {context}")
         else:
-            matrix_versions.add(version)
-    _compare(errors, matrix_versions, set(supported), "CI Python compatibility matrix")
+            matrix_versions.append(version)
+    _compare(errors, matrix_versions, supported, "CI Python compatibility matrix")
 
     selectors = CI_CONTRACT.parse_setup_python_versions(workflow)
     expected_selectors = {
@@ -313,6 +334,20 @@ def audit(root: Path) -> dict[str, Any]:
     }
     for job_id, expected in expected_selectors.items():
         _compare(errors, selectors.get(job_id), expected, f"CI {job_id} setup-python selector")
+
+    run_commands = CI_CONTRACT.parse_run_commands(workflow)
+    audit_invocations = [
+        (job_id, command)
+        for job_id, commands in run_commands.items()
+        for command in commands
+        if "scripts/audit_python_contract.py" in command
+    ]
+    _compare(
+        errors,
+        audit_invocations,
+        [("source-archive-release", "python scripts/audit_python_contract.py")],
+        "CI Python contract audit invocation",
+    )
 
     status = "fail" if errors else "pass"
     return {

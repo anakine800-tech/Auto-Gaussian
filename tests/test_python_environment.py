@@ -76,14 +76,25 @@ class PythonEnvironmentTests(unittest.TestCase):
             with self.assertRaisesRegex(ENVIRONMENTS.EnvironmentError, "duplicate JSON key"):
                 ENVIRONMENTS.load_registry(path)
 
+    def test_duplicate_json_key_error_escapes_control_characters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "registry.json"
+            path.write_text('{"bad\\nkey": 1, "bad\\nkey": 2}', encoding="utf-8")
+            with self.assertRaises(ENVIRONMENTS.EnvironmentError) as caught:
+                ENVIRONMENTS.load_registry(path)
+        self.assertNotIn("bad\nkey", str(caught.exception))
+        self.assertIn(r"bad\nkey", str(caught.exception))
+
     def test_registry_rejects_invalid_v1_field_semantics(self) -> None:
         mutations = (
             ("core", "python_version", "3.13"),
             ("core", "environment_variable", "PYTHON"),
             ("core", "runtime_config_key", "rdkit_python"),
             ("core", "fallback", "../python"),
+            ("core", "fallback", "~/bin/\npython"),
             ("core", "requirements", "requirements/core.txt"),
             ("chem", "requirements", "../chemistry.lock.txt"),
+            ("chem", "requirements", "requirements/化学.txt"),
         )
         original = ENVIRONMENTS.load_registry()
         for profile, key, value in mutations:

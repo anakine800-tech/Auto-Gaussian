@@ -29,6 +29,8 @@ PROFILE_KEYS = {
 PYTHON_VERSION = re.compile(r"[1-9][0-9]*\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 PACKAGE_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[A-Za-z0-9._+-]*)")
 ENVIRONMENT_VARIABLE = re.compile(r"AUTO_G16_[A-Z][A-Z0-9_]*_PYTHON")
+HOME_RELATIVE_PATH = re.compile(r"~/[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*")
+REPOSITORY_RELATIVE_PATH = re.compile(r"[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*")
 PROFILE_SEMANTICS = {
     "core": {
         "environment_variable": "AUTO_G16_CORE_PYTHON",
@@ -64,7 +66,7 @@ def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise EnvironmentError(f"duplicate JSON key is forbidden: {key}")
+            raise EnvironmentError(f"duplicate JSON key is forbidden: {ascii(key)}")
         result[key] = value
     return result
 
@@ -128,9 +130,7 @@ def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
         if (
             not isinstance(fallback, str)
             or fallback != fallback.strip()
-            or not fallback.startswith("~/")
-            or "\x00" in fallback
-            or not fallback[2:]
+            or not HOME_RELATIVE_PATH.fullmatch(fallback)
             or any(part in {"", ".", ".."} for part in fallback[2:].split("/"))
         ):
             raise EnvironmentError(
@@ -143,6 +143,7 @@ def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
             if (
                 not isinstance(requirements, str)
                 or requirements != requirements.strip()
+                or not REPOSITORY_RELATIVE_PATH.fullmatch(requirements)
                 or Path(requirements).is_absolute()
                 or ".." in Path(requirements).parts
                 or Path(requirements).suffix != ".txt"
