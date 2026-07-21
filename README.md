@@ -383,6 +383,12 @@ Gaussian or PBS approval boundaries.
 
 ## Development sequence
 
+Start with the [`Auto-G16 development handbook`](docs/development-handbook.md).
+It defines the mandatory task/worktree/branch mapping, read-only preflight,
+offline validation ladder, review and CI contract, integration cleanup, and
+separate deployment/live approvals. `AGENTS.md` remains the binding safety
+policy; versioned release checklists retain release-specific details.
+
 1. Keep `main` stable and integrate changes through reviewed pull requests.
 2. Develop each workflow slice on a separate short-lived `codex/` feature
    branch, run offline validation first, and merge only after the applicable

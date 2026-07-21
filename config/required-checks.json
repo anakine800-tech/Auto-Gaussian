@@ -1,0 +1,75 @@
+{
+  "schema": "auto-g16-required-checks/1",
+  "version": 1,
+  "description": "Stable expected GitHub required-check contexts for Auto-G16. Local static audit proves only workflow declaration compatibility; remote branch protection and run success require separate read-only verification.",
+  "source_evidence": {
+    "observed_at": "2026-07-20",
+    "successful_run_id": 29736511783,
+    "workflow_name": "Offline tests",
+    "basis": "Read-only observation of the latest successful main run on the observation date. This evidence is historical and is not automatically refreshed."
+  },
+  "required_checks": [
+    {
+      "context": "python-compatibility (3.11)",
+      "workflow_file": ".github/workflows/offline-tests.yml",
+      "workflow_name": "Offline tests",
+      "job_id": "python-compatibility",
+      "matrix": {
+        "python-version": "3.11"
+      }
+    },
+    {
+      "context": "python-compatibility (3.12)",
+      "workflow_file": ".github/workflows/offline-tests.yml",
+      "workflow_name": "Offline tests",
+      "job_id": "python-compatibility",
+      "matrix": {
+        "python-version": "3.12"
+      }
+    },
+    {
+      "context": "python-compatibility (3.13)",
+      "workflow_file": ".github/workflows/offline-tests.yml",
+      "workflow_name": "Offline tests",
+      "job_id": "python-compatibility",
+      "matrix": {
+        "python-version": "3.13"
+      }
+    },
+    {
+      "context": "source-archive-release",
+      "workflow_file": ".github/workflows/offline-tests.yml",
+      "workflow_name": "Offline tests",
+      "job_id": "source-archive-release",
+      "matrix": {}
+    },
+    {
+      "context": "chemistry-dependencies",
+      "workflow_file": ".github/workflows/offline-tests.yml",
+      "workflow_name": "Offline tests",
+      "job_id": "chemistry-dependencies",
+      "matrix": {}
+    }
+  ],
+  "remote_branch_protection_snapshot": {
+    "observed_at": "2026-07-20",
+    "strict": true,
+    "app_id": 15368,
+    "required_contexts": [
+      "python-compatibility (3.11)",
+      "python-compatibility (3.12)"
+    ],
+    "enforce_admins": true,
+    "required_conversation_resolution": true,
+    "allow_force_pushes": false,
+    "allow_deletions": false,
+    "rulesets_count": 0,
+    "status": "known_mismatch",
+    "note": "Historical read-only snapshot only. It omitted three expected contexts and is a merge/release blocker until current remote settings are independently re-verified and corrected under separate GitHub authority."
+  },
+  "limitations": [
+    "A local static audit cannot prove current GitHub branch protection or permissions.",
+    "A workflow declaration cannot prove that a check ran or succeeded.",
+    "The remote snapshot is dated historical evidence, not current truth."
+  ]
+}

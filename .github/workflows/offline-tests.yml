@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   python-compatibility:
+    name: python-compatibility (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -35,6 +36,7 @@ jobs:
         run: bash -n scripts/check_rtwin_connection.sh scripts/probe_gaussian_server.sh templates/g16_job.pbs.template
 
   source-archive-release:
+    name: source-archive-release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -43,6 +45,8 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: "3.13"
+      - name: Audit required-check declarations
+        run: python scripts/audit_ci_contract.py
       - name: Test the GitHub source archive including pressure coverage
         run: |
           archive_dir="$(mktemp -d)"
@@ -52,6 +56,7 @@ jobs:
           python scripts/run_tests.py --top-slow 20 --slow-threshold 1.0
 
   chemistry-dependencies:
+    name: chemistry-dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8

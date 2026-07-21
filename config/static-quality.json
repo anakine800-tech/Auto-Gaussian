@@ -1,6 +1,8 @@
 {
   "schema": "auto-g16-static-quality/1",
   "paths": [
+    "scripts/audit_ci_contract.py",
+    "scripts/dev_preflight.py",
     "scripts/python_environment.py",
     "scripts/private_study_migration.py",
     "scripts/run_tests.py",
