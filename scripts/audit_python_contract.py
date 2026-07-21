@@ -222,6 +222,23 @@ def parse_lock(root: Path, relative: str) -> dict[str, str]:
     return pins
 
 
+def validate_requirement_entrypoint(
+    root: Path,
+    relative: str,
+    expected_include: str,
+) -> None:
+    active_lines = [
+        (number, line)
+        for number, line in enumerate(_read(root, relative).splitlines(), 1)
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    expected = f"-r {expected_include}"
+    if len(active_lines) != 1 or active_lines[0][1] != expected:
+        raise ContractError(
+            f"{relative}: must contain exactly one active line: {expected!r}"
+        )
+
+
 def _minor(version: str) -> str:
     parts = version.split(".")
     return ".".join(parts[:2])
@@ -279,6 +296,17 @@ def audit(root: Path) -> dict[str, Any]:
     lock = parse_lock(root, paths["chemistry-lock"])
     expected_lock = {package.lower(): version for package, version in chem["packages"].items()}
     _compare(errors, lock, expected_lock, "chemistry lock")
+    chemistry_entrypoint = "requirements/chemistry.txt"
+    chemistry_lock = Path(paths["chemistry-lock"])
+    if chemistry_lock.parent != Path(chemistry_entrypoint).parent:
+        raise ContractError(
+            "chemistry lock and requirements entrypoint must share one directory"
+        )
+    validate_requirement_entrypoint(
+        root,
+        chemistry_entrypoint,
+        chemistry_lock.name,
+    )
 
     required_path = _repo_file(root, "config/required-checks.json")
     required = CI_CONTRACT.load_contract(required_path)
@@ -336,6 +364,23 @@ def audit(root: Path) -> dict[str, Any]:
         _compare(errors, selectors.get(job_id), expected, f"CI {job_id} setup-python selector")
 
     run_commands = CI_CONTRACT.parse_run_commands(workflow)
+    chemistry_installs = [
+        (job_id, command)
+        for job_id, commands in run_commands.items()
+        for command in commands
+        if re.search(r"\bpip\s+install\b", command)
+    ]
+    _compare(
+        errors,
+        chemistry_installs,
+        [
+            (
+                "chemistry-dependencies",
+                "python -m pip install --requirement requirements/chemistry.txt",
+            )
+        ],
+        "CI chemistry requirements install invocation",
+    )
     audit_invocations = [
         (job_id, command)
         for job_id, commands in run_commands.items()
@@ -367,7 +412,7 @@ def audit(root: Path) -> dict[str, Any]:
                 "packages": chem["packages"],
             },
         },
-        "summary": {"errors": len(errors), "surfaces": 8},
+        "summary": {"errors": len(errors), "surfaces": 9},
         "errors": errors,
         "interpreter_availability_verified": False,
         "remote_branch_protection_verified": False,

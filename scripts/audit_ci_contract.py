@@ -47,8 +47,12 @@ def _reject_constant(value: str) -> None:
 
 
 def find_root(start: Path) -> Path:
+    try:
+        requested = start.resolve(strict=True)
+    except OSError as exc:
+        raise ContractError(f"requested repository path is unavailable: {start}") from exc
     result = subprocess.run(
-        ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+        ["git", "-C", str(requested), "rev-parse", "--show-toplevel"],
         check=False,
         capture_output=True,
         text=True,
@@ -56,6 +60,10 @@ def find_root(start: Path) -> Path:
     if result.returncode == 0:
         return Path(result.stdout.strip()).resolve()
     candidate = Path(__file__).resolve().parents[1]
+    try:
+        requested.relative_to(candidate)
+    except ValueError as exc:
+        raise ContractError("requested path is not inside this source archive") from exc
     if (candidate / "config" / "required-checks.json").is_file():
         return candidate
     raise ContractError("repository root could not be located")
@@ -74,7 +82,13 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ContractError(f"invalid required-check contract: {exc}") from exc
     if not isinstance(value, dict) or set(value) != TOP_LEVEL_KEYS:
         raise ContractError("required-check contract must be a closed object")
-    if value["schema"] != SCHEMA or value["version"] != 1:
+    version = value["version"]
+    if (
+        value["schema"] != SCHEMA
+        or not isinstance(version, int)
+        or isinstance(version, bool)
+        or version != 1
+    ):
         raise ContractError("unsupported required-check contract schema/version")
     for key in ("description",):
         if not isinstance(value[key], str) or not value[key].strip():
@@ -178,16 +192,18 @@ def _workflow_job_blocks(path: Path) -> tuple[str, list[tuple[str, list[str]]]]:
     if len(workflow_names) != 1:
         raise ContractError(f"{path.name}: exactly one top-level workflow name is required")
     workflow_name = _scalar(workflow_names[0], f"{path.name}: workflow name")
-    try:
-        jobs_index = lines.index("jobs:")
-    except ValueError as exc:
-        raise ContractError(f"{path.name}: top-level jobs mapping is missing") from exc
+    jobs_indices = [index for index, line in enumerate(lines) if line == "jobs:"]
+    if len(jobs_indices) != 1:
+        raise ContractError(f"{path.name}: exactly one top-level jobs mapping is required")
+    jobs_index = jobs_indices[0]
     job_starts: list[tuple[int, str]] = []
+    jobs_end = len(lines)
     for index in range(jobs_index + 1, len(lines)):
         match = re.fullmatch(rf"  ({KEY}):\s*", lines[index])
         if match:
             job_starts.append((index, match.group(1)))
         elif lines[index] and not lines[index].startswith(" "):
+            jobs_end = index
             break
     if not job_starts:
         raise ContractError(f"{path.name}: no supported jobs were found")
@@ -197,7 +213,7 @@ def _workflow_job_blocks(path: Path) -> tuple[str, list[tuple[str, list[str]]]]:
             lines[
                 start + 1 : job_starts[position + 1][0]
                 if position + 1 < len(job_starts)
-                else len(lines)
+                else jobs_end
             ],
         )
         for position, (start, job_id) in enumerate(job_starts)

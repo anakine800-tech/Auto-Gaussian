@@ -27,6 +27,7 @@ FIXTURE_FILES = (
     "config/required-checks.json",
     "environment.yml",
     "environment-chem.yml",
+    "requirements/chemistry.txt",
     "requirements/chemistry.lock.txt",
     ".github/workflows/offline-tests.yml",
 )
@@ -270,6 +271,53 @@ class PythonContractAuditTests(unittest.TestCase):
         lock = self.path("requirements/chemistry.lock.txt")
         lock.write_text(lock.read_text(encoding="utf-8") + "numpy==2.4.6\n", encoding="utf-8")
         with self.assertRaisesRegex(AUDIT.ContractError, "duplicate requirement"):
+            AUDIT.audit(self.root)
+
+    def test_chemistry_requirement_entrypoint_rejects_extra_active_content(self) -> None:
+        entrypoint = self.path("requirements/chemistry.txt")
+        original = entrypoint.read_text(encoding="utf-8")
+        for extra in (
+            "requests==2.32.4",
+            "-r other.lock.txt",
+            "--index-url https://example.invalid/simple",
+            "https://example.invalid/package.whl",
+        ):
+            with self.subTest(extra=extra):
+                entrypoint.write_text(original + extra + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(AUDIT.ContractError, "exactly one active line"):
+                    AUDIT.audit(self.root)
+        entrypoint.write_text(original, encoding="utf-8")
+
+    def test_chemistry_requirement_entrypoint_symlink_is_rejected(self) -> None:
+        entrypoint = self.path("requirements/chemistry.txt")
+        entrypoint.unlink()
+        entrypoint.symlink_to("chemistry.lock.txt")
+        with self.assertRaisesRegex(AUDIT.ContractError, "symlink"):
+            AUDIT.audit(self.root)
+
+    def test_ci_chemistry_install_must_use_the_reviewed_entrypoint(self) -> None:
+        self.replace(
+            ".github/workflows/offline-tests.yml",
+            "python -m pip install --requirement requirements/chemistry.txt",
+            "python -m pip install --requirement requirements/chemistry.lock.txt",
+        )
+        report = AUDIT.audit(self.root)
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("chemistry requirements install" in item for item in report["errors"]))
+
+    def test_chemistry_lock_cannot_move_away_from_its_entrypoint(self) -> None:
+        moved = self.path("requirements/locks/chemistry.lock.txt")
+        moved.parent.mkdir()
+        shutil.copy2(self.path("requirements/chemistry.lock.txt"), moved)
+        self.replace(
+            "pyproject.toml",
+            'chemistry-lock = "requirements/chemistry.lock.txt"',
+            'chemistry-lock = "requirements/locks/chemistry.lock.txt"',
+        )
+        value = self.load_registry()
+        value["profiles"]["chem"]["requirements"] = "requirements/locks/chemistry.lock.txt"
+        self.write_registry(value)
+        with self.assertRaisesRegex(AUDIT.ContractError, "share one directory"):
             AUDIT.audit(self.root)
 
     def test_json_cli_from_subdirectory_reports_limits(self) -> None:

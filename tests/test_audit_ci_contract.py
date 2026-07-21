@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).parents[1]
@@ -194,6 +195,13 @@ class CIContractAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(AUDIT.ContractError, "non-standard JSON"):
             AUDIT.load_contract(self.config)
 
+    def test_boolean_contract_version_is_rejected(self) -> None:
+        value = contract()
+        value["version"] = True
+        self.write_contract(value)
+        with self.assertRaisesRegex(AUDIT.ContractError, "schema/version"):
+            AUDIT.load_contract(self.config)
+
     def test_workflow_job_or_context_mismatch_fails(self) -> None:
         value = contract()
         value["required_checks"][0]["job_id"] = "wrong-job"  # type: ignore[index]
@@ -223,6 +231,24 @@ class CIContractAuditTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AUDIT.ContractError, "inline string-array"):
             AUDIT.parse_workflow(self.workflow)
+
+    def test_duplicate_top_level_jobs_mapping_fails_closed(self) -> None:
+        self.workflow.write_text(
+            WORKFLOW + "\njobs:\n  replacement:\n    name: replacement\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(AUDIT.ContractError, "exactly one top-level jobs"):
+            AUDIT.parse_workflow(self.workflow)
+
+    def test_find_root_does_not_fall_back_for_an_unrelated_explicit_path(self) -> None:
+        with tempfile.TemporaryDirectory() as outside:
+            with self.assertRaisesRegex(AUDIT.ContractError, "not inside this source archive"):
+                AUDIT.find_root(Path(outside))
+
+    def test_find_root_retains_source_archive_fallback_inside_script_root(self) -> None:
+        failed = subprocess.CompletedProcess(args=[], returncode=128, stdout="", stderr="")
+        with mock.patch.object(AUDIT.subprocess, "run", return_value=failed):
+            self.assertEqual(AUDIT.find_root(ROOT / "docs"), ROOT.resolve())
 
     def test_json_cli_reports_static_limits_not_remote_success(self) -> None:
         result = subprocess.run(
