@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -49,6 +50,72 @@ class PythonEnvironmentTests(unittest.TestCase):
             f"- python={registry['profiles']['core']['python_version']}",
             core_environment,
         )
+
+    def test_registry_rejects_unknown_top_level_and_profile_fields(self) -> None:
+        registry = ENVIRONMENTS.load_registry()
+        for target, key in ((registry, "extra"), (registry["profiles"]["core"], "extra")):
+            with self.subTest(key=key, target=set(target)):
+                changed = json.loads(json.dumps(registry))
+                destination = changed if target is registry else changed["profiles"]["core"]
+                destination[key] = "forbidden"
+                with tempfile.TemporaryDirectory() as temporary:
+                    path = Path(temporary) / "registry.json"
+                    path.write_text(json.dumps(changed), encoding="utf-8")
+                    with self.assertRaisesRegex(ENVIRONMENTS.EnvironmentError, "closed"):
+                        ENVIRONMENTS.load_registry(path)
+
+    def test_registry_rejects_duplicate_json_keys(self) -> None:
+        raw = (ROOT / "config" / "python-environments.json").read_text(encoding="utf-8")
+        raw = raw.replace(
+            '"default_profile": "core",',
+            '"default_profile": "core",\n  "default_profile": "chem",',
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "registry.json"
+            path.write_text(raw, encoding="utf-8")
+            with self.assertRaisesRegex(ENVIRONMENTS.EnvironmentError, "duplicate JSON key"):
+                ENVIRONMENTS.load_registry(path)
+
+    def test_duplicate_json_key_error_escapes_control_characters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "registry.json"
+            path.write_text('{"bad\\nkey": 1, "bad\\nkey": 2}', encoding="utf-8")
+            with self.assertRaises(ENVIRONMENTS.EnvironmentError) as caught:
+                ENVIRONMENTS.load_registry(path)
+        self.assertNotIn("bad\nkey", str(caught.exception))
+        self.assertIn(r"bad\nkey", str(caught.exception))
+
+    def test_registry_rejects_invalid_v1_field_semantics(self) -> None:
+        mutations = (
+            ("core", "python_version", "3.13"),
+            ("core", "environment_variable", "PYTHON"),
+            ("core", "runtime_config_key", "rdkit_python"),
+            ("core", "fallback", "../python"),
+            ("core", "fallback", "~/bin/\npython"),
+            ("core", "requirements", "requirements/core.txt"),
+            ("chem", "requirements", "../chemistry.lock.txt"),
+            ("chem", "requirements", "requirements/化学.txt"),
+        )
+        original = ENVIRONMENTS.load_registry()
+        for profile, key, value in mutations:
+            with self.subTest(profile=profile, key=key):
+                changed = json.loads(json.dumps(original))
+                changed["profiles"][profile][key] = value
+                with tempfile.TemporaryDirectory() as temporary:
+                    path = Path(temporary) / "registry.json"
+                    path.write_text(json.dumps(changed), encoding="utf-8")
+                    with self.assertRaises(ENVIRONMENTS.EnvironmentError):
+                        ENVIRONMENTS.load_registry(path)
+
+    def test_registry_rejects_symlink_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            regular = root / "regular.json"
+            shutil.copy2(ROOT / "config" / "python-environments.json", regular)
+            alias = root / "alias.json"
+            alias.symlink_to(regular)
+            with self.assertRaisesRegex(ENVIRONMENTS.EnvironmentError, "non-symlink"):
+                ENVIRONMENTS.load_registry(alias)
 
     def test_environment_variable_precedes_runtime_config(self) -> None:
         registry = ENVIRONMENTS.load_registry()
