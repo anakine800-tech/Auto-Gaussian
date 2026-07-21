@@ -7,6 +7,7 @@ import base64
 import copy
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -553,6 +554,47 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             PBS.run(["true"])
             self.assertEqual(invoked.call_args.kwargs["timeout"], PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS)
 
+    def test_fetch_timeout_plan_adds_finite_startup_budget_and_exact_byte_bounds(self):
+        one_byte_transfer = PBS.fetch_transfer_timeout_seconds(1)
+        one_byte_hash = PBS.fetch_hash_timeout_seconds(1)
+        self.assertEqual(
+            one_byte_transfer,
+            PBS.FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS
+            + PBS.TRANSFER_FIXED_OVERHEAD_SECONDS + 1,
+        )
+        self.assertEqual(
+            one_byte_hash,
+            PBS.FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS
+            + PBS.HASH_FIXED_OVERHEAD_SECONDS + 1,
+        )
+        self.assertGreater(one_byte_transfer, PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS)
+        self.assertGreater(one_byte_hash, PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS)
+        self.assertGreater(PBS.FETCH_CONTROL_TIMEOUT_SECONDS, PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS)
+        self.assertLess(PBS.FETCH_CONTROL_TIMEOUT_SECONDS, PBS.MAX_TRANSFER_TIMEOUT_SECONDS)
+        self.assertLessEqual(
+            PBS.fetch_transfer_timeout_seconds(PBS.MAX_FETCH_TRANSFER_BYTES),
+            PBS.MAX_TRANSFER_TIMEOUT_SECONDS,
+        )
+        self.assertLessEqual(
+            PBS.fetch_hash_timeout_seconds(PBS.MAX_FETCH_HASH_BYTES),
+            PBS.MAX_HASH_TIMEOUT_SECONDS,
+        )
+        with self.assertRaises(SystemExit):
+            PBS.fetch_transfer_timeout_seconds(PBS.MAX_FETCH_TRANSFER_BYTES + 1)
+        with self.assertRaises(SystemExit):
+            PBS.fetch_hash_timeout_seconds(PBS.MAX_FETCH_HASH_BYTES + 1)
+        plan = PBS.fetch_stage_timeout_plan(10, 1)
+        self.assertEqual(list(plan["stages"]), list(PBS.FETCH_STAGE_LABELS))
+        self.assertFalse(plan["automatic_retry"])
+        self.assertEqual(
+            plan["stages"][PBS.FETCH_STAGE_SERVER_INVENTORY]["timeout_seconds"],
+            PBS.FETCH_CONTROL_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(
+            plan["stages"][PBS.FETCH_STAGE_SERVER_TO_RTWIN_SCP]["known_size_bytes"],
+            1,
+        )
+
     def test_active_snapshot_builder_avoids_whole_log_scan(self):
         script = PBS.server_job_snapshot_script("safejob", "input", "123.master")
         self.assertNotIn("grep -c", script)
@@ -560,6 +602,44 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
         self.assertIn("scan_scope='exact_whole_log_once'", script)
         self.assertIn('[ "$qstate" = H ]', script)
         self.assertEqual(script.count("counts=$(awk"), 1)
+
+    def test_snapshot_script_captures_qstat_153_before_normal_termination_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            project_dir = root / "safejob"; project_dir.mkdir()
+            (project_dir / "input.log").write_text("Normal termination of Gaussian\n")
+            bin_dir = root / "bin"; bin_dir.mkdir()
+            qstat = bin_dir / "qstat"
+            qstat.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' 'qstat: Unknown Job Id 123.master' >&2\n"
+                "exit 153\n"
+            )
+            qstat.chmod(0o700)
+            realpath = bin_dir / "realpath"
+            realpath.write_text(
+                "#!/bin/sh\n"
+                "[ \"${1:-}\" = '-e' ] && shift\n"
+                "[ \"${1:-}\" = '--' ] && shift\n"
+                "printf '%s\\n' \"$1\"\n"
+            )
+            realpath.chmod(0o700)
+            with mock.patch.object(PBS, "DEFAULT_REMOTE_ROOT", str(root)):
+                script = PBS.server_job_snapshot_script("safejob", "input", "123.master")
+            self.assertTrue(script.startswith("set -euo pipefail\n"))
+            self.assertNotRegex(script, r"counts=\$\(awk [^\n]*\s--\s")
+            result = subprocess.run(
+                ["bash"], input=script, text=True, capture_output=True,
+                env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            snapshot = PBS.parse_job_snapshot_output(result.stdout)
+            self.assertEqual(snapshot["qstat"].returncode, 153)
+            self.assertIn("Unknown Job Id 123.master", snapshot["qstat"].stdout)
+            self.assertEqual(snapshot["normal_count"], "1")
+            self.assertEqual(snapshot["error_count"], "0")
+            self.assertEqual(snapshot["scan_scope"], "exact_whole_log_once")
 
     def test_seven_day_stable_watch_has_bounded_backoff_and_persistence(self):
         with tempfile.TemporaryDirectory() as temp:

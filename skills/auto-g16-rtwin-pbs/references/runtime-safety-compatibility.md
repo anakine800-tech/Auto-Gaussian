@@ -84,6 +84,22 @@ Successful snapshots contain:
 server to RTwin to Mac hashes;
 - `result.json` and any parser outputs generated only after transfer validation.
 
+Fetch command failures now identify one stable non-secret stage:
+`server_inventory`, `server_sha256`, `rtwin_snapshot_mkdir`,
+`server_to_rtwin_scp`, `rtwin_sha256`, or `rtwin_to_mac_scp`. Error messages
+record only the stage, classification, return code and finite timeout; they do
+not echo the SSH/scp command, configuration path, host credential or remote
+diagnostic text. Fetch never retries a failed stage automatically.
+
+The existing size-derived transfer and hash budgets remain finite. Fetch adds
+an explicit connection/startup allowance to those exact-known-byte budgets,
+while inventory and RTwin snapshot creation use a separate finite control
+budget. Successful `transfer.json` records `fetch_stage_evidence`, including
+the ordered stage labels, timeout plan, per-stage passed/not-needed result and
+`automatic_retry: false`. This is additive evidence in
+`gaussian-fetch-snapshot/1`; the allowlist, two-hop SHA-256 verification and
+existing timeout evidence fields remain present.
+
 `--reuse-snapshot` may reuse unchanged allowlisted bytes only after the old
 immutable snapshot and its local/per-hop hashes are replayed. Reuse copies into
 a private no-clobber file, fsyncs and rehashes it; snapshots never share an

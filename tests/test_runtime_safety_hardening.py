@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import importlib.util
 import json
 import os
@@ -442,7 +443,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                 if call == 0:
                     return completed(0, self.inventory_text(files))
                 if call == 1:
-                    self.assertEqual(timeout_seconds, PBS.hash_timeout_seconds(sum(len(data) for data in files.values())))
+                    self.assertEqual(timeout_seconds, PBS.fetch_hash_timeout_seconds(sum(len(data) for data in files.values())))
                     return completed(0, self.server_hash_text(files))
                 if call == 2:
                     encoded = command[-1]
@@ -451,15 +452,15 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                     self.assertNotIn("-Force", script)
                     return completed()
                 if call == 3:
-                    self.assertEqual(timeout_seconds, PBS.transfer_timeout_seconds(sum(len(data) for data in files.values())))
+                    self.assertEqual(timeout_seconds, PBS.fetch_transfer_timeout_seconds(sum(len(data) for data in files.values())))
                     self.assertFalse(any("*" in part for part in command))
                     self.assertFalse(any("scratch" in part for part in command))
                     return completed()
                 if call == 4:
-                    self.assertEqual(timeout_seconds, PBS.hash_timeout_seconds(sum(len(data) for data in files.values())))
+                    self.assertEqual(timeout_seconds, PBS.fetch_hash_timeout_seconds(sum(len(data) for data in files.values())))
                     return completed(0, self.rtwin_hash_text(files))
                 if call == 5:
-                    self.assertEqual(timeout_seconds, PBS.transfer_timeout_seconds(sum(len(data) for data in files.values())))
+                    self.assertEqual(timeout_seconds, PBS.fetch_transfer_timeout_seconds(sum(len(data) for data in files.values())))
                     staging = Path(command[-1])
                     for name, data in files.items():
                         (staging / name).write_bytes(data)
@@ -480,10 +481,83 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             self.assertTrue(transfer["snapshot_complete"])
             self.assertTrue(transfer["per_hop_sha256_verified"])
             self.assertEqual(transfer["exact_log"], "safe_job.log")
+            stage_evidence = transfer["fetch_stage_evidence"]
+            self.assertEqual(stage_evidence["stage_order"], list(PBS.FETCH_STAGE_LABELS))
+            self.assertFalse(stage_evidence["automatic_retry"])
+            self.assertEqual(set(stage_evidence["results"]), set(PBS.FETCH_STAGE_LABELS))
+            self.assertTrue(all(
+                item["status"] == "passed"
+                for item in stage_evidence["results"].values()
+            ))
+            self.assertEqual(
+                set(stage_evidence["timeout_plan"]["stages"]),
+                set(PBS.FETCH_STAGE_LABELS),
+            )
+            self.assertNotIn("command", json.dumps(stage_evidence).lower())
             self.assertFalse((output / ".fetch-in-progress").exists())
             allowlist = json.loads((output / "server-allowlist.json").read_text())
             self.assertFalse(allowlist["scratch_included"])
             self.assertFalse(allowlist["unrelated_files_included"])
+
+    def test_each_fetch_stage_timeout_is_labeled_sanitized_and_never_retried(self) -> None:
+        for failed_call, stage in enumerate(PBS.FETCH_STAGE_LABELS):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp).resolve()
+                args, _, files = self.make_fetch_case(root)
+                output = root / f"snapshot-{failed_call}"
+
+                def fake_run(
+                    command, *, input_bytes=None, check=True,
+                    timeout_seconds=PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS,
+                ):
+                    call = fake_run.calls
+                    fake_run.calls += 1
+                    if call == failed_call:
+                        return completed(
+                            124,
+                            stderr=(
+                                "PRIVATE-CREDENTIAL ssh -F /secret/config "
+                                "gaussian-server AUTO_G16_COMMAND_TIMEOUT"
+                            ),
+                        )
+                    if call == 0:
+                        return completed(0, self.inventory_text(files))
+                    if call == 1:
+                        return completed(0, self.server_hash_text(files))
+                    if call in {2, 3}:
+                        return completed()
+                    if call == 4:
+                        return completed(0, self.rtwin_hash_text(files))
+                    raise AssertionError(f"unexpected pre-failure command index: {call}")
+
+                fake_run.calls = 0
+                error = io.StringIO()
+                with (
+                    mock.patch.object(PBS, "run", side_effect=fake_run),
+                    mock.patch("sys.stderr", error),
+                    self.assertRaises(SystemExit),
+                ):
+                    PBS.fetch_results(args, "safe_job", output)
+                message = error.getvalue()
+                self.assertIn(f"fetch stage {stage} failed", message)
+                self.assertIn("classification=timeout", message)
+                self.assertIn("command details withheld", message)
+                self.assertNotIn("PRIVATE-CREDENTIAL", message)
+                self.assertNotIn("/secret/config", message)
+                self.assertNotIn("gaussian-server", message)
+                self.assertEqual(fake_run.calls, failed_call + 1)
+                self.assertTrue((output / ".fetch-in-progress").is_file())
+                self.assertFalse((output / "transfer.json").exists())
+
+                retry_error = io.StringIO()
+                with (
+                    mock.patch.object(PBS, "run") as retry_run,
+                    mock.patch("sys.stderr", retry_error),
+                    self.assertRaises(SystemExit),
+                ):
+                    PBS.fetch_results(args, "safe_job", output)
+                retry_run.assert_not_called()
+                self.assertIn("non-empty or partial target", retry_error.getvalue())
 
     def test_fetch_server_and_rtwin_hash_timeouts_are_size_derived_and_leave_no_snapshot(self) -> None:
         for failed_phase in ("server", "rtwin", "mac_after_hash"):
@@ -520,7 +594,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
                     PBS.fetch_results(args, "safe_job", output)
                 self.assertTrue((output / ".fetch-in-progress").is_file())
                 self.assertFalse((output / "transfer.json").exists())
-                self.assertEqual(seen[0], PBS.DEFAULT_COMMAND_TIMEOUT_SECONDS)
+                self.assertEqual(seen[0], PBS.FETCH_CONTROL_TIMEOUT_SECONDS)
 
     def test_fetch_rejects_old_target_multiple_logs_and_missing_required_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

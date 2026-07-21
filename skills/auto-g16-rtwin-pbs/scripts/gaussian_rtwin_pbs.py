@@ -99,6 +99,38 @@ MAX_HASH_TIMEOUT_SECONDS = 7 * 24 * 3600
 MAX_HASH_BYTES = (
     MAX_HASH_TIMEOUT_SECONDS - HASH_FIXED_OVERHEAD_SECONDS
 ) * HASH_RATE_FLOOR_BYTES_PER_SECOND
+FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS = 120
+FETCH_CONTROL_TIMEOUT_SECONDS = 180
+MIN_FETCH_TRANSFER_TIMEOUT_SECONDS = (
+    FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS + TRANSFER_FIXED_OVERHEAD_SECONDS
+)
+MIN_FETCH_HASH_TIMEOUT_SECONDS = (
+    FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS + HASH_FIXED_OVERHEAD_SECONDS
+)
+MAX_FETCH_TRANSFER_BYTES = (
+    MAX_TRANSFER_TIMEOUT_SECONDS
+    - FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS
+    - TRANSFER_FIXED_OVERHEAD_SECONDS
+) * TRANSFER_RATE_FLOOR_BYTES_PER_SECOND
+MAX_FETCH_HASH_BYTES = (
+    MAX_HASH_TIMEOUT_SECONDS
+    - FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS
+    - HASH_FIXED_OVERHEAD_SECONDS
+) * HASH_RATE_FLOOR_BYTES_PER_SECOND
+FETCH_STAGE_SERVER_INVENTORY = "server_inventory"
+FETCH_STAGE_SERVER_SHA256 = "server_sha256"
+FETCH_STAGE_RTWIN_SNAPSHOT_MKDIR = "rtwin_snapshot_mkdir"
+FETCH_STAGE_SERVER_TO_RTWIN_SCP = "server_to_rtwin_scp"
+FETCH_STAGE_RTWIN_SHA256 = "rtwin_sha256"
+FETCH_STAGE_RTWIN_TO_MAC_SCP = "rtwin_to_mac_scp"
+FETCH_STAGE_LABELS = (
+    FETCH_STAGE_SERVER_INVENTORY,
+    FETCH_STAGE_SERVER_SHA256,
+    FETCH_STAGE_RTWIN_SNAPSHOT_MKDIR,
+    FETCH_STAGE_SERVER_TO_RTWIN_SCP,
+    FETCH_STAGE_RTWIN_SHA256,
+    FETCH_STAGE_RTWIN_TO_MAC_SCP,
+)
 MAX_READ_ONLY_RETRIES = 2
 MAX_REMOTE_CLOCK_SKEW_SECONDS = 5
 MIN_INTERRUPTION_STABLE_SECONDS = 60
@@ -179,6 +211,109 @@ def hash_timeout_seconds(total_bytes: int) -> int:
         minimum=MIN_HASH_TIMEOUT_SECONDS, maximum=MAX_HASH_TIMEOUT_SECONDS,
         maximum_bytes=MAX_HASH_BYTES, label="hash",
     )
+
+
+def fetch_transfer_timeout_seconds(total_bytes: int) -> int:
+    """Return one finite exact-byte fetch transfer budget including connection startup."""
+    return _size_derived_timeout_seconds(
+        total_bytes, rate_floor=TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
+        fixed_overhead=(
+            FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS + TRANSFER_FIXED_OVERHEAD_SECONDS
+        ),
+        minimum=MIN_FETCH_TRANSFER_TIMEOUT_SECONDS,
+        maximum=MAX_TRANSFER_TIMEOUT_SECONDS,
+        maximum_bytes=MAX_FETCH_TRANSFER_BYTES,
+        label="fetch transfer",
+    )
+
+
+def fetch_hash_timeout_seconds(total_bytes: int) -> int:
+    """Return one finite exact-byte remote fetch hash budget including connection startup."""
+    return _size_derived_timeout_seconds(
+        total_bytes, rate_floor=HASH_RATE_FLOOR_BYTES_PER_SECOND,
+        fixed_overhead=(
+            FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS + HASH_FIXED_OVERHEAD_SECONDS
+        ),
+        minimum=MIN_FETCH_HASH_TIMEOUT_SECONDS,
+        maximum=MAX_HASH_TIMEOUT_SECONDS,
+        maximum_bytes=MAX_FETCH_HASH_BYTES,
+        label="fetch hash",
+    )
+
+
+def fetch_stage_timeout_plan(server_size_bytes: int, changed_size_bytes: int) -> dict[str, Any]:
+    """Build the closed, non-secret finite timeout plan for one fetch attempt."""
+    server_hash_timeout = fetch_hash_timeout_seconds(server_size_bytes)
+    transfer_timeout = fetch_transfer_timeout_seconds(changed_size_bytes)
+    rtwin_hash_timeout = fetch_hash_timeout_seconds(changed_size_bytes)
+    return {
+        "schema": "gaussian-fetch-stage-timeout-plan/1",
+        "automatic_retry": False,
+        "connection_startup_overhead_seconds": FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS,
+        "control_timeout_seconds": FETCH_CONTROL_TIMEOUT_SECONDS,
+        "finite_max_transfer_timeout_seconds": MAX_TRANSFER_TIMEOUT_SECONDS,
+        "finite_max_hash_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
+        "stages": {
+            FETCH_STAGE_SERVER_INVENTORY: {
+                "budget_kind": "control", "known_size_bytes": None,
+                "timeout_seconds": FETCH_CONTROL_TIMEOUT_SECONDS,
+            },
+            FETCH_STAGE_SERVER_SHA256: {
+                "budget_kind": "hash", "known_size_bytes": server_size_bytes,
+                "timeout_seconds": server_hash_timeout,
+            },
+            FETCH_STAGE_RTWIN_SNAPSHOT_MKDIR: {
+                "budget_kind": "control", "known_size_bytes": None,
+                "timeout_seconds": FETCH_CONTROL_TIMEOUT_SECONDS,
+            },
+            FETCH_STAGE_SERVER_TO_RTWIN_SCP: {
+                "budget_kind": "transfer", "known_size_bytes": changed_size_bytes,
+                "timeout_seconds": transfer_timeout,
+            },
+            FETCH_STAGE_RTWIN_SHA256: {
+                "budget_kind": "hash", "known_size_bytes": changed_size_bytes,
+                "timeout_seconds": rtwin_hash_timeout,
+            },
+            FETCH_STAGE_RTWIN_TO_MAC_SCP: {
+                "budget_kind": "transfer", "known_size_bytes": changed_size_bytes,
+                "timeout_seconds": transfer_timeout,
+            },
+        },
+    }
+
+
+def fetch_stage_fail(stage: str, detail: str, *, code: int = 2) -> None:
+    if stage not in FETCH_STAGE_LABELS:
+        raise ValueError("unknown fetch stage label")
+    fail(f"fetch stage {stage} failed: {detail}", code=code)
+
+
+def run_fetch_stage(
+    stage: str, command: list[str], *, input_bytes: bytes | None = None,
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess:
+    """Run one fetch command once and emit only stable, non-secret failure metadata."""
+    if stage not in FETCH_STAGE_LABELS:
+        raise ValueError("unknown fetch stage label")
+    try:
+        result = run(
+            command, input_bytes=input_bytes, check=False,
+            timeout_seconds=timeout_seconds,
+        )
+    except OSError:
+        fetch_stage_fail(
+            stage,
+            f"classification=launch_error, timeout_seconds={timeout_seconds}; "
+            "command details withheld",
+        )
+    if result.returncode:
+        classification = "timeout" if result.returncode == 124 else "command_error"
+        fetch_stage_fail(
+            stage,
+            f"classification={classification}, returncode={result.returncode}, "
+            f"timeout_seconds={timeout_seconds}; command details withheld",
+        )
+    return result
 
 
 class _ReadOnlyCapability:
@@ -3389,7 +3524,7 @@ def server_job_snapshot_script(project: str, input_stem: str, job_id: str) -> st
     log_path = f"{remote_dir}/{input_stem}.log"
     manifest_path = f"{remote_dir}/{input_stem}.json"
     return remote_existing_directory_guard(project) + fr"""
-qstat_out=$(qstat -f '{job_id}' 2>&1); qrc=$?
+if qstat_out=$(qstat -f '{job_id}' 2>&1); then qrc=0; else qrc=$?; fi
 session=$(printf '%s\n' "$qstat_out" | sed -n 's/^[[:space:]]*session_id[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
 qstate=$(printf '%s\n' "$qstat_out" | sed -n 's/^[[:space:]]*job_state[[:space:]]*=[[:space:]]*\([A-Z]\).*/\1/p' | head -n 1)
 if [ -n "$session" ]; then process_out=$(ps -s "$session" -o pid= 2>&1); prc=$?; else process_out=''; prc=125; fi
@@ -3400,7 +3535,7 @@ if [ -f '{log_path}' ] && [ ! -L '{log_path}' ]; then
   if [ "$qstate" = Q ] || [ "$qstate" = H ] || {{ [ "$qstate" = R ] && [ "$prc" -eq 0 ] && [ -n "$process_out" ]; }}; then
     normal_count=''; error_count=''; scan_scope='bounded_tail_only'
   else
-    counts=$(awk '/Normal termination of Gaussian/{{n++}} /Error termination/{{e++}} END{{printf "%d:%d", n+0, e+0}}' -- '{log_path}' 2>/dev/null || true)
+    counts=$(awk '/Normal termination of Gaussian/{{n++}} /Error termination/{{e++}} END{{printf "%d:%d", n+0, e+0}}' '{log_path}' 2>/dev/null || true)
     normal_count=${{counts%%:*}}; error_count=${{counts#*:}}; scan_scope='exact_whole_log_once'
   fi
 else tail_out=''; trc=1; stat_value=''; normal_count=''; error_count=''; fi
@@ -3623,7 +3758,7 @@ def server_fetch_inventory_script(
     required: list[str],
     optional: list[str],
 ) -> str:
-    """Return a fast size-only exact-file inventory; never hash under 60 s."""
+    """Return a size-only exact-file inventory for the finite control-stage budget."""
 
     lines = [remote_existing_directory_guard(project), f"cd '{remote_project_dir(project)}'"]
     for status, names in (("REQUIRED", required), ("OPTIONAL", optional)):
@@ -3653,28 +3788,34 @@ def parse_server_fetch_inventory(
         if fields[0] == "FILE" and len(fields) == 3:
             _, name, size_text = fields
             if name not in allowed or name in reported:
-                fail("server fetch inventory contains an unexpected or duplicate file")
+                fetch_stage_fail(FETCH_STAGE_SERVER_INVENTORY, "inventory contains an unexpected or duplicate file")
             try:
                 size = int(size_text)
             except ValueError:
-                fail("server fetch inventory contains an invalid file size")
+                fetch_stage_fail(FETCH_STAGE_SERVER_INVENTORY, "inventory contains an invalid file size")
             if size < 0:
-                fail("server fetch inventory contains a negative file size")
+                fetch_stage_fail(FETCH_STAGE_SERVER_INVENTORY, "inventory contains a negative file size")
             files[name] = size
             reported.add(name)
         elif fields[0] in {"MISSING_REQUIRED", "MISSING_OPTIONAL"} and len(fields) == 2:
             name = fields[1]
             if name not in allowed or name in reported:
-                fail("server fetch inventory reports an unexpected missing file")
+                fetch_stage_fail(FETCH_STAGE_SERVER_INVENTORY, "inventory reports an unexpected missing file")
             (missing_required if fields[0] == "MISSING_REQUIRED" else missing_optional).append(name)
             reported.add(name)
         elif line.strip():
-            fail("server fetch inventory could not be parsed exactly")
+            fetch_stage_fail(FETCH_STAGE_SERVER_INVENTORY, "inventory could not be parsed exactly")
     unreported = allowed - set(files) - set(missing_required) - set(missing_optional)
     if unreported:
-        fail("server fetch inventory omitted allowlisted entries: " + ", ".join(sorted(unreported)))
+        fetch_stage_fail(
+            FETCH_STAGE_SERVER_INVENTORY,
+            "inventory omitted allowlisted entries: " + ", ".join(sorted(unreported)),
+        )
     if missing_required:
-        fail("server fetch is missing required files: " + ", ".join(sorted(missing_required)))
+        fetch_stage_fail(
+            FETCH_STAGE_SERVER_INVENTORY,
+            "required files are missing: " + ", ".join(sorted(missing_required)),
+        )
     return files, sorted(missing_optional)
 
 
@@ -3685,7 +3826,10 @@ def server_fetch_hash_script(project: str, sizes: dict[str, int]) -> str:
         validate_transfer_name(name)
         expected_size = sizes[name]
         if not isinstance(expected_size, int) or isinstance(expected_size, bool) or expected_size < 0:
-            fail("server fetch hash requires exact non-negative file sizes")
+            fetch_stage_fail(
+                FETCH_STAGE_SERVER_SHA256,
+                "hash builder requires exact non-negative file sizes",
+            )
         lines.append(
             f"if [ -L '{name}' ] || [ ! -f '{name}' ]; then echo 'HASH_SOURCE_CHANGED\\t{name}' >&2; exit 53; fi; "
             f"before=$(stat -c '%d:%i:%s:%Y' -- '{name}') || exit 54; "
@@ -3702,18 +3846,20 @@ def parse_server_fetch_hashes(text: str, sizes: dict[str, int]) -> dict[str, dic
     for line in text.splitlines():
         fields = line.split("\t")
         if len(fields) != 4 or fields[0] != "FILE":
-            if line.strip(): fail("server fetch hash inventory could not be parsed exactly")
+            if line.strip():
+                fetch_stage_fail(FETCH_STAGE_SERVER_SHA256, "hash inventory could not be parsed exactly")
             continue
         _, name, digest, size_text = fields
         if name not in sizes or name in files or not SHA256_RE.fullmatch(digest):
-            fail("server fetch hash inventory contains an unexpected or duplicate file")
+            fetch_stage_fail(FETCH_STAGE_SERVER_SHA256, "hash inventory contains an unexpected or duplicate file")
         try: observed_size = int(size_text)
-        except ValueError: fail("server fetch hash inventory contains an invalid size")
+        except ValueError:
+            fetch_stage_fail(FETCH_STAGE_SERVER_SHA256, "hash inventory contains an invalid size")
         if observed_size != sizes[name]:
-            fail("server fetch hash inventory size differs from size-only inventory")
+            fetch_stage_fail(FETCH_STAGE_SERVER_SHA256, "hash size differs from size-only inventory")
         files[name] = {"sha256": digest, "size": observed_size}
     if set(files) != set(sizes):
-        fail("server fetch hash inventory omitted an inventoried file")
+        fetch_stage_fail(FETCH_STAGE_SERVER_SHA256, "hash inventory omitted an inventoried file")
     return files
 
 
@@ -3821,16 +3967,19 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
     marker = begin_fetch_snapshot(output_dir, binding)
     output_dir = marker.parent
 
-    inventory_result = run(
+    inventory_result = run_fetch_stage(
+        FETCH_STAGE_SERVER_INVENTORY,
         nested_ssh(args, "bash", "-s"),
         input_bytes=server_fetch_inventory_script(project, required, optional).encode("utf-8"),
+        timeout_seconds=FETCH_CONTROL_TIMEOUT_SECONDS,
     )
     inventory_sizes, missing_optional = parse_server_fetch_inventory(
         str(inventory_result.stdout), required, optional
     )
     server_hash_size_bytes = sum(inventory_sizes.values())
-    server_hash_timeout = hash_timeout_seconds(server_hash_size_bytes)
-    server_hash_result = run(
+    server_hash_timeout = fetch_hash_timeout_seconds(server_hash_size_bytes)
+    server_hash_result = run_fetch_stage(
+        FETCH_STAGE_SERVER_SHA256,
         nested_ssh(args, "bash", "-s"),
         input_bytes=server_fetch_hash_script(project, inventory_sizes).encode("utf-8"),
         timeout_seconds=server_hash_timeout,
@@ -3841,15 +3990,21 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         if server_files.get(name, {}).get("sha256") != digest
     ]
     if staged_mismatches:
-        fail("server staged-file SHA-256 mismatch: " + ", ".join(staged_mismatches))
+        fetch_stage_fail(
+            FETCH_STAGE_SERVER_SHA256,
+            "staged-file SHA-256 mismatch: " + ", ".join(staged_mismatches),
+        )
 
     reusable = reusable_snapshot_files(
         getattr(args, "reuse_snapshot", None), binding, server_files
     )
     changed_names = sorted(set(server_files) - set(reusable))
     changed_size_bytes = sum(server_files[name]["size"] for name in changed_names)
-    fetch_transfer_timeout = transfer_timeout_seconds(changed_size_bytes)
-    rtwin_hash_timeout = hash_timeout_seconds(changed_size_bytes)
+    stage_timeout_plan = fetch_stage_timeout_plan(
+        server_hash_size_bytes, changed_size_bytes
+    )
+    fetch_transfer_timeout = stage_timeout_plan["stages"][FETCH_STAGE_SERVER_TO_RTWIN_SCP]["timeout_seconds"]
+    rtwin_hash_timeout = stage_timeout_plan["stages"][FETCH_STAGE_RTWIN_SHA256]["timeout_seconds"]
 
     snapshot_tag = f"fetch-{project}-{job_id}-{input_stem}-{snapshot_id}"
     windows_results = f"{args.windows_root}\\{project}\\{snapshot_tag}"
@@ -3860,18 +4015,30 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         f"New-Item -ItemType Directory -Path '{escaped_windows_results}' | Out-Null"
     )
     present_names = sorted(server_files)
+    mkdir_result: subprocess.CompletedProcess | None = None
+    server_to_rtwin_result: subprocess.CompletedProcess | None = None
+    rtwin_hash_result: subprocess.CompletedProcess | None = None
+    rtwin_to_mac_result: subprocess.CompletedProcess | None = None
     if changed_names:
-        run([
+        mkdir_result = run_fetch_stage(
+            FETCH_STAGE_RTWIN_SNAPSHOT_MKDIR,
+            [
             *ssh_base(args), "powershell", "-NoProfile", "-NonInteractive",
             "-EncodedCommand", powershell_encoded(mkdir_script),
-        ])
+            ],
+            timeout_seconds=FETCH_CONTROL_TIMEOUT_SECONDS,
+        )
         remote_sources = [
             f"{args.server_alias}:{remote_project_dir(project)}/{name}" for name in changed_names
         ]
-        run([
+        server_to_rtwin_result = run_fetch_stage(
+            FETCH_STAGE_SERVER_TO_RTWIN_SCP,
+            [
             *ssh_base(args), "scp", "-F", args.windows_server_config,
             *remote_sources, windows_results + "\\",
-        ], timeout_seconds=fetch_transfer_timeout)
+            ],
+            timeout_seconds=fetch_transfer_timeout,
+        )
     ps_paths = ",".join(
         "'" + f"{windows_results}\\{name}".replace("'", "''") + "'"
         for name in changed_names
@@ -3885,25 +4052,28 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
     rtwin_hashes: dict[str, dict[str, Any]] = {
         name: copy.deepcopy(server_files[name]) for name in reusable
     }
-    rtwin_hash_result: subprocess.CompletedProcess | None = None
     if changed_names:
-        rtwin_hash_result = run([
+        rtwin_hash_result = run_fetch_stage(
+            FETCH_STAGE_RTWIN_SHA256,
+            [
             *ssh_base(args), "powershell", "-NoProfile", "-NonInteractive",
             "-EncodedCommand", powershell_encoded(hash_script),
-        ], timeout_seconds=rtwin_hash_timeout)
+            ],
+            timeout_seconds=rtwin_hash_timeout,
+        )
         for line in str(rtwin_hash_result.stdout).splitlines():
             fields = line.strip().split("\t")
             if len(fields) != 3 or fields[0] not in changed_names or not SHA256_RE.fullmatch(fields[1]):
-                fail("RTwin fetch hash inventory could not be parsed exactly")
+                fetch_stage_fail(FETCH_STAGE_RTWIN_SHA256, "hash inventory could not be parsed exactly")
             if fields[0] in rtwin_hashes:
-                fail("RTwin fetch hash inventory repeats a file")
+                fetch_stage_fail(FETCH_STAGE_RTWIN_SHA256, "hash inventory repeats a file")
             try:
                 size = int(fields[2])
             except ValueError:
-                fail("RTwin fetch hash inventory contains an invalid size")
+                fetch_stage_fail(FETCH_STAGE_RTWIN_SHA256, "hash inventory contains an invalid size")
             rtwin_hashes[fields[0]] = {"sha256": fields[1], "size": size}
     if rtwin_hashes != server_files:
-        fail("server to RTwin fetch verification failed")
+        fetch_stage_fail(FETCH_STAGE_RTWIN_SHA256, "server-to-RTwin hash verification failed")
 
     windows_results_scp = windows_results.replace("\\", "/")
     for name, old_path in reusable.items():
@@ -3912,29 +4082,42 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
     if changed_names:
         local_network_stage = Path(tempfile.mkdtemp(prefix=f".fetch-network-{snapshot_id}-", dir=output_dir.parent))
         rtwin_sources = [f"{args.rtwin_alias}:{windows_results_scp}/{name}" for name in changed_names]
-        run([
+        rtwin_to_mac_result = run_fetch_stage(
+            FETCH_STAGE_RTWIN_TO_MAC_SCP,
+            [
             "scp", "-F", str(Path(args.mac_ssh_config).expanduser()),
             *rtwin_sources, str(local_network_stage) + "/",
-        ], timeout_seconds=fetch_transfer_timeout)
+            ],
+            timeout_seconds=fetch_transfer_timeout,
+        )
         for name in changed_names:
             staged = local_network_stage / name
             if staged.is_symlink() or not staged.is_file() or sha256(staged) != server_files[name]["sha256"] or staged.stat().st_size != server_files[name]["size"]:
-                fail("private network staging failed exact hash/size verification")
+                fetch_stage_fail(
+                    FETCH_STAGE_RTWIN_TO_MAC_SCP,
+                    "private network staging failed exact hash/size verification",
+                )
             atomic_private_reuse_copy(staged, output_dir / name, server_files[name])
         for name in changed_names:
             with contextlib.suppress(FileNotFoundError): (local_network_stage / name).unlink()
         with contextlib.suppress(OSError): local_network_stage.rmdir()
     actual_entries = {path.name for path in output_dir.iterdir() if path.name != marker.name}
     if actual_entries != set(present_names):
-        fail("Mac fetch snapshot contains missing, extra, nested, or partial transfer entries")
+        fetch_stage_fail(
+            FETCH_STAGE_RTWIN_TO_MAC_SCP,
+            "Mac snapshot contains missing, extra, nested, or partial transfer entries",
+        )
     mac_hashes: dict[str, dict[str, Any]] = {}
     for name in present_names:
         path = output_dir / name
         if not path.is_file() or path.is_symlink():
-            fail(f"Mac fetch snapshot entry is not one regular file: {name}")
+            fetch_stage_fail(
+                FETCH_STAGE_RTWIN_TO_MAC_SCP,
+                f"Mac snapshot entry is not one regular file: {name}",
+            )
         mac_hashes[name] = {"sha256": sha256(path), "size": path.stat().st_size}
     if mac_hashes != server_files:
-        fail("RTwin to Mac fetch verification failed")
+        fetch_stage_fail(FETCH_STAGE_RTWIN_TO_MAC_SCP, "RTwin-to-Mac hash verification failed")
 
     exact_log = output_dir / f"{input_stem}.log"
     workflow_manifest = None
@@ -3993,6 +4176,38 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
         path.name for path in output_dir.iterdir()
         if path.is_file() and path.name != marker.name
     )
+    stage_results = {
+        FETCH_STAGE_SERVER_INVENTORY: {
+            "status": "passed", "returncode": inventory_result.returncode,
+        },
+        FETCH_STAGE_SERVER_SHA256: {
+            "status": "passed", "returncode": server_hash_result.returncode,
+        },
+        FETCH_STAGE_RTWIN_SNAPSHOT_MKDIR: {
+            "status": "passed" if mkdir_result is not None else "not_needed",
+            "returncode": mkdir_result.returncode if mkdir_result is not None else None,
+        },
+        FETCH_STAGE_SERVER_TO_RTWIN_SCP: {
+            "status": "passed" if server_to_rtwin_result is not None else "not_needed",
+            "returncode": (
+                server_to_rtwin_result.returncode
+                if server_to_rtwin_result is not None else None
+            ),
+        },
+        FETCH_STAGE_RTWIN_SHA256: {
+            "status": "passed" if rtwin_hash_result is not None else "not_needed",
+            "returncode": (
+                rtwin_hash_result.returncode if rtwin_hash_result is not None else None
+            ),
+        },
+        FETCH_STAGE_RTWIN_TO_MAC_SCP: {
+            "status": "passed" if rtwin_to_mac_result is not None else "not_needed",
+            "returncode": (
+                rtwin_to_mac_result.returncode
+                if rtwin_to_mac_result is not None else None
+            ),
+        },
+    }
     transfer = {
         "schema": "gaussian-fetch-snapshot/1",
         **binding,
@@ -4010,33 +4225,48 @@ def fetch_results(args, project: str, output_dir: Path) -> dict[str, Any]:
             "reused_files": sorted(reusable), "transferred_files": changed_names,
             "complete_independent_snapshot": True,
         },
+        "fetch_stage_evidence": {
+            "schema": "gaussian-fetch-stage-evidence/1",
+            "stage_order": list(FETCH_STAGE_LABELS),
+            "automatic_retry": False,
+            "timeout_plan": stage_timeout_plan,
+            "results": stage_results,
+        },
         "transfer_timeout_evidence": {
             "known_changed_size_bytes": changed_size_bytes,
             "server_to_rtwin_timeout_seconds": fetch_transfer_timeout,
             "rtwin_to_mac_timeout_seconds": fetch_transfer_timeout,
             "rate_floor_bytes_per_second": TRANSFER_RATE_FLOOR_BYTES_PER_SECOND,
             "fixed_overhead_seconds": TRANSFER_FIXED_OVERHEAD_SECONDS,
+            "connection_startup_overhead_seconds": FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS,
+            "finite_max_timeout_seconds": MAX_TRANSFER_TIMEOUT_SECONDS,
+            "automatic_retry": False,
         },
         "hash_timeout_evidence": {
             "size_inventory": {
                 "known_size_bytes": server_hash_size_bytes,
-                "timeout_seconds": DEFAULT_COMMAND_TIMEOUT_SECONDS,
+                "timeout_seconds": FETCH_CONTROL_TIMEOUT_SECONDS,
                 "returncode": inventory_result.returncode, "status": "passed",
+                "stage": FETCH_STAGE_SERVER_INVENTORY,
             },
             "server_sha256": {
                 "known_size_bytes": server_hash_size_bytes,
                 "timeout_seconds": server_hash_timeout,
                 "returncode": server_hash_result.returncode, "status": "passed",
+                "stage": FETCH_STAGE_SERVER_SHA256,
             },
             "rtwin_sha256": {
                 "known_size_bytes": changed_size_bytes,
                 "timeout_seconds": rtwin_hash_timeout,
                 "returncode": rtwin_hash_result.returncode if rtwin_hash_result is not None else None,
                 "status": "passed" if changed_names else "not_needed",
+                "stage": FETCH_STAGE_RTWIN_SHA256,
             },
             "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
             "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
+            "connection_startup_overhead_seconds": FETCH_CONNECTION_STARTUP_OVERHEAD_SECONDS,
             "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
+            "automatic_retry": False,
         },
         "per_hop": per_hop,
         "analysis": analysis,
