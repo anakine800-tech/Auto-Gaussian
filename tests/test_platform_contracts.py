@@ -342,6 +342,78 @@ class IdentityBindingAndProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(contracts.PlatformContractError, "zero sentinel|mismatch"):
             contracts.validate_transport_identity_binding(forged)
 
+    def test_binding_schema_exact_topology_matches_owner_case_set(self) -> None:
+        schema = json.loads(
+            (ROOT / "contracts" / "execution" / "transport-identity-binding.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        topology = schema["properties"]["hops"]
+        self.assertEqual(set(topology), {"oneOf"})
+        branches = topology["oneOf"]
+        self.assertEqual(len(branches), 2)
+        expected_branches = (
+            (1, ("direct_ssh",), ("#/$defs/direct_hop",)),
+            (
+                2,
+                ("legacy_rtwin_first_hop", "legacy_rtwin_nested_hop"),
+                ("#/$defs/legacy_first_hop", "#/$defs/legacy_nested_hop"),
+            ),
+        )
+        schema_shapes: set[tuple[str, ...]] = set()
+        for branch, (length, kinds, references) in zip(branches, expected_branches, strict=True):
+            self.assertEqual(branch["type"], "array")
+            self.assertIs(branch["items"], False)
+            self.assertEqual(branch["minItems"], length)
+            self.assertEqual(branch["maxItems"], length)
+            self.assertEqual(tuple(item["$ref"] for item in branch["prefixItems"]), references)
+            actual_kinds = tuple(
+                schema["$defs"][reference.rsplit("/", 1)[-1]]["properties"]["transport_kind"]["const"]
+                for reference in references
+            )
+            self.assertEqual(actual_kinds, kinds)
+            schema_shapes.add(actual_kinds)
+        self.assertEqual(schema_shapes, {
+            ("direct_ssh",),
+            ("legacy_rtwin_first_hop", "legacy_rtwin_nested_hop"),
+        })
+
+        direct = contracts.build_transport_identity_binding(
+            binding_id="direct-binding",
+            profile_id="direct-profile",
+            hops=[hop("direct_ssh", "direct")],
+        )
+        for accepted in (direct, self.binding):
+            kinds = tuple(item["transport_kind"] for item in accepted["hops"])
+            with self.subTest(accepted=kinds):
+                self.assertIn(kinds, schema_shapes)
+                self.assertEqual(contracts.validate_transport_identity_binding(accepted), accepted)
+
+        rejected_hops = (
+            [hop("direct_ssh", "first"), hop("direct_ssh", "second")],
+            [hop("legacy_rtwin_first_hop", "first")],
+            [hop("legacy_rtwin_nested_hop", "nested"), hop("legacy_rtwin_first_hop", "first")],
+            [hop("legacy_rtwin_nested_hop", "first"), hop("legacy_rtwin_nested_hop", "second")],
+            [
+                hop("legacy_rtwin_first_hop", "first"),
+                hop("legacy_rtwin_nested_hop", "nested"),
+                hop("legacy_rtwin_nested_hop", "extra"),
+            ],
+        )
+        for hops in rejected_hops:
+            kinds = tuple(item["transport_kind"] for item in hops)
+            document = contracts.finalize({
+                "schema": contracts.BINDING_SCHEMA,
+                "binding_id": "binding-placeholder",
+                "profile_id": "profile-placeholder",
+                "hops": hops,
+                "binding_payload_sha256": "",
+            }, "binding_payload_sha256")
+            with self.subTest(rejected=kinds):
+                self.assertNotIn(kinds, schema_shapes)
+                with self.assertRaises(contracts.PlatformContractError):
+                    contracts.validate_transport_identity_binding(document)
+
     def test_profile_binds_complete_catalog_identity_and_fixed_sdl_policy(self) -> None:
         self.assertEqual(
             self.profile["transport_identity_binding_sha256"],
@@ -598,7 +670,7 @@ class AttestationContractTests(unittest.TestCase):
                         now="2030-01-01T12:02:00Z",
                     )
 
-    def test_inverted_oversized_and_replayed_request_windows_fail_closed(self) -> None:
+    def test_inverted_oversized_and_expired_request_windows_fail_closed(self) -> None:
         for issued, expires, now in (
             ("2030-01-01T12:05:00Z", "2030-01-01T12:04:00Z", "2030-01-01T12:04:00Z"),
             ("2030-01-01T12:00:00Z", "2030-01-01T12:05:01Z", "2030-01-01T12:00:00Z"),
@@ -610,6 +682,41 @@ class AttestationContractTests(unittest.TestCase):
             with self.subTest(issued=issued, expires=expires, now=now):
                 with self.assertRaises(contracts.PlatformContractError):
                     contracts.validate_first_hop_request(request, now=now)
+
+    def test_valid_receipt_validation_is_idempotent_but_never_authorizing(self) -> None:
+        first = [
+            contracts.validate_first_hop_receipt(
+                self.first_receipt,
+                request=self.first_request,
+                binding=self.binding,
+                now="2030-01-01T12:02:00Z",
+            )
+            for _ in range(2)
+        ]
+        nested = [
+            contracts.validate_nested_hop_receipt(
+                self.nested_receipt,
+                request=self.nested_request,
+                binding=self.binding,
+                first_hop_receipt=self.first_receipt,
+                first_hop_request=self.first_request,
+                now="2030-01-01T12:02:00Z",
+            )
+            for _ in range(2)
+        ]
+        self.assertEqual(first[0], first[1])
+        self.assertEqual(nested[0], nested[1])
+        self.assertTrue(all(item["no_execution_authorization"] for item in first + nested))
+        self.assertTrue(all(item["read_only_attestation"] for item in first + nested))
+
+    def test_nested_receipt_binds_approved_host_key_evidence_not_an_observed_handshake(self) -> None:
+        self.assertIn("observed_fingerprint_evidence_sha256", self.first_receipt)
+        self.assertNotIn("observed_fingerprint_evidence_sha256", self.nested_receipt)
+        self.assertEqual(
+            self.nested_receipt["host_key_evidence_sha256"],
+            self.binding["hops"][1]["host_key_evidence_sha256"],
+        )
+        self.assertTrue(self.nested_receipt["no_execution_authorization"])
 
     def test_attestation_requests_reject_caller_command_surfaces_and_type_forgery(self) -> None:
         for field in (
@@ -656,6 +763,121 @@ class AttestationContractTests(unittest.TestCase):
 
                 inspect(schema)
                 self.assertEqual(package[Path("contracts/execution") / name], path)
+
+    def test_all_seven_schema_documents_and_owner_accept_reject_samples_are_aligned(self) -> None:
+        schema_root = ROOT / "contracts" / "execution"
+        schemas = {
+            path.name: json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted(schema_root.glob("*.schema.json"))
+        }
+        self.assertEqual(set(schemas), {
+            "capability-report.schema.json",
+            "execution-profile.schema.json",
+            "legacy-runtime-mapping-result.schema.json",
+            "resource-catalog.schema.json",
+            "transport-identity-attestation-receipt.schema.json",
+            "transport-identity-attestation-request.schema.json",
+            "transport-identity-binding.schema.json",
+        })
+        for name, schema in schemas.items():
+            with self.subTest(schema=name):
+                self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
+        self.assertEqual(
+            schemas["resource-catalog.schema.json"]["properties"]["catalog_id"]["const"],
+            contracts.CATALOG_ID,
+        )
+        self.assertEqual(
+            set(schemas["execution-profile.schema.json"]["properties"]["backend_kind"]["enum"]),
+            contracts.BACKENDS,
+        )
+        request_defs = schemas["transport-identity-attestation-request.schema.json"]["$defs"]
+        for name in ("first_hop_request", "nested_hop_request"):
+            self.assertIs(request_defs[name]["properties"]["automatic_retry"]["const"], False)
+        receipt_defs = schemas["transport-identity-attestation-receipt.schema.json"]["$defs"]
+        for name in ("first_hop_receipt", "nested_hop_receipt"):
+            self.assertEqual(receipt_defs[name]["properties"]["classification"]["const"], "verified")
+            self.assertIs(receipt_defs[name]["properties"]["no_execution_authorization"]["const"], True)
+        self.assertIs(
+            schemas["capability-report.schema.json"]["properties"]["offline_only"]["const"],
+            True,
+        )
+        self.assertIs(
+            schemas["legacy-runtime-mapping-result.schema.json"]["properties"]["migration_performed"]["const"],
+            False,
+        )
+
+        catalog = contracts.build_resource_catalog()
+        report = contracts.build_capability_report(self.profile)
+        mapping = contracts.map_legacy_runtime({
+            "rtwin_ssh_config": "/opt/placeholder/config/rtwin-ssh-config",
+            "windows_project_root": "C:\\Placeholder\\Projects",
+            "windows_server_config": "C:\\Placeholder\\server-ssh-config",
+        })
+        direct = contracts.build_transport_identity_binding(
+            binding_id="direct-binding",
+            profile_id="direct-profile",
+            hops=[hop("direct_ssh", "direct")],
+        )
+        contracts.validate_resource_catalog(catalog)
+        contracts.validate_transport_identity_binding(direct)
+        contracts.validate_transport_identity_binding(self.binding)
+        contracts.validate_execution_profile(self.profile)
+        contracts.validate_first_hop_request(self.first_request, now="2030-01-01T12:02:00Z")
+        contracts.validate_nested_hop_request(self.nested_request, now="2030-01-01T12:02:00Z")
+        contracts.validate_first_hop_receipt(
+            self.first_receipt,
+            request=self.first_request,
+            binding=self.binding,
+            now="2030-01-01T12:02:00Z",
+        )
+        contracts.validate_nested_hop_receipt(
+            self.nested_receipt,
+            request=self.nested_request,
+            binding=self.binding,
+            first_hop_receipt=self.first_receipt,
+            first_hop_request=self.first_request,
+            now="2030-01-01T12:02:00Z",
+        )
+        contracts.validate_capability_report(report)
+        contracts.validate_legacy_mapping_result(mapping)
+
+        invalid_catalog = copy.deepcopy(catalog)
+        invalid_catalog["catalog_id"] = "unreviewed-catalog"
+        invalid_binding = copy.deepcopy(direct)
+        invalid_binding["hops"].append(hop("direct_ssh", "second-direct"))
+        invalid_binding = contracts.finalize(invalid_binding, "binding_payload_sha256")
+        invalid_profile = copy.deepcopy(self.profile)
+        invalid_profile["backend_kind"] = "slurm"
+        invalid_request = copy.deepcopy(self.first_request)
+        invalid_request["automatic_retry"] = True
+        invalid_receipt = copy.deepcopy(self.first_receipt)
+        invalid_receipt["classification"] = "unknown"
+        invalid_receipt = contracts.finalize(invalid_receipt, "receipt_payload_sha256")
+        invalid_report = copy.deepcopy(report)
+        invalid_report["offline_only"] = False
+        invalid_report = contracts.finalize(invalid_report, "report_payload_sha256")
+        invalid_mapping = copy.deepcopy(mapping)
+        invalid_mapping["migration_performed"] = True
+        invalid_mapping = contracts.finalize(invalid_mapping, "mapping_payload_sha256")
+        with self.assertRaises(contracts.PlatformContractError):
+            contracts.validate_resource_catalog(invalid_catalog)
+        with self.assertRaises(contracts.PlatformContractError):
+            contracts.validate_transport_identity_binding(invalid_binding)
+        with self.assertRaises(contracts.PlatformContractError):
+            contracts.validate_execution_profile(invalid_profile)
+        with self.assertRaises(contracts.PlatformContractError):
+            contracts.validate_first_hop_request(invalid_request, now="2030-01-01T12:02:00Z")
+        with self.assertRaises(contracts.PlatformContractError):
+            contracts.validate_first_hop_receipt(
+                invalid_receipt,
+                request=self.first_request,
+                binding=self.binding,
+                now="2030-01-01T12:02:00Z",
+            )
+        with self.assertRaises(contracts.PlatformContractError):
+            contracts.validate_capability_report(invalid_report)
+        with self.assertRaises(contracts.PlatformContractError):
+            contracts.validate_legacy_mapping_result(invalid_mapping)
 
 
 class CapabilityAndLegacyMappingTests(unittest.TestCase):

@@ -78,9 +78,22 @@ python scripts/platform_contracts.py validate first-hop-receipt \
   --now 2030-01-01T12:02:00Z
 ```
 
-Unknown, partial, expired, inverted, replayed, nonce/profile/first-hop/version
-mismatch, self-hash forgery, duplicate/unknown JSON, non-integer JSON number,
-BOM, malformed UTF-8, symlink, traversal, or sensitive credential reference
-fails closed. The typed attestation requests have no caller command, argv,
-shell, PowerShell, script, path fragment, or retry field. A validated receipt
-is evidence-shaped data only and grants no submission or other live authority.
+Unknown, partial, expired, inverted, nonce/profile/first-hop/version mismatch,
+self-hash forgery, duplicate/unknown JSON, non-integer JSON number, BOM,
+malformed UTF-8, symlink, traversal, or sensitive credential reference fails
+closed. The typed attestation requests have no caller command, argv, shell,
+PowerShell, script, path fragment, or caller-selected retry surface;
+`automatic_retry` is fixed to `false`.
+
+Validation is stateless and idempotent. Revalidating the same artifact inside
+its valid time window returns the same result; PR2 neither consumes the nonce
+nor claims replay suppression. Single-use/replay enforcement belongs to PR3
+authorization plus the future PR4/PR6 trusted live owner immediately before a
+mutation. Every PR2 receipt remains `no_execution_authorization=true`.
+
+In a nested receipt, `host_key_evidence_sha256` binds the approved second-hop
+host-key evidence projection from TransportIdentityBinding. It is not an
+observed second-hop fingerprint. Per the accepted RFC, the actual second-hop
+handshake and observed-fingerprint comparison happen only after the hash-only
+receipt validates and remain future live-adapter work. Consequently,
+`classification=verified` does not claim that handshake occurred.
