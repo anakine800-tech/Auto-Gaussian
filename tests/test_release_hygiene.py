@@ -46,13 +46,18 @@ class ReleaseHygieneTests(unittest.TestCase):
         self.assertIn("MIT License", (ROOT / "LICENSE").read_text())
         changelog = (ROOT / "CHANGELOG.md").read_text()
         pyproject = (ROOT / "pyproject.toml").read_text()
-        self.assertRegex(pyproject, r'(?m)^version = "2\.5\.2"$')
+        self.assertRegex(pyproject, r'(?m)^version = "2\.5\.3"$')
         unreleased = changelog.index("## [Unreleased]\n")
-        current_release = changelog.index("## [2.5.2] - 2026-07-20")
+        current_release = changelog.index("## [2.5.3] - 2026-07-22")
         self.assertLess(unreleased, current_release)
         self.assertIn(
             "[Unreleased]: https://github.com/anakine800-tech/"
-            "Auto-Gaussian/compare/v2.5.2...HEAD",
+            "Auto-Gaussian/compare/v2.5.3...HEAD",
+            changelog,
+        )
+        self.assertIn(
+            "[2.5.3]: https://github.com/anakine800-tech/"
+            "Auto-Gaussian/compare/v2.5.2...v2.5.3",
             changelog,
         )
         self.assertIn(
@@ -75,7 +80,14 @@ class ReleaseHygieneTests(unittest.TestCase):
             "Auto-Gaussian/compare/v2.2.0...v2.3.0",
             changelog,
         )
-        self.assertIn("Auto-Gaussian 2.5.2", (ROOT / "README.md").read_text())
+        readme = (ROOT / "README.md").read_text()
+        self.assertIn("Auto-Gaussian 2.5.3", readme)
+        self.assertIn("2.5.2 is the latest published release", readme)
+        self.assertNotIn("2.5.2 release candidate", readme)
+        self.assertTrue((ROOT / "docs" / "release-2.5.3-checklist.md").is_file())
+
+        # Preserve the published 2.5.2 and all earlier public release history.
+        self.assertIn("## [2.5.2] - 2026-07-20", changelog)
         self.assertTrue((ROOT / "docs" / "release-2.5.2-checklist.md").is_file())
 
         # Preserve 2.5.0 and all earlier public release history unchanged.
@@ -147,6 +159,8 @@ class ReleaseHygieneTests(unittest.TestCase):
     def test_repository_status_separates_current_and_historical_evidence(self) -> None:
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
         self.assertIn("## Current mainline state", status)
+        self.assertIn("Auto-Gaussian 2.5.3", status)
+        self.assertIn("2.5.2 is the\nlatest published release", status)
         self.assertIn("external fact outside this checkout", status)
         for evidence_type in ("Feature", "Deployment", "Test"):
             self.assertRegex(
@@ -158,6 +172,8 @@ class ReleaseHygieneTests(unittest.TestCase):
             "current feature branch adds",
             "remains undeployed",
             "## Working-tree note",
+            "2.5.2 is the prepared source-release candidate",
+            "v2.5.0 remains the latest published release",
         ):
             self.assertNotIn(stale, status)
 

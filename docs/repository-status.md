@@ -2,25 +2,30 @@
 
 ## Current mainline state
 
-Status date: 2026-07-20
+Status date: 2026-07-22
 
-Auto-Gaussian 2.5.2 is the prepared source-release candidate from clean
-`main` baseline `4063929df0c4aa97aefbde1f8c73e20c8272aa97`. The planned
-annotated `v2.5.2` tag will identify the exact reviewed merge commit only after
-separate publication authorization and green post-merge CI. Until then,
-`v2.5.0` remains the latest published release and its tag permanently
-identifies `18d7f62af3b24cdd0fbe5687f4c0e779f243d572`. No public
-`v2.5.1` tag or release exists. Earlier tags, checklists, and historical
-evidence remain immutable release records rather than pending work.
+Auto-Gaussian 2.5.3 is the prepared maintenance-patch source candidate from
+clean local and remote `main` baseline
+`042f8aeef665f524ac2c0cbdc47ccbf11a208d2e`. Auto-Gaussian 2.5.2 is the
+latest published release. Its annotated tag object
+`4aead58529a7786968aea8e9cd7ee10f6e0c8553` resolves to release commit
+`09a3cad13b07afdab86a70488d4e0ab78aa6c2d9`; the GitHub Release was published
+on 2026-07-20. Earlier tags, checklists, and changelog entries remain immutable
+release records rather than pending work.
 
-The 2.5.2 candidate adds compatibility-preserving safety and operational
-hardening around the offline human-AI scientific decision layer: tri-state
-runtime evidence and immutable fetch snapshots, idempotent submit/cancel
-transactions, exact resource policy and monitoring, owner-replayed
-TS/Freq/IRC and minimum-result lineage, strict runtime configuration,
-private-study migration, calculation-DAG performance and release validation.
-Historical schemas retain their replay meaning; new protected work requires
-the newer exact owner, approval and resource contracts.
+The first-parent delta from `v2.5.2` to the preparation baseline contains only
+PR #45 (`98358c8869f6001fd53756a42344c699cb16ab63`) and PR #46
+(`042f8aeef665f524ac2c0cbdc47ccbf11a208d2e`). PR #45 adds the development
+handbook, isolated-worktree preflight, exact required-check and Python/CI
+contracts, and offline audits. PR #46 adds fail-closed handling for RTwin
+terminal snapshots and result-fetch stages, including PBS `qstat` return code
+153, finite size-derived timeouts, sanitized stage failures, retained partial
+state, and no automatic retry.
+
+The 2.5.3 metadata does not claim current remote CI or branch-protection state.
+Those remain external facts requiring independent verification before merge or
+release. Historical schemas retain their replay meaning; the fetch-stage
+evidence is additive and does not authorize a live operation.
 
 Every planning/review artifact remains `calculation_ready: false`; calculation
 nodes remain `executable: false`; the integration overlay remains
@@ -43,6 +48,13 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   all three versions; the complete source-archive and oversized DAG pressure
   path runs once on Python 3.13; the chemistry job executes an actual RDKit
   structure/conformer/depiction smoke.
+- The development handbook requires classification, isolated worktrees,
+  preflight, a proportional offline test ladder, exact CI-name auditing and
+  separate release, deployment and live authority. Static contract audits
+  validate local declarations only.
+- RTwin result fetching records bounded stage-specific timeout and failure
+  evidence without exposing command details or retrying automatically. A
+  partial destination blocks an implicit rerun and requires human review.
 - The calculation-DAG validator caches only deterministic replay results for
   immutable content identities within one process. Every explicit binding
   still checks symlinks, size, file SHA-256, schema, payload SHA-256, and
@@ -103,12 +115,10 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
-- Pre-release hardening-integration evidence at baseline commit `4063929` on
-  the core interpreter is 690/690
-  offline tests for both the worktree and a `.git`-free source archive; both
-  runs have one expected RDKit skip in the core profile. The separate locked
-  chemistry profile previously passed the real RDKit smoke. These are
-  machine-local engineering checks, not a CI guarantee or scientific result.
+- The published 2.5.2 preparation recorded 690/690 offline tests for both its
+  worktree and `.git`-free source archive, with one expected RDKit skip per core
+  run. Those are historical machine-local checks for different candidate
+  bytes, not current 2.5.3 evidence, a CI guarantee or a scientific result.
 - No deployment, SSH, RTwin, PBS, Gaussian, live smoke, submission, retry,
   cancellation, server cleanup, or scientific acceptance action is included.
 

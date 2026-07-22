@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.5.2
+# Auto-G16 — Auto-Gaussian 2.5.3
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -81,24 +81,33 @@ Historical endpoint review or path acceptance `/1` remains readable for
 display/replay only and cannot open maturity, thermochemistry, asymmetric
 comparison or any live gate.
 
-## 2.5.2 release candidate
+## 2.5.3 release preparation
 
-Auto-Gaussian 2.5.2 is the prepared compatibility and safety-hardening source
-release candidate. The planned annotated `v2.5.2` tag will identify the exact
-reviewed merge commit after release authorization and green post-merge CI.
-Until that tag and GitHub Release exist, `v2.5.0` remains the latest published
-release. No public `v2.5.1` tag or release exists; the 2.5.2 identifier is an
-explicitly selected patch-line release number rather than evidence of a
-missing public artifact.
+Auto-Gaussian 2.5.3 is the prepared maintenance-patch source candidate from
+`main` commit `042f8aeef665f524ac2c0cbdc47ccbf11a208d2e`. Auto-Gaussian
+2.5.2 is the latest published release; its annotated `v2.5.2` tag resolves to
+release commit `09a3cad13b07afdab86a70488d4e0ab78aa6c2d9`.
 
-The candidate strengthens fail-closed runtime evidence, immutable result
-fetching, idempotent execution and cancellation transactions, exact resource
-gates, bounded monitoring, TS/Freq/IRC and minimum-result lineage, runtime
-configuration, private-study migration and release validation. Historical
-schemas remain replayable under their original contracts, while new protected
-live work requires the newer exact owner, approval and resource bindings. The
-release candidate itself grants no deployment, submission, cancellation,
-cleanup or scientific acceptance authority.
+The 2.5.3 increment contains only the two first-parent merges after 2.5.2:
+PR #45 adds the development handbook, isolated-worktree preflight, exact
+Python/CI declarations and their offline audits; PR #46 hardens RTwin terminal
+snapshot and staged fetch handling for finite timeouts, sanitized failure
+evidence, PBS `qstat` return code 153, and no automatic retry. Historical
+schemas and release records retain their original meaning. Local static audits
+do not prove current GitHub branch protection or a successful CI run.
+
+This candidate makes no deployment, SSH, RTwin, PBS, Gaussian, live-smoke or
+scientific-success claim. It grants no submission, retry, qdel, cleanup,
+result-acceptance or scientific authority.
+
+## 2.5.2 historical release
+
+Auto-Gaussian 2.5.2 was published on 2026-07-20. Its annotated tag permanently
+identifies the release commit above. The release contains compatibility-
+preserving runtime evidence, immutable fetch, execution/cancellation,
+resource, monitoring, TS/Freq/IRC and minimum-result lineage, configuration,
+private-migration and release-validation hardening. Publication did not grant
+deployment or live/scientific authority.
 
 ## 2.5.0 historical release
 

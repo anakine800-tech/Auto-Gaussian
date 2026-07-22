@@ -5,6 +5,34 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.5.3] - 2026-07-22
+
+### Added
+
+- Added the repository development handbook, isolated-worktree preflight,
+  exact required-check contract, Python environment/CI contract audits, pull
+  request template, and focused offline regression coverage introduced by
+  PR #45.
+
+### Changed
+
+- Aligned the supported Python 3.11–3.13 matrix, source-archive release job,
+  chemistry-dependency job, and stable required-check names with locally
+  auditable versioned declarations. Static audits remain local declaration
+  checks and do not prove current GitHub branch protection or CI success.
+- Hardened RTwin terminal snapshot handling for PBS `qstat` return code 153 and
+  separated result fetching into bounded, labeled inventory, hashing, staging,
+  transfer and verification phases with finite size-derived timeouts,
+  sanitized failure diagnostics, retained partial-state evidence, and no
+  automatic retry, as introduced by PR #46.
+
+### Safety
+
+- This maintenance patch records offline development and fetch-handling
+  hardening only. It makes no claim of deployment, SSH/RTwin/PBS/Gaussian
+  execution, successful scientific results, accepted minima or TS/IRC closure,
+  and grants no submission, retry, qdel, cleanup or scientific authority.
+
 ## [2.5.2] - 2026-07-20
 
 ### Added
@@ -449,7 +477,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.2...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.3...HEAD
+[2.5.3]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.0...v2.5.2
 [2.5.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.3.0...v2.4.0

@@ -1,6 +1,6 @@
 [project]
 name = "auto-g16"
-version = "2.5.2"
+version = "2.5.3"
 description = "Guarded, offline-first Gaussian workflow Skills"
 requires-python = ">=3.11,<3.14"
 dependencies = []
