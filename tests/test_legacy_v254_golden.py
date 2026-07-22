@@ -116,7 +116,23 @@ def normalized_choices(value: object | None) -> dict[str, object] | None:
     }
 
 
-def action_projection(subcommand: str, action: argparse.Action) -> dict[str, object]:
+def normalized_action_default(
+    action: argparse.Action, *, repository_root: Path
+) -> dict[str, object]:
+    known_repository_default = str(repository_root / "config" / "ssh_config")
+    if (
+        action.dest == "mac_ssh_config"
+        and action.option_strings == ["--mac-ssh-config"]
+        and isinstance(action.default, str)
+        and action.default == known_repository_default
+    ):
+        return {"type": "str", "value": "<REPO>/config/ssh_config"}
+    return normalized_value(action.default)
+
+
+def action_projection(
+    subcommand: str, action: argparse.Action, *, repository_root: Path
+) -> dict[str, object]:
     return {
         "subcommand": subcommand,
         "option_strings": list(action.option_strings),
@@ -124,7 +140,7 @@ def action_projection(subcommand: str, action: argparse.Action) -> dict[str, obj
         "action_class": type(action).__name__,
         "nargs": action.nargs,
         "required": action.required,
-        "default": normalized_value(action.default),
+        "default": normalized_action_default(action, repository_root=repository_root),
         "type_identity": stable_identity(action.type),
         "choices": normalized_choices(action.choices),
         "const": normalized_value(action.const),
@@ -132,7 +148,7 @@ def action_projection(subcommand: str, action: argparse.Action) -> dict[str, obj
     }
 
 
-def parser_snapshot(builder, program: str) -> dict:
+def parser_snapshot(builder, program: str, *, repository_root: Path = ROOT) -> dict:
     with mock.patch.object(sys, "argv", [program]):
         parser = builder()
     subparsers = next(
@@ -140,9 +156,15 @@ def parser_snapshot(builder, program: str) -> dict:
         if isinstance(action, argparse._SubParsersAction)
     )
     actions = {
-        "__top__": [action_projection("__top__", action) for action in parser._actions],
+        "__top__": [
+            action_projection("__top__", action, repository_root=repository_root)
+            for action in parser._actions
+        ],
         **{
-            name: [action_projection(name, action) for action in child._actions]
+            name: [
+                action_projection(name, action, repository_root=repository_root)
+                for action in child._actions
+            ]
             for name, child in sorted(subparsers.choices.items())
         },
     }
@@ -257,6 +279,75 @@ class LegacyV254GoldenTests(unittest.TestCase):
         self.assertEqual(confirmed["action_class"], "_StoreTrueAction")
         self.assertEqual(confirmed["default"], {"type": "bool", "value": False})
         self.assertEqual(confirmed["const"], {"type": "bool", "value": True})
+
+        canonical_actions = json.dumps(
+            {"transport": transport["actions"], "wrapper": wrapper["actions"]},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        repository_default_actions = [
+            action
+            for snapshot in (transport, wrapper)
+            for actions in snapshot["actions"].values()
+            for action in actions
+            if action["option_strings"] == ["--mac-ssh-config"]
+        ]
+        self.assertTrue(repository_default_actions)
+        self.assertTrue(all(
+            action["default"] == {
+                "type": "str", "value": "<REPO>/config/ssh_config",
+            }
+            for action in repository_default_actions
+        ))
+        self.assertNotIn(str(ROOT), canonical_actions)
+        self.assertNotIn("/" + "Users" + "/", canonical_actions)
+        with tempfile.TemporaryDirectory() as raw:
+            relocated_root = Path(raw) / "source-archive"
+            relocated_default = relocated_root / "config" / "ssh_config"
+            with mock.patch.object(PBS, "DEFAULT_MAC_SSH_CONFIG", relocated_default):
+                relocated_transport = parser_snapshot(
+                    PBS.build_parser,
+                    "gaussian_rtwin_pbs.py",
+                    repository_root=relocated_root,
+                )
+                relocated_wrapper = parser_snapshot(
+                    AUTO.build_parser,
+                    "gaussian_auto.py",
+                    repository_root=relocated_root,
+                )
+            self.assertEqual(relocated_transport["actions"], transport["actions"])
+            self.assertEqual(relocated_wrapper["actions"], wrapper["actions"])
+            self.assertEqual(
+                relocated_transport["action_semantics_sha256"],
+                transport["action_semantics_sha256"],
+            )
+            self.assertEqual(
+                relocated_wrapper["action_semantics_sha256"],
+                wrapper["action_semantics_sha256"],
+            )
+
+            unrelated_default = "/placeholder/external/ssh_config"
+            with mock.patch.object(PBS, "DEFAULT_MAC_SSH_CONFIG", unrelated_default):
+                unrelated = parser_snapshot(
+                    PBS.build_parser,
+                    "gaussian_rtwin_pbs.py",
+                    repository_root=relocated_root,
+                )
+            unrelated_actions = [
+                action
+                for actions in unrelated["actions"].values()
+                for action in actions
+                if action["option_strings"] == ["--mac-ssh-config"]
+            ]
+            self.assertTrue(unrelated_actions)
+            self.assertTrue(all(
+                action["default"] == {"type": "str", "value": unrelated_default}
+                for action in unrelated_actions
+            ))
+            self.assertNotEqual(
+                unrelated["action_semantics_sha256"],
+                transport["action_semantics_sha256"],
+            )
 
         defect = self.golden["surfaces"]["submit_help_defect"]
         self.assertEqual(defect["exception"], "ValueError")

@@ -27,7 +27,7 @@
           "reconcile-cancellation", "reconcile-submission", "stage", "status", "submit",
           "tail", "validate-input-approval", "watch"
         ],
-        "action_semantics_sha256": "628c81e535034c3953a3fda2d14831c7c90538e83ac09e83b79c261742007589",
+        "action_semantics_sha256": "7b69df795ce16515872118ec950404f590036f6ab86e122b50b0fccc0760225c",
         "submit_confirmed": {
           "subcommand": "submit",
           "option_strings": ["--confirmed"],
@@ -44,7 +44,7 @@
       },
       "wrapper": {
         "subcommands": ["auto", "prepare"],
-        "action_semantics_sha256": "8dceae4e7c452af0461a7776e24224b1949514e053bca92b3d3626d205a27a99"
+        "action_semantics_sha256": "0aedc2d67af85174d799bb9f760b9d0277df0f51c4f1b1f26b6b916146b13a5a"
       },
       "error_categories": {
         "argparse_contract": {"exit": 2, "prefix": "usage:"},
