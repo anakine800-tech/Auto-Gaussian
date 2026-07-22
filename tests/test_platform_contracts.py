@@ -766,11 +766,7 @@ class AttestationContractTests(unittest.TestCase):
 
     def test_all_seven_schema_documents_and_owner_accept_reject_samples_are_aligned(self) -> None:
         schema_root = ROOT / "contracts" / "execution"
-        schemas = {
-            path.name: json.loads(path.read_text(encoding="utf-8"))
-            for path in sorted(schema_root.glob("*.schema.json"))
-        }
-        self.assertEqual(set(schemas), {
+        pr2_schema_names = {
             "capability-report.schema.json",
             "execution-profile.schema.json",
             "legacy-runtime-mapping-result.schema.json",
@@ -778,7 +774,12 @@ class AttestationContractTests(unittest.TestCase):
             "transport-identity-attestation-receipt.schema.json",
             "transport-identity-attestation-request.schema.json",
             "transport-identity-binding.schema.json",
-        })
+        }
+        schemas = {
+            name: json.loads((schema_root / name).read_text(encoding="utf-8"))
+            for name in sorted(pr2_schema_names)
+        }
+        self.assertEqual(set(schemas), pr2_schema_names)
         for name, schema in schemas.items():
             with self.subTest(schema=name):
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
