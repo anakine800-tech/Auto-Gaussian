@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import gaussian_rtwin_pbs as transport
+import execution_facade
+transport = execution_facade.bind_current()
 TRANSPORT = Path(__file__).with_name("gaussian_rtwin_pbs.py")
 PROTECTED_STATES = {"submitted", "queued", "running", "completed", "failed", "interrupted", "submission_uncertain"}
 

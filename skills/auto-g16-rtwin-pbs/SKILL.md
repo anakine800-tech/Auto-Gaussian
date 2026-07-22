@@ -77,6 +77,14 @@ trusted live owner replays it and atomically consumes its one-time identity.
 Offline owner replay uses private ephemeral validation copies of one captured
 byte snapshot; it performs no network, external or persistent mutation.
 
+The v2.6 PR4A legacy extraction retains the same CLI/import name but dispatches
+through one backend-neutral facade to the sole `legacy_rtwin_pbs` implementation.
+Read [references/legacy-backend.md](references/legacy-backend.md). New live
+submissions reject legacy-only approvals. A valid successor stops at the
+non-executable `transport_integration_required` boundary. PR4B must start from
+the exact PR4A commit and add transport integration before complete PR4 L3 and
+a separately authorized exact live smoke; PR4A must not merge independently.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -428,7 +436,16 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/gaussian_auto.py`: exact-input approval gate and one-command
   submission through analyzed results; raw structure-to-method preparation is
   intentionally unsupported.
-- `scripts/gaussian_rtwin_pbs.py`: preflight, stage, submit, inspect, watch, fetch, analyze, repeated-evidence automatic zombie cleanup, and confirmation-gated active-job cancellation.
+- `scripts/gaussian_rtwin_pbs.py`: historical CLI/import compatibility wrapper;
+  executable dispatch crosses the backend-neutral facade.
+- `scripts/execution_facade.py` and `scripts/execution_models.py`: typed sealed
+  execution boundary, fixed legacy backend dispatch and non-executable live
+  attestation plan.
+- `scripts/execution_authorization_state.py`: private locked no-clobber
+  single-use consumption/reservation owner; it accepts no caller registry.
+- `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for
+  preflight, stage, submit, inspect, watch, fetch, analyze and exact scheduler
+  operations.
 - `scripts/gaussian_log.py`: deterministic Gaussian result and geometry parser.
 - `scripts/gaussian_workflow.py`: build and analyze Opt-Freq-single-point workflows and aggregate conformer populations.
 
