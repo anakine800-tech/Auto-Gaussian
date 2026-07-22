@@ -47,11 +47,11 @@ class ExecutionBackend(Protocol):
 
 
 def _implementation() -> types.ModuleType:
-    if _BOUND_IMPLEMENTATION is not None and hasattr(_BOUND_IMPLEMENTATION, "LegacyRTWinPBSBackend"):
-        return _BOUND_IMPLEMENTATION
     compatibility = sys.modules.get("gaussian_rtwin_pbs")
     if compatibility is not None and hasattr(compatibility, "LegacyRTWinPBSBackend"):
         return compatibility
+    if _BOUND_IMPLEMENTATION is not None and hasattr(_BOUND_IMPLEMENTATION, "LegacyRTWinPBSBackend"):
+        return _BOUND_IMPLEMENTATION
     return importlib.import_module("legacy_rtwin_pbs")
 
 
