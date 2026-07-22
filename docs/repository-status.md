@@ -4,28 +4,28 @@
 
 Status date: 2026-07-22
 
-Auto-Gaussian 2.5.3 is the prepared maintenance-patch source candidate from
-clean local and remote `main` baseline
-`042f8aeef665f524ac2c0cbdc47ccbf11a208d2e`. Auto-Gaussian 2.5.2 is the
-latest published release. Its annotated tag object
-`4aead58529a7786968aea8e9cd7ee10f6e0c8553` resolves to release commit
-`09a3cad13b07afdab86a70488d4e0ab78aa6c2d9`; the GitHub Release was published
-on 2026-07-20. Earlier tags, checklists, and changelog entries remain immutable
+Auto-Gaussian 2.5.3 is the latest published release. Its annotated tag object
+`20cea7e040ef6649f9f695381c802abc8aa7aba0` resolves to `main` release commit
+`bc67fded270ee5fc52efecfafdfc817073430b7a`; the GitHub Release was published
+on 2026-07-22. Earlier tags, checklists, and changelog entries remain immutable
 release records rather than pending work.
 
-The first-parent delta from `v2.5.2` to the preparation baseline contains only
-PR #45 (`98358c8869f6001fd53756a42344c699cb16ab63`) and PR #46
-(`042f8aeef665f524ac2c0cbdc47ccbf11a208d2e`). PR #45 adds the development
+The first-parent delta from `v2.5.2` to the release commit contains only PR #45
+(`98358c8869f6001fd53756a42344c699cb16ab63`), PR #46
+(`042f8aeef665f524ac2c0cbdc47ccbf11a208d2e`), and PR #47
+(`bc67fded270ee5fc52efecfafdfc817073430b7a`). PR #45 adds the development
 handbook, isolated-worktree preflight, exact required-check and Python/CI
 contracts, and offline audits. PR #46 adds fail-closed handling for RTwin
 terminal snapshots and result-fetch stages, including PBS `qstat` return code
 153, finite size-derived timeouts, sanitized stage failures, retained partial
-state, and no automatic retry.
+state, and no automatic retry. PR #47 freezes the 2.5.3 metadata and release
+checklist.
 
-The 2.5.3 metadata does not claim current remote CI or branch-protection state.
-Those remain external facts requiring independent verification before merge or
-release. Historical schemas retain their replay meaning; the fetch-stage
-evidence is additive and does not authorize a live operation.
+The five required contexts and the post-merge `main` workflows for the exact
+release commit were independently observed successful on 2026-07-22. This is
+time-bound external evidence, not a promise about later GitHub state or an
+operational authorization. Historical schemas retain their replay meaning;
+the fetch-stage evidence is additive and does not authorize a live operation.
 
 Every planning/review artifact remains `calculation_ready: false`; calculation
 nodes remain `executable: false`; the integration overlay remains
@@ -115,10 +115,14 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - Runtime-config tests and migration tests are synthetic and offline. No
   private study directory is scanned, copied, moved, deleted, or printed as
   engineering evidence.
+- Machine-local generated reports belong under the ignored root `reports/`
+  directory. They are not public Git or source-release material and are never
+  moved, overwritten, or deleted by release-hygiene checks.
 - The published 2.5.2 preparation recorded 690/690 offline tests for both its
   worktree and `.git`-free source archive, with one expected RDKit skip per core
-  run. Those are historical machine-local checks for different candidate
-  bytes, not current 2.5.3 evidence, a CI guarantee or a scientific result.
+  run. Those are historical machine-local checks for different bytes, not
+  evidence for later working-tree changes, a CI guarantee or a scientific
+  result.
 - No deployment, SSH, RTwin, PBS, Gaussian, live smoke, submission, retry,
   cancellation, server cleanup, or scientific acceptance action is included.
 
