@@ -4,28 +4,23 @@
 
 Status date: 2026-07-22
 
-Auto-Gaussian 2.5.3 is the latest published release. Its annotated tag object
-`20cea7e040ef6649f9f695381c802abc8aa7aba0` resolves to `main` release commit
-`bc67fded270ee5fc52efecfafdfc817073430b7a`; the GitHub Release was published
-on 2026-07-22. Earlier tags, checklists, and changelog entries remain immutable
-release records rather than pending work.
+Auto-Gaussian 2.5.4 is the latest published release. Its annotated `v2.5.4`
+tag and GitHub Release bind the exact reviewed, green post-merge `main` commit;
+the release was published on 2026-07-22. Remote tag and Release metadata are
+the authoritative commit identity. Earlier tags, checklists and changelog
+entries remain immutable historical records rather than pending work.
 
-The first-parent delta from `v2.5.2` to the release commit contains only PR #45
-(`98358c8869f6001fd53756a42344c699cb16ab63`), PR #46
-(`042f8aeef665f524ac2c0cbdc47ccbf11a208d2e`), and PR #47
-(`bc67fded270ee5fc52efecfafdfc817073430b7a`). PR #45 adds the development
-handbook, isolated-worktree preflight, exact required-check and Python/CI
-contracts, and offline audits. PR #46 adds fail-closed handling for RTwin
-terminal snapshots and result-fetch stages, including PBS `qstat` return code
-153, finite size-derived timeouts, sanitized stage failures, retained partial
-state, and no automatic retry. PR #47 freezes the 2.5.3 metadata and release
-checklist.
+The 2.5.4 increment after `v2.5.3` contains PR #48 and its bounded release-
+metadata merge. PR #48 reconciles mutable status documentation after the
+2.5.3 publication, adds the root `/reports/` exclusion, and extends release-
+hygiene tests. The metadata merge advances all current-version surfaces to
+2.5.4 and adds a cross-file consistency assertion; it does not rewrite the
+2.5.3 checklist, tag, Release or changelog history.
 
-The five required contexts and the post-merge `main` workflows for the exact
-release commit were independently observed successful on 2026-07-22. This is
+The five required contexts and post-merge `main` workflows must succeed for
+the exact 2.5.4 release commit before tag publication. Those observations are
 time-bound external evidence, not a promise about later GitHub state or an
-operational authorization. Historical schemas retain their replay meaning;
-the fetch-stage evidence is additive and does not authorize a live operation.
+operational authorization. Historical schemas retain their replay meaning.
 
 Every planning/review artifact remains `calculation_ready: false`; calculation
 nodes remain `executable: false`; the integration overlay remains

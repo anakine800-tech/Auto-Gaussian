@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.5.3
+# Auto-G16 — Auto-Gaussian 2.5.4
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -81,9 +81,26 @@ Historical endpoint review or path acceptance `/1` remains readable for
 display/replay only and cannot open maturity, thermochemistry, asymmetric
 comparison or any live gate.
 
-## 2.5.3 current release
+## 2.5.4 current release
 
-Auto-Gaussian 2.5.3 is the latest published release. It was published on
+Auto-Gaussian 2.5.4 is the latest published release. Its annotated `v2.5.4`
+tag identifies the exact reviewed, green post-merge `main` commit recorded by
+the GitHub Release. The release was published on 2026-07-22.
+
+The 2.5.4 increment is a documentation and release-hygiene maintenance patch.
+PR #48 reconciles the public 2.5.3 status after publication, isolates root
+`reports/` from Git and source releases, and adds regression coverage for that
+boundary. The 2.5.4 metadata adds one cross-file version contract so the
+package version, changelog, README, status page, checklist, compare links, tag
+and GitHub Release cannot silently describe different current versions.
+
+Publication makes no deployment, SSH, RTwin, PBS, Gaussian, live-smoke or
+scientific-success claim. It grants no submission, retry, qdel, cleanup,
+result-acceptance or scientific authority.
+
+## 2.5.3 historical release
+
+Auto-Gaussian 2.5.3 was published on
 2026-07-22 from `main` commit
 `bc67fded270ee5fc52efecfafdfc817073430b7a`; annotated tag object
 `20cea7e040ef6649f9f695381c802abc8aa7aba0` resolves to that exact commit.
@@ -96,10 +113,6 @@ evidence, PBS `qstat` return code 153, and no automatic retry; PR #47 freezes
 the 2.5.3 release metadata and checklist. Historical schemas and release
 records retain their original meaning. Local static audits do not prove
 current GitHub branch protection or a successful CI run.
-
-Publication makes no deployment, SSH, RTwin, PBS, Gaussian, live-smoke or
-scientific-success claim. It grants no submission, retry, qdel, cleanup,
-result-acceptance or scientific authority.
 
 ## 2.5.2 historical release
 
