@@ -68,32 +68,90 @@ def canonical_sha256(value: object) -> str:
     return sha256_text(data)
 
 
-def parser_snapshot(builder, program: str, *, skip_help: set[str] | None = None) -> dict:
-    skip_help = skip_help or set()
+def stable_identity(value: object | None) -> str | None:
+    if value is None:
+        return None
+    target = value if isinstance(value, type) or callable(value) else type(value)
+    module = getattr(target, "__module__", type(target).__module__)
+    qualname = getattr(target, "__qualname__", type(target).__qualname__)
+    return f"{module}.{qualname}"
+
+
+def normalized_value(value: object) -> dict[str, object]:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return {"type": type(value).__name__, "value": value}
+    if isinstance(value, Path):
+        return {"type": "pathlib.Path", "value": str(value)}
+    if isinstance(value, tuple):
+        return {"type": "tuple", "value": [normalized_value(item) for item in value]}
+    if isinstance(value, list):
+        return {"type": "list", "value": [normalized_value(item) for item in value]}
+    if isinstance(value, dict):
+        return {
+            "type": "dict",
+            "value": [
+                [normalized_value(key), normalized_value(item)]
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            ],
+        }
+    if callable(value):
+        return {"type": "callable", "value": stable_identity(value)}
+    raise AssertionError(f"unsupported argparse semantic value: {type(value).__name__}")
+
+
+def normalized_choices(value: object | None) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {
+            "type": "mapping_keys",
+            "value": [normalized_value(key) for key in sorted(value, key=str)],
+        }
+    items = list(value)  # type: ignore[arg-type]
+    if isinstance(value, (set, frozenset)):
+        items.sort(key=str)
+    return {
+        "type": stable_identity(value),
+        "value": [normalized_value(item) for item in items],
+    }
+
+
+def action_projection(subcommand: str, action: argparse.Action) -> dict[str, object]:
+    return {
+        "subcommand": subcommand,
+        "option_strings": list(action.option_strings),
+        "dest": action.dest,
+        "action_class": type(action).__name__,
+        "nargs": action.nargs,
+        "required": action.required,
+        "default": normalized_value(action.default),
+        "type_identity": stable_identity(action.type),
+        "choices": normalized_choices(action.choices),
+        "const": normalized_value(action.const),
+        "metavar": normalized_value(action.metavar),
+    }
+
+
+def parser_snapshot(builder, program: str) -> dict:
     with mock.patch.object(sys, "argv", [program]):
         parser = builder()
     subparsers = next(
         action for action in parser._actions
         if isinstance(action, argparse._SubParsersAction)
     )
-    options = {
-        name: sorted({option for action in child._actions for option in action.option_strings})
-        for name, child in sorted(subparsers.choices.items())
-    }
-    help_pages = {
-        "__top__": parser.format_help(),
+    actions = {
+        "__top__": [action_projection("__top__", action) for action in parser._actions],
         **{
-            name: child.format_help()
+            name: [action_projection(name, action) for action in child._actions]
             for name, child in sorted(subparsers.choices.items())
-            if name not in skip_help
         },
     }
     return {
         "parser": parser,
         "subparsers": subparsers,
         "subcommands": sorted(subparsers.choices),
-        "options_sha256": canonical_sha256(options),
-        "help_sha256": canonical_sha256(help_pages),
+        "actions": actions,
+        "action_semantics_sha256": canonical_sha256(actions),
     }
 
 
@@ -110,9 +168,13 @@ class LegacyV254GoldenTests(unittest.TestCase):
             self.golden["classification_policy"]["p0_p1_may_be_accepted_by_updating_golden"]
         )
         allowed = set(self.golden["classification_policy"]["allowed"])
+        known_defects = []
         for name, surface in self.golden["surfaces"].items():
             with self.subTest(surface=name):
                 self.assertIn(surface["classification"], allowed)
+            if surface["classification"] == "known_defect_requiring_separate_reviewed_change":
+                known_defects.append(name)
+        self.assertEqual(known_defects, ["submit_help_defect"])
         fixture_text = GOLDEN_PATH.read_text(encoding="utf-8") + INPUT_PATH.read_text(encoding="utf-8")
         posix_user_root = "/" + "Users" + "/"
         for forbidden in (posix_user_root, "BEGIN PRIVATE KEY", "password", "token"):
@@ -161,20 +223,44 @@ class LegacyV254GoldenTests(unittest.TestCase):
 
     def test_public_cli_option_help_and_error_categories_are_characterized(self) -> None:
         expected = self.golden["surfaces"]["public_cli"]
-        transport = parser_snapshot(
-            PBS.build_parser, "gaussian_rtwin_pbs.py", skip_help={"submit"}
-        )
+        transport = parser_snapshot(PBS.build_parser, "gaussian_rtwin_pbs.py")
         wrapper = parser_snapshot(AUTO.build_parser, "gaussian_auto.py")
         self.assertEqual(transport["subcommands"], expected["transport"]["subcommands"])
-        self.assertEqual(transport["options_sha256"], expected["transport"]["options_sha256"])
         self.assertEqual(
-            transport["help_sha256"], expected["transport"]["help_without_known_defect_sha256"]
+            transport["action_semantics_sha256"],
+            expected["transport"]["action_semantics_sha256"],
         )
         self.assertEqual(wrapper["subcommands"], expected["wrapper"]["subcommands"])
-        self.assertEqual(wrapper["options_sha256"], expected["wrapper"]["options_sha256"])
-        self.assertEqual(wrapper["help_sha256"], expected["wrapper"]["help_sha256"])
+        self.assertEqual(
+            wrapper["action_semantics_sha256"],
+            expected["wrapper"]["action_semantics_sha256"],
+        )
+        expected_projection_keys = {
+            "subcommand", "option_strings", "dest", "action_class", "nargs", "required",
+            "default", "type_identity", "choices", "const", "metavar",
+        }
+        for label, snapshot in (("transport", transport), ("wrapper", wrapper)):
+            self.assertEqual(
+                sorted(snapshot["actions"]),
+                ["__top__", *snapshot["subcommands"]],
+            )
+            for subcommand, actions in snapshot["actions"].items():
+                with self.subTest(parser=label, subcommand=subcommand):
+                    self.assertTrue(actions)
+                    self.assertTrue(all(set(action) == expected_projection_keys for action in actions))
+
+        confirmed = next(
+            action for action in transport["actions"]["submit"]
+            if action["option_strings"] == ["--confirmed"]
+        )
+        self.assertEqual(confirmed, expected["transport"]["submit_confirmed"])
+        self.assertEqual(confirmed["action_class"], "_StoreTrueAction")
+        self.assertEqual(confirmed["default"], {"type": "bool", "value": False})
+        self.assertEqual(confirmed["const"], {"type": "bool", "value": True})
 
         defect = self.golden["surfaces"]["submit_help_defect"]
+        self.assertEqual(defect["exception"], "ValueError")
+        self.assertFalse(defect["production_fix_in_scope"])
         submit_parser = transport["subparsers"].choices["submit"]
         with self.assertRaisesRegex(ValueError, defect["message_category"]):
             submit_parser.format_help()
@@ -331,11 +417,6 @@ class LegacyV254GoldenTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
-            args, _, _, input_approval, live = helper.make_live_submit_fixture(root)
-            args.windows_root = r"C:\Placeholder\GaussianProjects"
-            args.windows_server_config = r"C:\Placeholder\server_config"
-            args.rtwin_alias = "rtwin-placeholder"
-            args.server_alias = "server-placeholder"
             calls: list[tuple[list[str], bytes | None, int, bool]] = []
 
             def mocked_run(command, *, input_bytes=None, check=True,
@@ -360,17 +441,34 @@ class LegacyV254GoldenTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with mock.patch.object(
-                package4.PBS, "validate_input_approval", return_value=input_approval
+                package4.PBS, "utc_now", return_value="2026-01-01T00:04:00Z"
             ), mock.patch.object(
-                package4.PBS, "validate_live_approval_binding", return_value=(live, "d" * 64)
+                package4.PBS.time, "time", return_value=1_767_225_840.0
             ), mock.patch.object(
-                package4.PBS, "run", side_effect=mocked_run
+                package4.PBS.time, "time_ns", return_value=1_767_225_840_000_000_000
             ), mock.patch.object(
-                package4.PBS.time, "sleep", side_effect=AssertionError("sleep boundary crossed")
-            ), mock.patch.object(
-                package4.PBS.random, "uniform", return_value=0.0
-            ), redirect_stdout(io.StringIO()):
-                package4.PBS.command_submit(args)
+                package4.PBS.os, "getpid", return_value=4242
+            ):
+                args, _, _, input_approval, live = helper.make_live_submit_fixture(root)
+                args.windows_root = r"C:\Placeholder\GaussianProjects"
+                args.windows_server_config = r"C:\Placeholder\server_config"
+                args.rtwin_alias = "rtwin-placeholder"
+                args.server_alias = "server-placeholder"
+                with mock.patch.object(
+                    package4.PBS, "validate_input_approval", return_value=input_approval
+                ), mock.patch.object(
+                    package4.PBS, "validate_live_approval_binding", return_value=(live, "d" * 64)
+                ), mock.patch.object(
+                    package4.PBS, "run", side_effect=mocked_run
+                ), mock.patch.object(
+                    package4.PBS.subprocess, "run",
+                    side_effect=AssertionError("direct subprocess boundary crossed"),
+                ), mock.patch.object(
+                    package4.PBS.time, "sleep", side_effect=AssertionError("sleep boundary crossed")
+                ), mock.patch.object(
+                    package4.PBS.random, "uniform", return_value=0.0
+                ), redirect_stdout(io.StringIO()):
+                    package4.PBS.command_submit(args)
 
             normalized = []
             for command, input_bytes, timeout_seconds, check in calls:
@@ -410,12 +508,6 @@ class LegacyV254GoldenTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw).resolve()
-            args, _, files = helper.make_fetch_case(root)
-            output = root / "snapshot"
-            args.windows_root = r"C:\Placeholder\GaussianProjects"
-            args.windows_server_config = r"C:\Placeholder\server_config"
-            args.rtwin_alias = "rtwin-placeholder"
-            args.server_alias = "server-placeholder"
             calls: list[tuple[list[str], bytes | None, int, bool]] = []
 
             def mocked_run(command, *, input_bytes=None, check=True,
@@ -438,19 +530,33 @@ class LegacyV254GoldenTests(unittest.TestCase):
                 raise AssertionError(f"unexpected fetch command: {command}")
 
             with mock.patch.object(
-                safety.PBS, "run", side_effect=mocked_run
+                safety.PBS, "utc_now", return_value="2026-01-01T00:08:00Z"
             ), mock.patch.object(
-                safety.PBS, "analyze_log_file", return_value={"status": "completed"}
+                safety.PBS.time, "time", return_value=1_767_226_080.0
             ), mock.patch.object(
                 safety.PBS.time, "time_ns", return_value=1_700_000_000_000_000_000
             ), mock.patch.object(
                 safety.PBS.os, "getpid", return_value=4242
-            ), mock.patch.object(
-                safety.PBS.time, "sleep", side_effect=AssertionError("sleep boundary crossed")
-            ), mock.patch.object(
-                safety.PBS.random, "uniform", return_value=0.0
             ):
-                safety.PBS.fetch_results(args, "safe_job", output)
+                args, _, files = helper.make_fetch_case(root)
+                output = root / "snapshot"
+                args.windows_root = r"C:\Placeholder\GaussianProjects"
+                args.windows_server_config = r"C:\Placeholder\server_config"
+                args.rtwin_alias = "rtwin-placeholder"
+                args.server_alias = "server-placeholder"
+                with mock.patch.object(
+                    safety.PBS, "run", side_effect=mocked_run
+                ), mock.patch.object(
+                    safety.PBS.subprocess, "run",
+                    side_effect=AssertionError("direct subprocess boundary crossed"),
+                ), mock.patch.object(
+                    safety.PBS, "analyze_log_file", return_value={"status": "completed"}
+                ), mock.patch.object(
+                    safety.PBS.time, "sleep", side_effect=AssertionError("sleep boundary crossed")
+                ), mock.patch.object(
+                    safety.PBS.random, "uniform", return_value=0.0
+                ):
+                    safety.PBS.fetch_results(args, "safe_job", output)
 
             def normalize(value: object) -> str:
                 text = str(value).replace(str(root), "<TMP>").replace(
@@ -483,93 +589,90 @@ class LegacyV254GoldenTests(unittest.TestCase):
         self.assertNotIn("qdel", combined)
         self.assertNotRegex(combined, r"(^|[;&|\s])(?:rm|rmdir|truncate)(?:\s|$)")
 
-    def test_qsub_qstat_process_qdel_and_scheduler_state_matrix(self) -> None:
+    @staticmethod
+    def _completed_from_case(case: dict[str, object]) -> subprocess.CompletedProcess:
+        return completed(
+            int(case["returncode"]),
+            str(case.get("stdout", "")),
+            str(case.get("stderr", "")),
+        )
+
+    def _assert_state_matrix_cases(self, matrix: dict[str, object]) -> None:
+        classifiers = {
+            "qsub": PBS.classify_qsub_outcome,
+            "qstat": PBS.classify_qstat_evidence,
+            "process": PBS.classify_process_evidence,
+            "qdel": PBS.classify_qdel_outcome,
+        }
+        for family, classifier in classifiers.items():
+            for case_id, case in matrix[family].items():  # type: ignore[index,union-attr]
+                with self.subTest(family=family, case=case_id):
+                    actual = classifier(self._completed_from_case(case["input"]))
+                    self.assertEqual(actual, case["expected"])
+
+        for case_id, case in matrix["inspection"].items():  # type: ignore[index,union-attr]
+            with self.subTest(family="inspection", case=case_id):
+                state, expected_stages, workflow_complete, workflow_failed = (
+                    PBS.classify_inspection_state(**case["input"])
+                )
+                self.assertEqual(
+                    {
+                        "state": state,
+                        "expected_stages": expected_stages,
+                        "workflow_complete": workflow_complete,
+                        "workflow_failed": workflow_failed,
+                    },
+                    case["expected"],
+                )
+
+        for case_id, case in matrix["submission_reconciliation"].items():  # type: ignore[index,union-attr]
+            with self.subTest(family="submission_reconciliation", case=case_id):
+                actual = PBS.classify_submission_reconciliation(**case["input"])
+                self.assertEqual(actual, case["expected"])
+                self.assertIs(actual["automatic_qsub_authorized"], False)
+
+    def test_qsub_qstat_process_qdel_inspection_and_reconciliation_case_mappings(self) -> None:
+        self._assert_state_matrix_cases(self.golden["surfaces"]["state_matrix"])
+
+    def test_state_matrix_case_keys_reject_classification_permutations(self) -> None:
         expected = self.golden["surfaces"]["state_matrix"]
-        qstat_present = "Job Id: 123.placeholder\n    Job_Name = goldenjob\n    job_state = R\n    session_id = 77\n"
-        qsub = {
-            PBS.classify_qsub_outcome(completed(0, "123.placeholder\n"))["classification"],
-            PBS.classify_qsub_outcome(completed(0, ""))["classification"],
-            PBS.classify_qsub_outcome(completed(1, "123.placeholder\n"))["classification"],
-        }
-        qstat = {
-            PBS.classify_qstat_evidence(completed(0, qstat_present))["status"],
-            PBS.classify_qstat_evidence(completed(153, stderr="Unknown Job Id 123.placeholder"))["status"],
-            PBS.classify_qstat_evidence(completed(255, stderr="transport failed"))["status"],
-            PBS.classify_qstat_evidence(completed(0, "partial"))["status"],
-        }
-        process = {
-            PBS.classify_process_evidence(completed(0, "77\n"))["status"],
-            PBS.classify_process_evidence(completed(1))["status"],
-            PBS.classify_process_evidence(completed(255, stderr="transport failed"))["status"],
-        }
-        qdel = {
-            PBS.classify_qdel_outcome(completed(0))["status"],
-            PBS.classify_qdel_outcome(completed(153, stderr="Unknown Job Id"))["status"],
-            PBS.classify_qdel_outcome(completed(255, stderr="transport failed"))["status"],
-        }
-        analysis = {"normal_termination": False, "error_termination": False}
-
-        def inspection(qstate, alive, normal=0, error=0, evidence="present"):
-            return PBS.classify_inspection_state(
-                workflow_manifest=None, full_normal_count=normal, full_error_count=error,
-                analysis=analysis, qstate=qstate, process_alive=alive,
-                pbs_evidence_status=evidence,
-            )[0]
-
-        inspection_states = {
-            inspection("Q", None), inspection("R", True), inspection("H", None),
-            inspection("E", None), inspection("R", False), inspection(None, None, normal=1, evidence="absent"),
-            inspection(None, None, error=1, evidence="absent"), inspection(None, None, evidence="unknown"),
-        }
-        self.assertEqual(qsub, set(expected["qsub"]))
-        self.assertEqual(qstat, set(expected["qstat"]))
-        self.assertEqual(process, set(expected["process"]))
-        self.assertEqual(qdel, set(expected["qdel"]))
-        self.assertEqual(inspection_states, set(expected["inspection"]))
-
-    def test_submission_reconciliation_matrix_never_authorizes_qsub(self) -> None:
-        expected = self.golden["surfaces"]["state_matrix"]["submission_reconciliation"]
-        digest = "a" * 64
-        attempt = "attempt-placeholder"
-        intent = {
-            "project": "goldenjob", "job_name": "goldenjob",
-            "input_sha256": digest, "attempt_id": attempt,
-        }
-
-        def block(job_id: str) -> str:
-            return (
-                f"Job Id: {job_id}\n    Job_Name = goldenjob\n"
-                f"    Variable_List = AUTO_G16_ATTEMPT_ID={attempt},"
-                f"AUTO_G16_INPUT_SHA256={digest}\n"
+        qsub_mutation = json.loads(json.dumps(expected))
+        unique = qsub_mutation["qsub"]["success_unique"]["expected"]
+        uncertain = qsub_mutation["qsub"]["success_without_job_id"]["expected"]
+        unique["classification"], uncertain["classification"] = (
+            uncertain["classification"], unique["classification"]
+        )
+        with self.assertRaises(AssertionError):
+            self.assertEqual(
+                PBS.classify_qsub_outcome(
+                    self._completed_from_case(
+                        qsub_mutation["qsub"]["success_unique"]["input"]
+                    )
+                ),
+                qsub_mutation["qsub"]["success_unique"]["expected"],
             )
 
-        cases = [
-            PBS.classify_submission_reconciliation(
-                project="goldenjob", input_sha256=digest, attempt_id=attempt,
-                directory_present=True, remote_intent=intent, remote_receipt=None,
-                qstat_text=block("123.placeholder"),
-            ),
-            PBS.classify_submission_reconciliation(
-                project="goldenjob", input_sha256=digest, attempt_id=attempt,
-                directory_present=False, remote_intent=None, remote_receipt=None, qstat_text="",
-            ),
-            PBS.classify_submission_reconciliation(
-                project="goldenjob", input_sha256=digest, attempt_id=attempt,
-                directory_present=True, remote_intent=intent, remote_receipt=None, qstat_text="",
-            ),
-            PBS.classify_submission_reconciliation(
-                project="goldenjob", input_sha256=digest, attempt_id=attempt,
-                directory_present=True, remote_intent=None, remote_receipt=None,
-                qstat_text=block("124.placeholder"),
-            ),
-            PBS.classify_submission_reconciliation(
-                project="goldenjob", input_sha256=digest, attempt_id=attempt,
-                directory_present=True, remote_intent=intent, remote_receipt=None,
-                qstat_text=block("125.placeholder") + block("126.placeholder"),
-            ),
-        ]
-        self.assertEqual({case["classification"] for case in cases}, set(expected))
-        self.assertTrue(all(case["automatic_qsub_authorized"] is False for case in cases))
+        reconciliation_mutation = json.loads(json.dumps(expected))
+        submitted = reconciliation_mutation["submission_reconciliation"][
+            "exact_qstat_and_intent"
+        ]["expected"]
+        absent = reconciliation_mutation["submission_reconciliation"][
+            "directory_absent_no_job"
+        ]["expected"]
+        submitted["classification"], absent["classification"] = (
+            absent["classification"], submitted["classification"]
+        )
+        with self.assertRaises(AssertionError):
+            self.assertEqual(
+                PBS.classify_submission_reconciliation(
+                    **reconciliation_mutation["submission_reconciliation"][
+                        "exact_qstat_and_intent"
+                    ]["input"]
+                ),
+                reconciliation_mutation["submission_reconciliation"][
+                    "exact_qstat_and_intent"
+                ]["expected"],
+            )
 
     def test_fetch_allowlist_and_cross_cutting_prohibitions_remain_closed(self) -> None:
         surface = self.golden["surfaces"]["fetch_and_historical_owners"]
