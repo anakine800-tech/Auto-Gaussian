@@ -1,0 +1,11 @@
+%mem=12GB
+%nprocshared=8
+%chk=legacy_v254.chk
+#p hf/sto-3g sp
+
+Synthetic placeholder-only legacy golden
+
+0 1
+H 0.000000 0.000000 0.000000
+H 0.000000 0.000000 0.740000
+
