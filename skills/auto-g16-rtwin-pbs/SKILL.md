@@ -69,6 +69,14 @@ Read [references/platform-contracts.md](references/platform-contracts.md) for
 the sanitized `init`, `validate` and `doctor` interface. A profile, mapping,
 capability report or attestation-shaped artifact is not a live approval.
 
+The v2.6 PR3 execution request and authorization closure is also offline-only.
+Read [references/execution-authorization.md](references/execution-authorization.md)
+before validating either artifact. A request never authorizes execution, and a
+valid authorization closure still reports `live_ready=false` until a future
+trusted live owner replays it and atomically consumes its one-time identity.
+Offline owner replay uses private ephemeral validation copies of one captured
+byte snapshot; it performs no network, external or persistent mutation.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -407,6 +415,10 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/platform_contracts.py`: standard-library-only strict canonical JSON,
   new closed platform-contract validation, sanitized legacy mapping and
   explicit private no-clobber profile init; it has no network or live operation.
+- `scripts/execution_authorization.py`: standard-library-only PR3 request,
+  human-issued authorization and exact owner-replay gate; it returns only
+  immutable offline closure evidence, uses ephemeral private validation copies,
+  and cannot submit or consume authority.
 - `scripts/protocol_selection.py`: standard-library-only three-tier proposal,
   explicit selection, hash verification and offline input-draft authorization.
 - `scripts/execution_batch.py`: standard-library-only locked execution-batch

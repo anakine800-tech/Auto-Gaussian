@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-execution-request/1",
+  "title": "Auto-G16 v2.6 non-authorizing execution request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "request_id", "input", "scientific_task_id", "attempt_id",
+    "idempotency_key", "work_kind", "profile_id", "profile_sha256",
+    "backend_kind", "required_capabilities", "proposed_resources",
+    "upstream_artifact_refs", "intent_only", "proposal_only",
+    "calculation_ready", "no_execution_authorization",
+    "live_actions_performed", "request_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-execution-request/1"},
+    "request_id": {"$ref": "#/$defs/id"},
+    "input": {"$ref": "#/$defs/file_binding"},
+    "scientific_task_id": {"type": "string", "pattern": "^scientific-task-[a-f0-9]{64}$"},
+    "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$"},
+    "idempotency_key": {"$ref": "#/$defs/id"},
+    "work_kind": {"enum": ["ordinary", "minimum"]},
+    "profile_id": {"$ref": "#/$defs/id"},
+    "profile_sha256": {"$ref": "#/$defs/sha256"},
+    "backend_kind": {"enum": ["legacy_rtwin_pbs", "direct_ssh_pbs"]},
+    "required_capabilities": {
+      "oneOf": [
+        {"const": ["pbs_submit_once", "typed_identity_attestation"]},
+        {"const": ["pbs_cancel_exact", "pbs_submit_once", "typed_identity_attestation"]},
+        {"const": ["pbs_fetch_allowlist", "pbs_submit_once", "typed_identity_attestation"]},
+        {"const": ["pbs_inspect_exact", "pbs_submit_once", "typed_identity_attestation"]},
+        {"const": ["pbs_cancel_exact", "pbs_fetch_allowlist", "pbs_submit_once", "typed_identity_attestation"]},
+        {"const": ["pbs_cancel_exact", "pbs_inspect_exact", "pbs_submit_once", "typed_identity_attestation"]},
+        {"const": ["pbs_fetch_allowlist", "pbs_inspect_exact", "pbs_submit_once", "typed_identity_attestation"]},
+        {"const": ["pbs_cancel_exact", "pbs_fetch_allowlist", "pbs_inspect_exact", "pbs_submit_once", "typed_identity_attestation"]}
+      ]
+    },
+    "proposed_resources": {"$ref": "#/$defs/resources"},
+    "upstream_artifact_refs": {
+      "type": "array",
+      "prefixItems": [
+        {"$ref": "#/$defs/scientific_ref"},
+        {"$ref": "#/$defs/policy_ref"},
+        {"$ref": "#/$defs/snapshot_ref"},
+        {"$ref": "#/$defs/gate_ref"},
+        {"$ref": "#/$defs/batch_ref"}
+      ],
+      "items": false,
+      "minItems": 5,
+      "maxItems": 5
+    },
+    "intent_only": {"const": true},
+    "proposal_only": {"const": true},
+    "calculation_ready": {"const": false},
+    "no_execution_authorization": {"const": true},
+    "live_actions_performed": {"const": false},
+    "request_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[a-f0-9]{64}$"},
+    "file_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "size_bytes"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "resources": {"oneOf": [
+      {"$ref": "#/$defs/simple_resources"}, {"$ref": "#/$defs/general_resources"},
+      {"$ref": "#/$defs/complex_resources"}, {"$ref": "#/$defs/custom_resources"}
+    ]},
+    "simple_resources": {"$ref": "#/$defs/resource_base", "properties": {"tier": {"const": "simple"}, "cores": {"const": 8}, "memory_gb": {"const": 12}, "walltime_seconds": {"type": "integer", "minimum": 1}}},
+    "general_resources": {"$ref": "#/$defs/resource_base", "properties": {"tier": {"const": "general"}, "cores": {"const": 22}, "memory_gb": {"const": 50}, "walltime_seconds": {"type": "integer", "minimum": 1}}},
+    "complex_resources": {"$ref": "#/$defs/resource_base", "properties": {"tier": {"const": "complex"}, "cores": {"const": 44}, "memory_gb": {"const": 120}, "walltime_seconds": {"type": "integer", "minimum": 1}}},
+    "custom_resources": {"$ref": "#/$defs/resource_base", "properties": {"tier": {"const": "custom_reviewed"}, "cores": {"type": "integer", "minimum": 1, "maximum": 44}, "memory_gb": {"type": "integer", "minimum": 1, "maximum": 120}, "walltime_seconds": {"type": "integer", "minimum": 1}}},
+    "resource_base": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tier", "cores", "memory_gb", "walltime_seconds"],
+      "properties": {"tier": {"type": "string"}, "cores": {"type": "integer"}, "memory_gb": {"type": "integer"}, "walltime_seconds": {"type": "integer"}}
+    },
+    "artifact_ref_base": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "schema", "sha256", "size_bytes", "payload_sha256"],
+      "properties": {
+        "role": {"type": "string"}, "schema": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "scientific_ref": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact_ref_base"},
+        {"properties": {
+          "role": {"const": "scientific_owner_receipt"},
+          "schema": {"enum": ["gaussian-input-approval-receipt/1", "gaussian-input-approval-receipt/2", "gaussian-input-approval-receipt/3"]}
+        }}
+      ]
+    },
+    "policy_ref": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact_ref_base"},
+        {"properties": {"role": {"const": "resource_policy"}, "schema": {"const": "gaussian-execution-resource-policy/1"}}}
+      ]
+    },
+    "snapshot_ref": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact_ref_base"},
+        {"properties": {"role": {"const": "scheduler_resource_snapshot"}, "schema": {"const": "gaussian-scheduler-resource-snapshot/1"}}}
+      ]
+    },
+    "gate_ref": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact_ref_base"},
+        {"properties": {"role": {"const": "resource_gate"}, "schema": {"const": "gaussian-execution-resource-gate/2"}}}
+      ]
+    },
+    "batch_ref": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact_ref_base"},
+        {"properties": {"role": {"const": "execution_batch"}, "schema": {"const": "gaussian-execution-batch/3"}}}
+      ]
+    }
+  }
+}

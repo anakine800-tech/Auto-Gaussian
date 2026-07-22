@@ -15,6 +15,10 @@
       "target": "scripts/platform_contracts.py"
     },
     {
+      "source": "scripts/execution_authorization.py",
+      "target": "scripts/execution_authorization.py"
+    },
+    {
       "source": "scripts/runtime_config.py",
       "target": "scripts/platform_runtime_config_owner.py"
     }
