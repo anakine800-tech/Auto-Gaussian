@@ -63,6 +63,12 @@ environment variable overrides the matching JSON value.
 
 Never store or echo passwords. Never replace a changed SSH host key silently.
 
+The v2.6 PR2 profile, identity, attestation, capability, resource-catalog and
+legacy-mapping contracts are offline-only and do not change this live path.
+Read [references/platform-contracts.md](references/platform-contracts.md) for
+the sanitized `init`, `validate` and `doctor` interface. A profile, mapping,
+capability report or attestation-shaped artifact is not a live approval.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -398,6 +404,9 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 
 ## Bundled scripts
 
+- `scripts/platform_contracts.py`: standard-library-only strict canonical JSON,
+  new closed platform-contract validation, sanitized legacy mapping and
+  explicit private no-clobber profile init; it has no network or live operation.
 - `scripts/protocol_selection.py`: standard-library-only three-tier proposal,
   explicit selection, hash verification and offline input-draft authorization.
 - `scripts/execution_batch.py`: standard-library-only locked execution-batch

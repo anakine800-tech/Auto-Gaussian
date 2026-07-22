@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-resource-catalog/1",
+  "title": "Auto-G16 v2.6 closed resource catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "catalog_id",
+    "capacity",
+    "reviewed_tuples",
+    "custom_reviewed_allowed",
+    "walltime_must_be_explicitly_reviewed",
+    "proposal_markers",
+    "catalog_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-resource-catalog/1"},
+    "catalog_id": {"const": "legacy-pbs-resource-catalog"},
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_job_cores", "max_job_memory_gb"],
+      "properties": {
+        "max_job_cores": {"const": 44},
+        "max_job_memory_gb": {"const": 120}
+      }
+    },
+    "reviewed_tuples": {
+      "type": "array",
+      "prefixItems": [
+        {"$ref": "#/$defs/simple"},
+        {"$ref": "#/$defs/general"},
+        {"$ref": "#/$defs/complex"}
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "custom_reviewed_allowed": {"const": true},
+    "walltime_must_be_explicitly_reviewed": {"const": true},
+    "proposal_markers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposal_only", "calculation_ready", "no_submission_authorization"],
+      "properties": {
+        "proposal_only": {"const": true},
+        "calculation_ready": {"const": false},
+        "no_submission_authorization": {"const": true}
+      }
+    },
+    "catalog_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "simple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "cores", "memory_gb"],
+      "properties": {
+        "tier": {"const": "simple"},
+        "cores": {"const": 8},
+        "memory_gb": {"const": 12}
+      }
+    },
+    "general": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "cores", "memory_gb"],
+      "properties": {
+        "tier": {"const": "general"},
+        "cores": {"const": 22},
+        "memory_gb": {"const": 50}
+      }
+    },
+    "complex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "cores", "memory_gb"],
+      "properties": {
+        "tier": {"const": "complex"},
+        "cores": {"const": 44},
+        "memory_gb": {"const": 120}
+      }
+    }
+  }
+}

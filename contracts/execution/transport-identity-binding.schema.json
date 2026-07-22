@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-transport-identity-binding/1",
+  "title": "Auto-G16 v2.6 transport identity binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "binding_id", "profile_id", "hops", "binding_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-transport-identity-binding/1"},
+    "binding_id": {"$ref": "#/$defs/id"},
+    "profile_id": {"$ref": "#/$defs/id"},
+    "hops": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/hop"},
+      "minItems": 1,
+      "maxItems": 2
+    },
+    "binding_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport_kind",
+        "config_source_bundle_sha256",
+        "alias_utf8_sha256",
+        "effective_target_identity_sha256",
+        "host_key_policy",
+        "host_key_evidence_sha256",
+        "resolver_version"
+      ],
+      "properties": {
+        "transport_kind": {
+          "enum": ["direct_ssh", "legacy_rtwin_first_hop", "legacy_rtwin_nested_hop"]
+        },
+        "config_source_bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "alias_utf8_sha256": {"$ref": "#/$defs/sha256"},
+        "effective_target_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "host_key_policy": {"const": "strict_pinned"},
+        "host_key_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "resolver_version": {"$ref": "#/$defs/id"}
+      }
+    }
+  }
+}
