@@ -82,7 +82,9 @@ class ReleaseHygieneTests(unittest.TestCase):
         )
         readme = (ROOT / "README.md").read_text()
         self.assertIn("Auto-Gaussian 2.5.3", readme)
-        self.assertIn("2.5.2 is the latest published release", readme)
+        self.assertIn("Auto-Gaussian 2.5.3 is the latest published release", readme)
+        self.assertIn("bc67fded270ee5fc52efecfafdfc817073430b7a", readme)
+        self.assertNotIn("2.5.3 is the prepared maintenance-patch source candidate", readme)
         self.assertNotIn("2.5.2 release candidate", readme)
         self.assertTrue((ROOT / "docs" / "release-2.5.3-checklist.md").is_file())
 
@@ -160,7 +162,8 @@ class ReleaseHygieneTests(unittest.TestCase):
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
         self.assertIn("## Current mainline state", status)
         self.assertIn("Auto-Gaussian 2.5.3", status)
-        self.assertIn("2.5.2 is the\nlatest published release", status)
+        self.assertIn("Auto-Gaussian 2.5.3 is the latest published release", status)
+        self.assertIn("bc67fded270ee5fc52efecfafdfc817073430b7a", status)
         self.assertIn("external fact outside this checkout", status)
         for evidence_type in ("Feature", "Deployment", "Test"):
             self.assertRegex(
@@ -174,8 +177,20 @@ class ReleaseHygieneTests(unittest.TestCase):
             "## Working-tree note",
             "2.5.2 is the prepared source-release candidate",
             "v2.5.0 remains the latest published release",
+            "2.5.3 is the prepared maintenance-patch source candidate",
+            "2.5.2 is the latest published release",
         ):
             self.assertNotIn(stale, status)
+
+    def test_machine_local_reports_are_ignored_and_not_release_material(self) -> None:
+        ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertRegex(ignore, r"(?m)^/reports/$")
+        offenders = [
+            str(path.relative_to(ROOT))
+            for path in tracked_files()
+            if path.relative_to(ROOT).parts[:1] == ("reports",)
+        ]
+        self.assertEqual(offenders, [])
 
     def test_no_machine_specific_identity_or_address_is_tracked(self) -> None:
         retired_machine_values = [

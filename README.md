@@ -81,22 +81,23 @@ Historical endpoint review or path acceptance `/1` remains readable for
 display/replay only and cannot open maturity, thermochemistry, asymmetric
 comparison or any live gate.
 
-## 2.5.3 release preparation
+## 2.5.3 current release
 
-Auto-Gaussian 2.5.3 is the prepared maintenance-patch source candidate from
-`main` commit `042f8aeef665f524ac2c0cbdc47ccbf11a208d2e`. Auto-Gaussian
-2.5.2 is the latest published release; its annotated `v2.5.2` tag resolves to
-release commit `09a3cad13b07afdab86a70488d4e0ab78aa6c2d9`.
+Auto-Gaussian 2.5.3 is the latest published release. It was published on
+2026-07-22 from `main` commit
+`bc67fded270ee5fc52efecfafdfc817073430b7a`; annotated tag object
+`20cea7e040ef6649f9f695381c802abc8aa7aba0` resolves to that exact commit.
 
-The 2.5.3 increment contains only the two first-parent merges after 2.5.2:
+The 2.5.3 increment contains only three first-parent merges after 2.5.2:
 PR #45 adds the development handbook, isolated-worktree preflight, exact
 Python/CI declarations and their offline audits; PR #46 hardens RTwin terminal
 snapshot and staged fetch handling for finite timeouts, sanitized failure
-evidence, PBS `qstat` return code 153, and no automatic retry. Historical
-schemas and release records retain their original meaning. Local static audits
-do not prove current GitHub branch protection or a successful CI run.
+evidence, PBS `qstat` return code 153, and no automatic retry; PR #47 freezes
+the 2.5.3 release metadata and checklist. Historical schemas and release
+records retain their original meaning. Local static audits do not prove
+current GitHub branch protection or a successful CI run.
 
-This candidate makes no deployment, SSH, RTwin, PBS, Gaussian, live-smoke or
+Publication makes no deployment, SSH, RTwin, PBS, Gaussian, live-smoke or
 scientific-success claim. It grants no submission, retry, qdel, cleanup,
 result-acceptance or scientific authority.
 
