@@ -5,6 +5,26 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.5.4] - 2026-07-22
+
+### Changed
+
+- Reconciled the mutable README and repository-status pages with the published
+  2.5.3 tag and GitHub Release, then advanced every current-version surface to
+  2.5.4 under one release-consistency contract.
+- Added a root-level `/reports/` boundary and release-hygiene coverage so
+  machine-local generated reports cannot enter Git or source-release material.
+- Added cross-file version assertions covering `pyproject.toml`, the first
+  changelog release, README title/current-release text, repository status, the
+  versioned checklist, and compare links.
+
+### Safety
+
+- This documentation and release-hygiene patch preserves all historical
+  schemas and release records. It makes no deployment, SSH, RTwin, PBS,
+  Gaussian, live-smoke or scientific-success claim and grants no submission,
+  retry, qdel, cleanup or scientific authority.
+
 ## [2.5.3] - 2026-07-22
 
 ### Added
@@ -477,7 +497,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.3...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.4...HEAD
+[2.5.4]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.0...v2.5.2
 [2.5.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.4.0...v2.5.0
