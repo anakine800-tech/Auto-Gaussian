@@ -3,20 +3,42 @@
 
 from __future__ import annotations
 
+import _imp
 import copy
 import hashlib
 import hmac
 import importlib.util
 import io
+import os
 import re
 import sys
-from contextlib import redirect_stderr, redirect_stdout
+import tempfile
+import threading
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 
-import platform_contracts
+
+def _load_bootstrap_platform_contracts() -> ModuleType:
+    """Load the exact adjacent PR2 owner without trusting the module cache."""
+    path = Path(__file__).resolve().parent / "platform_contracts.py"
+    if not path.is_file() or path.is_symlink():
+        raise ImportError(f"exact platform owner is unavailable: {path}")
+    name = f"_auto_g16_execution_authorization_platform_{hashlib.sha256(str(path).encode()).hexdigest()[:16]}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"exact platform owner cannot be loaded: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if Path(module.__file__).resolve() != path.resolve():
+        raise ImportError("platform owner origin changed during bootstrap")
+    return module
+
+
+platform_contracts = _load_bootstrap_platform_contracts()
 
 
 REQUEST_SCHEMA = "auto-g16-execution-request/1"
@@ -79,6 +101,132 @@ UPSTREAM_SCHEMAS = {
 
 class ExecutionAuthorizationError(ValueError):
     """An offline execution authorization closure cannot be proved exactly."""
+
+
+@dataclass(frozen=True)
+class OwnerBundle:
+    platform_contracts: ModuleType
+    execution_batch: ModuleType
+    resource_efficiency: ModuleType
+    gaussian_log: ModuleType
+    protocol_selection: ModuleType
+    runtime_config: ModuleType
+    gaussian_rtwin_pbs: ModuleType
+    owner_dir: Path
+
+
+_OWNER_IMPORT_LOCK = threading.RLock()
+_OWNER_LOCAL = threading.local()
+_OWNER_MODULE_FILENAMES = {
+    "platform_contracts": "platform_contracts.py",
+    "execution_batch": "execution_batch.py",
+    "resource_efficiency": "resource_efficiency.py",
+    "gaussian_log": "gaussian_log.py",
+    "protocol_selection": "protocol_selection.py",
+    "runtime_config": "runtime_config.py",
+    "gaussian_rtwin_pbs": "gaussian_rtwin_pbs.py",
+}
+
+
+def _owner_source_paths() -> tuple[Path, dict[str, Path]]:
+    here = Path(__file__).resolve().parent
+    candidates = (
+        here,
+        here.parent / "skills" / "auto-g16-rtwin-pbs" / "scripts",
+    )
+    owner_dir = next((candidate for candidate in candidates if (candidate / "gaussian_rtwin_pbs.py").is_file()), None)
+    require(owner_dir is not None, "required original owner directory is unavailable")
+    paths = {
+        name: (here / filename if name == "platform_contracts" else owner_dir / filename)
+        for name, filename in _OWNER_MODULE_FILENAMES.items()
+    }
+    for name, path in paths.items():
+        require(path.is_file() and not path.is_symlink(), f"required owner origin is unsafe or missing: {name}")
+    return owner_dir.resolve(), {name: path.resolve() for name, path in paths.items()}
+
+
+def _module_origin(module: ModuleType) -> Path | None:
+    raw = getattr(module, "__file__", None)
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        return Path(raw).resolve()
+    except OSError:
+        return None
+
+
+def _load_exact_cached_module(name: str, path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(name, path)
+    require(spec is not None and spec.loader is not None, f"required owner cannot be imported: {name}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
+    require(_module_origin(module) == path, f"required owner origin changed while loading: {name}")
+    return module
+
+
+@contextmanager
+def _controlled_owner_bundle() -> Iterator[OwnerBundle]:
+    """Temporarily install one exact local owner graph under the import lock."""
+    active = getattr(_OWNER_LOCAL, "bundle", None)
+    if active is not None:
+        yield active
+        return
+    with _OWNER_IMPORT_LOCK:
+        _imp.acquire_lock()
+        prior: dict[str, ModuleType | None] = {}
+        try:
+            owner_dir, paths = _owner_source_paths()
+            for name, expected in paths.items():
+                cached = sys.modules.get(name)
+                if cached is not None:
+                    require(_module_origin(cached) == expected, f"preexisting owner cache origin mismatch: {name}")
+                prior[name] = cached
+            for name in paths:
+                sys.modules.pop(name, None)
+            loaded: dict[str, ModuleType] = {}
+            for name in (
+                "execution_batch", "resource_efficiency", "gaussian_log",
+                "protocol_selection", "runtime_config", "gaussian_rtwin_pbs",
+                "platform_contracts",
+            ):
+                loaded[name] = _load_exact_cached_module(name, paths[name])
+            require(loaded["resource_efficiency"].execution_batch is loaded["execution_batch"], "resource owner dependency is not the controlled execution-batch owner")
+            gaussian = loaded["gaussian_rtwin_pbs"]
+            require(gaussian.execution_batch is loaded["execution_batch"], "scientific owner execution-batch dependency is uncontrolled")
+            require(gaussian.resource_efficiency is loaded["resource_efficiency"], "scientific owner resource dependency is uncontrolled")
+            require(gaussian.protocol_selection is loaded["protocol_selection"], "scientific owner protocol dependency is uncontrolled")
+            require(gaussian.analyze_log_file is loaded["gaussian_log"].analyze_log_file, "scientific owner log dependency is uncontrolled")
+            require(gaussian.setting is loaded["runtime_config"].setting, "scientific owner runtime-config dependency is uncontrolled")
+            bundle = OwnerBundle(
+                platform_contracts=loaded["platform_contracts"],
+                execution_batch=loaded["execution_batch"],
+                resource_efficiency=loaded["resource_efficiency"],
+                gaussian_log=loaded["gaussian_log"],
+                protocol_selection=loaded["protocol_selection"],
+                runtime_config=loaded["runtime_config"],
+                gaussian_rtwin_pbs=gaussian,
+                owner_dir=owner_dir,
+            )
+            _OWNER_LOCAL.bundle = bundle
+            yield bundle
+        except ExecutionAuthorizationError:
+            raise
+        except Exception as exc:
+            raise ExecutionAuthorizationError(f"controlled owner bundle failed closed: {exc}") from exc
+        finally:
+            if hasattr(_OWNER_LOCAL, "bundle"):
+                del _OWNER_LOCAL.bundle
+            for name in prior:
+                sys.modules.pop(name, None)
+                cached = prior.get(name)
+                if cached is not None:
+                    sys.modules[name] = cached
+            _imp.release_lock()
 
 
 def require(condition: bool, message: str) -> None:
@@ -165,13 +313,14 @@ def _validate_file_binding(value: Any, label: str) -> dict[str, Any]:
 def _validate_resources(value: Any, label: str) -> dict[str, Any]:
     resource = _exact(value, {"tier", "cores", "memory_gb", "walltime_seconds"}, label)
     try:
-        platform_contracts.validate_exact_resource(
-            platform_contracts.build_resource_catalog(),
-            tier=resource["tier"],
-            cores=resource["cores"],
-            memory_gb=resource["memory_gb"],
-            walltime_seconds=resource["walltime_seconds"],
-        )
+        with _controlled_owner_bundle() as owners:
+            owners.platform_contracts.validate_exact_resource(
+                owners.platform_contracts.build_resource_catalog(),
+                tier=resource["tier"],
+                cores=resource["cores"],
+                memory_gb=resource["memory_gb"],
+                walltime_seconds=resource["walltime_seconds"],
+            )
     except (ValueError, TypeError) as exc:
         raise ExecutionAuthorizationError(f"{label} is not an exact supported resource tuple: {exc}") from exc
     return copy.deepcopy(resource)
@@ -477,7 +626,8 @@ def validate_readiness_result(document: Any) -> dict[str, Any]:
         "single_use_declared", "registry_negative_evidence_only",
         "registry_uniqueness_proven", "future_owner_replay_required",
         "atomic_consumption_required", "offline_validation_only", "live_ready",
-        "calculation_ready", "network_performed", "mutation_performed",
+        "calculation_ready", "network_performed", "external_mutation_performed",
+        "persistent_mutation_performed", "ephemeral_validation_copy_performed",
         "submission_performed", "readiness_payload_sha256",
     }, "authorization readiness result")
     require(result["schema"] == READINESS_SCHEMA and result["status"] == "closure_valid_offline", "readiness result schema/status changed")
@@ -501,7 +651,9 @@ def validate_readiness_result(document: Any) -> dict[str, Any]:
         "live_ready": False,
         "calculation_ready": False,
         "network_performed": False,
-        "mutation_performed": False,
+        "external_mutation_performed": False,
+        "persistent_mutation_performed": False,
+        "ephemeral_validation_copy_performed": True,
         "submission_performed": False,
     }
     require(all(result[key] is expected for key, expected in expected_markers.items()), "readiness non-live markers changed")
@@ -509,27 +661,270 @@ def validate_readiness_result(document: Any) -> dict[str, Any]:
     return copy.deepcopy(result)
 
 
-def _load_owner(filename: str, module_name: str) -> ModuleType:
-    here = Path(__file__).parent
-    candidates = (
-        here / filename,
-        here.parent / "skills" / "auto-g16-rtwin-pbs" / "scripts" / filename,
-    )
-    path = next((candidate for candidate in candidates if candidate.is_file()), None)
-    require(path is not None, f"required original owner is unavailable: {filename}")
-    owner_dir = str(path.parent)
-    inserted = owner_dir not in sys.path
-    if inserted:
-        sys.path.insert(0, owner_dir)
+@dataclass(frozen=True)
+class ArtifactSnapshot:
+    original_path: Path
+    private_path: Path
+    raw: bytes
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True)
+class ScientificSnapshot:
+    receipt: ArtifactSnapshot
+    input: ArtifactSnapshot
+    original_to_private: dict[Path, Path]
+    binding_path_to_private: dict[str, Path]
+    private_to_binding_path: dict[Path, str]
+    namespace_root: Path
+
+
+@dataclass(frozen=True)
+class ValidationSnapshots:
+    profile: ArtifactSnapshot
+    identity_binding: ArtifactSnapshot
+    scientific: ScientificSnapshot
+    resource_policy: ArtifactSnapshot
+    scheduler_snapshot: ArtifactSnapshot
+    resource_gate: ArtifactSnapshot
+    execution_batch: ArtifactSnapshot
+    private_root: Path
+
+
+def _absolute_lexical(path: Path) -> Path:
+    return Path(os.path.abspath(str(path.expanduser())))
+
+
+def _write_private_copy(root: Path, relative: Path, raw: bytes) -> Path:
+    require(not relative.is_absolute() and relative.parts and ".." not in relative.parts, "private validation copy target is unsafe")
+    target = root / relative
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(target.parent, 0o700)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(target, flags, 0o400)
     try:
-        spec = importlib.util.spec_from_file_location(module_name, path)
-        require(spec is not None and spec.loader is not None, f"required original owner cannot be imported: {filename}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        view = memoryview(raw)
+        offset = 0
+        while offset < len(view):
+            offset += os.write(descriptor, view[offset:])
+        os.fsync(descriptor)
     finally:
-        if inserted:
-            sys.path.remove(owner_dir)
+        os.close(descriptor)
+    os.chmod(target, 0o400)
+    copied = platform_contracts._open_regular_nofollow(target)
+    require(copied == raw, "private validation copy differs from captured bytes")
+    return target
+
+
+def _capture_once(path: Path, label: str, cache: dict[Path, tuple[bytes, str, int]]) -> tuple[Path, bytes, str, int]:
+    original = _absolute_lexical(path)
+    if original not in cache:
+        cache[original] = _read_regular_artifact_bytes(original, label)
+    raw, digest, size = cache[original]
+    return original, raw, digest, size
+
+
+def _binding_dicts(value: Any) -> Iterator[dict[str, Any]]:
+    if isinstance(value, dict):
+        if isinstance(value.get("path"), str) and isinstance(value.get("sha256"), str):
+            yield value
+        for child in value.values():
+            yield from _binding_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _binding_dicts(child)
+
+
+def _safe_relative_path(value: Any, label: str) -> Path:
+    require(isinstance(value, str) and value and "\\" not in value, f"{label} path must be portable text")
+    path = Path(value)
+    require(not path.is_absolute() and path.parts and all(part not in {"", ".", ".."} for part in path.parts), f"{label} path must be relative without traversal")
+    return path
+
+
+def _materialized_snapshot(
+    *, original: Path, raw: bytes, digest: str, size: int, target: Path,
+) -> ArtifactSnapshot:
+    return ArtifactSnapshot(original, target, raw, digest, size)
+
+
+def _collect_scientific_snapshot(
+    receipt_path: Path,
+    input_path: Path,
+    private_root: Path,
+    owners: OwnerBundle,
+    cache: dict[Path, tuple[bytes, str, int]],
+) -> ScientificSnapshot:
+    gaussian = owners.gaussian_rtwin_pbs
+    namespace_root = owners.owner_dir.parents[2].resolve()
+    receipt_original, receipt_raw, receipt_sha, receipt_size = _capture_once(receipt_path, "scientific owner receipt", cache)
+    try:
+        receipt_document = gaussian._parse_strict_json_bytes(receipt_raw, receipt_original)
+    except (ValueError, TypeError) as exc:
+        raise ExecutionAuthorizationError(f"scientific owner receipt cannot be decoded strictly: {exc}") from exc
+    approval_root = private_root / "scientific-approval"
+    approval_root.mkdir(mode=0o700)
+    receipt_private = _write_private_copy(approval_root, Path("receipt.json"), receipt_raw)
+    receipt_snapshot = _materialized_snapshot(
+        original=receipt_original, raw=receipt_raw, digest=receipt_sha,
+        size=receipt_size, target=receipt_private,
+    )
+
+    original_to_private: dict[Path, Path] = {}
+    all_private_copies: dict[Path, set[Path]] = {}
+    binding_path_to_private: dict[str, Path] = {}
+    private_to_binding_path: dict[Path, str] = {}
+    private_documents: list[tuple[Path, Path, dict[str, Any]]] = []
+
+    def mapped_target(original: Path) -> Path:
+        parent_key = hashlib.sha256(str(original.parent).encode("utf-8")).hexdigest()[:20]
+        return private_root / "bound-artifacts" / parent_key / original.name
+
+    def materialize(original: Path, raw: bytes, digest: str, size: int) -> Path:
+        prior = original_to_private.get(original)
+        if prior is not None:
+            require(platform_contracts._open_regular_nofollow(prior) == raw, "scientific snapshot mapping collision")
+            return prior
+        target = mapped_target(original)
+        relative = target.relative_to(private_root)
+        target = _write_private_copy(private_root, relative, raw)
+        original_to_private[original] = target
+        all_private_copies.setdefault(original, set()).add(target)
+        return target
+
+    top_bindings: list[dict[str, Any]] = []
+    sources = receipt_document.get("sources")
+    if isinstance(sources, dict):
+        top_bindings.extend(item for item in sources.values() if isinstance(item, dict))
+    if isinstance(receipt_document.get("input"), dict):
+        top_bindings.append(receipt_document["input"])
+    require(top_bindings, "scientific receipt has no bound source/input closure")
+    bound_input_original: Path | None = None
+    input_private: Path | None = None
+    input_raw: bytes | None = None
+    input_sha: str | None = None
+    input_size: int | None = None
+    for index, binding in enumerate(top_bindings):
+        relative = _safe_relative_path(binding.get("path"), f"scientific receipt binding {index}")
+        original, raw, digest, size = _capture_once(receipt_original.parent / relative, f"scientific receipt binding {index}", cache)
+        require(digest == binding.get("sha256"), f"scientific receipt binding {index} SHA-256 mismatch")
+        if "size_bytes" in binding:
+            require(size == binding["size_bytes"], f"scientific receipt binding {index} size mismatch")
+        approval_copy = _write_private_copy(approval_root, relative, raw)
+        materialize(original, raw, digest, size)
+        all_private_copies.setdefault(original, set()).add(approval_copy)
+        if binding is receipt_document.get("input"):
+            bound_input_original = original
+            input_private = approval_copy
+            input_raw = raw
+            input_sha = digest
+            input_size = size
+        else:
+            try:
+                document = gaussian._parse_strict_json_bytes(raw, original)
+            except ValueError:
+                continue
+            private_documents.append((original, approval_copy, document))
+    supplied_input_original, supplied_raw, supplied_sha, supplied_size = _capture_once(input_path, "Gaussian input", cache)
+    require(bound_input_original == supplied_input_original, "scientific receipt input path differs from supplied exact input")
+    require((input_raw, input_sha, input_size) == (supplied_raw, supplied_sha, supplied_size), "scientific receipt input snapshot differs from supplied exact input")
+    require(input_private is not None, "scientific receipt has no exact input binding")
+
+    visited_documents: set[Path] = set()
+    while private_documents:
+        document_original, document_private, document = private_documents.pop(0)
+        if document_original in visited_documents:
+            continue
+        visited_documents.add(document_original)
+        for binding in _binding_dicts(document):
+            path_text = binding["path"]
+            relative_or_absolute = Path(path_text).expanduser()
+            candidates = (
+                [_absolute_lexical(relative_or_absolute)]
+                if relative_or_absolute.is_absolute()
+                else [
+                    _absolute_lexical(namespace_root / relative_or_absolute),
+                    _absolute_lexical(document_original.parent / relative_or_absolute),
+                ]
+            )
+            selected: tuple[Path, bytes, str, int] | None = None
+            for candidate in dict.fromkeys(candidates):
+                try:
+                    captured = _capture_once(candidate, "scientific nested binding", cache)
+                except ExecutionAuthorizationError:
+                    continue
+                if hmac.compare_digest(captured[2], binding["sha256"]):
+                    selected = captured
+                    break
+            require(selected is not None, f"scientific nested binding cannot be captured exactly: {path_text}")
+            original, raw, digest, size = selected
+            target = materialize(original, raw, digest, size)
+            prior_target = binding_path_to_private.get(path_text)
+            if prior_target is not None:
+                require(platform_contracts._open_regular_nofollow(prior_target) == raw, "scientific binding path maps to different bytes")
+                target = prior_target
+            elif target in private_to_binding_path and private_to_binding_path[target] != path_text:
+                view_key = hashlib.sha256(path_text.encode("utf-8")).hexdigest()[:20]
+                target = _write_private_copy(
+                    private_root,
+                    Path("bound-artifact-views") / view_key / original.name,
+                    raw,
+                )
+                all_private_copies[original].add(target)
+            binding_path_to_private[path_text] = target
+            private_to_binding_path[target] = path_text
+            try:
+                nested = gaussian._parse_strict_json_bytes(raw, original)
+            except ValueError:
+                continue
+            private_documents.append((original, target, nested))
+
+    input_snapshot = ArtifactSnapshot(supplied_input_original, input_private, supplied_raw, supplied_sha, supplied_size)
+    return ScientificSnapshot(
+        receipt=receipt_snapshot,
+        input=input_snapshot,
+        original_to_private=original_to_private,
+        binding_path_to_private=binding_path_to_private,
+        private_to_binding_path=private_to_binding_path,
+        namespace_root=namespace_root,
+    )
+
+
+@contextmanager
+def _validation_snapshots(
+    *, profile_path: Path, identity_binding_path: Path, input_path: Path,
+    scientific_receipt_path: Path, resource_policy_path: Path,
+    scheduler_snapshot_path: Path, resource_gate_path: Path,
+    execution_batch_path: Path, owners: OwnerBundle,
+) -> Iterator[ValidationSnapshots]:
+    with tempfile.TemporaryDirectory(prefix="auto-g16-execution-validation-") as temporary:
+        # macOS commonly exposes /var as a symlink to /private/var.  Resolve the
+        # freshly-created private directory before exact owners perform their
+        # own no-symlink component checks.
+        private_root = Path(temporary).resolve(strict=True)
+        os.chmod(private_root, 0o700)
+        cache: dict[Path, tuple[bytes, str, int]] = {}
+
+        def direct(label: str, path: Path) -> ArtifactSnapshot:
+            original, raw, digest, size = _capture_once(path, label, cache)
+            suffix = original.suffix if original.suffix else ".artifact"
+            private = _write_private_copy(private_root, Path("direct") / f"{label.replace(' ', '-')}{suffix}", raw)
+            return ArtifactSnapshot(original, private, raw, digest, size)
+
+        snapshots = ValidationSnapshots(
+            profile=direct("profile", profile_path),
+            identity_binding=direct("identity-binding", identity_binding_path),
+            scientific=_collect_scientific_snapshot(
+                scientific_receipt_path, input_path, private_root, owners, cache,
+            ),
+            resource_policy=direct("resource-policy", resource_policy_path),
+            scheduler_snapshot=direct("scheduler-snapshot", scheduler_snapshot_path),
+            resource_gate=direct("resource-gate", resource_gate_path),
+            execution_batch=direct("execution-batch", execution_batch_path),
+            private_root=private_root,
+        )
+        yield snapshots
 
 
 def _read_strict_artifact(path: Path, label: str) -> tuple[dict[str, Any], bytes, str, int]:
@@ -567,91 +962,167 @@ def _with_role(role: str, ref: dict[str, Any]) -> dict[str, Any]:
     return {"role": role, **copy.deepcopy(ref)}
 
 
-def _replay_scientific_owner(input_path: Path, receipt_path: Path, work_kind: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    owner = _load_owner("gaussian_rtwin_pbs.py", "auto_g16_execution_authorization_scientific_owner")
-    input_raw, _, _ = _read_regular_artifact_bytes(input_path, "Gaussian input")
-    receipt_raw, receipt_sha, receipt_size = _read_regular_artifact_bytes(receipt_path, "scientific owner receipt")
+def _snapshot_path_mapper(snapshot: ScientificSnapshot) -> Any:
+    def mapped(value: Any = ".") -> Path:
+        path = Path(value).expanduser()
+        exact_binding = snapshot.binding_path_to_private.get(str(value))
+        if exact_binding is not None:
+            return exact_binding
+        candidates = (
+            [_absolute_lexical(path)]
+            if path.is_absolute()
+            else [
+                _absolute_lexical(snapshot.namespace_root / path),
+                _absolute_lexical(path),
+            ]
+        )
+        for candidate in candidates:
+            private = snapshot.original_to_private.get(candidate)
+            if private is not None:
+                return private
+        return path
+
+    return mapped
+
+
+def _configure_specialist_owner(module: ModuleType, snapshot: ScientificSnapshot, owners: OwnerBundle, *, family: bool) -> ModuleType:
+    skills_root = owners.owner_dir.parents[1]
+    filename = "open_shell_minimum_family.py" if family else "open_shell_minimum.py"
+    expected = (skills_root / "auto-g16-main-group-open-shell" / "scripts" / filename).resolve()
+    require(_module_origin(module) == expected, f"specialist owner origin mismatch: {filename}")
+    state_expected = expected.parent / "open_shell_state.py"
+    require(_module_origin(module.state) == state_expected, "specialist state dependency origin mismatch")
+    mapper = _snapshot_path_mapper(snapshot)
+    module.Path = mapper
+    module.state.Path = mapper
+    original_state_portable = getattr(module.state, "portable_path", None)
+    if callable(original_state_portable):
+        def state_portable(path: Path) -> str:
+            private = _absolute_lexical(path)
+            binding_path = snapshot.private_to_binding_path.get(private)
+            return binding_path if binding_path is not None else original_state_portable(path)
+        module.state.portable_path = state_portable
+    if family:
+        original_binding = module._binding
+
+        def family_binding(path: Path, document: dict[str, Any]) -> dict[str, Any]:
+            result = original_binding(path, document)
+            private = _absolute_lexical(path)
+            if private in snapshot.private_to_binding_path:
+                result["path"] = snapshot.private_to_binding_path[private]
+            return result
+
+        module._binding = family_binding
+    else:
+        protocol_expected = (owners.owner_dir / "protocol_selection.py").resolve()
+        require(_module_origin(module.protocol) == protocol_expected, "specialist protocol dependency origin mismatch")
+        module.protocol.Path = mapper
+        original_portable = module.portable
+
+        def portable(path: Path) -> str:
+            private = _absolute_lexical(path)
+            binding_path = snapshot.private_to_binding_path.get(private)
+            return binding_path if binding_path is not None else original_portable(path)
+
+        module.portable = portable
+    return module
+
+
+def _replay_scientific_owner(owners: OwnerBundle, snapshot: ScientificSnapshot, work_kind: str) -> dict[str, Any]:
+    owner = owners.gaussian_rtwin_pbs
+    original_minimum_loader = owner._load_open_shell_minimum_owner
+    original_family_loader = owner._load_open_shell_minimum_family_owner
+    owner._load_open_shell_minimum_owner = lambda: _configure_specialist_owner(
+        original_minimum_loader(), snapshot, owners, family=False,
+    )
+    owner._load_open_shell_minimum_family_owner = lambda: _configure_specialist_owner(
+        original_family_loader(), snapshot, owners, family=True,
+    )
     try:
         muted_out = io.StringIO()
         muted_err = io.StringIO()
         with redirect_stdout(muted_out), redirect_stderr(muted_err):
-            report = owner.parse_gaussian(input_path.absolute())
-            summary = owner.validate_input_approval(receipt_path.absolute(), input_path.absolute(), report, work_kind)
+            report = owner.parse_gaussian(snapshot.input.private_path)
+            summary = owner.validate_input_approval(
+                snapshot.receipt.private_path,
+                snapshot.input.private_path,
+                report,
+                work_kind,
+            )
     except (SystemExit, ValueError, OSError) as exc:
         raise ExecutionAuthorizationError("original scientific owner rejected the exact input/receipt") from exc
-    require(platform_contracts._open_regular_nofollow(input_path.absolute()) == input_raw, "Gaussian input bytes changed during owner replay")
-    require(platform_contracts._open_regular_nofollow(receipt_path.absolute()) == receipt_raw, "scientific receipt bytes changed during owner replay")
     require(summary["status"] == "validated_exact_input_approval" and summary["no_submission_authorization"] is True, "scientific owner replay overclaimed authority")
-    facts = {
+    return {
         "schema": summary["schema"],
-        "sha256": receipt_sha,
-        "size_bytes": receipt_size,
+        "sha256": snapshot.receipt.sha256,
+        "size_bytes": snapshot.receipt.size_bytes,
         "payload_sha256": summary["payload_sha256"],
         "input_sha256": summary["input_sha256"],
         "work_kind": summary["work_kind"],
     }
-    return facts, {"raw": input_raw, "report": report}
 
 
-def validate_authorization_gate(
+def _validate_authorization_gate_captured(
     *,
-    request_path: Path,
-    authorization_path: Path,
-    profile_path: Path,
-    identity_binding_path: Path,
-    input_path: Path,
-    scientific_receipt_path: Path,
-    resource_policy_path: Path,
-    scheduler_snapshot_path: Path,
-    resource_gate_path: Path,
-    execution_batch_path: Path,
-    registry_snapshot_path: Path,
+    request: dict[str, Any],
+    authorization: dict[str, Any],
+    registry: dict[str, Any],
+    owners: OwnerBundle,
+    snapshots: ValidationSnapshots,
     now: str | datetime,
 ) -> dict[str, Any]:
-    """Replay every existing owner and return only an immutable offline result."""
-    request = _load_new_contract(request_path, validate_execution_request, "execution request")
-    authorization = _load_new_contract(authorization_path, validate_execution_authorization, "execution authorization", now=now)
-    registry = _load_new_contract(registry_snapshot_path, validate_registry_snapshot, "authorization registry snapshot", now=now)
-
     try:
-        profile = platform_contracts.load_execution_profile(profile_path.absolute())
-        identity = platform_contracts.load_transport_identity_binding(identity_binding_path.absolute())
-    except (OSError, platform_contracts.PlatformContractError) as exc:
+        profile = owners.platform_contracts.load_execution_profile(snapshots.profile.private_path)
+        identity = owners.platform_contracts.load_transport_identity_binding(snapshots.identity_binding.private_path)
+    except (OSError, ValueError, TypeError) as exc:
         raise ExecutionAuthorizationError(f"PR2 platform owner rejected profile/identity binding: {exc}") from exc
     require(profile["transport_identity_binding_sha256"] == identity["binding_payload_sha256"], "profile differs from the exact identity binding")
     require(profile["profile_id"] == identity["profile_id"], "profile id differs from the exact identity binding")
 
-    input_raw, input_sha, input_size = _read_regular_artifact_bytes(input_path, "Gaussian input")
-    scientific, replay = _replay_scientific_owner(input_path, scientific_receipt_path, request["work_kind"])
-    require(replay["raw"] == input_raw, "scientific owner replay used different input bytes")
+    input_sha = snapshots.scientific.input.sha256
+    input_size = snapshots.scientific.input.size_bytes
+    scientific = _replay_scientific_owner(owners, snapshots.scientific, request["work_kind"])
     require(scientific["input_sha256"] == input_sha, "scientific owner input hash differs from exact input bytes")
 
-    resource_owner = _load_owner("resource_efficiency.py", "auto_g16_execution_authorization_resource_owner")
-    batch_owner = _load_owner("execution_batch.py", "auto_g16_execution_authorization_batch_owner")
-    policy_raw, policy_sha, policy_size = _read_regular_artifact_bytes(resource_policy_path, "resource policy")
-    snapshot_raw, snapshot_sha, snapshot_size = _read_regular_artifact_bytes(scheduler_snapshot_path, "scheduler resource snapshot")
-    gate_raw, gate_sha, gate_size = _read_regular_artifact_bytes(resource_gate_path, "resource gate")
-    ledger_raw, ledger_sha, ledger_size = _read_regular_artifact_bytes(execution_batch_path, "execution batch")
+    resource_owner = owners.resource_efficiency
+    batch_owner = owners.execution_batch
     try:
-        policy_doc = resource_owner.load(resource_policy_path.absolute())
-        snapshot_doc = resource_owner.load(scheduler_snapshot_path.absolute())
-        gate_doc = resource_owner.load(resource_gate_path.absolute())
-        ledger_doc = resource_owner.load(execution_batch_path.absolute())
+        policy_doc = resource_owner.load(snapshots.resource_policy.private_path)
+        snapshot_doc = resource_owner.load(snapshots.scheduler_snapshot.private_path)
+        gate_doc = resource_owner.load(snapshots.resource_gate.private_path)
+        ledger_doc = resource_owner.load(snapshots.execution_batch.private_path)
         policy = resource_owner.validate_policy(policy_doc)
         snapshot = resource_owner.validate_scheduler_snapshot(snapshot_doc, now=now if isinstance(now, str) else now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
         gate = resource_owner._validate_gate_binding(gate_doc, allow_historical=False)
         ledger = resource_owner.validate_ledger(ledger_doc)
+        requested = gate["requested_resources"]
+        scope = gate["execution_scope"]
+        expected_gate = resource_owner.evaluate_gate(
+            ledger,
+            policy,
+            snapshot,
+            gate_id=gate["gate_id"],
+            evaluated_at=gate["evaluated_at"],
+            resource_tier=requested["resource_tier"],
+            cores=requested["cores"],
+            memory_gb=requested["memory_gb"],
+            walltime_seconds=requested["walltime_seconds"],
+            estimated_core_hours=requested["estimated_core_hours"],
+            scheduler_artifact_sha256=snapshots.scheduler_snapshot.sha256,
+            scheduler_artifact_size=snapshots.scheduler_snapshot.size_bytes,
+            scientific_task_id=scope["scientific_task_id"],
+            attempt_id=scope["attempt_id"],
+            project=scope["project"],
+            input_sha256=scope["input_sha256"],
+        )
+        require(expected_gate == gate, "resource gate differs from deterministic original-owner reevaluation")
     except (ValueError, TypeError) as exc:
         raise ExecutionAuthorizationError(f"original resource/batch owner rejected closure: {exc}") from exc
-    require(platform_contracts._open_regular_nofollow(resource_policy_path.absolute()) == policy_raw, "resource policy bytes changed during replay")
-    require(platform_contracts._open_regular_nofollow(scheduler_snapshot_path.absolute()) == snapshot_raw, "scheduler snapshot bytes changed during replay")
-    require(platform_contracts._open_regular_nofollow(resource_gate_path.absolute()) == gate_raw, "resource gate bytes changed during replay")
-    require(platform_contracts._open_regular_nofollow(execution_batch_path.absolute()) == ledger_raw, "execution batch bytes changed during replay")
 
-    policy_ref = _artifact_ref(policy["schema"], policy_sha, policy_size, policy["payload_sha256"])
-    snapshot_ref = _artifact_ref(snapshot["schema"], snapshot_sha, snapshot_size, snapshot["payload_sha256"])
-    gate_ref = _artifact_ref(gate["schema"], gate_sha, gate_size, gate["gate_sha256"])
-    ledger_ref = _artifact_ref(ledger["schema"], ledger_sha, ledger_size, ledger["ledger_sha256"])
+    policy_ref = _artifact_ref(policy["schema"], snapshots.resource_policy.sha256, snapshots.resource_policy.size_bytes, policy["payload_sha256"])
+    snapshot_ref = _artifact_ref(snapshot["schema"], snapshots.scheduler_snapshot.sha256, snapshots.scheduler_snapshot.size_bytes, snapshot["payload_sha256"])
+    gate_ref = _artifact_ref(gate["schema"], snapshots.resource_gate.sha256, snapshots.resource_gate.size_bytes, gate["gate_sha256"])
+    ledger_ref = _artifact_ref(ledger["schema"], snapshots.execution_batch.sha256, snapshots.execution_batch.size_bytes, ledger["ledger_sha256"])
     actual_upstream = [
         _with_role("scientific_owner_receipt", {key: scientific[key] for key in ("schema", "sha256", "size_bytes", "payload_sha256")}),
         _with_role("resource_policy", policy_ref),
@@ -722,8 +1193,8 @@ def validate_authorization_gate(
     require(gate["scheduler_snapshot"] == {
         "snapshot_id": snapshot["snapshot_id"],
         "payload_sha256": snapshot["payload_sha256"],
-        "artifact_sha256": snapshot_sha,
-        "artifact_size": snapshot_size,
+        "artifact_sha256": snapshots.scheduler_snapshot.sha256,
+        "artifact_size": snapshots.scheduler_snapshot.size_bytes,
         "collected_at": snapshot["collected_at"],
         "source": snapshot["source"],
         "freshness": snapshot["freshness"]["classification"],
@@ -758,8 +1229,61 @@ def validate_authorization_gate(
         "live_ready": False,
         "calculation_ready": False,
         "network_performed": False,
-        "mutation_performed": False,
+        "external_mutation_performed": False,
+        "persistent_mutation_performed": False,
+        "ephemeral_validation_copy_performed": True,
         "submission_performed": False,
         "readiness_payload_sha256": "",
     }
     return validate_readiness_result(finalize(result, "readiness_payload_sha256"))
+
+
+def validate_authorization_gate(
+    *,
+    request_path: Path,
+    authorization_path: Path,
+    profile_path: Path,
+    identity_binding_path: Path,
+    input_path: Path,
+    scientific_receipt_path: Path,
+    resource_policy_path: Path,
+    scheduler_snapshot_path: Path,
+    resource_gate_path: Path,
+    execution_batch_path: Path,
+    registry_snapshot_path: Path,
+    now: str | datetime,
+) -> dict[str, Any]:
+    """Replay exact owners from private immutable snapshots; never perform live work."""
+    with _controlled_owner_bundle() as owners:
+        request = _load_new_contract(request_path, validate_execution_request, "execution request")
+        authorization = _load_new_contract(
+            authorization_path,
+            validate_execution_authorization,
+            "execution authorization",
+            now=now,
+        )
+        registry = _load_new_contract(
+            registry_snapshot_path,
+            validate_registry_snapshot,
+            "authorization registry snapshot",
+            now=now,
+        )
+        with _validation_snapshots(
+            profile_path=profile_path,
+            identity_binding_path=identity_binding_path,
+            input_path=input_path,
+            scientific_receipt_path=scientific_receipt_path,
+            resource_policy_path=resource_policy_path,
+            scheduler_snapshot_path=scheduler_snapshot_path,
+            resource_gate_path=resource_gate_path,
+            execution_batch_path=execution_batch_path,
+            owners=owners,
+        ) as snapshots:
+            return _validate_authorization_gate_captured(
+                request=request,
+                authorization=authorization,
+                registry=registry,
+                owners=owners,
+                snapshots=snapshots,
+                now=now,
+            )

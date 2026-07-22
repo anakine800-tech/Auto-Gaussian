@@ -74,6 +74,8 @@ Read [references/execution-authorization.md](references/execution-authorization.
 before validating either artifact. A request never authorizes execution, and a
 valid authorization closure still reports `live_ready=false` until a future
 trusted live owner replays it and atomically consumes its one-time identity.
+Offline owner replay uses private ephemeral validation copies of one captured
+byte snapshot; it performs no network, external or persistent mutation.
 
 ## Non-negotiable filesystem boundary
 
@@ -415,7 +417,8 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
   explicit private no-clobber profile init; it has no network or live operation.
 - `scripts/execution_authorization.py`: standard-library-only PR3 request,
   human-issued authorization and exact owner-replay gate; it returns only
-  immutable offline closure evidence and cannot submit or consume authority.
+  immutable offline closure evidence, uses ephemeral private validation copies,
+  and cannot submit or consume authority.
 - `scripts/protocol_selection.py`: standard-library-only three-tier proposal,
   explicit selection, hash verification and offline input-draft authorization.
 - `scripts/execution_batch.py`: standard-library-only locked execution-batch

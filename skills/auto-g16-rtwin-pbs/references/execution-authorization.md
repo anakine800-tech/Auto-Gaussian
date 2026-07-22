@@ -26,10 +26,27 @@ and `/3` are closed to `minimum`; `ordinary` is accepted only with receipt `/1`.
 
 `scripts/execution_authorization.py` strictly decodes the two new contracts and
 replays the existing PR2, scientific input, resource and execution-batch owners.
-It does not copy or relax those owners. Its only successful gate status is
-`closure_valid_offline`; `live_ready`, `calculation_ready`, network, mutation
-and submission flags are always false. The module has no CLI, transport or
-scheduler action and creates no command or transfer plan.
+It does not copy or relax those owners. The supplied resource gate is fully
+recomputed by the original `resource_efficiency.evaluate_gate` using the exact
+policy, scheduler snapshot, ledger, execution scope, resource tuple, evidence,
+ID and time; the recomputed and supplied gate documents must be identical.
+
+Each pathname is read once with no-follow semantics. The captured bytes are
+copied into a fresh private `0700` temporary validation directory with
+`O_EXCL`/`0400` files; all original owners read only these copies, and refs come
+from the same captured bytes. The directory is removed on exit. This is an
+ephemeral local validation write, so the result reports
+`ephemeral_validation_copy_performed=true` while external and persistent
+mutation, network and submission remain false.
+
+The owner bundle verifies exact local origins and deterministic dependency
+identity for the platform, batch, resource, Gaussian, log, protocol and runtime
+owners under import/reentrant locks, rejects a mismatched preexisting module
+cache, then restores that cache. Specialist scientific owner dependencies are
+also origin checked. Its only successful gate status is
+`closure_valid_offline`; `live_ready` and `calculation_ready` remain false. The
+module has no CLI, transport or scheduler action and creates no command or
+transfer plan.
 
 The caller-supplied registry snapshot is untrusted negative evidence. A known
 authorization ID, consumed ID or attestation nonce rejects. An empty snapshot
@@ -51,5 +68,5 @@ interpretation. They cannot be backfilled, re-hashed, or admitted to the new
 profile/direct gate. Adoption is additive: producers may continue the old path
 unchanged, while new profile-mode work must issue both new artifacts. Rollback
 removes the PR3 schema/owner package and returns callers to the unchanged legacy
-path; it does not rewrite historical artifacts. PR4 must not begin until PR3 is
-merged and independently reviewed.
+path; it does not rewrite historical artifacts or retain temporary validation
+copies. PR4 must not begin until PR3 is merged and independently reviewed.

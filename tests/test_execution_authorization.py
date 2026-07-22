@@ -14,7 +14,10 @@ import shutil
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from types import ModuleType
+from unittest import mock
 
 from tests.test_open_shell_input_receipt_bridge import OpenShellInputReceiptBridgeTests
 
@@ -390,6 +393,37 @@ class ExecutionAuthorizationTests(unittest.TestCase):
         values.update(overrides)
         return AUTH.validate_authorization_gate(**values)
 
+    def reseal_resource_closure(
+        self, *, policy_path: Path, policy: dict[str, object], gate_path: Path,
+        gate: dict[str, object], label: str,
+    ) -> tuple[Path, Path]:
+        request = copy.deepcopy(self.fixture["request"])
+        request["upstream_artifact_refs"][1] = {
+            "role": "resource_policy",
+            **file_ref(policy_path, policy["schema"], policy["payload_sha256"]),
+        }
+        request["upstream_artifact_refs"][3] = {
+            "role": "resource_gate",
+            **file_ref(gate_path, gate["schema"], gate["gate_sha256"]),
+        }
+        request = AUTH.finalize(request, "request_payload_sha256")
+        request_path = self.write_new(f"request-{label}.json", request)
+
+        authorization = copy.deepcopy(self.fixture["authorization"])
+        authorization["request"]["request_payload_sha256"] = request["request_payload_sha256"]
+        authorization["resource_chain"]["policy"] = file_ref(
+            policy_path, policy["schema"], policy["payload_sha256"],
+        )
+        authorization["resource_chain"]["gate"] = file_ref(
+            gate_path, gate["schema"], gate["gate_sha256"],
+        )
+        authorization["scope_sha256"] = AUTH._scope_sha256(authorization)
+        for operation in authorization["authorizations"]:
+            operation["scope_sha256"] = authorization["scope_sha256"]
+        authorization = AUTH.finalize(authorization, "authorization_payload_sha256")
+        authorization_path = self.write_new(f"authorization-{label}.json", authorization)
+        return request_path, authorization_path
+
     def test_exact_synthetic_happy_path_is_only_closure_valid_offline(self) -> None:
         result = self.run_gate()
         self.assertEqual(result["status"], "closure_valid_offline")
@@ -400,12 +434,118 @@ class ExecutionAuthorizationTests(unittest.TestCase):
         self.assertTrue(result["registry_negative_evidence_only"])
         self.assertFalse(result["registry_uniqueness_proven"])
         self.assertFalse(result["network_performed"])
-        self.assertFalse(result["mutation_performed"])
+        self.assertFalse(result["external_mutation_performed"])
+        self.assertFalse(result["persistent_mutation_performed"])
+        self.assertTrue(result["ephemeral_validation_copy_performed"])
         self.assertFalse(result["submission_performed"])
         self.assertEqual(
             result["readiness_payload_sha256"],
             PLATFORM.payload_sha256(result, "readiness_payload_sha256"),
         )
+
+    def test_resource_gate_is_recomputed_not_trusted_after_semantic_reseal(self) -> None:
+        policy = copy.deepcopy(RESOURCE.load(self.fixture["policy_path"]))
+        policy["limits"]["max_job_cores"] = 1
+        policy = RESOURCE.finalize_policy(policy)
+        policy_path = self.root / "resource-policy-restricted.json"
+        policy_path.write_text(json.dumps(policy, sort_keys=True) + "\n", encoding="utf-8")
+
+        gate = copy.deepcopy(RESOURCE.load(self.fixture["gate_path"]))
+        gate["policy_sha256"] = policy["payload_sha256"]
+        gate["gate_sha256"] = BATCH.digest_value({
+            key: value for key, value in gate.items() if key != "gate_sha256"
+        })
+        gate_path = self.root / "resource-gate-semantically-resealed.json"
+        gate_path.write_text(json.dumps(gate, sort_keys=True) + "\n", encoding="utf-8")
+        RESOURCE.validate_policy(policy)
+        RESOURCE._validate_gate_binding(gate, allow_historical=False)
+        request_path, authorization_path = self.reseal_resource_closure(
+            policy_path=policy_path,
+            policy=policy,
+            gate_path=gate_path,
+            gate=gate,
+            label="semantic-resource-reseal",
+        )
+        with self.assertRaisesRegex(
+            AUTH.ExecutionAuthorizationError,
+            "original resource/batch owner rejected closure",
+        ):
+            self.run_gate(
+                resource_policy_path=policy_path,
+                resource_gate_path=gate_path,
+                request_path=request_path,
+                authorization_path=authorization_path,
+            )
+
+    def test_all_owners_read_one_private_snapshot_during_path_swap(self) -> None:
+        original_policy = self.fixture["policy_path"].read_bytes()
+        replacement = copy.deepcopy(RESOURCE.load(self.fixture["policy_path"]))
+        replacement["limits"]["max_job_cores"] = 1
+        replacement = RESOURCE.finalize_policy(replacement)
+        replacement_raw = (json.dumps(replacement, sort_keys=True) + "\n").encode("utf-8")
+        observed: dict[str, object] = {}
+        original_snapshots = AUTH._validation_snapshots
+
+        @contextmanager
+        def swap_after_capture(**kwargs):
+            with original_snapshots(**kwargs) as snapshots:
+                direct = (
+                    snapshots.profile, snapshots.identity_binding,
+                    snapshots.scientific.receipt, snapshots.scientific.input,
+                    snapshots.resource_policy, snapshots.scheduler_snapshot,
+                    snapshots.resource_gate, snapshots.execution_batch,
+                )
+                observed["all_private"] = all(
+                    snapshot.private_path.is_relative_to(snapshots.private_root)
+                    for snapshot in direct
+                )
+                observed["root_mode"] = snapshots.private_root.stat().st_mode & 0o777
+                observed["copy_modes"] = {
+                    snapshot.private_path.stat().st_mode & 0o777 for snapshot in direct
+                }
+                observed["captured_policy"] = snapshots.resource_policy.raw
+                self.fixture["policy_path"].write_bytes(replacement_raw)
+                try:
+                    yield snapshots
+                finally:
+                    self.fixture["policy_path"].write_bytes(original_policy)
+
+        with mock.patch.object(AUTH, "_validation_snapshots", swap_after_capture):
+            result = self.run_gate()
+        self.assertEqual(result["status"], "closure_valid_offline")
+        self.assertEqual(observed["captured_policy"], original_policy)
+        self.assertTrue(observed["all_private"])
+        self.assertEqual(observed["root_mode"], 0o700)
+        self.assertEqual(observed["copy_modes"], {0o400})
+        self.assertEqual(self.fixture["policy_path"].read_bytes(), original_policy)
+
+    def test_controlled_owner_bundle_rejects_poisoned_module_cache(self) -> None:
+        poison = ModuleType("execution_batch")
+        poison.__file__ = str(self.root / "poisoned-execution-batch.py")
+        prior = sys.modules.get("execution_batch")
+        sys.modules["execution_batch"] = poison
+        try:
+            with self.assertRaisesRegex(
+                AUTH.ExecutionAuthorizationError,
+                "preexisting owner cache origin mismatch: execution_batch",
+            ):
+                self.run_gate()
+            self.assertIs(sys.modules["execution_batch"], poison)
+        finally:
+            sys.modules.pop("execution_batch", None)
+            if prior is not None:
+                sys.modules["execution_batch"] = prior
+
+        with AUTH._controlled_owner_bundle() as owners:
+            _, expected_paths = AUTH._owner_source_paths()
+            for name, expected in expected_paths.items():
+                self.assertEqual(AUTH._module_origin(getattr(owners, name)), expected)
+            self.assertIs(owners.resource_efficiency.execution_batch, owners.execution_batch)
+            self.assertIs(owners.gaussian_rtwin_pbs.execution_batch, owners.execution_batch)
+            self.assertIs(owners.gaussian_rtwin_pbs.resource_efficiency, owners.resource_efficiency)
+            self.assertIs(owners.gaussian_rtwin_pbs.protocol_selection, owners.protocol_selection)
+        if prior is not None:
+            self.assertIs(sys.modules.get("execution_batch"), prior)
 
     def test_registry_is_untrusted_negative_evidence_only_and_hits_reject(self) -> None:
         empty = self.run_gate()
@@ -944,7 +1084,10 @@ class ExecutionAuthorizationTests(unittest.TestCase):
                 shutil.copyfile(source, destination)
             self.assertFalse((installed / ".git").exists())
             script_dir = installed / "scripts"
-            prior_platform = sys.modules.pop("platform_contracts", None)
+            prior_owners = {
+                name: sys.modules.pop(name, None)
+                for name in AUTH._OWNER_MODULE_FILENAMES
+            }
             sys.path.insert(0, str(script_dir))
             try:
                 spec = importlib.util.spec_from_file_location("packaged_execution_authorization", script_dir / "execution_authorization.py")
@@ -952,15 +1095,20 @@ class ExecutionAuthorizationTests(unittest.TestCase):
                 self.assertIsNotNone(spec.loader if spec else None)
                 module = importlib.util.module_from_spec(spec)
                 assert spec and spec.loader
-                spec.loader.exec_module(module)
+                sys.modules[spec.name] = module
+                try:
+                    spec.loader.exec_module(module)
+                finally:
+                    sys.modules.pop(spec.name, None)
                 self.assertEqual(Path(module.platform_contracts.__file__).resolve(), (script_dir / "platform_contracts.py").resolve())
                 packaged_request = module.validate_execution_request(self.fixture["request"])
                 self.assertEqual(module.platform_contracts.canonical_bytes(packaged_request), PLATFORM.canonical_bytes(self.fixture["request"]))
             finally:
                 sys.path.remove(str(script_dir))
-                sys.modules.pop("platform_contracts", None)
-                if prior_platform is not None:
-                    sys.modules["platform_contracts"] = prior_platform
+                for name in AUTH._OWNER_MODULE_FILENAMES:
+                    sys.modules.pop(name, None)
+                    if prior_owners[name] is not None:
+                        sys.modules[name] = prior_owners[name]
 
     def test_owner_has_no_cli_network_subprocess_or_mutating_registry_surface(self) -> None:
         source = (ROOT / "scripts" / "execution_authorization.py").read_text(encoding="utf-8")
