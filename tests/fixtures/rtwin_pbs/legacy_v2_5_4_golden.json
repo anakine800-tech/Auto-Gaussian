@@ -1,0 +1,123 @@
+{
+  "schema": "auto-g16-legacy-v2.5.4-characterization/1",
+  "golden_origin": {
+    "commit": "aa1c4614fc0d1cdecfc445a4db39a70700e2d7c6",
+    "tag": "v2.5.4",
+    "placeholder_only": true,
+    "offline_only": true
+  },
+  "classification_policy": {
+    "allowed": [
+      "required_compatibility",
+      "known_defect_requiring_separate_reviewed_change"
+    ],
+    "p0_p1_may_be_accepted_by_updating_golden": false
+  },
+  "surfaces": {
+    "runtime_precedence": {
+      "classification": "required_compatibility",
+      "order": ["cli", "environment", "runtime_json", "legacy_fallback", "repository_default"]
+    },
+    "public_cli": {
+      "classification": "required_compatibility",
+      "transport": {
+        "subcommands": [
+          "analyze", "batch-status", "build-input-approval", "cancel", "cleanup-zombie",
+          "diagnose-zombie", "fetch", "finalize-input-review", "inspect", "preflight",
+          "reconcile-cancellation", "reconcile-submission", "stage", "status", "submit",
+          "tail", "validate-input-approval", "watch"
+        ],
+        "options_sha256": "59046e0d67a34c8c4137937873db1efd6a1ed06263f8b2d35eb3f8b24565da81",
+        "help_without_known_defect_sha256": "6af32f05e840572f7f15650a0dd84082ab885de2023256d2a0db352ef394f0ba"
+      },
+      "wrapper": {
+        "subcommands": ["auto", "prepare"],
+        "options_sha256": "959b32adbfdb21a2991dc29aac748aa86ea0a9ffa3c6066625904a908f81466e",
+        "help_sha256": "83d72d6d072cf482ae112d11ae9a6797328ca0db3fc76157d6a7fa7a788c5a5c"
+      },
+      "error_categories": {
+        "argparse_contract": {"exit": 2, "prefix": "usage:"},
+        "policy_validation": {"exit": 2, "prefix": "ERROR:"},
+        "interrupted": {"exit": 130, "prefix": "ERROR:"}
+      }
+    },
+    "submit_help_defect": {
+      "classification": "known_defect_requiring_separate_reviewed_change",
+      "exception": "ValueError",
+      "message_category": "unsupported format character",
+      "severity": "P2",
+      "production_fix_in_scope": false
+    },
+    "dry_run_json": {
+      "classification": "required_compatibility",
+      "preflight_fields": [
+        "atom_count", "atom_order", "charge", "checkpoint", "elements", "geometry_source",
+        "has_relaxed_scan_directive", "input", "input_sha256", "link1_count", "manifest",
+        "manifest_sha256", "manifest_size", "manifest_warnings", "mem", "memory_bytes",
+        "multiplicity", "nprocshared", "oldcheckpoint", "oldcheckpoint_sha256", "project",
+        "remote_workdir", "route", "route_section_count", "trailing_blank_line",
+        "trailing_section_line_count"
+      ],
+      "stage_output_fields": ["files", "job"],
+      "stage_job_fields": [
+        "calculation_ready", "checksums", "gaussian", "input", "input_sha256", "job_id",
+        "no_submission_authorization", "pbs_script", "project", "remote_workdir",
+        "resource_binding", "schema", "status"
+      ],
+      "wrapper_preflight_fields": [
+        "atom_count", "automatic_retry_policy", "charge", "elements", "gaussian_input",
+        "input_approval", "input_sha256", "local_dir", "multiplicity", "project", "protocol",
+        "remote_workdir", "schema", "source", "warnings", "work_kind"
+      ],
+      "submit_dry_run_fields": [
+        "dry_run", "files", "input_approval", "input_sha256", "live_approval",
+        "live_submission_ready", "local_dir", "project", "remote_dir", "windows_dir"
+      ],
+      "stage_markers": {"calculation_ready": false, "no_submission_authorization": true},
+      "wrapper_markers": {"live_submission_ready": false, "no_submission_authorization": true},
+      "child_contains": ["submit", "--confirmed", "--dry-run"]
+    },
+    "pbs_bytes": {
+      "classification": "required_compatibility",
+      "template_sha256": "dac6799d4645570e1622e3ecae1d40de102934ce773ec8211aeb0d2b00254769",
+      "plain_sha256": "7d378ee20264f42443e3913d51bf9f00d71cbeb6d602ee4806e7b629a3839e37",
+      "resource_bound_sha256": "4abb5a70a8a38532d15a292c608e06c5d6e3f2b881e218ba7aff114a6abf41cf"
+    },
+    "command_scripts": {
+      "classification": "required_compatibility",
+      "remote_claim": {"sha256": "2ec7de78525412d318ab37037a6e72456f9eeac4f0938f6e1578cb8783a17ce9", "bytes": 566},
+      "remote_read": {"sha256": "83a35591ca10430059ebc408935187d335e93dc90e8a624e9a98314b170a64b2", "bytes": 435},
+      "job_snapshot": {"sha256": "d13307278eee4e1893c3e0dcbf54fbf4fe7cb5483970e67c524eef6b8db5ab0b", "bytes": 2506},
+      "fetch_inventory": {"sha256": "9eb9cf3174cb6fb0ce7b38a18b563015ea088d229d9c3de6169b2901bc6aa341", "bytes": 1189},
+      "fetch_hash": {"sha256": "316daafef32cb1bd16dd35eabb4d42075dd40a6dff21c5f9df9f468f1613cfb9", "bytes": 1377},
+      "powershell_utf16le_base64": "VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIABwAGwAYQBjAGUAaABvAGwAZABlAHIA",
+      "protected_submit_plan_sha256": "7f1f063207459e628040453c8170847036d4d95fc2c72ce66d3d0c03b3b1e15f",
+      "protected_submit_network_call_count": 6,
+      "fetch_plan_sha256": "18c534ae28c23e32fb6ea0850b0c09d9cd0d43dceb576d16bce3175fb3792c2e",
+      "fetch_network_call_count": 6
+    },
+    "state_matrix": {
+      "classification": "required_compatibility",
+      "qsub": ["submitted_unique", "submission_uncertain"],
+      "qstat": ["present", "absent", "unknown"],
+      "process": ["present", "absent", "unknown"],
+      "qdel": ["success", "unknown_job_id", "failed"],
+      "inspection": ["queued", "running", "held", "exiting", "stale", "completed", "failed", "unknown"],
+      "submission_reconciliation": [
+        "submitted_unique", "definitely_not_submitted", "still_uncertain_zero",
+        "still_uncertain_one_unbound", "still_uncertain_multiple"
+      ]
+    },
+    "fetch_and_historical_owners": {
+      "classification": "required_compatibility",
+      "adjacent_modules": [
+        "tests.test_execution_batch", "tests.test_gaussian_auto_gate",
+        "tests.test_idempotent_execution", "tests.test_resource_monitor_efficiency",
+        "tests.test_runtime_config", "tests.test_runtime_safety_hardening"
+      ],
+      "automatic_retry": false,
+      "delete_server_data": false,
+      "remote_root_override": false
+    }
+  }
+}
