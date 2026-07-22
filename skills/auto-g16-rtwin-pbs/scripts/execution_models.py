@@ -361,8 +361,8 @@ class PR3AuthorizationReplay:
     authorization_id: str
     profile_sha256: str
     backend_kind: str
-    identity_binding_sha256: str
     project: str
+    identity_binding_sha256: str
     operations: tuple[_ReplayedAttestationOperation, ...]
     replayed_at: str
     _seal: object
@@ -430,6 +430,59 @@ class PR3AuthorizationReplay:
     def assert_owner_sealed(self) -> None:
         if self._seal is not _AUTHORIZATION_OWNER_TOKEN:
             raise ModelError("PR3 authorization replay seal is invalid")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TransportAuthorityReplay:
+    """Sealed, non-executable replay of the additive /2 authority overlay."""
+
+    authorization_id: str
+    base_authorization_id: str
+    profile_sha256: str
+    backend_kind: str
+    project: str
+    identity_binding_sha256: str
+    transport_config_bindings_sha256: str
+    operations: tuple[_ReplayedAttestationOperation, ...]
+    replayed_at: str
+    _seal: object
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "TransportAuthorityReplay":
+        raise TypeError("TransportAuthorityReplay must be loaded by the successor owner")
+
+    @classmethod
+    def from_successor_owner(cls, path: Path, *, now: str | datetime) -> "TransportAuthorityReplay":
+        try:
+            owner = _load_repository_owner("transport_authority_closure.py", "transport_authority_closure")
+            document = owner.load_contract(
+                Path(path), owner.validate_execution_authorization_v2, now=now,
+            )
+        except (ImportError, OSError, ValueError) as exc:
+            raise ModelError(f"transport authority successor owner rejected the artifact: {exc}") from exc
+        current = _utc(now, "transport authority replay time")
+        operations = tuple(
+            _ReplayedAttestationOperation._create(item, _AUTHORIZATION_OWNER_TOKEN)
+            for item in document["identity_attestation"]["operations"]
+        )
+        value = object.__new__(cls)
+        for name, item in {
+            "authorization_id": document["authorization_id"],
+            "base_authorization_id": document["base_execution_authorization"]["authorization_id"],
+            "profile_sha256": document["profile"]["profile_sha256"],
+            "backend_kind": document["profile"]["backend_kind"],
+            "project": document["project"],
+            "identity_binding_sha256": document["transport"]["identity_binding_sha256"],
+            "transport_config_bindings_sha256": document["transport"]["transport_config_bindings_sha256"],
+            "operations": operations,
+            "replayed_at": current.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "_seal": _AUTHORIZATION_OWNER_TOKEN,
+        }.items():
+            object.__setattr__(value, name, item)
+        return value
+
+    def assert_owner_sealed(self) -> None:
+        if self._seal is not _AUTHORIZATION_OWNER_TOKEN or len(self.operations) != 3:
+            raise ModelError("transport authority replay seal/topology is invalid")
 
 
 @dataclass(frozen=True, slots=True, init=False)

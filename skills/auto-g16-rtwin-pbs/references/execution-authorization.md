@@ -17,6 +17,14 @@ operations and nonces, and the exact three one-time operations. Only a human may
 issue this artifact. The validator validates an existing record; it never
 creates or infers approval.
 
+For new legacy PR4B submissions, published `/1` is replay-only and cannot
+express the second-hop handshake authority or both adapter-owned config refs.
+The additive `auto-g16-execution-authorization/2` overlay binds the exact `/1`
+request/authorization, an equivalent `execution-profile/2`, both hash-only
+config references and the fixed third read-only handshake operation. Its
+authority delta explicitly denies stage, submit, cancel, fetch and arbitrary
+commands. Neither version is executable in this prerequisite patch.
+
 Schema timestamp patterns provide only a second-precision `Z` lexical shape.
 The Python owner validates real UTC calendar dates, ordering and active windows;
 no JSON Schema `format` engine is assumed. Specialist scientific receipts `/2`

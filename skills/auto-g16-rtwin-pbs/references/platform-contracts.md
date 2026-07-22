@@ -97,3 +97,13 @@ observed second-hop fingerprint. Per the accepted RFC, the actual second-hop
 handshake and observed-fingerprint comparison happen only after the hash-only
 receipt validates and remain future live-adapter work. Consequently,
 `classification=verified` does not claim that handshake occurred.
+
+## PR4B prerequisite successor
+
+Published PR2 `/1` artifacts remain unchanged and replay-only. The separate
+offline owner `transport_authority_closure.py` adds `execution-profile/2`, in
+which first-hop and second-hop adapter config references are represented only
+by fixed logical roles and nonzero digests. It also validates the fixed
+single-attempt, zero-retry nested-hop handshake request/receipt and the
+read-only `execution-authorization/2` overlay. These contracts perform no
+handshake and authorize no stage, submit, cancel, fetch or arbitrary command.

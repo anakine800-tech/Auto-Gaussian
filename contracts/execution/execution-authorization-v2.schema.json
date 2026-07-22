@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-execution-authorization/2",
+  "title": "Auto-G16 v2.6 read-only nested identity authority successor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "authorization_id", "base_request", "base_execution_authorization",
+    "approver", "approved_at", "not_before", "expires_at", "decision",
+    "explicit_human_approval", "profile", "project", "transport", "identity_attestation",
+    "authority_delta", "revocation", "consumption", "scope_sha256", "authorization_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-execution-authorization/2"},
+    "authorization_id": {"$ref": "#/$defs/id"},
+    "base_request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "request_id", "request_payload_sha256"],
+      "properties": {"schema": {"const": "auto-g16-execution-request/1"}, "request_id": {"$ref": "#/$defs/id"}, "request_payload_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "base_execution_authorization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "authorization_id", "scope_sha256", "authorization_payload_sha256"],
+      "properties": {"schema": {"const": "auto-g16-execution-authorization/1"}, "authorization_id": {"$ref": "#/$defs/id"}, "scope_sha256": {"$ref": "#/$defs/sha256"}, "authorization_payload_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "approver": {"type": "object", "additionalProperties": false, "required": ["principal_id"], "properties": {"principal_id": {"$ref": "#/$defs/id"}}},
+    "approved_at": {"$ref": "#/$defs/time"}, "not_before": {"$ref": "#/$defs/time"}, "expires_at": {"$ref": "#/$defs/time"},
+    "decision": {"const": "approved"}, "explicit_human_approval": {"const": true},
+    "profile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "profile_id", "profile_sha256", "backend_kind"],
+      "properties": {"schema": {"const": "auto-g16-execution-profile/2"}, "profile_id": {"$ref": "#/$defs/id"}, "profile_sha256": {"$ref": "#/$defs/sha256"}, "backend_kind": {"const": "legacy_rtwin_pbs"}}
+    },
+    "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+    "transport": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity_binding_sha256", "hop_count", "transport_config_bindings_sha256"],
+      "properties": {"identity_binding_sha256": {"$ref": "#/$defs/sha256"}, "hop_count": {"const": 2}, "transport_config_bindings_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "identity_attestation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "operations"],
+      "properties": {
+        "mode": {"const": "legacy_two_stage_then_nested_handshake"},
+        "operations": {"type": "array", "prefixItems": [{"$ref": "#/$defs/first"}, {"$ref": "#/$defs/nested"}, {"$ref": "#/$defs/handshake"}], "items": false, "minItems": 3, "maxItems": 3}
+      }
+    },
+    "authority_delta": {
+      "type": "object", "additionalProperties": false,
+      "required": ["read_only_identity_handshake_only", "stage_authorized", "submit_authorized", "cancel_authorized", "fetch_authorized", "arbitrary_command_authorized"],
+      "properties": {"read_only_identity_handshake_only": {"const": true}, "stage_authorized": {"const": false}, "submit_authorized": {"const": false}, "cancel_authorized": {"const": false}, "fetch_authorized": {"const": false}, "arbitrary_command_authorized": {"const": false}}
+    },
+    "revocation": {"type": "object", "additionalProperties": false, "required": ["revoked", "revoked_at", "reason"], "properties": {"revoked": {"const": false}, "revoked_at": {"type": "null"}, "reason": {"type": "null"}}},
+    "consumption": {"type": "object", "additionalProperties": false, "required": ["single_use", "consumed"], "properties": {"single_use": {"const": true}, "consumed": {"const": false}}},
+    "scope_sha256": {"$ref": "#/$defs/sha256"}, "authorization_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[a-f0-9]{64}$"},
+    "nonce": {"type": "string", "pattern": "^[a-f0-9]{32,128}$"},
+    "time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "operation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "operation_version", "request_nonce", "not_before", "expires_at", "allowed_read_only_side_effects", "read_only", "single_attempt", "automatic_retry", "mutation_allowed"],
+      "properties": {"operation": {"type": "string"}, "operation_version": {"type": "string"}, "request_nonce": {"$ref": "#/$defs/nonce"}, "not_before": {"$ref": "#/$defs/time"}, "expires_at": {"$ref": "#/$defs/time"}, "allowed_read_only_side_effects": {"type": "array"}, "read_only": {"const": true}, "single_attempt": {"const": true}, "automatic_retry": {"const": false}, "mutation_allowed": {"const": false}}
+    },
+    "first": {"allOf": [{"$ref": "#/$defs/operation"}, {"properties": {"operation": {"const": "attest_first_hop_once"}, "operation_version": {"const": "first-hop-identity-attestation/1"}, "allowed_read_only_side_effects": {"const": ["read_local_identity_sources", "network_identity_handshake"]}}}]},
+    "nested": {"allOf": [{"$ref": "#/$defs/operation"}, {"properties": {"operation": {"const": "attest_nested_hop_once"}, "operation_version": {"const": "nested-hop-identity-attestation/1"}, "allowed_read_only_side_effects": {"const": ["read_remote_identity_source_hashes"]}}}]},
+    "handshake": {"allOf": [{"$ref": "#/$defs/operation"}, {"properties": {"operation": {"const": "handshake_nested_hop_identity_once"}, "operation_version": {"const": "nested-hop-host-key-identity-handshake/1"}, "allowed_read_only_side_effects": {"const": ["network_identity_handshake"]}}}]}
+  }
+}

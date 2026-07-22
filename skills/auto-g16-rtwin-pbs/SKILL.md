@@ -85,6 +85,12 @@ non-executable `transport_integration_required` boundary. PR4B must start from
 the exact PR4A commit and add transport integration before complete PR4 L3 and
 a separately authorized exact live smoke; PR4A must not merge independently.
 
+The PR4B transport-authority prerequisite keeps published profile/request/
+authorization `/1` artifacts replay-only. New legacy submissions require the
+hash-bound `execution-profile/2` plus `execution-authorization/2` overlay,
+which adds only a single-attempt, zero-retry, read-only second-hop identity
+handshake permission. The adapter still performs no transport in this patch.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.

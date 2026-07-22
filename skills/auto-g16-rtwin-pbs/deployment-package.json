@@ -19,6 +19,10 @@
       "target": "scripts/execution_authorization.py"
     },
     {
+      "source": "scripts/transport_authority_closure.py",
+      "target": "scripts/transport_authority_closure.py"
+    },
+    {
       "source": "scripts/runtime_config.py",
       "target": "scripts/platform_runtime_config_owner.py"
     }
