@@ -37,6 +37,7 @@ from execution_models import (
     ExactResourceTuple,
     ModelError,
     PlanKind,
+    PR3AuthorizationReplay,
     RuntimeBinding,
     ValidatedAttestationOperation,
     ValidatedRuntimePlan,
@@ -6073,6 +6074,7 @@ class LegacyGaussianRuntimeAdapter:
         workspace_paths: WorkspacePaths,
     ) -> ValidatedRuntimePlan:
         workspace_paths.assert_owner_sealed()
+        exact_resources.assert_owner_sealed()
         input_value = input_audit.get("input")
         input_sha256 = input_audit.get("input_sha256")
         nproc = input_audit.get("nprocshared")
@@ -6106,6 +6108,7 @@ class LegacySchedulerAdapter:
         plan.workspace_paths.assert_owner_sealed()
         binding = plan.runtime_binding
         resources = binding.resources
+        resources.assert_owner_sealed()
         return pbs_text(
             plan.workspace_paths.project,
             binding.input_basename,
@@ -6193,24 +6196,15 @@ class LegacyCLICompatibilityAdapter:
             fail("new live submission requires auto-g16-execution-authorization/1")
         approval_path = Path(args.approval_record).expanduser()
         try:
-            _, raw, _ = read_stable_bytes(approval_path, "execution authorization")
-            document = json.loads(raw)
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            fail(f"execution authorization could not be read: {exc}")
-        if not isinstance(document, dict) or document.get("schema") != "auto-g16-execution-authorization/1":
-            fail("legacy-only approval is historical replay and cannot enter a new submission")
-        try:
-            import execution_authorization
-
-            authorization = execution_authorization.validate_execution_authorization(
-                document,
+            authorization = PR3AuthorizationReplay.from_pr3_owner(
+                approval_path,
                 now=utc_now(),
             )
-        except (ImportError, ValueError) as exc:
+        except (ImportError, OSError, ValueError) as exc:
             fail(f"execution authorization successor was rejected: {exc}")
-        if authorization["profile"]["backend_kind"] != self.backend.backend_kind:
+        if authorization.backend_kind != self.backend.backend_kind:
             fail("execution authorization selects a different backend")
-        if authorization["workspace_binding"]["project"] != validate_project(args.project):
+        if authorization.project != validate_project(args.project):
             fail("execution authorization project differs from CLI")
         fail(
             "transport_integration_required: PR4A reached the sealed non-executable "

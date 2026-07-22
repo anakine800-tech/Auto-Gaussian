@@ -24,6 +24,7 @@ SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 NONCE_RE = re.compile(r"^[a-f0-9]{32,128}$")
 STATE_SCHEMA = "auto-g16-trusted-execution-consumption/1"
 DEFAULT_STATE_ROOT = Path.home() / ".config" / "auto-g16" / "execution-authority-state"
+_TEST_OWNER_FACTORY_TOKEN = object()
 
 
 class AuthorizationStateError(ValueError):
@@ -83,14 +84,14 @@ class ConsumedAuthorization:
 class TrustedAuthorizationStateOwner:
     """Locked, no-clobber owner of the one-time authorization namespace."""
 
-    def __init__(self, root: Path | None = None, *, _test_owner: bool = False) -> None:
-        if root is not None and not _test_owner:
+    def __init__(self, root: Path | None = None, *, _factory_token: object | None = None) -> None:
+        if root is not None and _factory_token is not _TEST_OWNER_FACTORY_TOKEN:
             raise AuthorizationStateError("production state root is fixed and has no caller override")
         self._root = (root if root is not None else DEFAULT_STATE_ROOT).absolute()
 
     @classmethod
     def for_testing(cls, root: Path) -> "TrustedAuthorizationStateOwner":
-        return cls(root, _test_owner=True)
+        return cls(root, _factory_token=_TEST_OWNER_FACTORY_TOKEN)
 
     def _ensure_private_directory(self, path: Path) -> None:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)

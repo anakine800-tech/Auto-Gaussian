@@ -8,7 +8,6 @@ semantics; executable dispatch still crosses ``execution_facade``.
 
 from __future__ import annotations
 
-import sys as _wrapper_sys
 from pathlib import Path as _WrapperPath
 
 
@@ -23,18 +22,10 @@ finally:
     del _backend_source
 
 
-class _NamespaceBackend:
-    def __getattr__(self, name):
-        return globals()[name]
-
-
-_COMPAT_BACKEND = _wrapper_sys.modules.get(_wrapper_name) or _NamespaceBackend()
-
-
 def main(argv: list[str] | None = None) -> int:
     from execution_facade import main as facade_main
 
-    return facade_main(argv=argv, backend_module=_COMPAT_BACKEND)
+    return facade_main(argv=argv)
 
 
 if _wrapper_name == "__main__":
