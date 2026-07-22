@@ -31,11 +31,14 @@ recomputed by the original `resource_efficiency.evaluate_gate` using the exact
 policy, scheduler snapshot, ledger, execution scope, resource tuple, evidence,
 ID and time; the recomputed and supplied gate documents must be identical.
 
-Each pathname is read once with no-follow semantics. The captured bytes are
-copied into a fresh private `0700` temporary validation directory with
-`O_EXCL`/`0400` files; all original owners read only these copies, and refs come
-from the same captured bytes. The directory is removed on exit. This is an
-ephemeral local validation write, so the result reports
+Every pathname input is captured once with `O_NOFOLLOW` semantics. Only PR2,
+scientific, resource and batch artifacts that an existing path-based owner must
+read again are copied into a fresh private `0700` temporary validation
+directory with `O_EXCL`/`0400` files; those owners read only these snapshots,
+and refs come from the same captured bytes. PR3-native request, authorization
+and registry documents are validated directly in memory from their captured
+bytes and are not reopened by a second owner. The directory is removed on
+exit. This is an ephemeral local validation write, so the result reports
 `ephemeral_validation_copy_performed=true` while external and persistent
 mutation, network and submission remain false.
 
