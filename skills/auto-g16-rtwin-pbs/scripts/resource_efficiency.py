@@ -28,11 +28,38 @@ UNRESOLVED_STATES = {"submission_uncertain", "submitted", "queued", "running"}
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$")
 RESOURCE_TIERS = {"simple": (8, 12), "general": (22, 50), "complex": (44, 120)}
+RESOURCE_TIER_ORDER = ("simple", "general", "complex")
 MAX_SCHEDULER_CLOCK_SKEW_SECONDS = 5.0
 
 
 class ResourceError(ValueError):
     """Raised when a package-4 contract cannot be proved exactly."""
+
+
+def legacy_resource_catalog_facts() -> dict[str, Any]:
+    """Return the non-authorizing legacy catalog view from the policy owner."""
+    reviewed = tuple(
+        {
+            "tier": tier,
+            "cores": RESOURCE_TIERS[tier][0],
+            "memory_gb": RESOURCE_TIERS[tier][1],
+        }
+        for tier in RESOURCE_TIER_ORDER
+    )
+    return {
+        "capacity": {
+            "max_job_cores": max(item["cores"] for item in reviewed),
+            "max_job_memory_gb": max(item["memory_gb"] for item in reviewed),
+        },
+        "reviewed_tuples": reviewed,
+        "custom_reviewed_allowed": True,
+        "walltime_must_be_explicitly_reviewed": True,
+        "proposal_markers": {
+            "proposal_only": True,
+            "calculation_ready": False,
+            "no_submission_authorization": True,
+        },
+    }
 
 
 def _exact(value: Any, fields: set[str], label: str) -> dict[str, Any]:

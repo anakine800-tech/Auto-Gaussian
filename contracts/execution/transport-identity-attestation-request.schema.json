@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-transport-identity-attestation-request-contract/1",
+  "title": "Auto-G16 v2.6 typed identity attestation requests",
+  "oneOf": [
+    {"$ref": "#/$defs/first_hop_request"},
+    {"$ref": "#/$defs/nested_hop_request"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonce": {"type": "string", "pattern": "^[a-f0-9]{32,128}$"},
+    "time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "first_hop_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "profile_sha256", "transport_identity_binding_sha256", "request_nonce", "issued_at", "expires_at", "operation_version", "read_only_attestation", "automatic_retry"],
+      "properties": {
+        "schema": {"const": "auto-g16-first-hop-identity-attestation-request/1"},
+        "profile_sha256": {"$ref": "#/$defs/sha256"},
+        "transport_identity_binding_sha256": {"$ref": "#/$defs/sha256"},
+        "request_nonce": {"$ref": "#/$defs/nonce"},
+        "issued_at": {"$ref": "#/$defs/time"},
+        "expires_at": {"$ref": "#/$defs/time"},
+        "operation_version": {"const": "first-hop-identity-attestation/1"},
+        "read_only_attestation": {"const": true},
+        "automatic_retry": {"const": false}
+      }
+    },
+    "nested_hop_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "profile_sha256", "transport_identity_binding_sha256", "first_hop_receipt_sha256", "request_nonce", "issued_at", "expires_at", "operation_version", "read_only_attestation", "automatic_retry"],
+      "properties": {
+        "schema": {"const": "auto-g16-nested-hop-identity-attestation-request/1"},
+        "profile_sha256": {"$ref": "#/$defs/sha256"},
+        "transport_identity_binding_sha256": {"$ref": "#/$defs/sha256"},
+        "first_hop_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "request_nonce": {"$ref": "#/$defs/nonce"},
+        "issued_at": {"$ref": "#/$defs/time"},
+        "expires_at": {"$ref": "#/$defs/time"},
+        "operation_version": {"const": "nested-hop-identity-attestation/1"},
+        "read_only_attestation": {"const": true},
+        "automatic_retry": {"const": false}
+      }
+    }
+  }
+}

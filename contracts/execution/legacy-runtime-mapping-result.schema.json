@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-legacy-runtime-mapping-result/1",
+  "title": "Auto-G16 v2.6 explicit legacy runtime mapping result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "mapping_id", "source_runtime_schema", "source_configured_keys",
+    "runtime_execution_subset_sha256", "backend_kind", "derived_profile_summary",
+    "resource_catalog", "conflicts", "migration_performed",
+    "legacy_approval_authorizes_profile_mode", "legacy_approval_authorizes_direct",
+    "live_attestation_required", "mapping_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-legacy-runtime-mapping-result/1"},
+    "mapping_id": {"$ref": "#/$defs/id"},
+    "source_runtime_schema": {"const": "auto-g16-runtime-config/1"},
+    "source_configured_keys": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "core_python", "rdkit_python", "chemdraw_pipeline_scripts", "rtwin_ssh_config",
+          "windows_target", "windows_control_socket", "windows_project_root",
+          "windows_server_config", "gaussview_exe"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "runtime_execution_subset_sha256": {"$ref": "#/$defs/sha256"},
+    "backend_kind": {"const": "legacy_rtwin_pbs"},
+    "derived_profile_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id", "backend_kind", "scheduler_dialect", "workspace_policy_sha256",
+        "resource_catalog_sha256", "transport_identity_binding_status", "profile_status",
+        "profile_payload_sha256"
+      ],
+      "properties": {
+        "profile_id": {"$ref": "#/$defs/id"},
+        "backend_kind": {"const": "legacy_rtwin_pbs"},
+        "scheduler_dialect": {"const": "pbs_legacy_v1"},
+        "workspace_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "resource_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "transport_identity_binding_status": {"const": "live_attestation_required"},
+        "profile_status": {"enum": ["blocked_live_attestation_required", "conflict"]},
+        "profile_payload_sha256": {"type": "null"}
+      }
+    },
+    "resource_catalog": {"$ref": "resource-catalog.schema.json"},
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "classification"],
+        "properties": {
+          "field": {
+            "enum": [
+              "backend_kind", "core_python", "rdkit_python", "chemdraw_pipeline_scripts",
+              "rtwin_ssh_config", "windows_target", "windows_control_socket",
+              "windows_project_root", "windows_server_config", "gaussview_exe"
+            ]
+          },
+          "classification": {"const": "execution_relevant_value_conflict"}
+        }
+      },
+      "uniqueItems": true
+    },
+    "migration_performed": {"const": false},
+    "legacy_approval_authorizes_profile_mode": {"const": false},
+    "legacy_approval_authorizes_direct": {"const": false},
+    "live_attestation_required": {"const": true},
+    "mapping_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

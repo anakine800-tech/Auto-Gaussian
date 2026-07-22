@@ -5,6 +5,18 @@
     {
       "source": "contracts/rtwin-pbs",
       "target": "contracts/rtwin-pbs"
+    },
+    {
+      "source": "contracts/execution",
+      "target": "contracts/execution"
+    },
+    {
+      "source": "scripts/platform_contracts.py",
+      "target": "scripts/platform_contracts.py"
+    },
+    {
+      "source": "scripts/runtime_config.py",
+      "target": "scripts/platform_runtime_config_owner.py"
     }
   ]
 }
