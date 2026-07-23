@@ -61,9 +61,13 @@ PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$")
 JOB_ID_RE = re.compile(r"^[0-9]+(?:\.[A-Za-z0-9_.-]+)?$")
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 INPUT_REVIEW_SCHEMA = "gaussian-input-draft-review/2"
+FIXED_CONSTRAINT_INPUT_REVIEW_SCHEMA = "gaussian-input-draft-review/3"
 INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/1"
 OPEN_SHELL_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/2"
 OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/3"
+FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/4"
+FIXED_CONSTRAINT_AUDIT_SCHEMA = "auto-g16-fixed-constraint-input-audit/1"
+FIXED_CONSTRAINT_WORKFLOW = "closed_shell_fixed_coordinate_preoptimization_v1"
 LIVE_APPROVAL_V1_SCHEMA = "auto-g16-live-submission-approval/1"
 LIVE_APPROVAL_V2_SCHEMA = "auto-g16-live-submission-approval/2"
 LIVE_APPROVAL_V3_SCHEMA = "auto-g16-live-submission-approval/3"
@@ -75,6 +79,7 @@ OPEN_SHELL_FAMILY_LIVE_APPROVAL_V8_SCHEMA = "auto-g16-live-submission-approval/8
 LIVE_APPROVAL_V9_SCHEMA = "auto-g16-live-submission-approval/9"
 OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA = "auto-g16-live-submission-approval/10"
 OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA = "auto-g16-live-submission-approval/11"
+FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA = "auto-g16-live-submission-approval/12"
 CANCELLATION_APPROVAL_SCHEMA = "auto-g16-exact-cancellation-approval/1"
 INPUT_APPROVAL_WORK_KINDS = {"ordinary", "minimum", "ts_pilot", "formal_ts"}
 SPECIALIST_INPUT_WORK_KINDS = {"ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"}
@@ -1060,6 +1065,74 @@ def route_has_specialist_path(route: str) -> bool:
     )
 
 
+def parse_fixed_constraint_directives(
+    lines: list[str],
+    atom_count: int,
+    *,
+    strict: bool = False,
+) -> list[dict[str, Any]] | None:
+    """Parse the deliberately narrow non-scan ModRedundant F-only subset."""
+
+    if not lines:
+        return []
+    expected_atoms = {"B": 2, "A": 3, "D": 4}
+    parsed: list[dict[str, Any]] = []
+    seen: set[tuple[str, tuple[int, ...]]] = set()
+    for raw_line in lines:
+        fields = raw_line.split()
+        coordinate = fields[0].upper() if fields else ""
+        expected = expected_atoms.get(coordinate)
+        valid_shape = (
+            expected is not None
+            and len(fields) == expected + 2
+            and fields[-1].upper() == "F"
+        )
+        if not valid_shape:
+            if strict:
+                raise ValueError(
+                    "fixed-constraint input permits only B/A/D atom-index lists "
+                    "followed by one F action"
+                )
+            return None
+        try:
+            atoms = tuple(int(value) for value in fields[1:-1])
+        except ValueError:
+            if strict:
+                raise ValueError("fixed-constraint atom indices must be integers") from None
+            return None
+        if (
+            any(index < 1 or index > atom_count for index in atoms)
+            or len(set(atoms)) != len(atoms)
+        ):
+            if strict:
+                raise ValueError(
+                    "fixed-constraint atom indices must be distinct and within the exact atom count"
+                )
+            return None
+        canonical_atoms = min(atoms, tuple(reversed(atoms)))
+        identity = (coordinate, canonical_atoms)
+        if identity in seen:
+            if strict:
+                raise ValueError("duplicate fixed internal coordinate is forbidden")
+            return None
+        seen.add(identity)
+        parsed.append(
+            {
+                "coordinate_type": coordinate,
+                "atom_indices": list(atoms),
+                "action": "F",
+                "normalized_line": " ".join(
+                    [coordinate, *(str(index) for index in atoms), "F"]
+                ),
+            }
+        )
+    if len(parsed) > 64:
+        if strict:
+            raise ValueError("fixed-constraint input exceeds the 64-coordinate contract limit")
+        return None
+    return parsed
+
+
 def classify_protected_work(route: str) -> str | None:
     if route_has_keyword(route, "irc"):
         return "irc"
@@ -1077,6 +1150,12 @@ def classify_protected_work(route: str) -> str | None:
 def classify_protected_input(report: dict[str, Any]) -> str | None:
     if report.get("has_relaxed_scan_directive") is True:
         return "ts_scan"
+    if (
+        report.get("has_only_fixed_constraint_directives") is True
+        and report.get("fixed_constraint_directive_count", 0) > 0
+        and route_has_relaxed_scan_context(str(report.get("route", "")))
+    ):
+        return "fixed_constraint_preopt"
     return classify_protected_work(str(report.get("route", "")))
 
 
@@ -1227,6 +1306,59 @@ def _input_approval_facts(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def fixed_constraint_input_compatibility(
+    report: dict[str, Any], work_kind: str | None
+) -> dict[str, Any]:
+    """Accept only one closed-shell Cartesian minimum with F-only constraints."""
+
+    route = str(report.get("route", ""))
+    opt_values = set(optimization_option_values(route))
+    supported = (
+        work_kind == "minimum"
+        and report.get("multiplicity") == 1
+        and report.get("geometry_source") == "explicit_cartesian"
+        and report.get("oldcheckpoint") is None
+        and report.get("link1_count", 0) == 0
+        and report.get("route_section_count", 1) == 1
+        and route_optimization_keyword_count(route) == 1
+        and route_has_keyword(route, "opt")
+        and len(opt_values & {"modredundant", "addredundant"}) == 1
+        and not bool(opt_values & {"scan", "qst2", "qst3", "restart"})
+        and not route_has_ts_optimization(route)
+        and not route_has_frequency(route)
+        and not route_has_keyword(route, "irc")
+        and not route_has_specialist_path(route)
+        and not route_has_specialist_optimization(route)
+        and not route_has_keyword(route, "fopt")
+        and not route_has_keyword(route, "popt")
+        and not route_has_option(route, "geom", "allcheck")
+        and not route_has_option(route, "geom", "check")
+        and not route_has_option(route, "guess", "read")
+        and report.get("has_relaxed_scan_directive") is False
+        and report.get("has_only_fixed_constraint_directives") is True
+        and isinstance(report.get("fixed_constraint_directives"), list)
+        and 1 <= len(report["fixed_constraint_directives"]) <= 64
+        and report.get("fixed_constraint_directive_count")
+        == len(report["fixed_constraint_directives"])
+    )
+    if supported:
+        return {
+            "status": "supported_fixed_constraint_v1",
+            "work_kind": "minimum",
+            "required_schema": FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA,
+        }
+    return {
+        "status": "blocked_invalid_fixed_constraint_input",
+        "work_kind": work_kind,
+        "required_schema": FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA,
+        "reason": (
+            "fixed-constraint /4 requires one explicit-Cartesian closed-shell minimum "
+            "with one Opt=ModRedundant/AddRedundant route, no Freq/TS/scan/IRC/"
+            "checkpoint/Link1, and only validated B/A/D ... F directives"
+        ),
+    }
+
+
 def input_approval_compatibility(report: dict[str, Any], work_kind: str | None) -> dict[str, Any]:
     """Classify only the input families fully represented by generic receipt /1."""
 
@@ -1250,6 +1382,17 @@ def input_approval_compatibility(report: dict[str, Any], work_kind: str | None) 
             "required_owner": "unavailable_specialist_open_shell_ordinary_owner",
             "required_schema": None,
             "reason": "generic input receipt /1 and live approval /9 are singlet-only for ordinary jobs",
+        }
+    fixed_constraint = fixed_constraint_input_compatibility(report, work_kind)
+    if fixed_constraint["status"] == "supported_fixed_constraint_v1":
+        return {
+            "status": "blocked_missing_fixed_constraint_input_approval",
+            "work_kind": work_kind,
+            "required_schema": FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA,
+            "reason": (
+                "generic /1 remains closed; F-only ModRedundant/AddRedundant "
+                "preoptimization requires the dedicated fixed-constraint receipt /4"
+            ),
         }
 
     route = str(report.get("route", ""))
@@ -1368,7 +1511,12 @@ def _validate_protocol_binding_shape(value: Any) -> dict[str, Any]:
     return binding
 
 
-def _validate_route_profile_mapping_shape(value: Any, approved_route: str) -> dict[str, Any]:
+def _validate_route_profile_mapping_shape(
+    value: Any,
+    approved_route: str,
+    *,
+    allowed_task_evidence: set[str] | None = None,
+) -> dict[str, Any]:
     mapping = _exact_fields(
         value, {"exact_route", "method", "basis", "solvent", "scf", "tasks", "explicit_confirmation"},
         "input review route_profile_mapping",
@@ -1392,6 +1540,10 @@ def _validate_route_profile_mapping_shape(value: Any, approved_route: str) -> di
             raise ValueError("input review claims no solvent but the route contains solvation syntax")
         if key == "scf" and route_value == "default" and re.search(r"\bscf\b", route_lower):
             raise ValueError("input review claims default SCF but the route contains explicit SCF syntax")
+    if allowed_task_evidence is None:
+        allowed_task_evidence = {
+            "opt_ts", "minimum_opt", "frequency", "single_point"
+        }
     tasks = mapping["tasks"]
     if not isinstance(tasks, list) or not tasks:
         raise ValueError("input review route task mappings are missing")
@@ -1403,12 +1555,18 @@ def _validate_route_profile_mapping_shape(value: Any, approved_route: str) -> di
         evidence = item["route_evidence"]
         if item["human_confirmed"] is not True or not isinstance(evidence, list) or not evidence or len(evidence) != len(set(evidence)):
             raise ValueError("input review route task mapping is not explicitly confirmed")
-        if not all(token in {"opt_ts", "minimum_opt", "frequency", "single_point"} for token in evidence):
+        if not all(token in allowed_task_evidence for token in evidence):
             raise ValueError("input review task evidence must use deterministic route predicates")
     return mapping
 
 
-def validate_input_review(path: Path) -> dict[str, Any]:
+def _validate_input_review_schema(
+    path: Path,
+    *,
+    expected_schema: str,
+    allowed_task_evidence: set[str],
+    label: str,
+) -> dict[str, Any]:
     expanded = path.expanduser()
     if expanded.is_symlink():
         raise ValueError("input review must not be a symlink")
@@ -1421,10 +1579,10 @@ def validate_input_review(path: Path) -> dict[str, Any]:
             "route_profile_mapping", "protocol_family_completion", "approved_input", "decision", "calculation_ready",
             "no_submission_authorization", "payload_sha256",
         },
-        "input-draft review /2",
+        label,
     )
-    if review["schema"] != INPUT_REVIEW_SCHEMA:
-        raise ValueError(f"input review schema must be {INPUT_REVIEW_SCHEMA}")
+    if review["schema"] != expected_schema:
+        raise ValueError(f"input review schema must be {expected_schema}")
     if review["work_kind"] not in INPUT_APPROVAL_WORK_KINDS:
         raise ValueError("input review work_kind is unsupported")
     if not isinstance(review["review_id"], str) or not review["review_id"].strip():
@@ -1457,7 +1615,11 @@ def validate_input_review(path: Path) -> dict[str, Any]:
         raise ValueError("input review elements are missing")
     if sum(facts["elements"].values()) != facts["atom_count"]:
         raise ValueError("input review element counts differ from atom_count")
-    _validate_route_profile_mapping_shape(review["route_profile_mapping"], facts["route"])
+    _validate_route_profile_mapping_shape(
+        review["route_profile_mapping"],
+        facts["route"],
+        allowed_task_evidence=allowed_task_evidence,
+    )
     decision = _exact_fields(
         review["decision"],
         {"status", "explicit_confirmation", "reviewer", "reviewed_at", "rationale"},
@@ -1475,6 +1637,37 @@ def validate_input_review(path: Path) -> dict[str, Any]:
     return review
 
 
+def validate_input_review(path: Path) -> dict[str, Any]:
+    return _validate_input_review_schema(
+        path,
+        expected_schema=INPUT_REVIEW_SCHEMA,
+        allowed_task_evidence={
+            "opt_ts", "minimum_opt", "frequency", "single_point"
+        },
+        label="input-draft review /2",
+    )
+
+
+def validate_fixed_constraint_input_review(path: Path) -> dict[str, Any]:
+    review = _validate_input_review_schema(
+        path,
+        expected_schema=FIXED_CONSTRAINT_INPUT_REVIEW_SCHEMA,
+        allowed_task_evidence={"fixed_constraint_preoptimization"},
+        label="fixed-constraint input-draft review /3",
+    )
+    if (
+        review["work_kind"] != "minimum"
+        or len(review["protocol_binding"]["used_tasks"]) != 1
+        or review["protocol_binding"]["used_tasks"][0]["stage_type"]
+        != "constrained_geometry_preoptimization"
+    ):
+        raise ValueError(
+            "fixed-constraint input review /3 requires exactly one constrained "
+            "geometry preoptimization minimum task"
+        )
+    return review
+
+
 def finalize_input_review(draft_path: Path, output: Path) -> dict[str, Any]:
     if draft_path.expanduser().is_symlink():
         raise ValueError("input review draft must not be a symlink")
@@ -1488,6 +1681,29 @@ def finalize_input_review(draft_path: Path, output: Path) -> dict[str, Any]:
     if output.exists() or output.is_symlink():
         raise ValueError(f"refusing to overwrite input review: {output}")
     publish_new_json(output, finalized, validate_input_review)
+    return finalized
+
+
+def finalize_fixed_constraint_input_review(
+    draft_path: Path, output: Path
+) -> dict[str, Any]:
+    if draft_path.expanduser().is_symlink():
+        raise ValueError("fixed-constraint input review draft must not be a symlink")
+    draft = load_strict_json(draft_path)
+    if draft.get("payload_sha256") is not None:
+        raise ValueError(
+            "fixed-constraint input review draft payload_sha256 must be null "
+            "before finalization"
+        )
+    finalized = copy.deepcopy(draft)
+    finalized["payload_sha256"] = contract_payload_sha256(finalized)
+    expanded_output = output.expanduser()
+    output = expanded_output.parent.resolve() / expanded_output.name
+    if output.exists() or output.is_symlink():
+        raise ValueError(
+            f"refusing to overwrite fixed-constraint input review: {output}"
+        )
+    publish_new_json(output, finalized, validate_fixed_constraint_input_review)
     return finalized
 
 
@@ -1562,6 +1778,187 @@ def _resolve_input_blob(binding: Any, owner: Path) -> Path:
     if digest != value["sha256"] or len(data) != value["size_bytes"]:
         raise ValueError("input-approval exact input changed")
     return path
+
+
+def _make_fixed_constraint_audit(
+    input_path: Path,
+    review_path: Path,
+    output: Path,
+    audit_id: str,
+) -> dict[str, Any]:
+    review = validate_fixed_constraint_input_review(review_path)
+    report = parse_gaussian(input_path)
+    compatibility = fixed_constraint_input_compatibility(report, review["work_kind"])
+    if compatibility["status"] != "supported_fixed_constraint_v1":
+        raise ValueError(
+            f"{compatibility['status']}: {compatibility.get('reason', 'unsupported input')}"
+        )
+    if not isinstance(audit_id, str) or not audit_id.strip():
+        raise ValueError("fixed-constraint audit_id is missing")
+    if review["approved_input"] != _input_approval_facts(report):
+        raise ValueError("fixed-constraint audit input facts differ from the exact input review")
+    mapping = review["route_profile_mapping"]
+    if mapping["exact_route"] != report["route"]:
+        raise ValueError("fixed-constraint audit route differs from the exact input review")
+    tasks = mapping["tasks"]
+    if (
+        len(tasks) != 1
+        or tasks[0]["stage_type"] != "constrained_geometry_preoptimization"
+        or tasks[0]["route_evidence"] != ["fixed_constraint_preoptimization"]
+        or tasks[0]["human_confirmed"] is not True
+    ):
+        raise ValueError(
+            "fixed-constraint audit requires one explicitly confirmed "
+            "constrained_geometry_preoptimization task"
+        )
+    constraints = copy.deepcopy(report["fixed_constraint_directives"])
+    root = output.parent.resolve()
+    document = {
+        "schema": FIXED_CONSTRAINT_AUDIT_SCHEMA,
+        "audit_id": audit_id,
+        "owner": "auto-g16-rtwin-pbs",
+        "workflow": FIXED_CONSTRAINT_WORKFLOW,
+        "sources": {
+            "input_review": _artifact_binding(
+                review_path,
+                root,
+                FIXED_CONSTRAINT_INPUT_REVIEW_SCHEMA,
+                review["payload_sha256"],
+            )
+        },
+        "input": _input_blob_binding(input_path, root),
+        "reviewed_input": {
+            **_input_approval_facts(report),
+            "geometry_source": report["geometry_source"],
+            "link1_count": report["link1_count"],
+            "route_section_count": report["route_section_count"],
+            "has_relaxed_scan_directive": report["has_relaxed_scan_directive"],
+        },
+        "constraints": constraints,
+        "constraints_sha256": canonical_value_sha256(constraints),
+        "decision": {
+            "status": "passed",
+            "exact_f_only_constraints": True,
+            "relaxed_scan": False,
+            "checkpoint_derived": False,
+            "whole_protocol_family_approved": False,
+        },
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+        "payload_sha256": None,
+    }
+    document["payload_sha256"] = contract_payload_sha256(document)
+    return document
+
+
+def build_fixed_constraint_audit(
+    input_path: Path,
+    review_path: Path,
+    output: Path,
+    audit_id: str,
+) -> dict[str, Any]:
+    sources = (input_path.expanduser(), review_path.expanduser())
+    if any(path.is_symlink() for path in sources):
+        raise ValueError("fixed-constraint audit sources must not be symlinks")
+    expanded_output = output.expanduser()
+    output = expanded_output.parent.resolve() / expanded_output.name
+    if output.exists() or output.is_symlink():
+        raise ValueError(f"refusing to overwrite fixed-constraint audit: {output}")
+    document = _make_fixed_constraint_audit(
+        input_path.expanduser().resolve(),
+        review_path.expanduser().resolve(),
+        output,
+        audit_id,
+    )
+    publish_new_json(output, document, validate_fixed_constraint_audit)
+    return document
+
+
+def validate_fixed_constraint_audit(
+    audit_path: Path,
+    *,
+    input_path: Path | None = None,
+    report: dict[str, Any] | None = None,
+    _document: dict[str, Any] | None = None,
+    _resolved_path: Path | None = None,
+) -> dict[str, Any]:
+    if _document is None:
+        expanded = audit_path.expanduser()
+        if expanded.is_symlink():
+            raise ValueError("fixed-constraint audit must not be a symlink")
+        audit_path, document, _, _ = load_strict_json_with_hash(
+            expanded, "fixed-constraint audit"
+        )
+    else:
+        if _resolved_path is None:
+            raise ValueError("internal fixed-constraint audit path binding is missing")
+        audit_path = _resolved_path
+        document = _document
+    _exact_fields(
+        document,
+        {
+            "schema", "audit_id", "owner", "workflow", "sources", "input",
+            "reviewed_input", "constraints", "constraints_sha256", "decision",
+            "calculation_ready", "no_submission_authorization", "payload_sha256",
+        },
+        "fixed-constraint audit",
+    )
+    if (
+        document["schema"] != FIXED_CONSTRAINT_AUDIT_SCHEMA
+        or document["owner"] != "auto-g16-rtwin-pbs"
+        or document["workflow"] != FIXED_CONSTRAINT_WORKFLOW
+    ):
+        raise ValueError("fixed-constraint audit owner/schema/workflow changed")
+    if document["payload_sha256"] != contract_payload_sha256(document):
+        raise ValueError("fixed-constraint audit payload SHA-256 is invalid")
+    if (
+        document["calculation_ready"] is not False
+        or document["no_submission_authorization"] is not True
+        or document["decision"]
+        != {
+            "status": "passed",
+            "exact_f_only_constraints": True,
+            "relaxed_scan": False,
+            "checkpoint_derived": False,
+            "whole_protocol_family_approved": False,
+        }
+    ):
+        raise ValueError("fixed-constraint audit authority boundary changed")
+    sources = _exact_fields(
+        document["sources"], {"input_review"}, "fixed-constraint audit sources"
+    )
+    review_path, review = _resolve_artifact_binding(
+        sources["input_review"],
+        audit_path,
+        FIXED_CONSTRAINT_INPUT_REVIEW_SCHEMA,
+    )
+    if review.get("payload_sha256") != sources["input_review"]["payload_sha256"]:
+        raise ValueError("fixed-constraint audit input-review payload changed")
+    bound_input = _resolve_input_blob(document["input"], audit_path)
+    expected = _make_fixed_constraint_audit(
+        bound_input, review_path, audit_path, document["audit_id"]
+    )
+    if expected != document:
+        raise ValueError("fixed-constraint audit differs from owner reconstruction")
+    if input_path is not None:
+        _, current_bytes, current_digest = read_stable_bytes(
+            input_path, "current fixed-constraint Gaussian input"
+        )
+        if (
+            current_digest != document["input"]["sha256"]
+            or len(current_bytes) != document["input"]["size_bytes"]
+        ):
+            raise ValueError("fixed-constraint audit is bound to different input bytes")
+    if report is not None:
+        if document["reviewed_input"] != {
+            **_input_approval_facts(report),
+            "geometry_source": report["geometry_source"],
+            "link1_count": report["link1_count"],
+            "route_section_count": report["route_section_count"],
+            "has_relaxed_scan_directive": report["has_relaxed_scan_directive"],
+        }:
+            raise ValueError("fixed-constraint audit differs from current input facts")
+    return document
 
 
 def _assert_work_kind_matches_route(work_kind: str, report: dict[str, Any]) -> None:
@@ -1660,6 +2057,18 @@ def _assert_consumed_tasks_match_route(
         elif "harmonic_frequency" in stage or stage in {"frequency", "freq"}:
             expected = {"frequency"}
             valid = route_has_frequency(route)
+        elif stage == "constrained_geometry_preoptimization":
+            expected = {"fixed_constraint_preoptimization"}
+            valid = (
+                route_has_keyword(route, "opt")
+                and route_optimization_keyword_count(route) == 1
+                and route_has_relaxed_scan_context(route)
+                and not route_has_ts_optimization(route)
+                and not route_has_frequency(route)
+                and not route_has_keyword(route, "irc")
+                and not route_has_specialist_path(route)
+                and not route_has_specialist_optimization(route)
+            )
         elif "minimum" in stage or "geometry_optimization" in stage or stage in {"optimization", "opt"}:
             expected = {"minimum_opt"}
             valid = route_has_optimization_keyword(route) and not route_has_ts_optimization(route) and not route_has_scan(route)
@@ -1761,11 +2170,27 @@ def _make_input_approval_receipt(
     open_shell_state_review_path: Path | None = None,
     open_shell_handoff_path: Path | None = None,
     open_shell_audit_path: Path | None = None,
+    fixed_constraint_audit_path: Path | None = None,
 ) -> dict[str, Any]:
     selection, options, selected = protocol_selection.load_validated_selection(selection_path, options_path)
-    review = validate_input_review(review_path)
+    fixed_constraint_required = fixed_constraint_audit_path is not None
+    review = (
+        validate_fixed_constraint_input_review(review_path)
+        if fixed_constraint_required
+        else validate_input_review(review_path)
+    )
     report = parse_gaussian(input_path)
-    _assert_work_kind_matches_route(review["work_kind"], report)
+    if fixed_constraint_required:
+        compatibility = fixed_constraint_input_compatibility(
+            report, review["work_kind"]
+        )
+        if compatibility["status"] != "supported_fixed_constraint_v1":
+            raise ValueError(
+                f"{compatibility['status']}: "
+                f"{compatibility.get('reason', 'fixed-constraint route/work-kind mismatch')}"
+            )
+    else:
+        _assert_work_kind_matches_route(review["work_kind"], report)
     if review["approved_input"] != _input_approval_facts(report):
         raise ValueError("input review facts differ from the exact Gaussian input")
     if review["protocol_task_types"] != selection["scope_binding"]["task_types"]:
@@ -1780,8 +2205,24 @@ def _make_input_approval_receipt(
         "transition_state_optimization", "harmonic_frequency"
     ]:
         raise ValueError("generic single-guess TS approval requires the exact TS optimization + frequency task family")
-    if review["work_kind"] == "minimum" and not {"geometry_optimization", "optimization"}.intersection(review["protocol_task_types"]):
+    if (
+        review["work_kind"] == "minimum"
+        and not fixed_constraint_required
+        and not {"geometry_optimization", "optimization"}.intersection(
+            review["protocol_task_types"]
+        )
+    ):
         raise ValueError("minimum approval requires a selected geometry_optimization or optimization task")
+    if fixed_constraint_required and review["protocol_binding"]["used_tasks"] != [
+        {
+            "task_index": review["protocol_binding"]["used_tasks"][0]["task_index"],
+            "stage_type": "constrained_geometry_preoptimization",
+            "profile_id": review["protocol_binding"]["used_tasks"][0]["profile_id"],
+        }
+    ]:
+        raise ValueError(
+            "fixed-constraint receipt requires exactly one constrained preoptimization task"
+        )
     resources = selected.get("resources", {})
     if resources.get("cores") != report["nprocshared"]:
         raise ValueError("selected protocol cores differ from the exact input")
@@ -1793,6 +2234,10 @@ def _make_input_approval_receipt(
     root = output.parent.resolve()
     owner_paths = (open_shell_state_review_path, open_shell_handoff_path, open_shell_audit_path)
     open_shell_required = _is_main_group_open_shell_minimum(options, review)
+    if fixed_constraint_required and open_shell_required:
+        raise ValueError("fixed-constraint receipt /4 is closed-shell singlet only")
+    if fixed_constraint_required and any(path is not None for path in owner_paths):
+        raise ValueError("fixed-constraint and open-shell specialist owners cannot be combined")
     if open_shell_required and any(path is None for path in owner_paths):
         raise ValueError("main-group open-shell minimum approval requires electronic-state review, input handoff, and passed input audit")
     if not open_shell_required and any(path is not None for path in owner_paths):
@@ -1804,15 +2249,43 @@ def _make_input_approval_receipt(
             open_shell_state_review_path, open_shell_handoff_path, open_shell_audit_path,
             options_path, selection_path, input_path, report,
         )
+    fixed_constraint_audit = None
+    if fixed_constraint_required:
+        assert fixed_constraint_audit_path is not None
+        fixed_constraint_audit = validate_fixed_constraint_audit(
+            fixed_constraint_audit_path, input_path=input_path, report=report
+        )
+        source_review = fixed_constraint_audit["sources"]["input_review"]
+        if (
+            source_review["sha256"] != sha256(review_path)
+            or source_review["payload_sha256"] != review["payload_sha256"]
+        ):
+            raise ValueError(
+                "fixed-constraint audit is bound to a different exact input review"
+            )
+    receipt_schema = (
+        FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA
+        if fixed_constraint_required
+        else OPEN_SHELL_INPUT_APPROVAL_SCHEMA
+        if open_shell_required
+        else INPUT_APPROVAL_SCHEMA
+    )
     document = {
-        "schema": OPEN_SHELL_INPUT_APPROVAL_SCHEMA if open_shell_required else INPUT_APPROVAL_SCHEMA,
+        "schema": receipt_schema,
         "receipt_id": receipt_id,
         "work_kind": review["work_kind"],
         "protocol_task_types": review["protocol_task_types"],
         "sources": {
             "protocol_options": _artifact_binding(options_path, root, "gaussian-protocol-options/1", options["proposal_payload_sha256"]),
             "protocol_selection": _artifact_binding(selection_path, root, "gaussian-protocol-selection/1", selection["selection_payload_sha256"]),
-            "input_review": _artifact_binding(review_path, root, INPUT_REVIEW_SCHEMA, review["payload_sha256"]),
+            "input_review": _artifact_binding(
+                review_path,
+                root,
+                FIXED_CONSTRAINT_INPUT_REVIEW_SCHEMA
+                if fixed_constraint_required
+                else INPUT_REVIEW_SCHEMA,
+                review["payload_sha256"],
+            ),
         },
         "input": _input_blob_binding(input_path, root),
         "protocol_review_binding": {
@@ -1855,6 +2328,37 @@ def _make_input_approval_receipt(
             "resources": copy.deepcopy(handoff["resources"]),
             "owner_replay_passed": True,
         }
+    if fixed_constraint_audit is not None:
+        document["sources"]["fixed_constraint_audit"] = _artifact_binding(
+            fixed_constraint_audit_path,
+            root,
+            FIXED_CONSTRAINT_AUDIT_SCHEMA,
+            fixed_constraint_audit["payload_sha256"],
+        )
+        resources = selected["resources"]
+        constraints = fixed_constraint_audit["constraints"]
+        document["specialist_owner_binding"] = {
+            "owner": "auto-g16-rtwin-pbs",
+            "workflow": FIXED_CONSTRAINT_WORKFLOW,
+            "fixed_constraint_audit_payload_sha256": fixed_constraint_audit[
+                "payload_sha256"
+            ],
+            "selected_option_payload_sha256": review["protocol_binding"][
+                "selected_option"
+            ]["option_payload_sha256"],
+            "input_sha256": report["input_sha256"],
+            "exact_route": report["route"],
+            "charge": report["charge"],
+            "multiplicity": report["multiplicity"],
+            "resources": {
+                "resource_tier": resources["resource_tier"],
+                "mem_gb": resources["mem_gb"],
+                "cores": resources["cores"],
+            },
+            "constraints_sha256": canonical_value_sha256(constraints),
+            "constraint_count": len(constraints),
+            "owner_replay_passed": True,
+        }
     document["payload_sha256"] = contract_payload_sha256(document)
     return document
 
@@ -1869,10 +2373,12 @@ def build_input_approval_receipt(
     open_shell_state_review_path: Path | None = None,
     open_shell_handoff_path: Path | None = None,
     open_shell_audit_path: Path | None = None,
+    fixed_constraint_audit_path: Path | None = None,
 ) -> dict[str, Any]:
     raw_sources = tuple(path for path in (
         options_path, selection_path, review_path, input_path,
         open_shell_state_review_path, open_shell_handoff_path, open_shell_audit_path,
+        fixed_constraint_audit_path,
     ) if path is not None)
     if any(path.expanduser().is_symlink() for path in raw_sources):
         raise ValueError("input-approval source artifacts must not be symlinks")
@@ -1885,6 +2391,7 @@ def build_input_approval_receipt(
         review_path.expanduser().resolve(), input_path.expanduser().resolve(), output, receipt_id,
         *(path.expanduser().resolve() if path is not None else None for path in (
             open_shell_state_review_path, open_shell_handoff_path, open_shell_audit_path,
+            fixed_constraint_audit_path,
         )),
     )
     publish_new_json(output, document, validate_input_approval_receipt)
@@ -1918,11 +2425,24 @@ def validate_input_approval_receipt(
         "calculation_ready", "no_submission_authorization", "payload_sha256",
     }
     schema = document.get("schema")
-    if schema not in {INPUT_APPROVAL_SCHEMA, OPEN_SHELL_INPUT_APPROVAL_SCHEMA}:
+    if schema not in {
+        INPUT_APPROVAL_SCHEMA,
+        OPEN_SHELL_INPUT_APPROVAL_SCHEMA,
+        FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA,
+    }:
         raise ValueError("unsupported input approval receipt schema")
     _exact_fields(
         document,
-        common_fields | ({"specialist_owner_binding"} if schema == OPEN_SHELL_INPUT_APPROVAL_SCHEMA else set()),
+        common_fields
+        | (
+            {"specialist_owner_binding"}
+            if schema
+            in {
+                OPEN_SHELL_INPUT_APPROVAL_SCHEMA,
+                FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA,
+            }
+            else set()
+        ),
         "input-approval receipt",
     )
     if document["payload_sha256"] != contract_payload_sha256(document):
@@ -1936,11 +2456,21 @@ def validate_input_approval_receipt(
     source_fields = {"protocol_options", "protocol_selection", "input_review"}
     if schema == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
         source_fields |= {"electronic_state_review", "open_shell_input_handoff", "open_shell_input_audit"}
+    elif schema == FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA:
+        source_fields |= {"fixed_constraint_audit"}
     sources = _exact_fields(document["sources"], source_fields, "input-approval sources")
     options_path, options = _resolve_artifact_binding(sources["protocol_options"], receipt_path, "gaussian-protocol-options/1")
     selection_path, selection = _resolve_artifact_binding(sources["protocol_selection"], receipt_path, "gaussian-protocol-selection/1")
-    review_path, review = _resolve_artifact_binding(sources["input_review"], receipt_path, INPUT_REVIEW_SCHEMA)
+    review_schema = (
+        FIXED_CONSTRAINT_INPUT_REVIEW_SCHEMA
+        if schema == FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA
+        else INPUT_REVIEW_SCHEMA
+    )
+    review_path, review = _resolve_artifact_binding(
+        sources["input_review"], receipt_path, review_schema
+    )
     open_shell_paths: tuple[Path | None, Path | None, Path | None] = (None, None, None)
+    fixed_constraint_audit_path: Path | None = None
     if schema == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
         state_review_path, _ = _resolve_artifact_binding(
             sources["electronic_state_review"], receipt_path, "auto-g16-main-group-open-shell-review/1"
@@ -1954,6 +2484,12 @@ def validate_input_approval_receipt(
             "auto-g16-main-group-open-shell-minimum-opt-freq-input-audit/1",
         )
         open_shell_paths = (state_review_path, handoff_path, audit_path)
+    elif schema == FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA:
+        fixed_constraint_audit_path, _ = _resolve_artifact_binding(
+            sources["fixed_constraint_audit"],
+            receipt_path,
+            FIXED_CONSTRAINT_AUDIT_SCHEMA,
+        )
     if options.get("proposal_payload_sha256") != sources["protocol_options"]["payload_sha256"]:
         raise ValueError("input approval protocol-options payload changed")
     if selection.get("selection_payload_sha256") != sources["protocol_selection"]["payload_sha256"]:
@@ -1963,7 +2499,7 @@ def validate_input_approval_receipt(
     bound_input = _resolve_input_blob(document["input"], receipt_path)
     expected = _make_input_approval_receipt(
         options_path, selection_path, review_path, bound_input, receipt_path, document["receipt_id"],
-        *open_shell_paths,
+        *open_shell_paths, fixed_constraint_audit_path,
     )
     if expected != document:
         raise ValueError("input approval receipt differs from owner reconstruction")
@@ -2023,7 +2559,10 @@ def validate_input_approval(
                 "protocol_selection_schema": document["sources"]["protocol_selection"]["schema"],
                 "input_review_schema": document["sources"]["input_review"]["schema"],
             })
-        if document["schema"] == OPEN_SHELL_INPUT_APPROVAL_SCHEMA:
+        if document["schema"] in {
+            OPEN_SHELL_INPUT_APPROVAL_SCHEMA,
+            FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA,
+        }:
             result["specialist_owner_binding"] = copy.deepcopy(
                 document["specialist_owner_binding"]
             )
@@ -2196,8 +2735,73 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
                 fail("live approval /5 open-shell family binding differs from the current exact preflight")
             expected["open_shell_family"] = copy.deepcopy(owner)
             expected_schema = OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA
+        elif exact_input_approval["schema"] == FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA:
+            if input_approval.get("status") != "validated_exact_input_approval":
+                fail(
+                    "live approval /12 requires a fully replayed fixed-constraint "
+                    "input receipt /4"
+                )
+            if summary["work_kind"] != "minimum" or summary["multiplicity"] != 1:
+                fail(
+                    "fixed-constraint live approval /12 is restricted to "
+                    "closed-shell singlet work_kind minimum"
+                )
+            owner = _exact_fields(
+                input_approval.get("specialist_owner_binding"),
+                {
+                    "owner", "workflow", "fixed_constraint_audit_payload_sha256",
+                    "selected_option_payload_sha256", "input_sha256", "exact_route",
+                    "charge", "multiplicity", "resources", "constraints_sha256",
+                    "constraint_count", "owner_replay_passed",
+                },
+                "live approval /12 fixed-constraint owner binding",
+            )
+            resources = _exact_fields(
+                owner["resources"],
+                {"resource_tier", "mem_gb", "cores"},
+                "live approval /12 fixed-constraint resources",
+            )
+            if (
+                owner["owner"] != "auto-g16-rtwin-pbs"
+                or owner["workflow"] != FIXED_CONSTRAINT_WORKFLOW
+                or owner["input_sha256"] != summary["input_sha256"]
+                or owner["exact_route"] != summary["protocol"]["route"]
+                or owner["charge"] != summary["charge"]
+                or owner["multiplicity"] != summary["multiplicity"]
+                or owner["multiplicity"] != 1
+                or owner["owner_replay_passed"] is not True
+                or resources["cores"] != summary["protocol"]["nproc"]
+                or not isinstance(resources["resource_tier"], str)
+                or not resources["resource_tier"]
+                or not isinstance(resources["mem_gb"], int)
+                or isinstance(resources["mem_gb"], bool)
+                or resources["mem_gb"] < 1
+                or parse_memory(summary["protocol"]["mem"])
+                != resources["mem_gb"] * 1024**3
+                or not isinstance(owner["constraint_count"], int)
+                or isinstance(owner["constraint_count"], bool)
+                or not 1 <= owner["constraint_count"] <= 64
+                or any(
+                    not isinstance(owner[key], str)
+                    or SHA256_RE.fullmatch(owner[key]) is None
+                    for key in (
+                        "fixed_constraint_audit_payload_sha256",
+                        "selected_option_payload_sha256",
+                        "input_sha256",
+                        "constraints_sha256",
+                    )
+                )
+            ):
+                fail(
+                    "live approval /12 fixed-constraint owner binding differs "
+                    "from the current exact preflight"
+                )
+            expected["fixed_constraint_owner"] = copy.deepcopy(owner)
+            expected_schema = FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA
         else:
-            fail("prospective live approval supports only input receipt /1, /2, or /3")
+            fail(
+                "prospective live approval supports only input receipt /1, /2, /3, or /4"
+            )
     else:
         if maturity is None:
             expected_schema = LIVE_APPROVAL_V1_SCHEMA
@@ -2301,6 +2905,8 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
             owner_key = (
                 "open_shell_owner" if expected_schema == OPEN_SHELL_LIVE_APPROVAL_SCHEMA
                 else "open_shell_family" if expected_schema == OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA
+                else "fixed_constraint_owner"
+                if expected_schema == FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA
                 else None
             )
             if owner_key is not None:
@@ -2315,6 +2921,7 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
                 LIVE_APPROVAL_V3_SCHEMA: LIVE_APPROVAL_V9_SCHEMA,
                 OPEN_SHELL_LIVE_APPROVAL_SCHEMA: OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA,
                 OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA: OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA,
+                FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA: FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA,
             }
         else:
             schema_upgrade = {
@@ -2337,6 +2944,7 @@ def _validate_live_approval_document(approval: dict[str, Any], summary: dict[str
         LIVE_APPROVAL_V9_SCHEMA,
         OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA,
         OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA,
+        FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA,
     }
     if expected_schema in protected_schemas:
         try:
@@ -2432,6 +3040,12 @@ def validate_live_approval(path: Path, summary: dict[str, Any]) -> dict[str, Any
 def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) -> dict[str, Any] | None:
     protected = classify_protected_input(report)
     work_kind = getattr(args, "work_kind", None)
+    if protected == "fixed_constraint_preopt":
+        if work_kind not in {None, "minimum"}:
+            fail(
+                "F-only fixed-coordinate preoptimization requires --work-kind minimum"
+            )
+        return None
     if protected is None:
         if work_kind not in {None, "ordinary", "minimum"}:
             fail(f"--work-kind {work_kind} does not match an ordinary/minimum route")
@@ -2686,6 +3300,16 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         )
     )
     has_relaxed_scan_directive = legacy_relaxed_scan or gic_relaxed_scan
+    fixed_constraint_directives = parse_fixed_constraint_directives(
+        trailing_section_lines, coordinate_count
+    )
+    has_only_fixed_constraint_directives = (
+        bool(trailing_section_lines)
+        and fixed_constraint_directives is not None
+        and len(fixed_constraint_directives) == len(trailing_section_lines)
+        and route_has_relaxed_scan_context(route)
+        and not has_relaxed_scan_directive
+    )
 
     report = {
         "input": str(path.resolve()),
@@ -2707,6 +3331,17 @@ def parse_gaussian(path: Path) -> dict[str, Any]:
         "route_section_count": route_section_count,
         "trailing_section_line_count": len(trailing_section_lines),
         "has_relaxed_scan_directive": has_relaxed_scan_directive,
+        "fixed_constraint_directive_count": (
+            len(fixed_constraint_directives)
+            if has_only_fixed_constraint_directives
+            else 0
+        ),
+        "has_only_fixed_constraint_directives": has_only_fixed_constraint_directives,
+        "fixed_constraint_directives": (
+            fixed_constraint_directives
+            if has_only_fixed_constraint_directives
+            else []
+        ),
         "trailing_blank_line": True,
     }
     report["manifest"] = None
@@ -4291,6 +4926,50 @@ def command_finalize_input_review(args) -> None:
     print(json.dumps({"schema": document["schema"], "payload_sha256": document["payload_sha256"], "live_actions": False}, ensure_ascii=False, indent=2))
 
 
+def command_finalize_fixed_constraint_input_review(args) -> None:
+    try:
+        document = finalize_fixed_constraint_input_review(
+            Path(args.draft), Path(args.output)
+        )
+    except (OSError, ValueError, protocol_selection.ContractError) as exc:
+        fail(f"fixed-constraint input-review finalization failed: {exc}")
+    print(
+        json.dumps(
+            {
+                "schema": document["schema"],
+                "payload_sha256": document["payload_sha256"],
+                "live_actions": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def command_build_fixed_constraint_audit(args) -> None:
+    try:
+        document = build_fixed_constraint_audit(
+            Path(args.input),
+            Path(args.input_review),
+            Path(args.output),
+            args.audit_id,
+        )
+    except (OSError, ValueError, protocol_selection.ContractError) as exc:
+        fail(f"fixed-constraint audit build failed: {exc}")
+    print(
+        json.dumps(
+            {
+                "schema": document["schema"],
+                "payload_sha256": document["payload_sha256"],
+                "constraint_count": len(document["constraints"]),
+                "live_actions": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def command_build_input_approval(args) -> None:
     try:
         document = build_input_approval_receipt(
@@ -4299,6 +4978,7 @@ def command_build_input_approval(args) -> None:
             Path(args.open_shell_state_review) if args.open_shell_state_review else None,
             Path(args.open_shell_input_handoff) if args.open_shell_input_handoff else None,
             Path(args.open_shell_input_audit) if args.open_shell_input_audit else None,
+            Path(args.fixed_constraint_audit) if args.fixed_constraint_audit else None,
         )
     except (OSError, ValueError, protocol_selection.ContractError) as exc:
         fail(f"input-approval build failed: {exc}")
@@ -4565,6 +5245,8 @@ def command_submit(args) -> None:
         if input_approval["status"] != "validated_exact_input_approval":
             if input_approval["status"] in {
                 "blocked_missing_specialist_input_approval",
+                "blocked_missing_fixed_constraint_input_approval",
+                "blocked_invalid_fixed_constraint_input",
                 "blocked_combined_open_shell_minimum_stability_parse_risk",
                 "blocked_unsupported_open_shell_ordinary",
             }:
@@ -6049,6 +6731,32 @@ def build_parser() -> argparse.ArgumentParser:
     finalize_review.add_argument("--output", required=True)
     finalize_review.set_defaults(func=command_finalize_input_review)
 
+    finalize_fixed_review = sub.add_parser(
+        "finalize-fixed-constraint-input-review",
+        help=(
+            "finalize one fixed-constraint exact input-draft review /3 "
+            "without live action"
+        ),
+    )
+    finalize_fixed_review.add_argument("draft")
+    finalize_fixed_review.add_argument("--output", required=True)
+    finalize_fixed_review.set_defaults(
+        func=command_finalize_fixed_constraint_input_review
+    )
+
+    fixed_audit = sub.add_parser(
+        "build-fixed-constraint-audit",
+        help=(
+            "build one non-authorizing specialist audit for an F-only, "
+            "non-scan constrained preoptimization"
+        ),
+    )
+    fixed_audit.add_argument("input")
+    fixed_audit.add_argument("--input-review", required=True)
+    fixed_audit.add_argument("--audit-id", required=True)
+    fixed_audit.add_argument("--output", required=True)
+    fixed_audit.set_defaults(func=command_build_fixed_constraint_audit)
+
     build_approval = sub.add_parser("build-input-approval", help="bind protocol selection, exact input review, and exact input into one non-authorizing receipt")
     build_approval.add_argument("input")
     build_approval.add_argument("--protocol-options", required=True)
@@ -6057,6 +6765,12 @@ def build_parser() -> argparse.ArgumentParser:
     build_approval.add_argument("--open-shell-state-review", help="accepted main-group open-shell electronic-state review")
     build_approval.add_argument("--open-shell-input-handoff", help="owner-validated minimum Opt/Freq input handoff")
     build_approval.add_argument("--open-shell-input-audit", help="passed owner input audit for the exact handoff bytes")
+    build_approval.add_argument(
+        "--fixed-constraint-audit",
+        help=(
+            "owner-replayed F-only non-scan constrained-preoptimization audit /1"
+        ),
+    )
     build_approval.add_argument("--receipt-id", required=True)
     build_approval.add_argument("--output", required=True)
     build_approval.set_defaults(func=command_build_input_approval)
@@ -6100,7 +6814,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--approval-record",
         help=(
             "resource-bound one-time live approval /9 for receipt /1, /10 for owner-replayed "
-            "open-shell receipt /2, or /11 for one family-stage receipt /3; /6-/8 are historical replay only"
+            "open-shell receipt /2, /11 for one family-stage receipt /3, or /12 "
+            "for fixed-constraint receipt /4; /6-/8 are historical replay only"
         ),
     )
     submit.add_argument(
@@ -6108,7 +6823,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             f"owner-validated {INPUT_APPROVAL_SCHEMA} for ordinary/closed-shell minimum, "
             f"or fully replayed {OPEN_SHELL_INPUT_APPROVAL_SCHEMA} for legacy open-shell minimum, "
-            f"or {OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA} for one two-stage family member"
+            f"or {OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA} for one two-stage family member, "
+            f"or {FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA} for one F-only constrained preoptimization"
         ),
     )
     add_scientific_maturity_options(submit)

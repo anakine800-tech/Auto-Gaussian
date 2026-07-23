@@ -1,17 +1,18 @@
 # Auto-G16 Exact Live Submission Approval
 
-## Resource-bound protected submission contracts `/9`-`/11`
+## Resource-bound protected submission contracts `/9`-`/12`
 
 `/3`-`/5` and package-2 `/6`-`/8` remain historical/offline replay contracts.
 They do not satisfy a new package-4 live submit. Their resource-bound
 successors are `/9` for the generic receipt, `/10` for the owner-replayed
-open-shell receipt, and `/11` for one open-shell family stage receipt.
+open-shell receipt, `/11` for one open-shell family stage receipt, and `/12`
+for the fixed-coordinate non-scan constrained-preoptimization receipt `/4`.
 Generic `/9` ordinary scope is singlet-only. An ordinary multiplicity greater
 than one is blocked by `input_approval_compatibility` before receipt completion
 as `blocked_unsupported_open_shell_ordinary`; no specialist owner/schema is
 currently available, and `/9` must not be extended silently.
 
-Every `/9`-`/11` record is closed, retains these package-2 fields:
+Every `/9`-`/12` record is closed, retains these package-2 fields:
 
 ```json
 {
@@ -171,6 +172,23 @@ SHA-256, route, memory, cores, charge, multiplicity, receipt file/payload/input
 hashes, owner workflow, electronic-state-review/input-handoff/input-audit and
 selected-option payload hashes, reference family, resource tier and
 `owner_replay_passed: true`.
+
+## Fixed-coordinate constrained-preoptimization live approval `/12`
+
+`auto-g16-live-submission-approval/12` is the only live contract for
+`gaussian-input-approval-receipt/4`. It requires the resource-bound protected
+execution scope and is restricted to `work_kind: minimum`, multiplicity 1, one
+explicit Cartesian route, and the owner-replayed
+`closed_shell_fixed_coordinate_preoptimization_v1` workflow.
+
+Its closed scope adds `fixed_constraint_owner`, binding the specialist audit
+payload, selected-option payload, exact input hash and route, charge,
+multiplicity, exact resource tier/cores/memory, canonical constraint-set hash,
+constraint count and `owner_replay_passed: true`. The constraint count is
+1–64. `/9`, `/10`, or `/11` cannot substitute for `/12`, and `/12` cannot
+approve generic, open-shell, frequency, TS/QST, scan, IRC, checkpoint or Link1
+inputs. It retains one-time/time-window/revocation/consumption fields and the
+same no-retry, no-cancel, no-cleanup and no-delete boundary as `/9`–`/11`.
 
 `/2` receipt plus `/3`, `/1` receipt plus `/4`, protected maturity evidence,
 TS/IRC/scan/QST/Link1/checkpoint inputs, metals, open-shell singlets, broken
