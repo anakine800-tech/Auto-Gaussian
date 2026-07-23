@@ -5,7 +5,6 @@
   "execution_authorization_id": "transport-authorization-placeholder",
   "first_hop_adapter_config_ref_sha256": "0c1d42c6f8e9bdd818105c84e83ee94a8ca4532f55aa44f2d0197658765ae8de",
   "second_hop_adapter_config_ref_sha256": "aa877eccc460683a05bec225b24ad4b2451f94210f62d7a7167d445d35a68700",
-  "observed_fingerprint_evidence_sha256": "024ae8a6e06fca58589f7f27fbc491c5ab76c175715cdbc5f0c3c9f80cc39ba0",
   "first_hop_nonce": "11111111111111111111111111111111",
   "nested_hop_nonce": "22222222222222222222222222222222",
   "handshake_nonce": "33333333333333333333333333333333",

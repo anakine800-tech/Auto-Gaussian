@@ -28,6 +28,7 @@ HANDSHAKE_REQUEST_SCHEMA = "auto-g16-nested-hop-identity-handshake-request/1"
 HANDSHAKE_OBSERVATION_SCHEMA = "auto-g16-nested-hop-identity-handshake-observation/1"
 HANDSHAKE_RECEIPT_SCHEMA = "auto-g16-nested-hop-identity-handshake-receipt/1"
 HANDSHAKE_OPERATION_VERSION = "nested-hop-host-key-identity-handshake/1"
+SUCCESSOR_CLOSURE_SEAL_SCHEMA = "auto-g16-successor-closure-seal/1"
 ADAPTER_OWNER = "auto-g16-rtwin-pbs"
 FIRST_HOP_CONFIG_REF = "rtwin_ssh_config"
 SECOND_HOP_CONFIG_REF = "windows_server_config"
@@ -41,6 +42,28 @@ OPERATION_CONTRACTS = (
 
 class TransportAuthorityError(ValueError):
     """The successor transport-authority closure is not exact and closed."""
+
+
+_SUCCESSOR_CLOSURE_SEAL = object()
+
+
+class SealedSuccessorClosure:
+    """Owner-issued immutable handle proving the full successor replay ran."""
+
+    __slots__ = ("_canonical_payload", "_payload_sha256")
+
+    def __init__(self, canonical_payload: bytes, payload_sha256: str, *, seal: object) -> None:
+        if seal is not _SUCCESSOR_CLOSURE_SEAL:
+            raise TypeError("successor closure handles can only be issued by the owner")
+        object.__setattr__(self, "_canonical_payload", canonical_payload)
+        object.__setattr__(self, "_payload_sha256", payload_sha256)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("successor closure handles are immutable")
+
+    @property
+    def payload_sha256(self) -> str:
+        return self._payload_sha256
 
 
 def _load_owner(filename: str, owner_name: str) -> ModuleType:
@@ -467,8 +490,8 @@ def validate_successor_closure(
     *, successor_request: Any, successor_authorization: Any,
     base_request: Any, base_authorization: Any,
     profile_v1: Any, profile_v2: Any, identity_binding: Any, now: str | datetime,
-) -> dict[str, Any]:
-    """Replay the published owners and bind the additive successor exactly."""
+) -> SealedSuccessorClosure:
+    """Replay the complete successor once and return an owner-issued seal."""
     historical_request = execution_authorization.validate_execution_request(base_request)
     base = execution_authorization.validate_execution_authorization(base_authorization, now=now)
     old_profile = platform_contracts.validate_execution_profile(profile_v1)
@@ -575,7 +598,62 @@ def validate_successor_closure(
         require(successor_operation == base_operations[index], f"successor operation {index} differs from the PR3 base closure")
     base_start, base_end = _time(base["not_before"], "base not_before"), _time(base["expires_at"], "base expires_at")
     require(base_start <= _time(authorization["not_before"], "successor not_before") < _time(authorization["expires_at"], "successor expires_at") <= base_end, "successor window exceeds the historical authorization")
-    return authorization
+    closure = {
+        "schema": SUCCESSOR_CLOSURE_SEAL_SCHEMA,
+        "successor_request": request,
+        "successor_authorization": authorization,
+        "base_request": historical_request,
+        "base_authorization": base,
+        "profile_v1": old_profile,
+        "profile_v2": new_profile,
+        "identity_binding": identity,
+    }
+    canonical_payload = platform_contracts.canonical_bytes(closure)
+    payload_sha256 = hashlib.sha256(canonical_payload).hexdigest()
+    return SealedSuccessorClosure(
+        canonical_payload,
+        payload_sha256,
+        seal=_SUCCESSOR_CLOSURE_SEAL,
+    )
+
+
+def _consume_successor_closure(
+    value: Any, *, now: str | datetime,
+) -> dict[str, Any]:
+    require(type(value) is SealedSuccessorClosure, "handshake authority requires an owner-sealed successor closure")
+    canonical_payload = value._canonical_payload
+    require(isinstance(canonical_payload, bytes), "successor closure canonical payload is unavailable")
+    actual_digest = hashlib.sha256(canonical_payload).hexdigest()
+    require(
+        hmac.compare_digest(actual_digest, value.payload_sha256),
+        "successor closure canonical digest mismatch",
+    )
+    closure = platform_contracts.strict_json_loads(
+        canonical_payload,
+        label="owner-sealed successor closure",
+    )
+    closure = _exact(closure, {
+        "schema", "successor_request", "successor_authorization",
+        "base_request", "base_authorization", "profile_v1", "profile_v2",
+        "identity_binding",
+    }, "owner-sealed successor closure")
+    require(closure["schema"] == SUCCESSOR_CLOSURE_SEAL_SCHEMA, "successor closure seal schema is unsupported")
+    replayed = validate_successor_closure(
+        successor_request=closure["successor_request"],
+        successor_authorization=closure["successor_authorization"],
+        base_request=closure["base_request"],
+        base_authorization=closure["base_authorization"],
+        profile_v1=closure["profile_v1"],
+        profile_v2=closure["profile_v2"],
+        identity_binding=closure["identity_binding"],
+        now=now,
+    )
+    require(
+        hmac.compare_digest(replayed.payload_sha256, value.payload_sha256)
+        and hmac.compare_digest(replayed._canonical_payload, canonical_payload),
+        "successor closure replay differs from its canonical seal",
+    )
+    return closure
 
 
 def build_nested_handshake_request(
@@ -699,10 +777,10 @@ def validate_nested_handshake_observation(
         "transport_config_bindings_sha256", "first_hop_receipt_sha256",
         "nested_hop_receipt_sha256", "second_hop_identity_sha256",
         "approved_host_key_evidence_sha256", "observed_fingerprint_evidence_sha256",
-        "observed_fingerprint_matches_approved", "request_nonce", "issued_at",
-        "expires_at", "operation_version", "classification", "read_only",
-        "single_attempt", "automatic_retry", "mutation_allowed",
-        "no_execution_authorization", "observation_payload_sha256",
+        "request_nonce", "issued_at", "expires_at", "operation_version",
+        "classification", "read_only", "single_attempt", "automatic_retry",
+        "mutation_allowed", "no_execution_authorization",
+        "observation_payload_sha256",
     }, "nested-hop handshake observation")
     checked = validate_nested_handshake_request(request, now=now)
     stages = validate_stage_receipt_chain(
@@ -738,8 +816,17 @@ def validate_nested_handshake_observation(
             hmac.compare_digest(_text(observation[field], field), expected_value),
             f"nested-hop handshake observation {field} mismatch",
         )
-    _sha(observation["observed_fingerprint_evidence_sha256"], "observed fingerprint evidence digest")
-    require(observation["observed_fingerprint_matches_approved"] is True, "nested-hop handshake observation did not match approved host-key evidence")
+    observed_fingerprint = _sha(
+        observation["observed_fingerprint_evidence_sha256"],
+        "observed fingerprint evidence digest",
+    )
+    require(
+        hmac.compare_digest(
+            observed_fingerprint,
+            expected["approved_host_key_evidence_sha256"],
+        ),
+        "observed fingerprint evidence differs from approved second-hop host-key evidence",
+    )
     for field, expected_value in stage_digests.items():
         require(hmac.compare_digest(checked[field], expected_value), f"nested-hop handshake request {field} differs from owner-computed stage receipt digest")
     require(
@@ -830,18 +917,18 @@ def validate_nested_handshake_receipt(
 
 
 def validate_handshake_authority_binding(
-    *, successor_request: Any, successor_authorization: Any,
+    *, successor_closure: Any,
     request: Any, observation: Any, receipt: Any,
-    profile_v2: Any, identity_binding: Any,
     first_hop_request: Any, first_hop_receipt: Any,
     nested_hop_request: Any, nested_hop_receipt: Any,
     now: str | datetime,
 ) -> dict[str, Any]:
-    """Bind request/2, authorization/2, actual stage receipts and handshake."""
-    authority_request = validate_execution_request_v2(successor_request)
-    authorization = validate_execution_authorization_v2(successor_authorization, now=now)
-    profile = validate_execution_profile_v2(profile_v2)
-    binding = platform_contracts.validate_transport_identity_binding(identity_binding)
+    """Consume the full sealed closure and bind all three actual operations."""
+    closure = _consume_successor_closure(successor_closure, now=now)
+    authority_request = closure["successor_request"]
+    authorization = closure["successor_authorization"]
+    profile = closure["profile_v2"]
+    binding = closure["identity_binding"]
     checked_request = validate_nested_handshake_request(request, now=now)
     require(
         _constant_fields_equal(
@@ -849,15 +936,54 @@ def validate_handshake_authority_binding(
             authority_request,
             ("request_id", "request_payload_sha256"),
         ),
-        "authorization /2 does not bind the supplied execution-request/2",
+        "sealed authorization /2 does not bind its execution-request/2",
     )
     require(
         authorization["profile"] == authority_request["profile"]
         and authorization["project"] == authority_request["project"]
         and authorization["identity_attestation"]["operations"] == authority_request["requested_operations"],
-        "authorization /2 authority differs from execution-request/2",
+        "sealed authorization /2 authority differs from execution-request/2",
     )
-    operation = authorization["identity_attestation"]["operations"][2]
+    stages = validate_stage_receipt_chain(
+        profile_v2=profile,
+        identity_binding=binding,
+        first_hop_request=first_hop_request,
+        first_hop_receipt=first_hop_receipt,
+        nested_hop_request=nested_hop_request,
+        nested_hop_receipt=nested_hop_receipt,
+        now=now,
+    )
+    operations = authorization["identity_attestation"]["operations"]
+    for index, stage_request in enumerate((
+        stages["first_hop_request"],
+        stages["nested_hop_request"],
+    )):
+        operation = operations[index]
+        expected_stage = {
+            "request_nonce": operation["request_nonce"],
+            "issued_at": operation["not_before"],
+            "expires_at": operation["expires_at"],
+            "operation_version": operation["operation_version"],
+            "read_only_attestation": operation["read_only"],
+            "automatic_retry": operation["automatic_retry"],
+        }
+        for field, expected_value in expected_stage.items():
+            actual_value = stage_request[field]
+            matches = (
+                hmac.compare_digest(actual_value, expected_value)
+                if isinstance(actual_value, str) and isinstance(expected_value, str)
+                else actual_value == expected_value
+            )
+            require(matches, f"actual Stage {'A' if index == 0 else 'B'} request differs from authorized operation {index}")
+        require(
+            hmac.compare_digest(stage_request["profile_sha256"], profile["profile_payload_sha256"])
+            and hmac.compare_digest(
+                stage_request["transport_identity_binding_sha256"],
+                binding["binding_payload_sha256"],
+            ),
+            f"actual Stage {'A' if index == 0 else 'B'} request authority binding differs from authorized operation {index}",
+        )
+    operation = operations[2]
     expected = {
         "profile_sha256": authorization["profile"]["profile_sha256"],
         "transport_identity_binding_sha256": authorization["transport"]["identity_binding_sha256"],

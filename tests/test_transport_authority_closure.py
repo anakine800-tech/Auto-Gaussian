@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import hashlib
 import importlib.util
 import inspect
 import json
@@ -230,8 +231,7 @@ class TransportAuthorityClosureTests(unittest.TestCase):
             )},
             "second_hop_identity_sha256": PLATFORM._hop_identity_sha256(self.binding["hops"][1]),
             "approved_host_key_evidence_sha256": self.binding["hops"][1]["host_key_evidence_sha256"],
-            "observed_fingerprint_evidence_sha256": self.fixture["observed_fingerprint_evidence_sha256"],
-            "observed_fingerprint_matches_approved": True,
+            "observed_fingerprint_evidence_sha256": self.binding["hops"][1]["host_key_evidence_sha256"],
             "classification": "observed",
             "read_only": True,
             "single_attempt": True,
@@ -259,16 +259,14 @@ class TransportAuthorityClosureTests(unittest.TestCase):
             "nested_hop_receipt": self.nested_receipt,
         }
 
-    @staticmethod
-    def reseal_authorization(document: dict[str, Any]) -> dict[str, Any]:
-        document["scope_sha256"] = CLOSURE._scope_sha256(document)
-        return CLOSURE.finalize(document, "authorization_payload_sha256")
+    def handshake_stage_arguments(self) -> dict[str, Any]:
+        arguments = self.stage_arguments()
+        arguments.pop("profile_v2")
+        arguments.pop("identity_binding")
+        return arguments
 
-    def assert_schema_valid(self, name: str, value: Any) -> None:
-        self.assertEqual(schema_errors(ROOT / "contracts/execution" / name, value), [])
-
-    def test_request_authorization_and_actual_receipt_chain_close_offline(self) -> None:
-        checked = CLOSURE.validate_successor_closure(
+    def successor_closure(self) -> CLOSURE.SealedSuccessorClosure:
+        return CLOSURE.validate_successor_closure(
             successor_request=self.request_v2,
             successor_authorization=self.authorization_v2,
             base_request=self.base_request,
@@ -278,15 +276,30 @@ class TransportAuthorityClosureTests(unittest.TestCase):
             identity_binding=self.binding,
             now=self.now,
         )
-        self.assertEqual(checked["request"], CLOSURE._request_ref(self.request_v2))
+
+    @staticmethod
+    def reseal_authorization(document: dict[str, Any]) -> dict[str, Any]:
+        document["scope_sha256"] = CLOSURE._scope_sha256(document)
+        return CLOSURE.finalize(document, "authorization_payload_sha256")
+
+    def assert_schema_valid(self, name: str, value: Any) -> None:
+        self.assertEqual(schema_errors(ROOT / "contracts/execution" / name, value), [])
+
+    def test_request_authorization_and_actual_receipt_chain_close_offline(self) -> None:
+        checked = self.successor_closure()
+        self.assertIsInstance(checked, CLOSURE.SealedSuccessorClosure)
+        self.assertRegex(checked.payload_sha256, r"^[a-f0-9]{64}$")
+        with self.assertRaises(TypeError):
+            CLOSURE.SealedSuccessorClosure(b"{}", "a" * 64, seal=object())
+        with self.assertRaises(AttributeError):
+            checked._payload_sha256 = "a" * 64
         result = CLOSURE.validate_handshake_authority_binding(
-            successor_request=self.request_v2,
-            successor_authorization=self.authorization_v2,
+            successor_closure=checked,
             request=self.handshake_request,
             observation=self.observation,
             receipt=self.handshake_receipt,
             now=self.now,
-            **self.stage_arguments(),
+            **self.handshake_stage_arguments(),
         )
         self.assertEqual(result, self.handshake_receipt)
         self.assertTrue(result["no_execution_authorization"])
@@ -356,13 +369,10 @@ class TransportAuthorityClosureTests(unittest.TestCase):
         changed_first = PLATFORM.finalize(changed_first, "receipt_payload_sha256")
         with self.assertRaises(ValueError):
             CLOSURE.validate_handshake_authority_binding(
-                successor_request=self.request_v2,
-                successor_authorization=self.authorization_v2,
+                successor_closure=self.successor_closure(),
                 request=self.handshake_request,
                 observation=self.observation,
                 receipt=self.handshake_receipt,
-                profile_v2=self.profile_v2,
-                identity_binding=self.binding,
                 first_hop_request=self.first_request,
                 first_hop_receipt=changed_first,
                 nested_hop_request=self.nested_request,
@@ -380,6 +390,218 @@ class TransportAuthorityClosureTests(unittest.TestCase):
                 request=self.handshake_request,
                 observation=changed,
                 **self.stage_arguments(),
+            )
+
+    def test_self_hashed_arbitrary_fingerprint_evidence_cannot_be_promoted(self) -> None:
+        changed = copy.deepcopy(self.observation)
+        changed["observed_fingerprint_evidence_sha256"] = "f" * 64
+        changed = CLOSURE.finalize(changed, "observation_payload_sha256")
+        with self.assertRaisesRegex(CLOSURE.TransportAuthorityError, "fingerprint evidence"):
+            CLOSURE.build_nested_handshake_receipt(
+                request=self.handshake_request,
+                observation=changed,
+                **self.stage_arguments(),
+            )
+
+    def test_handshake_entry_cannot_skip_the_full_successor_closure(self) -> None:
+        parameters = inspect.signature(CLOSURE.validate_handshake_authority_binding).parameters
+        self.assertIn("successor_closure", parameters)
+        self.assertNotIn("successor_request", parameters)
+        self.assertNotIn("successor_authorization", parameters)
+        spliced_request = copy.deepcopy(self.request_v2)
+        spliced_request["historical_request"]["request_payload_sha256"] = "f" * 64
+        spliced_request = CLOSURE.finalize(spliced_request, "request_payload_sha256")
+        spliced_authorization = copy.deepcopy(self.authorization_v2)
+        spliced_authorization["request"] = CLOSURE._request_ref(spliced_request)
+        spliced_authorization = self.reseal_authorization(spliced_authorization)
+        with self.assertRaisesRegex(CLOSURE.TransportAuthorityError, "historical request provenance"):
+            CLOSURE.validate_successor_closure(
+                successor_request=spliced_request,
+                successor_authorization=spliced_authorization,
+                base_request=self.base_request,
+                base_authorization=self.base_authorization,
+                profile_v1=self.profile_v1,
+                profile_v2=self.profile_v2,
+                identity_binding=self.binding,
+                now=self.now,
+            )
+        with self.assertRaises(TypeError):
+            CLOSURE.validate_handshake_authority_binding(
+                successor_request=spliced_request,
+                successor_authorization=spliced_authorization,
+                request=self.handshake_request,
+                observation=self.observation,
+                receipt=self.handshake_receipt,
+                now=self.now,
+                **self.handshake_stage_arguments(),
+            )
+        forged = self.successor_closure()
+        forged_payload = json.loads(forged._canonical_payload)
+        forged_payload["successor_request"] = spliced_request
+        forged_payload["successor_authorization"] = spliced_authorization
+        forged_bytes = PLATFORM.canonical_bytes(forged_payload)
+        object.__setattr__(forged, "_canonical_payload", forged_bytes)
+        object.__setattr__(forged, "_payload_sha256", hashlib.sha256(forged_bytes).hexdigest())
+        with self.assertRaisesRegex(CLOSURE.TransportAuthorityError, "historical request provenance"):
+            CLOSURE.validate_handshake_authority_binding(
+                successor_closure=forged,
+                request=self.handshake_request,
+                observation=self.observation,
+                receipt=self.handshake_receipt,
+                now=self.now,
+                **self.handshake_stage_arguments(),
+            )
+
+    def test_actual_stage_a_chain_must_match_authorized_operation_zero(self) -> None:
+        first_request = PLATFORM.build_first_hop_request(
+            profile_sha256=self.profile_v2["profile_payload_sha256"],
+            binding_sha256=self.binding["binding_payload_sha256"],
+            request_nonce="4" * 32,
+            issued_at=self.fixture["not_before"],
+            expires_at=self.fixture["expires_at"],
+        )
+        first_receipt = PLATFORM.build_first_hop_receipt(
+            request=first_request,
+            binding=self.binding,
+            observed_fingerprint_evidence_sha256=self.binding["hops"][0]["host_key_evidence_sha256"],
+        )
+        nested_request = PLATFORM.build_nested_hop_request(
+            profile_sha256=self.profile_v2["profile_payload_sha256"],
+            binding_sha256=self.binding["binding_payload_sha256"],
+            first_hop_receipt_sha256=first_receipt["receipt_payload_sha256"],
+            request_nonce=self.fixture["nested_hop_nonce"],
+            issued_at=self.fixture["not_before"],
+            expires_at=self.fixture["expires_at"],
+        )
+        nested_receipt = PLATFORM.build_nested_hop_receipt(
+            request=nested_request,
+            binding=self.binding,
+            first_hop_receipt=first_receipt,
+            first_hop_request=first_request,
+        )
+        stage_arguments = {
+            "profile_v2": self.profile_v2,
+            "identity_binding": self.binding,
+            "first_hop_request": first_request,
+            "first_hop_receipt": first_receipt,
+            "nested_hop_request": nested_request,
+            "nested_hop_receipt": nested_receipt,
+        }
+        handshake_request = CLOSURE.build_nested_handshake_request(
+            request_nonce=self.fixture["handshake_nonce"],
+            issued_at=self.fixture["not_before"],
+            expires_at=self.fixture["expires_at"],
+            **stage_arguments,
+        )
+        observation = copy.deepcopy(self.observation)
+        for field in (
+            "profile_sha256", "transport_identity_binding_sha256",
+            "transport_config_bindings_sha256", "first_hop_receipt_sha256",
+            "nested_hop_receipt_sha256", "request_nonce", "issued_at",
+            "expires_at", "operation_version",
+        ):
+            observation[field] = handshake_request[field]
+        observation = CLOSURE.finalize(observation, "observation_payload_sha256")
+        receipt = CLOSURE.build_nested_handshake_receipt(
+            request=handshake_request,
+            observation=observation,
+            **stage_arguments,
+        )
+        with self.assertRaisesRegex(CLOSURE.TransportAuthorityError, "operation 0"):
+            handshake_stage_arguments = copy.deepcopy(stage_arguments)
+            handshake_stage_arguments.pop("profile_v2")
+            handshake_stage_arguments.pop("identity_binding")
+            CLOSURE.validate_handshake_authority_binding(
+                successor_closure=self.successor_closure(),
+                request=handshake_request,
+                observation=observation,
+                receipt=receipt,
+                now=self.now,
+                **handshake_stage_arguments,
+            )
+
+    def test_actual_stage_b_chain_must_match_authorized_operation_one(self) -> None:
+        nested_request = PLATFORM.build_nested_hop_request(
+            profile_sha256=self.profile_v2["profile_payload_sha256"],
+            binding_sha256=self.binding["binding_payload_sha256"],
+            first_hop_receipt_sha256=self.first_receipt["receipt_payload_sha256"],
+            request_nonce="5" * 32,
+            issued_at=self.fixture["not_before"],
+            expires_at=self.fixture["expires_at"],
+        )
+        nested_receipt = PLATFORM.build_nested_hop_receipt(
+            request=nested_request,
+            binding=self.binding,
+            first_hop_receipt=self.first_receipt,
+            first_hop_request=self.first_request,
+        )
+        stage_arguments = {
+            "profile_v2": self.profile_v2,
+            "identity_binding": self.binding,
+            "first_hop_request": self.first_request,
+            "first_hop_receipt": self.first_receipt,
+            "nested_hop_request": nested_request,
+            "nested_hop_receipt": nested_receipt,
+        }
+        handshake_request = CLOSURE.build_nested_handshake_request(
+            request_nonce=self.fixture["handshake_nonce"],
+            issued_at=self.fixture["not_before"],
+            expires_at=self.fixture["expires_at"],
+            **stage_arguments,
+        )
+        observation = copy.deepcopy(self.observation)
+        for field in (
+            "profile_sha256", "transport_identity_binding_sha256",
+            "transport_config_bindings_sha256", "first_hop_receipt_sha256",
+            "nested_hop_receipt_sha256", "request_nonce", "issued_at",
+            "expires_at", "operation_version",
+        ):
+            observation[field] = handshake_request[field]
+        observation = CLOSURE.finalize(observation, "observation_payload_sha256")
+        receipt = CLOSURE.build_nested_handshake_receipt(
+            request=handshake_request,
+            observation=observation,
+            **stage_arguments,
+        )
+        handshake_stage_arguments = copy.deepcopy(stage_arguments)
+        handshake_stage_arguments.pop("profile_v2")
+        handshake_stage_arguments.pop("identity_binding")
+        with self.assertRaisesRegex(CLOSURE.TransportAuthorityError, "operation 1"):
+            CLOSURE.validate_handshake_authority_binding(
+                successor_closure=self.successor_closure(),
+                request=handshake_request,
+                observation=observation,
+                receipt=receipt,
+                now=self.now,
+                **handshake_stage_arguments,
+            )
+
+    def test_handshake_chain_must_match_authorized_operation_two(self) -> None:
+        request_v2 = copy.deepcopy(self.request_v2)
+        request_v2["requested_operations"][2]["request_nonce"] = "6" * 32
+        request_v2 = CLOSURE.finalize(request_v2, "request_payload_sha256")
+        authorization_v2 = copy.deepcopy(self.authorization_v2)
+        authorization_v2["request"] = CLOSURE._request_ref(request_v2)
+        authorization_v2["identity_attestation"]["operations"][2]["request_nonce"] = "6" * 32
+        authorization_v2 = self.reseal_authorization(authorization_v2)
+        successor_closure = CLOSURE.validate_successor_closure(
+            successor_request=request_v2,
+            successor_authorization=authorization_v2,
+            base_request=self.base_request,
+            base_authorization=self.base_authorization,
+            profile_v1=self.profile_v1,
+            profile_v2=self.profile_v2,
+            identity_binding=self.binding,
+            now=self.now,
+        )
+        with self.assertRaisesRegex(CLOSURE.TransportAuthorityError, "request_nonce"):
+            CLOSURE.validate_handshake_authority_binding(
+                successor_closure=successor_closure,
+                request=self.handshake_request,
+                observation=self.observation,
+                receipt=self.handshake_receipt,
+                now=self.now,
+                **self.handshake_stage_arguments(),
             )
 
     def test_schema_python_parity_for_finite_critical_surfaces(self) -> None:
@@ -443,6 +665,10 @@ class TransportAuthorityClosureTests(unittest.TestCase):
         bad_observation["classification"] = "verified"
         bad_observation = CLOSURE.finalize(bad_observation, "observation_payload_sha256")
         invalid_cases.append(("nested-hop-identity-handshake.schema.json", bad_observation, lambda value: CLOSURE.validate_nested_handshake_observation(value, request=self.handshake_request, now=self.now, **self.stage_arguments())))
+        caller_verdict = copy.deepcopy(self.observation)
+        caller_verdict["observed_fingerprint_matches_approved"] = True
+        caller_verdict = CLOSURE.finalize(caller_verdict, "observation_payload_sha256")
+        invalid_cases.append(("nested-hop-identity-handshake.schema.json", caller_verdict, lambda value: CLOSURE.validate_nested_handshake_observation(value, request=self.handshake_request, now=self.now, **self.stage_arguments())))
         for schema_name, sample, validator in invalid_cases:
             with self.subTest(schema=schema_name, invalid=True):
                 self.assertTrue(schema_errors(ROOT / "contracts/execution" / schema_name, sample))

@@ -47,10 +47,10 @@
         "transport_config_bindings_sha256", "first_hop_receipt_sha256",
         "nested_hop_receipt_sha256", "second_hop_identity_sha256",
         "approved_host_key_evidence_sha256", "observed_fingerprint_evidence_sha256",
-        "observed_fingerprint_matches_approved", "request_nonce", "issued_at",
-        "expires_at", "operation_version", "classification", "read_only",
-        "single_attempt", "automatic_retry", "mutation_allowed",
-        "no_execution_authorization", "observation_payload_sha256"
+        "request_nonce", "issued_at", "expires_at", "operation_version",
+        "classification", "read_only", "single_attempt", "automatic_retry",
+        "mutation_allowed", "no_execution_authorization",
+        "observation_payload_sha256"
       ],
       "properties": {
         "schema": {"const": "auto-g16-nested-hop-identity-handshake-observation/1"},
@@ -62,7 +62,6 @@
         "second_hop_identity_sha256": {"$ref": "#/$defs/sha256"},
         "approved_host_key_evidence_sha256": {"$ref": "#/$defs/sha256"},
         "observed_fingerprint_evidence_sha256": {"$ref": "#/$defs/sha256"},
-        "observed_fingerprint_matches_approved": {"const": true},
         "request_nonce": {"$ref": "#/$defs/nonce"},
         "issued_at": {"$ref": "#/$defs/time"},
         "expires_at": {"$ref": "#/$defs/time"},
