@@ -34,7 +34,8 @@ SCHEMA_VALIDATION_PINS = {
     "typing-extensions": "4.16.0",
 }
 SCHEMA_VALIDATION_TEST_COMMAND = (
-    "python -m unittest tests.test_protected_submit_schema_draft202012 -v"
+    "python -m unittest tests.test_protected_submit_schema_draft202012 "
+    "tests.test_local_state_binding_schema_draft202012 -v"
 )
 EXACT_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[A-Za-z0-9._+-]*)")
 REQUIRES_PYTHON = re.compile(
@@ -440,6 +441,7 @@ def audit(root: Path) -> dict[str, Any]:
         if (
             "requirements/schema-validation" in command
             or "test_protected_submit_schema_draft202012" in command
+            or "test_local_state_binding_schema_draft202012" in command
         )
     ]
     _compare(
@@ -456,7 +458,7 @@ def audit(root: Path) -> dict[str, Any]:
         "test-only Schema validation CI boundary",
     )
     required_schema_step = (
-        "      - name: Run required Draft 2020-12 protected-submit Schema contract\n"
+        "      - name: Run required Draft 2020-12 protected contract Schemas\n"
         "        env:\n"
         '          AUTO_G16_REQUIRE_JSONSCHEMA: "1"\n'
         f"        run: {SCHEMA_VALIDATION_TEST_COMMAND}\n"

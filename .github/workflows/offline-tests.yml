@@ -83,7 +83,7 @@ jobs:
         env:
           AUTO_G16_REQUIRE_RDKIT: "1"
         run: python -m unittest tests.test_rdkit_smoke -v
-      - name: Run required Draft 2020-12 protected-submit Schema contract
+      - name: Run required Draft 2020-12 protected contract Schemas
         env:
           AUTO_G16_REQUIRE_JSONSCHEMA: "1"
-        run: python -m unittest tests.test_protected_submit_schema_draft202012 -v
+        run: python -m unittest tests.test_protected_submit_schema_draft202012 tests.test_local_state_binding_schema_draft202012 -v

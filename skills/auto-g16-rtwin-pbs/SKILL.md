@@ -262,6 +262,13 @@ scientific identity change consumes a new reviewed task slot. The ledger may
 classify a failure and support a retry proposal, but it never submits, retries,
 changes chemistry, cancels or expands work automatically.
 
+For the additive v2.6 path-ownership proposal used only by a future protected
+successor, read
+[references/local-state-binding.md](references/local-state-binding.md).
+It derives `outputs/<project>/<attempt_id>/execution-batch-v3.json` from typed
+owner evidence, never from caller `local_dir`, and grants no execution
+authority.
+
 Monitoring is read-only: important state/error events are immediate and the
 default cumulative operator-summary cadence is 60 minutes. Batch monitoring
 does not broaden the separate repeated-evidence scheduler-zombie qdel policy.
