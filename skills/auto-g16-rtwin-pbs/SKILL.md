@@ -106,7 +106,15 @@ Never store or echo passwords. Never replace a changed SSH host key silently.
    minimum instead requires one exact
    `gaussian-input-approval-receipt/3`; historical replay uses one closed live
    approval `/5` per stage, package-2 historical replay uses `/8`, and every
-   new protected submit uses `/11`. `/9`-`/11`
+   new protected submit uses `/11`. A closed-shell fixed-coordinate
+   preoptimization uses the additive `gaussian-input-draft-review/3`,
+   `auto-g16-fixed-constraint-input-audit/1`, and
+   `gaussian-input-approval-receipt/4` chain. It accepts only one explicit
+   Cartesian singlet minimum input with one ModRedundant/AddRedundant Opt and
+   1–64 validated B/A/D `F` directives; Freq, TS/QST, `S` scans, GIC, IRC,
+   checkpoint syntax, Link1 and unknown tail lines remain blocked. Its new
+   protected submit requires live approval `/12`; neither review, audit nor
+   receipt grants live authority. `/9`-`/12`
    require approver identity, approved/expires timestamps, active revocation
    state, a one-time approval ID, and exact batch/task/attempt/idempotency
    binding. Old approvals without those fields cannot enter a new submit. The

@@ -17,6 +17,7 @@ PBS, Gaussian, retry, cancellation or cleanup.
 | QST2/QST3 multi-structure raw syntax | TS kind | Blocked pending specialist raw-syntax owner audit |
 | Any `FOpt`/`POpt` input, including QST/Saddle forms | any | `blocked_missing_specialist_input_approval` |
 | Conical/Avoided optimization | specialist | Blocked pending a dedicated crossing-search owner; not ordinary TS maturity |
+| Single explicit-Cartesian closed-shell `Opt=ModRedundant/AddRedundant` input whose complete tail contains only 1–64 valid `B`/`A`/`D ... F` directives | `minimum` | Generic `/1` remains blocked; dedicated review `/3`, audit `/1`, and receipt `/4` are required |
 | ModRedundant/AddRedundant relaxed scan input | `ts_scan` | `blocked_missing_specialist_input_approval` |
 | `Opt/Geom=GIC`, `AddGIC` or `ReadAllGIC` without step directives | specialist optimization | Blocked; GIC coordinates are not by themselves a scan |
 | GIC input with both `NSteps` and `StepSize` | `ts_scan` | `blocked_missing_specialist_input_approval` |
@@ -93,6 +94,31 @@ The `/4` decision remains a separate human-created approval; receipt building,
 validation, prepare and dry-run never manufacture it. No `/1` artifact requires
 migration.
 
+## Fixed-coordinate, non-scan constrained preoptimization
+
+Historical review `/2` and receipt `/1` remain closed. The additive chain is:
+
+1. `gaussian-input-draft-review/3`, restricted to one selected
+   `constrained_geometry_preoptimization` task and deterministic evidence
+   `fixed_constraint_preoptimization`;
+2. `auto-g16-fixed-constraint-input-audit/1`, which replays the exact input and
+   review and permits only 1–64 nonduplicated `B`, `A`, or `D` coordinates
+   followed by exactly one `F`;
+3. `gaussian-input-approval-receipt/4`, which binds the audit, selected option,
+   exact route/input hash, closed-shell singlet state, resources and canonical
+   constraint-set hash; and
+4. resource-bound one-time live approval
+   `auto-g16-live-submission-approval/12`.
+
+The owner requires one explicit Cartesian molecule, one route section, one
+top-level `Opt`, `work_kind: minimum`, multiplicity 1, and
+`Opt=ModRedundant` or `Opt=AddRedundant`. It rejects `Freq`, TS/QST,
+relaxed-scan `S`, embedded target values, GIC, IRC, checkpoint-derived
+geometry/guess, `Opt=Restart`, Link1, repeated optimization keywords, duplicate constraints,
+out-of-range indices and every unrecognized tail line. This stage is a seed
+preoptimization only. It does not establish a minimum, frequency result, TS,
+path, free energy or whole-family completion.
+
 ## Offline commands
 
 Prepare the human-reviewed JSON draft with `payload_sha256: null`, then publish
@@ -115,6 +141,28 @@ python3 scripts/gaussian_rtwin_pbs.py build-input-approval job.gjf \
 python3 scripts/gaussian_rtwin_pbs.py validate-input-approval input-approval.json
 ```
 
+For an F-only constrained preoptimization, use the additive specialist chain:
+
+```bash
+python3 scripts/gaussian_rtwin_pbs.py \
+  finalize-fixed-constraint-input-review review-v3-draft.json \
+  --output review-v3.json
+python3 scripts/gaussian_rtwin_pbs.py \
+  build-fixed-constraint-audit constrained.gjf \
+  --input-review review-v3.json \
+  --audit-id reviewed_fixed_constraints_v1 \
+  --output fixed-constraint-audit.json
+python3 scripts/gaussian_rtwin_pbs.py build-input-approval constrained.gjf \
+  --protocol-options options.json \
+  --protocol-selection selection.json \
+  --input-review review-v3.json \
+  --fixed-constraint-audit fixed-constraint-audit.json \
+  --receipt-id reviewed_fixed_constraint_input_v4 \
+  --output input-approval-v4.json
+python3 scripts/gaussian_rtwin_pbs.py \
+  validate-input-approval input-approval-v4.json
+```
+
 For a main-group open-shell minimum, add all three owner artifacts:
 
 ```bash
@@ -134,8 +182,8 @@ no-clobber publication. An existing or concurrently created destination fails;
 immutable review/receipt files are never replaced in place.
 
 For `submit`, transport first captures one unique durable non-symlink snapshot
-of the source input. Input approval, scientific authorization and live `/3` or
-`/4`
+of the source input. Input approval, scientific authorization and the matching
+live approval
 are replayed against that snapshot; staging copies only those captured bytes.
 The staged input facts and every upload-file hash are rechecked before the
 first network action and again before transfer. Approval receipt file hashes
