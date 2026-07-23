@@ -13,6 +13,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -31,6 +32,30 @@ from tests import test_transport_authority_closure as closure_tests  # noqa: E40
 
 def digest(label: str) -> str:
     return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
+def parse_utc(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(
+        timezone.utc
+    )
+
+
+class PrivateTestClock:
+    def __init__(self, *values: str) -> None:
+        self._values = [parse_utc(value) for value in values]
+        self._index = 0
+        self._lock = threading.Lock()
+
+    def __call__(self) -> datetime:
+        with self._lock:
+            value = self._values[min(self._index, len(self._values) - 1)]
+            self._index += 1
+            return value
+
+    @property
+    def calls(self) -> int:
+        with self._lock:
+            return self._index
 
 
 class RecordingAdapter:
@@ -102,17 +127,27 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
         return integration.LegacyAttemptBinding(
             attempt_id=f"qsub-attempt-{digest(f'attempt-{label}')}",
             idempotency_key_sha256=digest(f"idempotency-{label}"),
-            consumed_at=self.helper.now,
+        )
+
+    def integrator(
+        self,
+        clock: PrivateTestClock | None = None,
+    ) -> integration.LegacyAdapterIntegrator:
+        selected = clock if clock is not None else PrivateTestClock(self.helper.now)
+        return integration.LegacyAdapterIntegrator._for_testing_with_clock(
+            self.state_root,
+            selected,
+            _test_token=integration._TEST_INTEGRATION_FACTORY_TOKEN,
         )
 
     def test_complete_owner_replay_precedes_reservation_and_one_adapter_call(self) -> None:
         events: list[str] = []
         adapter = RecordingAdapter(events=events)
-        integrator = integration.LegacyAdapterIntegrator.for_testing(
-            self.state_root,
-        )
+        integrator = self.integrator()
         original_replay = integration.replay_successor_readiness
-        original_consume = integrator._state_owner.consume_after_replay
+        original_consume = (
+            integrator._state_owner.consume_after_replay_at_trusted_now
+        )
 
         def replay_spy(*args: object, **kwargs: object) -> object:
             events.append("owner_replay")
@@ -129,7 +164,7 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
             side_effect=replay_spy,
         ), mock.patch.object(
             integrator._state_owner,
-            "consume_after_replay",
+            "consume_after_replay_at_trusted_now",
             side_effect=consume_spy,
         ), mock.patch.object(
             legacy.LegacyTransportAdapter,
@@ -139,7 +174,6 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
             result = integrator.invoke_once(
                 artifacts=self.artifacts(),
                 attempt=self.attempt(),
-                now=self.helper.now,
             )
 
         self.assertEqual(events, ["owner_replay", "owner_replay", "reserved", "adapter"])
@@ -153,9 +187,7 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
 
     def test_incomplete_or_mismatched_chain_stops_before_reservation_and_adapter(self) -> None:
         adapter = RecordingAdapter()
-        integrator = integration.LegacyAdapterIntegrator.for_testing(
-            self.state_root,
-        )
+        integrator = self.integrator()
         changed_receipt = copy.deepcopy(self.helper.handshake_receipt)
         changed_receipt["first_hop_receipt_sha256"] = digest("unrelated-placeholder")
         cases = (
@@ -172,7 +204,6 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
                     integrator.invoke_once(
                         artifacts=artifacts,
                         attempt=self.attempt(),
-                        now=self.helper.now,
                     )
                 self.assertEqual(adapter.calls, 0)
                 self.assertFalse(self.state_root.exists())
@@ -183,14 +214,11 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
 
         def invoke(_: int) -> str:
             barrier.wait()
-            candidate = integration.LegacyAdapterIntegrator.for_testing(
-                self.state_root,
-            )
+            candidate = self.integrator()
             try:
                 candidate.invoke_once(
                     artifacts=self.artifacts(),
                     attempt=self.attempt("race"),
-                    now=self.helper.now,
                 )
             except AuthorizationStateError:
                 return "blocked"
@@ -208,9 +236,7 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
 
     def test_adapter_exception_is_not_retried_and_uncertain_state_is_retained(self) -> None:
         adapter = RecordingAdapter(error=RuntimeError("placeholder adapter failure"))
-        integrator = integration.LegacyAdapterIntegrator.for_testing(
-            self.state_root,
-        )
+        integrator = self.integrator()
         with mock.patch.object(
             legacy.LegacyTransportAdapter,
             "invoke_reserved_once",
@@ -219,7 +245,6 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
             integrator.invoke_once(
                 artifacts=self.artifacts(),
                 attempt=self.attempt("error"),
-                now=self.helper.now,
             )
         self.assertEqual(adapter.calls, 1)
         caught.exception.reservation.assert_owner_sealed()
@@ -240,24 +265,35 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
             integrator.invoke_once(
                 artifacts=self.artifacts(),
                 attempt=self.attempt("error"),
-                now=self.helper.now,
             )
         self.assertEqual(adapter.calls, 1)
 
     def test_fixed_facade_has_no_backend_selector_and_routes_to_legacy_adapter(self) -> None:
-        signature = str(__import__("inspect").signature(facade.integrate_successor_once))
-        self.assertNotIn("backend", signature)
+        inspect = __import__("inspect")
+        signature = inspect.signature(facade.integrate_successor_once)
+        self.assertEqual(tuple(signature.parameters), ("artifacts", "attempt"))
+        self.assertEqual(
+            tuple(
+                inspect.signature(
+                    integration.LegacyAdapterIntegrator.invoke_once
+                ).parameters
+            ),
+            ("self", "artifacts", "attempt"),
+        )
+        self.assertNotIn("consumed_at", integration.LegacyAttemptBinding.__dataclass_fields__)
+        self.assertEqual(
+            tuple(inspect.signature(integration.LegacyAdapterIntegrator.production).parameters),
+            (),
+        )
         adapter_result = {
             "classification": "placeholder_adapter_result",
             "actual_operation_performed": False,
         }
-        test_owner = integration.TrustedAuthorizationStateOwner.for_testing(
-            self.state_root
-        )
+        test_integrator = self.integrator()
         with mock.patch.object(
-            integration,
-            "TrustedAuthorizationStateOwner",
-            return_value=test_owner,
+            integration.LegacyAdapterIntegrator,
+            "production",
+            return_value=test_integrator,
         ), mock.patch.object(
             legacy.LegacyTransportAdapter,
             "invoke_reserved_once",
@@ -266,7 +302,6 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
             result = facade.integrate_successor_once(
                 artifacts=self.artifacts(),
                 attempt=self.attempt("facade"),
-                now=self.helper.now,
             )
         self.assertEqual(result.adapter_result, adapter_result)
         invoked.assert_called_once()
@@ -274,10 +309,78 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
         self.assertNotIn("--backend", source)
         self.assertNotIn("AUTO_G16_BACKEND", source)
 
-    def test_real_adapter_remains_fail_closed_after_one_retained_reservation(self) -> None:
-        integrator = integration.LegacyAdapterIntegrator.for_testing(
-            self.state_root,
+    def test_clock_injection_requires_private_test_factory_token(self) -> None:
+        clock = PrivateTestClock(self.helper.now)
+        with self.assertRaisesRegex(TypeError, "test integration factory token"):
+            integration.LegacyAdapterIntegrator._for_testing_with_clock(
+                self.state_root,
+                clock,
+                _test_token=object(),
+            )
+        with self.assertRaises(TypeError):
+            integration.LegacyAdapterIntegrator.production(clock=clock)  # type: ignore[call-arg]
+        with self.assertRaises(TypeError):
+            facade.integrate_successor_once(
+                artifacts=self.artifacts(),
+                attempt=self.attempt("time-free"),
+                now=self.helper.now,  # type: ignore[call-arg]
+            )
+
+    def test_expiration_at_final_owner_time_stops_before_reservation(self) -> None:
+        clock = PrivateTestClock(self.helper.now, "2030-01-01T12:05:01Z")
+        adapter = RecordingAdapter()
+        integrator = self.integrator(clock)
+        with mock.patch.object(
+            legacy.LegacyTransportAdapter,
+            "invoke_reserved_once",
+            side_effect=adapter.invoke_reserved_once,
+        ), self.assertRaisesRegex(Exception, "expired"):
+            integrator.invoke_once(
+                artifacts=self.artifacts(),
+                attempt=self.attempt("expired-under-lock"),
+            )
+        self.assertEqual(clock.calls, 2)
+        self.assertEqual(adapter.calls, 0)
+        self.assertEqual(
+            integrator._state_owner.snapshot()["consumed_authorization_ids"],
+            (),
         )
+
+    def test_reservation_uses_exact_final_owner_time(self) -> None:
+        final_now = "2030-01-01T12:00:30.123456Z"
+        clock = PrivateTestClock(self.helper.now, final_now)
+        integrator = self.integrator(clock)
+        adapter = RecordingAdapter()
+        replay_times: list[object] = []
+        original_replay = integration.replay_successor_readiness
+
+        def replay_spy(*args: object, **kwargs: object) -> object:
+            replay_times.append(kwargs["now"])
+            return original_replay(*args, **kwargs)
+
+        with mock.patch.object(
+            legacy.LegacyTransportAdapter,
+            "invoke_reserved_once",
+            side_effect=adapter.invoke_reserved_once,
+        ), mock.patch.object(
+            integration,
+            "replay_successor_readiness",
+            side_effect=replay_spy,
+        ):
+            result = integrator.invoke_once(
+                artifacts=self.artifacts(),
+                attempt=self.attempt("trusted-time"),
+            )
+        record_path = next((self.state_root / "consumptions").glob("*.json"))
+        record = __import__("json").loads(record_path.read_text(encoding="utf-8"))
+        self.assertEqual(clock.calls, 2)
+        self.assertEqual(replay_times[1], parse_utc(final_now))
+        self.assertEqual(result.reservation.consumed_at, final_now)
+        self.assertEqual(record["consumed_at"], final_now)
+        self.assertEqual(adapter.calls, 1)
+
+    def test_real_adapter_remains_fail_closed_after_one_retained_reservation(self) -> None:
+        integrator = self.integrator()
         with self.assertRaisesRegex(
             integration.LegacyAdapterInvocationUncertain,
             "reconciliation",
@@ -285,7 +388,6 @@ class LegacyAdapterIntegrationTests(unittest.TestCase):
             integrator.invoke_once(
                 artifacts=self.artifacts(),
                 attempt=self.attempt("real-placeholder"),
-                now=self.helper.now,
             )
         self.assertEqual(
             caught.exception.reservation.submission_state,

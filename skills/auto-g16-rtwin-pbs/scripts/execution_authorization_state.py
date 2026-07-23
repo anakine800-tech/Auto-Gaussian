@@ -14,6 +14,7 @@ import os
 import re
 import stat
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -25,6 +26,7 @@ NONCE_RE = re.compile(r"^[a-f0-9]{32,128}$")
 STATE_SCHEMA = "auto-g16-trusted-execution-consumption/1"
 DEFAULT_STATE_ROOT = Path.home() / ".config" / "auto-g16" / "execution-authority-state"
 _TEST_OWNER_FACTORY_TOKEN = object()
+_TEST_CLOCK_FACTORY_TOKEN = object()
 
 
 class AuthorizationStateError(ValueError):
@@ -45,6 +47,43 @@ def _validate_component(value: str, pattern: re.Pattern[str], label: str) -> str
     return value
 
 
+def _validate_consumption_identity(request: object) -> None:
+    authorization_id = getattr(request, "authorization_id", None)
+    attempt_id = getattr(request, "attempt_id", None)
+    _validate_component(authorization_id, AUTHORIZATION_ID_RE, "authorization_id")
+    _validate_component(attempt_id, ATTEMPT_ID_RE, "attempt_id")
+    for label in (
+        "authorization_sha256",
+        "readiness_sha256",
+        "idempotency_key_sha256",
+    ):
+        _validate_component(getattr(request, label, None), SHA256_RE, label)
+    attestation_nonces = getattr(request, "attestation_nonces", None)
+    if (
+        not isinstance(attestation_nonces, tuple)
+        or not attestation_nonces
+        or len(set(attestation_nonces)) != len(attestation_nonces)
+    ):
+        raise AuthorizationStateError("attestation nonces must be non-empty and unique")
+    for nonce in attestation_nonces:
+        _validate_component(nonce, NONCE_RE, "attestation nonce")
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumptionIntent:
+    """Untimed reservation identity for the trusted-current-time owner path."""
+
+    authorization_id: str
+    authorization_sha256: str
+    readiness_sha256: str
+    attempt_id: str
+    idempotency_key_sha256: str
+    attestation_nonces: tuple[str, ...]
+
+    def validate(self) -> None:
+        _validate_consumption_identity(self)
+
+
 @dataclass(frozen=True, slots=True)
 class ConsumptionRequest:
     authorization_id: str
@@ -56,18 +95,7 @@ class ConsumptionRequest:
     consumed_at: str
 
     def validate(self) -> None:
-        _validate_component(self.authorization_id, AUTHORIZATION_ID_RE, "authorization_id")
-        _validate_component(self.attempt_id, ATTEMPT_ID_RE, "attempt_id")
-        for label, value in (
-            ("authorization_sha256", self.authorization_sha256),
-            ("readiness_sha256", self.readiness_sha256),
-            ("idempotency_key_sha256", self.idempotency_key_sha256),
-        ):
-            _validate_component(value, SHA256_RE, label)
-        if not self.attestation_nonces or len(set(self.attestation_nonces)) != len(self.attestation_nonces):
-            raise AuthorizationStateError("attestation nonces must be non-empty and unique")
-        for nonce in self.attestation_nonces:
-            _validate_component(nonce, NONCE_RE, "attestation nonce")
+        _validate_consumption_identity(self)
         if not isinstance(self.consumed_at, str) or not self.consumed_at.endswith("Z"):
             raise AuthorizationStateError("consumed_at must be explicit UTC")
 
@@ -81,17 +109,70 @@ class ConsumedAuthorization:
     submission_state: str = "submission_uncertain"
 
 
+@dataclass(frozen=True, slots=True)
+class TrustedTimeConsumedAuthorization:
+    authorization_id: str
+    attempt_id: str
+    consumption_sha256: str
+    consumed_at: str
+    consumed: bool = True
+    submission_state: str = "submission_uncertain"
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _canonical_clock_value(clock: Callable[[], datetime]) -> tuple[datetime, str]:
+    value = clock()
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() is None
+    ):
+        raise AuthorizationStateError("trusted clock must return timezone-aware UTC")
+    canonical = value.astimezone(timezone.utc)
+    return canonical, canonical.isoformat().replace("+00:00", "Z")
+
+
 class TrustedAuthorizationStateOwner:
     """Locked, no-clobber owner of the one-time authorization namespace."""
 
-    def __init__(self, root: Path | None = None, *, _factory_token: object | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        _factory_token: object | None = None,
+        _clock: Callable[[], datetime] | None = None,
+        _clock_token: object | None = None,
+    ) -> None:
         if root is not None and _factory_token is not _TEST_OWNER_FACTORY_TOKEN:
             raise AuthorizationStateError("production state root is fixed and has no caller override")
+        if _clock is not None and _clock_token is not _TEST_CLOCK_FACTORY_TOKEN:
+            raise AuthorizationStateError("production owner clock is fixed")
         self._root = (root if root is not None else DEFAULT_STATE_ROOT).absolute()
+        self._clock = _clock if _clock is not None else _utc_now
 
     @classmethod
     def for_testing(cls, root: Path) -> "TrustedAuthorizationStateOwner":
         return cls(root, _factory_token=_TEST_OWNER_FACTORY_TOKEN)
+
+    @classmethod
+    def _for_testing_with_clock(
+        cls,
+        root: Path,
+        clock: Callable[[], datetime],
+        *,
+        _test_token: object,
+    ) -> "TrustedAuthorizationStateOwner":
+        if _test_token is not _TEST_CLOCK_FACTORY_TOKEN:
+            raise AuthorizationStateError("private test clock factory token differs")
+        return cls(
+            root,
+            _factory_token=_TEST_OWNER_FACTORY_TOKEN,
+            _clock=clock,
+            _clock_token=_TEST_CLOCK_FACTORY_TOKEN,
+        )
 
     def _ensure_private_directory(self, path: Path) -> None:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -238,4 +319,80 @@ class TrustedAuthorizationStateOwner:
                 request.authorization_id,
                 request.attempt_id,
                 record["consumption_sha256"],
+            )
+
+    def consume_after_replay_at_trusted_now(
+        self,
+        intent: ConsumptionIntent,
+        replay: Callable[[dict[str, tuple[str, ...]], datetime], str],
+    ) -> TrustedTimeConsumedAuthorization:
+        """Obtain trusted UTC under lock, replay, then reserve with that same UTC."""
+
+        intent.validate()
+        with self._locked() as records:
+            loaded = self._load_records(records)
+            snapshot = {
+                "known_authorization_ids": tuple(sorted(item["authorization_id"] for item in loaded)),
+                "consumed_authorization_ids": tuple(sorted(item["authorization_id"] for item in loaded)),
+                "known_attestation_nonces": tuple(sorted({nonce for item in loaded for nonce in item["attestation_nonces"]})),
+            }
+            if intent.authorization_id in snapshot["known_authorization_ids"]:
+                raise AuthorizationStateError("authorization is already consumed")
+            if intent.attempt_id in {item["attempt_id"] for item in loaded}:
+                raise AuthorizationStateError("attempt already has an authorization reservation")
+            if set(intent.attestation_nonces).intersection(snapshot["known_attestation_nonces"]):
+                raise AuthorizationStateError("attestation nonce is already reserved")
+            trusted_now, consumed_at = _canonical_clock_value(self._clock)
+            replay_sha256 = replay(snapshot, trusted_now)
+            if replay_sha256 != intent.readiness_sha256:
+                raise AuthorizationStateError("current owner replay differs from the requested readiness")
+            request = ConsumptionRequest(
+                authorization_id=intent.authorization_id,
+                authorization_sha256=intent.authorization_sha256,
+                readiness_sha256=intent.readiness_sha256,
+                attempt_id=intent.attempt_id,
+                idempotency_key_sha256=intent.idempotency_key_sha256,
+                attestation_nonces=intent.attestation_nonces,
+                consumed_at=consumed_at,
+            )
+            projection = {
+                "schema": STATE_SCHEMA,
+                "authorization_id": request.authorization_id,
+                "authorization_sha256": request.authorization_sha256,
+                "readiness_sha256": request.readiness_sha256,
+                "attempt_id": request.attempt_id,
+                "idempotency_key_sha256": request.idempotency_key_sha256,
+                "attestation_nonces": list(request.attestation_nonces),
+                "consumed_at": request.consumed_at,
+                "submission_state": "submission_uncertain",
+                "automatic_retry": False,
+            }
+            record = {**projection, "consumption_sha256": _digest(projection)}
+            final_path = records / f"{request.authorization_id}.json"
+            pending_path = records / f".pending-{request.authorization_id}-{os.getpid()}"
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(pending_path, flags, 0o400)
+            try:
+                raw = _canonical_bytes(record)
+                offset = 0
+                while offset < len(raw):
+                    offset += os.write(descriptor, raw[offset:])
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            try:
+                os.link(pending_path, final_path, follow_symlinks=False)
+            except FileExistsError as exc:
+                raise AuthorizationStateError("authorization publication already exists") from exc
+            os.unlink(pending_path)
+            directory_descriptor = os.open(records, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+            return TrustedTimeConsumedAuthorization(
+                request.authorization_id,
+                request.attempt_id,
+                record["consumption_sha256"],
+                request.consumed_at,
             )

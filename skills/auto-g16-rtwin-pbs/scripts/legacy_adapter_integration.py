@@ -13,19 +13,21 @@ import hashlib
 import json
 import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from execution_authorization_state import (
-    ConsumptionRequest,
-    ConsumedAuthorization,
+    ConsumptionIntent,
+    TrustedTimeConsumedAuthorization,
     TrustedAuthorizationStateOwner,
+    _TEST_CLOCK_FACTORY_TOKEN,
 )
 from execution_models import _load_repository_owner
 
 
 _INTEGRATION_FACTORY_TOKEN = object()
+_TEST_INTEGRATION_FACTORY_TOKEN = object()
 _RESERVED_ATTEMPT_TOKEN = object()
 _OWNER_LOCK = threading.RLock()
 _OWNER_MODULE: Any | None = None
@@ -78,7 +80,6 @@ class LegacyAttemptBinding:
 
     attempt_id: str
     idempotency_key_sha256: str
-    consumed_at: str
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -91,6 +92,7 @@ class ReservedLegacyAttempt:
     readiness_sha256: str
     handshake_receipt_sha256: str
     consumption_sha256: str
+    consumed_at: str
     attestation_nonces: tuple[str, ...]
     submission_state: str
     automatic_retry: bool
@@ -104,8 +106,8 @@ class ReservedLegacyAttempt:
     def _from_consumption(
         cls,
         *,
-        consumption: ConsumedAuthorization,
-        request: ConsumptionRequest,
+        consumption: TrustedTimeConsumedAuthorization,
+        request: ConsumptionIntent,
         handshake_receipt_sha256: str,
         token: object,
     ) -> "ReservedLegacyAttempt":
@@ -126,6 +128,7 @@ class ReservedLegacyAttempt:
             "readiness_sha256": request.readiness_sha256,
             "handshake_receipt_sha256": handshake_receipt_sha256,
             "consumption_sha256": consumption.consumption_sha256,
+            "consumed_at": consumption.consumed_at,
             "attestation_nonces": request.attestation_nonces,
             "submission_state": "submission_uncertain",
             "automatic_retry": False,
@@ -176,6 +179,10 @@ def _fixed_adapter() -> object:
     import execution_facade
 
     return execution_facade.backend().transport
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def replay_successor_readiness(
@@ -240,27 +247,42 @@ class LegacyAdapterIntegrator:
         self,
         state_owner: TrustedAuthorizationStateOwner,
         *,
+        prelock_clock: Callable[[], datetime],
         _factory_token: object,
     ) -> None:
         if _factory_token is not _INTEGRATION_FACTORY_TOKEN:
             raise TypeError("LegacyAdapterIntegrator must use a fixed production or test factory")
         self._adapter = _fixed_adapter()
         self._state_owner = state_owner
+        self._prelock_clock = prelock_clock
 
     @classmethod
     def production(cls) -> "LegacyAdapterIntegrator":
         return cls(
             TrustedAuthorizationStateOwner(),
+            prelock_clock=_utc_now,
             _factory_token=_INTEGRATION_FACTORY_TOKEN,
         )
 
     @classmethod
-    def for_testing(
+    def _for_testing_with_clock(
         cls,
         state_root: Path,
+        clock: Callable[[], datetime],
+        *,
+        _test_token: object,
     ) -> "LegacyAdapterIntegrator":
+        if _test_token is not _TEST_INTEGRATION_FACTORY_TOKEN:
+            raise TypeError("private test integration factory token differs")
+        if not callable(clock):
+            raise TypeError("private test clock must be callable")
         return cls(
-            TrustedAuthorizationStateOwner.for_testing(state_root),
+            TrustedAuthorizationStateOwner._for_testing_with_clock(
+                state_root,
+                clock,
+                _test_token=_TEST_CLOCK_FACTORY_TOKEN,
+            ),
+            prelock_clock=clock,
             _factory_token=_INTEGRATION_FACTORY_TOKEN,
         )
 
@@ -269,27 +291,29 @@ class LegacyAdapterIntegrator:
         *,
         artifacts: SuccessorAuthorityArtifacts,
         attempt: LegacyAttemptBinding,
-        now: str | datetime,
     ) -> LegacyAdapterDispatch:
+        prelock_now = self._prelock_clock()
         (
             authorization_id,
             authorization_sha256,
             nonces,
             handshake_receipt_sha256,
             readiness_sha256,
-        ) = replay_successor_readiness(artifacts, now=now)
-        request = ConsumptionRequest(
+        ) = replay_successor_readiness(artifacts, now=prelock_now)
+        request = ConsumptionIntent(
             authorization_id=authorization_id,
             authorization_sha256=authorization_sha256,
             readiness_sha256=readiness_sha256,
             attempt_id=attempt.attempt_id,
             idempotency_key_sha256=attempt.idempotency_key_sha256,
             attestation_nonces=nonces,
-            consumed_at=attempt.consumed_at,
         )
 
-        def replay_under_lock(_snapshot: dict[str, tuple[str, ...]]) -> str:
-            replayed = replay_successor_readiness(artifacts, now=now)
+        def replay_under_lock(
+            _snapshot: dict[str, tuple[str, ...]],
+            trusted_now: datetime,
+        ) -> str:
+            replayed = replay_successor_readiness(artifacts, now=trusted_now)
             if replayed[:4] != (
                 authorization_id,
                 authorization_sha256,
@@ -301,7 +325,10 @@ class LegacyAdapterIntegrator:
                 )
             return replayed[4]
 
-        consumption = self._state_owner.consume_after_replay(request, replay_under_lock)
+        consumption = self._state_owner.consume_after_replay_at_trusted_now(
+            request,
+            replay_under_lock,
+        )
         reserved = ReservedLegacyAttempt._from_consumption(
             consumption=consumption,
             request=request,

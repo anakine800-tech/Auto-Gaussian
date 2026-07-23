@@ -51,12 +51,12 @@ def backend() -> ExecutionBackend:
     return _implementation().LegacyRTWinPBSBackend()
 
 
-def integrate_successor_once(*, artifacts: object, attempt: object, now: object) -> object:
+def integrate_successor_once(*, artifacts: object, attempt: object) -> object:
     """Route one sealed successor attempt through the only configured backend."""
 
     integration = importlib.import_module("legacy_adapter_integration")
     integrator = integration.LegacyAdapterIntegrator.production()
-    return integrator.invoke_once(artifacts=artifacts, attempt=attempt, now=now)
+    return integrator.invoke_once(artifacts=artifacts, attempt=attempt)
 
 
 def bind_current() -> types.ModuleType:
