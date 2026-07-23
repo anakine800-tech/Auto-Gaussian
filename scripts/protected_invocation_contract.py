@@ -16,10 +16,11 @@ import importlib.util
 import json
 import os
 import re
+import stat
 import sys
 import threading
 import types
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
@@ -504,6 +505,7 @@ def validate_protected_invocation_bundle(value: Any) -> dict[str, Any]:
         or roles.count("pbs_script") != 1
         or roles.count("checksums_manifest") != 1
         or len(set(roles)) != len(roles)
+        or artifacts[-1]["relative_name"] != "checksums.sha256"
         or [
             expected_role_order[role]
             for role in roles
@@ -605,11 +607,62 @@ class _StageArtifact:
     role: str
     relative_name: str
     order: int
-    data: bytes
+    data: bytes | None
     sha256: str
     size_bytes: int
     source_path: Path | None
     source_identity: tuple[tuple[str, int | str], ...] | None
+    private_snapshot: "_PrivateStageSnapshot | None" = field(
+        compare=False,
+        repr=False,
+    )
+
+
+class _PrivateStageSnapshot:
+    """Process-private, unlinked snapshot for a large stage source."""
+
+    def __init__(
+        self,
+        file_object: object,
+        *,
+        sha256: str,
+        size_bytes: int,
+    ) -> None:
+        self._file = file_object
+        self._sha256 = sha256
+        self._size_bytes = size_bytes
+        self._lock = threading.RLock()
+        self.assert_integrity()
+
+    def assert_integrity(self) -> None:
+        with self._lock:
+            seek = getattr(self._file, "seek", None)
+            read = getattr(self._file, "read", None)
+            if not callable(seek) or not callable(read):
+                raise ProtectedInvocationError(
+                    "private stage snapshot is unavailable"
+                )
+            try:
+                seek(0)
+                hasher = hashlib.sha256()
+                size = 0
+                while True:
+                    chunk = read(1024 * 1024)
+                    if not chunk:
+                        break
+                    if not isinstance(chunk, bytes):
+                        raise TypeError("private snapshot yielded non-bytes")
+                    hasher.update(chunk)
+                    size += len(chunk)
+                seek(0)
+            except Exception as exc:
+                raise ProtectedInvocationError(
+                    f"private stage snapshot replay failed: {exc}"
+                ) from exc
+            if size != self._size_bytes or hasher.hexdigest() != self._sha256:
+                raise ProtectedInvocationError(
+                    "private stage snapshot identity differs"
+                )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -668,28 +721,66 @@ class SealedLegacyStagePlan:
             strict=True,
         ):
             data = raw.get("bytes")
-            if not isinstance(data, bytes):
-                raise ProtectedInvocationError("stage artifact bytes differ")
             source_path = raw.get("source_path")
             source_identity = raw.get("source_identity")
             if source_path is not None and not isinstance(source_path, Path):
                 raise ProtectedInvocationError("stage source path differs")
+            if source_path is None and not isinstance(data, bytes):
+                raise ProtectedInvocationError("generated stage bytes differ")
+            if source_path is not None and data is not None and not isinstance(
+                data,
+                bytes,
+            ):
+                raise ProtectedInvocationError("stage source bytes differ")
             frozen_identity = (
                 tuple(sorted(source_identity.items()))
                 if isinstance(source_identity, dict)
                 else None
             )
+            expected_sha256 = (
+                source_identity.get("sha256")
+                if isinstance(source_identity, dict)
+                else hashlib.sha256(data).hexdigest()
+            )
+            expected_size = (
+                source_identity.get("size")
+                if isinstance(source_identity, dict)
+                else len(data)
+            )
             expected = {
                 "role": raw.get("role"),
                 "relative_name": raw.get("basename"),
                 "order": metadata.get("order"),
-                "sha256": hashlib.sha256(data).hexdigest(),
-                "size_bytes": len(data),
+                "sha256": expected_sha256,
+                "size_bytes": expected_size,
             }
             if metadata != expected:
                 raise ProtectedInvocationError(
                     "legacy stage bytes and manifest differ"
                 )
+            private_snapshot = None
+            raw_snapshot = raw.get("private_snapshot")
+            if source_path is not None:
+                if raw_snapshot is None:
+                    raise ProtectedInvocationError(
+                        "private stage snapshot is unavailable"
+                    )
+                if data is None:
+                    private_snapshot = _PrivateStageSnapshot(
+                        raw_snapshot,
+                        sha256=expected["sha256"],
+                        size_bytes=expected["size_bytes"],
+                    )
+                else:
+                    if (
+                        hashlib.sha256(data).hexdigest()
+                        != expected["sha256"]
+                        or len(data) != expected["size_bytes"]
+                    ):
+                        raise ProtectedInvocationError(
+                            "stage source bytes differ"
+                        )
+                    raw_snapshot.close()
             artifacts.append(
                 _StageArtifact(
                     role=expected["role"],
@@ -700,6 +791,7 @@ class SealedLegacyStagePlan:
                     size_bytes=expected["size_bytes"],
                     source_path=source_path,
                     source_identity=frozen_identity,
+                    private_snapshot=private_snapshot,
                 )
             )
         value = object.__new__(cls)
@@ -737,11 +829,19 @@ class SealedLegacyStagePlan:
         if _compact_digest(manifest) != self.manifest_sha256:
             raise ProtectedInvocationError("sealed stage manifest differs")
         for artifact in self.artifacts:
-            if (
-                hashlib.sha256(artifact.data).hexdigest() != artifact.sha256
-                or len(artifact.data) != artifact.size_bytes
-            ):
-                raise ProtectedInvocationError("sealed stage bytes differ")
+            if artifact.data is not None:
+                if (
+                    hashlib.sha256(artifact.data).hexdigest()
+                    != artifact.sha256
+                    or len(artifact.data) != artifact.size_bytes
+                ):
+                    raise ProtectedInvocationError("sealed stage bytes differ")
+            elif artifact.private_snapshot is not None:
+                artifact.private_snapshot.assert_integrity()
+            else:
+                raise ProtectedInvocationError(
+                    "sealed stage source snapshot differs"
+                )
 
     def assert_current(self) -> "SealedLegacyStagePlan":
         self.assert_owner_sealed()
@@ -756,9 +856,13 @@ class SealedProtectedInvocationBundle:
     _canonical_document: bytes
     protected_submit_bundle: object
     local_state_binding: object
+    protected_submit_evidence: object
+    local_state_evidence: object
+    predecessor_file_identities: tuple[tuple[str, tuple[int, ...]], ...]
     stage_plan: SealedLegacyStagePlan
     invocation_id: str
     invocation_payload_sha256: str
+    _testing: bool
     _seal: object
 
     def __new__(
@@ -776,8 +880,15 @@ class SealedProtectedInvocationBundle:
         document: dict[str, Any],
         protected_submit_bundle: object,
         local_state_binding: object,
+        protected_submit_evidence: object,
+        local_state_evidence: object,
+        predecessor_file_identities: tuple[
+            tuple[str, tuple[int, ...]],
+            ...,
+        ],
         stage_plan: SealedLegacyStagePlan,
         *,
+        testing: bool,
         token: object,
     ) -> "SealedProtectedInvocationBundle":
         if token is not _SEAL_TOKEN:
@@ -791,11 +902,15 @@ class SealedProtectedInvocationBundle:
             "_canonical_document": canonical_bytes(validated),
             "protected_submit_bundle": protected_submit_bundle,
             "local_state_binding": local_state_binding,
+            "protected_submit_evidence": protected_submit_evidence,
+            "local_state_evidence": local_state_evidence,
+            "predecessor_file_identities": predecessor_file_identities,
             "stage_plan": stage_plan,
             "invocation_id": validated["invocation_id"],
             "invocation_payload_sha256": validated[
                 "invocation_payload_sha256"
             ],
+            "_testing": testing,
             "_seal": _SEAL_TOKEN,
         }.items():
             object.__setattr__(value, name, item)
@@ -821,7 +936,7 @@ class SealedProtectedInvocationBundle:
             )
 
     def assert_current(self) -> "SealedProtectedInvocationBundle":
-        """Read-only replay of active authority and retained local identities."""
+        """Replay exact predecessor owners before local ledger/stage checks."""
 
         self.assert_owner_sealed()
         current = _utc_now()
@@ -834,18 +949,90 @@ class SealedProtectedInvocationBundle:
                 "protected invocation replay clock must return aware UTC"
             )
         current = current.astimezone(timezone.utc)
-        authority = self.protected_submit_bundle.document()["authority"]
-        not_before = _utc_time(
-            authority["not_before"],
-            "protected invocation authority not_before",
-        )
-        expires_at = _utc_time(
-            authority["expires_at"],
-            "protected invocation authority expires_at",
-        )
-        if not_before > current or current >= expires_at:
+        with _exact_adjacent("protected_submit_contract") as protected:
+            exact_protected = _typed_evidence(
+                protected,
+                "ProtectedSubmitEvidence",
+                self.protected_submit_evidence,
+            )
+            try:
+                current_protected = (
+                    protected.ProtectedSubmitContractOwner.production()
+                    ._seal_at(exact_protected, current)
+                )
+                current_protected.assert_owner_sealed()
+                current_protected_document = current_protected.document()
+            except Exception as exc:
+                raise ProtectedInvocationError(
+                    "protected invocation predecessor authority/evidence "
+                    f"replay failed closed: {exc}"
+                ) from exc
+
+            with _exact_adjacent("local_state_binding") as local:
+                exact_local = _typed_evidence(
+                    local,
+                    "LocalStateBindingEvidence",
+                    self.local_state_evidence,
+                )
+                exact_local = _local_evidence_with_protected(
+                    local,
+                    exact_local,
+                    exact_protected,
+                )
+                try:
+                    if self._testing:
+                        local_owner = (
+                            local.LocalStateBindingOwner
+                            ._for_testing_with_clock(
+                                lambda: current,
+                                _test_token=local._TEST_OWNER_TOKEN,
+                            )
+                        )
+                    else:
+                        local_owner = (
+                            local.LocalStateBindingOwner.production()
+                        )
+                    current_local = local_owner.seal(exact_local)
+                    current_local.assert_owner_sealed()
+                    current_local_document = current_local.document()
+                except Exception as exc:
+                    raise ProtectedInvocationError(
+                        "protected invocation local predecessor evidence "
+                        f"replay failed closed: {exc}"
+                    ) from exc
+
+        sealed_protected_document = self.protected_submit_bundle.document()
+        sealed_local_document = self.local_state_binding.document()
+        protected_identity = current_protected_document["identity"]
+        local_identity = current_local_document["identity"]
+        if (
+            current_protected_document != sealed_protected_document
+            or current_local_document != sealed_local_document
+            or protected_identity
+            != sealed_protected_document["identity"]
+            or local_identity != sealed_local_document["identity"]
+            or local_identity
+            != {
+                "project": protected_identity["project"],
+                "attempt_id": protected_identity["attempt_id"],
+                "scientific_task_id": protected_identity[
+                    "scientific_task_id"
+                ],
+                "input_sha256": protected_identity["input_sha256"],
+                "idempotency_key_sha256": protected_identity[
+                    "idempotency_key_sha256"
+                ],
+            }
+        ):
             raise ProtectedInvocationError(
-                "protected invocation predecessor authority is not current"
+                "protected invocation predecessor complete identity differs"
+            )
+        if (
+            _predecessor_file_identities(exact_protected)
+            != self.predecessor_file_identities
+        ):
+            raise ProtectedInvocationError(
+                "protected invocation predecessor file identity differs"
             )
         self.local_state_binding.assert_current()
         self.stage_plan.assert_current()
@@ -928,6 +1115,83 @@ def _typed_evidence(
     )
 
 
+def _local_evidence_with_protected(
+    module: types.ModuleType,
+    local_evidence: object,
+    protected_evidence: object,
+) -> object:
+    expected_type = module.LocalStateBindingEvidence
+    if not isinstance(local_evidence, expected_type):
+        raise TypeError("local-state evidence type differs")
+    fields = tuple(expected_type.__dataclass_fields__)
+    values = {
+        field_name: getattr(local_evidence, field_name)
+        for field_name in fields
+    }
+    values["protected_submit_evidence"] = protected_evidence
+    return expected_type(**values)
+
+
+def _predecessor_file_identities(
+    protected_evidence: object,
+) -> tuple[tuple[str, tuple[int, ...]], ...]:
+    identities = []
+    for field_name in (
+        "input_path",
+        "input_approval_path",
+        "live_approval_path",
+    ):
+        path = getattr(protected_evidence, field_name, None)
+        if not isinstance(path, Path) or path.is_symlink():
+            raise ProtectedInvocationError(
+                f"predecessor {field_name} is unavailable or symlinked"
+            )
+        try:
+            resolved = path.resolve(strict=True)
+            descriptor = os.open(
+                resolved,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            )
+        except OSError as exc:
+            raise ProtectedInvocationError(
+                f"predecessor {field_name} identity is unavailable: {exc}"
+            ) from exc
+        try:
+            current = os.fstat(descriptor)
+            after = os.stat(resolved, follow_symlinks=False)
+        finally:
+            os.close(descriptor)
+        fields = (
+            "st_dev",
+            "st_ino",
+            "st_uid",
+            "st_mode",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        current_identity = tuple(
+            getattr(current, stat_field) for stat_field in fields
+        )
+        if current_identity != tuple(
+            getattr(after, stat_field) for stat_field in fields
+        ):
+            raise ProtectedInvocationError(
+                f"predecessor {field_name} changed during identity capture"
+            )
+        if not stat.S_ISREG(current.st_mode):
+            raise ProtectedInvocationError(
+                f"predecessor {field_name} must be a regular file"
+            )
+        identities.append(
+            (
+                field_name,
+                current_identity,
+            )
+        )
+    return tuple(identities)
+
+
 def _ledger_identity_sha256(binding: object) -> str:
     identity = binding.paths.ledger_identity
     fields = {
@@ -985,6 +1249,10 @@ def _stage_plan(
         token=_SEAL_TOKEN,
     )
     input_artifact = sealed.artifacts[0]
+    if input_artifact.data is None:
+        raise ProtectedInvocationError(
+            "Gaussian input bytes exceed the bounded owner projection"
+        )
     scheduler_binding = {
         "schema": "auto-g16-fixed-scheduler-submission-binding/1",
         "project": protected_document["identity"]["project"],
@@ -1042,7 +1310,31 @@ def _assert_stage_plan_current(plan: SealedLegacyStagePlan) -> None:
         resource_binding=dict(plan.resource_binding),
         token=_SEAL_TOKEN,
     )
-    if replay_seal.artifacts != plan.artifacts:
+    expected_projection = [
+        (
+            artifact.role,
+            artifact.relative_name,
+            artifact.order,
+            artifact.sha256,
+            artifact.size_bytes,
+            artifact.source_path,
+            artifact.source_identity,
+        )
+        for artifact in plan.artifacts
+    ]
+    replay_projection = [
+        (
+            artifact.role,
+            artifact.relative_name,
+            artifact.order,
+            artifact.sha256,
+            artifact.size_bytes,
+            artifact.source_path,
+            artifact.source_identity,
+        )
+        for artifact in replay_seal.artifacts
+    ]
+    if replay_projection != expected_projection:
         raise ProtectedInvocationError(
             "legacy stage source identity or bytes changed"
         )
@@ -1141,6 +1433,11 @@ class ProtectedInvocationContractOwner:
                     "LocalStateBindingEvidence",
                     snapshot.local_state_evidence,
                 )
+                exact_local = _local_evidence_with_protected(
+                    local,
+                    exact_local,
+                    exact_protected,
+                )
                 try:
                     if self._testing:
                         local_owner = (
@@ -1206,6 +1503,9 @@ class ProtectedInvocationContractOwner:
                 protected_document,
             )
 
+        predecessor_file_identities = _predecessor_file_identities(
+            exact_protected
+        )
         ledger_identity_sha256 = _ledger_identity_sha256(local_binding)
         resources = copy.deepcopy(protected_document["resources"])
         resources["resource_binding_sha256"] = digest(resources)
@@ -1350,7 +1650,11 @@ class ProtectedInvocationContractOwner:
             document,
             protected_bundle,
             local_binding,
+            exact_protected,
+            exact_local,
+            predecessor_file_identities,
             stage_plan,
+            testing=self._testing,
             token=_SEAL_TOKEN,
         )
 

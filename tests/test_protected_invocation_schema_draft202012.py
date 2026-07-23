@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -93,6 +94,61 @@ class ProtectedInvocationDraft202012Tests(unittest.TestCase):
         self.fixture.close()
         self.temporary.cleanup()
 
+    def with_topology(self, roles: tuple[str, ...]) -> dict:
+        names = {
+            "gaussian_input": "minimum.gjf",
+            "companion_json": "minimum.json",
+            "companion_xyz": "minimum.xyz",
+            "old_checkpoint": "old.chk",
+            "pbs_script": "safejob.pbs",
+            "checksums_manifest": "checksums.sha256",
+        }
+        artifacts = []
+        for order, role in enumerate(roles, start=1):
+            artifact_hash = (
+                self.document["identity"]["input_sha256"]
+                if role == "gaussian_input"
+                else hashlib.sha256(role.encode("utf-8")).hexdigest()
+            )
+            artifacts.append(
+                {
+                    "role": role,
+                    "relative_name": names[role],
+                    "order": order,
+                    "sha256": artifact_hash,
+                    "size_bytes": order,
+                }
+            )
+        draft = copy.deepcopy(self.document)
+        stage = draft["stage_plan"]
+        stage["artifact_count"] = len(artifacts)
+        stage["artifacts"] = artifacts
+        stage["manifest_sha256"] = (
+            SUPPORT.INVOCATION._compact_digest(
+                {
+                    "schema": stage["manifest_schema"],
+                    "artifacts": artifacts,
+                }
+            )
+        )
+        seed = SUPPORT.INVOCATION.digest(
+            {
+                "schema": "auto-g16-protected-invocation-id/1",
+                "protected_submit_bundle_payload_sha256": draft[
+                    "predecessors"
+                ]["protected_submit"]["bundle_payload_sha256"],
+                "local_state_binding_payload_sha256": draft[
+                    "predecessors"
+                ]["local_state_binding"]["binding_payload_sha256"],
+                "stage_manifest_sha256": stage["manifest_sha256"],
+                "ledger_identity_sha256": draft["ledger"][
+                    "ledger_identity_sha256"
+                ],
+            }
+        )
+        draft["invocation_id"] = f"protected-invocation-{seed}"
+        return SUPPORT.INVOCATION.finalize(draft)
+
     def test_exact_dependencies_and_real_schema_validate(self) -> None:
         declared = {}
         lock = (
@@ -173,6 +229,120 @@ class ProtectedInvocationDraft202012Tests(unittest.TestCase):
             (
                 SUPPORT.INVOCATION
                 .validate_protected_invocation_bundle(structural)
+            )
+
+    def test_stage_topology_schema_and_owner_acceptance_sets_match(self) -> None:
+        allowed = (
+            ("gaussian_input", "pbs_script", "checksums_manifest"),
+            (
+                "gaussian_input",
+                "companion_json",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "companion_xyz",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "old_checkpoint",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "companion_json",
+                "companion_xyz",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "companion_json",
+                "old_checkpoint",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "companion_xyz",
+                "old_checkpoint",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "companion_json",
+                "companion_xyz",
+                "old_checkpoint",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+        )
+        for roles in allowed:
+            with self.subTest(allowed=roles):
+                candidate = self.with_topology(roles)
+                self.validator.validate(candidate)
+                SUPPORT.INVOCATION.validate_protected_invocation_bundle(
+                    candidate
+                )
+
+        rejected = (
+            (
+                "gaussian_input",
+                "companion_xyz",
+                "companion_json",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "companion_json",
+                "companion_json",
+                "pbs_script",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "pbs_script",
+                "old_checkpoint",
+                "checksums_manifest",
+            ),
+            (
+                "gaussian_input",
+                "companion_json",
+                "companion_xyz",
+                "old_checkpoint",
+                "pbs_script",
+                "checksums_manifest",
+                "checksums_manifest",
+            ),
+        )
+        for roles in rejected:
+            with self.subTest(rejected=roles):
+                candidate = self.with_topology(roles)
+                with self.assertRaises(ValidationError):
+                    self.validator.validate(candidate)
+                with self.assertRaises(
+                    SUPPORT.INVOCATION.ProtectedInvocationError
+                ):
+                    SUPPORT.INVOCATION.validate_protected_invocation_bundle(
+                        candidate
+                    )
+
+        count_mismatch = self.with_topology(allowed[0])
+        count_mismatch["stage_plan"]["artifact_count"] = 4
+        count_mismatch = SUPPORT.INVOCATION.finalize(count_mismatch)
+        with self.assertRaises(ValidationError):
+            self.validator.validate(count_mismatch)
+        with self.assertRaises(
+            SUPPORT.INVOCATION.ProtectedInvocationError
+        ):
+            SUPPORT.INVOCATION.validate_protected_invocation_bundle(
+                count_mismatch
             )
 
         absolute = copy.deepcopy(self.document)

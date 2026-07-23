@@ -244,6 +244,175 @@
         "size_bytes": {"type": "integer", "minimum": 1}
       }
     },
+    "gaussianInput1": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "gaussian_input"},
+            "order": {"const": 1}
+          }
+        }
+      ]
+    },
+    "companionJson2": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "companion_json"},
+            "order": {"const": 2}
+          }
+        }
+      ]
+    },
+    "companionXyz2": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "companion_xyz"},
+            "order": {"const": 2}
+          }
+        }
+      ]
+    },
+    "companionXyz3": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "companion_xyz"},
+            "order": {"const": 3}
+          }
+        }
+      ]
+    },
+    "oldCheckpoint2": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "old_checkpoint"},
+            "order": {"const": 2}
+          }
+        }
+      ]
+    },
+    "oldCheckpoint3": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "old_checkpoint"},
+            "order": {"const": 3}
+          }
+        }
+      ]
+    },
+    "oldCheckpoint4": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "old_checkpoint"},
+            "order": {"const": 4}
+          }
+        }
+      ]
+    },
+    "pbsScript2": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "pbs_script"},
+            "order": {"const": 2}
+          }
+        }
+      ]
+    },
+    "pbsScript3": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "pbs_script"},
+            "order": {"const": 3}
+          }
+        }
+      ]
+    },
+    "pbsScript4": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "pbs_script"},
+            "order": {"const": 4}
+          }
+        }
+      ]
+    },
+    "pbsScript5": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "pbs_script"},
+            "order": {"const": 5}
+          }
+        }
+      ]
+    },
+    "checksums3": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "checksums_manifest"},
+            "relative_name": {"const": "checksums.sha256"},
+            "order": {"const": 3}
+          }
+        }
+      ]
+    },
+    "checksums4": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "checksums_manifest"},
+            "relative_name": {"const": "checksums.sha256"},
+            "order": {"const": 4}
+          }
+        }
+      ]
+    },
+    "checksums5": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "checksums_manifest"},
+            "relative_name": {"const": "checksums.sha256"},
+            "order": {"const": 5}
+          }
+        }
+      ]
+    },
+    "checksums6": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "role": {"const": "checksums_manifest"},
+            "relative_name": {"const": "checksums.sha256"},
+            "order": {"const": 6}
+          }
+        }
+      ]
+    },
     "stagePlan": {
       "type": "object",
       "additionalProperties": false,
@@ -260,15 +429,145 @@
         "schema": {"const": "auto-g16-legacy-stage-byte-plan/1"},
         "manifest_schema": {"const": "auto-g16-legacy-stage-manifest/1"},
         "manifest_sha256": {"$ref": "#/$defs/sha"},
-        "artifact_count": {"type": "integer", "minimum": 3},
-        "artifacts": {
-          "type": "array",
-          "minItems": 3,
-          "items": {"$ref": "#/$defs/artifact"}
-        },
+        "artifact_count": {"type": "integer", "minimum": 3, "maximum": 6},
+        "artifacts": {"type": "array"},
         "protected_submit_stage_manifest_sha256": {"$ref": "#/$defs/sha"},
         "protected_submit_stage_bundle_sha256": {"$ref": "#/$defs/sha"}
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "artifact_count": {"const": 3},
+            "artifacts": {
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [
+                {"$ref": "#/$defs/gaussianInput1"},
+                {"$ref": "#/$defs/pbsScript2"},
+                {"$ref": "#/$defs/checksums3"}
+              ],
+              "items": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "artifact_count": {"const": 4},
+            "artifacts": {
+              "minItems": 4,
+              "maxItems": 4,
+              "prefixItems": [
+                {"$ref": "#/$defs/gaussianInput1"},
+                {"$ref": "#/$defs/companionJson2"},
+                {"$ref": "#/$defs/pbsScript3"},
+                {"$ref": "#/$defs/checksums4"}
+              ],
+              "items": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "artifact_count": {"const": 4},
+            "artifacts": {
+              "minItems": 4,
+              "maxItems": 4,
+              "prefixItems": [
+                {"$ref": "#/$defs/gaussianInput1"},
+                {"$ref": "#/$defs/companionXyz2"},
+                {"$ref": "#/$defs/pbsScript3"},
+                {"$ref": "#/$defs/checksums4"}
+              ],
+              "items": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "artifact_count": {"const": 4},
+            "artifacts": {
+              "minItems": 4,
+              "maxItems": 4,
+              "prefixItems": [
+                {"$ref": "#/$defs/gaussianInput1"},
+                {"$ref": "#/$defs/oldCheckpoint2"},
+                {"$ref": "#/$defs/pbsScript3"},
+                {"$ref": "#/$defs/checksums4"}
+              ],
+              "items": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "artifact_count": {"const": 5},
+            "artifacts": {
+              "minItems": 5,
+              "maxItems": 5,
+              "prefixItems": [
+                {"$ref": "#/$defs/gaussianInput1"},
+                {"$ref": "#/$defs/companionJson2"},
+                {"$ref": "#/$defs/companionXyz3"},
+                {"$ref": "#/$defs/pbsScript4"},
+                {"$ref": "#/$defs/checksums5"}
+              ],
+              "items": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "artifact_count": {"const": 5},
+            "artifacts": {
+              "minItems": 5,
+              "maxItems": 5,
+              "prefixItems": [
+                {"$ref": "#/$defs/gaussianInput1"},
+                {"$ref": "#/$defs/companionJson2"},
+                {"$ref": "#/$defs/oldCheckpoint3"},
+                {"$ref": "#/$defs/pbsScript4"},
+                {"$ref": "#/$defs/checksums5"}
+              ],
+              "items": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "artifact_count": {"const": 5},
+            "artifacts": {
+              "minItems": 5,
+              "maxItems": 5,
+              "prefixItems": [
+                {"$ref": "#/$defs/gaussianInput1"},
+                {"$ref": "#/$defs/companionXyz2"},
+                {"$ref": "#/$defs/oldCheckpoint3"},
+                {"$ref": "#/$defs/pbsScript4"},
+                {"$ref": "#/$defs/checksums5"}
+              ],
+              "items": false
+            }
+          }
+        },
+        {
+          "properties": {
+            "artifact_count": {"const": 6},
+            "artifacts": {
+              "minItems": 6,
+              "maxItems": 6,
+              "prefixItems": [
+                {"$ref": "#/$defs/gaussianInput1"},
+                {"$ref": "#/$defs/companionJson2"},
+                {"$ref": "#/$defs/companionXyz3"},
+                {"$ref": "#/$defs/oldCheckpoint4"},
+                {"$ref": "#/$defs/pbsScript5"},
+                {"$ref": "#/$defs/checksums6"}
+              ],
+              "items": false
+            }
+          }
+        }
+      ]
     },
     "scope": {
       "type": "object",

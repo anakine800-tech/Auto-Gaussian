@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import contextlib
 import dataclasses
 import hashlib
 import inspect
@@ -251,9 +252,32 @@ class ProtectedInvocationContractTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 INVOCATION.ProtectedInvocationError,
-                "authority is not current",
+                "authority/evidence replay failed closed",
             ):
                 sealed.assert_current()
+
+    def test_predecessor_evidence_replacement_and_drift_fail_closed(
+        self,
+    ) -> None:
+        approval = self.fixture.protected_evidence.live_approval_path
+        original = approval.read_bytes()
+        sealed = self.seal()
+        replacement = approval.with_name("replacement-live-approval.json")
+        replacement.write_bytes(original)
+        os.replace(replacement, approval)
+        with self.assertRaisesRegex(
+            INVOCATION.ProtectedInvocationError,
+            "predecessor file identity differs",
+        ):
+            self.assert_current(sealed)
+
+        resealed = self.seal()
+        approval.write_bytes(original + b" ")
+        with self.assertRaisesRegex(
+            INVOCATION.ProtectedInvocationError,
+            "authority/evidence replay failed closed|complete identity differs",
+        ):
+            self.assert_current(resealed)
 
     def test_wrong_project_input_idempotency_resource_and_cross_root_fail(
         self,
@@ -387,6 +411,33 @@ class ProtectedInvocationContractTests(unittest.TestCase):
         os.replace(replacement, companion)
         with self.assertRaises(INVOCATION.ProtectedInvocationError):
             self.assert_current(sealed)
+
+    def test_large_companion_uses_private_read_only_snapshot(self) -> None:
+        companion = (
+            self.fixture.local.protected.input_path.with_suffix(".xyz")
+        )
+        with companion.open("wb") as handle:
+            handle.write(b"0\nplaceholder\n")
+            handle.truncate(16 * 1024 * 1024 + 4096)
+        before = {
+            path.relative_to(self.root)
+            for path in self.root.rglob("*")
+        }
+        sealed = self.seal()
+        large = next(
+            artifact
+            for artifact in sealed.stage_plan.artifacts
+            if artifact.role == "companion_xyz"
+        )
+        self.assertIsNone(large.data)
+        self.assertIsNotNone(large.private_snapshot)
+        self.assertEqual(large.size_bytes, companion.stat().st_size)
+        self.assert_current(sealed)
+        after = {
+            path.relative_to(self.root)
+            for path in self.root.rglob("*")
+        }
+        self.assertEqual(after, before)
 
     def test_unique_stage_planner_covers_companions_checkpoint_and_order(
         self,
@@ -667,6 +718,84 @@ class ProtectedInvocationContractTests(unittest.TestCase):
                     os.environ[name] = value
 
     def test_package_relocation_and_shadow_cache_keep_exact_origin(self) -> None:
+        self.assertEqual(
+            FACADE._protected_invocation_contract_path(),
+            (ROOT / "scripts/protected_invocation_contract.py").resolve(),
+        )
+        @contextlib.contextmanager
+        def current_checkout_owner():
+            with mock.patch.object(
+                INVOCATION,
+                "_utc_now",
+                return_value=PROTECTED_SUPPORT.parse_utc(
+                    PROTECTED_SUPPORT.NOW
+                ),
+            ):
+                yield INVOCATION
+
+        with mock.patch.object(
+            FACADE,
+            "_exact_protected_invocation_contract",
+            current_checkout_owner,
+        ), mock.patch.object(
+            INVOCATION.ProtectedInvocationContractOwner,
+            "production",
+            return_value=self.fixture.owner(),
+        ):
+            facade_sealed = FACADE.seal_protected_invocation_bundle(
+                evidence=self.fixture.evidence,
+            )
+        self.assertEqual(
+            facade_sealed.document()["schema"],
+            "auto-g16-protected-invocation-bundle/1",
+        )
+        previous_invocation = sys.modules.get(
+            "protected_invocation_contract"
+        )
+        invocation_shadow = types.ModuleType(
+            "protected_invocation_contract"
+        )
+        invocation_shadow.__file__ = "/private/tmp/invocation-shadow.py"
+        invocation_shadow.__spec__ = types.SimpleNamespace(
+            origin=invocation_shadow.__file__
+        )
+        sys.modules["protected_invocation_contract"] = invocation_shadow
+
+        def exact_origin(_: int) -> Path:
+            with FACADE._exact_protected_invocation_contract() as module:
+                return Path(module.__file__).resolve()
+
+        try:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                origins = list(pool.map(exact_origin, range(4)))
+            self.assertIs(
+                sys.modules["protected_invocation_contract"],
+                invocation_shadow,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "placeholder facade loader exception",
+            ):
+                with FACADE._exact_protected_invocation_contract():
+                    raise RuntimeError(
+                        "placeholder facade loader exception"
+                    )
+            self.assertIs(
+                sys.modules["protected_invocation_contract"],
+                invocation_shadow,
+            )
+        finally:
+            if previous_invocation is None:
+                sys.modules.pop("protected_invocation_contract", None)
+            else:
+                sys.modules[
+                    "protected_invocation_contract"
+                ] = previous_invocation
+        self.assertEqual(
+            origins,
+            [(ROOT / "scripts/protected_invocation_contract.py").resolve()]
+            * 4,
+        )
         package = skill_package.package_files(
             ROOT,
             "auto-g16-rtwin-pbs",
@@ -764,6 +893,54 @@ class ProtectedInvocationContractTests(unittest.TestCase):
                 (source_scripts / "local_state_binding.py").resolve(),
             ],
         )
+        caller_shadow = self.root / "caller-shadow"
+        caller_shadow.mkdir()
+        (caller_shadow / "protected_invocation_contract.py").write_text(
+            "raise RuntimeError('caller shadow must not load')\n",
+            encoding="utf-8",
+        )
+        for paths in (
+            [caller_shadow, ROOT_SCRIPTS, SKILL_SCRIPTS],
+            [caller_shadow, SKILL_SCRIPTS, ROOT_SCRIPTS],
+        ):
+            with self.subTest(combined=[str(item) for item in paths]):
+                combined_script = (
+                    "import sys,types\n"
+                    f"sys.path[:0]={[str(item) for item in paths]!r}\n"
+                    "fake=types.ModuleType('protected_invocation_contract')\n"
+                    "fake.__file__='/private/tmp/preloaded-shadow.py'\n"
+                    "fake.__spec__=types.SimpleNamespace(origin=fake.__file__)\n"
+                    "sys.modules['protected_invocation_contract']=fake\n"
+                    "import execution_facade as f\n"
+                    "with f._exact_protected_invocation_contract() as m:\n"
+                    " print(m.__file__)\n"
+                    "assert sys.modules['protected_invocation_contract'] is fake\n"
+                )
+                combined_result = subprocess.run(
+                    [sys.executable, "-c", combined_script],
+                    cwd=caller_shadow,
+                    text=True,
+                    capture_output=True,
+                    env={
+                        **os.environ,
+                        "AUTO_G16_RUNTIME_CONFIG": str(
+                            self.root
+                            / "absent-combined-placeholder-runtime.json"
+                        ),
+                    },
+                )
+                self.assertEqual(
+                    combined_result.returncode,
+                    0,
+                    combined_result.stderr,
+                )
+                self.assertEqual(
+                    Path(combined_result.stdout.strip()).resolve(),
+                    (
+                        ROOT
+                        / "scripts/protected_invocation_contract.py"
+                    ).resolve(),
+                )
 
     def test_predecessor_contract_hashes_remain_frozen(self) -> None:
         expected = {

@@ -210,22 +210,40 @@ def _local_state_evidence_for_exact_owner(
 
 def _protected_invocation_contract_path() -> Path:
     facade = Path(__file__).resolve()
-    path = facade.with_name(f"{_PROTECTED_INVOCATION_MODULE_NAME}.py")
-    if path.is_symlink() or not path.is_file():
-        raise ImportError(
-            f"exact adjacent protected-invocation owner is unavailable: {path}"
+    filename = f"{_PROTECTED_INVOCATION_MODULE_NAME}.py"
+    skill_directory = facade.parent.parent
+    if (
+        facade.parent.name == "scripts"
+        and skill_directory.name == "auto-g16-rtwin-pbs"
+        and skill_directory.parent.name == "skills"
+    ):
+        source_owner = (
+            skill_directory.parent.parent / "scripts" / filename
         )
-    resolved = path.resolve()
-    if resolved.parent != facade.parent:
-        raise ImportError(
-            "protected-invocation owner is not adjacent to the facade"
-        )
-    return resolved
+        if (
+            not source_owner.is_symlink()
+            and source_owner.is_file()
+            and source_owner.resolve().parent
+            == skill_directory.parent.parent.resolve() / "scripts"
+        ):
+            return source_owner.resolve()
+
+    adjacent_owner = facade.with_name(filename)
+    if (
+        not adjacent_owner.is_symlink()
+        and adjacent_owner.is_file()
+        and adjacent_owner.resolve().parent == facade.parent
+    ):
+        return adjacent_owner.resolve()
+    raise ImportError(
+        "exact protected-invocation owner is unavailable in repository "
+        f"source or deployed-package layout for facade {facade}"
+    )
 
 
 @contextlib.contextmanager
 def _exact_protected_invocation_contract() -> Iterator[types.ModuleType]:
-    """Load only the exact adjacent invocation owner and restore its cache."""
+    """Load the layout-bound invocation owner and restore its cache."""
 
     path = _protected_invocation_contract_path()
     with _PROTECTED_INVOCATION_IMPORT_LOCK:
@@ -275,7 +293,7 @@ def _protected_invocation_evidence_for_exact_owner(
     if not isinstance(raw_source, str) or Path(raw_source).resolve() != expected:
         raise TypeError(
             "protected-invocation evidence must come from the "
-            "facade-adjacent owner"
+            "facade-bound owner"
         )
     snapshot = evidence.snapshot()
     fields = tuple(expected_type.__dataclass_fields__)

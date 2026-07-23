@@ -2880,7 +2880,7 @@ def _legacy_stage_source_paths(
 
 
 def _stable_stage_source(path: Path, label: str) -> dict[str, Any]:
-    """Capture one no-follow stage source with exact bytes and identity."""
+    """Capture one no-follow source into a private streaming snapshot."""
 
     expanded = path.expanduser()
     if expanded.is_symlink():
@@ -2893,21 +2893,29 @@ def _stable_stage_source(path: Path, label: str) -> dict[str, Any]:
         resolved,
         os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
     )
+    snapshot = tempfile.TemporaryFile(mode="w+b")
     try:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ValueError(f"{label} must be a regular file")
-        if before.st_size > MAX_IN_MEMORY_READ_BYTES:
-            raise ValueError(
-                f"{label} exceeds the bounded in-memory read limit"
-            )
         chunks: list[bytes] = []
+        hasher = hashlib.sha256()
+        copied = 0
         while True:
             chunk = os.read(descriptor, STREAM_COPY_CHUNK_SIZE)
             if not chunk:
                 break
-            chunks.append(chunk)
+            snapshot.write(chunk)
+            hasher.update(chunk)
+            copied += len(chunk)
+            if before.st_size <= MAX_IN_MEMORY_READ_BYTES:
+                chunks.append(chunk)
         after = os.fstat(descriptor)
+        snapshot.flush()
+        snapshot.seek(0)
+    except Exception:
+        snapshot.close()
+        raise
     finally:
         os.close(descriptor)
     stable_fields = (
@@ -2927,12 +2935,18 @@ def _stable_stage_source(path: Path, label: str) -> dict[str, Any]:
         != expected
     ):
         raise ValueError(f"{label} changed while it was captured")
-    data = b"".join(chunks)
-    if len(data) != before.st_size:
+    if copied != before.st_size:
+        snapshot.close()
         raise ValueError(f"{label} size changed while it was captured")
+    data = (
+        b"".join(chunks)
+        if before.st_size <= MAX_IN_MEMORY_READ_BYTES
+        else None
+    )
     return {
         "path": resolved,
         "bytes": data,
+        "private_snapshot": snapshot,
         "identity": {
             "device": before.st_dev,
             "inode": before.st_ino,
@@ -2941,7 +2955,7 @@ def _stable_stage_source(path: Path, label: str) -> dict[str, Any]:
             "size": before.st_size,
             "mtime_ns": before.st_mtime_ns,
             "ctime_ns": before.st_ctime_ns,
-            "sha256": hashlib.sha256(data).hexdigest(),
+            "sha256": hasher.hexdigest(),
         },
     }
 
@@ -3002,13 +3016,14 @@ def plan_legacy_stage_bytes(
                 "role": source["role"],
                 "basename": source["basename"],
                 "bytes": stable["bytes"],
+                "private_snapshot": stable["private_snapshot"],
                 "source_path": stable["path"],
                 "source_identity": stable["identity"],
             }
         )
     if captured[0]["role"] != "gaussian_input":
         raise ValueError("legacy stage Gaussian input is unavailable")
-    input_sha256 = hashlib.sha256(captured[0]["bytes"]).hexdigest()
+    input_sha256 = captured[0]["source_identity"]["sha256"]
     if input_sha256 != audit.get("input_sha256"):
         raise ValueError("legacy stage input bytes differ from Gaussian audit")
     manifest_source = next(
@@ -3087,12 +3102,25 @@ def plan_legacy_stage_bytes(
             "role": "pbs_script",
             "basename": pbs_name,
             "bytes": pbs_bytes,
+            "private_snapshot": None,
             "source_path": None,
             "source_identity": None,
         },
     ]
+    def artifact_sha256(item: dict[str, Any]) -> str:
+        identity = item["source_identity"]
+        if identity is not None:
+            return identity["sha256"]
+        return hashlib.sha256(item["bytes"]).hexdigest()
+
+    def artifact_size(item: dict[str, Any]) -> int:
+        identity = item["source_identity"]
+        if identity is not None:
+            return identity["size"]
+        return len(item["bytes"])
+
     checksums_bytes = "".join(
-        f"{hashlib.sha256(item['bytes']).hexdigest()}  "
+        f"{artifact_sha256(item)}  "
         f"{item['basename']}\n"
         for item in artifacts
     ).encode("utf-8")
@@ -3101,6 +3129,7 @@ def plan_legacy_stage_bytes(
             "role": "checksums_manifest",
             "basename": "checksums.sha256",
             "bytes": checksums_bytes,
+            "private_snapshot": None,
             "source_path": None,
             "source_identity": None,
         }
@@ -3110,8 +3139,8 @@ def plan_legacy_stage_bytes(
             "role": item["role"],
             "relative_name": item["basename"],
             "order": index,
-            "sha256": hashlib.sha256(item["bytes"]).hexdigest(),
-            "size_bytes": len(item["bytes"]),
+            "sha256": artifact_sha256(item),
+            "size_bytes": artifact_size(item),
         }
         for index, item in enumerate(artifacts, start=1)
     ]
@@ -3132,7 +3161,7 @@ def stage(
     resource_binding: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[Path]]:
     audit = parse_gaussian(input_path)
-    source_paths = _legacy_stage_source_paths(input_path, audit)
+    validate_transfer_name(input_path.name)
     local_dir.mkdir(parents=True, exist_ok=True)
     existing_job_path = local_dir / "job.json"
     if existing_job_path.is_file():
@@ -3150,73 +3179,78 @@ def stage(
                 f"local bundle already records status {existing_job.get('status')!r}; "
                 "use a new project/local directory instead of risking a duplicate run"
             )
-    staged_sources: list[dict[str, Any]] = []
+    destination = local_dir / input_path.name
+    if destination.resolve() != input_path.resolve():
+        if destination.is_symlink():
+            fail(f"refusing symlink staged input: {destination}")
+        if destination.exists():
+            if sha256(destination) != sha256(input_path):
+                fail(f"refusing to overwrite different staged input: {destination}")
+        else:
+            shutil.copy2(input_path, destination)
+    else:
+        destination = input_path
+
     companions: list[Path] = []
-    destination: Path | None = None
-    for source_item in source_paths:
-        source = source_item["path"]
-        target = local_dir / source_item["basename"]
+    for suffix in (".json", ".xyz"):
+        source = input_path.with_suffix(suffix)
+        validate_transfer_name(source.name)
+        target = local_dir / source.name
+        if source.is_file():
+            if target.resolve() != source.resolve():
+                if target.is_symlink():
+                    fail(f"refusing symlink staged companion: {target}")
+                if target.exists():
+                    if sha256(target) != sha256(source):
+                        fail(f"refusing to overwrite different companion: {target}")
+                else:
+                    shutil.copy2(source, target)
+            companions.append(target)
+
+    oldcheckpoint = audit.get("oldcheckpoint")
+    if oldcheckpoint:
+        validate_transfer_name(oldcheckpoint)
+        source = input_path.parent / oldcheckpoint
+        if not source.is_file() or source.is_symlink():
+            fail("%oldchk must name an existing non-symlink checkpoint beside the input")
+        target = local_dir / oldcheckpoint
         if target.resolve() != source.resolve():
-            role = source_item["role"]
             if target.is_symlink():
-                if role == "gaussian_input":
-                    fail(f"refusing symlink staged input: {target}")
-                if role == "old_checkpoint":
-                    fail(f"refusing symlink staged checkpoint: {target}")
-                fail(f"refusing symlink staged companion: {target}")
+                fail(f"refusing symlink staged checkpoint: {target}")
             if target.exists():
                 if sha256(target) != sha256(source):
-                    if role == "gaussian_input":
-                        fail(
-                            "refusing to overwrite different staged input: "
-                            f"{target}"
-                        )
-                    if role == "old_checkpoint":
-                        fail(
-                            "refusing to overwrite different checkpoint "
-                            f"companion: {target}"
-                        )
-                    fail(
-                        "refusing to overwrite different companion: "
-                        f"{target}"
-                    )
+                    fail(f"refusing to overwrite different checkpoint companion: {target}")
             else:
                 shutil.copy2(source, target)
-        else:
-            target = source
-        staged_sources.append(
-            {
-                "role": source_item["role"],
-                "basename": source_item["basename"],
-                "path": target,
-            }
-        )
-        if source_item["role"] == "gaussian_input":
-            destination = target
-        else:
-            companions.append(target)
-    assert destination is not None
-    stage_plan = plan_legacy_stage_bytes(
-        project=project,
-        audit=audit,
-        source_paths=staged_sources,
-        resource_binding=resource_binding,
-    )
+        companions.append(target)
+
     pbs = local_dir / f"{project}.pbs"
-    pbs_artifact = next(
-        item
-        for item in stage_plan["artifacts"]
-        if item["role"] == "pbs_script"
+    pbs_kwargs: dict[str, Any] = {}
+    if resource_binding is not None:
+        if resource_binding["cores"] != audit["nprocshared"]:
+            fail("resource gate cores differ from Gaussian %nprocshared")
+        if resource_binding["memory_gb"] * 1024**3 != parse_memory(audit["mem"]):
+            fail("resource gate memory differs from Gaussian %mem")
+        pbs_kwargs = {
+            "mem_gb": resource_binding["memory_gb"],
+            "walltime_seconds": resource_binding["walltime_seconds"],
+            "resource_tier": resource_binding["resource_tier"],
+        }
+    atomic_text(
+        pbs,
+        pbs_text(
+            project,
+            destination.name,
+            audit["nprocshared"],
+            **pbs_kwargs,
+        ),
     )
-    atomic_text(pbs, pbs_artifact["bytes"].decode("utf-8"))
     immutable = [destination, *companions, pbs]
     checksums = local_dir / "checksums.sha256"
-    checksums_artifact = next(
-        item
-        for item in stage_plan["artifacts"]
-        if item["role"] == "checksums_manifest"
+    atomic_text(
+        checksums,
+        "".join(f"{sha256(item)}  {item.name}\n" for item in immutable),
     )
-    atomic_text(checksums, checksums_artifact["bytes"].decode("utf-8"))
     job = {
         "schema": "gaussian-rtwin-pbs/1",
         "project": project,
