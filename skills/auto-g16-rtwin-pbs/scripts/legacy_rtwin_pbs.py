@@ -6154,6 +6154,19 @@ class LegacyTransportAdapter:
             raise ModelError("nested attestation first-hop receipt binding differs")
         return AttestationBoundaryPlan.from_validated(request)
 
+    def invoke_reserved_once(self, request: object) -> object:
+        """Fail closed until the separately approved actual adapter check exists."""
+
+        assert_sealed = getattr(request, "assert_owner_sealed", None)
+        if not callable(assert_sealed):
+            raise ModelError("legacy adapter requires an owner-sealed reserved attempt")
+        assert_sealed()
+        raise ModelError(
+            "offline legacy adapter wiring is present but the actual adapter invocation "
+            "has not been separately verified; reservation remains submission_uncertain "
+            "and only read-only reconciliation may continue"
+        )
+
 
 class LegacyRTWinPBSBackend:
     """The sole v2.6 PR4 execution-backend implementation owner."""

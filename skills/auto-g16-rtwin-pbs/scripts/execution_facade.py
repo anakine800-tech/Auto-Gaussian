@@ -19,6 +19,7 @@ class TransportAdapter(Protocol):
     def capabilities(self) -> tuple[str, ...]: ...
     def attest_first_hop_once(self, request: object) -> AttestationBoundaryPlan: ...
     def attest_nested_hop_once(self, first_hop: object, request: object) -> AttestationBoundaryPlan: ...
+    def invoke_reserved_once(self, request: object) -> object: ...
 
 
 class SchedulerAdapter(Protocol):
@@ -48,6 +49,14 @@ def _implementation() -> types.ModuleType:
 
 def backend() -> ExecutionBackend:
     return _implementation().LegacyRTWinPBSBackend()
+
+
+def integrate_successor_once(*, artifacts: object, attempt: object, now: object) -> object:
+    """Route one sealed successor attempt through the only configured backend."""
+
+    integration = importlib.import_module("legacy_adapter_integration")
+    integrator = integration.LegacyAdapterIntegrator.production()
+    return integrator.invoke_once(artifacts=artifacts, attempt=attempt, now=now)
 
 
 def bind_current() -> types.ModuleType:
