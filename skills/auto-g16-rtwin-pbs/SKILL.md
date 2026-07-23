@@ -101,6 +101,13 @@ batch, resource and transport owners, then supports one owner-trusted
 reservation. It does not call the legacy adapter, implement stage or submit,
 or authorize status, fetch, cancel, cleanup or deletion.
 
+The v2.6 PR4K protected lifecycle contract remains non-executable. Read
+[references/protected-lifecycle-contract.md](references/protected-lifecycle-contract.md).
+It binds exact typed PR4F evidence to a required future implementation order,
+with every reservation/effect/adapter/materialization/reconciliation status
+false. It neither creates a raw legacy effect owner nor changes the
+fail-closed adapter.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.

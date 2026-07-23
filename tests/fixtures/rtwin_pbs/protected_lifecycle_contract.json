@@ -1,0 +1,60 @@
+{
+  "schema": "auto-g16-protected-lifecycle-contract-fixture/1",
+  "base_branch": "codex/v26-legacy-effect-plan-single-use-fix",
+  "base_commit": "477bada8c5b0342ebd8a8faab1acf3d08dc2814e",
+  "base_tree": "fbb6e0ae521fa67601ba54a887facd0c6d57ed7f",
+  "base_parent": "aaa004a88131f244c19e6d39c74eb936e9eb55b6",
+  "scope": {
+    "offline_contract_only": true,
+    "adapter_implemented": false,
+    "reservation_performed": false,
+    "effects_performed": false,
+    "live_actions": false
+  },
+  "files": {
+    "scripts/protected_lifecycle_contract.py": {
+      "sha256": "caaf12b860a1bbee95205f78d6425d9e1dbb25d367842ba0a83c18c5dc7a5f94",
+      "change_class": "exact_typed_pr4f_owner_sealed_read_only_lifecycle_contract"
+    },
+    "contracts/execution/protected-lifecycle-contract.schema.json": {
+      "sha256": "17e33de4fb866ff2a69fd2b0e9e2552ceb9bb8178d015a5742692ea1a826d5dd",
+      "change_class": "draft_2020_12_closed_non_executable_lifecycle_schema"
+    },
+    "docs/v2.6-protected-lifecycle-contract.md": {
+      "sha256": "916f6ea40c8afe02c85a6733ee21164f5b4b043f97058aa95d02e04b7e3a2640",
+      "change_class": "gap_matrix_owner_map_and_recovery_gates"
+    },
+    "skills/auto-g16-rtwin-pbs/references/protected-lifecycle-contract.md": {
+      "sha256": "897ff976208d016c4ca7a061c2f265146a9afba96c5ee58a0560b3ab78c04a7a",
+      "change_class": "packaged_non_executable_contract_reference"
+    },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "sha256": "87f20a354ce0d4234affcf83cc2cdf99e5ebed72d3c063aea04ee4f0ec9f51e1",
+      "change_class": "additive_reference_routing_only"
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "sha256": "7621b5e4c98f813bee52419ac9644a88bd207ac2a15ee6a482b6e60c50ee7484",
+      "change_class": "focused_owner_adversarial_relocation_and_freeze_tests"
+    },
+    "tests/test_protected_lifecycle_schema_draft202012.py": {
+      "sha256": "92460bbf6f140c94d79d86824aa4b02b7c4a754122e9eed24149f00e895e05b7",
+      "change_class": "bidirectional_real_draft_2020_12_tests"
+    }
+  },
+  "frozen_predecessors": {
+    "protected_submit_owner_commit": "ad448b1",
+    "local_state_owner_commit": "70f1575",
+    "protected_invocation_owner_commit": "ba9fb6f",
+    "legacy_transaction_owner_commit": "fc7b59d",
+    "legacy_effect_plan_owner_commit": "477bada",
+    "protected_invocation_owner_sha256": "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28",
+    "legacy_owner_sha256": "259c6679fd9b2436b9c7e133fc4b19482e6fed5ea7bbd9f94a86ddac5e7aa8cb"
+  },
+  "recovery_gates": {
+    "no_clobber_materialization_proven": false,
+    "protected_state_publication_proven": false,
+    "adapter_mapping_proven": false,
+    "outcome_and_reconciliation_proven": false,
+    "long_process_raw_owner_lifecycle_bounded": false
+  }
+}

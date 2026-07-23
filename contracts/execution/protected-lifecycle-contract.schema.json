@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-protected-lifecycle-contract/1",
+  "title": "Auto-G16 v2.6 owner-sealed protected lifecycle contract",
+  "$comment": "Structural validation issues no in-process seal and grants no live approval, reservation, materialization, adapter, effect, submit, status, fetch, cancel, cleanup, delete, retry, reconciliation, configuration, or execution authority. The referenced protected-invocation /1 Schema remains a separately frozen predecessor.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "lifecycle_id",
+    "predecessor",
+    "protected_invocation",
+    "closure",
+    "protected_submit_order",
+    "protected_invocation_order",
+    "legacy_effect_sequence",
+    "required_future_implementation_order",
+    "effect_time_revalidation",
+    "scope",
+    "status",
+    "legacy_compatibility",
+    "lifecycle_payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "auto-g16-protected-lifecycle-contract/1"
+    },
+    "owner": {
+      "const": "auto-g16-protected-lifecycle-owner"
+    },
+    "lifecycle_id": {
+      "type": "string",
+      "pattern": "^protected-lifecycle-[a-f0-9]{64}$"
+    },
+    "predecessor": {
+      "$ref": "#/$defs/predecessor"
+    },
+    "protected_invocation": {
+      "$ref": "urn:auto-g16:protected-invocation-bundle:1"
+    },
+    "closure": {
+      "$ref": "#/$defs/closure"
+    },
+    "protected_submit_order": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "reserve_once"},
+        {"const": "stage_exact_bundle"},
+        {"const": "submit_once"}
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "protected_invocation_order": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "reserve_execution_attempt_once"},
+        {"const": "materialize_exact_stage_bytes"},
+        {"const": "transfer_exact_stage_bytes"},
+        {"const": "submit_once"}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "legacy_effect_sequence": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "windows_directory_claim"},
+        {"const": "mac_to_windows_copy"},
+        {"const": "windows_sha256"},
+        {"const": "server_directory_claim"},
+        {"const": "windows_to_server_copy"},
+        {"const": "qsub_once"}
+      ],
+      "items": false,
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "required_future_implementation_order": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "replay_protected_invocation_owner"},
+        {"const": "assert_protected_invocation_current"},
+        {"const": "reserve_protected_submit_once_and_enter_submission_uncertain"},
+        {"const": "materialize_exact_stage_bytes_no_clobber"},
+        {"const": "publish_materialized_local_state"},
+        {"const": "run_fixed_pre_submit_effects_once"},
+        {"const": "replay_effect_time_facts"},
+        {"const": "publish_qsub_invocation_started"},
+        {"const": "run_qsub_once"},
+        {"const": "classify_qsub_outcome"},
+        {"const": "publish_immutable_receipt_if_unique"},
+        {"const": "reconcile_exact_attempt_once"}
+      ],
+      "items": false,
+      "minItems": 12,
+      "maxItems": 12
+    },
+    "effect_time_revalidation": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "protected_invocation_owner_identity"},
+        {"const": "protected_submit_authority_and_evidence"},
+        {"const": "local_state_ledger_identity_and_bytes"},
+        {"const": "stage_source_identity_and_bytes"},
+        {"const": "resource_artifacts_and_freshness"},
+        {"const": "live_approval_immediately_before_qsub"}
+      ],
+      "items": false,
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "status": {
+      "$ref": "#/$defs/status"
+    },
+    "legacy_compatibility": {
+      "$ref": "#/$defs/legacyCompatibility"
+    },
+    "lifecycle_payload_sha256": {
+      "$ref": "#/$defs/sha"
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "predecessor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "invocation_id",
+        "invocation_payload_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "auto-g16-protected-invocation-bundle/1"
+        },
+        "invocation_id": {
+          "type": "string",
+          "pattern": "^protected-invocation-[a-f0-9]{64}$"
+        },
+        "invocation_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "local_state",
+        "ledger",
+        "resources",
+        "transport",
+        "stage_plan"
+      ],
+      "properties": {
+        "identity": {
+          "$ref": "urn:auto-g16:protected-invocation-bundle:1#/$defs/identity"
+        },
+        "local_state": {
+          "$ref": "urn:auto-g16:protected-invocation-bundle:1#/$defs/localState"
+        },
+        "ledger": {
+          "$ref": "urn:auto-g16:protected-invocation-bundle:1#/$defs/ledger"
+        },
+        "resources": {
+          "$ref": "urn:auto-g16:protected-invocation-bundle:1#/$defs/resources"
+        },
+        "transport": {
+          "$ref": "urn:auto-g16:protected-invocation-bundle:1#/$defs/transport"
+        },
+        "stage_plan": {
+          "$ref": "urn:auto-g16:protected-invocation-bundle:1#/$defs/stagePlan"
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seal",
+        "read_only_replay",
+        "reserve",
+        "materialize",
+        "invoke_adapter",
+        "submit",
+        "status",
+        "fetch",
+        "cancel",
+        "cleanup",
+        "delete",
+        "arbitrary_command"
+      ],
+      "properties": {
+        "seal": {"const": true},
+        "read_only_replay": {"const": true},
+        "reserve": {"const": false},
+        "materialize": {"const": false},
+        "invoke_adapter": {"const": false},
+        "submit": {"const": false},
+        "status": {"const": false},
+        "fetch": {"const": false},
+        "cancel": {"const": false},
+        "cleanup": {"const": false},
+        "delete": {"const": false},
+        "arbitrary_command": {"const": false}
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reserved",
+        "effects_performed",
+        "local_materialization_implemented",
+        "state_publication_implemented",
+        "actual_adapter_verified",
+        "outcome_implementation_verified",
+        "reconciliation_implemented",
+        "live_validation_performed",
+        "runtime_config_read",
+        "raw_effect_owner_created",
+        "automatic_retry"
+      ],
+      "properties": {
+        "reserved": {"const": false},
+        "effects_performed": {"const": false},
+        "local_materialization_implemented": {"const": false},
+        "state_publication_implemented": {"const": false},
+        "actual_adapter_verified": {"const": false},
+        "outcome_implementation_verified": {"const": false},
+        "reconciliation_implemented": {"const": false},
+        "live_validation_performed": {"const": false},
+        "runtime_config_read": {"const": false},
+        "raw_effect_owner_created": {"const": false},
+        "automatic_retry": {"const": false}
+      }
+    },
+    "legacyCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "legacy_cli_unchanged",
+        "legacy_adapter_remains_fail_closed",
+        "legacy_pre_reservation_stage_strategy_reusable",
+        "legacy_caller_path_or_command_strategy_reusable",
+        "legacy_raw_effect_owner_reusable",
+        "legacy_job_state_strategy_reusable",
+        "legacy_reconciliation_implementation_reuse_proven",
+        "future_long_process_adapter_requires_bounded_owner_lifecycle",
+        "historical_migration"
+      ],
+      "properties": {
+        "legacy_cli_unchanged": {"const": true},
+        "legacy_adapter_remains_fail_closed": {"const": true},
+        "legacy_pre_reservation_stage_strategy_reusable": {"const": false},
+        "legacy_caller_path_or_command_strategy_reusable": {"const": false},
+        "legacy_raw_effect_owner_reusable": {"const": false},
+        "legacy_job_state_strategy_reusable": {"const": false},
+        "legacy_reconciliation_implementation_reuse_proven": {"const": false},
+        "future_long_process_adapter_requires_bounded_owner_lifecycle": {
+          "const": true
+        },
+        "historical_migration": {"const": false}
+      }
+    }
+  }
+}
