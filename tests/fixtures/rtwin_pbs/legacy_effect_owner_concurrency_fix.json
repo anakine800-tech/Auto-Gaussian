@@ -1,0 +1,24 @@
+{
+  "schema": "auto-g16-legacy-effect-owner-concurrency-fix/1",
+  "base_commit": "9f9190a201acc148bdcee134a71ec3f1e3e983cb",
+  "base_tree": "d18c44295f9ff7a0ed5d7d4427ccd361c2fecedc",
+  "base_parent": "fc7b59dc6c280db6cdba435ae7e11f27cf30dd19",
+  "files": {
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_sha256": "8f47dcb72296c320be0b1229c00716fba942c07163600887cae214c201af0226",
+      "after_sha256": "df686ea8f95f0b642d4aeca296a201f0503ce84c4cc11bf4a85e945dae053ca3",
+      "change_class": "private_raw_effect_owner_concurrency_atomicity_fix",
+      "concurrency_semantics_changed": true,
+      "legacy_semantics_changed": false,
+      "behavior_parity": {
+        "test": "tests/test_legacy_effect_owner.py",
+        "comparison": "frozen PR4J race reproduction, same-step and consecutive-step deterministic concurrency checks, BaseException terminal consumption, independent-owner progress, forgery and replay refusal, plus frozen baseline success and six-by-four failure differential",
+        "runner_calls": 6,
+        "command_bytes_changed": false,
+        "transaction_policy_changed": false,
+        "automatic_retry": false,
+        "live_actions": false
+      }
+    }
+  }
+}

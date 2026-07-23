@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import _thread
 import argparse
 import base64
 import contextlib
@@ -20,6 +21,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -4736,6 +4738,7 @@ def replay_resource_artifacts_before_qsub(
 
 _BACKEND_TRANSACTION_TOKEN = object()
 _LEGACY_EFFECT_OWNER_TOKEN = object()
+_LEGACY_EFFECT_STATE_TOKEN = object()
 _LEGACY_EFFECT_STEPS = (
     "windows_directory_claim",
     "mac_to_windows_copy",
@@ -4962,31 +4965,100 @@ def _issue_legacy_effect_observation(
     return value
 
 
+class _LegacyEffectOwnerState:
+    """Factory-issued synchronization and terminal state for one raw owner."""
+
+    __slots__ = (
+        "_lock",
+        "_next_step",
+        "_owner",
+        "_terminal_failed",
+        "_factory_seal",
+    )
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_LegacyEffectOwnerState":
+        raise TypeError(
+            "_LegacyEffectOwnerState must be issued for one raw-effect owner"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("_LegacyEffectOwnerState is owner-managed")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("_LegacyEffectOwnerState is owner-managed")
+
+    def _assert_bound(self, owner: "_LegacyRawEffectOwner") -> None:
+        if (
+            getattr(self, "_factory_seal", None)
+            is not _LEGACY_EFFECT_STATE_TOKEN
+            or getattr(self, "_owner", None) is not owner
+            or not isinstance(getattr(self, "_lock", None), _thread.LockType)
+            or not isinstance(getattr(self, "_next_step", None), int)
+            or not isinstance(getattr(self, "_terminal_failed", None), bool)
+        ):
+            fail("legacy raw effect synchronization is not factory-bound")
+
+
 class _LegacyRawEffectOwner:
     """The sole ordered caller of ``run`` for the legacy submit transaction."""
 
-    __slots__ = ("_plan", "_next_step", "_owner_seal")
+    __slots__ = ("_plan", "_effect_state", "_owner_seal")
 
     def __new__(cls, *args: Any, **kwargs: Any) -> "_LegacyRawEffectOwner":
         raise TypeError("_LegacyRawEffectOwner must be issued with an owner-sealed plan")
 
-    def _assert_dispatch(self, step: str, token: object | None) -> None:
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("_LegacyRawEffectOwner is owner-managed")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("_LegacyRawEffectOwner is owner-managed")
+
+    def __copy__(self) -> "_LegacyRawEffectOwner":
+        raise TypeError("_LegacyRawEffectOwner cannot be copied or replayed")
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "_LegacyRawEffectOwner":
+        raise TypeError("_LegacyRawEffectOwner cannot be copied or replayed")
+
+    def __reduce__(self) -> object:
+        raise TypeError("_LegacyRawEffectOwner cannot be serialized or replayed")
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        raise TypeError("_LegacyRawEffectOwner cannot be serialized or replayed")
+
+    def _bound_effect_state(self) -> _LegacyEffectOwnerState:
+        if getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN:
+            fail("legacy raw effect owner lacks its factory seal")
+        state = getattr(self, "_effect_state", None)
+        if type(state) is not _LegacyEffectOwnerState:
+            fail("legacy raw effect owner lacks factory-issued synchronization")
+        state._assert_bound(self)
+        return state
+
+    def _assert_dispatch(
+        self,
+        state: _LegacyEffectOwnerState,
+        step: str,
+        token: object | None,
+    ) -> None:
         if token is not _LEGACY_EFFECT_OWNER_TOKEN:
             fail("legacy raw effect owner is internal to the legacy transaction")
         if getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN:
             fail("legacy raw effect owner lacks its factory seal")
+        state._assert_bound(self)
+        if state._terminal_failed:
+            fail("legacy raw effect owner is terminal after an effect failure")
         plan = getattr(self, "_plan", None)
         if not isinstance(plan, _LegacyEffectPlan):
             fail("legacy raw effect owner lacks its owner-issued plan")
         plan._assert_owner_sealed()
-        next_step = getattr(self, "_next_step", None)
+        next_step = state._next_step
         if (
             not isinstance(next_step, int)
             or next_step >= len(_LEGACY_EFFECT_STEPS)
             or _LEGACY_EFFECT_STEPS[next_step] != step
         ):
             fail("legacy raw effect sequence is fixed and cannot retry, skip, or reorder")
-        object.__setattr__(self, "_next_step", next_step + 1)
+        object.__setattr__(state, "_next_step", next_step + 1)
 
     def _invoke(
         self,
@@ -4994,74 +5066,76 @@ class _LegacyRawEffectOwner:
         *,
         _effect_token: object | None = None,
     ) -> _LegacyEffectResult | _LegacyEffectFailure:
-        self._assert_dispatch(step, _effect_token)
-        plan = self._plan
-        input_bytes: bytes | None = None
-        check = True
-        timeout_seconds = DEFAULT_COMMAND_TIMEOUT_SECONDS
-        if step == "windows_directory_claim":
-            mkdir_script = (
-                f"if(Test-Path -LiteralPath '{plan.windows_dir}'){{exit 43}};"
-                f"New-Item -ItemType Directory -Path '{plan.windows_dir}' "
-                "-ErrorAction Stop | Out-Null"
-            )
-            command = [
-                *ssh_base(plan),
-                "powershell",
-                "-NoProfile",
-                "-NonInteractive",
-                "-EncodedCommand",
-                powershell_encoded(mkdir_script),
-            ]
-        elif step == "mac_to_windows_copy":
-            windows_dir_scp = plan.windows_dir.replace("\\", "/")
-            command = [
-                "scp",
-                "-F",
-                str(Path(plan.mac_ssh_config).expanduser()),
-                *map(str, plan.files),
-                f"{plan.rtwin_alias}:{windows_dir_scp}/",
-            ]
-            timeout_seconds = plan.upload_timeout_seconds
-        elif step == "windows_sha256":
-            ps_paths = ",".join(
-                f"'{plan.windows_dir}\\{name}'"
-                for name, _digest in plan.expected_bindings
-            )
-            hash_script = (
-                f"$files=@({ps_paths}); foreach($f in $files){{"
-                "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
-                "Write-Output ((Split-Path $f -Leaf)+' '+$h)}"
-            )
-            command = [
-                *ssh_base(plan),
-                "powershell",
-                "-NoProfile",
-                "-NonInteractive",
-                "-EncodedCommand",
-                powershell_encoded(hash_script),
-            ]
-            timeout_seconds = plan.upload_hash_timeout_seconds
-        elif step == "server_directory_claim":
-            command = nested_ssh(plan, "bash", "-s")
-            input_bytes = remote_empty_directory_guard(plan.project).encode(
-                "utf-8"
-            )
-        elif step == "windows_to_server_copy":
-            windows_files = [
-                f"{plan.windows_dir}\\{path.name}" for path in plan.files
-            ]
-            command = [
-                *ssh_base(plan),
-                "scp",
-                "-F",
-                plan.windows_server_config,
-                *windows_files,
-                f"{plan.server_alias}:{plan.remote_dir}/",
-            ]
-            timeout_seconds = plan.upload_timeout_seconds
-        elif step == "qsub_once":
-            submit_script = remote_existing_directory_guard(plan.project) + f"""
+        state = self._bound_effect_state()
+
+        def invoke_fixed_effect() -> _LegacyEffectResult | _LegacyEffectFailure:
+            plan = self._plan
+            input_bytes: bytes | None = None
+            check = True
+            timeout_seconds = DEFAULT_COMMAND_TIMEOUT_SECONDS
+            if step == "windows_directory_claim":
+                mkdir_script = (
+                    f"if(Test-Path -LiteralPath '{plan.windows_dir}'){{exit 43}};"
+                    f"New-Item -ItemType Directory -Path '{plan.windows_dir}' "
+                    "-ErrorAction Stop | Out-Null"
+                )
+                command = [
+                    *ssh_base(plan),
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-EncodedCommand",
+                    powershell_encoded(mkdir_script),
+                ]
+            elif step == "mac_to_windows_copy":
+                windows_dir_scp = plan.windows_dir.replace("\\", "/")
+                command = [
+                    "scp",
+                    "-F",
+                    str(Path(plan.mac_ssh_config).expanduser()),
+                    *map(str, plan.files),
+                    f"{plan.rtwin_alias}:{windows_dir_scp}/",
+                ]
+                timeout_seconds = plan.upload_timeout_seconds
+            elif step == "windows_sha256":
+                ps_paths = ",".join(
+                    f"'{plan.windows_dir}\\{name}'"
+                    for name, _digest in plan.expected_bindings
+                )
+                hash_script = (
+                    f"$files=@({ps_paths}); foreach($f in $files){{"
+                    "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
+                    "Write-Output ((Split-Path $f -Leaf)+' '+$h)}"
+                )
+                command = [
+                    *ssh_base(plan),
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-EncodedCommand",
+                    powershell_encoded(hash_script),
+                ]
+                timeout_seconds = plan.upload_hash_timeout_seconds
+            elif step == "server_directory_claim":
+                command = nested_ssh(plan, "bash", "-s")
+                input_bytes = remote_empty_directory_guard(plan.project).encode(
+                    "utf-8"
+                )
+            elif step == "windows_to_server_copy":
+                windows_files = [
+                    f"{plan.windows_dir}\\{path.name}" for path in plan.files
+                ]
+                command = [
+                    *ssh_base(plan),
+                    "scp",
+                    "-F",
+                    plan.windows_server_config,
+                    *windows_files,
+                    f"{plan.server_alias}:{plan.remote_dir}/",
+                ]
+                timeout_seconds = plan.upload_timeout_seconds
+            elif step == "qsub_once":
+                submit_script = remote_existing_directory_guard(plan.project) + f"""
 cd {plan.remote_dir}
 sha256sum -c checksums.sha256
 if [ -e submission-receipt.json ]; then
@@ -5082,31 +5156,40 @@ if ! ln "$receipt_tmp" submission-receipt.json; then
 fi
 printf '%s\n' "$job_id"
 """
-            command = nested_ssh(plan, "bash", "-l", "-s")
-            input_bytes = submit_script.encode("utf-8")
-            check = False
-        else:
-            fail("legacy raw effect owner received an unknown fixed step")
-        try:
-            completed = run(
-                command,
-                input_bytes=input_bytes,
-                check=check,
-                timeout_seconds=timeout_seconds,
-            )
-        except BaseException as exc:
+                command = nested_ssh(plan, "bash", "-l", "-s")
+                input_bytes = submit_script.encode("utf-8")
+                check = False
+            else:
+                fail("legacy raw effect owner received an unknown fixed step")
+            try:
+                completed = run(
+                    command,
+                    input_bytes=input_bytes,
+                    check=check,
+                    timeout_seconds=timeout_seconds,
+                )
+            except BaseException as exc:
+                object.__setattr__(state, "_terminal_failed", True)
+                return _issue_legacy_effect_observation(
+                    _LegacyEffectFailure,
+                    step,
+                    exc,
+                    _owner_token=_LEGACY_EFFECT_OWNER_TOKEN,
+                )
             return _issue_legacy_effect_observation(
-                _LegacyEffectFailure,
+                _LegacyEffectResult,
                 step,
-                exc,
+                completed,
                 _owner_token=_LEGACY_EFFECT_OWNER_TOKEN,
             )
-        return _issue_legacy_effect_observation(
-            _LegacyEffectResult,
-            step,
-            completed,
-            _owner_token=_LEGACY_EFFECT_OWNER_TOKEN,
-        )
+
+        with state._lock:
+            self._assert_dispatch(state, step, _effect_token)
+            try:
+                return invoke_fixed_effect()
+            except BaseException:
+                object.__setattr__(state, "_terminal_failed", True)
+                raise
 
     def claim_windows_directory_once(
         self,
@@ -5219,8 +5302,15 @@ def _legacy_raw_effect_owner_from_plan(
     plan._assert_owner_sealed()
     value = object.__new__(_LegacyRawEffectOwner)
     object.__setattr__(value, "_plan", plan)
-    object.__setattr__(value, "_next_step", 0)
     object.__setattr__(value, "_owner_seal", _LEGACY_EFFECT_OWNER_TOKEN)
+    state = object.__new__(_LegacyEffectOwnerState)
+    object.__setattr__(state, "_lock", threading.Lock())
+    object.__setattr__(state, "_next_step", 0)
+    object.__setattr__(state, "_owner", value)
+    object.__setattr__(state, "_terminal_failed", False)
+    object.__setattr__(state, "_factory_seal", _LEGACY_EFFECT_STATE_TOKEN)
+    object.__setattr__(value, "_effect_state", state)
+    state._assert_bound(value)
     return value
 
 

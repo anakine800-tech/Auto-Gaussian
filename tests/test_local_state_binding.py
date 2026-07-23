@@ -537,6 +537,7 @@ class LocalStateBindingTests(unittest.TestCase):
                 "protected_invocation_mechanical_extraction.json",
                 "legacy_transaction_owner_mechanical_extraction.json",
                 "legacy_effect_owner_mechanical_extraction.json",
+                "legacy_effect_owner_concurrency_fix.json",
             )
         ]
         for relative, expected in manifest["files"].items():

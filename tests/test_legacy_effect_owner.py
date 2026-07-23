@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import contextlib
 import hashlib
 import importlib.util
@@ -11,12 +12,15 @@ import io
 import inspect
 import json
 import os
+import pickle
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import types
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
@@ -28,7 +32,12 @@ MECHANICAL_FIXTURE = (
     ROOT
     / "tests/fixtures/rtwin_pbs/legacy_effect_owner_mechanical_extraction.json"
 )
+CONCURRENCY_FIXTURE = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/legacy_effect_owner_concurrency_fix.json"
+)
 BASE_COMMIT = "fc7b59dc6c280db6cdba435ae7e11f27cf30dd19"
+PR4J_COMMIT = "9f9190a201acc148bdcee134a71ec3f1e3e983cb"
 PLACEHOLDER_RUNTIME_CONFIG = (
     Path("/private/tmp")
     / "auto-g16-pr4j-placeholder-runtime-config-does-not-exist.json"
@@ -40,16 +49,24 @@ sys.path.insert(0, str(SCRIPTS))
 import legacy_rtwin_pbs as legacy  # noqa: E402
 
 
-def _base_source() -> bytes:
+def _source_at(commit: str) -> bytes:
     return subprocess.run(
         [
             "git",
             "show",
-            f"{BASE_COMMIT}:skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py",
+            f"{commit}:skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py",
         ],
         check=True,
         capture_output=True,
     ).stdout
+
+
+def _base_source() -> bytes:
+    return _source_at(BASE_COMMIT)
+
+
+def _pr4j_source() -> bytes:
+    return _source_at(PR4J_COMMIT)
 
 
 def _load_source(name: str, path: Path) -> types.ModuleType:
@@ -446,6 +463,59 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
     raise AssertionError(f"missing function {name}")
 
 
+def _make_raw_owner(
+    module: types.ModuleType,
+    root: Path,
+    *,
+    project: str,
+) -> object:
+    source = root / f"{project}.gjf"
+    source.write_bytes(b"# synthetic raw effect owner concurrency fixture\n")
+    ssh_config = root / "placeholder-ssh-config"
+    ssh_config.write_text("Host placeholder\n", encoding="utf-8")
+    digest = module.sha256(source)
+    plan = object.__new__(module._LegacyEffectPlan)
+    fields = {
+        "project": project,
+        "windows_dir": rf"C:\GaussianProjects\{project}",
+        "remote_dir": module.remote_project_dir(project),
+        "files": (source,),
+        "expected_bindings": ((source.name, digest),),
+        "upload_timeout_seconds": 60,
+        "upload_hash_timeout_seconds": 60,
+        "attempt_id": f"{project}-attempt",
+        "input_sha256": digest,
+        "mac_ssh_config": str(ssh_config),
+        "rtwin_alias": "rtwin",
+        "windows_server_config": r".ssh\gaussian_server_config",
+        "server_alias": "gaussian-server",
+        "_owner_seal": module._LEGACY_EFFECT_OWNER_TOKEN,
+    }
+    for name, value in fields.items():
+        object.__setattr__(plan, name, value)
+    plan._assert_owner_sealed()
+    return module._legacy_raw_effect_owner_from_plan(
+        plan,
+        _factory_token=module._LEGACY_EFFECT_OWNER_TOKEN,
+    )
+
+
+def _call_owner_step(
+    module: types.ModuleType,
+    owner: object,
+    method: str,
+) -> tuple[str, object]:
+    try:
+        return (
+            "result",
+            getattr(owner, method)(
+                _effect_token=module._LEGACY_EFFECT_OWNER_TOKEN,
+            ),
+        )
+    except BaseException as exc:
+        return ("exception", exc)
+
+
 class LegacyEffectOwnerTests(unittest.TestCase):
     maxDiff = None
 
@@ -458,6 +528,9 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         cls.base_path = cls.root / "legacy-effect-base.py"
         cls.base_path.write_bytes(_base_source())
         cls.base = _load_source("auto_g16_pr4j_effect_base", cls.base_path)
+        cls.pr4j_path = cls.root / "legacy-effect-pr4j.py"
+        cls.pr4j_path.write_bytes(_pr4j_source())
+        cls.pr4j = _load_source("auto_g16_pr4j_effect_race", cls.pr4j_path)
         cls.candidate = legacy
 
     @classmethod
@@ -562,7 +635,7 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         ):
             self.assertEqual(calls.count(method), 1)
 
-    def test_successor_fixture_binds_exact_base_and_candidate_source(self) -> None:
+    def test_historical_fixture_keeps_exact_pr4j_bytes_frozen(self) -> None:
         fixture = json.loads(MECHANICAL_FIXTURE.read_text(encoding="utf-8"))
         self.assertEqual(fixture["base_commit"], BASE_COMMIT)
         binding = fixture["files"][
@@ -573,10 +646,29 @@ class LegacyEffectOwnerTests(unittest.TestCase):
             binding["before_sha256"],
         )
         self.assertEqual(
-            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            hashlib.sha256(_pr4j_source()).hexdigest(),
             binding["after_sha256"],
         )
         self.assertFalse(binding["legacy_semantics_changed"])
+        self.assertFalse(binding["behavior_parity"]["automatic_retry"])
+        self.assertFalse(binding["behavior_parity"]["live_actions"])
+
+    def test_concurrency_successor_binds_pr4j_and_current_source(self) -> None:
+        fixture = json.loads(CONCURRENCY_FIXTURE.read_text(encoding="utf-8"))
+        self.assertEqual(fixture["base_commit"], PR4J_COMMIT)
+        binding = fixture["files"][
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+        ]
+        self.assertEqual(
+            hashlib.sha256(_pr4j_source()).hexdigest(),
+            binding["before_sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            binding["after_sha256"],
+        )
+        self.assertTrue(binding["concurrency_semantics_changed"])
+        self.assertFalse(binding["behavior_parity"]["command_bytes_changed"])
         self.assertFalse(binding["behavior_parity"]["automatic_retry"])
         self.assertFalse(binding["behavior_parity"]["live_actions"])
 
@@ -625,6 +717,399 @@ class LegacyEffectOwnerTests(unittest.TestCase):
                 ).parameters
             ),
             ("self", "step", "_effect_token"),
+        )
+
+    def test_pr4j_race_reproduces_two_same_step_effects_before_fix(self) -> None:
+        owner = _make_raw_owner(
+            self.pr4j,
+            self.root,
+            project="oldrace",
+        )
+        dispatch = self.pr4j._LegacyRawEffectOwner._assert_dispatch
+        source_lines, first_line = inspect.getsourcelines(dispatch)
+        target_line = first_line + next(
+            index
+            for index, line in enumerate(source_lines)
+            if 'object.__setattr__(self, "_next_step"' in line
+        )
+        before_write = threading.Barrier(2)
+        call_lock = threading.Lock()
+        calls: list[list[str]] = []
+
+        def trace(frame: types.FrameType, event: str, arg: object) -> object:
+            if (
+                event == "line"
+                and frame.f_code is dispatch.__code__
+                and frame.f_lineno == target_line
+            ):
+                before_write.wait(timeout=5)
+            return trace
+
+        def recording_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            with call_lock:
+                calls.append(list(command))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        previous_trace = threading.gettrace()
+        threading.settrace(trace)
+        try:
+            with mock.patch.object(
+                self.pr4j,
+                "run",
+                side_effect=recording_runner,
+            ), ThreadPoolExecutor(max_workers=2) as pool:
+                outcomes = [
+                    future.result(timeout=5)
+                    for future in (
+                        pool.submit(
+                            _call_owner_step,
+                            self.pr4j,
+                            owner,
+                            "claim_windows_directory_once",
+                        ),
+                        pool.submit(
+                            _call_owner_step,
+                            self.pr4j,
+                            owner,
+                            "claim_windows_directory_once",
+                        ),
+                    )
+                ]
+        finally:
+            threading.settrace(previous_trace)
+        self.assertEqual([kind for kind, _value in outcomes], ["result", "result"])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(owner._next_step, 1)
+
+    def test_same_step_concurrency_reaches_runner_at_most_once(self) -> None:
+        owner = _make_raw_owner(self.candidate, self.root, project="onerun")
+        start = threading.Barrier(3)
+        runner_entered = threading.Event()
+        release_runner = threading.Event()
+        call_lock = threading.Lock()
+        calls: list[list[str]] = []
+
+        def recording_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            with call_lock:
+                calls.append(list(command))
+            runner_entered.set()
+            self.assertTrue(release_runner.wait(timeout=5))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        def invoke() -> tuple[str, object]:
+            start.wait(timeout=5)
+            return _call_owner_step(
+                self.candidate,
+                owner,
+                "claim_windows_directory_once",
+            )
+
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=recording_runner,
+        ), ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(invoke), pool.submit(invoke)]
+            start.wait(timeout=5)
+            self.assertTrue(runner_entered.wait(timeout=5))
+            self.assertEqual(len(calls), 1)
+            release_runner.set()
+            outcomes = [future.result(timeout=5) for future in futures]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            sorted(kind for kind, _value in outcomes),
+            ["exception", "result"],
+        )
+        refusal = next(value for kind, value in outcomes if kind == "exception")
+        self.assertIsInstance(refusal, SystemExit)
+
+    def test_consecutive_steps_cannot_reorder_or_overlap(self) -> None:
+        owner = _make_raw_owner(self.candidate, self.root, project="ordered")
+        first_entered = threading.Event()
+        release_first = threading.Event()
+        second_attempted = threading.Event()
+        second_entered = threading.Event()
+        call_lock = threading.Lock()
+        calls = 0
+        active = 0
+        max_active = 0
+
+        def recording_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls, active, max_active
+            with call_lock:
+                index = calls
+                calls += 1
+                active += 1
+                max_active = max(max_active, active)
+            if index == 0:
+                first_entered.set()
+                self.assertTrue(release_first.wait(timeout=5))
+            else:
+                second_entered.set()
+            with call_lock:
+                active -= 1
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        def invoke_second() -> tuple[str, object]:
+            second_attempted.set()
+            return _call_owner_step(
+                self.candidate,
+                owner,
+                "copy_mac_to_windows_once",
+            )
+
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=recording_runner,
+        ), ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(
+                _call_owner_step,
+                self.candidate,
+                owner,
+                "claim_windows_directory_once",
+            )
+            self.assertTrue(first_entered.wait(timeout=5))
+            second = pool.submit(invoke_second)
+            self.assertTrue(second_attempted.wait(timeout=5))
+            self.assertFalse(second_entered.is_set())
+            self.assertEqual(calls, 1)
+            release_first.set()
+            outcomes = [
+                first.result(timeout=5),
+                second.result(timeout=5),
+            ]
+        self.assertEqual([kind for kind, _value in outcomes], ["result", "result"])
+        self.assertTrue(second_entered.is_set())
+        self.assertEqual(calls, 2)
+        self.assertEqual(max_active, 1)
+
+    def test_baseexception_is_terminal_and_lock_is_released(self) -> None:
+        owner = _make_raw_owner(self.candidate, self.root, project="terminal")
+        calls = 0
+
+        class FatalEffect(BaseException):
+            pass
+
+        failure = FatalEffect("synthetic fatal effect")
+
+        def fatal_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls
+            calls += 1
+            raise failure
+
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=fatal_runner,
+        ):
+            kind, observation = _call_owner_step(
+                self.candidate,
+                owner,
+                "claim_windows_directory_once",
+            )
+            self.assertEqual(kind, "result")
+            self.assertIsInstance(observation, self.candidate._LegacyEffectFailure)
+            self.assertIs(observation.exception, failure)
+            retry = _call_owner_step(
+                self.candidate,
+                owner,
+                "claim_windows_directory_once",
+            )
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                next_step = pool.submit(
+                    _call_owner_step,
+                    self.candidate,
+                    owner,
+                    "copy_mac_to_windows_once",
+                ).result(timeout=5)
+        self.assertEqual(calls, 1)
+        self.assertEqual(retry[0], "exception")
+        self.assertEqual(next_step[0], "exception")
+        self.assertIsInstance(retry[1], SystemExit)
+        self.assertIsInstance(next_step[1], SystemExit)
+        self.assertTrue(owner._effect_state._terminal_failed)
+
+    def test_different_owners_have_independent_effect_locks(self) -> None:
+        first_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="ownerone",
+        )
+        second_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="ownertwo",
+        )
+        first_entered = threading.Event()
+        release_first = threading.Event()
+        second_entered = threading.Event()
+        call_lock = threading.Lock()
+        calls = 0
+
+        def recording_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls
+            with call_lock:
+                index = calls
+                calls += 1
+            if index == 0:
+                first_entered.set()
+                self.assertTrue(release_first.wait(timeout=5))
+            else:
+                second_entered.set()
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=recording_runner,
+        ), ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(
+                _call_owner_step,
+                self.candidate,
+                first_owner,
+                "claim_windows_directory_once",
+            )
+            self.assertTrue(first_entered.wait(timeout=5))
+            second = pool.submit(
+                _call_owner_step,
+                self.candidate,
+                second_owner,
+                "claim_windows_directory_once",
+            )
+            self.assertTrue(second_entered.wait(timeout=5))
+            self.assertEqual(second.result(timeout=5)[0], "result")
+            release_first.set()
+            self.assertEqual(first.result(timeout=5)[0], "result")
+        self.assertEqual(calls, 2)
+        self.assertIsNot(
+            first_owner._effect_state._lock,
+            second_owner._effect_state._lock,
+        )
+
+    def test_state_forgery_copy_and_pickle_fail_before_effect(self) -> None:
+        owner = _make_raw_owner(self.candidate, self.root, project="sealed")
+        with self.assertRaises(TypeError):
+            self.candidate._LegacyEffectOwnerState()
+        for operation in (
+            lambda: copy.copy(owner),
+            lambda: copy.deepcopy(owner),
+            lambda: pickle.dumps(owner),
+        ):
+            with self.subTest(operation=operation), self.assertRaises(TypeError):
+                operation()
+
+        calls = 0
+
+        def recording_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls
+            calls += 1
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        forged_owners = []
+        missing_state = object.__new__(self.candidate._LegacyRawEffectOwner)
+        object.__setattr__(missing_state, "_plan", owner._plan)
+        object.__setattr__(
+            missing_state,
+            "_owner_seal",
+            self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+        )
+        forged_owners.append(missing_state)
+
+        copied_state = object.__new__(self.candidate._LegacyRawEffectOwner)
+        object.__setattr__(copied_state, "_plan", owner._plan)
+        object.__setattr__(
+            copied_state,
+            "_owner_seal",
+            self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+        )
+        object.__setattr__(copied_state, "_effect_state", owner._effect_state)
+        forged_owners.append(copied_state)
+
+        for seal, lock in (
+            (object(), threading.Lock()),
+            (self.candidate._LEGACY_EFFECT_STATE_TOKEN, object()),
+        ):
+            forged = object.__new__(self.candidate._LegacyRawEffectOwner)
+            object.__setattr__(forged, "_plan", owner._plan)
+            object.__setattr__(
+                forged,
+                "_owner_seal",
+                self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+            )
+            state = object.__new__(self.candidate._LegacyEffectOwnerState)
+            object.__setattr__(state, "_lock", lock)
+            object.__setattr__(state, "_next_step", 0)
+            object.__setattr__(state, "_owner", forged)
+            object.__setattr__(state, "_terminal_failed", False)
+            object.__setattr__(state, "_factory_seal", seal)
+            object.__setattr__(forged, "_effect_state", state)
+            forged_owners.append(forged)
+
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=recording_runner,
+        ):
+            outcomes = [
+                _call_owner_step(
+                    self.candidate,
+                    forged,
+                    "claim_windows_directory_once",
+                )
+                for forged in forged_owners
+            ]
+        self.assertEqual(calls, 0)
+        self.assertEqual(
+            [kind for kind, _value in outcomes],
+            ["exception"] * len(forged_owners),
+        )
+        self.assertTrue(
+            all(isinstance(value, SystemExit) for _kind, value in outcomes)
+        )
+        self.assertEqual(
+            tuple(
+                inspect.signature(
+                    self.candidate._legacy_raw_effect_owner_from_plan
+                ).parameters
+            ),
+            ("plan", "_factory_token"),
         )
 
     def test_recording_success_matches_exact_calls_and_artifact_bytes(
