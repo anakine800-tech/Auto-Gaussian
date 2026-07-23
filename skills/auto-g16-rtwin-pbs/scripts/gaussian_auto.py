@@ -270,7 +270,9 @@ def add_prepare_options(parser: argparse.ArgumentParser) -> None:
         help=(
             f"owner-validated {transport.INPUT_APPROVAL_SCHEMA} for ordinary/closed-shell minimum, "
             f"or fully replayed {transport.OPEN_SHELL_INPUT_APPROVAL_SCHEMA} for legacy open-shell minimum, "
-            f"or {transport.OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA} for one two-stage family member"
+            f"or {transport.OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA} for one two-stage family member, "
+            f"or {transport.FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA} for one F-only non-scan "
+            "constrained preoptimization"
         ),
     )
     transport.add_scientific_maturity_options(parser)
@@ -287,7 +289,10 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument("--confirmed", action="store_true")
     auto.add_argument(
         "--approval-record",
-        help="resource-bound one-time live approval /9, /10, or /11 for protected submit",
+        help=(
+            "resource-bound one-time live approval /9, /10, /11, or /12 "
+            "for protected submit"
+        ),
     )
     auto.add_argument("--execution-batch-ledger")
     auto.add_argument("--scientific-task-id")

@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -40,6 +41,18 @@ def dump(path: Path, value: dict) -> None:
 
 
 class FixedConstraintInputApprovalTests(unittest.TestCase):
+    def test_one_command_help_names_specialist_receipt_and_live_contract(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "gaussian_auto.py"), "auto", "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        normalized_help = " ".join(result.stdout.split()).replace("- ", "-")
+        self.assertIn("gaussian-input-approval-receipt/4", normalized_help)
+        self.assertIn("/9, /10, /11, or /12", normalized_help)
+
     def build_protocol(self, root: Path) -> tuple[Path, Path, dict, dict]:
         request = PROTOCOL_TEST.request_fixture()
         request.update(

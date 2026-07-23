@@ -152,7 +152,7 @@ AUTO="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py"
   --project example --local-dir /path/to/outputs/example \
   --work-kind minimum \
   --input-approval-record /path/to/exact-input-approval.json \
-  --approval-record /path/to/resource-bound-live-approval-v9-v10-or-v11.json \
+  --approval-record /path/to/resource-bound-live-approval-v9-v10-v11-or-v12.json \
   --execution-batch-ledger /path/to/execution-batch-v3.json \
   --scientific-task-id scientific-task-<sha256> \
   --idempotency-key operator-attempt-key \
