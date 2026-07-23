@@ -11,9 +11,11 @@ import inspect
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import textwrap
 import types
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -105,7 +107,17 @@ class ProtectedInvocationContractTests(unittest.TestCase):
         )
         sealed = self.seal()
         sealed.assert_owner_sealed()
+        portable_before_replay = INVOCATION.canonical_bytes(
+            sealed.document()
+        )
         self.assert_current(sealed)
+        portable_after_replay = INVOCATION.canonical_bytes(
+            sealed.document()
+        )
+        self.assertEqual(
+            portable_after_replay,
+            portable_before_replay,
+        )
         after = sorted(
             path.relative_to(self.root)
             for path in self.root.rglob("*")
@@ -187,6 +199,276 @@ class ProtectedInvocationContractTests(unittest.TestCase):
                 for name in dir(sealed)
             )
         )
+        private_owner_snapshots = (
+            sealed._predecessor_owner_snapshots
+        )
+        self.assertEqual(
+            tuple(item.name for item in private_owner_snapshots),
+            (
+                "protected_submit_contract",
+                "local_state_binding",
+            ),
+        )
+        portable_text = portable_before_replay.decode("utf-8")
+        for item in private_owner_snapshots:
+            self.assertTrue(stat.S_ISREG(item.mode))
+            self.assertEqual(item.size, len(item.source_bytes))
+            self.assertEqual(
+                item.sha256,
+                hashlib.sha256(item.source_bytes).hexdigest(),
+            )
+            for field_name in (
+                "device",
+                "inode",
+                "uid",
+                "mode",
+                "size",
+                "mtime_ns",
+                "ctime_ns",
+            ):
+                self.assertIsInstance(getattr(item, field_name), int)
+            self.assertNotIn(str(item.canonical_path), portable_text)
+            self.assertNotIn(item.sha256, portable_text)
+
+    def test_relocated_owner_files_fail_closed_on_all_identity_drift(
+        self,
+    ) -> None:
+        archive_root = self.root / "exact-source-layout"
+        shutil.copytree(
+            ROOT,
+            archive_root,
+            symlinks=True,
+            ignore=shutil.ignore_patterns(
+                ".git",
+                "__pycache__",
+                "*.pyc",
+                ".DS_Store",
+            ),
+        )
+        expected_hashes = {
+            "protected_submit_contract.py": (
+                "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a"
+            ),
+            "local_state_binding.py": (
+                "6a23eb9307fdf930d4055589dd08baff8dea9275470db7ea9154f6ffa324b6b5"
+            ),
+        }
+        for name, expected_hash in expected_hashes.items():
+            self.assertEqual(
+                hashlib.sha256(
+                    (archive_root / "scripts" / name).read_bytes()
+                ).hexdigest(),
+                expected_hash,
+            )
+
+        script = textwrap.dedent(
+            f"""
+            import hashlib
+            import json
+            import os
+            import sys
+            import tempfile
+            from pathlib import Path
+
+            root = Path({str(archive_root)!r})
+            sys.path[:0] = [
+                str(root),
+                str(root / "scripts"),
+                str(
+                    root
+                    / "skills"
+                    / "auto-g16-rtwin-pbs"
+                    / "scripts"
+                ),
+            ]
+            import protected_invocation_contract as invocation
+            from tests import test_protected_invocation_contract as support
+
+            owner_paths = {{
+                "protected_submit_contract": (
+                    root / "scripts" / "protected_submit_contract.py"
+                ),
+                "local_state_binding": (
+                    root / "scripts" / "local_state_binding.py"
+                ),
+            }}
+            pristine = {{
+                name: path.read_bytes()
+                for name, path in owner_paths.items()
+            }}
+            cases = [
+                ("protected_submit_contract", "atomic_comment"),
+                ("local_state_binding", "atomic_comment"),
+                ("protected_submit_contract", "same_bytes_atomic"),
+                ("local_state_binding", "same_bytes_atomic"),
+                ("protected_submit_contract", "in_place_same_size"),
+                ("local_state_binding", "in_place_same_size"),
+                ("protected_submit_contract", "symlink"),
+                ("local_state_binding", "symlink"),
+                ("protected_submit_contract", "replace_during_read"),
+                ("local_state_binding", "short_read"),
+            ]
+
+            def restore(name):
+                path = owner_paths[name]
+                if path.is_symlink():
+                    path.unlink()
+                replacement = path.with_name(path.name + ".restore")
+                replacement.write_bytes(pristine[name])
+                os.replace(replacement, path)
+                real = path.with_name(path.name + ".real")
+                if real.exists():
+                    real.unlink()
+
+            def mutate(name, case):
+                path = owner_paths[name]
+                data = pristine[name]
+                if case in {{"atomic_comment", "same_bytes_atomic"}}:
+                    replacement = path.with_name(path.name + ".replacement")
+                    replacement.write_bytes(
+                        data
+                        if case == "same_bytes_atomic"
+                        else data + b"\\n# no-semantic owner drift\\n"
+                    )
+                    os.replace(replacement, path)
+                    return None
+                if case == "in_place_same_size":
+                    marker = b"Owner" if b"Owner" in data else b"ownership"
+                    offset = data.index(marker)
+                    with path.open("r+b") as handle:
+                        handle.seek(offset)
+                        original = handle.read(1)
+                        handle.seek(offset)
+                        handle.write(original.swapcase())
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    return None
+                if case == "symlink":
+                    real = path.with_name(path.name + ".real")
+                    real.write_bytes(data)
+                    path.unlink()
+                    path.symlink_to(real.name)
+                    return None
+
+                original_read = invocation.os.read
+                target = os.stat(path, follow_symlinks=False)
+                triggered = False
+
+                def boundary_read(descriptor, size):
+                    nonlocal triggered
+                    chunk = original_read(descriptor, size)
+                    current = os.fstat(descriptor)
+                    is_target = (
+                        current.st_dev == target.st_dev
+                        and current.st_ino == target.st_ino
+                    )
+                    if is_target and chunk and not triggered:
+                        triggered = True
+                        if case == "replace_during_read":
+                            replacement = path.with_name(
+                                path.name + ".during-read"
+                            )
+                            replacement.write_bytes(
+                                data + b"\\n# replaced during read\\n"
+                            )
+                            os.replace(replacement, path)
+                        else:
+                            return chunk[:-1]
+                    return chunk
+
+                invocation.os.read = boundary_read
+                return original_read
+
+            results = []
+            with tempfile.TemporaryDirectory(
+                prefix="auto-g16-owner-layout-positive-"
+            ) as positive_root:
+                fixture = support.ProtectedInvocationFixture(
+                    Path(positive_root).resolve()
+                )
+                try:
+                    sealed = fixture.owner().seal(fixture.evidence)
+                    before = invocation.canonical_bytes(sealed.document())
+                    invocation._utc_now = lambda: support.PROTECTED_SUPPORT.parse_utc(
+                        support.PROTECTED_SUPPORT.NOW
+                    )
+                    sealed.assert_current()
+                    after = invocation.canonical_bytes(sealed.document())
+                    assert before == after
+                finally:
+                    fixture.close()
+
+            for name, case in cases:
+                restore(name)
+                with tempfile.TemporaryDirectory(
+                    prefix=f"auto-g16-owner-layout-{{case}}-"
+                ) as fixture_root:
+                    fixture = support.ProtectedInvocationFixture(
+                        Path(fixture_root).resolve()
+                    )
+                    original_read = None
+                    try:
+                        sealed = fixture.owner().seal(fixture.evidence)
+                        invocation._utc_now = (
+                            lambda: support.PROTECTED_SUPPORT.parse_utc(
+                                support.PROTECTED_SUPPORT.NOW
+                            )
+                        )
+                        original_read = mutate(name, case)
+                        try:
+                            sealed.assert_current()
+                        except invocation.ProtectedInvocationError:
+                            results.append((name, case, "rejected"))
+                        else:
+                            raise AssertionError(
+                                f"owner drift accepted: {{name}} {{case}}"
+                            )
+                    finally:
+                        if original_read is not None:
+                            invocation.os.read = original_read
+                        fixture.close()
+                        restore(name)
+
+            print(json.dumps(results, sort_keys=True))
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=archive_root,
+            text=True,
+            capture_output=True,
+            env={
+                **os.environ,
+                "AUTO_G16_RUNTIME_CONFIG": str(
+                    self.root
+                    / "absent-owner-layout-placeholder-runtime.json"
+                ),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rejected = json.loads(result.stdout)
+        self.assertEqual(len(rejected), 10)
+        self.assertEqual(
+            {item[2] for item in rejected},
+            {"rejected"},
+        )
+
+    def test_owner_stable_reads_restore_file_descriptors(self) -> None:
+        fd_directory = (
+            Path("/dev/fd")
+            if Path("/dev/fd").is_dir()
+            else Path("/proc/self/fd")
+        )
+        if not fd_directory.is_dir():
+            self.skipTest("file-descriptor inventory is unavailable")
+        before = len(tuple(fd_directory.iterdir()))
+        for _ in range(25):
+            snapshots = (
+                INVOCATION._capture_predecessor_owner_snapshots()
+            )
+            self.assertEqual(len(snapshots), 2)
+        after = len(tuple(fd_directory.iterdir()))
+        self.assertEqual(after, before)
 
     def test_public_input_has_no_free_path_stage_or_effect_surface(self) -> None:
         self.assertEqual(
