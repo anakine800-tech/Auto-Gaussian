@@ -13,32 +13,36 @@
   },
   "files": {
     "scripts/protected_lifecycle_contract.py": {
-      "sha256": "caaf12b860a1bbee95205f78d6425d9e1dbb25d367842ba0a83c18c5dc7a5f94",
-      "change_class": "exact_typed_pr4f_owner_sealed_read_only_lifecycle_contract"
+      "sha256": "572cc52623ed7a7b2df3f2fe9c217a6ef6a3715c2f7a6eff7f5ae09c90c4b245",
+      "change_class": "exact_class_identity_owner_snapshot_semantic_lifecycle_seal"
     },
     "contracts/execution/protected-lifecycle-contract.schema.json": {
-      "sha256": "17e33de4fb866ff2a69fd2b0e9e2552ceb9bb8178d015a5742692ea1a826d5dd",
-      "change_class": "draft_2020_12_closed_non_executable_lifecycle_schema"
+      "sha256": "4c35ba32a68dec53008af03a56057056b1016d2e5fc6b5210df07429457d6fc6",
+      "change_class": "draft_2020_12_structural_projection_only_schema"
     },
     "docs/v2.6-protected-lifecycle-contract.md": {
-      "sha256": "916f6ea40c8afe02c85a6733ee21164f5b4b043f97058aa95d02e04b7e3a2640",
-      "change_class": "gap_matrix_owner_map_and_recovery_gates"
+      "sha256": "5a8c363ba05a0818997718221723ff7aadae5ca7285a9896fdcf4b603720a1a0",
+      "change_class": "honest_validation_layers_owner_snapshot_and_recovery_gates"
     },
     "skills/auto-g16-rtwin-pbs/references/protected-lifecycle-contract.md": {
-      "sha256": "897ff976208d016c4ca7a061c2f265146a9afba96c5ee58a0560b3ab78c04a7a",
-      "change_class": "packaged_non_executable_contract_reference"
+      "sha256": "42d9602bedb627f44c5e903e82b4e732c0b099e0a1da8f4b6b8d04c962ee125b",
+      "change_class": "packaged_structural_semantic_boundary_reference"
     },
     "skills/auto-g16-rtwin-pbs/SKILL.md": {
       "sha256": "87f20a354ce0d4234affcf83cc2cdf99e5ebed72d3c063aea04ee4f0ec9f51e1",
       "change_class": "additive_reference_routing_only"
     },
+    "skills/auto-g16-rtwin-pbs/deployment-package.json": {
+      "sha256": "c812b3646969e17407e4406c5abfbd7b3f840693aa4def053d0f6ebe43d051ff",
+      "change_class": "additive_named_skill_owner_packaging"
+    },
     "tests/test_protected_lifecycle_contract.py": {
-      "sha256": "7621b5e4c98f813bee52419ac9644a88bd207ac2a15ee6a482b6e60c50ee7484",
-      "change_class": "focused_owner_adversarial_relocation_and_freeze_tests"
+      "sha256": "a0c301a5f770b673c0236b5428750f9d652ee02043c656fb1bfca67fcd982a5d",
+      "change_class": "exact_identity_snapshot_concurrency_relocation_and_freeze_tests"
     },
     "tests/test_protected_lifecycle_schema_draft202012.py": {
-      "sha256": "92460bbf6f140c94d79d86824aa4b02b7c4a754122e9eed24149f00e895e05b7",
-      "change_class": "bidirectional_real_draft_2020_12_tests"
+      "sha256": "47c357ba83703154c89d4eed161e2c0f542edcd6f51afa8660e4dfbe1fe81c68",
+      "change_class": "structural_acceptance_set_real_draft_2020_12_tests"
     }
   },
   "frozen_predecessors": {

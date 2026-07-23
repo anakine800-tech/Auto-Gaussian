@@ -7,14 +7,18 @@ import copy
 import dataclasses
 import hashlib
 import inspect
+import importlib.util
 import json
 import os
+import pickle
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 import types
 import unittest
 from pathlib import Path
@@ -31,6 +35,7 @@ sys.path.insert(0, str(ROOT_SCRIPTS))
 sys.path.insert(0, str(SKILL_SCRIPTS))
 
 import protected_lifecycle_contract as LIFECYCLE  # noqa: E402
+import skill_package  # noqa: E402
 from tests import test_protected_invocation_contract as SUPPORT  # noqa: E402
 
 
@@ -117,13 +122,15 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         document = sealed.document()
         self.assertEqual(document["schema"], LIFECYCLE.SCHEMA)
         self.assertEqual(
-            document["protected_invocation"],
-            document["closure"]
-            | {
-                key: document["protected_invocation"][key]
-                for key in document["protected_invocation"]
-                if key not in document["closure"]
-            },
+            document["validation"],
+            LIFECYCLE.VALIDATION_LAYERS,
+        )
+        self.assertNotIn("protected_invocation", document)
+        self.assertNotIn("predecessor", document)
+        self.assertNotIn("closure", document)
+        self.assertEqual(
+            LIFECYCLE.validate_protected_lifecycle_structure(document),
+            document,
         )
         self.assertEqual(
             document["protected_submit_order"],
@@ -215,17 +222,27 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                     LIFECYCLE.ProtectedLifecycleError
                 ):
                     self.fixture.owner().seal(value)  # type: ignore[arg-type]
-        lookalike = dataclasses.make_dataclass(
+        namespace: dict[str, object] = {}
+        exec(
+            compile(
+                "def snapshot(self):\n    return self\n",
+                str(LIFECYCLE._adjacent_invocation_path()),
+                "exec",
+            ),
+            namespace,
+        )
+        lookalike_type = dataclasses.make_dataclass(
             "ProtectedInvocationEvidence",
             (
                 ("protected_submit_evidence", object),
                 ("local_state_evidence", object),
             ),
             namespace={
-                "__module__": "protected_invocation_contract",
-                "snapshot": lambda self: self,
+                "snapshot": namespace["snapshot"],
             },
-        )(
+        )
+        lookalike_type.__module__ = LIFECYCLE.INVOCATION_OWNER_NAME
+        lookalike = lookalike_type(
             self.fixture.invocation.protected_evidence,
             self.fixture.invocation.local.evidence,
         )
@@ -245,6 +262,17 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
             evidence_parameters,
             ("protected_invocation_evidence",),
         )
+        source = inspect.getsource(
+            LIFECYCLE._typed_invocation_evidence
+        )
+        for forbidden_identity in (
+            "__module__",
+            "__name__",
+            "__qualname__",
+            "__dataclass_fields__",
+            "co_filename",
+        ):
+            self.assertNotIn(forbidden_identity, source)
         source = inspect.getsource(LIFECYCLE)
         for forbidden in (
             "import legacy_rtwin_pbs",
@@ -272,6 +300,19 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         self.assertTrue(testing._testing)
         self.assertIs(production._clock, LIFECYCLE._utc_now)
         self.assertIsNot(testing._clock, LIFECYCLE._utc_now)
+        import protected_invocation_contract as invocation
+
+        original = invocation._utc_now
+        with self.assertRaisesRegex(RuntimeError, "forced"):
+            with LIFECYCLE._bind_invocation_clock(
+                invocation,
+                SUPPORT.PROTECTED_SUPPORT.parse_utc(
+                    SUPPORT.PROTECTED_SUPPORT.NOW
+                ),
+            ):
+                self.assertIsNot(invocation._utc_now, original)
+                raise RuntimeError("forced")
+        self.assertIs(invocation._utc_now, original)
 
     def test_unknown_fields_flags_and_orders_fail_closed(self) -> None:
         document = self.seal().document()
@@ -301,64 +342,46 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 with self.assertRaises(
                     LIFECYCLE.ProtectedLifecycleError
                 ):
-                    LIFECYCLE.validate_protected_lifecycle_contract(
-                        LIFECYCLE.finalize(draft)
-                    )
+                    LIFECYCLE.validate_protected_lifecycle_structure(draft)
 
-    def test_identity_local_stage_and_predecessor_splices_fail(self) -> None:
-        document = self.seal().document()
+    def test_structural_splices_cannot_claim_owner_acceptance(self) -> None:
+        sealed = self.seal()
+        document = sealed.document()
         cases = []
 
         identity = copy.deepcopy(document)
-        identity["closure"]["identity"]["input_sha256"] = "0" * 64
+        identity["protected_invocation_projection"][
+            "invocation_id"
+        ] = "protected-invocation-" + "0" * 64
         cases.append(("identity", identity))
 
         local = copy.deepcopy(document)
-        local["closure"]["local_state"]["relative_local_dir"] = (
-            "outputs/other/"
-            + local["closure"]["identity"]["attempt_id"]
-        )
-        cases.append(("local-topology", local))
-
-        reorder = copy.deepcopy(document)
-        artifacts = reorder["closure"]["stage_plan"]["artifacts"]
-        artifacts[0], artifacts[1] = artifacts[1], artifacts[0]
-        cases.append(("stage-reorder", reorder))
+        local["protected_invocation_projection"][
+            "ledger_identity_sha256"
+        ] = "1" * 64
+        cases.append(("local-ledger-identity", local))
 
         stage_hash = copy.deepcopy(document)
-        stage_hash["closure"]["stage_plan"]["artifacts"][0][
-            "sha256"
+        stage_hash["protected_invocation_projection"][
+            "stage_manifest_sha256"
         ] = "1" * 64
         cases.append(("stage-hash", stage_hash))
 
-        stage_size = copy.deepcopy(document)
-        stage_size["closure"]["stage_plan"]["artifacts"][0][
-            "size_bytes"
-        ] += 1
-        cases.append(("stage-size", stage_size))
-
-        with tempfile.TemporaryDirectory(
-            prefix="auto-g16-protected-lifecycle-other-",
-            dir=TEST_TEMP_PARENT,
-        ) as other_root:
-            other = ProtectedLifecycleFixture(Path(other_root).resolve())
-            try:
-                other_document = other.owner().seal(
-                    other.evidence
-                ).document()
-            finally:
-                other.close()
-        predecessor = copy.deepcopy(document)
-        predecessor["predecessor"] = other_document["predecessor"]
-        cases.append(("separately-valid-predecessor", predecessor))
-
         for label, draft in cases:
             with self.subTest(label=label):
+                draft = LIFECYCLE._finalize_owner_projection(draft)
+                self.assertEqual(
+                    LIFECYCLE.validate_protected_lifecycle_structure(
+                        draft
+                    ),
+                    draft,
+                )
                 with self.assertRaises(
                     LIFECYCLE.ProtectedLifecycleError
                 ):
-                    LIFECYCLE.validate_protected_lifecycle_contract(
-                        LIFECYCLE.finalize(draft)
+                    LIFECYCLE._validate_owner_projection(
+                        draft,
+                        sealed.protected_invocation_bundle.document(),
                     )
 
     def test_nan_infinity_and_bool_as_integer_fail(self) -> None:
@@ -366,14 +389,14 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         for value in (True, float("nan"), float("inf"), float("-inf")):
             with self.subTest(value=repr(value)):
                 draft = copy.deepcopy(document)
-                draft["closure"]["ledger"][
-                    "artifact_size_bytes"
+                draft["protected_invocation_projection"][
+                    "stage_artifact_count"
                 ] = value
                 with self.assertRaises(
                     LIFECYCLE.ProtectedLifecycleError
                 ):
-                    LIFECYCLE.validate_protected_lifecycle_contract(
-                        LIFECYCLE.finalize(draft)
+                    LIFECYCLE.validate_protected_lifecycle_structure(
+                        draft
                     )
 
     def test_current_replay_rejects_local_and_stage_drift(self) -> None:
@@ -397,6 +420,213 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
             "(current replay failed closed|complete replay differs)",
         ):
             self.assert_current(resealed)
+
+    def test_owner_snapshot_isolated_from_caller_nested_mutation(self) -> None:
+        sealed = self.seal()
+        ledger = (
+            self.fixture.invocation.protected_evidence.execution_ledger
+        )
+        original_revision = ledger["revision"]
+        original_review_sha256 = ledger["batch"]["review_sha256"]
+        original_document = sealed.document()
+        try:
+            ledger["revision"] = original_revision + 1
+            ledger["batch"]["review_sha256"] = "0" * 64
+            self.assertEqual(sealed.document(), original_document)
+            self.assert_current(sealed)
+        finally:
+            ledger["revision"] = original_revision
+            ledger["batch"]["review_sha256"] = original_review_sha256
+
+    def test_caller_nested_mutation_before_seal_is_owner_rejected(
+        self,
+    ) -> None:
+        ledger = (
+            self.fixture.invocation.protected_evidence.execution_ledger
+        )
+        original_revision = ledger["revision"]
+        try:
+            ledger["revision"] = original_revision + 1
+            with self.assertRaises(
+                LIFECYCLE.ProtectedLifecycleError
+            ):
+                self.seal()
+        finally:
+            ledger["revision"] = original_revision
+
+    def test_seal_time_nested_mutation_fails_closed_deterministically(
+        self,
+    ) -> None:
+        evidence = self.fixture.invocation.evidence
+        ledger = (
+            self.fixture.invocation.protected_evidence.execution_ledger
+        )
+        original_revision = ledger["revision"]
+        original_deepcopy = copy.deepcopy
+
+        first_copied = threading.Event()
+        mutation_done = threading.Event()
+        top_level_copies = 0
+
+        def mutate_between_snapshots() -> None:
+            self.assertTrue(first_copied.wait(5))
+            ledger["revision"] = original_revision + 1
+            mutation_done.set()
+
+        def between_snapshots(value: object, memo: object = None) -> object:
+            nonlocal top_level_copies
+            if memo is None and value is evidence:
+                top_level_copies += 1
+                result = original_deepcopy(value)
+                if top_level_copies == 1:
+                    first_copied.set()
+                    self.assertTrue(mutation_done.wait(5))
+                return result
+            if memo is None:
+                return original_deepcopy(value)
+            return original_deepcopy(value, memo)
+
+        worker = threading.Thread(target=mutate_between_snapshots)
+        worker.start()
+        try:
+            with mock.patch.object(
+                LIFECYCLE.copy,
+                "deepcopy",
+                side_effect=between_snapshots,
+            ):
+                with self.assertRaisesRegex(
+                    LIFECYCLE.ProtectedLifecycleError,
+                    "changed during owner snapshot",
+                ):
+                    self.seal()
+        finally:
+            worker.join()
+            ledger["revision"] = original_revision
+
+        nested_copy_started = threading.Event()
+        nested_mutation_done = threading.Event()
+        nested_hook_used = threading.Event()
+
+        class HookedLedger(dict):
+            def __deepcopy__(self, memo: dict[int, object]) -> dict:
+                if not nested_hook_used.is_set():
+                    nested_hook_used.set()
+                    nested_copy_started.set()
+                    if not nested_mutation_done.wait(5):
+                        raise RuntimeError("nested mutation did not run")
+                return copy.deepcopy(dict(self), memo)
+
+        hooked_ledger = HookedLedger(ledger)
+        protected = dataclasses.replace(
+            self.fixture.invocation.protected_evidence,
+            execution_ledger=hooked_ledger,
+        )
+        local = dataclasses.replace(
+            self.fixture.invocation.local.evidence,
+            protected_submit_evidence=protected,
+        )
+        invocation = dataclasses.replace(
+            evidence,
+            protected_submit_evidence=protected,
+            local_state_evidence=local,
+        )
+        lifecycle_evidence = LIFECYCLE.ProtectedLifecycleEvidence(
+            invocation
+        )
+
+        def mutate_during_nested_copy() -> None:
+            self.assertTrue(nested_copy_started.wait(5))
+            hooked_ledger["revision"] = original_revision + 1
+            nested_mutation_done.set()
+
+        worker = threading.Thread(target=mutate_during_nested_copy)
+        worker.start()
+        try:
+            with self.assertRaises(LIFECYCLE.ProtectedLifecycleError):
+                self.fixture.owner().seal(lifecycle_evidence)
+        finally:
+            worker.join()
+
+        sealed = self.seal()
+        self.assert_current(sealed)
+
+    def test_concurrent_caller_mutation_cannot_change_current_replay(
+        self,
+    ) -> None:
+        sealed = self.seal()
+        ledger = (
+            self.fixture.invocation.protected_evidence.execution_ledger
+        )
+        original_revision = ledger["revision"]
+        stop = threading.Event()
+
+        def mutate() -> None:
+            while not stop.is_set():
+                ledger["revision"] = original_revision + 1
+                ledger["revision"] = original_revision
+                time.sleep(0.0001)
+
+        thread = threading.Thread(target=mutate)
+        thread.start()
+        try:
+            self.assert_current(sealed)
+        finally:
+            stop.set()
+            thread.join()
+            ledger["revision"] = original_revision
+
+    def test_sealed_capability_rejects_copy_deepcopy_and_pickle(self) -> None:
+        sealed = self.seal()
+        for clone in (
+            lambda: copy.copy(sealed),
+            lambda: copy.deepcopy(sealed),
+            lambda: pickle.loads(pickle.dumps(sealed)),
+        ):
+            with self.subTest(clone=clone):
+                with self.assertRaises(TypeError):
+                    clone()
+
+    def test_foreign_identical_module_and_cache_poisoning_fail(self) -> None:
+        path = LIFECYCLE._adjacent_invocation_path()
+        spec = importlib.util.spec_from_file_location(
+            "foreign_protected_invocation_contract",
+            path,
+        )
+        assert spec is not None and spec.loader is not None
+        foreign = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = foreign
+        try:
+            spec.loader.exec_module(foreign)
+            evidence = foreign.ProtectedInvocationEvidence(
+                self.fixture.invocation.protected_evidence,
+                self.fixture.invocation.local.evidence,
+            )
+            with self.assertRaisesRegex(
+                LIFECYCLE.ProtectedLifecycleError,
+                "exact adjacent owner",
+            ):
+                self.fixture.owner().seal(
+                    LIFECYCLE.ProtectedLifecycleEvidence(evidence)
+                )
+        finally:
+            sys.modules.pop(spec.name, None)
+
+        original = sys.modules[LIFECYCLE.INVOCATION_OWNER_NAME]
+        fake = types.ModuleType(LIFECYCLE.INVOCATION_OWNER_NAME)
+        fake.__file__ = str(path)
+        fake.__spec__ = types.SimpleNamespace(origin=str(path))
+        sys.modules[LIFECYCLE.INVOCATION_OWNER_NAME] = fake
+        try:
+            with self.assertRaisesRegex(
+                LIFECYCLE.ProtectedLifecycleError,
+                (
+                    "module identity differs|exact adjacent owner|"
+                    "has no attribute"
+                ),
+            ):
+                self.seal()
+        finally:
+            sys.modules[LIFECYCLE.INVOCATION_OWNER_NAME] = original
 
     def test_exact_loader_restores_cache_on_success_and_failure(self) -> None:
         fake = types.ModuleType(LIFECYCLE.INVOCATION_OWNER_NAME)
@@ -630,6 +860,35 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected_hash,
                 )
+
+    def test_named_skill_package_contains_owner_schema_and_reference(
+        self,
+    ) -> None:
+        package = skill_package.package_files(
+            ROOT,
+            "auto-g16-rtwin-pbs",
+        )
+        expected = {
+            Path("scripts/protected_lifecycle_contract.py"): (
+                ROOT / "scripts/protected_lifecycle_contract.py"
+            ),
+            Path(
+                "contracts/execution/"
+                "protected-lifecycle-contract.schema.json"
+            ): (
+                ROOT
+                / "contracts/execution/"
+                "protected-lifecycle-contract.schema.json"
+            ),
+            Path("references/protected-lifecycle-contract.md"): (
+                ROOT
+                / "skills/auto-g16-rtwin-pbs/references/"
+                "protected-lifecycle-contract.md"
+            ),
+        }
+        for target, source in expected.items():
+            with self.subTest(target=target):
+                self.assertEqual(package[target], source)
 
     def test_successor_fixture_binds_baseline_and_candidate_files(self) -> None:
         fixture_path = (

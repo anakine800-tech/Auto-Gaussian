@@ -1,37 +1,47 @@
 # Auto-G16 v2.6 protected lifecycle contract
 
-`auto-g16-protected-lifecycle-contract/1` is an additive, owner-sealed,
-read-only contract for a future protected adapter implementation. It does not
-reserve, materialize, publish state, invoke an adapter, run an effect, submit,
-reconcile, read runtime configuration, or perform an external action.
+PR4K is an additive, owner-sealed, read-only contract for a future protected
+adapter implementation. It does not reserve, materialize, publish state,
+invoke an adapter, run an effect, submit, reconcile, read runtime
+configuration, or perform an external action.
 
-The only public owner input is exact typed PR4F
-`ProtectedInvocationEvidence`. The fixed adjacent PR4F owner is stable-read
-no-follow, loaded from the captured bytes, checked for exact origin and class
-identity, and removed from the temporary import cache afterward. Callers
-cannot provide a sealed predecessor, mapping, path, stage list/bytes, backend,
-runner, callback, command, clock, or runtime override.
+The portable document uses
+`auto-g16-protected-lifecycle-structural-projection/1`. Its fixed markers say
+that validation is structural only, owner replay is required, and Schema
+validity grants neither owner acceptance nor a seal.
 
-The portable document retains the complete PR4F document, duplicate
-identity/local/ledger/resource/transport/stage projections, the PR4D and PR4F
-orders, PR4J's six fixed effect names, and a
-`required_future_implementation_order`. That field is a recovery requirement,
-not evidence of execution. Every effect/status field remains false.
+The standard Draft 2020-12 Schema and
+`validate_protected_lifecycle_structure()` have acceptance-set parity only for
+Draft-expressible constraints. They do not claim hashing, derived-ID,
+cross-field, class-identity, file-origin, artifact-replay, or
+normalization-byte parity. Draft and the public structural validator may both
+accept an integral JSON number; only the public structural validator
+normalizes its returned Python value to an integer. That normalization is not
+a semantic-owner operation or proof.
 
-PR4D reservation and entry into `submission_uncertain` are one owner-issued
-atomic result, represented as one future step. Reconciliation is a future
-state-changing `reconcile_exact_attempt_once`, never a read-only operation.
-PR4K does not solve local materialization, state publication, outcome/receipt
-handling, reconciliation, or adapter wiring.
+The portable projection contains each PR4F summary once. It does not duplicate
+the full PR4F document into predecessor or closure fields. A Schema-valid
+hash, identity, ledger, or stage splice remains only a structurally valid
+document; it cannot be described as verified, owner-accepted, replayed, or
+sealed.
 
-The legacy pre-reservation stage, caller CLI path/command state, raw effect
-owner and job/reconciliation state strategies are not reusable protected
-owners. Any future long-running adapter remains blocked until the PR4J
-strong-reference registries are removed or a bounded process/object lifetime
-is proved. `LegacyTransportAdapter.invoke_reserved_once` remains fail closed.
+The only seal input is exact typed PR4F `ProtectedInvocationEvidence`.
+Acceptance uses the real adjacent PR4F module object's class identity and that
+module's owner-issued PR4F sealed bundle. There is no lookalike reconstruction
+using module/name/fields/snapshot metadata or `co_filename`.
 
-The in-process result exposes only `document()`, `assert_owner_sealed()` and
-`assert_current()`. Production uses a fresh owner UTC time for each replay;
-the fixed clock is private test-only state. Offline validity is not live
-approval, reservation, adapter validation, execution authority, or permission
-for SSH, RTwin, PBS, Gaussian, retry, qdel, cleanup, deployment, or release.
+Before semantic seal or storage, PR4K takes two deep owner snapshots of the
+complete typed evidence. A change between snapshots fails closed. Only the
+owner-owned snapshot is retained, so later caller nested mutation cannot
+change the document or `assert_current()`. Actual owner, ledger, local-state,
+or stage drift still fails.
+
+`required_future_implementation_order` remains a recovery gate, not evidence
+of execution. PR4D reservation and entry into `submission_uncertain` are one
+future atomic result; reconciliation remains a future one-time state change.
+All effect/status fields are false.
+
+The PR4J long-process registry gate remains. PR4D/G/F/I/J,
+`legacy_rtwin_pbs.py`, historical schemas, and predecessor fixtures remain
+frozen. PR4K adds no reserve, materialize, adapter, state-mutation, retry,
+cleanup, deployment, synchronization, or live authority.

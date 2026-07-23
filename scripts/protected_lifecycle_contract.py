@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 
-SCHEMA = "auto-g16-protected-lifecycle-contract/1"
+SCHEMA = "auto-g16-protected-lifecycle-structural-projection/1"
 OWNER = "auto-g16-protected-lifecycle-owner"
 INVOCATION_SCHEMA = "auto-g16-protected-invocation-bundle/1"
 INVOCATION_OWNER_NAME = "protected_invocation_contract"
@@ -110,6 +110,12 @@ LEGACY_COMPATIBILITY = {
     "future_long_process_adapter_requires_bounded_owner_lifecycle": True,
     "historical_migration": False,
 }
+VALIDATION_LAYERS = {
+    "structural_validation_only": True,
+    "owner_replay_required": True,
+    "schema_validity_grants_owner_acceptance": False,
+    "schema_validity_grants_seal": False,
+}
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 LIFECYCLE_RE = re.compile(r"^protected-lifecycle-[a-f0-9]{64}$")
 _SEAL_TOKEN = object()
@@ -165,6 +171,24 @@ def _sha(value: Any, label: str) -> str:
     if not isinstance(value, str) or SHA_RE.fullmatch(value) is None:
         raise ProtectedLifecycleError(
             f"{label} must be a lowercase SHA-256"
+        )
+    return value
+
+
+def _integer(value: Any, label: str, *, minimum: int = 0) -> int:
+    if (
+        isinstance(value, float)
+        and value.is_integer()
+        and value >= minimum
+    ):
+        return int(value)
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < minimum
+    ):
+        raise ProtectedLifecycleError(
+            f"{label} must be an integer >= {minimum}"
         )
     return value
 
@@ -314,6 +338,7 @@ def _module_origin(module: types.ModuleType) -> tuple[Path, Path]:
 def _exact_invocation_owner(
     *,
     snapshot: _OwnerFileSnapshot | None = None,
+    required_module: types.ModuleType | None = None,
 ) -> Iterator[types.ModuleType]:
     if snapshot is None:
         snapshot = _stable_invocation_owner_snapshot()
@@ -334,6 +359,17 @@ def _exact_invocation_owner(
             _MISSING_MODULE,
         )
         try:
+            if required_module is not None:
+                if previous is not required_module:
+                    raise ImportError(
+                        "protected invocation owner module identity differs"
+                    )
+                if _module_origin(required_module) != (path, path):
+                    raise ImportError(
+                        "protected invocation owner origin changed"
+                    )
+                yield required_module
+                return
             sys.modules.pop(INVOCATION_OWNER_NAME, None)
             spec = importlib.util.spec_from_file_location(
                 INVOCATION_OWNER_NAME,
@@ -363,35 +399,36 @@ def _typed_invocation_evidence(
     evidence: object,
 ) -> object:
     expected_type = module.ProtectedInvocationEvidence
-    if isinstance(evidence, expected_type):
-        return evidence
-    evidence_type = type(evidence)
-    snapshot_method = getattr(type(evidence), "snapshot", None)
-    code = getattr(snapshot_method, "__code__", None)
-    raw_source = getattr(code, "co_filename", None)
-    if (
-        evidence_type.__name__ != "ProtectedInvocationEvidence"
-        or evidence_type.__qualname__ != "ProtectedInvocationEvidence"
-        or evidence_type.__module__ != INVOCATION_OWNER_NAME
-        or tuple(getattr(evidence_type, "__dataclass_fields__", ()))
-        != tuple(expected_type.__dataclass_fields__)
-        or not isinstance(raw_source, str)
-        or Path(raw_source).resolve() != _adjacent_invocation_path()
-    ):
+    if type(evidence) is not expected_type:
         raise TypeError(
             "ProtectedInvocationEvidence must come from the exact adjacent owner"
         )
-    snapshot = evidence.snapshot()
-    if type(snapshot) is not evidence_type:
+    return evidence
+
+
+def _snapshot_invocation_evidence(
+    module: types.ModuleType,
+    evidence: object,
+) -> object:
+    """Take an owner-owned deep snapshot after exact class-identity proof."""
+
+    exact = _typed_invocation_evidence(module, evidence)
+    try:
+        first = copy.deepcopy(exact)
+        second = copy.deepcopy(exact)
+    except Exception as exc:
         raise TypeError(
-            "ProtectedInvocationEvidence snapshot type identity differs"
+            f"ProtectedInvocationEvidence snapshot failed closed: {exc}"
+        ) from exc
+    if (
+        type(first) is not module.ProtectedInvocationEvidence
+        or type(second) is not module.ProtectedInvocationEvidence
+        or first != second
+    ):
+        raise TypeError(
+            "ProtectedInvocationEvidence changed during owner snapshot"
         )
-    fields = tuple(expected_type.__dataclass_fields__)
-    if any(not hasattr(snapshot, field) for field in fields):
-        raise TypeError("ProtectedInvocationEvidence fields differ")
-    return expected_type(
-        **{field: getattr(snapshot, field) for field in fields}
-    )
+    return first
 
 
 @contextlib.contextmanager
@@ -407,88 +444,42 @@ def _bind_invocation_clock(
         module._utc_now = original
 
 
-def _normalize_closure(
-    invocation: types.ModuleType,
-    raw: Any,
+def _invocation_projection(
+    invocation_document: dict[str, Any],
 ) -> dict[str, Any]:
-    closure = _exact(
-        copy.deepcopy(raw),
-        {
-            "identity",
-            "local_state",
-            "ledger",
-            "resources",
-            "transport",
-            "stage_plan",
-        },
-        "protected lifecycle closure",
-    )
-    normalized = invocation._normalize_integers(
-        {
-            "ledger": closure["ledger"],
-            "resources": closure["resources"],
-            "stage_plan": closure["stage_plan"],
-        }
-    )
-    closure["ledger"] = normalized["ledger"]
-    closure["resources"] = normalized["resources"]
-    closure["stage_plan"] = normalized["stage_plan"]
-    return closure
+    return {
+        "schema": invocation_document["schema"],
+        "invocation_id": invocation_document["invocation_id"],
+        "invocation_payload_sha256": invocation_document[
+            "invocation_payload_sha256"
+        ],
+        "ledger_identity_sha256": invocation_document["ledger"][
+            "ledger_identity_sha256"
+        ],
+        "stage_manifest_sha256": invocation_document["stage_plan"][
+            "manifest_sha256"
+        ],
+        "stage_artifact_count": invocation_document["stage_plan"][
+            "artifact_count"
+        ],
+    }
 
 
-def _normalize_document(value: Any) -> dict[str, Any]:
-    document = copy.deepcopy(value)
-    if not isinstance(document, dict):
-        raise ProtectedLifecycleError(
-            "protected lifecycle contract must be an object"
-        )
-    try:
-        with _exact_invocation_owner() as invocation:
-            document["protected_invocation"] = (
-                invocation.validate_protected_invocation_bundle(
-                    document.get("protected_invocation")
-                )
-            )
-            if "closure" in document:
-                document["closure"] = _normalize_closure(
-                    invocation,
-                    document["closure"],
-                )
-    except ProtectedLifecycleError:
-        raise
-    except Exception as exc:
-        raise ProtectedLifecycleError(
-            f"protected invocation structural replay failed closed: {exc}"
-        ) from exc
-    return document
-
-
-def finalize(document: dict[str, Any]) -> dict[str, Any]:
-    result = _normalize_document(document)
-    result["lifecycle_payload_sha256"] = digest(
-        {
-            key: item
-            for key, item in result.items()
-            if key != "lifecycle_payload_sha256"
-        }
-    )
-    return result
-
-
-def validate_protected_lifecycle_contract(
+def validate_protected_lifecycle_structure(
     value: Any,
 ) -> dict[str, Any]:
-    """Validate the closed portable contract without issuing a seal."""
+    """Validate only the constraints expressible by the public Draft Schema."""
 
+    document = copy.deepcopy(value)
+    canonical_bytes(document)
     document = _exact(
-        _normalize_document(value),
+        document,
         {
             "schema",
-            "owner",
+            "semantic_owner_required",
+            "validation",
             "lifecycle_id",
-            "predecessor",
-            "protected_invocation",
-            "closure",
+            "protected_invocation_projection",
             "protected_submit_order",
             "protected_invocation_order",
             "legacy_effect_sequence",
@@ -497,53 +488,64 @@ def validate_protected_lifecycle_contract(
             "scope",
             "status",
             "legacy_compatibility",
-            "lifecycle_payload_sha256",
+            "structural_projection_sha256",
         },
-        "protected lifecycle contract",
+        "protected lifecycle structural projection",
     )
-    if document["schema"] != SCHEMA or document["owner"] != OWNER:
+    if (
+        document["schema"] != SCHEMA
+        or document["semantic_owner_required"] != OWNER
+    ):
         raise ProtectedLifecycleError(
-            "protected lifecycle schema/owner differs"
+            "protected lifecycle structural schema/owner declaration differs"
+        )
+    if document["validation"] != VALIDATION_LAYERS:
+        raise ProtectedLifecycleError(
+            "protected lifecycle validation-layer markers differ"
         )
     if (
         not isinstance(document["lifecycle_id"], str)
         or LIFECYCLE_RE.fullmatch(document["lifecycle_id"]) is None
     ):
         raise ProtectedLifecycleError("protected lifecycle ID is malformed")
-    predecessor = _exact(
-        document["predecessor"],
-        {"schema", "invocation_id", "invocation_payload_sha256"},
-        "protected lifecycle predecessor",
+    projection = _exact(
+        document["protected_invocation_projection"],
+        {
+            "schema",
+            "invocation_id",
+            "invocation_payload_sha256",
+            "ledger_identity_sha256",
+            "stage_manifest_sha256",
+            "stage_artifact_count",
+        },
+        "protected invocation structural projection",
     )
-    invocation = document["protected_invocation"]
+    if projection["schema"] != INVOCATION_SCHEMA:
+        raise ProtectedLifecycleError(
+            "protected invocation schema declaration differs"
+        )
     if (
-        predecessor["schema"] != INVOCATION_SCHEMA
-        or predecessor["invocation_id"] != invocation["invocation_id"]
-        or predecessor["invocation_payload_sha256"]
-        != invocation["invocation_payload_sha256"]
+        not isinstance(projection["invocation_id"], str)
+        or re.fullmatch(
+            r"^protected-invocation-[a-f0-9]{64}$",
+            projection["invocation_id"],
+        )
+        is None
     ):
         raise ProtectedLifecycleError(
-            "protected invocation predecessor identity differs"
+            "protected invocation ID is malformed"
         )
-    _sha(
-        predecessor["invocation_payload_sha256"],
-        "protected invocation predecessor payload",
-    )
-    closure = document["closure"]
     for field in (
-        "identity",
-        "local_state",
-        "ledger",
-        "resources",
-        "transport",
-        "stage_plan",
+        "invocation_payload_sha256",
+        "ledger_identity_sha256",
+        "stage_manifest_sha256",
     ):
-        if canonical_bytes(closure[field]) != canonical_bytes(
-            invocation[field]
-        ):
-            raise ProtectedLifecycleError(
-                f"protected lifecycle {field} splice differs"
-            )
+        _sha(projection[field], f"protected invocation {field}")
+    projection["stage_artifact_count"] = _integer(
+        projection["stage_artifact_count"],
+        "protected invocation stage_artifact_count",
+        minimum=1,
+    )
     exact_lists = (
         ("protected_submit_order", PROTECTED_SUBMIT_ORDER),
         ("protected_invocation_order", PROTECTED_INVOCATION_ORDER),
@@ -571,34 +573,65 @@ def validate_protected_lifecycle_contract(
         raise ProtectedLifecycleError(
             "protected lifecycle legacy compatibility differs"
         )
+    _sha(
+        document["structural_projection_sha256"],
+        "protected lifecycle structural projection",
+    )
+    return copy.deepcopy(document)
+
+
+def _finalize_owner_projection(
+    document: dict[str, Any],
+) -> dict[str, Any]:
+    result = copy.deepcopy(document)
+    result["structural_projection_sha256"] = digest(
+        {
+            key: item
+            for key, item in result.items()
+            if key != "structural_projection_sha256"
+        }
+    )
+    return result
+
+
+def _validate_owner_projection(
+    value: Any,
+    invocation_document: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind a structural projection to an actual owner-replayed PR4F bundle."""
+
+    document = validate_protected_lifecycle_structure(value)
+    expected_projection = _invocation_projection(invocation_document)
+    if document["protected_invocation_projection"] != expected_projection:
+        raise ProtectedLifecycleError(
+            "protected invocation owner projection differs"
+        )
+    invocation = expected_projection
     lifecycle_seed = digest(
         {
             "schema": "auto-g16-protected-lifecycle-id/1",
-            "invocation_payload_sha256": invocation[
-                "invocation_payload_sha256"
-            ],
-            "ledger_identity_sha256": invocation["ledger"][
-                "ledger_identity_sha256"
-            ],
-            "stage_manifest_sha256": invocation["stage_plan"][
-                "manifest_sha256"
-            ],
+            "invocation_payload_sha256": invocation["invocation_payload_sha256"],
+            "ledger_identity_sha256": invocation["ledger_identity_sha256"],
+            "stage_manifest_sha256": invocation["stage_manifest_sha256"],
         }
     )
     if document["lifecycle_id"] != f"protected-lifecycle-{lifecycle_seed}":
         raise ProtectedLifecycleError(
             "protected lifecycle ID binding differs"
         )
-    expected_payload = digest(
+    expected_projection_hash = digest(
         {
             key: item
             for key, item in document.items()
-            if key != "lifecycle_payload_sha256"
+            if key != "structural_projection_sha256"
         }
     )
-    if document["lifecycle_payload_sha256"] != expected_payload:
+    if (
+        document["structural_projection_sha256"]
+        != expected_projection_hash
+    ):
         raise ProtectedLifecycleError(
-            "protected lifecycle payload hash differs"
+            "protected lifecycle structural projection hash differs"
         )
     return copy.deepcopy(document)
 
@@ -609,13 +642,6 @@ class ProtectedLifecycleEvidence:
 
     protected_invocation_evidence: object
 
-    def snapshot(self) -> "ProtectedLifecycleEvidence":
-        return ProtectedLifecycleEvidence(
-            protected_invocation_evidence=(
-                self.protected_invocation_evidence
-            )
-        )
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class SealedProtectedLifecycleContract:
@@ -624,9 +650,10 @@ class SealedProtectedLifecycleContract:
     _canonical_document: bytes
     protected_invocation_bundle: object
     protected_invocation_evidence: object
+    _invocation_owner_module: types.ModuleType
     _invocation_owner_snapshot: _OwnerFileSnapshot
     lifecycle_id: str
-    lifecycle_payload_sha256: str
+    structural_projection_sha256: str
     _testing: bool
     _seal: object
 
@@ -645,6 +672,7 @@ class SealedProtectedLifecycleContract:
         document: dict[str, Any],
         protected_invocation_bundle: object,
         protected_invocation_evidence: object,
+        invocation_owner_module: types.ModuleType,
         invocation_owner_snapshot: _OwnerFileSnapshot,
         *,
         testing: bool,
@@ -656,7 +684,10 @@ class SealedProtectedLifecycleContract:
             )
         protected_invocation_bundle.assert_owner_sealed()
         _assert_owner_snapshot_integrity(invocation_owner_snapshot)
-        validated = validate_protected_lifecycle_contract(document)
+        validated = _validate_owner_projection(
+            document,
+            protected_invocation_bundle.document(),
+        )
         value = object.__new__(cls)
         for name, item in {
             "_canonical_document": canonical_bytes(validated),
@@ -664,10 +695,11 @@ class SealedProtectedLifecycleContract:
             "protected_invocation_evidence": (
                 protected_invocation_evidence
             ),
+            "_invocation_owner_module": invocation_owner_module,
             "_invocation_owner_snapshot": invocation_owner_snapshot,
             "lifecycle_id": validated["lifecycle_id"],
-            "lifecycle_payload_sha256": validated[
-                "lifecycle_payload_sha256"
+            "structural_projection_sha256": validated[
+                "structural_projection_sha256"
             ],
             "_testing": testing,
             "_seal": _SEAL_TOKEN,
@@ -678,6 +710,21 @@ class SealedProtectedLifecycleContract:
     def document(self) -> dict[str, Any]:
         return json.loads(self._canonical_document)
 
+    def __copy__(self) -> "SealedProtectedLifecycleContract":
+        raise TypeError("protected lifecycle sealed capability is not clonable")
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "SealedProtectedLifecycleContract":
+        del memo
+        raise TypeError("protected lifecycle sealed capability is not clonable")
+
+    def __reduce__(self) -> object:
+        raise TypeError(
+            "protected lifecycle sealed capability is not serializable"
+        )
+
     def assert_owner_sealed(self) -> None:
         if self._seal is not _SEAL_TOKEN:
             raise ProtectedLifecycleError(
@@ -687,13 +734,14 @@ class SealedProtectedLifecycleContract:
         _assert_owner_snapshot_integrity(
             self._invocation_owner_snapshot
         )
-        document = validate_protected_lifecycle_contract(
-            self.document()
+        document = _validate_owner_projection(
+            self.document(),
+            self.protected_invocation_bundle.document(),
         )
         if (
             document["lifecycle_id"] != self.lifecycle_id
-            or document["lifecycle_payload_sha256"]
-            != self.lifecycle_payload_sha256
+            or document["structural_projection_sha256"]
+            != self.structural_projection_sha256
         ):
             raise ProtectedLifecycleError(
                 "protected lifecycle sealed projection differs"
@@ -709,6 +757,7 @@ class SealedProtectedLifecycleContract:
         current = _trusted_now(_utc_now)
         with _exact_invocation_owner(
             snapshot=current_snapshot,
+            required_module=self._invocation_owner_module,
         ) as invocation:
             try:
                 exact_evidence = _typed_invocation_evidence(
@@ -735,8 +784,8 @@ class SealedProtectedLifecycleContract:
         if (
             replay_document
             != self.protected_invocation_bundle.document()
-            or replay_document
-            != self.document()["protected_invocation"]
+            or _invocation_projection(replay_document)
+            != self.document()["protected_invocation_projection"]
         ):
             raise ProtectedLifecycleError(
                 "protected invocation complete replay differs"
@@ -786,20 +835,27 @@ class ProtectedLifecycleContractOwner:
         self,
         evidence: ProtectedLifecycleEvidence,
     ) -> SealedProtectedLifecycleContract:
-        if not isinstance(evidence, ProtectedLifecycleEvidence):
+        if type(evidence) is not ProtectedLifecycleEvidence:
             raise ProtectedLifecycleError(
                 "protected lifecycle evidence must use the typed owner input"
             )
-        snapshot = evidence.snapshot()
+        raw_invocation_evidence = evidence.protected_invocation_evidence
         owner_snapshot = _stable_invocation_owner_snapshot()
+        invocation_module = sys.modules.get(INVOCATION_OWNER_NAME)
+        if not isinstance(invocation_module, types.ModuleType):
+            raise ProtectedLifecycleError(
+                "exact adjacent protected invocation owner must already "
+                "own the typed evidence"
+            )
         current = _trusted_now(self._clock)
         with _exact_invocation_owner(
             snapshot=owner_snapshot,
+            required_module=invocation_module,
         ) as invocation:
             try:
-                exact_evidence = _typed_invocation_evidence(
+                exact_evidence = _snapshot_invocation_evidence(
                     invocation,
-                    snapshot.protected_invocation_evidence,
+                    raw_invocation_evidence,
                 )
                 with _bind_invocation_clock(invocation, current):
                     protected_invocation = (
@@ -822,17 +878,6 @@ class ProtectedLifecycleContractOwner:
             raise ProtectedLifecycleError(
                 "protected invocation owner identity differs during seal"
             )
-        closure = {
-            field: copy.deepcopy(invocation_document[field])
-            for field in (
-                "identity",
-                "local_state",
-                "ledger",
-                "resources",
-                "transport",
-                "stage_plan",
-            )
-        }
         lifecycle_seed = digest(
             {
                 "schema": "auto-g16-protected-lifecycle-id/1",
@@ -847,24 +892,17 @@ class ProtectedLifecycleContractOwner:
                 ]["manifest_sha256"],
             }
         )
-        document = finalize(
+        document = _finalize_owner_projection(
             {
                 "schema": SCHEMA,
-                "owner": OWNER,
+                "semantic_owner_required": OWNER,
+                "validation": copy.deepcopy(VALIDATION_LAYERS),
                 "lifecycle_id": (
                     f"protected-lifecycle-{lifecycle_seed}"
                 ),
-                "predecessor": {
-                    "schema": invocation_document["schema"],
-                    "invocation_id": invocation_document[
-                        "invocation_id"
-                    ],
-                    "invocation_payload_sha256": invocation_document[
-                        "invocation_payload_sha256"
-                    ],
-                },
-                "protected_invocation": invocation_document,
-                "closure": closure,
+                "protected_invocation_projection": (
+                    _invocation_projection(invocation_document)
+                ),
                 "protected_submit_order": list(PROTECTED_SUBMIT_ORDER),
                 "protected_invocation_order": list(
                     PROTECTED_INVOCATION_ORDER
@@ -883,13 +921,14 @@ class ProtectedLifecycleContractOwner:
                 "legacy_compatibility": copy.deepcopy(
                     LEGACY_COMPATIBILITY
                 ),
-                "lifecycle_payload_sha256": "",
+                "structural_projection_sha256": "",
             }
         )
         sealed = SealedProtectedLifecycleContract._from_owner(
             document,
             protected_invocation,
-            snapshot.protected_invocation_evidence,
+            exact_evidence,
+            invocation_module,
             owner_snapshot,
             testing=self._testing,
             token=_SEAL_TOKEN,

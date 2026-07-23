@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Real Draft 2020-12 checks for the PR4K lifecycle Schema."""
+"""Real Draft 2020-12 checks for the PR4K structural projection."""
 
 from __future__ import annotations
 
 import copy
 import importlib.metadata
 import json
+import math
 import os
 import tempfile
 import unittest
@@ -18,10 +19,6 @@ ROOT = Path(__file__).parents[1]
 SCHEMA_PATH = (
     ROOT
     / "contracts/execution/protected-lifecycle-contract.schema.json"
-)
-INVOCATION_SCHEMA_PATH = (
-    ROOT
-    / "contracts/execution/protected-invocation-bundle.schema.json"
 )
 REQUIRE_ENV = "AUTO_G16_REQUIRE_JSONSCHEMA"
 EXPECTED_PINS = {
@@ -41,12 +38,9 @@ REQUIRE_JSONSCHEMA = raw_requirement == "1"
 try:
     from jsonschema import Draft202012Validator
     from jsonschema.exceptions import ValidationError
-    from referencing import Registry, Resource
 except ImportError as exc:
     Draft202012Validator = None  # type: ignore[assignment,misc]
     ValidationError = Exception  # type: ignore[assignment,misc]
-    Registry = None  # type: ignore[assignment,misc]
-    Resource = None  # type: ignore[assignment,misc]
     JSONSCHEMA_IMPORT_ERROR: Exception | None = exc
 else:
     JSONSCHEMA_IMPORT_ERROR = None
@@ -90,22 +84,9 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         assert Draft202012Validator is not None
-        assert Registry is not None
-        assert Resource is not None
         cls.schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-        cls.invocation_schema = json.loads(
-            INVOCATION_SCHEMA_PATH.read_text(encoding="utf-8")
-        )
         Draft202012Validator.check_schema(cls.schema)
-        Draft202012Validator.check_schema(cls.invocation_schema)
-        registry = Registry().with_resource(
-            "urn:auto-g16:protected-invocation-bundle:1",
-            Resource.from_contents(cls.invocation_schema),
-        )
-        cls.validator = Draft202012Validator(
-            cls.schema,
-            registry=registry,
-        )
+        cls.validator = Draft202012Validator(cls.schema)
         cls.temporary = tempfile.TemporaryDirectory(
             prefix="auto-g16-lifecycle-schema-",
             dir=SUPPORT.TEST_TEMP_PARENT,
@@ -113,9 +94,8 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
         cls.fixture = SUPPORT.ProtectedLifecycleFixture(
             Path(cls.temporary.name).resolve()
         )
-        cls.document = cls.fixture.owner().seal(
-            cls.fixture.evidence
-        ).document()
+        cls.sealed = cls.fixture.owner().seal(cls.fixture.evidence)
+        cls.document = cls.sealed.document()
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -128,11 +108,11 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
         with self.assertRaises(
             SUPPORT.LIFECYCLE.ProtectedLifecycleError
         ):
-            SUPPORT.LIFECYCLE.validate_protected_lifecycle_contract(
-                SUPPORT.LIFECYCLE.finalize(document)
+            SUPPORT.LIFECYCLE.validate_protected_lifecycle_structure(
+                document
             )
 
-    def test_exact_dependencies_and_owner_output_validate(self) -> None:
+    def test_exact_dependencies_and_owner_projection_validate(self) -> None:
         declared = {}
         lock = (
             ROOT / "requirements/schema-validation.lock.txt"
@@ -145,109 +125,152 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
         self.assertEqual(declared, EXPECTED_PINS)
         self.validator.validate(self.document)
         self.assertEqual(
-            SUPPORT.LIFECYCLE.validate_protected_lifecycle_contract(
+            SUPPORT.LIFECYCLE.validate_protected_lifecycle_structure(
                 self.document
             ),
             self.document,
         )
+        self.sealed.assert_owner_sealed()
 
-    def test_draft_integral_numbers_normalize_and_booleans_fail(self) -> None:
-        paths = (
-            ("ledger", "artifact_size_bytes"),
-            ("ledger", "revision"),
-            ("resources", "cores"),
-            ("stage_plan", "artifact_count"),
+    def test_integral_number_normalization_and_bool_rejection(self) -> None:
+        draft = copy.deepcopy(self.document)
+        draft["protected_invocation_projection"][
+            "stage_artifact_count"
+        ] = float(
+            draft["protected_invocation_projection"][
+                "stage_artifact_count"
+            ]
         )
-        for parent, field in paths:
-            with self.subTest(field=f"{parent}.{field}"):
-                draft = copy.deepcopy(self.document)
-                for root in ("protected_invocation", "closure"):
-                    draft[root][parent][field] = float(
-                        draft[root][parent][field]
-                    )
+        self.validator.validate(draft)
+        normalized = (
+            SUPPORT.LIFECYCLE
+            .validate_protected_lifecycle_structure(draft)
+        )
+        self.assertIsInstance(
+            normalized["protected_invocation_projection"][
+                "stage_artifact_count"
+            ],
+            int,
+        )
+        boolean = copy.deepcopy(self.document)
+        boolean["protected_invocation_projection"][
+            "stage_artifact_count"
+        ] = True
+        self.assert_both_reject(boolean)
+
+    def test_generated_structural_acceptance_matrix_is_bidirectional(
+        self,
+    ) -> None:
+        cases = [copy.deepcopy(self.document)]
+        for field, replacement in (
+            ("invocation_id", "protected-invocation-" + "0" * 64),
+            ("invocation_payload_sha256", "0" * 64),
+            ("ledger_identity_sha256", "1" * 64),
+            ("stage_manifest_sha256", "2" * 64),
+        ):
+            draft = copy.deepcopy(self.document)
+            draft["protected_invocation_projection"][field] = replacement
+            draft = SUPPORT.LIFECYCLE._finalize_owner_projection(draft)
+            cases.append(draft)
+        for index, draft in enumerate(cases):
+            with self.subTest(index=index):
                 self.validator.validate(draft)
-                normalized = (
-                    SUPPORT.LIFECYCLE
-                    .validate_protected_lifecycle_contract(draft)
-                )
-                self.assertIsInstance(
-                    normalized["closure"][parent][field],
-                    int,
+                SUPPORT.LIFECYCLE.validate_protected_lifecycle_structure(
+                    draft
                 )
 
-                boolean = copy.deepcopy(self.document)
-                for root in ("protected_invocation", "closure"):
-                    boolean[root][parent][field] = True
-                self.assert_both_reject(boolean)
-
-    def test_unknown_fields_and_fixed_status_are_bidirectional(self) -> None:
+    def test_unknown_status_and_orders_reject_bidirectionally(self) -> None:
         cases = []
-        top = copy.deepcopy(self.document)
-        top["unknown"] = False
-        cases.append(top)
-        nested = copy.deepcopy(self.document)
-        nested["closure"]["unknown"] = False
-        cases.append(nested)
+        unknown = copy.deepcopy(self.document)
+        unknown["unknown"] = False
+        cases.append(unknown)
+        marker = copy.deepcopy(self.document)
+        marker["validation"]["schema_validity_grants_seal"] = True
+        cases.append(marker)
         status = copy.deepcopy(self.document)
         status["status"]["reserved"] = True
         cases.append(status)
-        effects = copy.deepcopy(self.document)
-        effects["status"]["effects_performed"] = True
-        cases.append(effects)
-        retry = copy.deepcopy(self.document)
-        retry["status"]["automatic_retry"] = True
-        cases.append(retry)
-        raw = copy.deepcopy(self.document)
-        raw["status"]["raw_effect_owner_created"] = True
-        cases.append(raw)
+        effect = copy.deepcopy(self.document)
+        effect["status"]["effects_performed"] = True
+        cases.append(effect)
+        order = copy.deepcopy(self.document)
+        order["required_future_implementation_order"] = list(
+            reversed(order["required_future_implementation_order"])
+        )
+        cases.append(order)
         for index, draft in enumerate(cases):
             with self.subTest(index=index):
                 self.assert_both_reject(draft)
 
-    def test_orders_are_closed_and_bidirectional(self) -> None:
-        for field in (
-            "protected_submit_order",
-            "protected_invocation_order",
-            "legacy_effect_sequence",
-            "required_future_implementation_order",
-            "effect_time_revalidation",
-        ):
-            with self.subTest(field=field):
-                draft = copy.deepcopy(self.document)
-                draft[field] = list(reversed(draft[field]))
-                self.assert_both_reject(draft)
-                extra = copy.deepcopy(self.document)
-                extra[field].append("unexpected")
-                self.assert_both_reject(extra)
-
-    def test_unsafe_names_stage_topology_and_nonfinite_fail(self) -> None:
-        unsafe = copy.deepcopy(self.document)
-        for root in ("protected_invocation", "closure"):
-            unsafe[root]["stage_plan"]["artifacts"][0][
-                "relative_name"
-            ] = "../unsafe.gjf"
-        self.assert_both_reject(unsafe)
-
-        reorder = copy.deepcopy(self.document)
-        for root in ("protected_invocation", "closure"):
-            artifacts = reorder[root]["stage_plan"]["artifacts"]
-            artifacts[0], artifacts[1] = artifacts[1], artifacts[0]
-        self.assert_both_reject(reorder)
-
+    def test_nonfinite_and_malformed_hashes_reject_bidirectionally(
+        self,
+    ) -> None:
         for value in (float("nan"), float("inf"), float("-inf")):
-            with self.subTest(value=repr(value)):
-                draft = copy.deepcopy(self.document)
-                for root in ("protected_invocation", "closure"):
-                    draft[root]["ledger"]["artifact_size_bytes"] = value
-                self.assert_both_reject(draft)
+            self.assertFalse(math.isfinite(value))
+            draft = copy.deepcopy(self.document)
+            draft["protected_invocation_projection"][
+                "stage_artifact_count"
+            ] = value
+            self.assert_both_reject(draft)
+        malformed = copy.deepcopy(self.document)
+        malformed["protected_invocation_projection"][
+            "stage_manifest_sha256"
+        ] = "not-a-sha"
+        self.assert_both_reject(malformed)
 
-    def test_duplicate_keys_are_rejected_before_either_validator(self) -> None:
+    def test_schema_valid_splices_are_not_owner_acceptance(self) -> None:
+        cases = []
+        for field, replacement in (
+            ("invocation_id", "protected-invocation-" + "0" * 64),
+            ("invocation_payload_sha256", "0" * 64),
+            ("ledger_identity_sha256", "1" * 64),
+            ("stage_manifest_sha256", "2" * 64),
+        ):
+            draft = copy.deepcopy(self.document)
+            draft["protected_invocation_projection"][field] = replacement
+            cases.append(
+                SUPPORT.LIFECYCLE._finalize_owner_projection(draft)
+            )
+        for index, draft in enumerate(cases):
+            with self.subTest(index=index):
+                self.validator.validate(draft)
+                SUPPORT.LIFECYCLE.validate_protected_lifecycle_structure(
+                    draft
+                )
+                with self.assertRaises(
+                    SUPPORT.LIFECYCLE.ProtectedLifecycleError
+                ):
+                    SUPPORT.LIFECYCLE._validate_owner_projection(
+                        draft,
+                        self.sealed.protected_invocation_bundle.document(),
+                    )
+                self.assertTrue(
+                    draft["validation"]["structural_validation_only"]
+                )
+                self.assertTrue(
+                    draft["validation"]["owner_replay_required"]
+                )
+                self.assertFalse(
+                    draft["validation"][
+                        "schema_validity_grants_owner_acceptance"
+                    ]
+                )
+                self.assertFalse(
+                    draft["validation"]["schema_validity_grants_seal"]
+                )
+
+    def test_duplicate_keys_rejected_before_validation(self) -> None:
         encoded = json.dumps(self.document, separators=(",", ":"))
         duplicate = encoded.replace(
-            '"schema":"auto-g16-protected-lifecycle-contract/1"',
             (
-                '"schema":"auto-g16-protected-lifecycle-contract/1",'
-                '"schema":"auto-g16-protected-lifecycle-contract/1"'
+                '"schema":'
+                '"auto-g16-protected-lifecycle-structural-projection/1"'
+            ),
+            (
+                '"schema":'
+                '"auto-g16-protected-lifecycle-structural-projection/1",'
+                '"schema":'
+                '"auto-g16-protected-lifecycle-structural-projection/1"'
             ),
             1,
         )
@@ -256,32 +279,6 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
                 duplicate,
                 object_pairs_hook=reject_duplicate_pairs,
             )
-
-    def test_semantic_splices_are_owner_rejected(self) -> None:
-        cases = []
-        identity = copy.deepcopy(self.document)
-        identity["closure"]["identity"]["input_sha256"] = "0" * 64
-        cases.append(identity)
-        local = copy.deepcopy(self.document)
-        local["closure"]["local_state"]["relative_local_dir"] = (
-            "outputs/other/"
-            + local["closure"]["identity"]["attempt_id"]
-        )
-        cases.append(local)
-        stage = copy.deepcopy(self.document)
-        stage["closure"]["stage_plan"]["artifacts"][0][
-            "sha256"
-        ] = "1" * 64
-        cases.append(stage)
-        for index, draft in enumerate(cases):
-            with self.subTest(index=index):
-                self.validator.validate(draft)
-                with self.assertRaises(
-                    SUPPORT.LIFECYCLE.ProtectedLifecycleError
-                ):
-                    SUPPORT.LIFECYCLE.validate_protected_lifecycle_contract(
-                        SUPPORT.LIFECYCLE.finalize(draft)
-                    )
 
 
 if __name__ == "__main__":
