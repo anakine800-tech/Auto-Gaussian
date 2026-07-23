@@ -68,7 +68,10 @@ class LegacyBackendTests(unittest.TestCase):
         self.assertNotIn("--backend", wrapper + auto + implementation)
         self.assertNotIn("AUTO_G16_BACKEND", wrapper + auto + implementation)
         facade_source = (SCRIPTS / "execution_facade.py").read_text(encoding="utf-8")
-        self.assertNotIn("sys.modules", facade_source)
+        legacy_routing = facade_source[
+            facade_source.index("def _implementation") :
+        ]
+        self.assertNotIn("sys.modules", legacy_routing)
         self.assertNotIn("_BOUND_IMPLEMENTATION", facade_source)
         self.assertNotIn("backend_module", facade_source + wrapper)
         self.assertEqual(tuple(inspect.signature(facade.main).parameters), ("argv",))

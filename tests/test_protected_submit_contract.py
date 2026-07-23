@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
 import inspect
@@ -13,7 +14,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 import unittest
+from unittest import mock
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -476,6 +479,7 @@ class ProtectedSubmitContractTests(unittest.TestCase):
         self.state_root = self.root / "trusted-state"
 
     def tearDown(self) -> None:
+        self.fixture.transport.tearDown()
         self.temporary.cleanup()
 
     def owner(
@@ -487,6 +491,27 @@ class ProtectedSubmitContractTests(unittest.TestCase):
             PrivateTestClock(*values),
             _test_token=CONTRACT._TEST_OWNER_TOKEN,
         )
+
+    @contextlib.contextmanager
+    def caller_runtime_environment(
+        self,
+        marker: str,
+    ) -> object:
+        saved = {
+            name: (name in os.environ, os.environ.get(name))
+            for name in CONTRACT._RUNTIME_ENVIRONMENT_NAMES
+        }
+        try:
+            for name in CONTRACT._RUNTIME_ENVIRONMENT_NAMES:
+                os.environ[name] = f"{marker}-{name.lower()}"
+            yield
+        finally:
+            for name, (present, value) in saved.items():
+                if present:
+                    assert value is not None
+                    os.environ[name] = value
+                else:
+                    os.environ.pop(name, None)
 
     def test_complete_existing_owner_closure_seals_non_executable_bundle(self) -> None:
         sealed = self.owner().seal(self.fixture.evidence())
@@ -545,6 +570,231 @@ class ProtectedSubmitContractTests(unittest.TestCase):
             saved["AUTO_G16_RUNTIME_CONFIG"],
         )
 
+    def test_delayed_scientific_and_resource_replay_stays_inside_isolation(self) -> None:
+        caller_marker = str(self.root / "caller-placeholder-config")
+        observations: list[str] = []
+        real_graph = CONTRACT._skill_owner_graph
+
+        @contextlib.contextmanager
+        def observed_graph() -> object:
+            with real_graph() as modules:
+                resource_owner = modules["resource_efficiency"]
+                scientific_owner = modules["gaussian_rtwin_pbs"]
+                original_ledger = resource_owner.validate_ledger
+                original_read = scientific_owner.read_stable_bytes
+
+                def observed_validate_ledger(*args: object, **kwargs: object) -> object:
+                    runtime_config = os.environ["AUTO_G16_RUNTIME_CONFIG"]
+                    self.assertNotIn("caller-placeholder-config", runtime_config)
+                    self.assertIn(
+                        "intentionally-absent-runtime.json",
+                        runtime_config,
+                    )
+                    observations.append(f"resource:{runtime_config}")
+                    return original_ledger(*args, **kwargs)
+
+                def observed_read_stable_bytes(
+                    *args: object,
+                    **kwargs: object,
+                ) -> object:
+                    runtime_config = os.environ["AUTO_G16_RUNTIME_CONFIG"]
+                    self.assertNotIn("caller-placeholder-config", runtime_config)
+                    observations.append(f"scientific:{runtime_config}")
+                    return original_read(*args, **kwargs)
+
+                resource_owner.validate_ledger = observed_validate_ledger
+                scientific_owner.read_stable_bytes = (
+                    observed_read_stable_bytes
+                )
+                try:
+                    yield modules
+                finally:
+                    resource_owner.validate_ledger = original_ledger
+                    scientific_owner.read_stable_bytes = original_read
+
+        with self.caller_runtime_environment(caller_marker):
+            with mock.patch.object(
+                CONTRACT,
+                "_skill_owner_graph",
+                observed_graph,
+            ):
+                self.owner().seal(self.fixture.evidence())
+            self.assertIn(
+                "caller-placeholder-config",
+                os.environ["AUTO_G16_RUNTIME_CONFIG"],
+            )
+        self.assertTrue(observations)
+        self.assertTrue(any(item.startswith("resource:") for item in observations))
+        self.assertTrue(any(item.startswith("scientific:") for item in observations))
+
+    def test_delayed_transport_replay_stays_inside_isolation(self) -> None:
+        caller_marker = str(self.root / "caller-transport-config")
+        real_loader = CONTRACT._load_transport_owner
+        observations: list[str] = []
+
+        def observed_loader() -> object:
+            module = real_loader()
+            original_closure = module.validate_successor_closure
+            original_receipt = module.validate_handshake_authority_binding
+
+            def observed_closure(*args: object, **kwargs: object) -> object:
+                runtime_config = os.environ["AUTO_G16_RUNTIME_CONFIG"]
+                self.assertNotIn("caller-transport-config", runtime_config)
+                observations.append(f"closure:{runtime_config}")
+                return original_closure(*args, **kwargs)
+
+            def observed_receipt(*args: object, **kwargs: object) -> object:
+                runtime_config = os.environ["AUTO_G16_RUNTIME_CONFIG"]
+                self.assertNotIn("caller-transport-config", runtime_config)
+                observations.append(f"receipt:{runtime_config}")
+                return original_receipt(*args, **kwargs)
+
+            module.validate_successor_closure = observed_closure
+            module.validate_handshake_authority_binding = observed_receipt
+            return module
+
+        with self.caller_runtime_environment(caller_marker):
+            with mock.patch.object(
+                CONTRACT,
+                "_load_transport_owner",
+                observed_loader,
+            ):
+                self.owner().seal(self.fixture.evidence())
+            self.assertIn(
+                "caller-transport-config",
+                os.environ["AUTO_G16_RUNTIME_CONFIG"],
+            )
+        self.assertEqual(
+            {item.split(":", 1)[0] for item in observations},
+            {"closure", "receipt"},
+        )
+
+    def test_owner_graph_exception_restores_environment_and_module_cache_exactly(self) -> None:
+        caller_marker = str(self.root / "caller-exception-config")
+        cache_name = "runtime_config"
+        unrelated_name = "_auto_g16_protected_submit_unrelated_placeholder"
+        missing = object()
+        previous_cache = sys.modules.get(cache_name, missing)
+        previous_unrelated = sys.modules.get(unrelated_name, missing)
+        caller_cache = types.ModuleType(cache_name)
+        unrelated_cache = types.ModuleType(unrelated_name)
+        sys.modules[cache_name] = caller_cache
+        sys.modules[unrelated_name] = unrelated_cache
+        real_graph = CONTRACT._skill_owner_graph
+
+        @contextlib.contextmanager
+        def failing_graph() -> object:
+            with real_graph() as modules:
+                resource_owner = modules["resource_efficiency"]
+                original = resource_owner.validate_ledger
+
+                def fail_delayed_replay(*_args: object, **_kwargs: object) -> object:
+                    self.assertNotIn(
+                        "caller-exception-config",
+                        os.environ["AUTO_G16_RUNTIME_CONFIG"],
+                    )
+                    raise RuntimeError("placeholder delayed replay failure")
+
+                resource_owner.validate_ledger = fail_delayed_replay
+                try:
+                    yield modules
+                finally:
+                    resource_owner.validate_ledger = original
+
+        try:
+            with self.caller_runtime_environment(caller_marker):
+                with mock.patch.object(
+                    CONTRACT,
+                    "_skill_owner_graph",
+                    failing_graph,
+                ):
+                    with self.assertRaisesRegex(
+                        CONTRACT.ProtectedSubmitError,
+                        "execution/resource owner rejected",
+                    ):
+                        self.owner().seal(self.fixture.evidence())
+                self.assertIs(sys.modules[cache_name], caller_cache)
+                self.assertIs(sys.modules[unrelated_name], unrelated_cache)
+                self.assertIn(
+                    "caller-exception-config",
+                    os.environ["AUTO_G16_RUNTIME_CONFIG"],
+                )
+        finally:
+            sys.modules.pop(cache_name, None)
+            if previous_cache is not missing:
+                sys.modules[cache_name] = previous_cache
+            sys.modules.pop(unrelated_name, None)
+            if previous_unrelated is not missing:
+                sys.modules[unrelated_name] = previous_unrelated
+
+    def test_concurrent_replay_restores_caller_environment_and_import_order(self) -> None:
+        caller_marker = str(self.root / "caller-concurrent-config")
+        cache_name = "runtime_config"
+        missing = object()
+        previous_cache = sys.modules.get(cache_name, missing)
+        caller_cache = types.ModuleType(cache_name)
+        sys.modules[cache_name] = caller_cache
+        owner = self.owner()
+        barrier = threading.Barrier(4)
+
+        def seal(_: int) -> str:
+            barrier.wait()
+            return owner.seal(
+                self.fixture.evidence()
+            ).bundle_payload_sha256
+
+        try:
+            with self.caller_runtime_environment(caller_marker):
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    results = list(pool.map(seal, range(4)))
+                self.assertEqual(len(set(results)), 1)
+                self.assertIs(sys.modules[cache_name], caller_cache)
+                self.assertIn(
+                    "caller-concurrent-config",
+                    os.environ["AUTO_G16_RUNTIME_CONFIG"],
+                )
+        finally:
+            sys.modules.pop(cache_name, None)
+            if previous_cache is not missing:
+                sys.modules[cache_name] = previous_cache
+
+    def test_reservation_wraps_only_replay_not_state_consumption_environment(self) -> None:
+        caller_marker = str(self.root / "caller-reservation-config")
+        owner = self.owner()
+        original = (
+            owner._state_owner.consume_after_replay_at_trusted_now
+        )
+        observations: list[str] = []
+
+        def observed_consumption(intent: object, replay: object) -> object:
+            observations.append(os.environ["AUTO_G16_RUNTIME_CONFIG"])
+
+            def observed_replay(snapshot: object, trusted_now: object) -> str:
+                self.assertIn(
+                    "caller-reservation-config",
+                    os.environ["AUTO_G16_RUNTIME_CONFIG"],
+                )
+                result = replay(snapshot, trusted_now)
+                self.assertIn(
+                    "caller-reservation-config",
+                    os.environ["AUTO_G16_RUNTIME_CONFIG"],
+                )
+                return result
+
+            result = original(intent, observed_replay)
+            observations.append(os.environ["AUTO_G16_RUNTIME_CONFIG"])
+            return result
+
+        owner._state_owner.consume_after_replay_at_trusted_now = (
+            observed_consumption
+        )
+        with self.caller_runtime_environment(caller_marker):
+            owner.reserve_once(self.fixture.evidence())
+        self.assertEqual(len(observations), 2)
+        self.assertTrue(
+            all("caller-reservation-config" in value for value in observations)
+        )
+
     def test_missing_unknown_or_mismatched_predecessor_stops_before_reservation(self) -> None:
         changed_gate = copy.deepcopy(self.fixture.gate)
         changed_gate["execution_scope"]["project"] = "otherjob"
@@ -570,7 +820,7 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                 self.owner().reserve_once(case)
             self.assertFalse(self.state_root.exists())
 
-    def test_schema_owner_acceptance_sets_match_for_topology_mutations(self) -> None:
+    def test_bounded_custom_helper_and_owner_reject_same_topology_mutations(self) -> None:
         document = self.owner().seal(self.fixture.evidence()).document()
         schema_path = (
             ROOT / "contracts/execution/protected-submit-bundle.schema.json"
@@ -655,7 +905,10 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                     owner_accepts = False
                 else:
                     owner_accepts = True
-                self.assertEqual(schema_accepts, owner_accepts)
+                # This is a bounded fast structural corpus, not a claim that
+                # the helper implements Draft 2020-12 or that Schema and owner
+                # validity have globally identical acceptance sets.
+                self.assertFalse(schema_accepts)
                 self.assertFalse(owner_accepts)
 
         def reverse_objects(value: object) -> object:
@@ -793,9 +1046,33 @@ class ProtectedSubmitContractTests(unittest.TestCase):
         source = (
             SKILL_SCRIPTS / "execution_facade.py"
         ).read_text(encoding="utf-8")
-        protected_section = source[source.index("def protected_submit_owner") :]
+        protected_section = source[source.index("def _protected_submit_owner") :]
         self.assertNotIn("LegacyTransportAdapter", protected_section)
         self.assertNotIn("legacy_adapter_integration", protected_section)
+        self.assertEqual(
+            sorted(
+                name
+                for name in dir(FACADE)
+                if "protected_submit" in name and not name.startswith("_")
+            ),
+            [
+                "reserve_protected_submit_bundle_once",
+                "seal_protected_submit_bundle",
+            ],
+        )
+        seal_source = inspect.getsource(
+            FACADE.seal_protected_submit_bundle
+        )
+        reserve_source = inspect.getsource(
+            FACADE.reserve_protected_submit_bundle_once
+        )
+        for entry_source, owner_call in (
+            (seal_source, "owner.seal(exact_evidence)"),
+            (reserve_source, "owner.reserve_once(exact_evidence)"),
+        ):
+            self.assertIn("_exact_protected_submit_contract()", entry_source)
+            self.assertIn("_evidence_for_exact_owner", entry_source)
+            self.assertIn(owner_call, entry_source)
         for forbidden in ("now", "consumed_at", "effect", "backend", "host"):
             self.assertNotIn(
                 forbidden,
@@ -819,6 +1096,110 @@ class ProtectedSubmitContractTests(unittest.TestCase):
             with self.subTest(path=relative):
                 actual = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
                 self.assertEqual(actual, expected)
+
+    def test_facade_exact_owner_survives_shadow_cache_and_both_relocation_orders(self) -> None:
+        package = skill_package.package_files(ROOT, "auto-g16-rtwin-pbs")
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            layouts = {
+                "root": temporary_root / "root-layout",
+                "package": temporary_root / "package-layout",
+            }
+            for installed in layouts.values():
+                for destination_name, source in package.items():
+                    destination = installed / destination_name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, destination)
+            shadow = temporary_root / "caller-shadow"
+            shadow.mkdir()
+            (shadow / "protected_submit_contract.py").write_text(
+                "raise AssertionError('caller-path shadow was imported')\n",
+                encoding="utf-8",
+            )
+            script = (
+                "import importlib.util, sys, types\n"
+                "from pathlib import Path\n"
+                f"root_scripts=Path({str(layouts['root'] / 'scripts')!r})\n"
+                f"package_scripts=Path({str(layouts['package'] / 'scripts')!r})\n"
+                f"shadow=Path({str(shadow)!r})\n"
+                "sys.path[:0]=[str(shadow),str(root_scripts),str(package_scripts)]\n"
+                "unrelated=types.ModuleType('unrelated_owner_cache')\n"
+                "sys.modules['unrelated_owner_cache']=unrelated\n"
+                "def load(name,path):\n"
+                " spec=importlib.util.spec_from_file_location(name,path)\n"
+                " assert spec and spec.loader\n"
+                " module=importlib.util.module_from_spec(spec)\n"
+                " sys.modules[name]=module\n"
+                " spec.loader.exec_module(module)\n"
+                " return module\n"
+                "def load_facade(name,directory):\n"
+                " return load(name,directory/'execution_facade.py')\n"
+                "root_cached=load('protected_submit_contract',"
+                "root_scripts/'protected_submit_contract.py')\n"
+                "package_facade=load_facade('package_execution_facade',"
+                "package_scripts)\n"
+                "owner=package_facade._protected_submit_owner()\n"
+                "assert Path(owner.__class__.__init__.__code__.co_filename).resolve()=="
+                "(package_scripts/'protected_submit_contract.py').resolve()\n"
+                "assert sys.modules['protected_submit_contract'] is root_cached\n"
+                "package_cached=load('protected_submit_contract',"
+                "package_scripts/'protected_submit_contract.py')\n"
+                "def evidence(module):\n"
+                " return module.ProtectedSubmitEvidence("
+                "input_path=Path('input.gjf'),"
+                "input_approval_path=Path('input-approval.json'),"
+                "live_approval_path=Path('live-approval.json'),"
+                "execution_ledger={},resource_policy={},resource_gate={},"
+                "scheduler_snapshot={},scheduler_snapshot_artifact=b'{}',"
+                "project='safejob',scientific_task_id='scientific-task-'+'a'*64,"
+                "idempotency_key='placeholder',"
+                "estimated_core_hours_evidence={},work_kind='minimum',"
+                "transport_artifacts={})\n"
+                "package_evidence=evidence(package_cached)\n"
+                "root_evidence=evidence(root_cached)\n"
+                "with package_facade._exact_protected_submit_contract() as exact:\n"
+                " rebound=package_facade._evidence_for_exact_owner("
+                "exact,package_evidence)\n"
+                " assert isinstance(rebound,exact.ProtectedSubmitEvidence)\n"
+                " try:\n"
+                "  package_facade._evidence_for_exact_owner(exact,root_evidence)\n"
+                " except TypeError:\n"
+                "  pass\n"
+                " else:\n"
+                "  raise AssertionError('cross-origin evidence was accepted')\n"
+                "root_facade=load_facade('root_execution_facade',root_scripts)\n"
+                "owner=root_facade._protected_submit_owner()\n"
+                "assert Path(owner.__class__.__init__.__code__.co_filename).resolve()=="
+                "(root_scripts/'protected_submit_contract.py').resolve()\n"
+                "assert sys.modules['protected_submit_contract'] is package_cached\n"
+                "sys.modules.pop('protected_submit_contract')\n"
+                "owner=package_facade._protected_submit_owner()\n"
+                "assert Path(owner.__class__.__init__.__code__.co_filename).resolve()=="
+                "(package_scripts/'protected_submit_contract.py').resolve()\n"
+                "assert 'protected_submit_contract' not in sys.modules\n"
+                "fake=types.ModuleType('protected_submit_contract')\n"
+                "fake.__file__=str(shadow/'protected_submit_contract.py')\n"
+                "sys.modules['protected_submit_contract']=fake\n"
+                "owner=package_facade._protected_submit_owner()\n"
+                "assert Path(owner.__class__.__init__.__code__.co_filename).resolve()=="
+                "(package_scripts/'protected_submit_contract.py').resolve()\n"
+                "assert sys.modules['protected_submit_contract'] is fake\n"
+                "assert sys.modules['unrelated_owner_cache'] is unrelated\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-c", script],
+                cwd=temporary_root,
+                env={"PATH": os.environ.get("PATH", "")},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stdout + completed.stderr,
+            )
 
     def test_package_and_source_relocation_preserve_owner_and_schema(self) -> None:
         package = skill_package.package_files(ROOT, "auto-g16-rtwin-pbs")
@@ -882,6 +1263,11 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                 f"Path({temporary!r})/'state',clock,_test_token=c._TEST_OWNER_TOKEN)\n"
                 "assert c.validate_protected_submit_bundle(d)==d\n"
                 "assert owner.seal(e).document()==d\n"
+                "facade_owner=execution_facade._protected_submit_owner()\n"
+                "expected=Path(execution_facade.__file__).resolve().with_name("
+                "'protected_submit_contract.py')\n"
+                "assert Path(facade_owner.__class__.__init__.__code__.co_filename)"
+                ".resolve()==expected\n"
                 "assert tuple(__import__('inspect').signature("
                 "execution_facade.seal_protected_submit_bundle).parameters)==('evidence',)\n"
             )

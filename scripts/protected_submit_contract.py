@@ -57,8 +57,7 @@ ATTEMPT_RE = re.compile(r"^qsub-attempt-[a-f0-9]{64}$")
 OWNER_ID_RE = re.compile(r"^[a-z][a-z0-9._-]{0,127}$")
 BUNDLE_ID_RE = re.compile(r"^protected-submit-[a-f0-9]{64}$")
 TIME_RE = re.compile(
-    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
-    r"(?:\.[0-9]+)?(?:Z|\+00:00)$"
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
 )
 _SEAL_TOKEN = object()
 _RESERVATION_TOKEN = object()
@@ -72,6 +71,7 @@ _RUNTIME_ENVIRONMENT_NAMES = (
     "AUTO_G16_WINDOWS_SERVER_CONFIG",
 )
 _MISSING_ENVIRONMENT = object()
+_MISSING_MODULE = object()
 
 
 class ProtectedSubmitError(ValueError):
@@ -135,23 +135,71 @@ def _sha(value: Any, label: str) -> str:
     return value
 
 
+def _draft_integer(value: Any, label: str, *, minimum: int) -> int:
+    if isinstance(value, bool):
+        raise ProtectedSubmitError(f"{label} must be a Draft integer")
+    if isinstance(value, int):
+        canonical = value
+    elif isinstance(value, float) and value.is_integer():
+        canonical = int(value)
+    else:
+        raise ProtectedSubmitError(f"{label} must be a Draft integer")
+    if canonical < minimum:
+        raise ProtectedSubmitError(
+            f"{label} must be at least {minimum}"
+        )
+    return canonical
+
+
 def _positive_integer(value: Any, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ProtectedSubmitError(f"{label} must be a positive integer")
-    return value
+    return _draft_integer(value, label, minimum=1)
+
+
+def _canonicalize_portable_integers(
+    document: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize Draft-integral JSON numbers before portable self-hashing."""
+
+    def normalize(value: Any) -> Any:
+        if (
+            not isinstance(value, bool)
+            and isinstance(value, float)
+            and value.is_integer()
+        ):
+            return int(value)
+        return value
+
+    execution = document.get("execution")
+    if isinstance(execution, dict) and "resource_state_revision" in execution:
+        execution["resource_state_revision"] = normalize(
+            execution["resource_state_revision"]
+        )
+    resources = document.get("resources")
+    if isinstance(resources, dict):
+        for field in ("cores", "memory_gb", "walltime_seconds"):
+            if field in resources:
+                resources[field] = normalize(resources[field])
+    stage = document.get("stage")
+    if isinstance(stage, dict) and "artifact_count" in stage:
+        stage["artifact_count"] = normalize(stage["artifact_count"])
+    return document
 
 
 def _time(value: Any, label: str) -> datetime:
     value = _nonempty(value, label)
     if TIME_RE.fullmatch(value) is None:
-        raise ProtectedSubmitError(f"{label} must be explicit UTC")
+        raise ProtectedSubmitError(
+            f"{label} must be canonical second-precision UTC ending in Z"
+        )
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
     except ValueError as exc:
-        raise ProtectedSubmitError(f"{label} is not a valid timestamp") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ProtectedSubmitError(f"{label} must be timezone-aware")
-    return parsed.astimezone(timezone.utc)
+        raise ProtectedSubmitError(
+            f"{label} is not a real calendar timestamp"
+        ) from exc
+    return parsed
 
 
 def _trusted_now(value: datetime) -> datetime:
@@ -223,7 +271,7 @@ def _bind_existing_owner_clock(
 
 
 def finalize(document: dict[str, Any]) -> dict[str, Any]:
-    result = copy.deepcopy(document)
+    result = _canonicalize_portable_integers(copy.deepcopy(document))
     result["bundle_payload_sha256"] = digest(
         {key: value for key, value in result.items() if key != "bundle_payload_sha256"}
     )
@@ -234,7 +282,7 @@ def validate_protected_submit_bundle(value: Any) -> dict[str, Any]:
     """Validate the portable closed topology; this does not issue an owner seal."""
 
     document = _exact(
-        value,
+        copy.deepcopy(value),
         {
             "schema",
             "owner",
@@ -376,12 +424,11 @@ def validate_protected_submit_bundle(value: Any) -> dict[str, Any]:
     _nonempty(execution["batch_id"], "execution batch id")
     _sha(execution["review_sha256"], "execution review")
     _sha(execution["ledger_sha256"], "execution ledger")
-    if (
-        isinstance(execution["resource_state_revision"], bool)
-        or not isinstance(execution["resource_state_revision"], int)
-        or execution["resource_state_revision"] < 0
-    ):
-        raise ProtectedSubmitError("resource-state revision is malformed")
+    execution["resource_state_revision"] = _draft_integer(
+        execution["resource_state_revision"],
+        "resource-state revision",
+        minimum=0,
+    )
     _sha(execution["resource_state_sha256"], "resource state")
 
     resources = _exact(
@@ -414,7 +461,10 @@ def validate_protected_submit_bundle(value: Any) -> dict[str, Any]:
     ):
         raise ProtectedSubmitError("resource tier is unsupported")
     for field in ("cores", "memory_gb", "walltime_seconds"):
-        _positive_integer(resources[field], f"resources.{field}")
+        resources[field] = _positive_integer(
+            resources[field],
+            f"resources.{field}",
+        )
 
     transport = _exact(
         document["transport"],
@@ -447,6 +497,11 @@ def validate_protected_submit_bundle(value: Any) -> dict[str, Any]:
             "artifact_order",
         },
         "protected-submit stage",
+    )
+    stage["artifact_count"] = _draft_integer(
+        stage["artifact_count"],
+        "stage artifact count",
+        minimum=0,
     )
     if (
         stage["manifest_schema"] != STAGE_SCHEMA
@@ -726,6 +781,7 @@ def _load_state_owner_module() -> ModuleType:
         + hashlib.sha256(str(path).encode()).hexdigest()[:16]
     )
     with _GRAPH_LOCK:
+        previous = sys.modules.get(name, _MISSING_MODULE)
         spec = importlib.util.spec_from_file_location(name, path)
         if spec is None or spec.loader is None:
             raise ImportError("trusted authorization state owner cannot be loaded")
@@ -735,6 +791,8 @@ def _load_state_owner_module() -> ModuleType:
             spec.loader.exec_module(module)
         finally:
             sys.modules.pop(name, None)
+            if previous is not _MISSING_MODULE:
+                sys.modules[name] = previous
     if Path(module.__file__).resolve() != path.resolve():
         raise ImportError("trusted authorization state owner origin changed")
     return module
@@ -756,7 +814,10 @@ def _skill_owner_graph() -> Iterator[dict[str, ModuleType]]:
     )
     directory = _repository_skill_scripts()
     with _GRAPH_LOCK:
-        saved = {name: sys.modules.get(name) for name in names}
+        saved = {
+            name: sys.modules.get(name, _MISSING_MODULE)
+            for name in names
+        }
         old_path = list(sys.path)
         try:
             with _isolated_owner_environment():
@@ -770,13 +831,13 @@ def _skill_owner_graph() -> Iterator[dict[str, ModuleType]]:
                     if Path(module.__file__).resolve() != expected:
                         raise ImportError(f"{name} owner origin changed")
                     modules[name] = module
-            yield modules
+                yield modules
         finally:
             sys.path[:] = old_path
             for name in names:
                 sys.modules.pop(name, None)
                 previous = saved[name]
-                if previous is not None:
+                if previous is not _MISSING_MODULE:
                     sys.modules[name] = previous
 
 
@@ -789,6 +850,7 @@ def _load_transport_owner() -> ModuleType:
         + hashlib.sha256(str(path).encode()).hexdigest()[:16]
     )
     with _GRAPH_LOCK:
+        previous = sys.modules.get(name, _MISSING_MODULE)
         spec = importlib.util.spec_from_file_location(name, path)
         if spec is None or spec.loader is None:
             raise ImportError("transport authority owner cannot be loaded")
@@ -799,6 +861,8 @@ def _load_transport_owner() -> ModuleType:
                 spec.loader.exec_module(module)
         finally:
             sys.modules.pop(name, None)
+            if previous is not _MISSING_MODULE:
+                sys.modules[name] = previous
     if Path(module.__file__).resolve() != path.resolve():
         raise ImportError("transport authority owner origin changed")
     return module

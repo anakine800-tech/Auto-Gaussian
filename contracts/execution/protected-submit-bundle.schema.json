@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "auto-g16-protected-submit-bundle/1",
   "title": "Auto-G16 v2.6 owner-sealed protected submit bundle",
+  "$comment": "Draft 2020-12 validation proves the closed structural representation only. The protected-submit owner additionally parses real UTC calendar values, canonicalizes Draft-integral JSON numbers before self-hashing, replays predecessor owners, and issues the in-process seal.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -54,7 +55,8 @@
     "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
     "time": {
       "type": "string",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|\\+00:00)$"
+      "$comment": "Canonical second-precision UTC shape. Real calendar validity is an owner-level semantic check.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
     },
     "identity": {
       "type": "object",

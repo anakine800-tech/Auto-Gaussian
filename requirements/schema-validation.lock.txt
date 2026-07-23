@@ -1,0 +1,9 @@
+# Exact test-only environment for standards-compliant JSON Schema contract tests.
+# These reviewed packages are MIT licensed. They are not Auto-G16 core runtime,
+# chemistry runtime, scientific execution, adapter, transport, or live dependencies.
+attrs==26.1.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==2026.6.3
+typing-extensions==4.16.0

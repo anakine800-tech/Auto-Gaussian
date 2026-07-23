@@ -25,6 +25,16 @@ Neither function accepts caller time, consumption state, an effect callback,
 an adapter, a backend selector or an executable object. The portable artifact
 contains no free command, argv, shell, host, path, configuration, callable or
 raw artifact bytes. Its only path-like value is the fixed allowed-root policy.
+The facade resolves the owner only from its own adjacent
+`protected_submit_contract.py`, verifies the real file/spec origin and restores
+the prior same-name module cache exactly.
+
+Draft 2020-12 Schema validation is structural. Timestamp strings use canonical
+second-precision `Z` form, while the owner additionally parses real calendar
+dates. Draft-integral values such as `1.0` are accepted like `1`, rejected when
+boolean, and normalized to one integer representation before the bundle
+self-hash. Schema validity alone never issues a seal; both public facade
+functions always replay the exact owner.
 
 Reservation publishes `submission_uncertain` before any future effect and
 permits no automatic retry. PR4D provides no stage, submit, status, fetch,
@@ -36,5 +46,6 @@ The public Schema is
 `contracts/execution/protected-submit-bundle.schema.json`; the packaged owner
 is `scripts/protected_submit_contract.py`. Passing placeholder-only offline
 tests proves local contract behavior, not RTwin, SSH, PBS, Gaussian, adapter or
-live validation. An independent L3 review and a separate future adapter task
-remain mandatory.
+live validation. The exact-pinned Draft validator is a dedicated test-only
+dependency and is not part of core, chemistry, adapter or execution runtime.
+An independent L3 review and a separate future adapter task remain mandatory.
