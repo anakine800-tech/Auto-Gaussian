@@ -1081,7 +1081,7 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                 ).parameters,
             )
 
-    def test_historical_request_authorization_and_legacy_bytes_are_unchanged(self) -> None:
+    def test_historical_hashes_freeze_and_stage_extraction_is_explicit(self) -> None:
         manifest = json.loads(
             (
                 ROOT
@@ -1092,10 +1092,23 @@ class ProtectedSubmitContractTests(unittest.TestCase):
             manifest["base_commit"],
             "3f0dfaac805de83626b45288994132fdac0501db",
         )
+        extraction = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_invocation_mechanical_extraction.json"
+            ).read_text(encoding="utf-8")
+        )
         for relative, expected in manifest["files"].items():
             with self.subTest(path=relative):
                 actual = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
-                self.assertEqual(actual, expected)
+                if relative in extraction["files"]:
+                    record = extraction["files"][relative]
+                    self.assertEqual(record["before_sha256"], expected)
+                    self.assertEqual(actual, record["after_sha256"])
+                    self.assertFalse(record["legacy_semantics_changed"])
+                else:
+                    self.assertEqual(actual, expected)
 
     def test_facade_exact_owner_survives_shadow_cache_and_both_relocation_orders(self) -> None:
         package = skill_package.package_files(ROOT, "auto-g16-rtwin-pbs")

@@ -31,6 +31,10 @@
       "target": "scripts/local_state_binding.py"
     },
     {
+      "source": "scripts/protected_invocation_contract.py",
+      "target": "scripts/protected_invocation_contract.py"
+    },
+    {
       "source": "scripts/runtime_config.py",
       "target": "scripts/platform_runtime_config_owner.py"
     }

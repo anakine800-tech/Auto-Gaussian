@@ -1,0 +1,12 @@
+{
+  "schema": "auto-g16-protected-invocation-mechanical-extraction/1",
+  "base_commit": "70f1575219eecf8864722d91282c9e0902681ef8",
+  "files": {
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_sha256": "fbbd7a194e2c840a7173b61a3386fbb514be0dfe4a42ebebaadc0326ab6de1ce",
+      "after_sha256": "7285a638a07682ada9a532d615d68ebaaf0f7c0187479632b19c64353419eeef",
+      "change_class": "deterministic_read_only_stage_byte_planner_mechanical_extraction",
+      "legacy_semantics_changed": false
+    }
+  }
+}

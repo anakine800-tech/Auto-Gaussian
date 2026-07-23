@@ -1,0 +1,336 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-protected-invocation-bundle/1",
+  "title": "Auto-G16 v2.6 owner-sealed protected invocation bundle",
+  "$comment": "Structural validation issues no in-process seal and grants no reservation, stage, submit, transport, scheduler, Gaussian, status, fetch, cancel, cleanup, delete, retry, callback, command, backend, configuration, or execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "invocation_id",
+    "identity",
+    "predecessors",
+    "local_state",
+    "ledger",
+    "resources",
+    "transport",
+    "stage_plan",
+    "operation_order",
+    "future_legacy_transaction_order",
+    "scope",
+    "policy",
+    "invocation_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-protected-invocation-bundle/1"},
+    "owner": {"const": "auto-g16-protected-invocation-owner"},
+    "invocation_id": {
+      "type": "string",
+      "pattern": "^protected-invocation-[a-f0-9]{64}$"
+    },
+    "identity": {"$ref": "#/$defs/identity"},
+    "predecessors": {"$ref": "#/$defs/predecessors"},
+    "local_state": {"$ref": "#/$defs/localState"},
+    "ledger": {"$ref": "#/$defs/ledger"},
+    "resources": {"$ref": "#/$defs/resources"},
+    "transport": {"$ref": "#/$defs/transport"},
+    "stage_plan": {"$ref": "#/$defs/stagePlan"},
+    "operation_order": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "replay_protected_submit_owner"},
+        {"const": "replay_local_state_owner"},
+        {"const": "plan_full_legacy_stage_bytes"},
+        {"const": "seal_non_executable_invocation"}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "future_legacy_transaction_order": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "reserve_execution_attempt_once"},
+        {"const": "materialize_exact_stage_bytes"},
+        {"const": "transfer_exact_stage_bytes"},
+        {"const": "submit_once"}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "scope": {"$ref": "#/$defs/scope"},
+    "policy": {"$ref": "#/$defs/policy"},
+    "invocation_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "project": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+    },
+    "attempt": {
+      "type": "string",
+      "pattern": "^qsub-attempt-[a-f0-9]{64}$"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project",
+        "attempt_id",
+        "scientific_task_id",
+        "input_sha256",
+        "idempotency_key_sha256",
+        "scientific_identity_sha256"
+      ],
+      "properties": {
+        "project": {"$ref": "#/$defs/project"},
+        "attempt_id": {"$ref": "#/$defs/attempt"},
+        "scientific_task_id": {
+          "type": "string",
+          "pattern": "^scientific-task-[a-f0-9]{64}$"
+        },
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "idempotency_key_sha256": {"$ref": "#/$defs/sha"},
+        "scientific_identity_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "predecessors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protected_submit", "local_state_binding"],
+      "properties": {
+        "protected_submit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "bundle_payload_sha256"],
+          "properties": {
+            "schema": {"const": "auto-g16-protected-submit-bundle/1"},
+            "bundle_payload_sha256": {"$ref": "#/$defs/sha"}
+          }
+        },
+        "local_state_binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "binding_payload_sha256"],
+          "properties": {
+            "schema": {"const": "auto-g16-local-state-binding/1"},
+            "binding_payload_sha256": {"$ref": "#/$defs/sha"}
+          }
+        }
+      }
+    },
+    "localState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relative_local_dir",
+        "ledger_basename",
+        "workspace_root_path_sha256",
+        "local_dir_path_sha256"
+      ],
+      "properties": {
+        "relative_local_dir": {
+          "type": "string",
+          "pattern": "^outputs/[A-Za-z0-9][A-Za-z0-9_-]{0,14}/qsub-attempt-[a-f0-9]{64}$"
+        },
+        "ledger_basename": {"const": "execution-batch-v3.json"},
+        "workspace_root_path_sha256": {"$ref": "#/$defs/sha"},
+        "local_dir_path_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "artifact_sha256",
+        "artifact_size_bytes",
+        "ledger_identity_sha256",
+        "ledger_sha256",
+        "revision",
+        "resource_state_revision",
+        "resource_state_sha256",
+        "review_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "gaussian-execution-batch/3"},
+        "artifact_sha256": {"$ref": "#/$defs/sha"},
+        "artifact_size_bytes": {"type": "integer", "minimum": 1},
+        "ledger_identity_sha256": {"$ref": "#/$defs/sha"},
+        "ledger_sha256": {"$ref": "#/$defs/sha"},
+        "revision": {"type": "integer", "minimum": 0},
+        "resource_state_revision": {"type": "integer", "minimum": 0},
+        "resource_state_sha256": {"$ref": "#/$defs/sha"},
+        "review_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_id",
+        "policy_sha256",
+        "gate_id",
+        "gate_sha256",
+        "resource_tier",
+        "cores",
+        "memory_gb",
+        "walltime_seconds",
+        "resource_binding_sha256"
+      ],
+      "properties": {
+        "policy_id": {"type": "string", "minLength": 1},
+        "policy_sha256": {"$ref": "#/$defs/sha"},
+        "gate_id": {"type": "string", "minLength": 1},
+        "gate_sha256": {"$ref": "#/$defs/sha"},
+        "resource_tier": {
+          "enum": ["simple", "general", "complex", "custom_reviewed"]
+        },
+        "cores": {"type": "integer", "minimum": 1},
+        "memory_gb": {"type": "integer", "minimum": 1},
+        "walltime_seconds": {"type": "integer", "minimum": 1},
+        "resource_binding_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protected_transport_payload_sha256",
+        "authorization_sha256",
+        "successor_closure_sha256",
+        "handshake_receipt_sha256"
+      ],
+      "properties": {
+        "protected_transport_payload_sha256": {"$ref": "#/$defs/sha"},
+        "authorization_sha256": {"$ref": "#/$defs/sha"},
+        "successor_closure_sha256": {"$ref": "#/$defs/sha"},
+        "handshake_receipt_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "relative_name",
+        "order",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "gaussian_input",
+            "companion_json",
+            "companion_xyz",
+            "old_checkpoint",
+            "pbs_script",
+            "checksums_manifest"
+          ]
+        },
+        "relative_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "order": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "stagePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "manifest_schema",
+        "manifest_sha256",
+        "artifact_count",
+        "artifacts",
+        "protected_submit_stage_manifest_sha256",
+        "protected_submit_stage_bundle_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-legacy-stage-byte-plan/1"},
+        "manifest_schema": {"const": "auto-g16-legacy-stage-manifest/1"},
+        "manifest_sha256": {"$ref": "#/$defs/sha"},
+        "artifact_count": {"type": "integer", "minimum": 3},
+        "artifacts": {
+          "type": "array",
+          "minItems": 3,
+          "items": {"$ref": "#/$defs/artifact"}
+        },
+        "protected_submit_stage_manifest_sha256": {"$ref": "#/$defs/sha"},
+        "protected_submit_stage_bundle_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seal",
+        "read_only_replay",
+        "reserve",
+        "stage",
+        "submit",
+        "status",
+        "fetch",
+        "cancel",
+        "cleanup",
+        "delete",
+        "arbitrary_command"
+      ],
+      "properties": {
+        "seal": {"const": true},
+        "read_only_replay": {"const": true},
+        "reserve": {"const": false},
+        "stage": {"const": false},
+        "submit": {"const": false},
+        "status": {"const": false},
+        "fetch": {"const": false},
+        "cancel": {"const": false},
+        "cleanup": {"const": false},
+        "delete": {"const": false},
+        "arbitrary_command": {"const": false}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "future_single_legacy_transaction_only",
+        "no_execution_authority",
+        "no_reservation_acquired",
+        "no_stage_materialization_performed",
+        "no_ledger_lock_acquired",
+        "no_ledger_write_performed",
+        "no_external_action_performed",
+        "automatic_retry",
+        "automatic_cancel",
+        "automatic_cleanup",
+        "historical_migration",
+        "legacy_cli_unchanged"
+      ],
+      "properties": {
+        "future_single_legacy_transaction_only": {"const": true},
+        "no_execution_authority": {"const": true},
+        "no_reservation_acquired": {"const": true},
+        "no_stage_materialization_performed": {"const": true},
+        "no_ledger_lock_acquired": {"const": true},
+        "no_ledger_write_performed": {"const": true},
+        "no_external_action_performed": {"const": true},
+        "automatic_retry": {"const": false},
+        "automatic_cancel": {"const": false},
+        "automatic_cleanup": {"const": false},
+        "historical_migration": {"const": false},
+        "legacy_cli_unchanged": {"const": true}
+      }
+    }
+  }
+}

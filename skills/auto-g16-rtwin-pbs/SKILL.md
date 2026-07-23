@@ -467,6 +467,11 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/protected_submit_contract.py`: packaged copy of the repository
   owner that composes existing approvals and identity closures into a
   non-executable, single-use protected-submit bundle.
+- `scripts/local_state_binding.py`: packaged PR4G owner for the unique
+  read-only local execution-batch `/3` path and current file identity.
+- `scripts/protected_invocation_contract.py`: packaged additive PR4F owner
+  that composes PR4D, PR4G and the unique legacy stage-byte plan into a
+  replayable in-process seal with no reservation or effect surface.
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
 - `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for

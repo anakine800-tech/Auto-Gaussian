@@ -518,19 +518,32 @@ class LocalStateBindingTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, section)
 
-    def test_predecessor_hash_freeze_and_no_legacy_owner_changes(self) -> None:
+    def test_predecessor_hashes_freeze_and_stage_extraction_is_explicit(self) -> None:
         manifest = json.loads(
             (
                 ROOT
                 / "tests/fixtures/rtwin_pbs/protected_submit_legacy_hashes.json"
             ).read_text(encoding="utf-8")
         )
+        extraction = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_invocation_mechanical_extraction.json"
+            ).read_text(encoding="utf-8")
+        )
         for relative, expected in manifest["files"].items():
             with self.subTest(path=relative):
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    expected,
-                )
+                actual = hashlib.sha256(
+                    (ROOT / relative).read_bytes()
+                ).hexdigest()
+                if relative in extraction["files"]:
+                    record = extraction["files"][relative]
+                    self.assertEqual(record["before_sha256"], expected)
+                    self.assertEqual(actual, record["after_sha256"])
+                    self.assertFalse(record["legacy_semantics_changed"])
+                else:
+                    self.assertEqual(actual, expected)
 
     def test_package_and_source_relocation_preserve_exact_origin(self) -> None:
         package = skill_package.package_files(ROOT, "auto-g16-rtwin-pbs")

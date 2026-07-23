@@ -27,6 +27,10 @@ if TYPE_CHECKING:
         LocalStatePaths,
         SealedLocalStateBinding,
     )
+    from protected_invocation_contract import (
+        ProtectedInvocationEvidence,
+        SealedProtectedInvocationBundle,
+    )
     from protected_submit_contract import (
         ProtectedSubmitContractOwner,
         ProtectedSubmitEvidence,
@@ -40,6 +44,8 @@ _PROTECTED_SUBMIT_IMPORT_LOCK = threading.RLock()
 _MISSING_MODULE = object()
 _LOCAL_STATE_MODULE_NAME = "local_state_binding"
 _LOCAL_STATE_IMPORT_LOCK = threading.RLock()
+_PROTECTED_INVOCATION_MODULE_NAME = "protected_invocation_contract"
+_PROTECTED_INVOCATION_IMPORT_LOCK = threading.RLock()
 
 
 def _protected_submit_contract_path() -> Path:
@@ -202,6 +208,84 @@ def _local_state_evidence_for_exact_owner(
     )
 
 
+def _protected_invocation_contract_path() -> Path:
+    facade = Path(__file__).resolve()
+    path = facade.with_name(f"{_PROTECTED_INVOCATION_MODULE_NAME}.py")
+    if path.is_symlink() or not path.is_file():
+        raise ImportError(
+            f"exact adjacent protected-invocation owner is unavailable: {path}"
+        )
+    resolved = path.resolve()
+    if resolved.parent != facade.parent:
+        raise ImportError(
+            "protected-invocation owner is not adjacent to the facade"
+        )
+    return resolved
+
+
+@contextlib.contextmanager
+def _exact_protected_invocation_contract() -> Iterator[types.ModuleType]:
+    """Load only the exact adjacent invocation owner and restore its cache."""
+
+    path = _protected_invocation_contract_path()
+    with _PROTECTED_INVOCATION_IMPORT_LOCK:
+        _imp.acquire_lock()
+        previous = sys.modules.get(
+            _PROTECTED_INVOCATION_MODULE_NAME,
+            _MISSING_MODULE,
+        )
+        try:
+            sys.modules.pop(_PROTECTED_INVOCATION_MODULE_NAME, None)
+            spec = importlib.util.spec_from_file_location(
+                _PROTECTED_INVOCATION_MODULE_NAME,
+                path,
+            )
+            if spec is None or spec.loader is None:
+                raise ImportError(
+                    "exact protected-invocation owner cannot be loaded: "
+                    f"{path}"
+                )
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[_PROTECTED_INVOCATION_MODULE_NAME] = module
+            spec.loader.exec_module(module)
+            file_origin, spec_origin = _module_origin(module)
+            if file_origin != path or spec_origin != path:
+                raise ImportError(
+                    "protected-invocation owner origin changed during exact load"
+                )
+            yield module
+        finally:
+            sys.modules.pop(_PROTECTED_INVOCATION_MODULE_NAME, None)
+            if previous is not _MISSING_MODULE:
+                sys.modules[_PROTECTED_INVOCATION_MODULE_NAME] = previous
+            _imp.release_lock()
+
+
+def _protected_invocation_evidence_for_exact_owner(
+    contract: types.ModuleType,
+    evidence: object,
+) -> object:
+    expected = _protected_invocation_contract_path()
+    expected_type = contract.ProtectedInvocationEvidence
+    if isinstance(evidence, expected_type):
+        return evidence
+    snapshot_method = getattr(type(evidence), "snapshot", None)
+    code = getattr(snapshot_method, "__code__", None)
+    raw_source = getattr(code, "co_filename", None)
+    if not isinstance(raw_source, str) or Path(raw_source).resolve() != expected:
+        raise TypeError(
+            "protected-invocation evidence must come from the "
+            "facade-adjacent owner"
+        )
+    snapshot = evidence.snapshot()
+    fields = tuple(expected_type.__dataclass_fields__)
+    if any(not hasattr(snapshot, field) for field in fields):
+        raise TypeError("protected-invocation evidence fields differ")
+    return expected_type(
+        **{field: getattr(snapshot, field) for field in fields}
+    )
+
+
 class TransportAdapter(Protocol):
     def capabilities(self) -> tuple[str, ...]: ...
     def attest_first_hop_once(self, request: object) -> AttestationBoundaryPlan: ...
@@ -311,6 +395,21 @@ def seal_local_state_binding(
             evidence,
         )
         owner = contract.LocalStateBindingOwner.production()
+        return owner.seal(exact_evidence)
+
+
+def seal_protected_invocation_bundle(
+    *,
+    evidence: "ProtectedInvocationEvidence",
+) -> "SealedProtectedInvocationBundle":
+    """Seal one owner-composed invocation closure without any effect."""
+
+    with _exact_protected_invocation_contract() as contract:
+        exact_evidence = _protected_invocation_evidence_for_exact_owner(
+            contract,
+            evidence,
+        )
+        owner = contract.ProtectedInvocationContractOwner.production()
         return owner.seal(exact_evidence)
 
 
