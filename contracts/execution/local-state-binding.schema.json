@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "auto-g16-local-state-binding/1",
   "title": "Auto-G16 v2.6 deterministic local-state binding",
-  "$comment": "Structural validation does not issue an in-process seal or execution authority. Absolute paths and filesystem identities exist only in the owner-issued in-process object.",
+  "$comment": "Structural validation does not issue an in-process seal or execution authority. The relative ledger path is deterministically derived from relative_local_dir plus the fixed ledger_basename and is not a portable input. Absolute paths and filesystem identities exist only in the owner-issued in-process object.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -44,23 +44,17 @@
       "type": "string",
       "pattern": "^outputs/[A-Za-z0-9][A-Za-z0-9_-]{0,14}/qsub-attempt-[a-f0-9]{64}$"
     },
-    "relativeLedger": {
-      "type": "string",
-      "pattern": "^outputs/[A-Za-z0-9][A-Za-z0-9_-]{0,14}/qsub-attempt-[a-f0-9]{64}/execution-batch-v3[.]json$"
-    },
     "layout": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "schema",
         "relative_local_dir",
-        "relative_ledger_path",
         "ledger_basename"
       ],
       "properties": {
         "schema": {"const": "auto-g16-local-state-layout/1"},
         "relative_local_dir": {"$ref": "#/$defs/relativeLocalDir"},
-        "relative_ledger_path": {"$ref": "#/$defs/relativeLedger"},
         "ledger_basename": {"const": "execution-batch-v3.json"}
       }
     },

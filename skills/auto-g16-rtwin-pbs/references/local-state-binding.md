@@ -29,11 +29,17 @@ existing permission, takes no legacy ledger reservation lock, and writes
 no workspace, ledger, or binding state. PR4D keeps its already-reviewed
 process-private temporary validation behavior unchanged.
 
-The portable JSON stores only relative paths and domain-separated path
-digests, never absolute paths. The in-process paths and binding retain exact
-canonical `Path` values and initial inode identities and can assert the same
-read-only state again before later use. They carry no command, callback,
-configuration, backend, adapter, or effect.
+The portable JSON stores one path value only: the strict
+`outputs/<project>/<attempt_id>` relative local directory. Its layout version
+and `execution-batch-v3.json` basename are fixed; a caller cannot provide a
+relative ledger path or choose a basename. The owner derives the full relative
+ledger path deterministically. Domain-separated path digests are portable,
+but absolute paths never are.
+
+The in-process paths and binding still retain exact canonical `Path` values
+and initial inode identities and can assert the same read-only state again
+before later use. They carry no command, callback, configuration, backend,
+adapter, or effect.
 
 The backend-neutral facade adds only:
 

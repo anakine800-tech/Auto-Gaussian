@@ -126,8 +126,15 @@ class LocalStateBindingTests(unittest.TestCase):
             expected_relative,
         )
         self.assertEqual(
-            document["layout"]["relative_ledger_path"],
-            expected_relative + "/execution-batch-v3.json",
+            set(document["layout"]),
+            {"schema", "relative_local_dir", "ledger_basename"},
+        )
+        self.assertNotIn("relative_ledger_path", document["layout"])
+        self.assertEqual(
+            binding.paths.ledger_path.relative_to(
+                binding.paths.workspace_root
+            ).as_posix(),
+            expected_relative + "/" + document["layout"]["ledger_basename"],
         )
         self.assertNotIn(str(self.fixture.workspace_root), json.dumps(document))
         self.assertNotIn("batch_id", document["ledger"])
@@ -461,10 +468,6 @@ class LocalStateBindingTests(unittest.TestCase):
         mismatched_layout["layout"]["relative_local_dir"] = (
             f"outputs/other/{self.fixture.protected.attempt_id}"
         )
-        mismatched_layout["layout"]["relative_ledger_path"] = (
-            mismatched_layout["layout"]["relative_local_dir"]
-            + "/execution-batch-v3.json"
-        )
         mismatched_layout["binding_payload_sha256"] = LOCAL.digest(
             {
                 key: value
@@ -477,6 +480,8 @@ class LocalStateBindingTests(unittest.TestCase):
             "owner-derived identity",
         ):
             LOCAL.validate_local_state_binding(mismatched_layout)
+
+        self.assertEqual(LOCAL.finalize(document), document)
 
     def test_public_facade_surface_has_only_typed_derive_and_seal(self) -> None:
         self.assertEqual(

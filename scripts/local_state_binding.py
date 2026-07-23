@@ -182,7 +182,6 @@ def validate_local_state_binding(
         {
             "schema",
             "relative_local_dir",
-            "relative_ledger_path",
             "ledger_basename",
         },
         "local-state layout",
@@ -224,15 +223,10 @@ def validate_local_state_binding(
         layout["relative_local_dir"],
         "layout.relative_local_dir",
     )
-    ledger_relative = _canonical_relative_path(
-        layout["relative_ledger_path"],
-        "layout.relative_ledger_path",
-    )
     expected_local = PurePosixPath(OUTPUTS_COMPONENT, project, attempt_id)
-    expected_ledger = expected_local / LEDGER_BASENAME
-    if local_relative != expected_local or ledger_relative != expected_ledger:
+    if local_relative != expected_local:
         raise LocalStateBindingError(
-            "local-state relative paths differ from owner-derived identity"
+            "local-state relative directory differs from owner-derived identity"
         )
 
     path_bindings = _exact(
@@ -963,7 +957,6 @@ def _build_document(
         identity["project"],
         identity["attempt_id"],
     )
-    relative_ledger = relative_local / LEDGER_BASENAME
     ledger_document = ledger.document
     return finalize(
         {
@@ -972,7 +965,6 @@ def _build_document(
             "layout": {
                 "schema": LAYOUT_SCHEMA,
                 "relative_local_dir": str(relative_local),
-                "relative_ledger_path": str(relative_ledger),
                 "ledger_basename": LEDGER_BASENAME,
             },
             "path_bindings": {

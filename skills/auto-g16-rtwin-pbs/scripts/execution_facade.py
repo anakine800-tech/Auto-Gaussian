@@ -303,7 +303,7 @@ def seal_local_state_binding(
     *,
     evidence: "LocalStateBindingEvidence",
 ) -> "SealedLocalStateBinding":
-    """Seal one non-authorizing deterministic local-state binding."""
+    """Seal one non-authorizing binding with an owner-derived ledger path."""
 
     with _exact_local_state_contract() as contract:
         exact_evidence = _local_state_evidence_for_exact_owner(

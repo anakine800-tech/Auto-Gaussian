@@ -148,10 +148,6 @@ class LocalStateBindingDraft202012Tests(unittest.TestCase):
         structural["layout"]["relative_local_dir"] = (
             f"outputs/other/{self.fixture.protected.attempt_id}"
         )
-        structural["layout"]["relative_ledger_path"] = (
-            structural["layout"]["relative_local_dir"]
-            + "/execution-batch-v3.json"
-        )
         structural["binding_payload_sha256"] = SUPPORT.LOCAL.digest(
             {
                 key: value
@@ -170,6 +166,65 @@ class LocalStateBindingDraft202012Tests(unittest.TestCase):
         absolute["layout"]["relative_local_dir"] = "/placeholder/absolute"
         with self.assertRaises(ValidationError):
             self.validator.validate(absolute)
+
+    def test_schema_and_owner_reject_every_redundant_ledger_topology(self) -> None:
+        different_attempt = "qsub-attempt-" + ("f" * 64)
+        if different_attempt == self.fixture.protected.attempt_id:
+            different_attempt = "qsub-attempt-" + ("e" * 64)
+        cases = {
+            "different_project": {
+                "relative_ledger_path": (
+                    "outputs/other/"
+                    f"{self.fixture.protected.attempt_id}/"
+                    "execution-batch-v3.json"
+                )
+            },
+            "different_attempt": {
+                "relative_ledger_path": (
+                    f"outputs/safejob/{different_attempt}/"
+                    "execution-batch-v3.json"
+                )
+            },
+            "injected_exact_ledger_path": {
+                "relative_ledger_path": (
+                    self.document["layout"]["relative_local_dir"]
+                    + "/execution-batch-v3.json"
+                )
+            },
+            "selectable_basename": {
+                "ledger_basename": "other.json",
+            },
+            "injected_basename": {
+                "caller_ledger_basename": "other.json",
+            },
+        }
+        for label, mutation in cases.items():
+            with self.subTest(case=label):
+                invalid = copy.deepcopy(self.document)
+                invalid["layout"].update(mutation)
+                invalid["binding_payload_sha256"] = SUPPORT.LOCAL.digest(
+                    {
+                        key: value
+                        for key, value in invalid.items()
+                        if key != "binding_payload_sha256"
+                    }
+                )
+                with self.assertRaises(ValidationError):
+                    self.validator.validate(invalid)
+                with self.assertRaises(
+                    SUPPORT.LOCAL.LocalStateBindingError
+                ):
+                    SUPPORT.LOCAL.validate_local_state_binding(invalid)
+
+        self.validator.validate(self.document)
+        self.assertEqual(
+            SUPPORT.LOCAL.validate_local_state_binding(self.document),
+            self.document,
+        )
+        self.assertNotIn(
+            "relative_ledger_path",
+            self.document["layout"],
+        )
 
     def test_portable_contract_contains_no_absolute_path(self) -> None:
         strings: list[str] = []
