@@ -1092,23 +1092,33 @@ class ProtectedSubmitContractTests(unittest.TestCase):
             manifest["base_commit"],
             "3f0dfaac805de83626b45288994132fdac0501db",
         )
-        extraction = json.loads(
-            (
-                ROOT
-                / "tests/fixtures/rtwin_pbs/"
-                "protected_invocation_mechanical_extraction.json"
-            ).read_text(encoding="utf-8")
-        )
+        extractions = [
+            json.loads(
+                (
+                    ROOT
+                    / "tests/fixtures/rtwin_pbs"
+                    / name
+                ).read_text(encoding="utf-8")
+            )
+            for name in (
+                "protected_invocation_mechanical_extraction.json",
+                "legacy_transaction_owner_mechanical_extraction.json",
+            )
+        ]
         for relative, expected in manifest["files"].items():
             with self.subTest(path=relative):
                 actual = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
-                if relative in extraction["files"]:
-                    record = extraction["files"][relative]
-                    self.assertEqual(record["before_sha256"], expected)
-                    self.assertEqual(actual, record["after_sha256"])
+                current = expected
+                records = [
+                    extraction["files"][relative]
+                    for extraction in extractions
+                    if relative in extraction["files"]
+                ]
+                for record in records:
+                    self.assertEqual(record["before_sha256"], current)
                     self.assertFalse(record["legacy_semantics_changed"])
-                else:
-                    self.assertEqual(actual, expected)
+                    current = record["after_sha256"]
+                self.assertEqual(actual, current)
 
     def test_facade_exact_owner_survives_shadow_cache_and_both_relocation_orders(self) -> None:
         package = skill_package.package_files(ROOT, "auto-g16-rtwin-pbs")

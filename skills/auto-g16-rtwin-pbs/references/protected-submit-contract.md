@@ -42,6 +42,11 @@ cancel, cleanup, delete or reconciliation implementation and never calls
 `LegacyTransportAdapter`. The existing fail-closed placeholder remains
 unchanged.
 
+PR4I mechanically places the historical CLI transaction behind one private
+sealed-plan owner. That extraction adds no protected-submit factory or adapter
+authority: `LegacyTransportAdapter.invoke_reserved_once` still fails closed,
+and the CLI factory remains the only plan source.
+
 The public Schema is
 `contracts/execution/protected-submit-bundle.schema.json`; the packaged owner
 is `scripts/protected_submit_contract.py`. Passing placeholder-only offline

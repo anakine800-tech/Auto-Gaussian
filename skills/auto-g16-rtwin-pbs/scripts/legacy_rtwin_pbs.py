@@ -4737,27 +4737,186 @@ def replay_resource_artifacts_before_qsub(
 _BACKEND_TRANSACTION_TOKEN = object()
 
 
-def _legacy_transaction_once(args, *, _transaction_token: object | None = None) -> None:
+# gaussian_rtwin_pbs.py executes this source in an intentionally unregistered
+# module namespace.  Manual frozen slots preserve that packaging contract;
+# dataclass(slots=True) requires a sys.modules entry on supported interpreters.
+class _LegacyTransactionPlan:
+    __slots__ = (
+        "input",
+        "project",
+        "local_dir",
+        "confirmed",
+        "dry_run",
+        "execution_batch_ledger",
+        "scientific_task_id",
+        "idempotency_key",
+        "estimated_core_hours",
+        "estimated_core_hours_evidence_source",
+        "estimated_core_hours_evidence_sha256",
+        "resource_policy",
+        "resource_gate",
+        "scheduler_resource_snapshot",
+        "resource_tier",
+        "resource_cores",
+        "resource_memory_gb",
+        "walltime_seconds",
+        "approval_record",
+        "input_approval_record",
+        "scientific_maturity",
+        "edge_id",
+        "node_id",
+        "pilot",
+        "work_kind",
+        "scientific_action_authorization",
+        "mac_ssh_config",
+        "rtwin_alias",
+        "windows_root",
+        "windows_server_config",
+        "server_alias",
+        "_prospective_live",
+        "_owner_seal",
+    )
+
+    input: str
+    project: str
+    local_dir: str
+    confirmed: bool
+    dry_run: bool
+    execution_batch_ledger: str | None
+    scientific_task_id: str | None
+    idempotency_key: str | None
+    estimated_core_hours: float | None
+    estimated_core_hours_evidence_source: str | None
+    estimated_core_hours_evidence_sha256: str | None
+    resource_policy: str | None
+    resource_gate: str | None
+    scheduler_resource_snapshot: str | None
+    resource_tier: str | None
+    resource_cores: int | None
+    resource_memory_gb: int | None
+    walltime_seconds: int | None
+    approval_record: str | None
+    input_approval_record: str | None
+    scientific_maturity: str | None
+    edge_id: str | None
+    node_id: str | None
+    pilot: bool
+    work_kind: str | None
+    scientific_action_authorization: str | None
+    mac_ssh_config: str
+    rtwin_alias: str
+    windows_root: str
+    windows_server_config: str
+    server_alias: str
+    _prospective_live: bool
+    _owner_seal: object
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_LegacyTransactionPlan":
+        raise TypeError(
+            "_LegacyTransactionPlan must be created by the legacy CLI owner"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("_LegacyTransactionPlan is frozen")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("_LegacyTransactionPlan is frozen")
+
+    def _assert_owner_sealed(self) -> None:
+        if getattr(self, "_owner_seal", None) is not _BACKEND_TRANSACTION_TOKEN:
+            fail("legacy transaction plan lacks the CLI owner seal")
+
+
+def _legacy_transaction_plan_from_cli_namespace(
+    args: argparse.Namespace,
+    *,
+    _factory_token: object | None = None,
+) -> _LegacyTransactionPlan:
+    """Normalize only the frozen legacy CLI namespace into the private plan."""
+
+    if _factory_token is not _BACKEND_TRANSACTION_TOKEN:
+        fail("legacy transaction is internal to the sole backend dispatch")
+    value = object.__new__(_LegacyTransactionPlan)
+    fields = {
+        "input": args.input,
+        "project": args.project,
+        "local_dir": args.local_dir,
+        "confirmed": args.confirmed,
+        "dry_run": args.dry_run,
+        "execution_batch_ledger": args.execution_batch_ledger,
+        "scientific_task_id": args.scientific_task_id,
+        "idempotency_key": args.idempotency_key,
+        "estimated_core_hours": args.estimated_core_hours,
+        "estimated_core_hours_evidence_source": args.estimated_core_hours_evidence_source,
+        "estimated_core_hours_evidence_sha256": args.estimated_core_hours_evidence_sha256,
+        "resource_policy": args.resource_policy,
+        "resource_gate": args.resource_gate,
+        "scheduler_resource_snapshot": args.scheduler_resource_snapshot,
+        "resource_tier": args.resource_tier,
+        "resource_cores": args.resource_cores,
+        "resource_memory_gb": args.resource_memory_gb,
+        "walltime_seconds": args.walltime_seconds,
+        "approval_record": args.approval_record,
+        "input_approval_record": args.input_approval_record,
+        "scientific_maturity": args.scientific_maturity,
+        "edge_id": args.edge_id,
+        "node_id": args.node_id,
+        "pilot": args.pilot,
+        "work_kind": args.work_kind,
+        "scientific_action_authorization": args.scientific_action_authorization,
+        "mac_ssh_config": args.mac_ssh_config,
+        "rtwin_alias": args.rtwin_alias,
+        "windows_root": args.windows_root,
+        "windows_server_config": args.windows_server_config,
+        "server_alias": args.server_alias,
+        "_prospective_live": not args.dry_run,
+        "_owner_seal": _BACKEND_TRANSACTION_TOKEN,
+    }
+    for name, item in fields.items():
+        object.__setattr__(value, name, item)
+    return value
+
+
+def _legacy_transaction_once(
+    args,
+    *,
+    _transaction_token: object | None = None,
+) -> None:
+    plan = _legacy_transaction_plan_from_cli_namespace(
+        args,
+        _factory_token=_transaction_token,
+    )
+    _execute_legacy_transaction_once(
+        plan,
+        _transaction_token=_transaction_token,
+    )
+
+
+def _execute_legacy_transaction_once(
+    plan: _LegacyTransactionPlan,
+    *,
+    _transaction_token: object | None = None,
+) -> None:
     if _transaction_token is not _BACKEND_TRANSACTION_TOKEN:
         fail("legacy transaction is internal to the sole backend dispatch")
-    if not args.confirmed:
+    plan._assert_owner_sealed()
+    if not plan.confirmed:
         fail("submit requires --confirmed after the exact preflight is approved")
-    project = validate_project(args.project)
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    project = validate_project(plan.project)
+    local_dir = Path(plan.local_dir).expanduser().resolve()
     try:
         input_path, captured_input_sha256 = capture_submission_snapshot(
-            Path(args.input), local_dir
+            Path(plan.input), local_dir
         )
     except ValueError as exc:
         fail(f"could not capture immutable submission snapshot: {exc}")
     input_report = parse_gaussian(input_path)
     if input_report["input_sha256"] != captured_input_sha256:
         fail("submission snapshot hash changed before approval replay")
-    requested_work_kind = args.work_kind
-    if not args.dry_run and requested_work_kind is None:
+    requested_work_kind = plan.work_kind
+    if not plan.dry_run and requested_work_kind is None:
         fail("live submission requires an explicit --work-kind; it must not default to ordinary")
-    args._prospective_live = not args.dry_run
-    maturity = audit_scientific_maturity(args, input_report, "ts_submission")
+    maturity = audit_scientific_maturity(plan, input_report, "ts_submission")
     compatibility = input_approval_compatibility(input_report, requested_work_kind)
     execution_binding: dict[str, Any] | None = None
     execution_ledger_path: Path | None = None
@@ -4768,21 +4927,21 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
     scheduler_resource_snapshot: dict[str, Any] | None = None
     resource_artifact_bindings: dict[str, tuple[str, int]] = {}
     execution_values = (
-        args.execution_batch_ledger,
-        args.scientific_task_id,
-        args.idempotency_key,
-        args.estimated_core_hours,
-        args.estimated_core_hours_evidence_source,
-        args.estimated_core_hours_evidence_sha256,
-        args.resource_policy,
-        args.resource_gate,
-        args.scheduler_resource_snapshot,
-        args.resource_tier,
-        args.resource_cores,
-        args.resource_memory_gb,
-        args.walltime_seconds,
+        plan.execution_batch_ledger,
+        plan.scientific_task_id,
+        plan.idempotency_key,
+        plan.estimated_core_hours,
+        plan.estimated_core_hours_evidence_source,
+        plan.estimated_core_hours_evidence_sha256,
+        plan.resource_policy,
+        plan.resource_gate,
+        plan.scheduler_resource_snapshot,
+        plan.resource_tier,
+        plan.resource_cores,
+        plan.resource_memory_gb,
+        plan.walltime_seconds,
     )
-    if not args.dry_run and any(value is None for value in execution_values):
+    if not plan.dry_run and any(value is None for value in execution_values):
         fail(
             "protected live submit requires --execution-batch-ledger, --scientific-task-id, "
             "--idempotency-key, --estimated-core-hours, and its evidence source/hash"
@@ -4790,14 +4949,14 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
                 "an exact --scheduler-resource-snapshot, and explicitly reviewed --walltime-seconds"
         )
     if all(value is not None for value in execution_values):
-        execution_ledger_path = Path(args.execution_batch_ledger).expanduser().resolve()
+        execution_ledger_path = Path(plan.execution_batch_ledger).expanduser().resolve()
         try:
             execution_ledger = resource_efficiency.validate_ledger(
                 resource_efficiency.load(execution_ledger_path)
             )
-            policy_raw, policy_file_sha, policy_size = resource_efficiency.load_artifact(Path(args.resource_policy).expanduser().resolve())
-            gate_raw, gate_file_sha, gate_size = resource_efficiency.load_artifact(Path(args.resource_gate).expanduser().resolve())
-            scheduler_raw, scheduler_file_sha, scheduler_size = resource_efficiency.load_artifact(Path(args.scheduler_resource_snapshot).expanduser().resolve())
+            policy_raw, policy_file_sha, policy_size = resource_efficiency.load_artifact(Path(plan.resource_policy).expanduser().resolve())
+            gate_raw, gate_file_sha, gate_size = resource_efficiency.load_artifact(Path(plan.resource_gate).expanduser().resolve())
+            scheduler_raw, scheduler_file_sha, scheduler_size = resource_efficiency.load_artifact(Path(plan.scheduler_resource_snapshot).expanduser().resolve())
             resource_policy = resource_efficiency.validate_policy(policy_raw)
             resource_gate = resource_efficiency._validate_gate_binding(
                 gate_raw,
@@ -4813,7 +4972,7 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
         execution_task = next(
             (
                 item for item in execution_ledger["tasks"]
-                if item["scientific_task_id"] == args.scientific_task_id
+                if item["scientific_task_id"] == plan.scientific_task_id
             ),
             None,
         )
@@ -4822,28 +4981,28 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
         if execution_task["identity"]["relevant_input_sha256"] != captured_input_sha256:
             fail("execution-batch scientific task is not bound to the captured input hash")
         attempt_id = execution_batch.attempt_id_for(
-            execution_ledger["batch"]["batch_id"], args.idempotency_key
+            execution_ledger["batch"]["batch_id"], plan.idempotency_key
         )
         execution_binding = {
             "batch_id": execution_ledger["batch"]["batch_id"],
             "review_sha256": execution_ledger["batch"]["review_sha256"],
-            "scientific_task_id": args.scientific_task_id,
+            "scientific_task_id": plan.scientific_task_id,
             "attempt_id": attempt_id,
-            "idempotency_key": args.idempotency_key,
-            "estimated_core_hours": float(args.estimated_core_hours),
+            "idempotency_key": plan.idempotency_key,
+            "estimated_core_hours": float(plan.estimated_core_hours),
             "estimated_core_hours_evidence": {
-                "source": args.estimated_core_hours_evidence_source,
-                "sha256": args.estimated_core_hours_evidence_sha256,
+                "source": plan.estimated_core_hours_evidence_source,
+                "sha256": plan.estimated_core_hours_evidence_sha256,
             },
             "resource_binding": {
                 "policy_id": resource_policy["policy_id"],
                 "policy_sha256": resource_policy["payload_sha256"],
                 "gate_id": resource_gate["gate_id"],
                 "gate_sha256": resource_gate["gate_sha256"],
-                "resource_tier": args.resource_tier,
-                "cores": args.resource_cores,
-                "memory_gb": args.resource_memory_gb,
-                "walltime_seconds": args.walltime_seconds,
+                "resource_tier": plan.resource_tier,
+                "cores": plan.resource_cores,
+                "memory_gb": plan.resource_memory_gb,
+                "walltime_seconds": plan.walltime_seconds,
             },
         }
         requested = resource_gate["requested_resources"]
@@ -4851,14 +5010,14 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
             resource_gate["policy_id"] != resource_policy["policy_id"]
             or resource_gate["policy_sha256"] != resource_policy["payload_sha256"]
             or requested != {
-                "resource_tier": args.resource_tier,
-                "cores": args.resource_cores,
-                "memory_gb": args.resource_memory_gb,
-                "walltime_seconds": args.walltime_seconds,
-                "estimated_core_hours": float(args.estimated_core_hours),
+                "resource_tier": plan.resource_tier,
+                "cores": plan.resource_cores,
+                "memory_gb": plan.resource_memory_gb,
+                "walltime_seconds": plan.walltime_seconds,
+                "estimated_core_hours": float(plan.estimated_core_hours),
             }
-            or args.resource_cores != input_report["nprocshared"]
-            or args.resource_memory_gb * 1024**3 != parse_memory(input_report["mem"])
+            or plan.resource_cores != input_report["nprocshared"]
+            or plan.resource_memory_gb * 1024**3 != parse_memory(input_report["mem"])
         ):
             fail("resource policy/gate/CLI binding differs from exact input resources")
         if (
@@ -4868,10 +5027,10 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
         ):
             fail("resource gate differs from the exact scheduler snapshot artifact")
     input_approval: dict[str, Any]
-    if args.input_approval_record:
+    if plan.input_approval_record:
         assert requested_work_kind is not None
         input_approval = validate_input_approval(
-            Path(args.input_approval_record), input_path, input_report, requested_work_kind
+            Path(plan.input_approval_record), input_path, input_report, requested_work_kind
         )
     elif compatibility["status"] != "supported_generic_v1":
         input_approval = {**compatibility, "no_submission_authorization": True}
@@ -4894,9 +5053,9 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
         live_requirement = live_approval_scope_proposal(approval_summary)
     live_approval: dict[str, Any]
     validated_live_document: dict[str, Any] | None = None
-    if args.approval_record and approval_summary is not None:
+    if plan.approval_record and approval_summary is not None:
         validated_live, live_approval_digest = validate_live_approval_binding(
-            Path(args.approval_record), approval_summary
+            Path(plan.approval_record), approval_summary
         )
         validated_live_document = validated_live
         live_approval = {
@@ -4906,14 +5065,14 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
             "approval_id": validated_live.get("approval_id"),
             "approver_identity": validated_live.get("approver_identity"),
         }
-    elif args.approval_record:
+    elif plan.approval_record:
         live_approval = {
             "status": "not_evaluated_missing_exact_input_approval",
             "required_schema": LIVE_APPROVAL_V3_SCHEMA,
         }
     else:
         live_approval = {
-            "status": "omitted_for_dry_run" if args.dry_run else "missing_required_for_live_submission",
+            "status": "omitted_for_dry_run" if plan.dry_run else "missing_required_for_live_submission",
             "required_schema": (
                 live_requirement["required_schema"] if live_requirement is not None
                 else LIVE_APPROVAL_V3_SCHEMA
@@ -4925,7 +5084,7 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
         input_approval["status"] == "validated_exact_input_approval"
         and live_approval["status"] == "validated_exact_live_approval"
     )
-    if not args.dry_run:
+    if not plan.dry_run:
         if input_approval["status"] != "validated_exact_input_approval":
             if input_approval["status"] in {
                 "blocked_missing_specialist_input_approval",
@@ -4964,10 +5123,10 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
         live_submission_ready=live_submission_ready,
     )
     expected = verify_staged_submission(local_dir, job, input_report, input_approval, files)
-    windows_dir = f"{args.windows_root}\\{project}"
+    windows_dir = f"{plan.windows_root}\\{project}"
     remote_dir = remote_project_dir(project)
 
-    plan = {
+    output_plan = {
         "project": project,
         "local_dir": str(local_dir),
         "windows_dir": windows_dir,
@@ -4979,10 +5138,10 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
         "live_submission_ready": live_submission_ready,
     }
     if maturity is not None:
-        plan = {"scientific_maturity": maturity, **plan}
-    if args.dry_run:
-        plan["dry_run"] = True
-        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        output_plan = {"scientific_maturity": maturity, **output_plan}
+    if plan.dry_run:
+        output_plan["dry_run"] = True
+        print(json.dumps(output_plan, ensure_ascii=False, indent=2))
         return
 
     assert execution_binding is not None
@@ -4995,7 +5154,7 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
     assert scheduler_resource_snapshot is not None
     try:
         replayed_live_document, replayed_live_digest = validate_live_approval_binding(
-            Path(args.approval_record), approval_summary
+            Path(plan.approval_record), approval_summary
         )
     except SystemExit:
         fail("live approval changed, was revoked, or expired during local staging; no reservation or network action occurred")
@@ -5133,12 +5292,12 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
             f"if(Test-Path -LiteralPath '{windows_dir}'){{exit 43}};"
             f"New-Item -ItemType Directory -Path '{windows_dir}' -ErrorAction Stop | Out-Null"
         )
-        run([*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(mkdir_script)])
+        run([*ssh_base(plan), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(mkdir_script)])
         assert_file_bindings_unchanged(files, expected)
         windows_dir_scp = windows_dir.replace("\\", "/")
         scp_to_windows = [
-            "scp", "-F", str(Path(args.mac_ssh_config).expanduser()), *map(str, files),
-            f"{args.rtwin_alias}:{windows_dir_scp}/",
+            "scp", "-F", str(Path(plan.mac_ssh_config).expanduser()), *map(str, files),
+            f"{plan.rtwin_alias}:{windows_dir_scp}/",
         ]
         run(scp_to_windows, timeout_seconds=upload_timeout_seconds)
 
@@ -5149,7 +5308,7 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
             "Write-Output ((Split-Path $f -Leaf)+' '+$h)}"
         )
         hash_result = run(
-            [*ssh_base(args), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(hash_script)],
+            [*ssh_base(plan), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(hash_script)],
             timeout_seconds=upload_hash_timeout_seconds,
         )
         observed: dict[str, str] = {}
@@ -5176,12 +5335,12 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
         # This is the only server-side directory creation path. It is one
         # atomic claim and rejects every pre-existing path, including empty.
         run(
-            nested_ssh(args, "bash", "-s"),
+            nested_ssh(plan, "bash", "-s"),
             input_bytes=remote_empty_directory_guard(project).encode("utf-8"),
         )
         windows_files = [f"{windows_dir}\\{path.name}" for path in files]
         run(
-            [*ssh_base(args), "scp", "-F", args.windows_server_config, *windows_files, f"{args.server_alias}:{remote_dir}/"],
+            [*ssh_base(plan), "scp", "-F", plan.windows_server_config, *windows_files, f"{plan.server_alias}:{remote_dir}/"],
             timeout_seconds=upload_timeout_seconds,
         )
     except SystemExit:
@@ -5210,9 +5369,9 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
 
     try:
         replay_resource_artifacts_before_qsub(
-            policy_path=Path(args.resource_policy).expanduser().resolve(),
-            gate_path=Path(args.resource_gate).expanduser().resolve(),
-            scheduler_path=Path(args.scheduler_resource_snapshot).expanduser().resolve(),
+            policy_path=Path(plan.resource_policy).expanduser().resolve(),
+            gate_path=Path(plan.resource_gate).expanduser().resolve(),
+            scheduler_path=Path(plan.scheduler_resource_snapshot).expanduser().resolve(),
             expected_policy=resource_policy, expected_gate=resource_gate,
             expected_scheduler=scheduler_resource_snapshot,
             expected_bindings=resource_artifact_bindings, now=utc_now(),
@@ -5237,7 +5396,7 @@ def _legacy_transaction_once(args, *, _transaction_token: object | None = None) 
 
     try:
         qsub_live_document, qsub_live_digest = validate_live_approval_binding(
-            Path(args.approval_record), approval_summary
+            Path(plan.approval_record), approval_summary
         )
         if (
             qsub_live_digest != live_approval["sha256"]
@@ -5301,7 +5460,7 @@ if ! ln "$receipt_tmp" submission-receipt.json; then
 fi
 printf '%s\n' "$job_id"
 """
-    result = run(nested_ssh(args, "bash", "-l", "-s"), input_bytes=submit_script.encode("utf-8"), check=False)
+    result = run(nested_ssh(plan, "bash", "-l", "-s"), input_bytes=submit_script.encode("utf-8"), check=False)
     outcome = classify_qsub_outcome(result)
     if outcome["classification"] != "submitted_unique":
         update_job(local_dir, status="submission_uncertain", submission_output=outcome["output"])
