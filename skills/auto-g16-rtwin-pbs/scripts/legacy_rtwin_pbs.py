@@ -4738,7 +4738,9 @@ def replay_resource_artifacts_before_qsub(
 
 _BACKEND_TRANSACTION_TOKEN = object()
 _LEGACY_EFFECT_OWNER_TOKEN = object()
+_LEGACY_EFFECT_PLAN_STATE_TOKEN = object()
 _LEGACY_EFFECT_STATE_TOKEN = object()
+_LEGACY_EFFECT_BINDINGS_LOCK = threading.Lock()
 _LEGACY_EFFECT_STEPS = (
     "windows_directory_claim",
     "mac_to_windows_copy",
@@ -4839,6 +4841,52 @@ class _LegacyTransactionPlan:
             fail("legacy transaction plan lacks the CLI owner seal")
 
 
+class _LegacyEffectPlanFactoryState:
+    """Module-issued one-shot factory state for one exact effect plan."""
+
+    __slots__ = (
+        "_lock",
+        "_plan",
+        "_owner",
+        "_status",
+        "_factory_seal",
+    )
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_LegacyEffectPlanFactoryState":
+        raise TypeError(
+            "_LegacyEffectPlanFactoryState must be issued with one effect plan"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("_LegacyEffectPlanFactoryState is factory-managed")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("_LegacyEffectPlanFactoryState is factory-managed")
+
+    def __copy__(self) -> "_LegacyEffectPlanFactoryState":
+        raise TypeError(
+            "_LegacyEffectPlanFactoryState cannot be copied or replayed"
+        )
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "_LegacyEffectPlanFactoryState":
+        raise TypeError(
+            "_LegacyEffectPlanFactoryState cannot be copied or replayed"
+        )
+
+    def __reduce__(self) -> object:
+        raise TypeError(
+            "_LegacyEffectPlanFactoryState cannot be serialized or replayed"
+        )
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        raise TypeError(
+            "_LegacyEffectPlanFactoryState cannot be serialized or replayed"
+        )
+
+
 class _LegacyEffectPlan:
     """Owner-issued immutable inputs for the one fixed legacy effect chain."""
 
@@ -4856,6 +4904,7 @@ class _LegacyEffectPlan:
         "rtwin_alias",
         "windows_server_config",
         "server_alias",
+        "_factory_state",
         "_owner_seal",
     )
 
@@ -4868,8 +4917,25 @@ class _LegacyEffectPlan:
     def __delattr__(self, name: str) -> None:
         raise AttributeError("_LegacyEffectPlan is frozen")
 
-    def _assert_owner_sealed(self) -> None:
-        if getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN:
+    def __copy__(self) -> "_LegacyEffectPlan":
+        raise TypeError("_LegacyEffectPlan cannot be copied or replayed")
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "_LegacyEffectPlan":
+        raise TypeError("_LegacyEffectPlan cannot be copied or replayed")
+
+    def __reduce__(self) -> object:
+        raise TypeError("_LegacyEffectPlan cannot be serialized or replayed")
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        raise TypeError("_LegacyEffectPlan cannot be serialized or replayed")
+
+    def _assert_owner_sealed(
+        self,
+    ) -> tuple["_LegacyEffectPlanFactoryState", _thread.LockType]:
+        if (
+            type(self) is not _LegacyEffectPlan
+            or getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN
+        ):
             fail("legacy effect plan lacks the raw-effect owner seal")
         if (
             not isinstance(getattr(self, "project", None), str)
@@ -4894,6 +4960,7 @@ class _LegacyEffectPlan:
             or not SHA256_RE.fullmatch(self.input_sha256)
         ):
             fail("legacy effect plan failed closed consume-time replay")
+        return _registered_legacy_effect_plan_binding(self)
 
 
 class _LegacyEffectResult:
@@ -4972,6 +5039,8 @@ class _LegacyEffectOwnerState:
         "_lock",
         "_next_step",
         "_owner",
+        "_plan",
+        "_plan_factory_state",
         "_terminal_failed",
         "_factory_seal",
     )
@@ -4987,15 +5056,30 @@ class _LegacyEffectOwnerState:
     def __delattr__(self, name: str) -> None:
         raise AttributeError("_LegacyEffectOwnerState is owner-managed")
 
+    def __copy__(self) -> "_LegacyEffectOwnerState":
+        raise TypeError("_LegacyEffectOwnerState cannot be copied or replayed")
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "_LegacyEffectOwnerState":
+        raise TypeError("_LegacyEffectOwnerState cannot be copied or replayed")
+
+    def __reduce__(self) -> object:
+        raise TypeError(
+            "_LegacyEffectOwnerState cannot be serialized or replayed"
+        )
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        raise TypeError(
+            "_LegacyEffectOwnerState cannot be serialized or replayed"
+        )
+
     def _assert_bound(self, owner: "_LegacyRawEffectOwner") -> None:
-        if (
-            getattr(self, "_factory_seal", None)
-            is not _LEGACY_EFFECT_STATE_TOKEN
-            or getattr(self, "_owner", None) is not owner
-            or not isinstance(getattr(self, "_lock", None), _thread.LockType)
-            or not isinstance(getattr(self, "_next_step", None), int)
-            or not isinstance(getattr(self, "_terminal_failed", None), bool)
-        ):
+        state, _lock, _plan, _plan_state = (
+            _registered_legacy_effect_owner_binding(owner)
+        )
+        if state is not self:
             fail("legacy raw effect synchronization is not factory-bound")
 
 
@@ -5025,14 +5109,13 @@ class _LegacyRawEffectOwner:
     def __reduce_ex__(self, protocol: int) -> object:
         raise TypeError("_LegacyRawEffectOwner cannot be serialized or replayed")
 
-    def _bound_effect_state(self) -> _LegacyEffectOwnerState:
-        if getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN:
-            fail("legacy raw effect owner lacks its factory seal")
-        state = getattr(self, "_effect_state", None)
-        if type(state) is not _LegacyEffectOwnerState:
-            fail("legacy raw effect owner lacks factory-issued synchronization")
-        state._assert_bound(self)
-        return state
+    def _bound_effect_state(
+        self,
+    ) -> tuple[_LegacyEffectOwnerState, _thread.LockType]:
+        state, lock, _plan, _plan_state = (
+            _registered_legacy_effect_owner_binding(self)
+        )
+        return state, lock
 
     def _assert_dispatch(
         self,
@@ -5042,15 +5125,23 @@ class _LegacyRawEffectOwner:
     ) -> None:
         if token is not _LEGACY_EFFECT_OWNER_TOKEN:
             fail("legacy raw effect owner is internal to the legacy transaction")
-        if getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN:
-            fail("legacy raw effect owner lacks its factory seal")
-        state._assert_bound(self)
+        bound_state, _lock, bound_plan, plan_state = (
+            _registered_legacy_effect_owner_binding(self)
+        )
+        if bound_state is not state:
+            fail("legacy raw effect synchronization is not factory-bound")
         if state._terminal_failed:
             fail("legacy raw effect owner is terminal after an effect failure")
         plan = getattr(self, "_plan", None)
-        if not isinstance(plan, _LegacyEffectPlan):
+        if plan is not bound_plan:
             fail("legacy raw effect owner lacks its owner-issued plan")
-        plan._assert_owner_sealed()
+        registered_plan_state, _plan_lock = plan._assert_owner_sealed()
+        if (
+            registered_plan_state is not plan_state
+            or getattr(plan_state, "_owner", None) is not self
+            or getattr(plan_state, "_status", None) != "claimed"
+        ):
+            fail("legacy raw effect owner and plan identity do not match")
         next_step = state._next_step
         if (
             not isinstance(next_step, int)
@@ -5066,7 +5157,7 @@ class _LegacyRawEffectOwner:
         *,
         _effect_token: object | None = None,
     ) -> _LegacyEffectResult | _LegacyEffectFailure:
-        state = self._bound_effect_state()
+        state, effect_lock = self._bound_effect_state()
 
         def invoke_fixed_effect() -> _LegacyEffectResult | _LegacyEffectFailure:
             plan = self._plan
@@ -5183,7 +5274,7 @@ printf '%s\n' "$job_id"
                 _owner_token=_LEGACY_EFFECT_OWNER_TOKEN,
             )
 
-        with state._lock:
+        with effect_lock:
             self._assert_dispatch(state, step, _effect_token)
             try:
                 return invoke_fixed_effect()
@@ -5252,6 +5343,104 @@ printf '%s\n' "$job_id"
         )
 
 
+_LEGACY_EFFECT_PLAN_BINDINGS: dict[
+    _LegacyEffectPlan,
+    tuple[_LegacyEffectPlanFactoryState, _thread.LockType],
+] = {}
+_LEGACY_EFFECT_OWNER_BINDINGS: dict[
+    _LegacyRawEffectOwner,
+    tuple[
+        _LegacyEffectOwnerState,
+        _thread.LockType,
+        _LegacyEffectPlan,
+        _LegacyEffectPlanFactoryState,
+    ],
+] = {}
+
+
+def _registered_legacy_effect_plan_binding(
+    plan: _LegacyEffectPlan,
+) -> tuple[_LegacyEffectPlanFactoryState, _thread.LockType]:
+    if type(plan) is not _LegacyEffectPlan:
+        fail("legacy effect plan is not an exact factory-issued plan")
+    with _LEGACY_EFFECT_BINDINGS_LOCK:
+        binding = _LEGACY_EFFECT_PLAN_BINDINGS.get(plan)
+    if binding is None:
+        fail("legacy effect plan lacks its module-issued factory binding")
+    state, issued_lock = binding
+    status = getattr(state, "_status", None)
+    owner = getattr(state, "_owner", None)
+    owner_binding = None
+    if type(owner) is _LegacyRawEffectOwner:
+        with _LEGACY_EFFECT_BINDINGS_LOCK:
+            owner_binding = _LEGACY_EFFECT_OWNER_BINDINGS.get(owner)
+    if (
+        type(state) is not _LegacyEffectPlanFactoryState
+        or getattr(plan, "_factory_state", None) is not state
+        or getattr(state, "_plan", None) is not plan
+        or type(issued_lock) is not _thread.LockType
+        or getattr(state, "_lock", None) is not issued_lock
+        or getattr(state, "_factory_seal", None)
+        is not _LEGACY_EFFECT_PLAN_STATE_TOKEN
+        or type(status) is not str
+        or status not in {"unclaimed", "claiming", "claimed", "failed"}
+        or (status == "claimed" and type(owner) is not _LegacyRawEffectOwner)
+        or (status != "claimed" and owner is not None)
+        or (
+            status == "claimed"
+            and (
+                owner_binding is None
+                or owner_binding[2] is not plan
+                or owner_binding[3] is not state
+            )
+        )
+    ):
+        fail("legacy effect plan factory binding is not module-issued")
+    return state, issued_lock
+
+
+def _registered_legacy_effect_owner_binding(
+    owner: _LegacyRawEffectOwner,
+) -> tuple[
+    _LegacyEffectOwnerState,
+    _thread.LockType,
+    _LegacyEffectPlan,
+    _LegacyEffectPlanFactoryState,
+]:
+    if (
+        type(owner) is not _LegacyRawEffectOwner
+        or getattr(owner, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN
+    ):
+        fail("legacy raw effect owner lacks its exact factory identity")
+    with _LEGACY_EFFECT_BINDINGS_LOCK:
+        binding = _LEGACY_EFFECT_OWNER_BINDINGS.get(owner)
+    if binding is None:
+        fail("legacy raw effect owner lacks its module-issued binding")
+    state, issued_lock, plan, plan_state = binding
+    registered_plan_state, _plan_lock = (
+        _registered_legacy_effect_plan_binding(plan)
+    )
+    if (
+        type(state) is not _LegacyEffectOwnerState
+        or getattr(owner, "_effect_state", None) is not state
+        or getattr(owner, "_plan", None) is not plan
+        or type(issued_lock) is not _thread.LockType
+        or getattr(state, "_lock", None) is not issued_lock
+        or getattr(state, "_owner", None) is not owner
+        or getattr(state, "_plan", None) is not plan
+        or getattr(state, "_plan_factory_state", None) is not plan_state
+        or getattr(state, "_factory_seal", None)
+        is not _LEGACY_EFFECT_STATE_TOKEN
+        or type(getattr(state, "_next_step", None)) is not int
+        or type(getattr(state, "_terminal_failed", None)) is not bool
+        or registered_plan_state is not plan_state
+        or getattr(plan_state, "_owner", None) is not owner
+        or getattr(plan_state, "_status", None) != "claimed"
+    ):
+        fail("legacy raw effect owner binding is not module-issued")
+    return state, issued_lock, plan, plan_state
+
+
 def _legacy_effect_plan_from_transaction(
     transaction_plan: _LegacyTransactionPlan,
     *,
@@ -5270,6 +5459,8 @@ def _legacy_effect_plan_from_transaction(
         fail("legacy effect plan factory is internal to the legacy transaction")
     transaction_plan._assert_owner_sealed()
     value = object.__new__(_LegacyEffectPlan)
+    factory_state = object.__new__(_LegacyEffectPlanFactoryState)
+    factory_lock = threading.Lock()
     fields = {
         "project": project,
         "windows_dir": windows_dir,
@@ -5284,11 +5475,32 @@ def _legacy_effect_plan_from_transaction(
         "rtwin_alias": transaction_plan.rtwin_alias,
         "windows_server_config": transaction_plan.windows_server_config,
         "server_alias": transaction_plan.server_alias,
+        "_factory_state": factory_state,
         "_owner_seal": _LEGACY_EFFECT_OWNER_TOKEN,
     }
     for name, item in fields.items():
         object.__setattr__(value, name, item)
-    value._assert_owner_sealed()
+    object.__setattr__(factory_state, "_lock", factory_lock)
+    object.__setattr__(factory_state, "_plan", value)
+    object.__setattr__(factory_state, "_owner", None)
+    object.__setattr__(factory_state, "_status", "unclaimed")
+    object.__setattr__(
+        factory_state,
+        "_factory_seal",
+        _LEGACY_EFFECT_PLAN_STATE_TOKEN,
+    )
+    with _LEGACY_EFFECT_BINDINGS_LOCK:
+        _LEGACY_EFFECT_PLAN_BINDINGS[value] = (factory_state, factory_lock)
+    try:
+        value._assert_owner_sealed()
+    except BaseException:
+        with _LEGACY_EFFECT_BINDINGS_LOCK:
+            if _LEGACY_EFFECT_PLAN_BINDINGS.get(value) == (
+                factory_state,
+                factory_lock,
+            ):
+                del _LEGACY_EFFECT_PLAN_BINDINGS[value]
+        raise
     return value
 
 
@@ -5299,19 +5511,60 @@ def _legacy_raw_effect_owner_from_plan(
 ) -> _LegacyRawEffectOwner:
     if _factory_token is not _LEGACY_EFFECT_OWNER_TOKEN:
         fail("legacy raw effect owner factory is internal to the legacy transaction")
-    plan._assert_owner_sealed()
-    value = object.__new__(_LegacyRawEffectOwner)
-    object.__setattr__(value, "_plan", plan)
-    object.__setattr__(value, "_owner_seal", _LEGACY_EFFECT_OWNER_TOKEN)
-    state = object.__new__(_LegacyEffectOwnerState)
-    object.__setattr__(state, "_lock", threading.Lock())
-    object.__setattr__(state, "_next_step", 0)
-    object.__setattr__(state, "_owner", value)
-    object.__setattr__(state, "_terminal_failed", False)
-    object.__setattr__(state, "_factory_seal", _LEGACY_EFFECT_STATE_TOKEN)
-    object.__setattr__(value, "_effect_state", state)
-    state._assert_bound(value)
-    return value
+    plan_state, plan_lock = plan._assert_owner_sealed()
+    with plan_lock:
+        current_state, current_lock = plan._assert_owner_sealed()
+        if current_state is not plan_state or current_lock is not plan_lock:
+            fail("legacy effect plan factory binding changed before claim")
+        if plan_state._status != "unclaimed":
+            fail("legacy effect plan owner factory is single-use")
+        object.__setattr__(plan_state, "_status", "claiming")
+        value: _LegacyRawEffectOwner | None = None
+        try:
+            value = object.__new__(_LegacyRawEffectOwner)
+            object.__setattr__(value, "_plan", plan)
+            object.__setattr__(
+                value,
+                "_owner_seal",
+                _LEGACY_EFFECT_OWNER_TOKEN,
+            )
+            state = object.__new__(_LegacyEffectOwnerState)
+            effect_lock = threading.Lock()
+            object.__setattr__(state, "_lock", effect_lock)
+            object.__setattr__(state, "_next_step", 0)
+            object.__setattr__(state, "_owner", value)
+            object.__setattr__(state, "_plan", plan)
+            object.__setattr__(
+                state,
+                "_plan_factory_state",
+                plan_state,
+            )
+            object.__setattr__(state, "_terminal_failed", False)
+            object.__setattr__(
+                state,
+                "_factory_seal",
+                _LEGACY_EFFECT_STATE_TOKEN,
+            )
+            object.__setattr__(value, "_effect_state", state)
+            with _LEGACY_EFFECT_BINDINGS_LOCK:
+                _LEGACY_EFFECT_OWNER_BINDINGS[value] = (
+                    state,
+                    effect_lock,
+                    plan,
+                    plan_state,
+                )
+                object.__setattr__(plan_state, "_owner", value)
+                object.__setattr__(plan_state, "_status", "claimed")
+            state._assert_bound(value)
+            plan._assert_owner_sealed()
+            return value
+        except BaseException:
+            with _LEGACY_EFFECT_BINDINGS_LOCK:
+                if value is not None:
+                    _LEGACY_EFFECT_OWNER_BINDINGS.pop(value, None)
+                object.__setattr__(plan_state, "_owner", None)
+                object.__setattr__(plan_state, "_status", "failed")
+            raise
 
 
 def _consume_legacy_effect_observation(

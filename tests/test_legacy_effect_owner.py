@@ -36,8 +36,13 @@ CONCURRENCY_FIXTURE = (
     ROOT
     / "tests/fixtures/rtwin_pbs/legacy_effect_owner_concurrency_fix.json"
 )
+PLAN_SINGLE_USE_FIXTURE = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/legacy_effect_plan_single_use_fix.json"
+)
 BASE_COMMIT = "fc7b59dc6c280db6cdba435ae7e11f27cf30dd19"
 PR4J_COMMIT = "9f9190a201acc148bdcee134a71ec3f1e3e983cb"
+CONCURRENCY_FIX_COMMIT = "aaa004a88131f244c19e6d39c74eb936e9eb55b6"
 PLACEHOLDER_RUNTIME_CONFIG = (
     Path("/private/tmp")
     / "auto-g16-pr4j-placeholder-runtime-config-does-not-exist.json"
@@ -67,6 +72,10 @@ def _base_source() -> bytes:
 
 def _pr4j_source() -> bytes:
     return _source_at(PR4J_COMMIT)
+
+
+def _concurrency_fix_source() -> bytes:
+    return _source_at(CONCURRENCY_FIX_COMMIT)
 
 
 def _load_source(name: str, path: Path) -> types.ModuleType:
@@ -463,7 +472,7 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
     raise AssertionError(f"missing function {name}")
 
 
-def _make_raw_owner(
+def _make_raw_plan(
     module: types.ModuleType,
     root: Path,
     *,
@@ -474,26 +483,39 @@ def _make_raw_owner(
     ssh_config = root / "placeholder-ssh-config"
     ssh_config.write_text("Host placeholder\n", encoding="utf-8")
     digest = module.sha256(source)
-    plan = object.__new__(module._LegacyEffectPlan)
-    fields = {
-        "project": project,
-        "windows_dir": rf"C:\GaussianProjects\{project}",
-        "remote_dir": module.remote_project_dir(project),
-        "files": (source,),
-        "expected_bindings": ((source.name, digest),),
-        "upload_timeout_seconds": 60,
-        "upload_hash_timeout_seconds": 60,
-        "attempt_id": f"{project}-attempt",
-        "input_sha256": digest,
+    transaction_plan = object.__new__(module._LegacyTransactionPlan)
+    transaction_fields = {
         "mac_ssh_config": str(ssh_config),
         "rtwin_alias": "rtwin",
         "windows_server_config": r".ssh\gaussian_server_config",
         "server_alias": "gaussian-server",
-        "_owner_seal": module._LEGACY_EFFECT_OWNER_TOKEN,
+        "_owner_seal": module._BACKEND_TRANSACTION_TOKEN,
     }
-    for name, value in fields.items():
-        object.__setattr__(plan, name, value)
-    plan._assert_owner_sealed()
+    for name, value in transaction_fields.items():
+        object.__setattr__(transaction_plan, name, value)
+    transaction_plan._assert_owner_sealed()
+    return module._legacy_effect_plan_from_transaction(
+        transaction_plan,
+        project=project,
+        windows_dir=rf"C:\GaussianProjects\{project}",
+        remote_dir=module.remote_project_dir(project),
+        files=[source],
+        expected_bindings={source.name: digest},
+        upload_timeout_seconds=60,
+        upload_hash_timeout_seconds=60,
+        attempt_id=f"{project}-attempt",
+        input_sha256=digest,
+        _factory_token=module._LEGACY_EFFECT_OWNER_TOKEN,
+    )
+
+
+def _make_raw_owner(
+    module: types.ModuleType,
+    root: Path,
+    *,
+    project: str,
+) -> object:
+    plan = _make_raw_plan(module, root, project=project)
     return module._legacy_raw_effect_owner_from_plan(
         plan,
         _factory_token=module._LEGACY_EFFECT_OWNER_TOKEN,
@@ -531,6 +553,12 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         cls.pr4j_path = cls.root / "legacy-effect-pr4j.py"
         cls.pr4j_path.write_bytes(_pr4j_source())
         cls.pr4j = _load_source("auto_g16_pr4j_effect_race", cls.pr4j_path)
+        cls.concurrency_fix_path = cls.root / "legacy-effect-concurrency-fix.py"
+        cls.concurrency_fix_path.write_bytes(_concurrency_fix_source())
+        cls.concurrency_fix = _load_source(
+            "auto_g16_pr4j_effect_concurrency_fix",
+            cls.concurrency_fix_path,
+        )
         cls.candidate = legacy
 
     @classmethod
@@ -653,7 +681,7 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         self.assertFalse(binding["behavior_parity"]["automatic_retry"])
         self.assertFalse(binding["behavior_parity"]["live_actions"])
 
-    def test_concurrency_successor_binds_pr4j_and_current_source(self) -> None:
+    def test_concurrency_successor_keeps_exact_aaa004a_bytes_frozen(self) -> None:
         fixture = json.loads(CONCURRENCY_FIXTURE.read_text(encoding="utf-8"))
         self.assertEqual(fixture["base_commit"], PR4J_COMMIT)
         binding = fixture["files"][
@@ -664,10 +692,31 @@ class LegacyEffectOwnerTests(unittest.TestCase):
             binding["before_sha256"],
         )
         self.assertEqual(
-            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            hashlib.sha256(_concurrency_fix_source()).hexdigest(),
             binding["after_sha256"],
         )
         self.assertTrue(binding["concurrency_semantics_changed"])
+        self.assertFalse(binding["behavior_parity"]["command_bytes_changed"])
+        self.assertFalse(binding["behavior_parity"]["automatic_retry"])
+        self.assertFalse(binding["behavior_parity"]["live_actions"])
+
+    def test_plan_single_use_successor_binds_concurrency_fix_and_current_source(
+        self,
+    ) -> None:
+        fixture = json.loads(PLAN_SINGLE_USE_FIXTURE.read_text(encoding="utf-8"))
+        self.assertEqual(fixture["base_commit"], CONCURRENCY_FIX_COMMIT)
+        binding = fixture["files"][
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+        ]
+        self.assertEqual(
+            hashlib.sha256(_concurrency_fix_source()).hexdigest(),
+            binding["before_sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            binding["after_sha256"],
+        )
+        self.assertTrue(binding["plan_factory_semantics_changed"])
         self.assertFalse(binding["behavior_parity"]["command_bytes_changed"])
         self.assertFalse(binding["behavior_parity"]["automatic_retry"])
         self.assertFalse(binding["behavior_parity"]["live_actions"])
@@ -677,8 +726,10 @@ class LegacyEffectOwnerTests(unittest.TestCase):
     ) -> None:
         for value_type in (
             legacy._LegacyEffectPlan,
+            legacy._LegacyEffectPlanFactoryState,
             legacy._LegacyEffectResult,
             legacy._LegacyEffectFailure,
+            legacy._LegacyEffectOwnerState,
             legacy._LegacyRawEffectOwner,
         ):
             with self.subTest(value_type=value_type.__name__), self.assertRaises(
@@ -690,7 +741,25 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             forged_plan._assert_owner_sealed()
         with self.assertRaises(SystemExit):
-            legacy._legacy_raw_effect_owner_from_plan(forged_plan)
+            legacy._legacy_raw_effect_owner_from_plan(
+                forged_plan,
+                _factory_token=legacy._LEGACY_EFFECT_OWNER_TOKEN,
+            )
+
+        class PlanSubclass(legacy._LegacyEffectPlan):
+            pass
+
+        subclass_plan = object.__new__(PlanSubclass)
+        object.__setattr__(
+            subclass_plan,
+            "_owner_seal",
+            legacy._LEGACY_EFFECT_OWNER_TOKEN,
+        )
+        with self.assertRaises(SystemExit):
+            legacy._legacy_raw_effect_owner_from_plan(
+                subclass_plan,
+                _factory_token=legacy._LEGACY_EFFECT_OWNER_TOKEN,
+            )
         forged_owner = object.__new__(legacy._LegacyRawEffectOwner)
         object.__setattr__(forged_owner, "_owner_seal", object())
         with self.assertRaises(SystemExit):
@@ -717,6 +786,14 @@ class LegacyEffectOwnerTests(unittest.TestCase):
                 ).parameters
             ),
             ("self", "step", "_effect_token"),
+        )
+        self.assertEqual(
+            tuple(
+                inspect.signature(
+                    legacy._legacy_raw_effect_owner_from_plan
+                ).parameters
+            ),
+            ("plan", "_factory_token"),
         )
 
     def test_pr4j_race_reproduces_two_same_step_effects_before_fix(self) -> None:
@@ -786,6 +863,386 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         self.assertEqual([kind for kind, _value in outcomes], ["result", "result"])
         self.assertEqual(len(calls), 2)
         self.assertEqual(owner._next_step, 1)
+
+    def test_frozen_aaa004a_allows_two_owners_and_two_effects_for_one_plan(
+        self,
+    ) -> None:
+        plan = _make_raw_plan(
+            self.concurrency_fix,
+            self.root,
+            project="oldplanreplay",
+        )
+        owners = [
+            self.concurrency_fix._legacy_raw_effect_owner_from_plan(
+                plan,
+                _factory_token=self.concurrency_fix._LEGACY_EFFECT_OWNER_TOKEN,
+            )
+            for _index in range(2)
+        ]
+        calls = 0
+
+        def recording_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls
+            calls += 1
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with mock.patch.object(
+            self.concurrency_fix,
+            "run",
+            side_effect=recording_runner,
+        ):
+            outcomes = [
+                _call_owner_step(
+                    self.concurrency_fix,
+                    owner,
+                    "claim_windows_directory_once",
+                )
+                for owner in owners
+            ]
+        self.assertEqual(
+            tuple(kind for kind, _value in outcomes),
+            ("result", "result"),
+        )
+        self.assertEqual(calls, 2)
+        self.assertIs(owners[0]._plan, owners[1]._plan)
+        self.assertIsNot(owners[0]._effect_state, owners[1]._effect_state)
+
+    def test_same_plan_sequential_factory_is_single_use_before_effect(
+        self,
+    ) -> None:
+        plan = _make_raw_plan(
+            self.candidate,
+            self.root,
+            project="seqfactory",
+        )
+        owner = self.candidate._legacy_raw_effect_owner_from_plan(
+            plan,
+            _factory_token=self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+        )
+        with self.assertRaises(SystemExit):
+            self.candidate._legacy_raw_effect_owner_from_plan(
+                plan,
+                _factory_token=self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+            )
+        self.assertIs(plan._factory_state._owner, owner)
+        self.assertEqual(plan._factory_state._status, "claimed")
+        self.assertEqual(owner._effect_state._next_step, 0)
+
+    def test_same_plan_concurrent_factory_issues_exactly_one_owner(self) -> None:
+        for round_index in range(24):
+            with self.subTest(round_index=round_index):
+                plan = _make_raw_plan(
+                    self.candidate,
+                    self.root,
+                    project=f"factory{round_index}",
+                )
+                start = threading.Barrier(3)
+
+                def create_owner() -> tuple[str, object]:
+                    start.wait(timeout=5)
+                    try:
+                        return (
+                            "owner",
+                            self.candidate._legacy_raw_effect_owner_from_plan(
+                                plan,
+                                _factory_token=(
+                                    self.candidate._LEGACY_EFFECT_OWNER_TOKEN
+                                ),
+                            ),
+                        )
+                    except BaseException as exc:
+                        return ("exception", exc)
+
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = [pool.submit(create_owner) for _index in range(2)]
+                    start.wait(timeout=5)
+                    outcomes = [
+                        future.result(timeout=5) for future in futures
+                    ]
+                self.assertEqual(
+                    sorted(kind for kind, _value in outcomes),
+                    ["exception", "owner"],
+                )
+                owner = next(
+                    value for kind, value in outcomes if kind == "owner"
+                )
+                refusal = next(
+                    value for kind, value in outcomes if kind == "exception"
+                )
+                self.assertIsInstance(refusal, SystemExit)
+                self.assertIs(plan._factory_state._owner, owner)
+                self.assertEqual(plan._factory_state._status, "claimed")
+                self.assertEqual(owner._effect_state._next_step, 0)
+
+    def test_factory_exception_is_terminal_for_the_plan(self) -> None:
+        plan = _make_raw_plan(
+            self.candidate,
+            self.root,
+            project="factoryfailure",
+        )
+
+        class FactoryFailure(BaseException):
+            pass
+
+        failure = FactoryFailure("synthetic factory failure")
+        with mock.patch.object(
+            self.candidate._LegacyEffectOwnerState,
+            "_assert_bound",
+            side_effect=failure,
+        ), self.assertRaises(FactoryFailure) as raised:
+            self.candidate._legacy_raw_effect_owner_from_plan(
+                plan,
+                _factory_token=self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+            )
+        self.assertIs(raised.exception, failure)
+        self.assertEqual(plan._factory_state._status, "failed")
+        self.assertIsNone(plan._factory_state._owner)
+        with self.assertRaises(SystemExit):
+            self.candidate._legacy_raw_effect_owner_from_plan(
+                plan,
+                _factory_token=self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+            )
+
+    def test_shared_exchanged_plan_and_cross_owner_state_fail_before_effect(
+        self,
+    ) -> None:
+        first_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="shareplanone",
+        )
+        second_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="shareplantwo",
+        )
+        object.__setattr__(second_owner, "_plan", first_owner._plan)
+        calls = 0
+
+        def recording_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls
+            calls += 1
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=recording_runner,
+        ):
+            shared = _call_owner_step(
+                self.candidate,
+                second_owner,
+                "claim_windows_directory_once",
+            )
+        self.assertEqual(shared[0], "exception")
+        self.assertIsInstance(shared[1], SystemExit)
+        self.assertEqual(calls, 0)
+
+        first_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="swapplanone",
+        )
+        second_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="swapplantwo",
+        )
+        first_plan = first_owner._plan
+        second_plan = second_owner._plan
+        object.__setattr__(first_owner, "_plan", second_plan)
+        object.__setattr__(second_owner, "_plan", first_plan)
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=recording_runner,
+        ):
+            exchanged = [
+                _call_owner_step(
+                    self.candidate,
+                    owner,
+                    "claim_windows_directory_once",
+                )
+                for owner in (first_owner, second_owner)
+            ]
+        self.assertEqual(
+            [kind for kind, _value in exchanged],
+            ["exception", "exception"],
+        )
+        self.assertEqual(calls, 0)
+
+        first_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="swapstateone",
+        )
+        second_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="swapstatetwo",
+        )
+        object.__setattr__(
+            second_owner,
+            "_effect_state",
+            first_owner._effect_state,
+        )
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=recording_runner,
+        ):
+            cross_state = _call_owner_step(
+                self.candidate,
+                second_owner,
+                "claim_windows_directory_once",
+            )
+        self.assertEqual(cross_state[0], "exception")
+        self.assertIsInstance(cross_state[1], SystemExit)
+        self.assertEqual(calls, 0)
+
+        first_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="crosspstateone",
+        )
+        second_owner = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="crosspstatetwo",
+        )
+        object.__setattr__(
+            second_owner._effect_state,
+            "_plan_factory_state",
+            first_owner._plan._factory_state,
+        )
+        object.__setattr__(
+            second_owner._plan._factory_state,
+            "_owner",
+            first_owner,
+        )
+        with mock.patch.object(
+            self.candidate,
+            "run",
+            side_effect=recording_runner,
+        ):
+            cross_plan_state = _call_owner_step(
+                self.candidate,
+                second_owner,
+                "claim_windows_directory_once",
+            )
+        self.assertEqual(cross_plan_state[0], "exception")
+        self.assertIsInstance(cross_plan_state[1], SystemExit)
+        self.assertEqual(calls, 0)
+
+    def test_plan_factory_state_forgery_and_cross_plan_copy_fail_closed(
+        self,
+    ) -> None:
+        first_plan = _make_raw_plan(
+            self.candidate,
+            self.root,
+            project="crossplanone",
+        )
+        second_plan = _make_raw_plan(
+            self.candidate,
+            self.root,
+            project="crossplantwo",
+        )
+        object.__setattr__(
+            first_plan,
+            "_factory_state",
+            second_plan._factory_state,
+        )
+        with self.assertRaises(SystemExit):
+            self.candidate._legacy_raw_effect_owner_from_plan(
+                first_plan,
+                _factory_token=self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+            )
+
+        adversarial_plans = []
+        exact_fake_plan = _make_raw_plan(
+            self.candidate,
+            self.root,
+            project="exactstate",
+        )
+        exact_fake = object.__new__(
+            self.candidate._LegacyEffectPlanFactoryState
+        )
+        for name, value in (
+            ("_lock", threading.Lock()),
+            ("_plan", exact_fake_plan),
+            ("_owner", None),
+            ("_status", "unclaimed"),
+            (
+                "_factory_seal",
+                self.candidate._LEGACY_EFFECT_PLAN_STATE_TOKEN,
+            ),
+        ):
+            object.__setattr__(exact_fake, name, value)
+        object.__setattr__(exact_fake_plan, "_factory_state", exact_fake)
+        adversarial_plans.append(exact_fake_plan)
+
+        class PlanStateSubclass(
+            self.candidate._LegacyEffectPlanFactoryState
+        ):
+            pass
+
+        subclass_plan = _make_raw_plan(
+            self.candidate,
+            self.root,
+            project="subclassstate",
+        )
+        subclass_state = object.__new__(PlanStateSubclass)
+        object.__setattr__(
+            subclass_plan,
+            "_factory_state",
+            subclass_state,
+        )
+        adversarial_plans.append(subclass_plan)
+
+        fake_lock_plan = _make_raw_plan(
+            self.candidate,
+            self.root,
+            project="fakelock",
+        )
+        object.__setattr__(
+            fake_lock_plan._factory_state,
+            "_lock",
+            threading.Lock(),
+        )
+        adversarial_plans.append(fake_lock_plan)
+
+        fake_seal_plan = _make_raw_plan(
+            self.candidate,
+            self.root,
+            project="fakeseal",
+        )
+        object.__setattr__(
+            fake_seal_plan._factory_state,
+            "_factory_seal",
+            object(),
+        )
+        adversarial_plans.append(fake_seal_plan)
+
+        for plan in adversarial_plans:
+            with self.subTest(project=plan.project), self.assertRaises(
+                SystemExit
+            ):
+                self.candidate._legacy_raw_effect_owner_from_plan(
+                    plan,
+                    _factory_token=self.candidate._LEGACY_EFFECT_OWNER_TOKEN,
+                )
 
     def test_same_step_concurrency_reaches_runner_at_most_once(self) -> None:
         owner = _make_raw_owner(self.candidate, self.root, project="onerun")
@@ -1021,13 +1478,24 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         owner = _make_raw_owner(self.candidate, self.root, project="sealed")
         with self.assertRaises(TypeError):
             self.candidate._LegacyEffectOwnerState()
-        for operation in (
-            lambda: copy.copy(owner),
-            lambda: copy.deepcopy(owner),
-            lambda: pickle.dumps(owner),
+        with self.assertRaises(TypeError):
+            self.candidate._LegacyEffectPlanFactoryState()
+        for name, value in (
+            ("owner", owner),
+            ("plan", owner._plan),
+            ("plan_state", owner._plan._factory_state),
+            ("effect_state", owner._effect_state),
         ):
-            with self.subTest(operation=operation), self.assertRaises(TypeError):
-                operation()
+            for operation_name, operation in (
+                ("copy", lambda value=value: copy.copy(value)),
+                ("deepcopy", lambda value=value: copy.deepcopy(value)),
+                ("pickle", lambda value=value: pickle.dumps(value)),
+            ):
+                with self.subTest(
+                    value=name,
+                    operation=operation_name,
+                ), self.assertRaises(TypeError):
+                    operation()
 
         calls = 0
 
@@ -1081,6 +1549,18 @@ class LegacyEffectOwnerTests(unittest.TestCase):
             object.__setattr__(state, "_factory_seal", seal)
             object.__setattr__(forged, "_effect_state", state)
             forged_owners.append(forged)
+
+        replaced_lock = _make_raw_owner(
+            self.candidate,
+            self.root,
+            project="replacedlock",
+        )
+        object.__setattr__(
+            replaced_lock._effect_state,
+            "_lock",
+            threading.Lock(),
+        )
+        forged_owners.append(replaced_lock)
 
         with mock.patch.object(
             self.candidate,

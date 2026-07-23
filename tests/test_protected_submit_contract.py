@@ -1105,6 +1105,7 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                 "legacy_transaction_owner_mechanical_extraction.json",
                 "legacy_effect_owner_mechanical_extraction.json",
                 "legacy_effect_owner_concurrency_fix.json",
+                "legacy_effect_plan_single_use_fix.json",
             )
         ]
         for relative, expected in manifest["files"].items():
