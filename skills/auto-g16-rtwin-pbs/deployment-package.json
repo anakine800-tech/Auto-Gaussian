@@ -23,6 +23,10 @@
       "target": "scripts/transport_authority_closure.py"
     },
     {
+      "source": "scripts/protected_submit_contract.py",
+      "target": "scripts/protected_submit_contract.py"
+    },
+    {
       "source": "scripts/runtime_config.py",
       "target": "scripts/platform_runtime_config_owner.py"
     }

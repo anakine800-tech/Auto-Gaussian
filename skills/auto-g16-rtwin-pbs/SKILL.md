@@ -94,6 +94,13 @@ artifacts plus an owner-validated handshake observation before producing a
 verified non-authorizing handshake receipt. The adapter still performs no
 transport in this patch.
 
+The v2.6 PR4D protected-submit contract is also non-executable. Read
+[references/protected-submit-contract.md](references/protected-submit-contract.md).
+Its new `/1` bundle composes the existing scientific, input, live-approval,
+batch, resource and transport owners, then supports one owner-trusted
+reservation. It does not call the legacy adapter, implement stage or submit,
+or authorize status, fetch, cancel, cleanup or deletion.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -448,8 +455,11 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/gaussian_rtwin_pbs.py`: historical CLI/import compatibility wrapper;
   executable dispatch crosses the backend-neutral facade.
 - `scripts/execution_facade.py` and `scripts/execution_models.py`: typed sealed
-  execution boundary, fixed legacy backend dispatch and non-executable live
-  attestation plan.
+  execution boundary, fixed legacy backend dispatch, non-executable live
+  attestation plan and narrow protected-submit seal/reserve entry points.
+- `scripts/protected_submit_contract.py`: packaged copy of the repository
+  owner that composes existing approvals and identity closures into a
+  non-executable, single-use protected-submit bundle.
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
 - `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for

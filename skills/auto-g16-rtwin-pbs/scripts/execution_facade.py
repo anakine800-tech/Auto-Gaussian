@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import types
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from execution_models import (
     AttestationBoundaryPlan,
@@ -14,6 +14,15 @@ from execution_models import (
     ValidatedRuntimePlan,
     WorkspacePaths,
 )
+
+if TYPE_CHECKING:
+    from protected_submit_contract import (
+        ProtectedSubmitContractOwner,
+        ProtectedSubmitEvidence,
+        ReservedProtectedSubmitBundle,
+        SealedProtectedSubmitBundle,
+    )
+
 
 class TransportAdapter(Protocol):
     def capabilities(self) -> tuple[str, ...]: ...
@@ -57,6 +66,31 @@ def integrate_successor_once(*, artifacts: object, attempt: object) -> object:
     integration = importlib.import_module("legacy_adapter_integration")
     integrator = integration.LegacyAdapterIntegrator.production()
     return integrator.invoke_once(artifacts=artifacts, attempt=attempt)
+
+
+def protected_submit_owner() -> "ProtectedSubmitContractOwner":
+    """Return the fixed contract owner; this constructs no adapter."""
+
+    contract = importlib.import_module("protected_submit_contract")
+    return contract.ProtectedSubmitContractOwner.production()
+
+
+def seal_protected_submit_bundle(
+    *,
+    evidence: "ProtectedSubmitEvidence",
+) -> "SealedProtectedSubmitBundle":
+    """Replay and seal one non-executable protected-submit bundle."""
+
+    return protected_submit_owner().seal(evidence)
+
+
+def reserve_protected_submit_bundle_once(
+    *,
+    evidence: "ProtectedSubmitEvidence",
+) -> "ReservedProtectedSubmitBundle":
+    """Reserve the sealed authority before any separately implemented effect."""
+
+    return protected_submit_owner().reserve_once(evidence)
 
 
 def bind_current() -> types.ModuleType:
