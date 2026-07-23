@@ -1,0 +1,21 @@
+{
+  "schema": "auto-g16-legacy-effect-owner-mechanical-extraction/1",
+  "base_commit": "fc7b59dc6c280db6cdba435ae7e11f27cf30dd19",
+  "base_tree": "572067d75ab80f17b962ebc77579401340b22730",
+  "base_parent": "ba9fb6f523edbc23e94cd20a1fc5d4d085567cec",
+  "files": {
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_sha256": "f3ba5823374a1ed7a11736a47ab2d44c5e2a116dde0d867e97ad577ea4ad9d67",
+      "after_sha256": "8f47dcb72296c320be0b1229c00716fba942c07163600887cae214c201af0226",
+      "change_class": "private_typed_legacy_raw_effect_owner_extraction",
+      "legacy_semantics_changed": false,
+      "behavior_parity": {
+        "test": "tests/test_legacy_effect_owner.py",
+        "comparison": "base-vs-candidate AST and recording-runner differential for success and every effect step across exception, nonzero, unknown and timeout observations",
+        "runner_calls": 6,
+        "automatic_retry": false,
+        "live_actions": false
+      }
+    }
+  }
+}

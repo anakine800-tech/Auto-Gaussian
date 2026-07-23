@@ -4735,6 +4735,15 @@ def replay_resource_artifacts_before_qsub(
 
 
 _BACKEND_TRANSACTION_TOKEN = object()
+_LEGACY_EFFECT_OWNER_TOKEN = object()
+_LEGACY_EFFECT_STEPS = (
+    "windows_directory_claim",
+    "mac_to_windows_copy",
+    "windows_sha256",
+    "server_directory_claim",
+    "windows_to_server_copy",
+    "qsub_once",
+)
 
 
 # gaussian_rtwin_pbs.py executes this source in an intentionally unregistered
@@ -4825,6 +4834,415 @@ class _LegacyTransactionPlan:
     def _assert_owner_sealed(self) -> None:
         if getattr(self, "_owner_seal", None) is not _BACKEND_TRANSACTION_TOKEN:
             fail("legacy transaction plan lacks the CLI owner seal")
+
+
+class _LegacyEffectPlan:
+    """Owner-issued immutable inputs for the one fixed legacy effect chain."""
+
+    __slots__ = (
+        "project",
+        "windows_dir",
+        "remote_dir",
+        "files",
+        "expected_bindings",
+        "upload_timeout_seconds",
+        "upload_hash_timeout_seconds",
+        "attempt_id",
+        "input_sha256",
+        "mac_ssh_config",
+        "rtwin_alias",
+        "windows_server_config",
+        "server_alias",
+        "_owner_seal",
+    )
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_LegacyEffectPlan":
+        raise TypeError("_LegacyEffectPlan must be issued by the legacy transaction owner")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("_LegacyEffectPlan is frozen")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("_LegacyEffectPlan is frozen")
+
+    def _assert_owner_sealed(self) -> None:
+        if getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN:
+            fail("legacy effect plan lacks the raw-effect owner seal")
+        if (
+            not isinstance(getattr(self, "project", None), str)
+            or getattr(self, "remote_dir", None) != remote_project_dir(self.project)
+            or not isinstance(getattr(self, "files", None), tuple)
+            or not self.files
+            or not all(isinstance(path, Path) for path in self.files)
+            or not isinstance(getattr(self, "expected_bindings", None), tuple)
+            or tuple(path.name for path in self.files)
+            != tuple(name for name, _digest in self.expected_bindings)
+            or not all(
+                isinstance(name, str) and isinstance(digest, str)
+                and SHA256_RE.fullmatch(digest)
+                for name, digest in self.expected_bindings
+            )
+            or not isinstance(getattr(self, "upload_timeout_seconds", None), int)
+            or self.upload_timeout_seconds < 1
+            or not isinstance(getattr(self, "upload_hash_timeout_seconds", None), int)
+            or self.upload_hash_timeout_seconds < 1
+            or not isinstance(getattr(self, "attempt_id", None), str)
+            or not isinstance(getattr(self, "input_sha256", None), str)
+            or not SHA256_RE.fullmatch(self.input_sha256)
+        ):
+            fail("legacy effect plan failed closed consume-time replay")
+
+
+class _LegacyEffectResult:
+    """One immutable completed-process observation from the raw-effect owner."""
+
+    __slots__ = ("step", "completed", "_owner_seal")
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_LegacyEffectResult":
+        raise TypeError("_LegacyEffectResult is issued only by the raw-effect owner")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("_LegacyEffectResult is frozen")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("_LegacyEffectResult is frozen")
+
+    def _assert_owner_sealed(self) -> None:
+        if (
+            getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN
+            or getattr(self, "step", None) not in _LEGACY_EFFECT_STEPS
+            or not isinstance(
+                getattr(self, "completed", None),
+                subprocess.CompletedProcess,
+            )
+        ):
+            fail("legacy effect result lacks the raw-effect owner seal")
+
+
+class _LegacyEffectFailure:
+    """Immutable preservation of the exact exception raised by one effect."""
+
+    __slots__ = ("step", "exception", "_owner_seal")
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_LegacyEffectFailure":
+        raise TypeError("_LegacyEffectFailure is issued only by the raw-effect owner")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("_LegacyEffectFailure is frozen")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("_LegacyEffectFailure is frozen")
+
+    def _assert_owner_sealed(self) -> None:
+        if (
+            getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN
+            or getattr(self, "step", None) not in _LEGACY_EFFECT_STEPS
+            or not isinstance(getattr(self, "exception", None), BaseException)
+        ):
+            fail("legacy effect failure lacks the raw-effect owner seal")
+
+
+def _issue_legacy_effect_observation(
+    observation_type: type[_LegacyEffectResult] | type[_LegacyEffectFailure],
+    step: str,
+    payload: subprocess.CompletedProcess | BaseException,
+    *,
+    _owner_token: object | None = None,
+) -> _LegacyEffectResult | _LegacyEffectFailure:
+    if _owner_token is not _LEGACY_EFFECT_OWNER_TOKEN:
+        fail("legacy effect observations are internal to the raw-effect owner")
+    value = object.__new__(observation_type)
+    object.__setattr__(value, "step", step)
+    object.__setattr__(
+        value,
+        "completed" if observation_type is _LegacyEffectResult else "exception",
+        payload,
+    )
+    object.__setattr__(value, "_owner_seal", _LEGACY_EFFECT_OWNER_TOKEN)
+    return value
+
+
+class _LegacyRawEffectOwner:
+    """The sole ordered caller of ``run`` for the legacy submit transaction."""
+
+    __slots__ = ("_plan", "_next_step", "_owner_seal")
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_LegacyRawEffectOwner":
+        raise TypeError("_LegacyRawEffectOwner must be issued with an owner-sealed plan")
+
+    def _assert_dispatch(self, step: str, token: object | None) -> None:
+        if token is not _LEGACY_EFFECT_OWNER_TOKEN:
+            fail("legacy raw effect owner is internal to the legacy transaction")
+        if getattr(self, "_owner_seal", None) is not _LEGACY_EFFECT_OWNER_TOKEN:
+            fail("legacy raw effect owner lacks its factory seal")
+        plan = getattr(self, "_plan", None)
+        if not isinstance(plan, _LegacyEffectPlan):
+            fail("legacy raw effect owner lacks its owner-issued plan")
+        plan._assert_owner_sealed()
+        next_step = getattr(self, "_next_step", None)
+        if (
+            not isinstance(next_step, int)
+            or next_step >= len(_LEGACY_EFFECT_STEPS)
+            or _LEGACY_EFFECT_STEPS[next_step] != step
+        ):
+            fail("legacy raw effect sequence is fixed and cannot retry, skip, or reorder")
+        object.__setattr__(self, "_next_step", next_step + 1)
+
+    def _invoke(
+        self,
+        step: str,
+        *,
+        _effect_token: object | None = None,
+    ) -> _LegacyEffectResult | _LegacyEffectFailure:
+        self._assert_dispatch(step, _effect_token)
+        plan = self._plan
+        input_bytes: bytes | None = None
+        check = True
+        timeout_seconds = DEFAULT_COMMAND_TIMEOUT_SECONDS
+        if step == "windows_directory_claim":
+            mkdir_script = (
+                f"if(Test-Path -LiteralPath '{plan.windows_dir}'){{exit 43}};"
+                f"New-Item -ItemType Directory -Path '{plan.windows_dir}' "
+                "-ErrorAction Stop | Out-Null"
+            )
+            command = [
+                *ssh_base(plan),
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                powershell_encoded(mkdir_script),
+            ]
+        elif step == "mac_to_windows_copy":
+            windows_dir_scp = plan.windows_dir.replace("\\", "/")
+            command = [
+                "scp",
+                "-F",
+                str(Path(plan.mac_ssh_config).expanduser()),
+                *map(str, plan.files),
+                f"{plan.rtwin_alias}:{windows_dir_scp}/",
+            ]
+            timeout_seconds = plan.upload_timeout_seconds
+        elif step == "windows_sha256":
+            ps_paths = ",".join(
+                f"'{plan.windows_dir}\\{name}'"
+                for name, _digest in plan.expected_bindings
+            )
+            hash_script = (
+                f"$files=@({ps_paths}); foreach($f in $files){{"
+                "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
+                "Write-Output ((Split-Path $f -Leaf)+' '+$h)}"
+            )
+            command = [
+                *ssh_base(plan),
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                powershell_encoded(hash_script),
+            ]
+            timeout_seconds = plan.upload_hash_timeout_seconds
+        elif step == "server_directory_claim":
+            command = nested_ssh(plan, "bash", "-s")
+            input_bytes = remote_empty_directory_guard(plan.project).encode(
+                "utf-8"
+            )
+        elif step == "windows_to_server_copy":
+            windows_files = [
+                f"{plan.windows_dir}\\{path.name}" for path in plan.files
+            ]
+            command = [
+                *ssh_base(plan),
+                "scp",
+                "-F",
+                plan.windows_server_config,
+                *windows_files,
+                f"{plan.server_alias}:{plan.remote_dir}/",
+            ]
+            timeout_seconds = plan.upload_timeout_seconds
+        elif step == "qsub_once":
+            submit_script = remote_existing_directory_guard(plan.project) + f"""
+cd {plan.remote_dir}
+sha256sum -c checksums.sha256
+if [ -e submission-receipt.json ]; then
+  echo 'REFUSING_DUPLICATE: immutable submission receipt already exists' >&2
+  exit 17
+fi
+job_id=$(qsub -v AUTO_G16_ATTEMPT_ID={plan.attempt_id},AUTO_G16_INPUT_SHA256={plan.input_sha256} {plan.project}.pbs)
+receipt_tmp='.submission-receipt-{plan.attempt_id}.tmp'
+if [ -e "$receipt_tmp" ]; then
+  echo 'REFUSING_DUPLICATE: transaction temp receipt already exists' >&2
+  exit 18
+fi
+printf '{{"schema":"gaussian-remote-submission-receipt/1","project":"{plan.project}","job_name":"{plan.project}","input_sha256":"{plan.input_sha256}","attempt_id":"{plan.attempt_id}","job_id":"%s"}}\n' "$job_id" > "$receipt_tmp"
+chmod 400 "$receipt_tmp"
+if ! ln "$receipt_tmp" submission-receipt.json; then
+  echo 'REFUSING_DUPLICATE: immutable submission receipt publish failed' >&2
+  exit 19
+fi
+printf '%s\n' "$job_id"
+"""
+            command = nested_ssh(plan, "bash", "-l", "-s")
+            input_bytes = submit_script.encode("utf-8")
+            check = False
+        else:
+            fail("legacy raw effect owner received an unknown fixed step")
+        try:
+            completed = run(
+                command,
+                input_bytes=input_bytes,
+                check=check,
+                timeout_seconds=timeout_seconds,
+            )
+        except BaseException as exc:
+            return _issue_legacy_effect_observation(
+                _LegacyEffectFailure,
+                step,
+                exc,
+                _owner_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            )
+        return _issue_legacy_effect_observation(
+            _LegacyEffectResult,
+            step,
+            completed,
+            _owner_token=_LEGACY_EFFECT_OWNER_TOKEN,
+        )
+
+    def claim_windows_directory_once(
+        self,
+        *,
+        _effect_token: object | None = None,
+    ) -> _LegacyEffectResult | _LegacyEffectFailure:
+        return self._invoke(
+            "windows_directory_claim",
+            _effect_token=_effect_token,
+        )
+
+    def copy_mac_to_windows_once(
+        self,
+        *,
+        _effect_token: object | None = None,
+    ) -> _LegacyEffectResult | _LegacyEffectFailure:
+        return self._invoke(
+            "mac_to_windows_copy",
+            _effect_token=_effect_token,
+        )
+
+    def hash_windows_files_once(
+        self,
+        *,
+        _effect_token: object | None = None,
+    ) -> _LegacyEffectResult | _LegacyEffectFailure:
+        return self._invoke(
+            "windows_sha256",
+            _effect_token=_effect_token,
+        )
+
+    def claim_server_directory_once(
+        self,
+        *,
+        _effect_token: object | None = None,
+    ) -> _LegacyEffectResult | _LegacyEffectFailure:
+        return self._invoke(
+            "server_directory_claim",
+            _effect_token=_effect_token,
+        )
+
+    def copy_windows_to_server_once(
+        self,
+        *,
+        _effect_token: object | None = None,
+    ) -> _LegacyEffectResult | _LegacyEffectFailure:
+        return self._invoke(
+            "windows_to_server_copy",
+            _effect_token=_effect_token,
+        )
+
+    def submit_qsub_once(
+        self,
+        *,
+        _effect_token: object | None = None,
+    ) -> _LegacyEffectResult | _LegacyEffectFailure:
+        return self._invoke(
+            "qsub_once",
+            _effect_token=_effect_token,
+        )
+
+
+def _legacy_effect_plan_from_transaction(
+    transaction_plan: _LegacyTransactionPlan,
+    *,
+    project: str,
+    windows_dir: str,
+    remote_dir: str,
+    files: list[Path],
+    expected_bindings: dict[str, str],
+    upload_timeout_seconds: int,
+    upload_hash_timeout_seconds: int,
+    attempt_id: str,
+    input_sha256: str,
+    _factory_token: object | None = None,
+) -> _LegacyEffectPlan:
+    if _factory_token is not _LEGACY_EFFECT_OWNER_TOKEN:
+        fail("legacy effect plan factory is internal to the legacy transaction")
+    transaction_plan._assert_owner_sealed()
+    value = object.__new__(_LegacyEffectPlan)
+    fields = {
+        "project": project,
+        "windows_dir": windows_dir,
+        "remote_dir": remote_dir,
+        "files": tuple(files),
+        "expected_bindings": tuple(expected_bindings.items()),
+        "upload_timeout_seconds": upload_timeout_seconds,
+        "upload_hash_timeout_seconds": upload_hash_timeout_seconds,
+        "attempt_id": attempt_id,
+        "input_sha256": input_sha256,
+        "mac_ssh_config": transaction_plan.mac_ssh_config,
+        "rtwin_alias": transaction_plan.rtwin_alias,
+        "windows_server_config": transaction_plan.windows_server_config,
+        "server_alias": transaction_plan.server_alias,
+        "_owner_seal": _LEGACY_EFFECT_OWNER_TOKEN,
+    }
+    for name, item in fields.items():
+        object.__setattr__(value, name, item)
+    value._assert_owner_sealed()
+    return value
+
+
+def _legacy_raw_effect_owner_from_plan(
+    plan: _LegacyEffectPlan,
+    *,
+    _factory_token: object | None = None,
+) -> _LegacyRawEffectOwner:
+    if _factory_token is not _LEGACY_EFFECT_OWNER_TOKEN:
+        fail("legacy raw effect owner factory is internal to the legacy transaction")
+    plan._assert_owner_sealed()
+    value = object.__new__(_LegacyRawEffectOwner)
+    object.__setattr__(value, "_plan", plan)
+    object.__setattr__(value, "_next_step", 0)
+    object.__setattr__(value, "_owner_seal", _LEGACY_EFFECT_OWNER_TOKEN)
+    return value
+
+
+def _consume_legacy_effect_observation(
+    observation: _LegacyEffectResult | _LegacyEffectFailure,
+    *,
+    expected_step: str,
+    _effect_token: object | None = None,
+) -> subprocess.CompletedProcess:
+    if _effect_token is not _LEGACY_EFFECT_OWNER_TOKEN:
+        fail("legacy effect observation consumption is internal to the legacy transaction")
+    if isinstance(observation, _LegacyEffectFailure):
+        observation._assert_owner_sealed()
+        if observation.step != expected_step:
+            fail("legacy effect failure step differs from the fixed sequence")
+        raise observation.exception
+    if not isinstance(observation, _LegacyEffectResult):
+        fail("legacy effect owner returned an unknown observation")
+    observation._assert_owner_sealed()
+    if observation.step != expected_step:
+        fail("legacy effect result step differs from the fixed sequence")
+    return observation.completed
 
 
 def _legacy_transaction_plan_from_cli_namespace(
@@ -5287,29 +5705,46 @@ def _execute_legacy_transaction_once(
             raise
         fail(f"local transaction failed before network; reservation released: {exc}")
 
-    try:
-        mkdir_script = (
-            f"if(Test-Path -LiteralPath '{windows_dir}'){{exit 43}};"
-            f"New-Item -ItemType Directory -Path '{windows_dir}' -ErrorAction Stop | Out-Null"
-        )
-        run([*ssh_base(plan), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(mkdir_script)])
-        assert_file_bindings_unchanged(files, expected)
-        windows_dir_scp = windows_dir.replace("\\", "/")
-        scp_to_windows = [
-            "scp", "-F", str(Path(plan.mac_ssh_config).expanduser()), *map(str, files),
-            f"{plan.rtwin_alias}:{windows_dir_scp}/",
-        ]
-        run(scp_to_windows, timeout_seconds=upload_timeout_seconds)
+    effect_plan = _legacy_effect_plan_from_transaction(
+        plan,
+        project=project,
+        windows_dir=windows_dir,
+        remote_dir=remote_dir,
+        files=files,
+        expected_bindings=expected,
+        upload_timeout_seconds=upload_timeout_seconds,
+        upload_hash_timeout_seconds=upload_hash_timeout_seconds,
+        attempt_id=reservation["attempt_id"],
+        input_sha256=captured_input_sha256,
+        _factory_token=_LEGACY_EFFECT_OWNER_TOKEN,
+    )
+    effect_owner = _legacy_raw_effect_owner_from_plan(
+        effect_plan,
+        _factory_token=_LEGACY_EFFECT_OWNER_TOKEN,
+    )
 
-        ps_paths = ",".join(f"'{windows_dir}\\{name}'" for name in expected)
-        hash_script = (
-            f"$files=@({ps_paths}); foreach($f in $files){{"
-            "$h=(Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower();"
-            "Write-Output ((Split-Path $f -Leaf)+' '+$h)}"
+    try:
+        _consume_legacy_effect_observation(
+            effect_owner.claim_windows_directory_once(
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            ),
+            expected_step="windows_directory_claim",
+            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
         )
-        hash_result = run(
-            [*ssh_base(plan), "powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", powershell_encoded(hash_script)],
-            timeout_seconds=upload_hash_timeout_seconds,
+        assert_file_bindings_unchanged(files, expected)
+        _consume_legacy_effect_observation(
+            effect_owner.copy_mac_to_windows_once(
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            ),
+            expected_step="mac_to_windows_copy",
+            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+        )
+        hash_result = _consume_legacy_effect_observation(
+            effect_owner.hash_windows_files_once(
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            ),
+            expected_step="windows_sha256",
+            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
         )
         observed: dict[str, str] = {}
         for line in str(hash_result.stdout).splitlines():
@@ -5334,14 +5769,19 @@ def _execute_legacy_transaction_once(
 
         # This is the only server-side directory creation path. It is one
         # atomic claim and rejects every pre-existing path, including empty.
-        run(
-            nested_ssh(plan, "bash", "-s"),
-            input_bytes=remote_empty_directory_guard(project).encode("utf-8"),
+        _consume_legacy_effect_observation(
+            effect_owner.claim_server_directory_once(
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            ),
+            expected_step="server_directory_claim",
+            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
         )
-        windows_files = [f"{windows_dir}\\{path.name}" for path in files]
-        run(
-            [*ssh_base(plan), "scp", "-F", plan.windows_server_config, *windows_files, f"{plan.server_alias}:{remote_dir}/"],
-            timeout_seconds=upload_timeout_seconds,
+        _consume_legacy_effect_observation(
+            effect_owner.copy_windows_to_server_once(
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            ),
+            expected_step="windows_to_server_copy",
+            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
         )
     except SystemExit:
         evidence = {
@@ -5439,28 +5879,13 @@ def _execute_legacy_transaction_once(
         fail("approval is no longer valid; qsub was not invoked and the attempt is reconciled not submitted")
 
     update_job(local_dir, status="submission_uncertain", qsub_invocation_started=True)
-    submit_script = remote_existing_directory_guard(project) + f"""
-cd {remote_dir}
-sha256sum -c checksums.sha256
-if [ -e submission-receipt.json ]; then
-  echo 'REFUSING_DUPLICATE: immutable submission receipt already exists' >&2
-  exit 17
-fi
-job_id=$(qsub -v AUTO_G16_ATTEMPT_ID={reservation['attempt_id']},AUTO_G16_INPUT_SHA256={captured_input_sha256} {project}.pbs)
-receipt_tmp='.submission-receipt-{reservation['attempt_id']}.tmp'
-if [ -e "$receipt_tmp" ]; then
-  echo 'REFUSING_DUPLICATE: transaction temp receipt already exists' >&2
-  exit 18
-fi
-printf '{{"schema":"gaussian-remote-submission-receipt/1","project":"{project}","job_name":"{project}","input_sha256":"{captured_input_sha256}","attempt_id":"{reservation['attempt_id']}","job_id":"%s"}}\n' "$job_id" > "$receipt_tmp"
-chmod 400 "$receipt_tmp"
-if ! ln "$receipt_tmp" submission-receipt.json; then
-  echo 'REFUSING_DUPLICATE: immutable submission receipt publish failed' >&2
-  exit 19
-fi
-printf '%s\n' "$job_id"
-"""
-    result = run(nested_ssh(plan, "bash", "-l", "-s"), input_bytes=submit_script.encode("utf-8"), check=False)
+    result = _consume_legacy_effect_observation(
+        effect_owner.submit_qsub_once(
+            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+        ),
+        expected_step="qsub_once",
+        _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+    )
     outcome = classify_qsub_outcome(result)
     if outcome["classification"] != "submitted_unique":
         update_job(local_dir, status="submission_uncertain", submission_output=outcome["output"])
