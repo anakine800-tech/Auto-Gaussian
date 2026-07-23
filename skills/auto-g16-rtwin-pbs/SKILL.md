@@ -87,9 +87,12 @@ a separately authorized exact live smoke; PR4A must not merge independently.
 
 The PR4B transport-authority prerequisite keeps published profile/request/
 authorization `/1` artifacts replay-only. New legacy submissions require the
-hash-bound `execution-profile/2` plus `execution-authorization/2` overlay,
-which adds only a single-attempt, zero-retry, read-only second-hop identity
-handshake permission. The adapter still performs no transport in this patch.
+hash-bound `execution-profile/2`, permanent non-authorizing
+`execution-request/2`, and an `execution-authorization/2` that references that
+exact request. Offline closure consumes owner-validated Stage A/B receipt
+artifacts plus an owner-validated handshake observation before producing a
+verified non-authorizing handshake receipt. The adapter still performs no
+transport in this patch.
 
 ## Non-negotiable filesystem boundary
 

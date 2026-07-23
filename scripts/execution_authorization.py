@@ -181,11 +181,14 @@ def _controlled_owner_bundle() -> Iterator[OwnerBundle]:
         prior: dict[str, ModuleType | None] = {}
         try:
             owner_dir, paths = _owner_source_paths()
-            for name, expected in paths.items():
-                cached = sys.modules.get(name)
-                if cached is not None:
-                    require(_module_origin(cached) == expected, f"preexisting owner cache origin mismatch: {name}")
-                prior[name] = cached
+            # These generic module names are also used by the repository-root
+            # tooling and by installed Skill layouts.  Preserve every prior
+            # object exactly, install only this bundle's resolved origins under
+            # the import lock, then restore the prior objects in ``finally``.
+            # A different import order is therefore isolated rather than
+            # becoming authority or a false replay blocker.
+            for name in paths:
+                prior[name] = sys.modules.get(name)
             for name in paths:
                 sys.modules.pop(name, None)
             loaded: dict[str, ModuleType] = {}

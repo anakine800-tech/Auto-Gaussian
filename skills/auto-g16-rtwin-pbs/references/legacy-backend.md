@@ -13,7 +13,8 @@ no-follow loader seals active attestation operations into non-executable plans.
 Scientific method/input/result owners are unchanged.
 
 New non-dry-run submission rejects historical live approvals and direct `/1`
-entry, recognizes only `auto-g16-execution-authorization/2`, then stops at
+entry, recognizes only `auto-g16-execution-authorization/2` referencing an
+exact `auto-g16-execution-request/2`, then stops at
 `transport_integration_required` before persistent consumption or external
 mutation. The `/2` overlay adds only the fixed read-only second-hop handshake
 authority and hash-bound two-config profile closure; it does not execute it or

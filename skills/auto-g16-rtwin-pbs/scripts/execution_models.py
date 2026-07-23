@@ -437,7 +437,8 @@ class TransportAuthorityReplay:
     """Sealed, non-executable replay of the additive /2 authority overlay."""
 
     authorization_id: str
-    base_authorization_id: str
+    request_id: str
+    historical_authorization_id: str
     profile_sha256: str
     backend_kind: str
     project: str
@@ -467,7 +468,8 @@ class TransportAuthorityReplay:
         value = object.__new__(cls)
         for name, item in {
             "authorization_id": document["authorization_id"],
-            "base_authorization_id": document["base_execution_authorization"]["authorization_id"],
+            "request_id": document["request"]["request_id"],
+            "historical_authorization_id": document["historical_execution_authorization"]["authorization_id"],
             "profile_sha256": document["profile"]["profile_sha256"],
             "backend_kind": document["profile"]["backend_kind"],
             "project": document["project"],
