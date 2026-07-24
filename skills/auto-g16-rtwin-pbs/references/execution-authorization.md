@@ -17,6 +17,17 @@ operations and nonces, and the exact three one-time operations. Only a human may
 issue this artifact. The validator validates an existing record; it never
 creates or infers approval.
 
+For new legacy PR4B submissions, published `/1` is replay-only and cannot
+express the second-hop handshake authority or both adapter-owned config refs.
+The permanent non-authorizing `auto-g16-execution-request/2` is the new intent
+artifact. It directly binds `execution-profile/2`, both hash-only config
+references, exact two-hop identity, project and all three requested operations.
+The additive `auto-g16-execution-authorization/2` references that exact request
+ID and canonical digest. Historical `/1` request/authorization references are
+provenance only and must close against the actual owner-validated artifacts. Its
+authority delta explicitly denies stage, submit, cancel, fetch and arbitrary
+commands. Neither version is executable in this prerequisite patch.
+
 Schema timestamp patterns provide only a second-precision `Z` lexical shape.
 The Python owner validates real UTC calendar dates, ordering and active windows;
 no JSON Schema `format` engine is assumed. Specialist scientific receipts `/2`
@@ -42,10 +53,12 @@ exit. This is an ephemeral local validation write, so the result reports
 `ephemeral_validation_copy_performed=true` while external and persistent
 mutation, network and submission remain false.
 
-The owner bundle verifies exact local origins and deterministic dependency
+The owner bundle selects exact local origins and deterministic dependency
 identity for the platform, batch, resource, Gaussian, log, protocol and runtime
-owners under import/reentrant locks, rejects a mismatched preexisting module
-cache, then restores that cache. Specialist scientific owner dependencies are
+owners under import/reentrant locks, temporarily isolates their generic module
+names, then restores every preexisting cache object. This removes repository/
+packaged `runtime_config` import-order dependence without accepting a cached
+module as authority. Specialist scientific owner dependencies are
 also origin checked. Its only successful gate status is
 `closure_valid_offline`; `live_ready` and `calculation_ready` remain false. The
 module has no CLI, transport or scheduler action and creates no command or

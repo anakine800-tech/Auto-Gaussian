@@ -22,7 +22,30 @@ TOOL_KEYS = {
     "core-environment",
     "chemistry-environment",
     "chemistry-lock",
+    "schema-validation-lock",
 }
+SCHEMA_VALIDATION_ENTRYPOINT = "requirements/schema-validation.txt"
+SCHEMA_VALIDATION_PINS = {
+    "attrs": "26.1.0",
+    "jsonschema": "4.26.0",
+    "jsonschema-specifications": "2025.9.1",
+    "referencing": "0.37.0",
+    "rpds-py": "2026.6.3",
+    "typing-extensions": "4.16.0",
+}
+PROTECTED_SCHEMA_DRAFT_TEST_MODULES = (
+    "tests.test_protected_submit_schema_draft202012",
+    "tests.test_local_state_binding_schema_draft202012",
+    "tests.test_protected_invocation_schema_draft202012",
+    "tests.test_protected_lifecycle_schema_draft202012",
+    "tests.test_protected_local_materialization_schema_draft202012",
+    "tests.test_protected_legacy_effect_handoff_schema_draft202012",
+)
+SCHEMA_VALIDATION_TEST_COMMAND = (
+    "python -m unittest "
+    + " ".join(PROTECTED_SCHEMA_DRAFT_TEST_MODULES)
+    + " -v"
+)
 EXACT_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[A-Za-z0-9._+-]*)")
 REQUIRES_PYTHON = re.compile(
     r">=(3)\.(0|[1-9][0-9]*)\s*,\s*<(3)\.(0|[1-9][0-9]*)"
@@ -122,6 +145,10 @@ def load_pyproject(root: Path) -> tuple[list[str], dict[str, str]]:
     project = value.get("project")
     if not isinstance(project, dict):
         raise ContractError("pyproject.toml must define a project table")
+    if project.get("dependencies") != []:
+        raise ContractError(
+            "project.dependencies must remain empty; test-only validators are not core runtime dependencies"
+        )
     raw = project.get("requires-python")
     if not isinstance(raw, str):
         raise ContractError("project.requires-python must be a string")
@@ -218,7 +245,7 @@ def parse_lock(root: Path, relative: str) -> dict[str, str]:
             raise ContractError(f"{relative}:{number}: duplicate requirement is forbidden: {name}")
         pins[name] = _exact_pin(match.group(2), f"{relative}:{name}")
     if not pins:
-        raise ContractError(f"{relative}: chemistry lock must not be empty")
+        raise ContractError(f"{relative}: requirements lock must not be empty")
     return pins
 
 
@@ -307,6 +334,30 @@ def audit(root: Path) -> dict[str, Any]:
         chemistry_entrypoint,
         chemistry_lock.name,
     )
+    schema_validation_lock = Path(paths["schema-validation-lock"])
+    if schema_validation_lock.parent != Path(SCHEMA_VALIDATION_ENTRYPOINT).parent:
+        raise ContractError(
+            "Schema-validation lock and requirements entrypoint must share one directory"
+        )
+    validate_requirement_entrypoint(
+        root,
+        SCHEMA_VALIDATION_ENTRYPOINT,
+        schema_validation_lock.name,
+    )
+    schema_validation_pins = parse_lock(
+        root,
+        paths["schema-validation-lock"],
+    )
+    _compare(
+        errors,
+        schema_validation_pins,
+        SCHEMA_VALIDATION_PINS,
+        "test-only Schema-validation lock",
+    )
+    if core["requirements"] is not None or core["packages"] != {}:
+        errors.append(
+            "core profile must not contain third-party runtime requirements or packages"
+        )
 
     required_path = _repo_file(root, "config/required-checks.json")
     required = CI_CONTRACT.load_contract(required_path)
@@ -340,6 +391,7 @@ def audit(root: Path) -> dict[str, Any]:
         raise ContractError("Python CI jobs must be declared in exactly one workflow file")
     workflow_relative = next(iter(workflow_paths))
     workflow = _repo_file(root, workflow_relative)
+    workflow_text = _read(root, workflow_relative)
     _workflow_name, expanded = CI_CONTRACT.parse_workflow(workflow)
     matrix_versions: list[str] = []
     for context, mappings in expanded.items():
@@ -367,12 +419,23 @@ def audit(root: Path) -> dict[str, Any]:
     expected_chemistry_commands = [
         "python -m pip install --requirement requirements/chemistry.txt",
         (
+            "python -m pip install --requirement "
+            "requirements/schema-validation.txt"
+        ),
+        (
             'python -c "import numpy, PIL, rdkit; '
             "print(f'numpy={numpy.__version__}'); "
             "print(f'Pillow={PIL.__version__}'); "
             "print(f'rdkit={rdkit.__version__}')\""
         ),
+        (
+            'python -c "import importlib.metadata as m; '
+            "names=('jsonschema','attrs','jsonschema-specifications',"
+            "'referencing','rpds-py','typing-extensions'); "
+            "print('; '.join(name + '=' + m.version(name) for name in names))\""
+        ),
         "python -m unittest tests.test_rdkit_smoke -v",
+        SCHEMA_VALIDATION_TEST_COMMAND,
     ]
     _compare(
         errors,
@@ -380,6 +443,41 @@ def audit(root: Path) -> dict[str, Any]:
         expected_chemistry_commands,
         "CI chemistry job run commands",
     )
+    schema_command_locations = [
+        (job_id, command)
+        for job_id, commands in run_commands.items()
+        for command in commands
+        if (
+            "requirements/schema-validation" in command
+            or any(
+                module in command
+                for module in PROTECTED_SCHEMA_DRAFT_TEST_MODULES
+            )
+        )
+    ]
+    _compare(
+        errors,
+        schema_command_locations,
+        [
+            (
+                "chemistry-dependencies",
+                "python -m pip install --requirement "
+                "requirements/schema-validation.txt",
+            ),
+            ("chemistry-dependencies", SCHEMA_VALIDATION_TEST_COMMAND),
+        ],
+        "test-only Schema validation CI boundary",
+    )
+    required_schema_step = (
+        "      - name: Run required Draft 2020-12 protected contract Schemas\n"
+        "        env:\n"
+        '          AUTO_G16_REQUIRE_JSONSCHEMA: "1"\n'
+        f"        run: {SCHEMA_VALIDATION_TEST_COMMAND}\n"
+    )
+    if workflow_text.count(required_schema_step) != 1:
+        errors.append(
+            "CI required Draft 2020-12 test must have exactly one fail-closed environment gate"
+        )
     audit_invocations = [
         (job_id, command)
         for job_id, commands in run_commands.items()
@@ -411,7 +509,14 @@ def audit(root: Path) -> dict[str, Any]:
                 "packages": chem["packages"],
             },
         },
-        "summary": {"errors": len(errors), "surfaces": 9},
+        "test_only_schema_validation": {
+            "entrypoint": SCHEMA_VALIDATION_ENTRYPOINT,
+            "lock": paths["schema-validation-lock"],
+            "pins": SCHEMA_VALIDATION_PINS,
+            "core_runtime_dependency": False,
+            "chemistry_runtime_dependency": False,
+        },
+        "summary": {"errors": len(errors), "surfaces": 10},
         "errors": errors,
         "interpreter_availability_verified": False,
         "remote_branch_protection_verified": False,
@@ -419,6 +524,7 @@ def audit(root: Path) -> dict[str, Any]:
         "limitations": [
             "This offline audit checks static declarations only; it does not execute or discover interpreters.",
             "It does not verify current GitHub branch protection, required-check settings, permissions, or CI success.",
+            "The Draft 2020-12 validator is test-only and is not installed by core compatibility or source-archive full-suite jobs.",
             "TOML, Conda YAML, requirements, workflow YAML, and version syntax outside the documented restricted forms fail closed.",
         ],
     }

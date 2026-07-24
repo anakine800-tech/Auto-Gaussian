@@ -1,0 +1,24 @@
+{
+  "schema": "auto-g16-legacy-effect-plan-single-use-fix/1",
+  "base_commit": "aaa004a88131f244c19e6d39c74eb936e9eb55b6",
+  "base_tree": "b907dbcb02b483b04fbf4c3ed38404bb34e9b29e",
+  "base_parent": "9f9190a201acc148bdcee134a71ec3f1e3e983cb",
+  "files": {
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_sha256": "df686ea8f95f0b642d4aeca296a201f0503ce84c4cc11bf4a85e945dae053ca3",
+      "after_sha256": "259c6679fd9b2436b9c7e133fc4b19482e6fed5ea7bbd9f94a86ddac5e7aa8cb",
+      "change_class": "private_legacy_effect_plan_single_use_factory_binding_fix",
+      "plan_factory_semantics_changed": true,
+      "legacy_semantics_changed": false,
+      "behavior_parity": {
+        "test": "tests/test_legacy_effect_owner.py",
+        "comparison": "frozen aaa004a same-plan owner replay, sequential and concurrent single-use factory checks, exact bidirectional plan-owner-state binding, factory-failure terminality, forgery and serialization refusal, preserved same-owner concurrency, independent-owner progress, plus success and six-by-four failure differential",
+        "runner_calls": 6,
+        "command_bytes_changed": false,
+        "transaction_policy_changed": false,
+        "automatic_retry": false,
+        "live_actions": false
+      }
+    }
+  }
+}

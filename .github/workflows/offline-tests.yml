@@ -69,11 +69,21 @@ jobs:
           cache-dependency-path: |
             requirements/chemistry.txt
             requirements/chemistry.lock.txt
+            requirements/schema-validation.txt
+            requirements/schema-validation.lock.txt
       - name: Install optional chemistry dependencies
         run: python -m pip install --requirement requirements/chemistry.txt
+      - name: Install test-only Draft 2020-12 validator
+        run: python -m pip install --requirement requirements/schema-validation.txt
       - name: Import and report optional chemistry dependencies
         run: python -c "import numpy, PIL, rdkit; print(f'numpy={numpy.__version__}'); print(f'Pillow={PIL.__version__}'); print(f'rdkit={rdkit.__version__}')"
+      - name: Report exact Schema validator dependencies
+        run: python -c "import importlib.metadata as m; names=('jsonschema','attrs','jsonschema-specifications','referencing','rpds-py','typing-extensions'); print('; '.join(name + '=' + m.version(name) for name in names))"
       - name: Run real RDKit structure, conformer, and depiction smoke
         env:
           AUTO_G16_REQUIRE_RDKIT: "1"
         run: python -m unittest tests.test_rdkit_smoke -v
+      - name: Run required Draft 2020-12 protected contract Schemas
+        env:
+          AUTO_G16_REQUIRE_JSONSCHEMA: "1"
+        run: python -m unittest tests.test_protected_submit_schema_draft202012 tests.test_local_state_binding_schema_draft202012 tests.test_protected_invocation_schema_draft202012 tests.test_protected_lifecycle_schema_draft202012 tests.test_protected_local_materialization_schema_draft202012 tests.test_protected_legacy_effect_handoff_schema_draft202012 -v

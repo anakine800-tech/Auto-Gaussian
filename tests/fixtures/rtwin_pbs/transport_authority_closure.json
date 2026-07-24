@@ -1,0 +1,15 @@
+{
+  "schema": "auto-g16-transport-authority-closure-fixture/1",
+  "profile_id": "profile-placeholder",
+  "execution_request_id": "transport-request-placeholder",
+  "execution_authorization_id": "transport-authorization-placeholder",
+  "first_hop_adapter_config_ref_sha256": "0c1d42c6f8e9bdd818105c84e83ee94a8ca4532f55aa44f2d0197658765ae8de",
+  "second_hop_adapter_config_ref_sha256": "aa877eccc460683a05bec225b24ad4b2451f94210f62d7a7167d445d35a68700",
+  "first_hop_nonce": "11111111111111111111111111111111",
+  "nested_hop_nonce": "22222222222222222222222222222222",
+  "handshake_nonce": "33333333333333333333333333333333",
+  "not_before": "2030-01-01T12:00:00Z",
+  "expires_at": "2030-01-01T12:05:00Z",
+  "placeholder_only": true,
+  "contains_live_identity_plaintext": false
+}

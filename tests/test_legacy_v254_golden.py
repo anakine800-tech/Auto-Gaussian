@@ -559,7 +559,7 @@ class LegacyV254GoldenTests(unittest.TestCase):
                 ), mock.patch.object(
                     package4.PBS.random, "uniform", return_value=0.0
                 ), redirect_stdout(io.StringIO()):
-                    package4.PBS.command_submit(args)
+                    package4.PBS.LegacyCLICompatibilityAdapter()._run_offline_differential_transaction(args)
 
             normalized = []
             for command, input_bytes, timeout_seconds, check in calls:

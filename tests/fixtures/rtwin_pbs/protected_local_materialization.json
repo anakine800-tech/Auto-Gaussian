@@ -1,0 +1,81 @@
+{
+  "schema": "auto-g16-protected-local-materialization-fixture/1",
+  "base_commit": "45c1bb81c8579b4fce4181a76f7559ef8affcc57",
+  "base_tree": "b681eb2c6d0a9bceb2c57964ca06e3a533750ce0",
+  "base_parent": "804df433894b235c1cc3b630b58cfbf9a494f670",
+  "scope": {
+    "exact_pr4k_evidence_only": true,
+    "pr4k_module_class_source_bound": true,
+    "foreign_cache_import_order_rejected_before_reservation": true,
+    "reserve_once": true,
+    "no_clobber_local_materialization": true,
+    "state_publication_last": true,
+    "submission_uncertain": true,
+    "effects_performed": false,
+    "adapter_connected": false,
+    "long_process_gate_open": false,
+    "live_actions": false
+  },
+  "files": {
+    "scripts/protected_local_materialization.py": {
+      "sha256": "e79a703c9f68a7d047210cf3b939caac06cef25f7d664ecece335ea5c444e2d7",
+      "change_class": "exact_pr4k_module_class_source_bound_reserve_first_no_clobber_materialization_owner"
+    },
+    "contracts/execution/protected-local-materialization.schema.json": {
+      "sha256": "e3a253c911efacf3d64d539ab500ba5aad120399c249faffc48e60dfe613951b",
+      "change_class": "closed_draft_2020_12_materialized_state_structure"
+    },
+    "docs/v2.6-protected-local-materialization.md": {
+      "sha256": "6cdf8f480b5b7772bac842d49a55525de981ee9dce484c5fa0e3f730303109a8",
+      "change_class": "bound_pr4k_identity_bounded_reservation_materialization_state_and_stop_boundary"
+    },
+    "skills/auto-g16-rtwin-pbs/references/protected-local-materialization.md": {
+      "sha256": "50779aadb0f4bffce619ca2720578962aa044b3ed4b3e5ee5b3022a6a4a77bc9",
+      "change_class": "packaged_bound_pr4k_identity_operator_boundary_reference"
+    },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "sha256": "3bb26275857e4caaa553d8a9dabded4820a44cdd07352233b75b485299f866d4",
+      "change_class": "additive_pr4l_reference_and_boundary"
+    },
+    "skills/auto-g16-rtwin-pbs/deployment-package.json": {
+      "sha256": "498570a1a0aad2c4b70711d8a040e5a563e6fc032ca68bb89736a8d3e753d312",
+      "change_class": "additive_named_skill_owner_packaging"
+    },
+    "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": {
+      "sha256": "421ffe0d25802a2c9b14968b773d2338001e159bed8c6f34abf17613980431d2",
+      "change_class": "narrow_fixed_materialization_owner_facade"
+    },
+    "tests/test_protected_local_materialization.py": {
+      "sha256": "4bcc53e905210635a525864254890085ee33f783cd4ed16e01da8f1b95aeeae7",
+      "change_class": "focused_pr4k_foreign_cache_import_order_no_clobber_crash_concurrency_freeze_and_package_tests"
+    },
+    "tests/test_protected_local_materialization_schema_draft202012.py": {
+      "sha256": "a8f6c0011e931fe5a8152632fa12e4de0b64b7af896ccc9c9ce66f18de371cca",
+      "change_class": "real_pinned_draft_2020_12_bidirectional_structure_tests"
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "sha256": "8f31e4c46283d41ea3132897816cb840a40d3d126280633695466ee05a7529eb",
+      "change_class": "successor_extensible_exact_package_count"
+    }
+  },
+  "frozen_predecessors": {
+    "protected_submit_owner_commit": "ad448b1",
+    "local_state_owner_commit": "70f1575",
+    "protected_invocation_owner_commit": "ba9fb6f",
+    "legacy_transaction_owner_commit": "fc7b59d",
+    "legacy_effect_plan_owner_commit": "477bada",
+    "protected_lifecycle_owner_commit": "45c1bb8",
+    "protected_submit_owner_sha256": "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a",
+    "local_state_owner_sha256": "6a23eb9307fdf930d4055589dd08baff8dea9275470db7ea9154f6ffa324b6b5",
+    "protected_invocation_owner_sha256": "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28",
+    "protected_lifecycle_owner_sha256": "166e8b398922682eb94c9705e8ee1ccf0ed13546a75c49010090f7d7182fbafb",
+    "legacy_owner_sha256": "259c6679fd9b2436b9c7e133fc4b19482e6fed5ea7bbd9f94a86ddac5e7aa8cb"
+  },
+  "remaining_gates": {
+    "long_process_raw_owner_lifecycle_bounded": false,
+    "adapter_mapping_proven": false,
+    "qsub_outcome_implementation_proven": false,
+    "reconciliation_implementation_proven": false,
+    "live_validation_performed": false
+  }
+}

@@ -77,6 +77,51 @@ trusted live owner replays it and atomically consumes its one-time identity.
 Offline owner replay uses private ephemeral validation copies of one captured
 byte snapshot; it performs no network, external or persistent mutation.
 
+The v2.6 PR4A legacy extraction retains the same CLI/import name but dispatches
+through one backend-neutral facade to the sole `legacy_rtwin_pbs` implementation.
+Read [references/legacy-backend.md](references/legacy-backend.md). New live
+submissions reject legacy-only approvals. A valid successor stops at the
+non-executable `transport_integration_required` boundary. PR4B must start from
+the exact PR4A commit and add transport integration before complete PR4 L3 and
+a separately authorized exact live smoke; PR4A must not merge independently.
+
+The PR4B transport-authority prerequisite keeps published profile/request/
+authorization `/1` artifacts replay-only. New legacy submissions require the
+hash-bound `execution-profile/2`, permanent non-authorizing
+`execution-request/2`, and an `execution-authorization/2` that references that
+exact request. Offline closure consumes owner-validated Stage A/B receipt
+artifacts plus an owner-validated handshake observation before producing a
+verified non-authorizing handshake receipt. The adapter still performs no
+transport in this patch.
+
+The v2.6 PR4D protected-submit contract is also non-executable. Read
+[references/protected-submit-contract.md](references/protected-submit-contract.md).
+Its new `/1` bundle composes the existing scientific, input, live-approval,
+batch, resource and transport owners, then supports one owner-trusted
+reservation. It does not call the legacy adapter, implement stage or submit,
+or authorize status, fetch, cancel, cleanup or deletion.
+
+The v2.6 PR4K protected lifecycle contract remains non-executable. Read
+[references/protected-lifecycle-contract.md](references/protected-lifecycle-contract.md).
+It binds exact typed PR4F evidence to a required future implementation order,
+with every reservation/effect/adapter/materialization/reconciliation status
+false. It neither creates a raw legacy effect owner nor changes the
+fail-closed adapter.
+
+The additive v2.6 PR4L successor implements only the bounded local prefix in
+that order. Read
+[references/protected-local-materialization.md](references/protected-local-materialization.md).
+It accepts only exact typed PR4K evidence, reserves PR4D once, writes the
+already sealed PR4F bytes without clobbering the PR4G-derived directory, and
+publishes a sealed `submission_uncertain` local-state record last. It then
+stops. The adapter, qsub, reconciliation, live-validation and long-process
+owner-lifetime gates remain closed.
+
+The additive v2.6 PR4N handoff remains non-executable. Read
+[references/protected-legacy-effect-handoff.md](references/protected-legacy-effect-handoff.md).
+It binds the exact PR4L materialization to the read-only PR4M readiness witness
+without creating an effect owner, calling a runner, or connecting an adapter.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -237,6 +282,13 @@ requires a new live approval and the ordinary exact-input hash replay. Any
 scientific identity change consumes a new reviewed task slot. The ledger may
 classify a failure and support a retry proposal, but it never submits, retries,
 changes chemistry, cancels or expands work automatically.
+
+For the additive v2.6 path-ownership proposal used only by a future protected
+successor, read
+[references/local-state-binding.md](references/local-state-binding.md).
+It derives `outputs/<project>/<attempt_id>/execution-batch-v3.json` from typed
+owner evidence, never from caller `local_dir`, and grants no execution
+authority.
 
 Monitoring is read-only: important state/error events are immediate and the
 default cumulative operator-summary cadence is 60 minutes. Batch monitoring
@@ -428,7 +480,30 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/gaussian_auto.py`: exact-input approval gate and one-command
   submission through analyzed results; raw structure-to-method preparation is
   intentionally unsupported.
-- `scripts/gaussian_rtwin_pbs.py`: preflight, stage, submit, inspect, watch, fetch, analyze, repeated-evidence automatic zombie cleanup, and confirmation-gated active-job cancellation.
+- `scripts/gaussian_rtwin_pbs.py`: historical CLI/import compatibility wrapper;
+  executable dispatch crosses the backend-neutral facade.
+- `scripts/execution_facade.py` and `scripts/execution_models.py`: typed sealed
+  execution boundary, fixed legacy backend dispatch, non-executable live
+  attestation plan and narrow protected-submit seal/reserve entry points.
+- `scripts/protected_submit_contract.py`: packaged copy of the repository
+  owner that composes existing approvals and identity closures into a
+  non-executable, single-use protected-submit bundle.
+- `scripts/local_state_binding.py`: packaged PR4G owner for the unique
+  read-only local execution-batch `/3` path and current file identity.
+- `scripts/protected_invocation_contract.py`: packaged additive PR4F owner
+  that composes PR4D, PR4G and the unique legacy stage-byte plan into a
+  replayable in-process seal with no reservation or effect surface.
+- `scripts/protected_local_materialization.py`: packaged additive PR4L owner
+  for reserve-first, no-clobber exact stage materialization and final sealed
+  local-state publication; it provides no adapter or external-effect method.
+- `scripts/protected_legacy_effect_handoff.py`: packaged additive PR4N owner
+  for the non-executable typed PR4L-to-PR4M handoff; every effect, adapter and
+  runner status remains false.
+- `scripts/execution_authorization_state.py`: private locked no-clobber
+  single-use consumption/reservation owner; it accepts no caller registry.
+- `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for
+  preflight, stage, submit, inspect, watch, fetch, analyze and exact scheduler
+  operations.
 - `scripts/gaussian_log.py`: deterministic Gaussian result and geometry parser.
 - `scripts/gaussian_workflow.py`: build and analyze Opt-Freq-single-point workflows and aggregate conformer populations.
 

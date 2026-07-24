@@ -29,6 +29,8 @@ FIXTURE_FILES = (
     "environment-chem.yml",
     "requirements/chemistry.txt",
     "requirements/chemistry.lock.txt",
+    "requirements/schema-validation.txt",
+    "requirements/schema-validation.lock.txt",
     ".github/workflows/offline-tests.yml",
 )
 
@@ -83,6 +85,16 @@ class PythonContractAuditTests(unittest.TestCase):
         self.assertFalse(report["interpreter_availability_verified"])
         self.assertFalse(report["remote_branch_protection_verified"])
         self.assertFalse(report["actual_ci_success_verified"])
+        self.assertEqual(
+            report["test_only_schema_validation"]["pins"],
+            AUDIT.SCHEMA_VALIDATION_PINS,
+        )
+        self.assertFalse(
+            report["test_only_schema_validation"]["core_runtime_dependency"]
+        )
+        self.assertFalse(
+            report["test_only_schema_validation"]["chemistry_runtime_dependency"]
+        )
 
     def test_pyproject_range_expansion_outside_311_to_313_is_contract_drift(self) -> None:
         for value in (">=3.9,<3.14", ">=3.10,<3.14", ">=3.11,<3.15"):
@@ -273,6 +285,37 @@ class PythonContractAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(AUDIT.ContractError, "duplicate requirement"):
             AUDIT.audit(self.root)
 
+    def test_schema_validation_lock_and_entrypoint_are_exact_and_test_only(self) -> None:
+        self.replace(
+            "requirements/schema-validation.lock.txt",
+            "jsonschema==4.26.0",
+            "jsonschema==4.25.1",
+        )
+        report = AUDIT.audit(self.root)
+        self.assertTrue(
+            any("Schema-validation lock" in item for item in report["errors"])
+        )
+        shutil.copy2(
+            ROOT / "requirements/schema-validation.lock.txt",
+            self.path("requirements/schema-validation.lock.txt"),
+        )
+        entrypoint = self.path("requirements/schema-validation.txt")
+        original = entrypoint.read_text(encoding="utf-8")
+        entrypoint.write_text(
+            original + "jsonschema==4.26.0\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(AUDIT.ContractError, "exactly one active line"):
+            AUDIT.audit(self.root)
+        entrypoint.write_text(original, encoding="utf-8")
+        self.replace(
+            "pyproject.toml",
+            "dependencies = []",
+            'dependencies = ["jsonschema==4.26.0"]',
+        )
+        with self.assertRaisesRegex(AUDIT.ContractError, "test-only validators"):
+            AUDIT.audit(self.root)
+
     def test_chemistry_requirement_entrypoint_rejects_extra_active_content(self) -> None:
         entrypoint = self.path("requirements/chemistry.txt")
         original = entrypoint.read_text(encoding="utf-8")
@@ -304,6 +347,62 @@ class PythonContractAuditTests(unittest.TestCase):
         report = AUDIT.audit(self.root)
         self.assertEqual(report["status"], "fail")
         self.assertTrue(any("chemistry job run commands" in item for item in report["errors"]))
+
+    def test_ci_schema_validation_dependency_and_required_gate_are_exact(self) -> None:
+        self.replace(
+            ".github/workflows/offline-tests.yml",
+            (
+                "python -m pip install --requirement "
+                "requirements/schema-validation.txt"
+            ),
+            (
+                "python -m pip install --requirement "
+                "requirements/schema-validation.lock.txt"
+            ),
+        )
+        report = AUDIT.audit(self.root)
+        self.assertTrue(
+            any("Schema validation CI boundary" in item for item in report["errors"])
+        )
+        shutil.copy2(
+            ROOT / ".github/workflows/offline-tests.yml",
+            self.path(".github/workflows/offline-tests.yml"),
+        )
+        self.replace(
+            ".github/workflows/offline-tests.yml",
+            'AUTO_G16_REQUIRE_JSONSCHEMA: "1"',
+            'AUTO_G16_REQUIRE_JSONSCHEMA: "0"',
+        )
+        report = AUDIT.audit(self.root)
+        self.assertTrue(
+            any("fail-closed environment gate" in item for item in report["errors"])
+        )
+
+    def test_schema_validator_cannot_enter_core_or_source_archive_jobs(self) -> None:
+        workflow = self.path(".github/workflows/offline-tests.yml")
+        original = workflow.read_text(encoding="utf-8")
+        source_anchor = (
+            "      - name: Audit required-check declarations\n"
+            "        run: python scripts/audit_ci_contract.py\n"
+        )
+        self.assertIn(source_anchor, original)
+        workflow.write_text(
+            original.replace(
+                source_anchor,
+                (
+                    "      - name: Unreviewed core validator install\n"
+                    "        run: python -m pip install --requirement "
+                    "requirements/schema-validation.txt\n"
+                    + source_anchor
+                ),
+                1,
+            ),
+            encoding="utf-8",
+        )
+        report = AUDIT.audit(self.root)
+        self.assertTrue(
+            any("Schema validation CI boundary" in item for item in report["errors"])
+        )
 
     def test_ci_chemistry_job_rejects_every_extra_run_command(self) -> None:
         workflow = self.path(".github/workflows/offline-tests.yml")

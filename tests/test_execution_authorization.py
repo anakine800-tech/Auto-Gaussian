@@ -519,17 +519,14 @@ class ExecutionAuthorizationTests(unittest.TestCase):
         self.assertEqual(observed["copy_modes"], {0o400})
         self.assertEqual(self.fixture["policy_path"].read_bytes(), original_policy)
 
-    def test_controlled_owner_bundle_rejects_poisoned_module_cache(self) -> None:
+    def test_controlled_owner_bundle_isolates_and_restores_preexisting_module_cache(self) -> None:
         poison = ModuleType("execution_batch")
         poison.__file__ = str(self.root / "poisoned-execution-batch.py")
         prior = sys.modules.get("execution_batch")
         sys.modules["execution_batch"] = poison
         try:
-            with self.assertRaisesRegex(
-                AUTH.ExecutionAuthorizationError,
-                "preexisting owner cache origin mismatch: execution_batch",
-            ):
-                self.run_gate()
+            result = self.run_gate()
+            self.assertEqual(result["status"], "closure_valid_offline")
             self.assertIs(sys.modules["execution_batch"], poison)
         finally:
             sys.modules.pop("execution_batch", None)

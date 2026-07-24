@@ -1,0 +1,64 @@
+{
+  "schema": "auto-g16-protected-lifecycle-contract-fixture/1",
+  "base_branch": "codex/v26-legacy-effect-plan-single-use-fix",
+  "base_commit": "477bada8c5b0342ebd8a8faab1acf3d08dc2814e",
+  "base_tree": "fbb6e0ae521fa67601ba54a887facd0c6d57ed7f",
+  "base_parent": "aaa004a88131f244c19e6d39c74eb936e9eb55b6",
+  "scope": {
+    "offline_contract_only": true,
+    "adapter_implemented": false,
+    "reservation_performed": false,
+    "effects_performed": false,
+    "live_actions": false
+  },
+  "files": {
+    "scripts/protected_lifecycle_contract.py": {
+      "sha256": "166e8b398922682eb94c9705e8ee1ccf0ed13546a75c49010090f7d7182fbafb",
+      "change_class": "exact_builtin_json_ingress_bool_parity_trusted_owner_graph_snapshot_semantic_lifecycle_seal"
+    },
+    "contracts/execution/protected-lifecycle-contract.schema.json": {
+      "sha256": "7ad4342464ce6d4b85d3b56af933d4ee314570b550b833cfba9d3dda599d4321",
+      "change_class": "draft_2020_12_strict_string_end_structural_projection_only_schema"
+    },
+    "docs/v2.6-protected-lifecycle-contract.md": {
+      "sha256": "3a2e08fe92f44ee451d788cd58253d8f12a65770f2d8a045193e31e70ea03ff3",
+      "change_class": "honest_builtin_json_strict_string_end_parity_owner_graph_snapshot_and_recovery_gates"
+    },
+    "skills/auto-g16-rtwin-pbs/references/protected-lifecycle-contract.md": {
+      "sha256": "0a5c1b1726afccb7b803255beebca71e77889793caa98ddab7423d3c44c9a1a6",
+      "change_class": "packaged_builtin_json_strict_string_end_parity_and_snapshot_boundary_reference"
+    },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "sha256": "87f20a354ce0d4234affcf83cc2cdf99e5ebed72d3c063aea04ee4f0ec9f51e1",
+      "change_class": "additive_reference_routing_only"
+    },
+    "skills/auto-g16-rtwin-pbs/deployment-package.json": {
+      "sha256": "c812b3646969e17407e4406c5abfbd7b3f840693aa4def053d0f6ebe43d051ff",
+      "change_class": "additive_named_skill_owner_packaging"
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "sha256": "41326ff1380a10c40f89cbdb8f68665d03cc1d85bc93967ccfedea79791ea9da",
+      "change_class": "exact_builtin_json_string_boundary_hostile_hook_snapshot_concurrency_packaging_and_freeze_tests"
+    },
+    "tests/test_protected_lifecycle_schema_draft202012.py": {
+      "sha256": "5ec58e0df264aa7337f8f5d69c947575f2aaf11fd246b42afe6d28e2771a5e8d",
+      "change_class": "generated_exact_builtin_string_boundary_acceptance_set_real_draft_2020_12_tests"
+    }
+  },
+  "frozen_predecessors": {
+    "protected_submit_owner_commit": "ad448b1",
+    "local_state_owner_commit": "70f1575",
+    "protected_invocation_owner_commit": "ba9fb6f",
+    "legacy_transaction_owner_commit": "fc7b59d",
+    "legacy_effect_plan_owner_commit": "477bada",
+    "protected_invocation_owner_sha256": "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28",
+    "legacy_owner_sha256": "259c6679fd9b2436b9c7e133fc4b19482e6fed5ea7bbd9f94a86ddac5e7aa8cb"
+  },
+  "recovery_gates": {
+    "no_clobber_materialization_proven": false,
+    "protected_state_publication_proven": false,
+    "adapter_mapping_proven": false,
+    "outcome_and_reconciliation_proven": false,
+    "long_process_raw_owner_lifecycle_bounded": false
+  }
+}

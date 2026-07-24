@@ -1,0 +1,26 @@
+{
+  "schema": "auto-g16-protected-invocation-mechanical-extraction/1",
+  "base_commit": "70f1575219eecf8864722d91282c9e0902681ef8",
+  "files": {
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_sha256": "fbbd7a194e2c840a7173b61a3386fbb514be0dfe4a42ebebaadc0326ab6de1ce",
+      "after_sha256": "7c8795be69befa0222fabda87efcbf3fd2311d65a3e5fc680bb7b914c407eedf",
+      "change_class": "private_streaming_stage_planner_with_exact_legacy_stage_restoration",
+      "legacy_semantics_changed": false,
+      "behavior_parity": {
+        "test": "tests/test_protected_invocation_legacy_differential.py",
+        "base_source": "git show 70f1575219eecf8864722d91282c9e0902681ef8:skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py",
+        "comparison": "execute base and candidate stage() in the same normalized temporary path and compare outcome plus post-call directory bytes",
+        "cases": [
+          "greater-than-16-MiB companion",
+          "greater-than-16-MiB old checkpoint",
+          "missing %oldchk",
+          "input overwrite conflict",
+          "companion overwrite conflict",
+          "checkpoint overwrite conflict",
+          "post-copy resource failure"
+        ]
+      }
+    }
+  }
+}

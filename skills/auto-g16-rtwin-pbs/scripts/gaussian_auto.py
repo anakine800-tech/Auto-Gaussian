@@ -10,7 +10,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import gaussian_rtwin_pbs as transport
+import execution_facade
+transport = execution_facade.bind_current()
+from gaussian_rtwin_pbs import add_connection_options as add_legacy_connection_options
 TRANSPORT = Path(__file__).with_name("gaussian_rtwin_pbs.py")
 PROTECTED_STATES = {"submitted", "queued", "running", "completed", "failed", "interrupted", "submission_uncertain"}
 
@@ -307,7 +309,9 @@ def build_parser() -> argparse.ArgumentParser:
     auto.add_argument("--output-dir")
     auto.add_argument("--poll-seconds", type=int, default=30)
     auto.add_argument("--timeout-seconds", type=int, default=86400)
-    transport.add_connection_options(auto)
+    # Preserve the historical wrapper's configuration-derived CLI defaults;
+    # execution still delegates only through the fixed facade binding above.
+    add_legacy_connection_options(auto)
     auto.set_defaults(func=command_auto)
     return parser
 
