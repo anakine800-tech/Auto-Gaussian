@@ -428,6 +428,177 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                         draft
                     )
 
+    def test_public_structural_ingress_rejects_hostile_container_hooks(
+        self,
+    ) -> None:
+        valid = self.seal().document()
+        hook_calls: list[str] = []
+
+        class HostileHooks:
+            def __copy__(self) -> object:
+                hook_calls.append("copy")
+                raise AssertionError("caller __copy__ must not run")
+
+            def __deepcopy__(self, memo: dict[int, object]) -> object:
+                del memo
+                hook_calls.append("deepcopy")
+                return valid
+
+            def __reduce__(self) -> object:
+                hook_calls.append("reduce")
+                raise AssertionError("caller __reduce__ must not run")
+
+            def __reduce_ex__(self, protocol: int) -> object:
+                del protocol
+                hook_calls.append("reduce_ex")
+                raise AssertionError("caller __reduce_ex__ must not run")
+
+            def __eq__(self, other: object) -> bool:
+                del other
+                hook_calls.append("equality")
+                raise AssertionError("caller __eq__ must not run")
+
+        class HostileDict(HostileHooks, dict):
+            pass
+
+        class HostileList(HostileHooks, list):
+            pass
+
+        class HostileTuple(HostileHooks, tuple):
+            pass
+
+        class HostileMapping(HostileHooks, Mapping):
+            def __init__(self, value: dict) -> None:
+                self.value = value
+
+            def __getitem__(self, key: object) -> object:
+                del key
+                hook_calls.append("mapping_getitem")
+                raise AssertionError("caller mapping lookup must not run")
+
+            def __iter__(self):
+                hook_calls.append("mapping_iter")
+                raise AssertionError("caller mapping iteration must not run")
+
+            def __len__(self) -> int:
+                hook_calls.append("mapping_len")
+                raise AssertionError("caller mapping length must not run")
+
+        class HostileString(HostileHooks, str):
+            __hash__ = str.__hash__
+
+        hostile_payload = copy.deepcopy(valid)
+        hostile_payload["scope"]["reserve"] = True
+        top_level = HostileDict(hostile_payload)
+        top_level_mapping = HostileMapping(hostile_payload)
+
+        nested_dict = copy.deepcopy(valid)
+        nested_dict["scope"] = HostileDict(nested_dict["scope"])
+
+        nested_mapping = copy.deepcopy(valid)
+        nested_mapping["scope"] = HostileMapping(nested_mapping["scope"])
+
+        nested_list = copy.deepcopy(valid)
+        nested_list["protected_submit_order"] = HostileList(
+            nested_list["protected_submit_order"]
+        )
+
+        nested_tuple = copy.deepcopy(valid)
+        nested_tuple["protected_submit_order"] = HostileTuple(
+            nested_tuple["protected_submit_order"]
+        )
+
+        hostile_leaf = copy.deepcopy(valid)
+        hostile_leaf["schema"] = HostileString(hostile_leaf["schema"])
+
+        hostile_key = copy.deepcopy(valid)
+        hostile_key[HostileString("unexpected")] = False
+
+        for label, value in (
+            ("top-level-dict-subclass", top_level),
+            ("top-level-custom-mapping", top_level_mapping),
+            ("nested-dict-subclass", nested_dict),
+            ("nested-custom-mapping", nested_mapping),
+            ("nested-list-subclass", nested_list),
+            ("nested-tuple-subclass", nested_tuple),
+            ("custom-leaf", hostile_leaf),
+            ("custom-key", hostile_key),
+        ):
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(
+                    LIFECYCLE.ProtectedLifecycleError,
+                    (
+                        "accepts only exact builtin JSON values|"
+                        "keys must be exact builtin strings"
+                    ),
+                ):
+                    LIFECYCLE.validate_protected_lifecycle_structure(value)
+        self.assertEqual(hook_calls, [])
+
+    def test_public_structural_ingress_rebuilds_owner_owned_json(self) -> None:
+        source = json.loads(
+            json.dumps(self.seal().document()),
+            object_pairs_hook=lambda pairs: dict(pairs),
+        )
+        source["protected_invocation_projection"][
+            "stage_artifact_count"
+        ] = float(
+            source["protected_invocation_projection"][
+                "stage_artifact_count"
+            ]
+        )
+        rebuilt = LIFECYCLE.validate_protected_lifecycle_structure(source)
+        self.assertEqual(rebuilt, source)
+        self.assertIsNot(rebuilt, source)
+        self.assertIsNot(rebuilt["scope"], source["scope"])
+        self.assertIsNot(
+            rebuilt["protected_submit_order"],
+            source["protected_submit_order"],
+        )
+        self.assertIs(
+            type(
+                rebuilt["protected_invocation_projection"][
+                    "stage_artifact_count"
+                ]
+            ),
+            int,
+        )
+
+    def test_public_structural_ingress_rejects_cycles_depth_and_leaves(
+        self,
+    ) -> None:
+        valid = self.seal().document()
+        cyclic: list[object] = []
+        cyclic.append(cyclic)
+        cycle_document = copy.deepcopy(valid)
+        cycle_document["protected_submit_order"] = cyclic
+
+        deep: object = "leaf"
+        for _ in range(LIFECYCLE._MAX_PUBLIC_JSON_DEPTH + 1):
+            deep = [deep]
+        deep_document = copy.deepcopy(valid)
+        deep_document["protected_submit_order"] = deep
+
+        unsupported = copy.deepcopy(valid)
+        unsupported["schema"] = object()
+
+        cases = (
+            ("cycle", cycle_document, "contains a cycle"),
+            ("deep", deep_document, "exceeds the nesting bound"),
+            (
+                "unsupported-leaf",
+                unsupported,
+                "accepts only exact builtin JSON values",
+            ),
+        )
+        for label, value, message in cases:
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(
+                    LIFECYCLE.ProtectedLifecycleError,
+                    message,
+                ):
+                    LIFECYCLE.validate_protected_lifecycle_structure(value)
+
     def test_current_replay_rejects_local_and_stage_drift(self) -> None:
         sealed = self.seal()
         ledger_path = self.fixture.invocation.local.ledger_path

@@ -112,6 +112,24 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
                 document
             )
 
+    def assert_acceptance_parity(
+        self,
+        document: dict,
+        *,
+        expected: bool,
+    ) -> None:
+        draft_accepts = self.validator.is_valid(document)
+        try:
+            SUPPORT.LIFECYCLE.validate_protected_lifecycle_structure(
+                document
+            )
+        except SUPPORT.LIFECYCLE.ProtectedLifecycleError:
+            helper_accepts = False
+        else:
+            helper_accepts = True
+        self.assertEqual(helper_accepts, draft_accepts)
+        self.assertEqual(draft_accepts, expected)
+
     def test_exact_dependencies_and_owner_projection_validate(self) -> None:
         declared = {}
         lock = (
@@ -184,7 +202,7 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
     def test_generated_structural_acceptance_matrix_is_bidirectional(
         self,
     ) -> None:
-        cases = [copy.deepcopy(self.document)]
+        accepted = [copy.deepcopy(self.document)]
         for field, replacement in (
             ("invocation_id", "protected-invocation-" + "0" * 64),
             ("invocation_payload_sha256", "0" * 64),
@@ -194,13 +212,154 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
             draft = copy.deepcopy(self.document)
             draft["protected_invocation_projection"][field] = replacement
             draft = SUPPORT.LIFECYCLE._finalize_owner_projection(draft)
-            cases.append(draft)
-        for index, draft in enumerate(cases):
-            with self.subTest(index=index):
-                self.validator.validate(draft)
-                SUPPORT.LIFECYCLE.validate_protected_lifecycle_structure(
-                    draft
-                )
+            accepted.append(draft)
+        integral = copy.deepcopy(self.document)
+        integral["protected_invocation_projection"][
+            "stage_artifact_count"
+        ] = float(
+            integral["protected_invocation_projection"][
+                "stage_artifact_count"
+            ]
+        )
+        accepted.append(integral)
+
+        rejected = []
+        for field in self.document:
+            draft = copy.deepcopy(self.document)
+            del draft[field]
+            rejected.append(("missing-top-level-" + field, draft))
+
+        unknown = copy.deepcopy(self.document)
+        unknown["unknown"] = None
+        rejected.append(("unknown-top-level", unknown))
+
+        projection = self.document["protected_invocation_projection"]
+        for field in projection:
+            draft = copy.deepcopy(self.document)
+            del draft["protected_invocation_projection"][field]
+            rejected.append(("missing-projection-" + field, draft))
+        unknown_projection = copy.deepcopy(self.document)
+        unknown_projection["protected_invocation_projection"][
+            "unknown"
+        ] = None
+        rejected.append(("unknown-projection", unknown_projection))
+
+        fixed_mappings = {
+            "validation": SUPPORT.LIFECYCLE.VALIDATION_LAYERS,
+            "scope": SUPPORT.LIFECYCLE.SCOPE,
+            "status": SUPPORT.LIFECYCLE.STATUS,
+            "legacy_compatibility": (
+                SUPPORT.LIFECYCLE.LEGACY_COMPATIBILITY
+            ),
+        }
+        for section, expected_mapping in fixed_mappings.items():
+            for field in expected_mapping:
+                for replacement in (0, 1):
+                    draft = copy.deepcopy(self.document)
+                    draft[section][field] = replacement
+                    rejected.append(
+                        (
+                            f"{section}-{field}-{replacement}",
+                            draft,
+                        )
+                    )
+
+        for field in (
+            "protected_submit_order",
+            "protected_invocation_order",
+            "legacy_effect_sequence",
+            "required_future_implementation_order",
+            "effect_time_revalidation",
+        ):
+            missing = copy.deepcopy(self.document)
+            missing[field] = missing[field][:-1]
+            rejected.append((field + "-missing-item", missing))
+            extra = copy.deepcopy(self.document)
+            extra[field].append("unexpected")
+            rejected.append((field + "-extra-item", extra))
+            reordered = copy.deepcopy(self.document)
+            reordered[field] = list(reversed(reordered[field]))
+            rejected.append((field + "-reordered", reordered))
+
+        for label, value in (
+            ("zero", 0),
+            ("boolean", True),
+            ("fractional", 1.5),
+            ("nan", float("nan")),
+            ("positive-infinity", float("inf")),
+            ("negative-infinity", float("-inf")),
+        ):
+            draft = copy.deepcopy(self.document)
+            draft["protected_invocation_projection"][
+                "stage_artifact_count"
+            ] = value
+            rejected.append(("stage-artifact-count-" + label, draft))
+
+        for field in (
+            "invocation_payload_sha256",
+            "ledger_identity_sha256",
+            "stage_manifest_sha256",
+        ):
+            malformed = copy.deepcopy(self.document)
+            malformed["protected_invocation_projection"][field] = "x"
+            rejected.append(("malformed-" + field, malformed))
+        malformed_lifecycle = copy.deepcopy(self.document)
+        malformed_lifecycle["lifecycle_id"] = "x"
+        rejected.append(("malformed-lifecycle-id", malformed_lifecycle))
+        malformed_projection_hash = copy.deepcopy(self.document)
+        malformed_projection_hash["structural_projection_sha256"] = "x"
+        rejected.append(
+            ("malformed-structural-projection-hash", malformed_projection_hash)
+        )
+
+        for index, draft in enumerate(accepted):
+            with self.subTest(expected="accept", index=index):
+                self.assert_acceptance_parity(draft, expected=True)
+        for label, draft in rejected:
+            with self.subTest(expected="reject", label=label):
+                self.assert_acceptance_parity(draft, expected=False)
+
+    def test_hostile_deepcopy_replacement_rejects_without_hook_calls(
+        self,
+    ) -> None:
+        hook_calls: list[str] = []
+        valid = copy.deepcopy(self.document)
+        hostile_payload = copy.deepcopy(valid)
+        hostile_payload["scope"]["reserve"] = True
+
+        class DeepcopyReplacingDict(dict):
+            def __deepcopy__(self, memo: dict[int, object]) -> object:
+                del memo
+                hook_calls.append("deepcopy")
+                return valid
+
+        hostile = DeepcopyReplacingDict(hostile_payload)
+        self.assertTrue(hostile["scope"]["reserve"])
+        with self.assertRaises(ValidationError):
+            self.validator.validate(hostile)
+        with self.assertRaises(
+            SUPPORT.LIFECYCLE.ProtectedLifecycleError
+        ):
+            SUPPORT.LIFECYCLE.validate_protected_lifecycle_structure(
+                hostile
+            )
+        self.assertEqual(hook_calls, [])
+
+    def test_duplicate_free_standard_json_is_the_parity_domain(self) -> None:
+        encoded = json.dumps(self.document, separators=(",", ":"))
+        parsed = json.loads(
+            encoded,
+            object_pairs_hook=reject_duplicate_pairs,
+        )
+        self.validator.validate(parsed)
+        rebuilt = (
+            SUPPORT.LIFECYCLE.validate_protected_lifecycle_structure(
+                parsed
+            )
+        )
+        self.assertEqual(rebuilt, parsed)
+        self.assertIsNot(rebuilt, parsed)
+        self.assertIsNot(rebuilt["scope"], parsed["scope"])
 
     def test_unknown_status_and_orders_reject_bidirectionally(self) -> None:
         cases = []

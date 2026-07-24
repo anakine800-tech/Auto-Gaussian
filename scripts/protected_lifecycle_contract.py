@@ -15,6 +15,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import stat
@@ -124,6 +125,7 @@ _MODULE_LOCK = threading.RLock()
 _MISSING_MODULE = object()
 _OWNER_READ_CHUNK_SIZE = 64 * 1024
 _MAX_OWNER_SOURCE_BYTES = 3 * 1024 * 1024
+_MAX_PUBLIC_JSON_DEPTH = 64
 _OWNER_STAT_FIELDS = (
     "st_dev",
     "st_ino",
@@ -180,6 +182,75 @@ def canonical_bytes(value: Any) -> bytes:
 
 def digest(value: Any) -> str:
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+def _rebuild_public_json_value(
+    value: object,
+    *,
+    depth: int = 0,
+    active: set[int] | None = None,
+) -> object:
+    """Rebuild one exact builtin JSON tree without invoking caller hooks."""
+
+    if depth > _MAX_PUBLIC_JSON_DEPTH:
+        raise ProtectedLifecycleError(
+            "protected lifecycle structural input exceeds the nesting bound"
+        )
+    value_type = type(value)
+    if value_type is str or value_type is int or value_type is bool:
+        return value
+    if value_type is float:
+        if not math.isfinite(value):
+            raise ProtectedLifecycleError(
+                "protected lifecycle structural input contains a "
+                "non-finite number"
+            )
+        return value
+    if value is None:
+        return None
+    if value_type is not dict and value_type is not list:
+        raise ProtectedLifecycleError(
+            "protected lifecycle structural input accepts only exact "
+            "builtin JSON values"
+        )
+
+    if active is None:
+        active = set()
+    identity = id(value)
+    if identity in active:
+        raise ProtectedLifecycleError(
+            "protected lifecycle structural input contains a cycle"
+        )
+    active.add(identity)
+    try:
+        if value_type is list:
+            return [
+                _rebuild_public_json_value(
+                    item,
+                    depth=depth + 1,
+                    active=active,
+                )
+                for item in value
+            ]
+        rebuilt: dict[str, object] = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise ProtectedLifecycleError(
+                    "protected lifecycle structural object keys must be "
+                    "exact builtin strings"
+                )
+            rebuilt[key] = _rebuild_public_json_value(
+                item,
+                depth=depth + 1,
+                active=active,
+            )
+        return rebuilt
+    except RuntimeError as exc:
+        raise ProtectedLifecycleError(
+            "protected lifecycle structural input changed during rebuild"
+        ) from exc
+    finally:
+        active.remove(identity)
 
 
 def _exact(value: Any, fields: set[str], label: str) -> dict[str, Any]:
@@ -644,7 +715,7 @@ def validate_protected_lifecycle_structure(
 ) -> dict[str, Any]:
     """Validate only the constraints expressible by the public Draft Schema."""
 
-    document = copy.deepcopy(value)
+    document = _rebuild_public_json_value(value)
     canonical_bytes(document)
     document = _exact(
         document,
@@ -755,7 +826,7 @@ def validate_protected_lifecycle_structure(
         document["structural_projection_sha256"],
         "protected lifecycle structural projection",
     )
-    return copy.deepcopy(document)
+    return document
 
 
 def _finalize_owner_projection(

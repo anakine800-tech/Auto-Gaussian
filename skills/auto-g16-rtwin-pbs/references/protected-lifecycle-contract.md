@@ -12,14 +12,26 @@ validity grants neither owner acceptance nor a seal.
 
 The standard Draft 2020-12 Schema and
 `validate_protected_lifecycle_structure()` have acceptance-set parity only for
-Draft-expressible constraints. They do not claim hashing, derived-ID,
-cross-field, class-identity, file-origin, artifact-replay, or
-normalization-byte parity. Draft and the public structural validator may both
-accept an integral JSON number; only the public structural validator
-normalizes its returned Python value to an integer. That normalization is not
-a semantic-owner operation or proof. Every fixed validation, scope, status,
-and legacy-compatibility marker requires an exact boolean; numeric `0` and `1`
-are rejected across the complete fixed-field matrix.
+Draft-expressible constraints over duplicate-free standard JSON parsed into
+exact builtin `dict`/`list` containers, exact-string keys, and exact
+`str`/`int`/`float`/`bool`/`None` leaves. Duplicate keys must be rejected
+during parsing. Arbitrary Python objects are outside the parity claim.
+
+The helper recursively rebuilds the accepted ingress into an owner-owned
+builtin snapshot without JSON round-tripping or invoking caller copy,
+deep-copy, reduce, equality, or container hooks. Custom mappings,
+container/tuple subclasses, custom keys or leaves, cycles, non-finite values,
+unsupported values, and inputs beyond the fixed 64-level bound fail closed.
+Later fixed list and mapping comparisons therefore cannot reach caller
+equality. Draft and the public structural validator may both accept an
+integral JSON number; only the helper normalizes its returned value to an
+integer. That is not a semantic-owner operation or proof. Every fixed
+validation, scope, status, and legacy-compatibility marker requires an exact
+boolean; numeric `0` and `1` are rejected across the complete fixed-field
+matrix.
+
+They do not claim hashing, derived-ID, cross-field, class-identity,
+file-origin, artifact-replay, or normalization-byte parity.
 
 The portable projection contains each PR4F summary once. It does not duplicate
 the full PR4F document into predecessor or closure fields. A Schema-valid

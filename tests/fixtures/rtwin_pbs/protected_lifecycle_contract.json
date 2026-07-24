@@ -13,20 +13,20 @@
   },
   "files": {
     "scripts/protected_lifecycle_contract.py": {
-      "sha256": "aa70b4fe0abbf0a856998100c966621e3f7543b862006fc6ddd8ee49a7bf8aa3",
-      "change_class": "exact_bool_parity_trusted_owner_graph_snapshot_semantic_lifecycle_seal"
+      "sha256": "166e8b398922682eb94c9705e8ee1ccf0ed13546a75c49010090f7d7182fbafb",
+      "change_class": "exact_builtin_json_ingress_bool_parity_trusted_owner_graph_snapshot_semantic_lifecycle_seal"
     },
     "contracts/execution/protected-lifecycle-contract.schema.json": {
       "sha256": "4c35ba32a68dec53008af03a56057056b1016d2e5fc6b5210df07429457d6fc6",
       "change_class": "draft_2020_12_structural_projection_only_schema"
     },
     "docs/v2.6-protected-lifecycle-contract.md": {
-      "sha256": "c30b7f27c7afd290f22d48233aeac9abcb43ce18cd3481f52b8d448ba9924099",
-      "change_class": "honest_bool_parity_owner_graph_snapshot_and_recovery_gates"
+      "sha256": "3e014238aa0f4556a2b4d6fa97b223b95be79e1adcebe2de7a03966a8c2966c6",
+      "change_class": "honest_builtin_json_parity_owner_graph_snapshot_and_recovery_gates"
     },
     "skills/auto-g16-rtwin-pbs/references/protected-lifecycle-contract.md": {
-      "sha256": "102c4ddda340db4248deb2582b5f65f448149caf92c6f58dcca8ef66aeac9635",
-      "change_class": "packaged_bool_parity_and_snapshot_boundary_reference"
+      "sha256": "cca4533949d53a85b0a0bcf2b7ae8dea88b91a85bbac98107f9af3a9bf52840a",
+      "change_class": "packaged_builtin_json_parity_and_snapshot_boundary_reference"
     },
     "skills/auto-g16-rtwin-pbs/SKILL.md": {
       "sha256": "87f20a354ce0d4234affcf83cc2cdf99e5ebed72d3c063aea04ee4f0ec9f51e1",
@@ -37,12 +37,12 @@
       "change_class": "additive_named_skill_owner_packaging"
     },
     "tests/test_protected_lifecycle_contract.py": {
-      "sha256": "02e3a962c4dcd387ab6cdd8b1ee651a6f2b0dff2a5b75113eb568e8002abb9df",
-      "change_class": "exact_bool_untrusted_container_snapshot_concurrency_packaging_and_freeze_tests"
+      "sha256": "28623728f8a374b1a70fa6d31279bfb08bfb135a2ebea8d59698d860ce0cc0c8",
+      "change_class": "exact_builtin_json_hostile_hook_snapshot_concurrency_packaging_and_freeze_tests"
     },
     "tests/test_protected_lifecycle_schema_draft202012.py": {
-      "sha256": "e520db1ac4f96ea99f6438aa1c4ae130154d29334a3acc2e909372225922fd7f",
-      "change_class": "all_fixed_bool_structural_acceptance_set_real_draft_2020_12_tests"
+      "sha256": "c86663c44dfccdaf7ce13e04088b252de4a605ac98cd2207a94a6ae06359351b",
+      "change_class": "generated_exact_builtin_structural_acceptance_set_real_draft_2020_12_tests"
     }
   },
   "frozen_predecessors": {
