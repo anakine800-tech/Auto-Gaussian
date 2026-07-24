@@ -1261,6 +1261,13 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 "protected_legacy_effect_handoff.json"
             ).read_text(encoding="utf-8")
         )["files"]
+        fixed_constraint_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "legacy_rtwin_pbs_fixed_constraint_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         expected = {
             "scripts/protected_invocation_contract.py": (
                 "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28"
@@ -1301,6 +1308,16 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                         current_hash,
                     )
                     current_hash = handoff_successor[relative]["sha256"]
+                if relative in fixed_constraint_successor:
+                    self.assertEqual(
+                        fixed_constraint_successor[relative][
+                            "before_sha256"
+                        ],
+                        current_hash,
+                    )
+                    current_hash = fixed_constraint_successor[relative][
+                        "sha256"
+                    ]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_hash,

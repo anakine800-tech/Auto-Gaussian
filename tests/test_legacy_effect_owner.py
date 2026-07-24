@@ -809,6 +809,13 @@ class LegacyEffectOwnerTests(unittest.TestCase):
     ) -> None:
         fixture = json.loads(LIFECYCLE_FIXTURE.read_text(encoding="utf-8"))
         handoff = json.loads(HANDOFF_FIXTURE.read_text(encoding="utf-8"))
+        fixed_constraint_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "legacy_rtwin_pbs_fixed_constraint_successor.json"
+            ).read_text(encoding="utf-8")
+        )
         self.assertEqual(fixture["base_commit"], LIFECYCLE_BASE_COMMIT)
         self.assertEqual(
             fixture["base_tree"],
@@ -832,8 +839,16 @@ class LegacyEffectOwnerTests(unittest.TestCase):
             binding["after_sha256"],
         )
         self.assertEqual(
-            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            fixed_constraint_successor["files"][
+                "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+            ]["before_sha256"],
             handoff["files"][
+                "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+            ]["sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            fixed_constraint_successor["files"][
                 "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
             ]["sha256"],
         )

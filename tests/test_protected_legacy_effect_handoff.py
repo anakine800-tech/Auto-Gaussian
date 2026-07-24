@@ -48,6 +48,11 @@ FIXTURE_PATH = (
     / "tests/fixtures/rtwin_pbs/"
     "protected_legacy_effect_handoff.json"
 )
+FIXED_CONSTRAINT_SUCCESSOR_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "legacy_rtwin_pbs_fixed_constraint_successor.json"
+)
 
 
 class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
@@ -540,6 +545,9 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
 
     def test_fixture_binds_base_and_additive_candidate_files(self) -> None:
         fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+        successor = json.loads(
+            FIXED_CONSTRAINT_SUCCESSOR_PATH.read_text(encoding="utf-8")
+        )
         self.assertEqual(
             fixture["schema"],
             "auto-g16-protected-legacy-effect-handoff-fixture/1",
@@ -552,8 +560,41 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             fixture["base_tree"],
             "e887bdd294285ea35bf6fe98b4d58853dcdf69f2",
         )
+        self.assertEqual(
+            successor["schema"],
+            "auto-g16-legacy-rtwin-pbs-fixed-constraint-successor-fixture/1",
+        )
+        self.assertEqual(
+            successor["base_commit"],
+            "5b18af0dfc5c35f4de8e90730e50cd166de4d39c",
+        )
+        self.assertEqual(
+            successor["base_tree"],
+            "07eec0ccb056d3d7e06ee238c76ce52eb47d68df",
+        )
+        self.assertEqual(
+            successor["base_parents"],
+            [
+                "f59ed8a121387902d877b6a4b7b20f47bb08c296",
+                "e9ff2c58c903aea1eee5e1cf56f037606cb3cf9d",
+            ],
+        )
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
+                current_sha256 = binding["sha256"]
+                if relative in successor["files"]:
+                    successor_binding = successor["files"][relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
+                self.assertEqual(
+                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                    current_sha256,
+                )
+        for relative, binding in successor["files"].items():
+            with self.subTest(successor_path=relative):
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     binding["sha256"],

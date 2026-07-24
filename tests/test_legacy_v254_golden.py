@@ -247,9 +247,69 @@ class LegacyV254GoldenTests(unittest.TestCase):
         expected = self.golden["surfaces"]["public_cli"]
         transport = parser_snapshot(PBS.build_parser, "gaussian_rtwin_pbs.py")
         wrapper = parser_snapshot(AUTO.build_parser, "gaussian_auto.py")
-        self.assertEqual(transport["subcommands"], expected["transport"]["subcommands"])
+        additive_subcommands = [
+            "build-fixed-constraint-audit",
+            "finalize-fixed-constraint-input-review",
+        ]
         self.assertEqual(
-            transport["action_semantics_sha256"],
+            sorted(
+                set(transport["subcommands"])
+                - set(expected["transport"]["subcommands"])
+            ),
+            additive_subcommands,
+        )
+        historical_subcommands = [
+            name
+            for name in transport["subcommands"]
+            if name not in additive_subcommands
+        ]
+        self.assertEqual(
+            historical_subcommands,
+            expected["transport"]["subcommands"],
+        )
+
+        historical_actions = json.loads(
+            json.dumps(transport["actions"], ensure_ascii=False)
+        )
+        for subcommand in additive_subcommands:
+            historical_actions.pop(subcommand)
+        top_level_subcommands = next(
+            action
+            for action in historical_actions["__top__"]
+            if action["choices"] is not None
+            and action["choices"]["type"] == "mapping_keys"
+        )
+        top_level_choices = top_level_subcommands["choices"]["value"]
+        self.assertEqual(
+            sorted(
+                choice["value"]
+                for choice in top_level_choices
+                if choice["value"] in additive_subcommands
+            ),
+            additive_subcommands,
+        )
+        top_level_subcommands["choices"]["value"] = [
+            choice
+            for choice in top_level_choices
+            if choice["value"] not in additive_subcommands
+        ]
+        fixed_constraint_actions = [
+            (subcommand, action)
+            for subcommand in expected["transport"]["subcommands"]
+            for action in historical_actions[subcommand]
+            if action["option_strings"] == ["--fixed-constraint-audit"]
+        ]
+        self.assertEqual(
+            [subcommand for subcommand, _ in fixed_constraint_actions],
+            ["build-input-approval"],
+        )
+        historical_actions["build-input-approval"] = [
+            action
+            for action in historical_actions["build-input-approval"]
+            if action["option_strings"] != ["--fixed-constraint-audit"]
+        ]
+        self.assertEqual(
+            canonical_sha256(historical_actions),
             expected["transport"]["action_semantics_sha256"],
         )
         self.assertEqual(wrapper["subcommands"], expected["wrapper"]["subcommands"])

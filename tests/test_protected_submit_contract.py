@@ -1108,6 +1108,7 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                 "legacy_effect_plan_single_use_fix.json",
                 "legacy_effect_owner_lifecycle_fix.json",
                 "protected_legacy_effect_handoff.json",
+                "legacy_rtwin_pbs_fixed_constraint_successor.json",
             )
         ]
         for relative, expected in manifest["files"].items():

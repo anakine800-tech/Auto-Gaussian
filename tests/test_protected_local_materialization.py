@@ -683,6 +683,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "protected_legacy_effect_handoff.json"
             ).read_text(encoding="utf-8")
         )["files"]
+        fixed_constraint_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "legacy_rtwin_pbs_fixed_constraint_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         expected = {
             "scripts/protected_submit_contract.py": (
                 "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a"
@@ -720,6 +727,16 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = handoff_successor[relative]["sha256"]
+                if relative in fixed_constraint_successor:
+                    self.assertEqual(
+                        fixed_constraint_successor[relative][
+                            "before_sha256"
+                        ],
+                        current_sha256,
+                    )
+                    current_sha256 = fixed_constraint_successor[relative][
+                        "sha256"
+                    ]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -797,6 +814,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "protected_legacy_effect_handoff.json"
             ).read_text(encoding="utf-8")
         )["files"]
+        fixed_constraint_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "legacy_rtwin_pbs_fixed_constraint_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
                 self.assertEqual(set(binding), {"sha256", "change_class"})
@@ -810,6 +834,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                     current_sha256 = successor_binding["after_sha256"]
                 if relative in handoff_successor:
                     successor_binding = handoff_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
+                if relative in fixed_constraint_successor:
+                    successor_binding = fixed_constraint_successor[relative]
                     self.assertEqual(
                         successor_binding["before_sha256"],
                         current_sha256,
