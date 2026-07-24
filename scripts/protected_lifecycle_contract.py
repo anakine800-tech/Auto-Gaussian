@@ -21,7 +21,7 @@ import stat
 import sys
 import threading
 import types
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -133,6 +133,29 @@ _OWNER_STAT_FIELDS = (
     "st_mtime_ns",
     "st_ctime_ns",
 )
+_OWNER_EVIDENCE_DATACLASSES = (
+    (
+        INVOCATION_OWNER_NAME,
+        "ProtectedInvocationEvidence",
+    ),
+    (
+        "protected_submit_contract",
+        "ProtectedSubmitEvidence",
+    ),
+    (
+        "local_state_binding",
+        "LocalStateBindingEvidence",
+    ),
+)
+_OWNER_SNAPSHOT_IMMUTABLE_TYPES = {
+    type(None),
+    bool,
+    bytes,
+    float,
+    int,
+    str,
+}
+_OWNER_SNAPSHOT_PATH_TYPE = type(Path())
 
 
 class ProtectedLifecycleError(ValueError):
@@ -165,6 +188,21 @@ def _exact(value: Any, fields: set[str], label: str) -> dict[str, Any]:
             f"{label} must contain exactly {sorted(fields)}"
         )
     return value
+
+
+def _fixed_boolean_mapping(
+    value: Any,
+    expected: dict[str, bool],
+    label: str,
+) -> dict[str, Any]:
+    result = _exact(value, set(expected), label)
+    for field, expected_value in expected.items():
+        actual = result[field]
+        if type(actual) is not bool or actual is not expected_value:
+            raise ProtectedLifecycleError(
+                f"{label}.{field} must be exact boolean {expected_value!r}"
+            )
+    return result
 
 
 def _sha(value: Any, label: str) -> str:
@@ -406,6 +444,142 @@ def _typed_invocation_evidence(
     return evidence
 
 
+def _owner_evidence_dataclass_fields(
+    module: types.ModuleType,
+) -> dict[type, tuple[str, ...]]:
+    expected: dict[type, tuple[str, ...]] = {}
+    adjacent_root = Path(__file__).resolve(strict=True).parent
+    for module_name, type_name in _OWNER_EVIDENCE_DATACLASSES:
+        owner_module = (
+            module
+            if module_name == INVOCATION_OWNER_NAME
+            else sys.modules.get(module_name)
+        )
+        if not isinstance(owner_module, types.ModuleType):
+            raise TypeError(
+                f"exact adjacent {module_name} owner module is unavailable"
+            )
+        expected_path = adjacent_root / f"{module_name}.py"
+        if _module_origin(owner_module) != (
+            expected_path,
+            expected_path,
+        ):
+            raise TypeError(
+                f"exact adjacent {module_name} owner origin differs"
+            )
+        expected_type = getattr(owner_module, type_name, None)
+        if (
+            not isinstance(expected_type, type)
+            or expected_type.__module__ != module_name
+            or expected_type.__qualname__ != type_name
+        ):
+            raise TypeError(
+                f"exact adjacent {module_name}.{type_name} identity differs"
+            )
+        try:
+            field_names = tuple(
+                field.name for field in fields(expected_type)
+            )
+        except TypeError as exc:
+            raise TypeError(
+                f"exact adjacent {module_name}.{type_name} is not a dataclass"
+            ) from exc
+        expected[expected_type] = field_names
+    return expected
+
+
+def _rebuild_owner_snapshot_value(
+    value: object,
+    dataclass_fields: dict[type, tuple[str, ...]],
+    memo: dict[int, object],
+    active: set[int],
+) -> object:
+    value_type = type(value)
+    if value_type in _OWNER_SNAPSHOT_IMMUTABLE_TYPES:
+        return value
+    if value_type is _OWNER_SNAPSHOT_PATH_TYPE:
+        return Path(str(value))
+
+    identity = id(value)
+    if identity in active:
+        raise TypeError(
+            "ProtectedInvocationEvidence snapshot contains a cycle"
+        )
+    if identity in memo:
+        return memo[identity]
+
+    active.add(identity)
+    try:
+        if value_type is dict:
+            rebuilt_dict: dict[object, object] = {}
+            memo[identity] = rebuilt_dict
+            for key, item in value.items():
+                rebuilt_key = _rebuild_owner_snapshot_value(
+                    key,
+                    dataclass_fields,
+                    memo,
+                    active,
+                )
+                rebuilt_item = _rebuild_owner_snapshot_value(
+                    item,
+                    dataclass_fields,
+                    memo,
+                    active,
+                )
+                rebuilt_dict[rebuilt_key] = rebuilt_item
+            return rebuilt_dict
+        if value_type is list:
+            rebuilt_list: list[object] = []
+            memo[identity] = rebuilt_list
+            for item in value:
+                rebuilt_list.append(
+                    _rebuild_owner_snapshot_value(
+                        item,
+                        dataclass_fields,
+                        memo,
+                        active,
+                    )
+                )
+            return rebuilt_list
+        field_names = dataclass_fields.get(value_type)
+        if field_names is not None:
+            rebuilt_dataclass = object.__new__(value_type)
+            memo[identity] = rebuilt_dataclass
+            for field_name in field_names:
+                object.__setattr__(
+                    rebuilt_dataclass,
+                    field_name,
+                    _rebuild_owner_snapshot_value(
+                        getattr(value, field_name),
+                        dataclass_fields,
+                        memo,
+                        active,
+                    ),
+                )
+            return rebuilt_dataclass
+    finally:
+        active.remove(identity)
+
+    raise TypeError(
+        "ProtectedInvocationEvidence snapshot accepts only exact adjacent "
+        "owner dataclasses, exact builtin dict/list containers, exact "
+        "pathlib paths, and immutable builtin leaves; got "
+        f"{value_type.__module__}.{value_type.__qualname__}"
+    )
+
+
+def _rebuild_invocation_evidence_graph(
+    module: types.ModuleType,
+    evidence: object,
+) -> object:
+    return _rebuild_owner_snapshot_value(
+        evidence,
+        _owner_evidence_dataclass_fields(module),
+        {},
+        set(),
+    )
+
+
 def _snapshot_invocation_evidence(
     module: types.ModuleType,
     evidence: object,
@@ -414,8 +588,8 @@ def _snapshot_invocation_evidence(
 
     exact = _typed_invocation_evidence(module, evidence)
     try:
-        first = copy.deepcopy(exact)
-        second = copy.deepcopy(exact)
+        first = _rebuild_invocation_evidence_graph(module, exact)
+        second = _rebuild_invocation_evidence_graph(module, exact)
     except Exception as exc:
         raise TypeError(
             f"ProtectedInvocationEvidence snapshot failed closed: {exc}"
@@ -499,10 +673,11 @@ def validate_protected_lifecycle_structure(
         raise ProtectedLifecycleError(
             "protected lifecycle structural schema/owner declaration differs"
         )
-    if document["validation"] != VALIDATION_LAYERS:
-        raise ProtectedLifecycleError(
-            "protected lifecycle validation-layer markers differ"
-        )
+    _fixed_boolean_mapping(
+        document["validation"],
+        VALIDATION_LAYERS,
+        "protected lifecycle validation",
+    )
     if (
         not isinstance(document["lifecycle_id"], str)
         or LIFECYCLE_RE.fullmatch(document["lifecycle_id"]) is None
@@ -561,18 +736,21 @@ def validate_protected_lifecycle_structure(
             raise ProtectedLifecycleError(
                 f"protected lifecycle {field} differs"
             )
-    if document["scope"] != SCOPE:
-        raise ProtectedLifecycleError(
-            "protected lifecycle scope differs"
-        )
-    if document["status"] != STATUS:
-        raise ProtectedLifecycleError(
-            "protected lifecycle status differs"
-        )
-    if document["legacy_compatibility"] != LEGACY_COMPATIBILITY:
-        raise ProtectedLifecycleError(
-            "protected lifecycle legacy compatibility differs"
-        )
+    _fixed_boolean_mapping(
+        document["scope"],
+        SCOPE,
+        "protected lifecycle scope",
+    )
+    _fixed_boolean_mapping(
+        document["status"],
+        STATUS,
+        "protected lifecycle status",
+    )
+    _fixed_boolean_mapping(
+        document["legacy_compatibility"],
+        LEGACY_COMPATIBILITY,
+        "protected lifecycle legacy compatibility",
+    )
     _sha(
         document["structural_projection_sha256"],
         "protected lifecycle structural projection",

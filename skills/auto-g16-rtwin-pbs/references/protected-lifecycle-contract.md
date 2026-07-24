@@ -17,7 +17,9 @@ cross-field, class-identity, file-origin, artifact-replay, or
 normalization-byte parity. Draft and the public structural validator may both
 accept an integral JSON number; only the public structural validator
 normalizes its returned Python value to an integer. That normalization is not
-a semantic-owner operation or proof.
+a semantic-owner operation or proof. Every fixed validation, scope, status,
+and legacy-compatibility marker requires an exact boolean; numeric `0` and `1`
+are rejected across the complete fixed-field matrix.
 
 The portable projection contains each PR4F summary once. It does not duplicate
 the full PR4F document into predecessor or closure fields. A Schema-valid
@@ -30,11 +32,14 @@ Acceptance uses the real adjacent PR4F module object's class identity and that
 module's owner-issued PR4F sealed bundle. There is no lookalike reconstruction
 using module/name/fields/snapshot metadata or `co_filename`.
 
-Before semantic seal or storage, PR4K takes two deep owner snapshots of the
-complete typed evidence. A change between snapshots fails closed. Only the
-owner-owned snapshot is retained, so later caller nested mutation cannot
-change the document or `assert_current()`. Actual owner, ledger, local-state,
-or stage drift still fails.
+Before semantic seal or storage, PR4K recursively rebuilds two owner snapshots
+of the complete typed evidence using only exact adjacent owner dataclasses,
+exact builtin `dict`/`list` containers, exact `pathlib` paths, and immutable
+builtin leaves. Caller Mapping/container copy, deep-copy, and reduce behavior
+is rejected without invocation. A change between or during snapshots fails
+closed. Only the owner-owned graph is retained, so later caller nested
+mutation cannot change the document or `assert_current()`. Actual owner,
+ledger, local-state, or stage drift still fails.
 
 `required_future_implementation_order` remains a recovery gate, not evidence
 of execution. PR4D reservation and entry into `submission_uncertain` are one

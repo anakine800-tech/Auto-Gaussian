@@ -21,6 +21,7 @@ import threading
 import time
 import types
 import unittest
+from collections.abc import Mapping
 from pathlib import Path
 from unittest import mock
 
@@ -344,6 +345,34 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 ):
                     LIFECYCLE.validate_protected_lifecycle_structure(draft)
 
+    def test_all_fixed_boolean_fields_reject_integer_zero_and_one(self) -> None:
+        document = self.seal().document()
+        fixed_mappings = {
+            "validation": LIFECYCLE.VALIDATION_LAYERS,
+            "scope": LIFECYCLE.SCOPE,
+            "status": LIFECYCLE.STATUS,
+            "legacy_compatibility": LIFECYCLE.LEGACY_COMPATIBILITY,
+        }
+        for section, expected in fixed_mappings.items():
+            for field in expected:
+                for replacement in (0, 1):
+                    with self.subTest(
+                        section=section,
+                        field=field,
+                        replacement=replacement,
+                    ):
+                        draft = copy.deepcopy(document)
+                        draft[section][field] = replacement
+                        with self.assertRaises(
+                            LIFECYCLE.ProtectedLifecycleError
+                        ):
+                            (
+                                LIFECYCLE
+                                .validate_protected_lifecycle_structure(
+                                    draft
+                                )
+                            )
+
     def test_structural_splices_cannot_claim_owner_acceptance(self) -> None:
         sealed = self.seal()
         document = sealed.document()
@@ -423,6 +452,45 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
 
     def test_owner_snapshot_isolated_from_caller_nested_mutation(self) -> None:
         sealed = self.seal()
+        caller = self.fixture.invocation.evidence
+        retained = sealed.protected_invocation_evidence
+
+        def mutable_identities(value: object) -> set[int]:
+            result: set[int] = set()
+            visited: set[int] = set()
+
+            def visit(item: object) -> None:
+                identity = id(item)
+                if identity in visited:
+                    return
+                visited.add(identity)
+                if dataclasses.is_dataclass(item):
+                    for field in dataclasses.fields(item):
+                        visit(getattr(item, field.name))
+                elif type(item) is dict:
+                    result.add(identity)
+                    for key, nested in item.items():
+                        visit(key)
+                        visit(nested)
+                elif type(item) is list:
+                    result.add(identity)
+                    for nested in item:
+                        visit(nested)
+
+            visit(value)
+            return result
+
+        self.assertTrue(mutable_identities(caller))
+        self.assertTrue(mutable_identities(retained))
+        self.assertTrue(
+            mutable_identities(caller).isdisjoint(
+                mutable_identities(retained)
+            )
+        )
+        self.assertIs(
+            retained.protected_submit_evidence,
+            retained.local_state_evidence.protected_submit_evidence,
+        )
         ledger = (
             self.fixture.invocation.protected_evidence.execution_ledger
         )
@@ -437,6 +505,82 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         finally:
             ledger["revision"] = original_revision
             ledger["batch"]["review_sha256"] = original_review_sha256
+
+    def test_owner_snapshot_rejects_caller_container_hooks(self) -> None:
+        base = self.fixture.invocation.protected_evidence
+        hook_calls: list[str] = []
+
+        class HostileHooks:
+            def __copy__(self) -> object:
+                hook_calls.append("copy")
+                raise AssertionError("caller __copy__ must not run")
+
+            def __deepcopy__(self, memo: dict[int, object]) -> object:
+                del memo
+                hook_calls.append("deepcopy")
+                return self
+
+            def __reduce__(self) -> object:
+                hook_calls.append("reduce")
+                raise AssertionError("caller __reduce__ must not run")
+
+            def __reduce_ex__(self, protocol: int) -> object:
+                del protocol
+                hook_calls.append("reduce_ex")
+                raise AssertionError("caller __reduce_ex__ must not run")
+
+        class HostileMapping(HostileHooks, Mapping):
+            def __init__(self, value: dict) -> None:
+                self.value = value
+
+            def __getitem__(self, key: object) -> object:
+                return self.value[key]
+
+            def __iter__(self):
+                return iter(self.value)
+
+            def __len__(self) -> int:
+                return len(self.value)
+
+        class HostileDict(HostileHooks, dict):
+            pass
+
+        class HostileList(HostileHooks, list):
+            pass
+
+        hostile_ledger = HostileMapping(base.execution_ledger)
+        hostile_dict = HostileDict(base.execution_ledger)
+        nested_list_ledger = copy.deepcopy(base.execution_ledger)
+        nested_list_ledger["events"] = HostileList(
+            nested_list_ledger["events"]
+        )
+        for label, ledger in (
+            ("mapping", hostile_ledger),
+            ("dict-subclass", hostile_dict),
+            ("nested-list-subclass", nested_list_ledger),
+        ):
+            with self.subTest(label=label):
+                protected = dataclasses.replace(
+                    base,
+                    execution_ledger=ledger,
+                )
+                local = dataclasses.replace(
+                    self.fixture.invocation.local.evidence,
+                    protected_submit_evidence=protected,
+                )
+                invocation = dataclasses.replace(
+                    self.fixture.invocation.evidence,
+                    protected_submit_evidence=protected,
+                    local_state_evidence=local,
+                )
+                with self.assertRaisesRegex(
+                    LIFECYCLE.ProtectedLifecycleError,
+                    "accepts only exact adjacent owner dataclasses",
+                ):
+                    self.fixture.owner().seal(
+                        LIFECYCLE.ProtectedLifecycleEvidence(invocation)
+                    )
+        self.assertEqual(hook_calls, [])
 
     def test_caller_nested_mutation_before_seal_is_owner_rejected(
         self,
@@ -457,41 +601,43 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
     def test_seal_time_nested_mutation_fails_closed_deterministically(
         self,
     ) -> None:
-        evidence = self.fixture.invocation.evidence
         ledger = (
             self.fixture.invocation.protected_evidence.execution_ledger
         )
         original_revision = ledger["revision"]
-        original_deepcopy = copy.deepcopy
+        original_rebuild = (
+            LIFECYCLE._rebuild_invocation_evidence_graph
+        )
 
-        first_copied = threading.Event()
+        first_rebuilt = threading.Event()
         mutation_done = threading.Event()
-        top_level_copies = 0
+        top_level_rebuilds = 0
 
         def mutate_between_snapshots() -> None:
-            self.assertTrue(first_copied.wait(5))
+            if not first_rebuilt.wait(5):
+                return
             ledger["revision"] = original_revision + 1
             mutation_done.set()
 
-        def between_snapshots(value: object, memo: object = None) -> object:
-            nonlocal top_level_copies
-            if memo is None and value is evidence:
-                top_level_copies += 1
-                result = original_deepcopy(value)
-                if top_level_copies == 1:
-                    first_copied.set()
-                    self.assertTrue(mutation_done.wait(5))
-                return result
-            if memo is None:
-                return original_deepcopy(value)
-            return original_deepcopy(value, memo)
+        def between_snapshots(
+            module: types.ModuleType,
+            value: object,
+        ) -> object:
+            nonlocal top_level_rebuilds
+            top_level_rebuilds += 1
+            result = original_rebuild(module, value)
+            if top_level_rebuilds == 1:
+                first_rebuilt.set()
+                if not mutation_done.wait(5):
+                    raise RuntimeError("between-snapshot mutation did not run")
+            return result
 
         worker = threading.Thread(target=mutate_between_snapshots)
         worker.start()
         try:
             with mock.patch.object(
-                LIFECYCLE.copy,
-                "deepcopy",
+                LIFECYCLE,
+                "_rebuild_invocation_evidence_graph",
                 side_effect=between_snapshots,
             ):
                 with self.assertRaisesRegex(
@@ -502,50 +648,77 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         finally:
             worker.join()
             ledger["revision"] = original_revision
+        self.assertTrue(first_rebuilt.is_set())
+        self.assertTrue(mutation_done.is_set())
 
-        nested_copy_started = threading.Event()
+        nested_rebuild_started = threading.Event()
         nested_mutation_done = threading.Event()
-        nested_hook_used = threading.Event()
-
-        class HookedLedger(dict):
-            def __deepcopy__(self, memo: dict[int, object]) -> dict:
-                if not nested_hook_used.is_set():
-                    nested_hook_used.set()
-                    nested_copy_started.set()
-                    if not nested_mutation_done.wait(5):
-                        raise RuntimeError("nested mutation did not run")
-                return copy.deepcopy(dict(self), memo)
-
-        hooked_ledger = HookedLedger(ledger)
-        protected = dataclasses.replace(
-            self.fixture.invocation.protected_evidence,
-            execution_ledger=hooked_ledger,
-        )
-        local = dataclasses.replace(
-            self.fixture.invocation.local.evidence,
-            protected_submit_evidence=protected,
-        )
-        invocation = dataclasses.replace(
-            evidence,
-            protected_submit_evidence=protected,
-            local_state_evidence=local,
-        )
-        lifecycle_evidence = LIFECYCLE.ProtectedLifecycleEvidence(
-            invocation
+        nested_copy_done = threading.Event()
+        nested_restore_done = threading.Event()
+        nested_intercepted = False
+        original_value_rebuild = (
+            LIFECYCLE._rebuild_owner_snapshot_value
         )
 
         def mutate_during_nested_copy() -> None:
-            self.assertTrue(nested_copy_started.wait(5))
-            hooked_ledger["revision"] = original_revision + 1
+            if not nested_rebuild_started.wait(5):
+                return
+            ledger["revision"] = original_revision + 1
             nested_mutation_done.set()
+            if not nested_copy_done.wait(5):
+                return
+            ledger["revision"] = original_revision
+            nested_restore_done.set()
+
+        def during_nested_rebuild(
+            value: object,
+            dataclass_fields: dict[type, tuple[str, ...]],
+            memo: dict[int, object],
+            active: set[int],
+        ) -> object:
+            nonlocal nested_intercepted
+            if value is ledger and not nested_intercepted:
+                nested_intercepted = True
+                nested_rebuild_started.set()
+                if not nested_mutation_done.wait(5):
+                    raise RuntimeError("nested mutation did not run")
+                result = original_value_rebuild(
+                    value,
+                    dataclass_fields,
+                    memo,
+                    active,
+                )
+                nested_copy_done.set()
+                if not nested_restore_done.wait(5):
+                    raise RuntimeError("nested restore did not run")
+                return result
+            return original_value_rebuild(
+                value,
+                dataclass_fields,
+                memo,
+                active,
+            )
 
         worker = threading.Thread(target=mutate_during_nested_copy)
         worker.start()
         try:
-            with self.assertRaises(LIFECYCLE.ProtectedLifecycleError):
-                self.fixture.owner().seal(lifecycle_evidence)
+            with mock.patch.object(
+                LIFECYCLE,
+                "_rebuild_owner_snapshot_value",
+                side_effect=during_nested_rebuild,
+            ):
+                with self.assertRaisesRegex(
+                    LIFECYCLE.ProtectedLifecycleError,
+                    "changed during owner snapshot",
+                ):
+                    self.seal()
         finally:
             worker.join()
+            ledger["revision"] = original_revision
+        self.assertTrue(nested_rebuild_started.is_set())
+        self.assertTrue(nested_mutation_done.is_set())
+        self.assertTrue(nested_copy_done.is_set())
+        self.assertTrue(nested_restore_done.is_set())
 
         sealed = self.seal()
         self.assert_current(sealed)
@@ -868,6 +1041,7 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
             ROOT,
             "auto-g16-rtwin-pbs",
         )
+        self.assertEqual(len(package), 78)
         expected = {
             Path("scripts/protected_lifecycle_contract.py"): (
                 ROOT / "scripts/protected_lifecycle_contract.py"
@@ -889,6 +1063,18 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         for target, source in expected.items():
             with self.subTest(target=target):
                 self.assertEqual(package[target], source)
+        installed = self.root / "installed-auto-g16-rtwin-pbs"
+        for target, source in package.items():
+            destination = installed / target
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(source.read_bytes())
+        self.assertEqual(
+            skill_package.inventory(installed),
+            skill_package.package_inventory(
+                ROOT,
+                "auto-g16-rtwin-pbs",
+            ),
+        )
 
     def test_successor_fixture_binds_baseline_and_candidate_files(self) -> None:
         fixture_path = (

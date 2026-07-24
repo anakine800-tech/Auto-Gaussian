@@ -158,6 +158,29 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
         ] = True
         self.assert_both_reject(boolean)
 
+    def test_all_fixed_boolean_fields_reject_zero_and_one_bidirectionally(
+        self,
+    ) -> None:
+        fixed_mappings = {
+            "validation": SUPPORT.LIFECYCLE.VALIDATION_LAYERS,
+            "scope": SUPPORT.LIFECYCLE.SCOPE,
+            "status": SUPPORT.LIFECYCLE.STATUS,
+            "legacy_compatibility": (
+                SUPPORT.LIFECYCLE.LEGACY_COMPATIBILITY
+            ),
+        }
+        for section, expected in fixed_mappings.items():
+            for field in expected:
+                for replacement in (0, 1):
+                    with self.subTest(
+                        section=section,
+                        field=field,
+                        replacement=replacement,
+                    ):
+                        draft = copy.deepcopy(self.document)
+                        draft[section][field] = replacement
+                        self.assert_both_reject(draft)
+
     def test_generated_structural_acceptance_matrix_is_bidirectional(
         self,
     ) -> None:
