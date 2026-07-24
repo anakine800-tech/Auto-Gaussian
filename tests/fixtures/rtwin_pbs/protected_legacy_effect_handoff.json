@@ -54,7 +54,7 @@
     },
     "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": {
       "before_sha256": "421ffe0d25802a2c9b14968b773d2338001e159bed8c6f34abf17613980431d2",
-      "sha256": "a0afaef38907a0bbc33337e186eaf35fadc915d30f165eda0f67e2ca8f361f66",
+      "sha256": "5fba727011869fe11f7d995792b902a4abcc74c4e2981cc2416a005afa3df18d",
       "change_class": "fixed_exact_seal_only_handoff_api",
       "legacy_semantics_changed": false
     },
@@ -77,7 +77,7 @@
       "legacy_semantics_changed": false
     },
     "tests/test_protected_legacy_effect_handoff.py": {
-      "sha256": "6dae9c798d585cca6f2cf733061938c16fa63d54cf7e75b4fcf5259989798e50",
+      "sha256": "911b138117d44d18c68abf0be089db7c2fb3647ecf2a3e1b22416524f5a0945f",
       "change_class": "focused_exact_adversarial_concurrency_package_tests",
       "legacy_semantics_changed": false
     },

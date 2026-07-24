@@ -8,6 +8,8 @@ import contextlib
 import hashlib
 import importlib
 import importlib.util
+import os
+import stat
 import sys
 import threading
 import types
@@ -95,6 +97,97 @@ def _module_origin(module: types.ModuleType) -> tuple[Path, Path]:
     ):
         raise ImportError("protected-submit owner has no resolved origin")
     return Path(raw_file).resolve(), Path(raw_spec_origin).resolve()
+
+
+_SourceFileIdentity = tuple[int, int, int, int, int, int]
+
+
+def _source_file_identity(info: os.stat_result) -> _SourceFileIdentity:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_nlink,
+        info.st_size,
+        info.st_mtime_ns,
+    )
+
+
+def _stable_exact_module_source(
+    path: Path,
+    *,
+    label: str,
+) -> tuple[bytes, _SourceFileIdentity]:
+    try:
+        before = path.lstat()
+        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+            raise ImportError(f"{label} is not an exact regular file")
+        with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if _source_file_identity(opened) != _source_file_identity(before):
+                raise ImportError(f"{label} changed before exact read")
+            source_bytes = handle.read()
+            after_read = os.fstat(handle.fileno())
+        current = path.lstat()
+    except OSError as exc:
+        raise ImportError(f"{label} cannot be read exactly") from exc
+    identity = _source_file_identity(opened)
+    if (
+        _source_file_identity(after_read) != identity
+        or _source_file_identity(current) != identity
+        or len(source_bytes) != opened.st_size
+    ):
+        raise ImportError(f"{label} changed during exact read")
+    return source_bytes, identity
+
+
+def _assert_exact_module_source_current(
+    path: Path,
+    *,
+    label: str,
+    source_bytes: bytes,
+    identity: _SourceFileIdentity,
+) -> None:
+    current_bytes, current_identity = _stable_exact_module_source(
+        path,
+        label=label,
+    )
+    if current_identity != identity or current_bytes != source_bytes:
+        raise ImportError(f"{label} changed during exact load")
+
+
+def _load_exact_source_module(
+    name: str,
+    path: Path,
+    *,
+    label: str,
+) -> tuple[types.ModuleType, str]:
+    source_bytes, identity = _stable_exact_module_source(path, label=label)
+    code = compile(
+        source_bytes,
+        str(path),
+        "exec",
+        dont_inherit=True,
+    )
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"{label} cannot be loaded: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        exec(code, module.__dict__)
+        _assert_exact_module_source_current(
+            path,
+            label=label,
+            source_bytes=source_bytes,
+            identity=identity,
+        )
+        if _module_origin(module) != (path, path):
+            raise ImportError(f"{label} origin changed")
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    return module, hashlib.sha256(source_bytes).hexdigest()
 
 
 @contextlib.contextmanager
@@ -372,29 +465,30 @@ def _exact_protected_local_materialization() -> Iterator[types.ModuleType]:
         _imp.acquire_lock()
         previous = sys.modules.get(name, _MISSING_MODULE)
         try:
-            source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
             module = _PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE
             if module is None:
                 sys.modules.pop(name, None)
-                spec = importlib.util.spec_from_file_location(name, path)
-                if spec is None or spec.loader is None:
-                    raise ImportError(
-                        "exact protected local-materialization owner cannot "
-                        f"be loaded: {path}"
-                    )
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[name] = module
-                spec.loader.exec_module(module)
+                module, source_sha256 = _load_exact_source_module(
+                    name,
+                    path,
+                    label="protected local-materialization owner",
+                )
                 _PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE = module
                 _PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256 = source_sha256
-            elif (
-                source_sha256
-                != _PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256
-            ):
-                raise ImportError(
-                    "protected local-materialization owner bytes changed "
-                    "after exact binding"
+            else:
+                source_bytes, _identity = _stable_exact_module_source(
+                    path,
+                    label="protected local-materialization owner",
                 )
+                source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+                if (
+                    source_sha256
+                    != _PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256
+                ):
+                    raise ImportError(
+                        "protected local-materialization owner bytes changed "
+                        "after exact binding"
+                    )
             sys.modules[name] = module
             file_origin, spec_origin = _module_origin(module)
             if file_origin != path or spec_origin != path:
@@ -433,24 +527,27 @@ def _exact_legacy_implementation() -> Iterator[types.ModuleType]:
         _imp.acquire_lock()
         previous = sys.modules.get(name, _MISSING_MODULE)
         try:
-            source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
             module = _LEGACY_IMPLEMENTATION_BOUND_MODULE
             if module is None:
                 sys.modules.pop(name, None)
-                spec = importlib.util.spec_from_file_location(name, path)
-                if spec is None or spec.loader is None:
-                    raise ImportError(
-                        f"exact legacy implementation cannot load: {path}"
-                    )
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[name] = module
-                spec.loader.exec_module(module)
+                module, source_sha256 = _load_exact_source_module(
+                    name,
+                    path,
+                    label="legacy implementation",
+                )
                 _LEGACY_IMPLEMENTATION_BOUND_MODULE = module
                 _LEGACY_IMPLEMENTATION_SOURCE_SHA256 = source_sha256
-            elif source_sha256 != _LEGACY_IMPLEMENTATION_SOURCE_SHA256:
-                raise ImportError(
-                    "legacy implementation bytes changed after exact binding"
+            else:
+                source_bytes, _identity = _stable_exact_module_source(
+                    path,
+                    label="legacy implementation",
                 )
+                source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+                if source_sha256 != _LEGACY_IMPLEMENTATION_SOURCE_SHA256:
+                    raise ImportError(
+                        "legacy implementation bytes changed after exact "
+                        "binding"
+                    )
             sys.modules[name] = module
             if _module_origin(module) != (path, path):
                 raise ImportError("legacy implementation origin changed")
@@ -505,16 +602,11 @@ def _exact_protected_legacy_handoff() -> Iterator[types.ModuleType]:
         previous = sys.modules.get(name, _MISSING_MODULE)
         try:
             sys.modules.pop(name, None)
-            spec = importlib.util.spec_from_file_location(name, path)
-            if spec is None or spec.loader is None:
-                raise ImportError(
-                    f"exact protected legacy handoff cannot load: {path}"
-                )
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[name] = module
-            spec.loader.exec_module(module)
-            if _module_origin(module) != (path, path):
-                raise ImportError("protected legacy handoff origin changed")
+            module, _source_sha256 = _load_exact_source_module(
+                name,
+                path,
+                label="protected legacy handoff",
+            )
             yield module
         finally:
             sys.modules.pop(name, None)

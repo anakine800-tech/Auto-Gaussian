@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import builtins
 import copy
 import dataclasses
 import hashlib
@@ -181,6 +182,111 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 foreign_fixture.close()
         finally:
             sys.modules.pop(foreign_name, None)
+
+    def test_three_local_loaders_compile_one_snapshot_and_recheck_file(
+        self,
+    ) -> None:
+        expected = {
+            str(FACADE._protected_local_materialization_path()): (
+                FACADE._protected_local_materialization_path().read_bytes()
+            ),
+            str(FACADE._legacy_implementation_path()): (
+                FACADE._legacy_implementation_path().read_bytes()
+            ),
+            str(FACADE._protected_legacy_handoff_path()): (
+                FACADE._protected_legacy_handoff_path().read_bytes()
+            ),
+        }
+        compiled: dict[str, bytes] = {}
+        original_compile = builtins.compile
+        previous_materialization = (
+            FACADE._PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE,
+            FACADE._PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256,
+        )
+        previous_legacy = (
+            FACADE._LEGACY_IMPLEMENTATION_BOUND_MODULE,
+            FACADE._LEGACY_IMPLEMENTATION_SOURCE_SHA256,
+        )
+
+        def capture_compile(
+            source: object,
+            filename: str,
+            mode: str,
+            *args: object,
+            **kwargs: object,
+        ) -> object:
+            if filename in expected:
+                self.assertIs(type(source), bytes)
+                compiled[filename] = source
+            return original_compile(
+                source,
+                filename,
+                mode,
+                *args,
+                **kwargs,
+            )
+
+        FACADE._PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE = None
+        FACADE._PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256 = None
+        FACADE._LEGACY_IMPLEMENTATION_BOUND_MODULE = None
+        FACADE._LEGACY_IMPLEMENTATION_SOURCE_SHA256 = None
+        try:
+            with mock.patch("builtins.compile", side_effect=capture_compile):
+                with (
+                    FACADE._exact_protected_local_materialization(),
+                    FACADE._exact_legacy_implementation(),
+                    FACADE._exact_protected_legacy_handoff(),
+                ):
+                    pass
+        finally:
+            (
+                FACADE._PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE,
+                FACADE._PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256,
+            ) = previous_materialization
+            (
+                FACADE._LEGACY_IMPLEMENTATION_BOUND_MODULE,
+                FACADE._LEGACY_IMPLEMENTATION_SOURCE_SHA256,
+            ) = previous_legacy
+        self.assertEqual(compiled, expected)
+
+        changing_path = self.root / "changing_local_owner.py"
+        changing_path.write_text(
+            "from pathlib import Path\n"
+            "Path(__file__).write_text('VALUE = 2\\n', encoding='utf-8')\n"
+            "VALUE = 1\n",
+            encoding="utf-8",
+        )
+        changing_name = "auto_g16_pr4n_changing_local_owner"
+        try:
+            with self.assertRaisesRegex(
+                ImportError,
+                "changed during exact load",
+            ):
+                FACADE._load_exact_source_module(
+                    changing_name,
+                    changing_path,
+                    label="changing local owner",
+                )
+        finally:
+            sys.modules.pop(changing_name, None)
+
+        document = self.handoff().document()
+        for projection, expected in (
+            (document["scope"], HANDOFF.SCOPE),
+            (document["status"], HANDOFF.STATUS),
+            (document["policy"], HANDOFF.POLICY),
+        ):
+            for field, expected_value in expected.items():
+                if expected_value is False:
+                    self.assertIs(projection[field], False)
+        self.assertNotIn(
+            True,
+            document["lifecycle_readiness"]["status"].values(),
+        )
+        self.assertNotIn(
+            True,
+            document["lifecycle_readiness"]["policy"].values(),
+        )
 
     def test_handoff_owner_is_single_use_under_concurrency(self) -> None:
         materialization = self.materialize()
