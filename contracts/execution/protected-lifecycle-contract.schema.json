@@ -46,7 +46,7 @@
     },
     "lifecycle_id": {
       "type": "string",
-      "pattern": "^protected-lifecycle-[a-f0-9]{64}$"
+      "pattern": "^protected-lifecycle-[a-f0-9]{64}$(?![\\s\\S])"
     },
     "protected_invocation_projection": {
       "$ref": "#/$defs/protectedInvocationProjection"
@@ -130,7 +130,7 @@
   "$defs": {
     "sha": {
       "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
+      "pattern": "^[a-f0-9]{64}$(?![\\s\\S])"
     },
     "protectedInvocationProjection": {
       "type": "object",
@@ -149,7 +149,7 @@
         },
         "invocation_id": {
           "type": "string",
-          "pattern": "^protected-invocation-[a-f0-9]{64}$"
+          "pattern": "^protected-invocation-[a-f0-9]{64}$(?![\\s\\S])"
         },
         "invocation_payload_sha256": {"$ref": "#/$defs/sha"},
         "ledger_identity_sha256": {"$ref": "#/$defs/sha"},

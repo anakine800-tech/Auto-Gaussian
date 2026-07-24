@@ -428,6 +428,75 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                         draft
                     )
 
+    def test_standard_json_string_boundaries_match_helper_fullmatch(
+        self,
+    ) -> None:
+        document = self.seal().document()
+        cases = (
+            (("lifecycle_id",), "protected-lifecycle-" + "a" * 64),
+            (
+                ("protected_invocation_projection", "invocation_id"),
+                "protected-invocation-" + "a" * 64,
+            ),
+            (
+                (
+                    "protected_invocation_projection",
+                    "invocation_payload_sha256",
+                ),
+                "a" * 64,
+            ),
+            (
+                (
+                    "protected_invocation_projection",
+                    "ledger_identity_sha256",
+                ),
+                "a" * 64,
+            ),
+            (
+                (
+                    "protected_invocation_projection",
+                    "stage_manifest_sha256",
+                ),
+                "a" * 64,
+            ),
+            (("structural_projection_sha256",), "a" * 64),
+        )
+        for path, exact in cases:
+            accepted = copy.deepcopy(document)
+            target = accepted
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = exact
+            accepted = json.loads(json.dumps(accepted))
+            self.assertEqual(
+                LIFECYCLE.validate_protected_lifecycle_structure(
+                    accepted
+                ),
+                accepted,
+            )
+            for label, malformed in (
+                ("short", exact[:-1]),
+                ("long", exact + "a"),
+                ("line-feed", exact + "\n"),
+                ("carriage-return-line-feed", exact + "\r\n"),
+            ):
+                with self.subTest(path=path, boundary=label):
+                    rejected = copy.deepcopy(document)
+                    target = rejected
+                    for key in path[:-1]:
+                        target = target[key]
+                    target[path[-1]] = malformed
+                    rejected = json.loads(json.dumps(rejected))
+                    with self.assertRaises(
+                        LIFECYCLE.ProtectedLifecycleError
+                    ):
+                        (
+                            LIFECYCLE
+                            .validate_protected_lifecycle_structure(
+                                rejected
+                            )
+                        )
+
     def test_public_structural_ingress_rejects_hostile_container_hooks(
         self,
     ) -> None:

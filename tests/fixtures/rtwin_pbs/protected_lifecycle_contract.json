@@ -17,16 +17,16 @@
       "change_class": "exact_builtin_json_ingress_bool_parity_trusted_owner_graph_snapshot_semantic_lifecycle_seal"
     },
     "contracts/execution/protected-lifecycle-contract.schema.json": {
-      "sha256": "4c35ba32a68dec53008af03a56057056b1016d2e5fc6b5210df07429457d6fc6",
-      "change_class": "draft_2020_12_structural_projection_only_schema"
+      "sha256": "7ad4342464ce6d4b85d3b56af933d4ee314570b550b833cfba9d3dda599d4321",
+      "change_class": "draft_2020_12_strict_string_end_structural_projection_only_schema"
     },
     "docs/v2.6-protected-lifecycle-contract.md": {
-      "sha256": "3e014238aa0f4556a2b4d6fa97b223b95be79e1adcebe2de7a03966a8c2966c6",
-      "change_class": "honest_builtin_json_parity_owner_graph_snapshot_and_recovery_gates"
+      "sha256": "3a2e08fe92f44ee451d788cd58253d8f12a65770f2d8a045193e31e70ea03ff3",
+      "change_class": "honest_builtin_json_strict_string_end_parity_owner_graph_snapshot_and_recovery_gates"
     },
     "skills/auto-g16-rtwin-pbs/references/protected-lifecycle-contract.md": {
-      "sha256": "cca4533949d53a85b0a0bcf2b7ae8dea88b91a85bbac98107f9af3a9bf52840a",
-      "change_class": "packaged_builtin_json_parity_and_snapshot_boundary_reference"
+      "sha256": "0a5c1b1726afccb7b803255beebca71e77889793caa98ddab7423d3c44c9a1a6",
+      "change_class": "packaged_builtin_json_strict_string_end_parity_and_snapshot_boundary_reference"
     },
     "skills/auto-g16-rtwin-pbs/SKILL.md": {
       "sha256": "87f20a354ce0d4234affcf83cc2cdf99e5ebed72d3c063aea04ee4f0ec9f51e1",
@@ -37,12 +37,12 @@
       "change_class": "additive_named_skill_owner_packaging"
     },
     "tests/test_protected_lifecycle_contract.py": {
-      "sha256": "28623728f8a374b1a70fa6d31279bfb08bfb135a2ebea8d59698d860ce0cc0c8",
-      "change_class": "exact_builtin_json_hostile_hook_snapshot_concurrency_packaging_and_freeze_tests"
+      "sha256": "41326ff1380a10c40f89cbdb8f68665d03cc1d85bc93967ccfedea79791ea9da",
+      "change_class": "exact_builtin_json_string_boundary_hostile_hook_snapshot_concurrency_packaging_and_freeze_tests"
     },
     "tests/test_protected_lifecycle_schema_draft202012.py": {
-      "sha256": "c86663c44dfccdaf7ce13e04088b252de4a605ac98cd2207a94a6ae06359351b",
-      "change_class": "generated_exact_builtin_structural_acceptance_set_real_draft_2020_12_tests"
+      "sha256": "5ec58e0df264aa7337f8f5d69c947575f2aaf11fd246b42afe6d28e2771a5e8d",
+      "change_class": "generated_exact_builtin_string_boundary_acceptance_set_real_draft_2020_12_tests"
     }
   },
   "frozen_predecessors": {

@@ -17,6 +17,12 @@ exact builtin `dict`/`list` containers, exact-string keys, and exact
 `str`/`int`/`float`/`bool`/`None` leaves. Duplicate keys must be rejected
 during parsing. Arbitrary Python objects are outside the parity claim.
 
+Every anchored Schema string pattern adds a strict-end guard after `$`, so the
+Draft regular-expression allowance for a match before a terminal line break
+cannot diverge from the helper's `fullmatch` checks. Exact-length IDs and
+hashes containing a trailing line feed or carriage-return/line-feed pair fail
+closed in both layers.
+
 The helper recursively rebuilds the accepted ingress into an owner-owned
 builtin snapshot without JSON round-tripping or invoking caller copy,
 deep-copy, reduce, equality, or container hooks. Custom mappings,

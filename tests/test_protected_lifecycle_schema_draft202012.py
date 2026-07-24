@@ -319,6 +319,103 @@ class ProtectedLifecycleDraft202012Tests(unittest.TestCase):
             with self.subTest(expected="reject", label=label):
                 self.assert_acceptance_parity(draft, expected=False)
 
+    def test_all_anchored_patterns_use_strict_end_of_string(self) -> None:
+        patterns = {}
+
+        def collect(node: object, path: tuple[str, ...] = ()) -> None:
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "pattern":
+                        patterns[path] = value
+                    else:
+                        collect(value, path + (key,))
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    collect(value, path + (str(index),))
+
+        collect(self.schema)
+        self.assertEqual(
+            patterns,
+            {
+                ("properties", "lifecycle_id"): (
+                    "^protected-lifecycle-[a-f0-9]{64}"
+                    r"$(?![\s\S])"
+                ),
+                ("$defs", "sha"): (
+                    r"^[a-f0-9]{64}$(?![\s\S])"
+                ),
+                (
+                    "$defs",
+                    "protectedInvocationProjection",
+                    "properties",
+                    "invocation_id",
+                ): (
+                    "^protected-invocation-[a-f0-9]{64}"
+                    r"$(?![\s\S])"
+                ),
+            },
+        )
+
+    def test_exact_length_and_trailing_newline_parity(self) -> None:
+        cases = (
+            (("lifecycle_id",), "protected-lifecycle-" + "a" * 64),
+            (
+                ("protected_invocation_projection", "invocation_id"),
+                "protected-invocation-" + "a" * 64,
+            ),
+            (
+                (
+                    "protected_invocation_projection",
+                    "invocation_payload_sha256",
+                ),
+                "a" * 64,
+            ),
+            (
+                (
+                    "protected_invocation_projection",
+                    "ledger_identity_sha256",
+                ),
+                "a" * 64,
+            ),
+            (
+                (
+                    "protected_invocation_projection",
+                    "stage_manifest_sha256",
+                ),
+                "a" * 64,
+            ),
+            (("structural_projection_sha256",), "a" * 64),
+        )
+        for path, exact in cases:
+            accepted = copy.deepcopy(self.document)
+            target = accepted
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = exact
+            accepted = json.loads(json.dumps(accepted))
+            with self.subTest(path=path, boundary="exact"):
+                self.assert_acceptance_parity(
+                    accepted,
+                    expected=True,
+                )
+            for label, malformed in (
+                ("short", exact[:-1]),
+                ("long", exact + "a"),
+                ("line-feed", exact + "\n"),
+                ("carriage-return-line-feed", exact + "\r\n"),
+            ):
+                with self.subTest(path=path, boundary=label):
+                    rejected = copy.deepcopy(self.document)
+                    target = rejected
+                    for key in path[:-1]:
+                        target = target[key]
+                    target[path[-1]] = malformed
+                    rejected = json.loads(json.dumps(rejected))
+                    self.assert_acceptance_parity(
+                        rejected,
+                        expected=False,
+                    )
+
     def test_hostile_deepcopy_replacement_rejects_without_hook_calls(
         self,
     ) -> None:
