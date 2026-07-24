@@ -33,13 +33,18 @@ SCHEMA_VALIDATION_PINS = {
     "rpds-py": "2026.6.3",
     "typing-extensions": "4.16.0",
 }
+PROTECTED_SCHEMA_DRAFT_TEST_MODULES = (
+    "tests.test_protected_submit_schema_draft202012",
+    "tests.test_local_state_binding_schema_draft202012",
+    "tests.test_protected_invocation_schema_draft202012",
+    "tests.test_protected_lifecycle_schema_draft202012",
+    "tests.test_protected_local_materialization_schema_draft202012",
+    "tests.test_protected_legacy_effect_handoff_schema_draft202012",
+)
 SCHEMA_VALIDATION_TEST_COMMAND = (
-    "python -m unittest tests.test_protected_submit_schema_draft202012 "
-    "tests.test_local_state_binding_schema_draft202012 "
-    "tests.test_protected_invocation_schema_draft202012 "
-    "tests.test_protected_lifecycle_schema_draft202012 "
-    "tests.test_protected_local_materialization_schema_draft202012 "
-    "tests.test_protected_legacy_effect_handoff_schema_draft202012 -v"
+    "python -m unittest "
+    + " ".join(PROTECTED_SCHEMA_DRAFT_TEST_MODULES)
+    + " -v"
 )
 EXACT_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[A-Za-z0-9._+-]*)")
 REQUIRES_PYTHON = re.compile(
@@ -444,8 +449,10 @@ def audit(root: Path) -> dict[str, Any]:
         for command in commands
         if (
             "requirements/schema-validation" in command
-            or "test_protected_submit_schema_draft202012" in command
-            or "test_local_state_binding_schema_draft202012" in command
+            or any(
+                module in command
+                for module in PROTECTED_SCHEMA_DRAFT_TEST_MODULES
+            )
         )
     ]
     _compare(

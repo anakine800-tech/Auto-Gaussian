@@ -13,6 +13,7 @@ import stat
 import sys
 import threading
 import types
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Protocol
 
@@ -100,6 +101,23 @@ def _module_origin(module: types.ModuleType) -> tuple[Path, Path]:
 
 
 _SourceFileIdentity = tuple[int, int, int, int, int, int]
+_EXACT_SOURCE_MODULE_BINDING_SEAL = object()
+
+
+@dataclass(frozen=True, slots=True)
+class _ExactSourceModuleBinding:
+    module: types.ModuleType
+    path: Path
+    source_bytes: bytes
+    identity: _SourceFileIdentity
+    source_sha256: str
+    owner_seal: object
+
+
+_LEGACY_IMPLEMENTATION_SOURCE_BINDINGS: dict[
+    types.ModuleType,
+    _ExactSourceModuleBinding,
+] = {}
 
 
 def _source_file_identity(info: os.stat_result) -> _SourceFileIdentity:
@@ -156,12 +174,43 @@ def _assert_exact_module_source_current(
         raise ImportError(f"{label} changed during exact load")
 
 
+def _assert_exact_source_module_binding(
+    binding: object,
+    *,
+    label: str,
+    expected_module: types.ModuleType | None = None,
+    expected_path: Path | None = None,
+) -> types.ModuleType:
+    if (
+        type(binding) is not _ExactSourceModuleBinding
+        or binding.owner_seal is not _EXACT_SOURCE_MODULE_BINDING_SEAL
+        or hashlib.sha256(binding.source_bytes).hexdigest()
+        != binding.source_sha256
+    ):
+        raise ImportError(f"{label} exact source binding is invalid")
+    module = binding.module
+    path = binding.path
+    if expected_module is not None and module is not expected_module:
+        raise ImportError(f"{label} module differs from its exact source binding")
+    if expected_path is not None and path != expected_path:
+        raise ImportError(f"{label} path differs from its exact source binding")
+    if _module_origin(module) != (path, path):
+        raise ImportError(f"{label} origin changed")
+    _assert_exact_module_source_current(
+        path,
+        label=label,
+        source_bytes=binding.source_bytes,
+        identity=binding.identity,
+    )
+    return module
+
+
 def _load_exact_source_module(
     name: str,
     path: Path,
     *,
     label: str,
-) -> tuple[types.ModuleType, str]:
+) -> _ExactSourceModuleBinding:
     source_bytes, identity = _stable_exact_module_source(path, label=label)
     code = compile(
         source_bytes,
@@ -187,7 +236,14 @@ def _load_exact_source_module(
     except BaseException:
         sys.modules.pop(name, None)
         raise
-    return module, hashlib.sha256(source_bytes).hexdigest()
+    return _ExactSourceModuleBinding(
+        module=module,
+        path=path,
+        source_bytes=source_bytes,
+        identity=identity,
+        source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+        owner_seal=_EXACT_SOURCE_MODULE_BINDING_SEAL,
+    )
 
 
 @contextlib.contextmanager
@@ -468,11 +524,17 @@ def _exact_protected_local_materialization() -> Iterator[types.ModuleType]:
             module = _PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE
             if module is None:
                 sys.modules.pop(name, None)
-                module, source_sha256 = _load_exact_source_module(
+                binding = _load_exact_source_module(
                     name,
                     path,
                     label="protected local-materialization owner",
                 )
+                module = _assert_exact_source_module_binding(
+                    binding,
+                    label="protected local-materialization owner",
+                    expected_path=path,
+                )
+                source_sha256 = binding.source_sha256
                 _PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE = module
                 _PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256 = source_sha256
             else:
@@ -530,19 +592,33 @@ def _exact_legacy_implementation() -> Iterator[types.ModuleType]:
             module = _LEGACY_IMPLEMENTATION_BOUND_MODULE
             if module is None:
                 sys.modules.pop(name, None)
-                module, source_sha256 = _load_exact_source_module(
+                binding = _load_exact_source_module(
                     name,
                     path,
                     label="legacy implementation",
                 )
+                module = _assert_exact_source_module_binding(
+                    binding,
+                    label="legacy implementation",
+                    expected_path=path,
+                )
+                source_sha256 = binding.source_sha256
+                _LEGACY_IMPLEMENTATION_SOURCE_BINDINGS[module] = binding
                 _LEGACY_IMPLEMENTATION_BOUND_MODULE = module
                 _LEGACY_IMPLEMENTATION_SOURCE_SHA256 = source_sha256
             else:
-                source_bytes, _identity = _stable_exact_module_source(
-                    path,
+                binding = _LEGACY_IMPLEMENTATION_SOURCE_BINDINGS.get(module)
+                if binding is None:
+                    raise ImportError(
+                        "legacy implementation has no exact source binding"
+                    )
+                _assert_exact_source_module_binding(
+                    binding,
                     label="legacy implementation",
+                    expected_module=module,
+                    expected_path=path,
                 )
-                source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+                source_sha256 = binding.source_sha256
                 if source_sha256 != _LEGACY_IMPLEMENTATION_SOURCE_SHA256:
                     raise ImportError(
                         "legacy implementation bytes changed after exact "
@@ -557,6 +633,25 @@ def _exact_legacy_implementation() -> Iterator[types.ModuleType]:
             if previous is not _MISSING_MODULE:
                 sys.modules[name] = previous
             _imp.release_lock()
+
+
+def _legacy_source_binding_for_exact_module(
+    module: types.ModuleType,
+) -> _ExactSourceModuleBinding:
+    binding = _LEGACY_IMPLEMENTATION_SOURCE_BINDINGS.get(module)
+    if binding is None:
+        raise ImportError("legacy implementation has no exact source binding")
+    _assert_exact_source_module_binding(
+        binding,
+        label="legacy implementation",
+        expected_module=module,
+        expected_path=_legacy_implementation_path(),
+    )
+    if binding.source_sha256 != _LEGACY_IMPLEMENTATION_SOURCE_SHA256:
+        raise ImportError(
+            "legacy implementation exact source binding changed after load"
+        )
+    return binding
 
 
 def _protected_legacy_handoff_path() -> Path:
@@ -602,10 +697,15 @@ def _exact_protected_legacy_handoff() -> Iterator[types.ModuleType]:
         previous = sys.modules.get(name, _MISSING_MODULE)
         try:
             sys.modules.pop(name, None)
-            module, _source_sha256 = _load_exact_source_module(
+            binding = _load_exact_source_module(
                 name,
                 path,
                 label="protected legacy handoff",
+            )
+            module = _assert_exact_source_module_binding(
+                binding,
+                label="protected legacy handoff",
+                expected_path=path,
             )
             yield module
         finally:
@@ -767,11 +867,21 @@ def seal_protected_legacy_effect_handoff(
             raise TypeError(
                 "handoff requires the facade-bound PR4L materialization"
             )
-        with _exact_legacy_implementation():
+        with _exact_legacy_implementation() as legacy_module:
+            legacy_binding = _legacy_source_binding_for_exact_module(
+                legacy_module
+            )
             with _exact_protected_legacy_handoff() as handoff_owner:
                 owner = (
                     handoff_owner.ProtectedLegacyEffectHandoffOwner.production()
                 )
+                if (
+                    _legacy_source_binding_for_exact_module(legacy_module)
+                    is not legacy_binding
+                ):
+                    raise ImportError(
+                        "legacy implementation source binding was replaced"
+                    )
                 return owner.seal(materialization)
 
 

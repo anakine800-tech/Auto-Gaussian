@@ -117,6 +117,11 @@ publishes a sealed `submission_uncertain` local-state record last. It then
 stops. The adapter, qsub, reconciliation, live-validation and long-process
 owner-lifetime gates remain closed.
 
+The additive v2.6 PR4N handoff remains non-executable. Read
+[references/protected-legacy-effect-handoff.md](references/protected-legacy-effect-handoff.md).
+It binds the exact PR4L materialization to the read-only PR4M readiness witness
+without creating an effect owner, calling a runner, or connecting an adapter.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -491,6 +496,9 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/protected_local_materialization.py`: packaged additive PR4L owner
   for reserve-first, no-clobber exact stage materialization and final sealed
   local-state publication; it provides no adapter or external-effect method.
+- `scripts/protected_legacy_effect_handoff.py`: packaged additive PR4N owner
+  for the non-executable typed PR4L-to-PR4M handoff; every effect, adapter and
+  runner status remains false.
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
 - `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for

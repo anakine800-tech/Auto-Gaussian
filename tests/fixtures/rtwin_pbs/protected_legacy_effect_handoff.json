@@ -32,7 +32,7 @@
     },
     "scripts/audit_python_contract.py": {
       "before_sha256": "21b4a531d25d77edf6149158586b51daf070b8071697849549e0a301621a4d4d",
-      "sha256": "c81acfa5d9f49cbabeb361efda0d0d7ee839856c606eb40aceea1367f852fb36",
+      "sha256": "6b80edfad2a3b5f9f7aeed07a31c66dd8ac4ed6b7d3c7b6b96559aeeb28e901d",
       "change_class": "freeze_mandatory_all_protected_schema_draft_command",
       "legacy_semantics_changed": false
     },
@@ -54,7 +54,7 @@
     },
     "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": {
       "before_sha256": "421ffe0d25802a2c9b14968b773d2338001e159bed8c6f34abf17613980431d2",
-      "sha256": "5fba727011869fe11f7d995792b902a4abcc74c4e2981cc2416a005afa3df18d",
+      "sha256": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
       "change_class": "fixed_exact_seal_only_handoff_api",
       "legacy_semantics_changed": false
     },
