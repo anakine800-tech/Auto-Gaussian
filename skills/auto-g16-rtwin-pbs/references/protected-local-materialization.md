@@ -3,6 +3,12 @@
 Use PR4L only after exact typed PR4K evidence already exists in the same
 owner-loaded process.
 
+Load canonical PR4K before PR4L. PR4L binds that exact module, its evidence,
+owner and sealed classes, and a stable no-follow source snapshot. Reject a
+foreign class, cache replacement, same-path second load, class/source
+replacement, or reversed import order before reservation. A matching path or
+canonical `sys.modules` name is not owner identity.
+
 The bounded owner order is fixed:
 
 1. exact PR4K seal and current replay;

@@ -5,6 +5,8 @@
   "base_parent": "804df433894b235c1cc3b630b58cfbf9a494f670",
   "scope": {
     "exact_pr4k_evidence_only": true,
+    "pr4k_module_class_source_bound": true,
+    "foreign_cache_import_order_rejected_before_reservation": true,
     "reserve_once": true,
     "no_clobber_local_materialization": true,
     "state_publication_last": true,
@@ -16,20 +18,20 @@
   },
   "files": {
     "scripts/protected_local_materialization.py": {
-      "sha256": "226efb8f741f31565a74f2c9436691f41ad23d2978259128047d97e1c2e5f8d6",
-      "change_class": "exact_pr4k_reserve_first_no_clobber_materialization_and_final_state_owner"
+      "sha256": "e79a703c9f68a7d047210cf3b939caac06cef25f7d664ecece335ea5c444e2d7",
+      "change_class": "exact_pr4k_module_class_source_bound_reserve_first_no_clobber_materialization_owner"
     },
     "contracts/execution/protected-local-materialization.schema.json": {
       "sha256": "e3a253c911efacf3d64d539ab500ba5aad120399c249faffc48e60dfe613951b",
       "change_class": "closed_draft_2020_12_materialized_state_structure"
     },
     "docs/v2.6-protected-local-materialization.md": {
-      "sha256": "437806132f5a2770e87c2a0ff0c3272ec672cfdcc6751a5be08b675d9e287cc4",
-      "change_class": "bounded_reservation_materialization_state_and_stop_boundary"
+      "sha256": "6cdf8f480b5b7772bac842d49a55525de981ee9dce484c5fa0e3f730303109a8",
+      "change_class": "bound_pr4k_identity_bounded_reservation_materialization_state_and_stop_boundary"
     },
     "skills/auto-g16-rtwin-pbs/references/protected-local-materialization.md": {
-      "sha256": "858069ea56026545fd793033169c41d163cad0ad611fb2385d20dec04fa5517c",
-      "change_class": "packaged_operator_boundary_reference"
+      "sha256": "50779aadb0f4bffce619ca2720578962aa044b3ed4b3e5ee5b3022a6a4a77bc9",
+      "change_class": "packaged_bound_pr4k_identity_operator_boundary_reference"
     },
     "skills/auto-g16-rtwin-pbs/SKILL.md": {
       "sha256": "3bb26275857e4caaa553d8a9dabded4820a44cdd07352233b75b485299f866d4",
@@ -44,8 +46,8 @@
       "change_class": "narrow_fixed_materialization_owner_facade"
     },
     "tests/test_protected_local_materialization.py": {
-      "sha256": "b2c00ee145a590ca1bc641244908c3e9291cd566abcf3d3029ada8f89d0937b6",
-      "change_class": "focused_order_no_clobber_crash_concurrency_freeze_and_package_tests"
+      "sha256": "4bcc53e905210635a525864254890085ee33f783cd4ed16e01da8f1b95aeeae7",
+      "change_class": "focused_pr4k_foreign_cache_import_order_no_clobber_crash_concurrency_freeze_and_package_tests"
     },
     "tests/test_protected_local_materialization_schema_draft202012.py": {
       "sha256": "a8f6c0011e931fe5a8152632fa12e4de0b64b7af896ccc9c9ce66f18de371cca",

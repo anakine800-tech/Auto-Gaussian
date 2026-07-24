@@ -14,6 +14,8 @@ cleanup, cancellation, deletion, migration, or reconciliation operation.
 
 from __future__ import annotations
 
+import _imp
+import contextlib
 import copy
 import hashlib
 import json
@@ -92,6 +94,7 @@ ATTEMPT_ID_RE = re.compile(r"^qsub-attempt-[a-f0-9]{64}$")
 _SEAL_TOKEN = object()
 _TEST_OWNER_TOKEN = object()
 _MODULE_LOCK = threading.RLock()
+_MISSING_MODULE = object()
 _OWNER_READ_CHUNK_SIZE = 64 * 1024
 _MAX_OWNER_SOURCE_BYTES = 3 * 1024 * 1024
 _MAX_STATE_BYTES = 4 * 1024 * 1024
@@ -709,6 +712,15 @@ class _OwnerFileSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class _LifecycleOwnerBinding:
+    module: types.ModuleType
+    evidence_type: type
+    owner_type: type
+    sealed_type: type
+    snapshot: _OwnerFileSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class _DirectoryIdentity:
     device: int
     inode: int
@@ -853,14 +865,45 @@ def _module_origin(module: types.ModuleType) -> tuple[Path, Path]:
     return Path(raw_file).resolve(), Path(raw_origin).resolve()
 
 
-def _exact_lifecycle_module(
-    evidence: object,
-) -> tuple[types.ModuleType, _OwnerFileSnapshot]:
+def _assert_lifecycle_owner_snapshot_integrity(
+    snapshot: _OwnerFileSnapshot,
+) -> None:
+    if (
+        snapshot.canonical_path != _lifecycle_owner_path()
+        or snapshot.size != len(snapshot.source_bytes)
+        or hashlib.sha256(snapshot.source_bytes).hexdigest()
+        != snapshot.sha256
+        or not stat.S_ISREG(snapshot.mode)
+    ):
+        raise ProtectedLocalMaterializationError(
+            "protected lifecycle owner sealed snapshot differs"
+        )
+
+
+def _lifecycle_owner_type(
+    module: types.ModuleType,
+    name: str,
+) -> type:
+    value = getattr(module, name, None)
+    if (
+        not isinstance(value, type)
+        or value.__module__ != LIFECYCLE_MODULE_NAME
+        or value.__qualname__ != name
+    ):
+        raise ProtectedLocalMaterializationError(
+            f"protected lifecycle owner class identity differs: {name}"
+        )
+    return value
+
+
+def _capture_lifecycle_owner_binding() -> _LifecycleOwnerBinding:
     snapshot = _stable_lifecycle_owner_snapshot()
+    _assert_lifecycle_owner_snapshot_integrity(snapshot)
     module = sys.modules.get(LIFECYCLE_MODULE_NAME)
     if not isinstance(module, types.ModuleType):
         raise ProtectedLocalMaterializationError(
-            "exact protected lifecycle owner must already own the evidence"
+            "exact protected lifecycle owner must be loaded before "
+            "local materialization"
         )
     if _module_origin(module) != (
         snapshot.canonical_path,
@@ -869,18 +912,106 @@ def _exact_lifecycle_module(
         raise ProtectedLocalMaterializationError(
             "protected lifecycle owner origin differs"
         )
-    if type(evidence) is not module.ProtectedLifecycleEvidence:
-        raise TypeError(
-            "materialization accepts only exact typed PR4K evidence"
+    return _LifecycleOwnerBinding(
+        module=module,
+        evidence_type=_lifecycle_owner_type(
+            module,
+            "ProtectedLifecycleEvidence",
+        ),
+        owner_type=_lifecycle_owner_type(
+            module,
+            "ProtectedLifecycleContractOwner",
+        ),
+        sealed_type=_lifecycle_owner_type(
+            module,
+            "SealedProtectedLifecycleContract",
+        ),
+        snapshot=snapshot,
+    )
+
+
+_LIFECYCLE_OWNER_BINDING = _capture_lifecycle_owner_binding()
+
+
+def _assert_lifecycle_owner_binding(
+    binding: _LifecycleOwnerBinding,
+    *,
+    evidence: object | None = None,
+    sealed_lifecycle: object | None = None,
+) -> _OwnerFileSnapshot:
+    current_snapshot = _stable_lifecycle_owner_snapshot()
+    _assert_lifecycle_owner_snapshot_integrity(binding.snapshot)
+    if current_snapshot != binding.snapshot:
+        raise ProtectedLocalMaterializationError(
+            "protected lifecycle owner identity differs"
         )
-    if (
-        hashlib.sha256(snapshot.source_bytes).hexdigest()
-        != snapshot.sha256
+    module = sys.modules.get(LIFECYCLE_MODULE_NAME, _MISSING_MODULE)
+    if module is not binding.module:
+        raise ProtectedLocalMaterializationError(
+            "protected lifecycle owner module identity differs"
+        )
+    if _module_origin(binding.module) != (
+        binding.snapshot.canonical_path,
+        binding.snapshot.canonical_path,
     ):
         raise ProtectedLocalMaterializationError(
-            "protected lifecycle owner snapshot differs"
+            "protected lifecycle owner origin changed"
         )
-    return module, snapshot
+    if (
+        getattr(binding.module, "ProtectedLifecycleEvidence", None)
+        is not binding.evidence_type
+        or getattr(
+            binding.module,
+            "ProtectedLifecycleContractOwner",
+            None,
+        )
+        is not binding.owner_type
+        or getattr(
+            binding.module,
+            "SealedProtectedLifecycleContract",
+            None,
+        )
+        is not binding.sealed_type
+    ):
+        raise ProtectedLocalMaterializationError(
+            "protected lifecycle owner class identity differs"
+        )
+    if evidence is not None and type(evidence) is not binding.evidence_type:
+        raise TypeError(
+            "materialization accepts only exact bound PR4K evidence"
+        )
+    if (
+        sealed_lifecycle is not None
+        and type(sealed_lifecycle) is not binding.sealed_type
+    ):
+        raise ProtectedLocalMaterializationError(
+            "protected lifecycle sealed class identity differs"
+        )
+    return current_snapshot
+
+
+@contextlib.contextmanager
+def _exact_lifecycle_module(
+    evidence: object,
+) -> Iterator[tuple[types.ModuleType, _OwnerFileSnapshot]]:
+    binding = _LIFECYCLE_OWNER_BINDING
+    code = compile(
+        binding.snapshot.source_bytes,
+        str(binding.snapshot.canonical_path),
+        "exec",
+        dont_inherit=True,
+    )
+    del code
+    with _MODULE_LOCK:
+        _imp.acquire_lock()
+        try:
+            snapshot = _assert_lifecycle_owner_binding(
+                binding,
+                evidence=evidence,
+            )
+            yield binding.module, snapshot
+        finally:
+            _imp.release_lock()
 
 
 def _trusted_now(clock: Callable[[], datetime]) -> datetime:
@@ -897,23 +1028,28 @@ def _trusted_now(clock: Callable[[], datetime]) -> datetime:
 
 
 def _seal_current_lifecycle(
-    module: types.ModuleType,
+    binding: _LifecycleOwnerBinding,
     evidence: object,
     *,
     current: datetime,
     testing: bool,
 ) -> object:
+    module = binding.module
     if testing:
         owner = (
-            module.ProtectedLifecycleContractOwner
+            binding.owner_type
             ._for_testing_with_clock(
                 lambda: current,
                 _test_token=module._TEST_OWNER_TOKEN,
             )
         )
     else:
-        owner = module.ProtectedLifecycleContractOwner.production()
+        owner = binding.owner_type.production()
     sealed = owner.seal(evidence)
+    if type(sealed) is not binding.sealed_type:
+        raise ProtectedLocalMaterializationError(
+            "protected lifecycle sealed class identity differs"
+        )
     sealed.assert_owner_sealed()
     original = module._utc_now
     module._utc_now = lambda: current
@@ -1451,6 +1587,7 @@ class SealedProtectedLocalMaterialization:
     lifecycle: object
     reservation: object
     local_dir: Path
+    lifecycle_owner_binding: _LifecycleOwnerBinding
     lifecycle_owner_snapshot: _OwnerFileSnapshot
     final_directory_identity: _DirectoryIdentity
     entry_identities: tuple[tuple[str, _FileIdentity], ...]
@@ -1475,6 +1612,7 @@ class SealedProtectedLocalMaterialization:
         lifecycle: object,
         reservation: object,
         local_dir: Path,
+        lifecycle_owner_binding: _LifecycleOwnerBinding,
         lifecycle_owner_snapshot: _OwnerFileSnapshot,
         final_directory_identity: _DirectoryIdentity,
         entry_identities: dict[str, _FileIdentity],
@@ -1493,6 +1631,7 @@ class SealedProtectedLocalMaterialization:
             "lifecycle": lifecycle,
             "reservation": reservation,
             "local_dir": local_dir,
+            "lifecycle_owner_binding": lifecycle_owner_binding,
             "lifecycle_owner_snapshot": lifecycle_owner_snapshot,
             "final_directory_identity": final_directory_identity,
             "entry_identities": tuple(entry_identities.items()),
@@ -1542,12 +1681,16 @@ class SealedProtectedLocalMaterialization:
     def assert_current(self) -> "SealedProtectedLocalMaterialization":
         self.assert_owner_sealed()
         if (
-            _stable_lifecycle_owner_snapshot()
+            self.lifecycle_owner_binding.snapshot
             != self.lifecycle_owner_snapshot
         ):
             raise ProtectedLocalMaterializationError(
                 "protected lifecycle owner identity differs"
             )
+        _assert_lifecycle_owner_binding(
+            self.lifecycle_owner_binding,
+            sealed_lifecycle=self.lifecycle,
+        )
         flags = (
             os.O_RDONLY
             | getattr(os, "O_DIRECTORY", 0)
@@ -1639,24 +1782,24 @@ class ProtectedLocalMaterializationOwner:
         self,
         evidence: object,
     ) -> SealedProtectedLocalMaterialization:
-        lifecycle_module, owner_snapshot = _exact_lifecycle_module(
-            evidence
-        )
-        current = _trusted_now(self._clock)
-        with _MODULE_LOCK:
+        with _exact_lifecycle_module(evidence) as (
+            lifecycle_module,
+            owner_snapshot,
+        ):
+            del lifecycle_module
+            binding = _LIFECYCLE_OWNER_BINDING
+            current = _trusted_now(self._clock)
             sealed_lifecycle = _seal_current_lifecycle(
-                lifecycle_module,
+                binding,
                 evidence,
                 current=current,
                 testing=self._testing,
             )
-            if (
-                _stable_lifecycle_owner_snapshot()
-                != owner_snapshot
-            ):
-                raise ProtectedLocalMaterializationError(
-                    "protected lifecycle owner drifted before reservation"
-                )
+            _assert_lifecycle_owner_binding(
+                binding,
+                evidence=evidence,
+                sealed_lifecycle=sealed_lifecycle,
+            )
 
             reserved = _reserve_protected_submit_once(
                 sealed_lifecycle,
@@ -1732,18 +1875,17 @@ class ProtectedLocalMaterializationOwner:
             finally:
                 os.close(directory_descriptor)
 
-            if (
-                _stable_lifecycle_owner_snapshot()
-                != owner_snapshot
-            ):
-                raise ProtectedLocalMaterializationError(
-                    "protected lifecycle owner drifted during materialization"
-                )
+            _assert_lifecycle_owner_binding(
+                binding,
+                evidence=evidence,
+                sealed_lifecycle=sealed_lifecycle,
+            )
             sealed = SealedProtectedLocalMaterialization._from_owner(
                 state_document,
                 lifecycle=sealed_lifecycle,
                 reservation=reserved,
                 local_dir=paths.local_dir,
+                lifecycle_owner_binding=binding,
                 lifecycle_owner_snapshot=owner_snapshot,
                 final_directory_identity=final_directory_identity,
                 entry_identities=expected_entries,

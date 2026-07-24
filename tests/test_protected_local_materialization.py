@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import copy
 import hashlib
+import importlib.util
 import inspect
 import json
 import os
@@ -83,6 +84,19 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
     def consumption_records(self) -> list[Path]:
         records = self.fixture.state_root / "consumptions"
         return sorted(records.iterdir()) if records.is_dir() else []
+
+    def load_lifecycle_copy(self, name: str) -> object:
+        path = Path(LIFECYCLE.__file__).resolve()
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            sys.modules.pop(name, None)
+            raise
+        return module
 
     def test_exact_order_materializes_pr4f_bytes_and_publishes_state_last(
         self,
@@ -203,6 +217,204 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
             os.listdir(self.fixture.lifecycle.invocation.local.local_dir),
             [MATERIALIZATION.LEDGER_BASENAME],
         )
+
+    def test_same_path_second_pr4k_module_is_rejected_before_reservation(
+        self,
+    ) -> None:
+        original = sys.modules[MATERIALIZATION.LIFECYCLE_MODULE_NAME]
+        second = self.load_lifecycle_copy(
+            MATERIALIZATION.LIFECYCLE_MODULE_NAME
+        )
+        evidence = second.ProtectedLifecycleEvidence(
+            self.fixture.evidence.protected_invocation_evidence
+        )
+        try:
+            with (
+                mock.patch.object(
+                    MATERIALIZATION,
+                    "_reserve_protected_submit_once",
+                ) as reserve,
+                mock.patch.object(
+                    MATERIALIZATION,
+                    "_write_materialized_artifact",
+                ) as write,
+            ):
+                with self.assertRaisesRegex(
+                    MATERIALIZATION.ProtectedLocalMaterializationError,
+                    "module identity differs",
+                ):
+                    self.fixture.owner().materialize_once(evidence)
+                reserve.assert_not_called()
+                write.assert_not_called()
+        finally:
+            sys.modules[MATERIALIZATION.LIFECYCLE_MODULE_NAME] = original
+        self.assertEqual(self.consumption_records(), [])
+        self.assertEqual(
+            os.listdir(self.fixture.lifecycle.invocation.local.local_dir),
+            [MATERIALIZATION.LEDGER_BASENAME],
+        )
+
+    def test_foreign_cache_and_import_order_mismatches_fail_closed(
+        self,
+    ) -> None:
+        name = MATERIALIZATION.LIFECYCLE_MODULE_NAME
+        original = sys.modules[name]
+        foreign_name = "foreign_protected_lifecycle_contract"
+        foreign = self.load_lifecycle_copy(foreign_name)
+        try:
+            foreign_evidence = foreign.ProtectedLifecycleEvidence(
+                self.fixture.evidence.protected_invocation_evidence
+            )
+            with self.assertRaisesRegex(
+                TypeError,
+                "exact bound PR4K evidence",
+            ):
+                self.fixture.owner().materialize_once(foreign_evidence)
+
+            original_evidence_type = original.ProtectedLifecycleEvidence
+            original.ProtectedLifecycleEvidence = (
+                foreign.ProtectedLifecycleEvidence
+            )
+            try:
+                with self.assertRaisesRegex(
+                    MATERIALIZATION.ProtectedLocalMaterializationError,
+                    "class identity differs",
+                ):
+                    self.fixture.owner().materialize_once(
+                        self.fixture.evidence
+                    )
+            finally:
+                original.ProtectedLifecycleEvidence = original_evidence_type
+        finally:
+            sys.modules.pop(foreign_name, None)
+
+        second = self.load_lifecycle_copy(name)
+        try:
+            with self.assertRaisesRegex(
+                MATERIALIZATION.ProtectedLocalMaterializationError,
+                "module identity differs",
+            ):
+                self.fixture.owner().materialize_once(self.fixture.evidence)
+        finally:
+            sys.modules[name] = original
+
+        materialization_name = "foreign_protected_local_materialization"
+        path = Path(MATERIALIZATION.__file__).resolve()
+        spec = importlib.util.spec_from_file_location(
+            materialization_name,
+            path,
+        )
+        assert spec is not None and spec.loader is not None
+        misplaced = importlib.util.module_from_spec(spec)
+        sys.modules[materialization_name] = misplaced
+        sys.modules.pop(name, None)
+        try:
+            with self.assertRaisesRegex(
+                ValueError,
+                "must be loaded before local materialization",
+            ):
+                spec.loader.exec_module(misplaced)
+        finally:
+            sys.modules.pop(materialization_name, None)
+            sys.modules[name] = original
+
+        self.assertEqual(self.consumption_records(), [])
+        self.assertEqual(
+            os.listdir(self.fixture.lifecycle.invocation.local.local_dir),
+            [MATERIALIZATION.LEDGER_BASENAME],
+        )
+
+    def test_bound_pr4k_source_snapshot_rejects_same_bytes_replacement(
+        self,
+    ) -> None:
+        owner_dir = self.root / "owner-copy"
+        owner_dir.mkdir()
+        lifecycle_path = owner_dir / "protected_lifecycle_contract.py"
+        materialization_path = (
+            owner_dir / "protected_local_materialization.py"
+        )
+        lifecycle_bytes = Path(LIFECYCLE.__file__).read_bytes()
+        lifecycle_path.write_bytes(lifecycle_bytes)
+        materialization_path.write_bytes(Path(MATERIALIZATION.__file__).read_bytes())
+
+        lifecycle_name = MATERIALIZATION.LIFECYCLE_MODULE_NAME
+        original_lifecycle = sys.modules[lifecycle_name]
+        copied_lifecycle_spec = importlib.util.spec_from_file_location(
+            lifecycle_name,
+            lifecycle_path,
+        )
+        assert (
+            copied_lifecycle_spec is not None
+            and copied_lifecycle_spec.loader is not None
+        )
+        copied_lifecycle = importlib.util.module_from_spec(
+            copied_lifecycle_spec
+        )
+        sys.modules[lifecycle_name] = copied_lifecycle
+        copied_materialization_name = (
+            "copied_protected_local_materialization"
+        )
+        copied_materialization_spec = importlib.util.spec_from_file_location(
+            copied_materialization_name,
+            materialization_path,
+        )
+        assert (
+            copied_materialization_spec is not None
+            and copied_materialization_spec.loader is not None
+        )
+        copied_materialization = importlib.util.module_from_spec(
+            copied_materialization_spec
+        )
+        sys.modules[copied_materialization_name] = copied_materialization
+        try:
+            copied_lifecycle_spec.loader.exec_module(copied_lifecycle)
+            copied_materialization_spec.loader.exec_module(
+                copied_materialization
+            )
+            copied_evidence = copied_lifecycle.ProtectedLifecycleEvidence(
+                self.fixture.evidence.protected_invocation_evidence
+            )
+            replacement = owner_dir / "replacement.py"
+            replacement.write_bytes(lifecycle_bytes)
+            os.replace(replacement, lifecycle_path)
+            owner = (
+                copied_materialization.ProtectedLocalMaterializationOwner
+                ._for_testing_with_clock(
+                    self.fixture.state_root,
+                    lambda: PR4D_SUPPORT.parse_utc(PR4D_SUPPORT.NOW),
+                    _test_token=copied_materialization._TEST_OWNER_TOKEN,
+                )
+            )
+            with self.assertRaisesRegex(
+                copied_materialization.ProtectedLocalMaterializationError,
+                "identity differs",
+            ):
+                owner.materialize_once(copied_evidence)
+        finally:
+            sys.modules.pop(copied_materialization_name, None)
+            sys.modules[lifecycle_name] = original_lifecycle
+
+        self.assertEqual(self.consumption_records(), [])
+        self.assertEqual(
+            os.listdir(self.fixture.lifecycle.invocation.local.local_dir),
+            [MATERIALIZATION.LEDGER_BASENAME],
+        )
+
+    def test_sealed_state_rechecks_bound_pr4k_module_identity(self) -> None:
+        sealed = self.materialize()
+        name = MATERIALIZATION.LIFECYCLE_MODULE_NAME
+        original = sys.modules[name]
+        second = self.load_lifecycle_copy(name)
+        try:
+            with self.assertRaisesRegex(
+                MATERIALIZATION.ProtectedLocalMaterializationError,
+                "module identity differs",
+            ):
+                sealed.assert_current()
+        finally:
+            self.assertIs(sys.modules[name], second)
+            sys.modules[name] = original
+        sealed.assert_current()
 
     def test_sealed_capability_rejects_copy_pickle_and_state_drift(
         self,
