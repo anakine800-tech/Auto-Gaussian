@@ -669,6 +669,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
         self.assertEqual(len(package), 81)
 
     def test_predecessor_and_effect_owner_bytes_remain_frozen(self) -> None:
+        lifecycle_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "legacy_effect_owner_lifecycle_fix.json"
+            ).read_text(encoding="utf-8")
+        )["files"]["skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"]
         expected = {
             "scripts/protected_submit_contract.py": (
                 "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a"
@@ -686,11 +693,23 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "259c6679fd9b2436b9c7e133fc4b19482e6fed5ea7bbd9f94a86ddac5e7aa8cb"
             ),
         }
+        legacy_relative = (
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+        )
+        self.assertEqual(
+            lifecycle_successor["before_sha256"],
+            expected[legacy_relative],
+        )
         for relative, expected_sha256 in expected.items():
             with self.subTest(path=relative):
+                current_sha256 = (
+                    lifecycle_successor["after_sha256"]
+                    if relative == legacy_relative
+                    else expected_sha256
+                )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    expected_sha256,
+                    current_sha256,
                 )
 
     def test_state_validator_rejects_owner_semantic_splices(self) -> None:
@@ -751,14 +770,29 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
             fixture["base_tree"],
             "b681eb2c6d0a9bceb2c57964ca06e3a533750ce0",
         )
+        lifecycle_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "legacy_effect_owner_lifecycle_fix.json"
+            ).read_text(encoding="utf-8")
+        )
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
                 self.assertEqual(set(binding), {"sha256", "change_class"})
+                current_sha256 = binding["sha256"]
+                if relative in lifecycle_successor["files"]:
+                    successor_binding = lifecycle_successor["files"][relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["after_sha256"]
                 self.assertEqual(
                     hashlib.sha256(
                         (ROOT / relative).read_bytes()
                     ).hexdigest(),
-                    binding["sha256"],
+                    current_sha256,
                 )
         self.assertFalse(
             fixture["remaining_gates"][

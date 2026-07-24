@@ -4740,6 +4740,7 @@ _BACKEND_TRANSACTION_TOKEN = object()
 _LEGACY_EFFECT_OWNER_TOKEN = object()
 _LEGACY_EFFECT_PLAN_STATE_TOKEN = object()
 _LEGACY_EFFECT_STATE_TOKEN = object()
+_LEGACY_EFFECT_LIFECYCLE_TOKEN = object()
 _LEGACY_EFFECT_BINDINGS_LOCK = threading.Lock()
 _LEGACY_EFFECT_STEPS = (
     "windows_directory_claim",
@@ -5042,6 +5043,9 @@ class _LegacyEffectOwnerState:
         "_plan",
         "_plan_factory_state",
         "_terminal_failed",
+        "_retirement_requested",
+        "_retired",
+        "_lifecycle",
         "_factory_seal",
     )
 
@@ -5130,6 +5134,8 @@ class _LegacyRawEffectOwner:
         )
         if bound_state is not state:
             fail("legacy raw effect synchronization is not factory-bound")
+        if state._retirement_requested or state._retired:
+            fail("legacy raw effect owner lifecycle is terminal")
         if state._terminal_failed:
             fail("legacy raw effect owner is terminal after an effect failure")
         plan = getattr(self, "_plan", None)
@@ -5343,6 +5349,97 @@ printf '%s\n' "$job_id"
         )
 
 
+class _LegacyEffectOwnerLifecycle:
+    """Unforgeable bounded lifetime for one exact plan-owner binding."""
+
+    __slots__ = (
+        "_owner",
+        "_state",
+        "_effect_lock",
+        "_plan",
+        "_plan_state",
+        "_plan_lock",
+        "_status",
+        "_factory_seal",
+    )
+
+    def __new__(
+        cls,
+        *args: Any,
+        **kwargs: Any,
+    ) -> "_LegacyEffectOwnerLifecycle":
+        raise TypeError(
+            "_LegacyEffectOwnerLifecycle must be issued for one raw-effect owner"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("_LegacyEffectOwnerLifecycle is owner-managed")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("_LegacyEffectOwnerLifecycle is owner-managed")
+
+    def __copy__(self) -> "_LegacyEffectOwnerLifecycle":
+        raise TypeError(
+            "_LegacyEffectOwnerLifecycle cannot be copied or replayed"
+        )
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "_LegacyEffectOwnerLifecycle":
+        raise TypeError(
+            "_LegacyEffectOwnerLifecycle cannot be copied or replayed"
+        )
+
+    def __reduce__(self) -> object:
+        raise TypeError(
+            "_LegacyEffectOwnerLifecycle cannot be serialized or replayed"
+        )
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        raise TypeError(
+            "_LegacyEffectOwnerLifecycle cannot be serialized or replayed"
+        )
+
+    def __enter__(self) -> _LegacyRawEffectOwner:
+        if (
+            type(self) is not _LegacyEffectOwnerLifecycle
+            or getattr(self, "_factory_seal", None)
+            is not _LEGACY_EFFECT_LIFECYCLE_TOKEN
+            or getattr(self, "_status", None) != "active"
+        ):
+            fail("legacy effect-owner lifecycle is not factory-issued and active")
+        owner = self._owner
+        state, effect_lock, plan, plan_state = (
+            _registered_legacy_effect_owner_binding(owner)
+        )
+        registered_plan_state, plan_lock = (
+            _registered_legacy_effect_plan_binding(plan)
+        )
+        if (
+            state is not self._state
+            or effect_lock is not self._effect_lock
+            or plan is not self._plan
+            or plan_state is not self._plan_state
+            or registered_plan_state is not plan_state
+            or plan_lock is not self._plan_lock
+        ):
+            fail("legacy effect-owner lifecycle binding changed before entry")
+        return owner
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: Any,
+    ) -> bool:
+        _retire_legacy_effect_owner_lifecycle(
+            self,
+            _lifecycle_token=_LEGACY_EFFECT_LIFECYCLE_TOKEN,
+        )
+        return False
+
+
 _LEGACY_EFFECT_PLAN_BINDINGS: dict[
     _LegacyEffectPlan,
     tuple[_LegacyEffectPlanFactoryState, _thread.LockType],
@@ -5433,12 +5530,152 @@ def _registered_legacy_effect_owner_binding(
         is not _LEGACY_EFFECT_STATE_TOKEN
         or type(getattr(state, "_next_step", None)) is not int
         or type(getattr(state, "_terminal_failed", None)) is not bool
+        or getattr(state, "_retirement_requested", None) is not False
+        or getattr(state, "_retired", None) is not False
+        or (
+            getattr(state, "_lifecycle", None) is not None
+            and (
+                type(state._lifecycle) is not _LegacyEffectOwnerLifecycle
+                or getattr(state._lifecycle, "_owner", None) is not owner
+                or getattr(state._lifecycle, "_state", None) is not state
+            )
+        )
         or registered_plan_state is not plan_state
         or getattr(plan_state, "_owner", None) is not owner
         or getattr(plan_state, "_status", None) != "claimed"
     ):
         fail("legacy raw effect owner binding is not module-issued")
     return state, issued_lock, plan, plan_state
+
+
+def _legacy_effect_owner_lifecycle_from_owner(
+    owner: _LegacyRawEffectOwner,
+    *,
+    _lifecycle_token: object | None = None,
+) -> _LegacyEffectOwnerLifecycle:
+    if _lifecycle_token is not _LEGACY_EFFECT_LIFECYCLE_TOKEN:
+        fail("legacy effect-owner lifecycle is internal to the legacy transaction")
+    state, effect_lock, plan, plan_state = (
+        _registered_legacy_effect_owner_binding(owner)
+    )
+    registered_plan_state, plan_lock = (
+        _registered_legacy_effect_plan_binding(plan)
+    )
+    if registered_plan_state is not plan_state:
+        fail("legacy effect-owner lifecycle plan binding does not match")
+    with plan_lock:
+        with effect_lock:
+            current = _registered_legacy_effect_owner_binding(owner)
+            if current != (state, effect_lock, plan, plan_state):
+                fail("legacy effect-owner binding changed before lifecycle issue")
+            if state._lifecycle is not None:
+                fail("legacy effect-owner lifecycle factory is single-use")
+            value = object.__new__(_LegacyEffectOwnerLifecycle)
+            fields = {
+                "_owner": owner,
+                "_state": state,
+                "_effect_lock": effect_lock,
+                "_plan": plan,
+                "_plan_state": plan_state,
+                "_plan_lock": plan_lock,
+                "_status": "active",
+                "_factory_seal": _LEGACY_EFFECT_LIFECYCLE_TOKEN,
+            }
+            for name, item in fields.items():
+                object.__setattr__(value, name, item)
+            object.__setattr__(state, "_lifecycle", value)
+            return value
+
+
+def _retire_legacy_effect_owner_lifecycle(
+    lifecycle: _LegacyEffectOwnerLifecycle,
+    *,
+    _lifecycle_token: object | None = None,
+) -> None:
+    if (
+        _lifecycle_token is not _LEGACY_EFFECT_LIFECYCLE_TOKEN
+        or type(lifecycle) is not _LegacyEffectOwnerLifecycle
+        or getattr(lifecycle, "_factory_seal", None)
+        is not _LEGACY_EFFECT_LIFECYCLE_TOKEN
+    ):
+        fail("legacy effect-owner lifecycle retirement is not factory-issued")
+    owner = lifecycle._owner
+    state = lifecycle._state
+    effect_lock = lifecycle._effect_lock
+    plan = lifecycle._plan
+    plan_state = lifecycle._plan_state
+    plan_lock = lifecycle._plan_lock
+    if (
+        type(owner) is not _LegacyRawEffectOwner
+        or type(state) is not _LegacyEffectOwnerState
+        or type(effect_lock) is not _thread.LockType
+        or type(plan) is not _LegacyEffectPlan
+        or type(plan_state) is not _LegacyEffectPlanFactoryState
+        or type(plan_lock) is not _thread.LockType
+    ):
+        fail("legacy effect-owner lifecycle contains a forged binding")
+    if lifecycle._status == "retired":
+        with _LEGACY_EFFECT_BINDINGS_LOCK:
+            if (
+                _LEGACY_EFFECT_OWNER_BINDINGS.get(owner) is not None
+                or _LEGACY_EFFECT_PLAN_BINDINGS.get(plan) is not None
+                or getattr(state, "_retirement_requested", None) is not True
+                or getattr(state, "_retired", None) is not True
+                or getattr(state, "_owner", None) is not None
+                or getattr(state, "_plan", None) is not None
+                or getattr(state, "_plan_factory_state", None) is not None
+                or getattr(state, "_lifecycle", None) is not None
+                or getattr(plan_state, "_owner", None) is not None
+                or getattr(plan_state, "_plan", None) is not None
+                or getattr(plan_state, "_status", None) != "retired"
+            ):
+                fail("legacy effect-owner lifecycle retirement record changed")
+        return
+    if lifecycle._status != "active":
+        fail("legacy effect-owner lifecycle is not active")
+    with plan_lock:
+        if (
+            getattr(plan, "_factory_state", None) is not plan_state
+            or getattr(plan_state, "_lock", None) is not plan_lock
+            or getattr(owner, "_effect_state", None) is not state
+            or getattr(owner, "_plan", None) is not plan
+            or getattr(state, "_lock", None) is not effect_lock
+            or getattr(state, "_lifecycle", None) is not lifecycle
+        ):
+            fail("legacy effect-owner lifecycle identity changed before retirement")
+        object.__setattr__(state, "_retirement_requested", True)
+        with effect_lock:
+            with _LEGACY_EFFECT_BINDINGS_LOCK:
+                plan_binding = _LEGACY_EFFECT_PLAN_BINDINGS.get(plan)
+                owner_binding = _LEGACY_EFFECT_OWNER_BINDINGS.get(owner)
+                if (
+                    plan_binding != (plan_state, plan_lock)
+                    or owner_binding
+                    != (state, effect_lock, plan, plan_state)
+                    or getattr(plan_state, "_owner", None) is not owner
+                    or getattr(plan_state, "_plan", None) is not plan
+                    or getattr(plan_state, "_status", None) != "claimed"
+                    or getattr(state, "_owner", None) is not owner
+                    or getattr(state, "_plan", None) is not plan
+                    or getattr(state, "_plan_factory_state", None) is not plan_state
+                    or getattr(state, "_lifecycle", None) is not lifecycle
+                    or getattr(state, "_retirement_requested", None) is not True
+                    or getattr(state, "_retired", None) is not False
+                ):
+                    fail(
+                        "legacy effect-owner lifecycle binding changed before retirement"
+                    )
+                del _LEGACY_EFFECT_OWNER_BINDINGS[owner]
+                del _LEGACY_EFFECT_PLAN_BINDINGS[plan]
+                object.__setattr__(state, "_retired", True)
+                object.__setattr__(state, "_owner", None)
+                object.__setattr__(state, "_plan", None)
+                object.__setattr__(state, "_plan_factory_state", None)
+                object.__setattr__(state, "_lifecycle", None)
+                object.__setattr__(plan_state, "_owner", None)
+                object.__setattr__(plan_state, "_plan", None)
+                object.__setattr__(plan_state, "_status", "retired")
+                object.__setattr__(lifecycle, "_status", "retired")
 
 
 def _legacy_effect_plan_from_transaction(
@@ -5540,6 +5777,9 @@ def _legacy_raw_effect_owner_from_plan(
                 plan_state,
             )
             object.__setattr__(state, "_terminal_failed", False)
+            object.__setattr__(state, "_retirement_requested", False)
+            object.__setattr__(state, "_retired", False)
+            object.__setattr__(state, "_lifecycle", None)
             object.__setattr__(
                 state,
                 "_factory_seal",
@@ -6065,221 +6305,226 @@ def _execute_legacy_transaction_once(
         effect_plan,
         _factory_token=_LEGACY_EFFECT_OWNER_TOKEN,
     )
+    effect_lifecycle = _legacy_effect_owner_lifecycle_from_owner(
+        effect_owner,
+        _lifecycle_token=_LEGACY_EFFECT_LIFECYCLE_TOKEN,
+    )
 
-    try:
-        _consume_legacy_effect_observation(
-            effect_owner.claim_windows_directory_once(
-                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-            ),
-            expected_step="windows_directory_claim",
-            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-        )
-        assert_file_bindings_unchanged(files, expected)
-        _consume_legacy_effect_observation(
-            effect_owner.copy_mac_to_windows_once(
-                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-            ),
-            expected_step="mac_to_windows_copy",
-            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-        )
-        hash_result = _consume_legacy_effect_observation(
-            effect_owner.hash_windows_files_once(
-                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-            ),
-            expected_step="windows_sha256",
-            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-        )
-        observed: dict[str, str] = {}
-        for line in str(hash_result.stdout).splitlines():
-            match = re.fullmatch(r"(.+?)\s+([0-9a-fA-F]{64})", line.strip())
-            if match:
-                observed[match.group(1)] = match.group(2).lower()
-        mismatches = [name for name, digest in expected.items() if observed.get(name) != digest]
-        if mismatches:
-            fail("RTwin SHA-256 mismatch or missing hash: " + ", ".join(mismatches))
-        job = update_job(
-            local_dir,
-            upload_hash_timeout_evidence={
-                "known_upload_size_bytes": sum(path.stat().st_size for path in files),
-                "rtwin_sha256_timeout_seconds": upload_hash_timeout_seconds,
-                "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
-                "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
-                "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
-                "returncode": hash_result.returncode,
-                "status": "passed",
-            },
-        )
-
-        # This is the only server-side directory creation path. It is one
-        # atomic claim and rejects every pre-existing path, including empty.
-        _consume_legacy_effect_observation(
-            effect_owner.claim_server_directory_once(
-                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-            ),
-            expected_step="server_directory_claim",
-            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-        )
-        _consume_legacy_effect_observation(
-            effect_owner.copy_windows_to_server_once(
-                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-            ),
-            expected_step="windows_to_server_copy",
-            _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-        )
-    except SystemExit:
-        evidence = {
-            "source": "local_transaction_stopped_before_qsub",
-            "sha256": canonical_digest({
-                "attempt_id": reservation["attempt_id"],
-                "phase": "pre_qsub_transport",
-                "job_state_sha256": read_job_state(local_dir)["state_sha256"],
-            }),
-        }
+    with effect_lifecycle:
         try:
-            reconcile_execution_attempt(
-                execution_ledger_path,
-                reservation["attempt_id"],
-                state="reconciled_not_submitted",
-                observed_at=utc_now(),
-                reason="local control flow proved qsub was never invoked",
-                reconciliation_evidence=evidence,
+            _consume_legacy_effect_observation(
+                effect_owner.claim_windows_directory_once(
+                    _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+                ),
+                expected_step="windows_directory_claim",
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
             )
-        except (execution_batch.BatchError, resource_efficiency.ResourceError) as ledger_exc:
-            update_job(local_dir, status="submission_uncertain", pre_qsub_reconciliation_error=str(ledger_exc))
-            fail("pre-qsub transport failed and ledger reconciliation also failed", code=5)
-        update_job(local_dir, status="not_submitted", submission_reconciliation=evidence)
-        raise
-
-    try:
-        replay_resource_artifacts_before_qsub(
-            policy_path=Path(plan.resource_policy).expanduser().resolve(),
-            gate_path=Path(plan.resource_gate).expanduser().resolve(),
-            scheduler_path=Path(plan.scheduler_resource_snapshot).expanduser().resolve(),
-            expected_policy=resource_policy, expected_gate=resource_gate,
-            expected_scheduler=scheduler_resource_snapshot,
-            expected_bindings=resource_artifact_bindings, now=utc_now(),
-        )
-    except (OSError, ValueError, resource_efficiency.ResourceError) as exc:
-        evidence = {
-            "source": "resource_artifact_replay_failed_before_qsub",
-            "sha256": canonical_digest({"attempt_id": reservation["attempt_id"], "reason": str(exc)}),
-        }
-        try:
-            reconcile_execution_attempt(
-                execution_ledger_path, reservation["attempt_id"],
-                state="reconciled_not_submitted", observed_at=utc_now(),
-                reason="resource policy/gate/scheduler freshness or exact replay failed before qsub",
-                reconciliation_evidence=evidence,
+            assert_file_bindings_unchanged(files, expected)
+            _consume_legacy_effect_observation(
+                effect_owner.copy_mac_to_windows_once(
+                    _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+                ),
+                expected_step="mac_to_windows_copy",
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
             )
-        except (execution_batch.BatchError, resource_efficiency.ResourceError) as ledger_exc:
-            update_job(local_dir, status="submission_uncertain", resource_replay_error=str(ledger_exc))
-            fail("resource replay failed before qsub and ledger reconciliation also failed", code=5)
-        update_job(local_dir, status="not_submitted", qsub_invocation_started=False, submission_reconciliation=evidence)
-        fail("resource artifact/freshness replay failed; qsub was not invoked")
-
-    try:
-        qsub_live_document, qsub_live_digest = validate_live_approval_binding(
-            Path(plan.approval_record), approval_summary
-        )
-        if (
-            qsub_live_digest != live_approval["sha256"]
-            or qsub_live_document != validated_live_document
-        ):
-            fail("live approval changed after reservation and transfer")
-    except SystemExit:
-        evidence = {
-            "source": "live_approval_replay_failed_before_qsub",
-            "sha256": canonical_digest({
-                "attempt_id": reservation["attempt_id"],
-                "approval_sha256": live_approval["sha256"],
-                "phase": "immediately_before_qsub",
-            }),
-        }
-        try:
-            reconcile_execution_attempt(
-                execution_ledger_path,
-                reservation["attempt_id"],
-                state="reconciled_not_submitted",
-                observed_at=utc_now(),
-                reason="approval drift, revocation, or expiry was detected before qsub invocation",
-                reconciliation_evidence=evidence,
+            hash_result = _consume_legacy_effect_observation(
+                effect_owner.hash_windows_files_once(
+                    _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+                ),
+                expected_step="windows_sha256",
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
             )
-        except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
-            update_job(
-                local_dir, status="submission_uncertain", qsub_invocation_started=False,
-                approval_replay_reconciliation_error={
-                    "error_type": type(exc).__name__, "message": str(exc),
-                    "attempt_id": reservation["attempt_id"], "evidence_sha256": evidence["sha256"],
+            observed: dict[str, str] = {}
+            for line in str(hash_result.stdout).splitlines():
+                match = re.fullmatch(r"(.+?)\s+([0-9a-fA-F]{64})", line.strip())
+                if match:
+                    observed[match.group(1)] = match.group(2).lower()
+            mismatches = [name for name, digest in expected.items() if observed.get(name) != digest]
+            if mismatches:
+                fail("RTwin SHA-256 mismatch or missing hash: " + ", ".join(mismatches))
+            job = update_job(
+                local_dir,
+                upload_hash_timeout_evidence={
+                    "known_upload_size_bytes": sum(path.stat().st_size for path in files),
+                    "rtwin_sha256_timeout_seconds": upload_hash_timeout_seconds,
+                    "rate_floor_bytes_per_second": HASH_RATE_FLOOR_BYTES_PER_SECOND,
+                    "fixed_overhead_seconds": HASH_FIXED_OVERHEAD_SECONDS,
+                    "finite_max_timeout_seconds": MAX_HASH_TIMEOUT_SECONDS,
+                    "returncode": hash_result.returncode,
+                    "status": "passed",
                 },
             )
-            fail("approval replay failed before qsub and ledger reconciliation also failed", code=5)
-        update_job(
-            local_dir,
-            status="not_submitted",
-            qsub_invocation_started=False,
-            submission_reconciliation=evidence,
-        )
-        fail("approval is no longer valid; qsub was not invoked and the attempt is reconciled not submitted")
 
-    update_job(local_dir, status="submission_uncertain", qsub_invocation_started=True)
-    result = _consume_legacy_effect_observation(
-        effect_owner.submit_qsub_once(
+            # This is the only server-side directory creation path. It is one
+            # atomic claim and rejects every pre-existing path, including empty.
+            _consume_legacy_effect_observation(
+                effect_owner.claim_server_directory_once(
+                    _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+                ),
+                expected_step="server_directory_claim",
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            )
+            _consume_legacy_effect_observation(
+                effect_owner.copy_windows_to_server_once(
+                    _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+                ),
+                expected_step="windows_to_server_copy",
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            )
+        except SystemExit:
+            evidence = {
+                "source": "local_transaction_stopped_before_qsub",
+                "sha256": canonical_digest({
+                    "attempt_id": reservation["attempt_id"],
+                    "phase": "pre_qsub_transport",
+                    "job_state_sha256": read_job_state(local_dir)["state_sha256"],
+                }),
+            }
+            try:
+                reconcile_execution_attempt(
+                    execution_ledger_path,
+                    reservation["attempt_id"],
+                    state="reconciled_not_submitted",
+                    observed_at=utc_now(),
+                    reason="local control flow proved qsub was never invoked",
+                    reconciliation_evidence=evidence,
+                )
+            except (execution_batch.BatchError, resource_efficiency.ResourceError) as ledger_exc:
+                update_job(local_dir, status="submission_uncertain", pre_qsub_reconciliation_error=str(ledger_exc))
+                fail("pre-qsub transport failed and ledger reconciliation also failed", code=5)
+            update_job(local_dir, status="not_submitted", submission_reconciliation=evidence)
+            raise
+
+        try:
+            replay_resource_artifacts_before_qsub(
+                policy_path=Path(plan.resource_policy).expanduser().resolve(),
+                gate_path=Path(plan.resource_gate).expanduser().resolve(),
+                scheduler_path=Path(plan.scheduler_resource_snapshot).expanduser().resolve(),
+                expected_policy=resource_policy, expected_gate=resource_gate,
+                expected_scheduler=scheduler_resource_snapshot,
+                expected_bindings=resource_artifact_bindings, now=utc_now(),
+            )
+        except (OSError, ValueError, resource_efficiency.ResourceError) as exc:
+            evidence = {
+                "source": "resource_artifact_replay_failed_before_qsub",
+                "sha256": canonical_digest({"attempt_id": reservation["attempt_id"], "reason": str(exc)}),
+            }
+            try:
+                reconcile_execution_attempt(
+                    execution_ledger_path, reservation["attempt_id"],
+                    state="reconciled_not_submitted", observed_at=utc_now(),
+                    reason="resource policy/gate/scheduler freshness or exact replay failed before qsub",
+                    reconciliation_evidence=evidence,
+                )
+            except (execution_batch.BatchError, resource_efficiency.ResourceError) as ledger_exc:
+                update_job(local_dir, status="submission_uncertain", resource_replay_error=str(ledger_exc))
+                fail("resource replay failed before qsub and ledger reconciliation also failed", code=5)
+            update_job(local_dir, status="not_submitted", qsub_invocation_started=False, submission_reconciliation=evidence)
+            fail("resource artifact/freshness replay failed; qsub was not invoked")
+
+        try:
+            qsub_live_document, qsub_live_digest = validate_live_approval_binding(
+                Path(plan.approval_record), approval_summary
+            )
+            if (
+                qsub_live_digest != live_approval["sha256"]
+                or qsub_live_document != validated_live_document
+            ):
+                fail("live approval changed after reservation and transfer")
+        except SystemExit:
+            evidence = {
+                "source": "live_approval_replay_failed_before_qsub",
+                "sha256": canonical_digest({
+                    "attempt_id": reservation["attempt_id"],
+                    "approval_sha256": live_approval["sha256"],
+                    "phase": "immediately_before_qsub",
+                }),
+            }
+            try:
+                reconcile_execution_attempt(
+                    execution_ledger_path,
+                    reservation["attempt_id"],
+                    state="reconciled_not_submitted",
+                    observed_at=utc_now(),
+                    reason="approval drift, revocation, or expiry was detected before qsub invocation",
+                    reconciliation_evidence=evidence,
+                )
+            except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
+                update_job(
+                    local_dir, status="submission_uncertain", qsub_invocation_started=False,
+                    approval_replay_reconciliation_error={
+                        "error_type": type(exc).__name__, "message": str(exc),
+                        "attempt_id": reservation["attempt_id"], "evidence_sha256": evidence["sha256"],
+                    },
+                )
+                fail("approval replay failed before qsub and ledger reconciliation also failed", code=5)
+            update_job(
+                local_dir,
+                status="not_submitted",
+                qsub_invocation_started=False,
+                submission_reconciliation=evidence,
+            )
+            fail("approval is no longer valid; qsub was not invoked and the attempt is reconciled not submitted")
+
+        update_job(local_dir, status="submission_uncertain", qsub_invocation_started=True)
+        result = _consume_legacy_effect_observation(
+            effect_owner.submit_qsub_once(
+                _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
+            ),
+            expected_step="qsub_once",
             _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-        ),
-        expected_step="qsub_once",
-        _effect_token=_LEGACY_EFFECT_OWNER_TOKEN,
-    )
-    outcome = classify_qsub_outcome(result)
-    if outcome["classification"] != "submitted_unique":
-        update_job(local_dir, status="submission_uncertain", submission_output=outcome["output"])
-        fail(
-            "qsub result is uncertain; do not retry. Run reconcile-submission for the exact reservation",
-            code=3,
         )
-    job_id = outcome["job_id"]
-    assert isinstance(job_id, str)
-    receipt = {
-        "schema": "gaussian-submission-receipt/1",
-        "project": project,
-        "job_name": project,
-        "input_sha256": captured_input_sha256,
-        "attempt_id": reservation["attempt_id"],
-        "job_id": job_id,
-        "intent_sha256": intent["intent_sha256"],
-        "observed_at": utc_now(),
-    }
-    receipt["receipt_sha256"] = canonical_digest(receipt)
-    try:
-        publish_new_json(local_dir / "submission-receipt.json", receipt)
-    except ValueError as exc:
-        update_job(local_dir, status="submission_uncertain", receipt_error=str(exc))
-        fail("qsub may have succeeded but immutable local receipt could not be published; reconcile only", code=3)
-    try:
-        reconciled_attempt = reconcile_execution_attempt(
-            execution_ledger_path,
-            reservation["attempt_id"],
-            state="submitted",
-            observed_at=receipt["observed_at"],
-            reason="unique qsub job ID captured in immutable local and remote receipts",
-            scheduler_reference=job_id,
-            reconciliation_evidence={
-                "source": "immutable_submission_receipt",
-                "sha256": receipt["receipt_sha256"],
-            },
+        outcome = classify_qsub_outcome(result)
+        if outcome["classification"] != "submitted_unique":
+            update_job(local_dir, status="submission_uncertain", submission_output=outcome["output"])
+            fail(
+                "qsub result is uncertain; do not retry. Run reconcile-submission for the exact reservation",
+                code=3,
+            )
+        job_id = outcome["job_id"]
+        assert isinstance(job_id, str)
+        receipt = {
+            "schema": "gaussian-submission-receipt/1",
+            "project": project,
+            "job_name": project,
+            "input_sha256": captured_input_sha256,
+            "attempt_id": reservation["attempt_id"],
+            "job_id": job_id,
+            "intent_sha256": intent["intent_sha256"],
+            "observed_at": utc_now(),
+        }
+        receipt["receipt_sha256"] = canonical_digest(receipt)
+        try:
+            publish_new_json(local_dir / "submission-receipt.json", receipt)
+        except ValueError as exc:
+            update_job(local_dir, status="submission_uncertain", receipt_error=str(exc))
+            fail("qsub may have succeeded but immutable local receipt could not be published; reconcile only", code=3)
+        try:
+            reconciled_attempt = reconcile_execution_attempt(
+                execution_ledger_path,
+                reservation["attempt_id"],
+                state="submitted",
+                observed_at=receipt["observed_at"],
+                reason="unique qsub job ID captured in immutable local and remote receipts",
+                scheduler_reference=job_id,
+                reconciliation_evidence={
+                    "source": "immutable_submission_receipt",
+                    "sha256": receipt["receipt_sha256"],
+                },
+            )
+        except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
+            update_job(local_dir, status="submission_uncertain", ledger_reconcile_error=str(exc))
+            fail("qsub succeeded but ledger reconciliation is incomplete; reconcile only", code=3)
+        updated = update_job(
+            local_dir,
+            status="submitted",
+            job_id=job_id,
+            rtwin_sha256_verified=True,
+            server_sha256_verified=True,
+            execution_attempt_sha256=canonical_digest(reconciled_attempt),
+            submission_receipt_sha256=receipt["receipt_sha256"],
         )
-    except (execution_batch.BatchError, resource_efficiency.ResourceError) as exc:
-        update_job(local_dir, status="submission_uncertain", ledger_reconcile_error=str(exc))
-        fail("qsub succeeded but ledger reconciliation is incomplete; reconcile only", code=3)
-    updated = update_job(
-        local_dir,
-        status="submitted",
-        job_id=job_id,
-        rtwin_sha256_verified=True,
-        server_sha256_verified=True,
-        execution_attempt_sha256=canonical_digest(reconciled_attempt),
-        submission_receipt_sha256=receipt["receipt_sha256"],
-    )
-    print(json.dumps({"submitted": True, "job_id": job_id, "job": updated}, ensure_ascii=False, indent=2))
+        print(json.dumps({"submitted": True, "job_id": job_id, "job": updated}, ensure_ascii=False, indent=2))
 
 
 def classify_submission_reconciliation(

@@ -1247,6 +1247,13 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_predecessor_and_legacy_bytes_remain_frozen(self) -> None:
+        lifecycle_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "legacy_effect_owner_lifecycle_fix.json"
+            ).read_text(encoding="utf-8")
+        )["files"]["skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"]
         expected = {
             "scripts/protected_invocation_contract.py": (
                 "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28"
@@ -1267,11 +1274,23 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 "237abc518814bb1debab3d6b6aee7d3041ebcc724d3e00718bda0a1e045cba3d"
             ),
         }
+        legacy_relative = (
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+        )
+        self.assertEqual(
+            lifecycle_successor["before_sha256"],
+            expected[legacy_relative],
+        )
         for relative, expected_hash in expected.items():
             with self.subTest(path=relative):
+                current_hash = (
+                    lifecycle_successor["after_sha256"]
+                    if relative == legacy_relative
+                    else expected_hash
+                )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    expected_hash,
+                    current_hash,
                 )
 
     def test_named_skill_package_contains_owner_schema_and_reference(

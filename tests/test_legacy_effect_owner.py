@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import copy
 import contextlib
+import gc
 import hashlib
 import importlib.util
 import io
@@ -40,9 +41,15 @@ PLAN_SINGLE_USE_FIXTURE = (
     ROOT
     / "tests/fixtures/rtwin_pbs/legacy_effect_plan_single_use_fix.json"
 )
+LIFECYCLE_FIXTURE = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/legacy_effect_owner_lifecycle_fix.json"
+)
 BASE_COMMIT = "fc7b59dc6c280db6cdba435ae7e11f27cf30dd19"
 PR4J_COMMIT = "9f9190a201acc148bdcee134a71ec3f1e3e983cb"
 CONCURRENCY_FIX_COMMIT = "aaa004a88131f244c19e6d39c74eb936e9eb55b6"
+PLAN_SINGLE_USE_COMMIT = "477bada8c5b0342ebd8a8faab1acf3d08dc2814e"
+LIFECYCLE_BASE_COMMIT = "88f03149a59f7b7648cb92718b7705c93b09691d"
 PLACEHOLDER_RUNTIME_CONFIG = (
     Path("/private/tmp")
     / "auto-g16-pr4j-placeholder-runtime-config-does-not-exist.json"
@@ -76,6 +83,14 @@ def _pr4j_source() -> bytes:
 
 def _concurrency_fix_source() -> bytes:
     return _source_at(CONCURRENCY_FIX_COMMIT)
+
+
+def _plan_single_use_source() -> bytes:
+    return _source_at(PLAN_SINGLE_USE_COMMIT)
+
+
+def _lifecycle_base_source() -> bytes:
+    return _source_at(LIFECYCLE_BASE_COMMIT)
 
 
 def _load_source(name: str, path: Path) -> types.ModuleType:
@@ -340,9 +355,23 @@ def _run_case(
     *,
     target_step: int | None,
     mode: str,
+    approval_failure_call: int | None = None,
 ) -> dict[str, object]:
     args, input_approval, live_approval = _make_live_fixture(module, root)
     calls: list[dict[str, object]] = []
+    approval_calls = 0
+
+    def replay_live_approval(
+        *_args: object,
+        **_kwargs: object,
+    ) -> tuple[dict[str, object], str]:
+        nonlocal approval_calls
+        approval_calls += 1
+        if approval_failure_call == approval_calls:
+            raise KeyboardInterrupt(
+                f"synthetic approval replay BaseException {approval_calls}"
+            )
+        return live_approval, "d" * 64
 
     def deterministic_mkdtemp(*, prefix: str, dir: str | os.PathLike[str]) -> str:
         path = Path(dir) / f"{prefix}placeholder"
@@ -368,6 +397,10 @@ def _run_case(
         if target_step == index:
             if mode == "raise":
                 raise RuntimeError(f"synthetic effect exception {index}")
+            if mode == "baseexception":
+                raise KeyboardInterrupt(
+                    f"synthetic effect BaseException {index}"
+                )
             if mode == "nonzero":
                 result = subprocess.CompletedProcess(
                     command,
@@ -427,7 +460,7 @@ def _run_case(
         ), mock.patch.object(
             module,
             "validate_live_approval_binding",
-            return_value=(live_approval, "d" * 64),
+            side_effect=replay_live_approval,
         ), mock.patch.object(
             module,
             "run",
@@ -565,6 +598,14 @@ class LegacyEffectOwnerTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.temporary.cleanup()
 
+    def _fresh_candidate(self, label: str) -> types.ModuleType:
+        path = self.root / f"legacy-effect-lifecycle-{label}.py"
+        path.write_bytes(SOURCE.read_bytes())
+        return _load_source(
+            f"auto_g16_pr4m_effect_lifecycle_{label}",
+            path,
+        )
+
     def test_only_raw_effect_owner_calls_run_and_outer_state_calls_stay_ordered(
         self,
     ) -> None:
@@ -627,11 +668,45 @@ class LegacyEffectOwnerTests(unittest.TestCase):
                 and _call_name(node) not in excluded
             ]
 
-        self.assertEqual(state_calls(candidate_owner), state_calls(base_owner))
+        class LifecycleWrapperNormalizer(ast.NodeTransformer):
+            def visit_Assign(
+                self,
+                node: ast.Assign,
+            ) -> ast.Assign | None:
+                if (
+                    isinstance(node.value, ast.Call)
+                    and _call_name(node.value)
+                    == "_legacy_effect_owner_lifecycle_from_owner"
+                ):
+                    return None
+                return self.generic_visit(node)
+
+            def visit_With(
+                self,
+                node: ast.With,
+            ) -> ast.With | list[ast.stmt]:
+                normalized = self.generic_visit(node)
+                assert isinstance(normalized, ast.With)
+                if (
+                    len(normalized.items) == 1
+                    and isinstance(normalized.items[0].context_expr, ast.Name)
+                    and normalized.items[0].context_expr.id == "effect_lifecycle"
+                ):
+                    return normalized.body
+                return normalized
+
+        normalized_candidate = LifecycleWrapperNormalizer().visit(
+            copy.deepcopy(candidate_owner)
+        )
+        assert isinstance(normalized_candidate, ast.FunctionDef)
+        self.assertEqual(
+            state_calls(normalized_candidate),
+            state_calls(base_owner),
+        )
         self.assertEqual(
             [
                 ast.unparse(node.type) if node.type is not None else None
-                for node in ast.walk(candidate_owner)
+                for node in ast.walk(normalized_candidate)
                 if isinstance(node, ast.ExceptHandler)
             ],
             [
@@ -651,6 +726,10 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         )
         self.assertEqual(
             calls.count("_legacy_raw_effect_owner_from_plan"),
+            1,
+        )
+        self.assertEqual(
+            calls.count("_legacy_effect_owner_lifecycle_from_owner"),
             1,
         )
         for method in (
@@ -700,7 +779,7 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         self.assertFalse(binding["behavior_parity"]["automatic_retry"])
         self.assertFalse(binding["behavior_parity"]["live_actions"])
 
-    def test_plan_single_use_successor_binds_concurrency_fix_and_current_source(
+    def test_plan_single_use_successor_keeps_exact_477bada_bytes_frozen(
         self,
     ) -> None:
         fixture = json.loads(PLAN_SINGLE_USE_FIXTURE.read_text(encoding="utf-8"))
@@ -713,10 +792,39 @@ class LegacyEffectOwnerTests(unittest.TestCase):
             binding["before_sha256"],
         )
         self.assertEqual(
-            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            hashlib.sha256(_plan_single_use_source()).hexdigest(),
             binding["after_sha256"],
         )
         self.assertTrue(binding["plan_factory_semantics_changed"])
+        self.assertFalse(binding["behavior_parity"]["command_bytes_changed"])
+        self.assertFalse(binding["behavior_parity"]["automatic_retry"])
+        self.assertFalse(binding["behavior_parity"]["live_actions"])
+
+    def test_lifecycle_successor_binds_exact_base_and_current_source(
+        self,
+    ) -> None:
+        fixture = json.loads(LIFECYCLE_FIXTURE.read_text(encoding="utf-8"))
+        self.assertEqual(fixture["base_commit"], LIFECYCLE_BASE_COMMIT)
+        self.assertEqual(
+            fixture["base_tree"],
+            "a4c475b20ef72e20881e2bc488b2023394b3d807",
+        )
+        self.assertEqual(
+            fixture["base_parent"],
+            "7ea0ae19156ad3b6daeefc787ca6dda471669355",
+        )
+        binding = fixture["files"][
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+        ]
+        self.assertEqual(
+            hashlib.sha256(_lifecycle_base_source()).hexdigest(),
+            binding["before_sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            binding["after_sha256"],
+        )
+        self.assertTrue(binding["lifecycle_semantics_changed"])
         self.assertFalse(binding["behavior_parity"]["command_bytes_changed"])
         self.assertFalse(binding["behavior_parity"]["automatic_retry"])
         self.assertFalse(binding["behavior_parity"]["live_actions"])
@@ -1591,6 +1699,316 @@ class LegacyEffectOwnerTests(unittest.TestCase):
             ),
             ("plan", "_factory_token"),
         )
+
+    def test_lifecycle_retires_exact_binding_and_replay_fails_before_effect(
+        self,
+    ) -> None:
+        module = self._fresh_candidate("exact")
+        owner = _make_raw_owner(module, self.root, project="lifecycleexact")
+        plan = owner._plan
+        state = owner._effect_state
+        baseline = (
+            len(module._LEGACY_EFFECT_PLAN_BINDINGS),
+            len(module._LEGACY_EFFECT_OWNER_BINDINGS),
+        )
+        lifecycle = module._legacy_effect_owner_lifecycle_from_owner(
+            owner,
+            _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+        )
+        for operation in (
+            lambda: copy.copy(lifecycle),
+            lambda: copy.deepcopy(lifecycle),
+            lambda: pickle.dumps(lifecycle),
+        ):
+            with self.assertRaises(TypeError):
+                operation()
+        calls = 0
+
+        def recording_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls
+            calls += 1
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        methods = (
+            "claim_windows_directory_once",
+            "copy_mac_to_windows_once",
+            "hash_windows_files_once",
+            "claim_server_directory_once",
+            "copy_windows_to_server_once",
+            "submit_qsub_once",
+        )
+        with mock.patch.object(
+            module,
+            "run",
+            side_effect=recording_runner,
+        ), lifecycle as active_owner:
+            self.assertIs(active_owner, owner)
+            for method in methods:
+                kind, _value = _call_owner_step(module, owner, method)
+                self.assertEqual(kind, "result")
+        self.assertEqual(calls, 6)
+        self.assertEqual(lifecycle._status, "retired")
+        self.assertTrue(state._retirement_requested)
+        self.assertTrue(state._retired)
+        self.assertIsNone(state._owner)
+        self.assertIsNone(state._plan)
+        self.assertIsNone(state._plan_factory_state)
+        self.assertIsNone(state._lifecycle)
+        self.assertEqual(plan._factory_state._status, "retired")
+        self.assertIsNone(plan._factory_state._owner)
+        self.assertIsNone(plan._factory_state._plan)
+        self.assertEqual(
+            (
+                len(module._LEGACY_EFFECT_PLAN_BINDINGS),
+                len(module._LEGACY_EFFECT_OWNER_BINDINGS),
+            ),
+            (baseline[0] - 1, baseline[1] - 1),
+        )
+        module._retire_legacy_effect_owner_lifecycle(
+            lifecycle,
+            _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+        )
+        with mock.patch.object(
+            module,
+            "run",
+            side_effect=recording_runner,
+        ):
+            replay = _call_owner_step(
+                module,
+                owner,
+                "claim_windows_directory_once",
+            )
+            with self.assertRaises(SystemExit):
+                module._legacy_raw_effect_owner_from_plan(
+                    plan,
+                    _factory_token=module._LEGACY_EFFECT_OWNER_TOKEN,
+                )
+        self.assertEqual(replay[0], "exception")
+        self.assertIsInstance(replay[1], SystemExit)
+        self.assertEqual(calls, 6)
+
+    def test_transaction_terminal_paths_retire_without_gc_or_tombstones(
+        self,
+    ) -> None:
+        module = self._fresh_candidate("terminalpaths")
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            cases = [(None, "success")]
+            cases.extend((step, "raise") for step in range(6))
+            cases.extend((step, "baseexception") for step in range(6))
+            for index, (target_step, mode) in enumerate(cases):
+                with self.subTest(target_step=target_step, mode=mode):
+                    case_root = self.root / f"lifecycle-terminal-{index}"
+                    case_root.mkdir()
+                    outcome = _run_case(
+                        module,
+                        case_root,
+                        target_step=target_step,
+                        mode=mode,
+                    )
+                    self.assertLessEqual(len(outcome["calls"]), 6)
+                    self.assertEqual(
+                        len(module._LEGACY_EFFECT_PLAN_BINDINGS),
+                        0,
+                    )
+                    self.assertEqual(
+                        len(module._LEGACY_EFFECT_OWNER_BINDINGS),
+                        0,
+                    )
+        finally:
+            if was_enabled:
+                gc.enable()
+
+    def test_post_transfer_local_failures_always_retire_before_propagation(
+        self,
+    ) -> None:
+        class FatalLocalReplay(BaseException):
+            pass
+
+        resource_module = self._fresh_candidate("resourcefailure")
+        resource_failure = FatalLocalReplay("synthetic resource replay failure")
+        resource_root = self.root / "lifecycle-resource-failure"
+        resource_root.mkdir()
+        with mock.patch.object(
+            resource_module,
+            "replay_resource_artifacts_before_qsub",
+            side_effect=resource_failure,
+        ):
+            resource_outcome = _run_case(
+                resource_module,
+                resource_root,
+                target_step=None,
+                mode="success",
+            )
+        self.assertEqual(resource_outcome["exception"]["type"], "FatalLocalReplay")
+        self.assertEqual(len(resource_outcome["calls"]), 5)
+        self.assertEqual(len(resource_module._LEGACY_EFFECT_PLAN_BINDINGS), 0)
+        self.assertEqual(len(resource_module._LEGACY_EFFECT_OWNER_BINDINGS), 0)
+
+        approval_module = self._fresh_candidate("approvalfailure")
+        approval_root = self.root / "lifecycle-approval-failure"
+        approval_root.mkdir()
+        approval_outcome = _run_case(
+            approval_module,
+            approval_root,
+            target_step=None,
+            mode="success",
+            approval_failure_call=3,
+        )
+        self.assertEqual(approval_outcome["exception"]["type"], "KeyboardInterrupt")
+        self.assertEqual(len(approval_outcome["calls"]), 5)
+        self.assertEqual(len(approval_module._LEGACY_EFFECT_PLAN_BINDINGS), 0)
+        self.assertEqual(len(approval_module._LEGACY_EFFECT_OWNER_BINDINGS), 0)
+
+    def test_inflight_retirement_allows_at_most_one_runner_call(self) -> None:
+        module = self._fresh_candidate("inflight")
+        owner = _make_raw_owner(module, self.root, project="inflightretire")
+        lifecycle = module._legacy_effect_owner_lifecycle_from_owner(
+            owner,
+            _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+        )
+        state = owner._effect_state
+        runner_entered = threading.Event()
+        release_runner = threading.Event()
+        retire_started = threading.Event()
+        second_started = threading.Event()
+        calls = 0
+        call_lock = threading.Lock()
+
+        def blocking_runner(
+            command: list[str],
+            *,
+            input_bytes: bytes | None = None,
+            check: bool = True,
+            timeout_seconds: int = 60,
+        ) -> subprocess.CompletedProcess:
+            nonlocal calls
+            with call_lock:
+                calls += 1
+            runner_entered.set()
+            self.assertTrue(release_runner.wait(timeout=5))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        def retire() -> None:
+            retire_started.set()
+            module._retire_legacy_effect_owner_lifecycle(
+                lifecycle,
+                _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+            )
+
+        def invoke_second() -> tuple[str, object]:
+            second_started.set()
+            return _call_owner_step(
+                module,
+                owner,
+                "copy_mac_to_windows_once",
+            )
+
+        with mock.patch.object(
+            module,
+            "run",
+            side_effect=blocking_runner,
+        ), lifecycle, ThreadPoolExecutor(max_workers=3) as pool:
+            first = pool.submit(
+                _call_owner_step,
+                module,
+                owner,
+                "claim_windows_directory_once",
+            )
+            self.assertTrue(runner_entered.wait(timeout=5))
+            owner._plan._factory_state._lock.acquire()
+            try:
+                retiring = pool.submit(retire)
+                self.assertTrue(retire_started.wait(timeout=5))
+                second = pool.submit(invoke_second)
+                self.assertTrue(second_started.wait(timeout=5))
+            finally:
+                owner._plan._factory_state._lock.release()
+            for _index in range(1000):
+                if state._retirement_requested:
+                    break
+                threading.Event().wait(0.001)
+            self.assertTrue(state._retirement_requested)
+            release_runner.set()
+            first_outcome = first.result(timeout=5)
+            second_outcome = second.result(timeout=5)
+            retiring.result(timeout=5)
+        self.assertEqual(first_outcome[0], "result")
+        self.assertEqual(second_outcome[0], "exception")
+        self.assertIsInstance(second_outcome[1], SystemExit)
+        self.assertEqual(calls, 1)
+        self.assertEqual(len(module._LEGACY_EFFECT_PLAN_BINDINGS), 0)
+        self.assertEqual(len(module._LEGACY_EFFECT_OWNER_BINDINGS), 0)
+
+    def test_forged_swapped_and_replaced_lifecycle_cannot_retire_binding(
+        self,
+    ) -> None:
+        module = self._fresh_candidate("forgery")
+        first_owner = _make_raw_owner(
+            module,
+            self.root,
+            project="lifeforgeone",
+        )
+        second_owner = _make_raw_owner(
+            module,
+            self.root,
+            project="lifeforgetwo",
+        )
+        first = module._legacy_effect_owner_lifecycle_from_owner(
+            first_owner,
+            _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+        )
+        second = module._legacy_effect_owner_lifecycle_from_owner(
+            second_owner,
+            _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+        )
+
+        forged = object.__new__(module._LegacyEffectOwnerLifecycle)
+        for name in module._LegacyEffectOwnerLifecycle.__slots__:
+            object.__setattr__(forged, name, getattr(first, name))
+        with self.assertRaises(SystemExit):
+            module._retire_legacy_effect_owner_lifecycle(
+                forged,
+                _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+            )
+        self.assertIn(first_owner, module._LEGACY_EFFECT_OWNER_BINDINGS)
+        self.assertIn(first_owner._plan, module._LEGACY_EFFECT_PLAN_BINDINGS)
+
+        object.__setattr__(first, "_owner", second_owner)
+        with self.assertRaises(SystemExit):
+            module._retire_legacy_effect_owner_lifecycle(
+                first,
+                _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+            )
+        object.__setattr__(first, "_owner", first_owner)
+        self.assertIn(first_owner, module._LEGACY_EFFECT_OWNER_BINDINGS)
+        self.assertIn(second_owner, module._LEGACY_EFFECT_OWNER_BINDINGS)
+
+        original_lock = first._effect_lock
+        object.__setattr__(first, "_effect_lock", threading.Lock())
+        with self.assertRaises(SystemExit):
+            module._retire_legacy_effect_owner_lifecycle(
+                first,
+                _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+            )
+        object.__setattr__(first, "_effect_lock", original_lock)
+        self.assertIn(first_owner, module._LEGACY_EFFECT_OWNER_BINDINGS)
+        self.assertIn(second_owner, module._LEGACY_EFFECT_OWNER_BINDINGS)
+
+        for lifecycle in (first, second):
+            module._retire_legacy_effect_owner_lifecycle(
+                lifecycle,
+                _lifecycle_token=module._LEGACY_EFFECT_LIFECYCLE_TOKEN,
+            )
+        self.assertEqual(len(module._LEGACY_EFFECT_PLAN_BINDINGS), 0)
+        self.assertEqual(len(module._LEGACY_EFFECT_OWNER_BINDINGS), 0)
 
     def test_recording_success_matches_exact_calls_and_artifact_bytes(
         self,
