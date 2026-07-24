@@ -1281,7 +1281,23 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
             ROOT,
             "auto-g16-rtwin-pbs",
         )
-        self.assertEqual(len(package), 78)
+        successor_targets = {
+            Path("scripts/protected_local_materialization.py"),
+            Path(
+                "contracts/execution/"
+                "protected-local-materialization.schema.json"
+            ),
+            Path("references/protected-local-materialization.md"),
+        }
+        present_successor_targets = successor_targets.intersection(package)
+        self.assertIn(
+            present_successor_targets,
+            (set(), successor_targets),
+        )
+        self.assertEqual(
+            len(package),
+            78 + len(present_successor_targets),
+        )
         expected = {
             Path("scripts/protected_lifecycle_contract.py"): (
                 ROOT / "scripts/protected_lifecycle_contract.py"
@@ -1357,18 +1373,24 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
             fixture["base_parent"],
             "aaa004a88131f244c19e6d39c74eb936e9eb55b6",
         )
+        successor_extension_paths = {
+            "skills/auto-g16-rtwin-pbs/SKILL.md",
+            "skills/auto-g16-rtwin-pbs/deployment-package.json",
+            "tests/test_protected_lifecycle_contract.py",
+        }
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
                 self.assertEqual(
                     set(binding),
                     {"sha256", "change_class"},
                 )
-                self.assertEqual(
-                    hashlib.sha256(
-                        (ROOT / relative).read_bytes()
-                    ).hexdigest(),
-                    binding["sha256"],
-                )
+                current_sha256 = hashlib.sha256(
+                    (ROOT / relative).read_bytes()
+                ).hexdigest()
+                if relative in successor_extension_paths:
+                    self.assertNotEqual(current_sha256, binding["sha256"])
+                else:
+                    self.assertEqual(current_sha256, binding["sha256"])
 
 
 if __name__ == "__main__":

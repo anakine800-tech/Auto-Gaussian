@@ -31,6 +31,10 @@ if TYPE_CHECKING:
         ProtectedInvocationEvidence,
         SealedProtectedInvocationBundle,
     )
+    from protected_lifecycle_contract import ProtectedLifecycleEvidence
+    from protected_local_materialization import (
+        SealedProtectedLocalMaterialization,
+    )
     from protected_submit_contract import (
         ProtectedSubmitContractOwner,
         ProtectedSubmitEvidence,
@@ -46,6 +50,10 @@ _LOCAL_STATE_MODULE_NAME = "local_state_binding"
 _LOCAL_STATE_IMPORT_LOCK = threading.RLock()
 _PROTECTED_INVOCATION_MODULE_NAME = "protected_invocation_contract"
 _PROTECTED_INVOCATION_IMPORT_LOCK = threading.RLock()
+_PROTECTED_LOCAL_MATERIALIZATION_MODULE_NAME = (
+    "protected_local_materialization"
+)
+_PROTECTED_LOCAL_MATERIALIZATION_IMPORT_LOCK = threading.RLock()
 
 
 def _protected_submit_contract_path() -> Path:
@@ -304,6 +312,72 @@ def _protected_invocation_evidence_for_exact_owner(
     )
 
 
+def _protected_local_materialization_path() -> Path:
+    facade = Path(__file__).resolve()
+    filename = f"{_PROTECTED_LOCAL_MATERIALIZATION_MODULE_NAME}.py"
+    skill_directory = facade.parent.parent
+    if (
+        facade.parent.name == "scripts"
+        and skill_directory.name == "auto-g16-rtwin-pbs"
+        and skill_directory.parent.name == "skills"
+    ):
+        source_owner = (
+            skill_directory.parent.parent / "scripts" / filename
+        )
+        if (
+            not source_owner.is_symlink()
+            and source_owner.is_file()
+            and source_owner.resolve().parent
+            == skill_directory.parent.parent.resolve() / "scripts"
+        ):
+            return source_owner.resolve()
+
+    adjacent_owner = facade.with_name(filename)
+    if (
+        not adjacent_owner.is_symlink()
+        and adjacent_owner.is_file()
+        and adjacent_owner.resolve().parent == facade.parent
+    ):
+        return adjacent_owner.resolve()
+    raise ImportError(
+        "exact protected local-materialization owner is unavailable in "
+        "repository source or deployed-package layout"
+    )
+
+
+@contextlib.contextmanager
+def _exact_protected_local_materialization() -> Iterator[types.ModuleType]:
+    """Load the layout-bound materialization owner and restore its cache."""
+
+    path = _protected_local_materialization_path()
+    name = _PROTECTED_LOCAL_MATERIALIZATION_MODULE_NAME
+    with _PROTECTED_LOCAL_MATERIALIZATION_IMPORT_LOCK:
+        _imp.acquire_lock()
+        previous = sys.modules.get(name, _MISSING_MODULE)
+        try:
+            sys.modules.pop(name, None)
+            spec = importlib.util.spec_from_file_location(name, path)
+            if spec is None or spec.loader is None:
+                raise ImportError(
+                    "exact protected local-materialization owner cannot "
+                    f"be loaded: {path}"
+                )
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module
+            spec.loader.exec_module(module)
+            file_origin, spec_origin = _module_origin(module)
+            if file_origin != path or spec_origin != path:
+                raise ImportError(
+                    "protected local-materialization owner origin changed"
+                )
+            yield module
+        finally:
+            sys.modules.pop(name, None)
+            if previous is not _MISSING_MODULE:
+                sys.modules[name] = previous
+            _imp.release_lock()
+
+
 class TransportAdapter(Protocol):
     def capabilities(self) -> tuple[str, ...]: ...
     def attest_first_hop_once(self, request: object) -> AttestationBoundaryPlan: ...
@@ -429,6 +503,17 @@ def seal_protected_invocation_bundle(
         )
         owner = contract.ProtectedInvocationContractOwner.production()
         return owner.seal(exact_evidence)
+
+
+def materialize_protected_lifecycle_once(
+    *,
+    evidence: "ProtectedLifecycleEvidence",
+) -> "SealedProtectedLocalMaterialization":
+    """Reserve, materialize exact sealed bytes, publish state, then stop."""
+
+    with _exact_protected_local_materialization() as contract:
+        owner = contract.ProtectedLocalMaterializationOwner.production()
+        return owner.materialize_once(evidence)
 
 
 def bind_current() -> types.ModuleType:

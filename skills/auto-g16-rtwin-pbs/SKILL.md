@@ -108,6 +108,15 @@ with every reservation/effect/adapter/materialization/reconciliation status
 false. It neither creates a raw legacy effect owner nor changes the
 fail-closed adapter.
 
+The additive v2.6 PR4L successor implements only the bounded local prefix in
+that order. Read
+[references/protected-local-materialization.md](references/protected-local-materialization.md).
+It accepts only exact typed PR4K evidence, reserves PR4D once, writes the
+already sealed PR4F bytes without clobbering the PR4G-derived directory, and
+publishes a sealed `submission_uncertain` local-state record last. It then
+stops. The adapter, qsub, reconciliation, live-validation and long-process
+owner-lifetime gates remain closed.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -479,6 +488,9 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/protected_invocation_contract.py`: packaged additive PR4F owner
   that composes PR4D, PR4G and the unique legacy stage-byte plan into a
   replayable in-process seal with no reservation or effect surface.
+- `scripts/protected_local_materialization.py`: packaged additive PR4L owner
+  for reserve-first, no-clobber exact stage materialization and final sealed
+  local-state publication; it provides no adapter or external-effect method.
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
 - `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for
