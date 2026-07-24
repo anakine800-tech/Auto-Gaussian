@@ -43,6 +43,10 @@
       "target": "scripts/protected_local_materialization.py"
     },
     {
+      "source": "scripts/protected_legacy_effect_handoff.py",
+      "target": "scripts/protected_legacy_effect_handoff.py"
+    },
+    {
       "source": "scripts/runtime_config.py",
       "target": "scripts/platform_runtime_config_owner.py"
     }

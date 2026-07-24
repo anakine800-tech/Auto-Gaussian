@@ -540,6 +540,7 @@ class LocalStateBindingTests(unittest.TestCase):
                 "legacy_effect_owner_concurrency_fix.json",
                 "legacy_effect_plan_single_use_fix.json",
                 "legacy_effect_owner_lifecycle_fix.json",
+                "protected_legacy_effect_handoff.json",
             )
         ]
         for relative, expected in manifest["files"].items():
@@ -556,7 +557,11 @@ class LocalStateBindingTests(unittest.TestCase):
                 for record in records:
                     self.assertEqual(record["before_sha256"], current)
                     self.assertFalse(record["legacy_semantics_changed"])
-                    current = record["after_sha256"]
+                    current = (
+                        record["after_sha256"]
+                        if "after_sha256" in record
+                        else record["sha256"]
+                    )
                 self.assertEqual(actual, current)
 
     def test_package_and_source_relocation_preserve_exact_origin(self) -> None:

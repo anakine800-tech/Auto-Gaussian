@@ -4741,6 +4741,7 @@ _LEGACY_EFFECT_OWNER_TOKEN = object()
 _LEGACY_EFFECT_PLAN_STATE_TOKEN = object()
 _LEGACY_EFFECT_STATE_TOKEN = object()
 _LEGACY_EFFECT_LIFECYCLE_TOKEN = object()
+_LEGACY_EFFECT_READINESS_TOKEN = object()
 _LEGACY_EFFECT_BINDINGS_LOCK = threading.Lock()
 _LEGACY_EFFECT_STEPS = (
     "windows_directory_claim",
@@ -4750,6 +4751,175 @@ _LEGACY_EFFECT_STEPS = (
     "windows_to_server_copy",
     "qsub_once",
 )
+
+
+class _LegacyEffectLifecycleReadinessWitness:
+    """Read-only proof that the bounded PR4M lifecycle implementation exists."""
+
+    __slots__ = ("_canonical_document", "_owner_seal")
+
+    def __new__(
+        cls,
+        *args: Any,
+        **kwargs: Any,
+    ) -> "_LegacyEffectLifecycleReadinessWitness":
+        raise TypeError(
+            "legacy effect lifecycle readiness is module-issued only"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError(
+            "legacy effect lifecycle readiness witness is frozen"
+        )
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(
+            "legacy effect lifecycle readiness witness is frozen"
+        )
+
+    def __copy__(self) -> "_LegacyEffectLifecycleReadinessWitness":
+        raise TypeError(
+            "legacy effect lifecycle readiness witness cannot be copied"
+        )
+
+    def __deepcopy__(
+        self,
+        memo: dict[int, Any],
+    ) -> "_LegacyEffectLifecycleReadinessWitness":
+        del memo
+        raise TypeError(
+            "legacy effect lifecycle readiness witness cannot be copied"
+        )
+
+    def __reduce__(self) -> object:
+        raise TypeError(
+            "legacy effect lifecycle readiness witness cannot be serialized"
+        )
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        del protocol
+        raise TypeError(
+            "legacy effect lifecycle readiness witness cannot be serialized"
+        )
+
+    def document(self) -> dict[str, Any]:
+        return json.loads(self._canonical_document)
+
+    def assert_owner_sealed(
+        self,
+    ) -> "_LegacyEffectLifecycleReadinessWitness":
+        if (
+            type(self) is not _LegacyEffectLifecycleReadinessWitness
+            or getattr(self, "_owner_seal", None)
+            is not _LEGACY_EFFECT_READINESS_TOKEN
+        ):
+            fail("legacy effect lifecycle readiness witness seal differs")
+        document = self.document()
+        expected = {
+            "schema": (
+                "auto-g16-legacy-effect-lifecycle-readiness-witness/1"
+            ),
+            "owner": "legacy_rtwin_pbs",
+            "lifecycle_protocol": (
+                "bounded-terminal-retirement/1"
+            ),
+            "effect_steps": list(_LEGACY_EFFECT_STEPS),
+            "lifecycle_guards": {
+                "one_plan_one_owner": True,
+                "single_active_lifecycle": True,
+                "terminal_retirement": True,
+                "registry_retired_on_every_terminal_exit": True,
+            },
+            "status": {
+                "effect_plan_created": False,
+                "raw_effect_owner_created": False,
+                "registry_entry_created": False,
+                "effects_performed": False,
+                "runner_called": False,
+                "adapter_connected": False,
+            },
+            "policy": {
+                "automatic_retry": False,
+                "automatic_cancel": False,
+                "automatic_cleanup": False,
+                "automatic_delete": False,
+            },
+            "witness_payload_sha256": "",
+        }
+        expected["witness_payload_sha256"] = canonical_digest(
+            {
+                key: value
+                for key, value in expected.items()
+                if key != "witness_payload_sha256"
+            }
+        )
+        if document != expected:
+            fail("legacy effect lifecycle readiness witness differs")
+        return self
+
+
+def _issue_legacy_effect_lifecycle_readiness_witness(
+) -> _LegacyEffectLifecycleReadinessWitness:
+    """Issue a read-only witness without creating a plan, owner, or registry."""
+
+    document: dict[str, Any] = {
+        "schema": (
+            "auto-g16-legacy-effect-lifecycle-readiness-witness/1"
+        ),
+        "owner": "legacy_rtwin_pbs",
+        "lifecycle_protocol": "bounded-terminal-retirement/1",
+        "effect_steps": list(_LEGACY_EFFECT_STEPS),
+        "lifecycle_guards": {
+            "one_plan_one_owner": True,
+            "single_active_lifecycle": True,
+            "terminal_retirement": True,
+            "registry_retired_on_every_terminal_exit": True,
+        },
+        "status": {
+            "effect_plan_created": False,
+            "raw_effect_owner_created": False,
+            "registry_entry_created": False,
+            "effects_performed": False,
+            "runner_called": False,
+            "adapter_connected": False,
+        },
+        "policy": {
+            "automatic_retry": False,
+            "automatic_cancel": False,
+            "automatic_cleanup": False,
+            "automatic_delete": False,
+        },
+        "witness_payload_sha256": "",
+    }
+    document["witness_payload_sha256"] = canonical_digest(
+        {
+            key: value
+            for key, value in document.items()
+            if key != "witness_payload_sha256"
+        }
+    )
+    value = object.__new__(_LegacyEffectLifecycleReadinessWitness)
+    object.__setattr__(
+        value,
+        "_canonical_document",
+        (
+            json.dumps(
+                document,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8"),
+    )
+    object.__setattr__(
+        value,
+        "_owner_seal",
+        _LEGACY_EFFECT_READINESS_TOKEN,
+    )
+    value.assert_owner_sealed()
+    return value
 
 
 # gaussian_rtwin_pbs.py executes this source in an intentionally unregistered

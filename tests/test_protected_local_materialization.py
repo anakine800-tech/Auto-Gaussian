@@ -666,7 +666,7 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
         }
         for target, source in expected.items():
             self.assertEqual(package[target], source)
-        self.assertEqual(len(package), 81)
+        self.assertEqual(len(package), 84)
 
     def test_predecessor_and_effect_owner_bytes_remain_frozen(self) -> None:
         lifecycle_successor = json.loads(
@@ -676,6 +676,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "legacy_effect_owner_lifecycle_fix.json"
             ).read_text(encoding="utf-8")
         )["files"]["skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"]
+        handoff_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_legacy_effect_handoff.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         expected = {
             "scripts/protected_submit_contract.py": (
                 "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a"
@@ -707,6 +714,12 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                     if relative == legacy_relative
                     else expected_sha256
                 )
+                if relative in handoff_successor:
+                    self.assertEqual(
+                        handoff_successor[relative]["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = handoff_successor[relative]["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -777,6 +790,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "legacy_effect_owner_lifecycle_fix.json"
             ).read_text(encoding="utf-8")
         )
+        handoff_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_legacy_effect_handoff.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
                 self.assertEqual(set(binding), {"sha256", "change_class"})
@@ -788,6 +808,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = successor_binding["after_sha256"]
+                if relative in handoff_successor:
+                    successor_binding = handoff_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256(
                         (ROOT / relative).read_bytes()

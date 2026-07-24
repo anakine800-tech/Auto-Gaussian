@@ -1,0 +1,421 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-protected-legacy-effect-handoff/1",
+  "title": "Auto-G16 v2.6 protected legacy effect handoff",
+  "$comment": "Structural validity only. This document cannot create a legacy plan or raw owner, connect an adapter, call a runner, perform an effect, or grant live authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "handoff_id",
+    "materialization",
+    "lifecycle_readiness",
+    "owner_bindings",
+    "scope",
+    "status",
+    "policy",
+    "handoff_payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "auto-g16-protected-legacy-effect-handoff/1"
+    },
+    "owner": {
+      "const": "auto-g16-protected-legacy-effect-handoff-owner"
+    },
+    "handoff_id": {
+      "type": "string",
+      "pattern": "^protected-legacy-effect-handoff-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "materialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "materialization_id",
+        "state_payload_sha256",
+        "lifecycle_id",
+        "invocation_id",
+        "invocation_payload_sha256",
+        "attempt_id",
+        "consumption_sha256",
+        "local_state_binding_payload_sha256",
+        "stage_manifest_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "auto-g16-protected-local-materialization/1"
+        },
+        "materialization_id": {
+          "type": "string",
+          "pattern": "^protected-local-materialization-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "state_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "lifecycle_id": {
+          "type": "string",
+          "pattern": "^protected-lifecycle-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "invocation_id": {
+          "type": "string",
+          "pattern": "^protected-invocation-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "invocation_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^qsub-attempt-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "consumption_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "local_state_binding_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "stage_manifest_sha256": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "lifecycle_readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "owner",
+        "lifecycle_protocol",
+        "effect_steps",
+        "lifecycle_guards",
+        "status",
+        "policy",
+        "witness_payload_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "auto-g16-legacy-effect-lifecycle-readiness-witness/1"
+        },
+        "owner": {
+          "const": "legacy_rtwin_pbs"
+        },
+        "lifecycle_protocol": {
+          "const": "bounded-terminal-retirement/1"
+        },
+        "effect_steps": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "windows_directory_claim"
+            },
+            {
+              "const": "mac_to_windows_copy"
+            },
+            {
+              "const": "windows_sha256"
+            },
+            {
+              "const": "server_directory_claim"
+            },
+            {
+              "const": "windows_to_server_copy"
+            },
+            {
+              "const": "qsub_once"
+            }
+          ],
+          "items": false,
+          "minItems": 6,
+          "maxItems": 6
+        },
+        "lifecycle_guards": {
+          "$ref": "#/$defs/lifecycle_guards"
+        },
+        "status": {
+          "$ref": "#/$defs/readiness_status"
+        },
+        "policy": {
+          "$ref": "#/$defs/readiness_policy"
+        },
+        "witness_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "owner_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handoff_owner_source_sha256",
+        "materialization_owner_source_sha256",
+        "legacy_owner_source_sha256"
+      ],
+      "properties": {
+        "handoff_owner_source_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "materialization_owner_source_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "legacy_owner_source_sha256": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "status": {
+      "$ref": "#/$defs/status"
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "handoff_payload_sha256": {
+      "$ref": "#/$defs/sha"
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "lifecycle_guards": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "one_plan_one_owner",
+        "single_active_lifecycle",
+        "terminal_retirement",
+        "registry_retired_on_every_terminal_exit"
+      ],
+      "properties": {
+        "one_plan_one_owner": {
+          "const": true
+        },
+        "single_active_lifecycle": {
+          "const": true
+        },
+        "terminal_retirement": {
+          "const": true
+        },
+        "registry_retired_on_every_terminal_exit": {
+          "const": true
+        }
+      }
+    },
+    "readiness_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effect_plan_created",
+        "raw_effect_owner_created",
+        "registry_entry_created",
+        "effects_performed",
+        "runner_called",
+        "adapter_connected"
+      ],
+      "properties": {
+        "effect_plan_created": {
+          "const": false
+        },
+        "raw_effect_owner_created": {
+          "const": false
+        },
+        "registry_entry_created": {
+          "const": false
+        },
+        "effects_performed": {
+          "const": false
+        },
+        "runner_called": {
+          "const": false
+        },
+        "adapter_connected": {
+          "const": false
+        }
+      }
+    },
+    "readiness_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "automatic_retry",
+        "automatic_cancel",
+        "automatic_cleanup",
+        "automatic_delete"
+      ],
+      "properties": {
+        "automatic_retry": {
+          "const": false
+        },
+        "automatic_cancel": {
+          "const": false
+        },
+        "automatic_cleanup": {
+          "const": false
+        },
+        "automatic_delete": {
+          "const": false
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assert_current_materialization",
+        "bind_lifecycle_readiness",
+        "create_transaction_plan",
+        "create_effect_plan",
+        "create_raw_effect_owner",
+        "create_registry_entry",
+        "invoke_adapter",
+        "invoke_runner",
+        "transfer",
+        "submit",
+        "status",
+        "fetch",
+        "cancel",
+        "cleanup",
+        "delete",
+        "arbitrary_command"
+      ],
+      "properties": {
+        "assert_current_materialization": {
+          "const": true
+        },
+        "bind_lifecycle_readiness": {
+          "const": true
+        },
+        "create_transaction_plan": {
+          "const": false
+        },
+        "create_effect_plan": {
+          "const": false
+        },
+        "create_raw_effect_owner": {
+          "const": false
+        },
+        "create_registry_entry": {
+          "const": false
+        },
+        "invoke_adapter": {
+          "const": false
+        },
+        "invoke_runner": {
+          "const": false
+        },
+        "transfer": {
+          "const": false
+        },
+        "submit": {
+          "const": false
+        },
+        "status": {
+          "const": false
+        },
+        "fetch": {
+          "const": false
+        },
+        "cancel": {
+          "const": false
+        },
+        "cleanup": {
+          "const": false
+        },
+        "delete": {
+          "const": false
+        },
+        "arbitrary_command": {
+          "const": false
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "materialization_current",
+        "lifecycle_readiness_bound",
+        "effects_performed",
+        "adapter_connected",
+        "qsub_invocation_started",
+        "runtime_transport_binding_complete",
+        "live_validation_performed"
+      ],
+      "properties": {
+        "materialization_current": {
+          "const": true
+        },
+        "lifecycle_readiness_bound": {
+          "const": true
+        },
+        "effects_performed": {
+          "const": false
+        },
+        "adapter_connected": {
+          "const": false
+        },
+        "qsub_invocation_started": {
+          "const": false
+        },
+        "runtime_transport_binding_complete": {
+          "const": false
+        },
+        "live_validation_performed": {
+          "const": false
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact_pr4l_materialization_only",
+        "exact_pr4m_readiness_witness_only",
+        "automatic_retry",
+        "automatic_cancel",
+        "automatic_cleanup",
+        "automatic_delete",
+        "automatic_rollback",
+        "historical_migration",
+        "legacy_cli_unchanged",
+        "legacy_adapter_remains_fail_closed"
+      ],
+      "properties": {
+        "exact_pr4l_materialization_only": {
+          "const": true
+        },
+        "exact_pr4m_readiness_witness_only": {
+          "const": true
+        },
+        "automatic_retry": {
+          "const": false
+        },
+        "automatic_cancel": {
+          "const": false
+        },
+        "automatic_cleanup": {
+          "const": false
+        },
+        "automatic_delete": {
+          "const": false
+        },
+        "automatic_rollback": {
+          "const": false
+        },
+        "historical_migration": {
+          "const": false
+        },
+        "legacy_cli_unchanged": {
+          "const": true
+        },
+        "legacy_adapter_remains_fail_closed": {
+          "const": true
+        }
+      }
+    }
+  }
+}

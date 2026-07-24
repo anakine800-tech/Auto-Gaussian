@@ -45,6 +45,10 @@ LIFECYCLE_FIXTURE = (
     ROOT
     / "tests/fixtures/rtwin_pbs/legacy_effect_owner_lifecycle_fix.json"
 )
+HANDOFF_FIXTURE = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/protected_legacy_effect_handoff.json"
+)
 BASE_COMMIT = "fc7b59dc6c280db6cdba435ae7e11f27cf30dd19"
 PR4J_COMMIT = "9f9190a201acc148bdcee134a71ec3f1e3e983cb"
 CONCURRENCY_FIX_COMMIT = "aaa004a88131f244c19e6d39c74eb936e9eb55b6"
@@ -804,6 +808,7 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         self,
     ) -> None:
         fixture = json.loads(LIFECYCLE_FIXTURE.read_text(encoding="utf-8"))
+        handoff = json.loads(HANDOFF_FIXTURE.read_text(encoding="utf-8"))
         self.assertEqual(fixture["base_commit"], LIFECYCLE_BASE_COMMIT)
         self.assertEqual(
             fixture["base_tree"],
@@ -821,8 +826,16 @@ class LegacyEffectOwnerTests(unittest.TestCase):
             binding["before_sha256"],
         )
         self.assertEqual(
-            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            handoff["files"][
+                "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+            ]["before_sha256"],
             binding["after_sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            handoff["files"][
+                "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
+            ]["sha256"],
         )
         self.assertTrue(binding["lifecycle_semantics_changed"])
         self.assertFalse(binding["behavior_parity"]["command_bytes_changed"])

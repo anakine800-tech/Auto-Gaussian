@@ -35,7 +35,11 @@ SCHEMA_VALIDATION_PINS = {
 }
 SCHEMA_VALIDATION_TEST_COMMAND = (
     "python -m unittest tests.test_protected_submit_schema_draft202012 "
-    "tests.test_local_state_binding_schema_draft202012 -v"
+    "tests.test_local_state_binding_schema_draft202012 "
+    "tests.test_protected_invocation_schema_draft202012 "
+    "tests.test_protected_lifecycle_schema_draft202012 "
+    "tests.test_protected_local_materialization_schema_draft202012 "
+    "tests.test_protected_legacy_effect_handoff_schema_draft202012 -v"
 )
 EXACT_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[A-Za-z0-9._+-]*)")
 REQUIRES_PYTHON = re.compile(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import _imp
 import argparse
 import contextlib
+import hashlib
 import importlib
 import importlib.util
 import sys
@@ -35,6 +36,9 @@ if TYPE_CHECKING:
     from protected_local_materialization import (
         SealedProtectedLocalMaterialization,
     )
+    from protected_legacy_effect_handoff import (
+        SealedProtectedLegacyEffectHandoff,
+    )
     from protected_submit_contract import (
         ProtectedSubmitContractOwner,
         ProtectedSubmitEvidence,
@@ -54,6 +58,16 @@ _PROTECTED_LOCAL_MATERIALIZATION_MODULE_NAME = (
     "protected_local_materialization"
 )
 _PROTECTED_LOCAL_MATERIALIZATION_IMPORT_LOCK = threading.RLock()
+_PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE: types.ModuleType | None = None
+_PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256: str | None = None
+_LEGACY_IMPLEMENTATION_MODULE_NAME = "legacy_rtwin_pbs"
+_LEGACY_IMPLEMENTATION_IMPORT_LOCK = threading.RLock()
+_LEGACY_IMPLEMENTATION_BOUND_MODULE: types.ModuleType | None = None
+_LEGACY_IMPLEMENTATION_SOURCE_SHA256: str | None = None
+_PROTECTED_LEGACY_HANDOFF_MODULE_NAME = (
+    "protected_legacy_effect_handoff"
+)
+_PROTECTED_LEGACY_HANDOFF_IMPORT_LOCK = threading.RLock()
 
 
 def _protected_submit_contract_path() -> Path:
@@ -349,9 +363,144 @@ def _protected_local_materialization_path() -> Path:
 def _exact_protected_local_materialization() -> Iterator[types.ModuleType]:
     """Load the layout-bound materialization owner and restore its cache."""
 
+    global _PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE
+    global _PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256
+
     path = _protected_local_materialization_path()
     name = _PROTECTED_LOCAL_MATERIALIZATION_MODULE_NAME
     with _PROTECTED_LOCAL_MATERIALIZATION_IMPORT_LOCK:
+        _imp.acquire_lock()
+        previous = sys.modules.get(name, _MISSING_MODULE)
+        try:
+            source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+            module = _PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE
+            if module is None:
+                sys.modules.pop(name, None)
+                spec = importlib.util.spec_from_file_location(name, path)
+                if spec is None or spec.loader is None:
+                    raise ImportError(
+                        "exact protected local-materialization owner cannot "
+                        f"be loaded: {path}"
+                    )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[name] = module
+                spec.loader.exec_module(module)
+                _PROTECTED_LOCAL_MATERIALIZATION_BOUND_MODULE = module
+                _PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256 = source_sha256
+            elif (
+                source_sha256
+                != _PROTECTED_LOCAL_MATERIALIZATION_SOURCE_SHA256
+            ):
+                raise ImportError(
+                    "protected local-materialization owner bytes changed "
+                    "after exact binding"
+                )
+            sys.modules[name] = module
+            file_origin, spec_origin = _module_origin(module)
+            if file_origin != path or spec_origin != path:
+                raise ImportError(
+                    "protected local-materialization owner origin changed"
+                )
+            yield module
+        finally:
+            sys.modules.pop(name, None)
+            if previous is not _MISSING_MODULE:
+                sys.modules[name] = previous
+            _imp.release_lock()
+
+
+def _legacy_implementation_path() -> Path:
+    facade = Path(__file__).resolve()
+    path = facade.with_name(f"{_LEGACY_IMPLEMENTATION_MODULE_NAME}.py")
+    if path.is_symlink() or not path.is_file():
+        raise ImportError("exact adjacent legacy implementation is unavailable")
+    resolved = path.resolve()
+    if resolved.parent != facade.parent:
+        raise ImportError("legacy implementation is not adjacent to the facade")
+    return resolved
+
+
+@contextlib.contextmanager
+def _exact_legacy_implementation() -> Iterator[types.ModuleType]:
+    """Bind one exact legacy module without calling any backend operation."""
+
+    global _LEGACY_IMPLEMENTATION_BOUND_MODULE
+    global _LEGACY_IMPLEMENTATION_SOURCE_SHA256
+
+    path = _legacy_implementation_path()
+    name = _LEGACY_IMPLEMENTATION_MODULE_NAME
+    with _LEGACY_IMPLEMENTATION_IMPORT_LOCK:
+        _imp.acquire_lock()
+        previous = sys.modules.get(name, _MISSING_MODULE)
+        try:
+            source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+            module = _LEGACY_IMPLEMENTATION_BOUND_MODULE
+            if module is None:
+                sys.modules.pop(name, None)
+                spec = importlib.util.spec_from_file_location(name, path)
+                if spec is None or spec.loader is None:
+                    raise ImportError(
+                        f"exact legacy implementation cannot load: {path}"
+                    )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[name] = module
+                spec.loader.exec_module(module)
+                _LEGACY_IMPLEMENTATION_BOUND_MODULE = module
+                _LEGACY_IMPLEMENTATION_SOURCE_SHA256 = source_sha256
+            elif source_sha256 != _LEGACY_IMPLEMENTATION_SOURCE_SHA256:
+                raise ImportError(
+                    "legacy implementation bytes changed after exact binding"
+                )
+            sys.modules[name] = module
+            if _module_origin(module) != (path, path):
+                raise ImportError("legacy implementation origin changed")
+            yield module
+        finally:
+            sys.modules.pop(name, None)
+            if previous is not _MISSING_MODULE:
+                sys.modules[name] = previous
+            _imp.release_lock()
+
+
+def _protected_legacy_handoff_path() -> Path:
+    facade = Path(__file__).resolve()
+    filename = f"{_PROTECTED_LEGACY_HANDOFF_MODULE_NAME}.py"
+    skill_directory = facade.parent.parent
+    if (
+        facade.parent.name == "scripts"
+        and skill_directory.name == "auto-g16-rtwin-pbs"
+        and skill_directory.parent.name == "skills"
+    ):
+        source_owner = (
+            skill_directory.parent.parent / "scripts" / filename
+        )
+        if (
+            not source_owner.is_symlink()
+            and source_owner.is_file()
+            and source_owner.resolve().parent
+            == skill_directory.parent.parent.resolve() / "scripts"
+        ):
+            return source_owner.resolve()
+    adjacent_owner = facade.with_name(filename)
+    if (
+        not adjacent_owner.is_symlink()
+        and adjacent_owner.is_file()
+        and adjacent_owner.resolve().parent == facade.parent
+    ):
+        return adjacent_owner.resolve()
+    raise ImportError(
+        "exact protected legacy handoff owner is unavailable in repository "
+        "source or deployed-package layout"
+    )
+
+
+@contextlib.contextmanager
+def _exact_protected_legacy_handoff() -> Iterator[types.ModuleType]:
+    """Load the handoff owner while both exact predecessors are bound."""
+
+    path = _protected_legacy_handoff_path()
+    name = _PROTECTED_LEGACY_HANDOFF_MODULE_NAME
+    with _PROTECTED_LEGACY_HANDOFF_IMPORT_LOCK:
         _imp.acquire_lock()
         previous = sys.modules.get(name, _MISSING_MODULE)
         try:
@@ -359,17 +508,13 @@ def _exact_protected_local_materialization() -> Iterator[types.ModuleType]:
             spec = importlib.util.spec_from_file_location(name, path)
             if spec is None or spec.loader is None:
                 raise ImportError(
-                    "exact protected local-materialization owner cannot "
-                    f"be loaded: {path}"
+                    f"exact protected legacy handoff cannot load: {path}"
                 )
             module = importlib.util.module_from_spec(spec)
             sys.modules[name] = module
             spec.loader.exec_module(module)
-            file_origin, spec_origin = _module_origin(module)
-            if file_origin != path or spec_origin != path:
-                raise ImportError(
-                    "protected local-materialization owner origin changed"
-                )
+            if _module_origin(module) != (path, path):
+                raise ImportError("protected legacy handoff origin changed")
             yield module
         finally:
             sys.modules.pop(name, None)
@@ -514,6 +659,28 @@ def materialize_protected_lifecycle_once(
     with _exact_protected_local_materialization() as contract:
         owner = contract.ProtectedLocalMaterializationOwner.production()
         return owner.materialize_once(evidence)
+
+
+def seal_protected_legacy_effect_handoff(
+    *,
+    materialization: "SealedProtectedLocalMaterialization",
+) -> "SealedProtectedLegacyEffectHandoff":
+    """Bind exact PR4L state to PR4M readiness and perform no effect."""
+
+    with _exact_protected_local_materialization() as materialization_owner:
+        if (
+            type(materialization)
+            is not materialization_owner.SealedProtectedLocalMaterialization
+        ):
+            raise TypeError(
+                "handoff requires the facade-bound PR4L materialization"
+            )
+        with _exact_legacy_implementation():
+            with _exact_protected_legacy_handoff() as handoff_owner:
+                owner = (
+                    handoff_owner.ProtectedLegacyEffectHandoffOwner.production()
+                )
+                return owner.seal(materialization)
 
 
 def bind_current() -> types.ModuleType:
