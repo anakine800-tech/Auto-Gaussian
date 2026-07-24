@@ -41,6 +41,12 @@
       "change_class": "exact_pr4l_pr4m_non_executable_typed_handoff_owner",
       "legacy_semantics_changed": false
     },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "before_sha256": "3bb26275857e4caaa553d8a9dabded4820a44cdd07352233b75b485299f866d4",
+      "sha256": "5b2f4f638bc0117215bd23537e72d11eb765dbcd0f15f36ec3177dfa637a5ac2",
+      "change_class": "add_pr4n_reference_and_bundled_script_navigation",
+      "legacy_semantics_changed": false
+    },
     "skills/auto-g16-rtwin-pbs/deployment-package.json": {
       "before_sha256": "498570a1a0aad2c4b70711d8a040e5a563e6fc032ca68bb89736a8d3e753d312",
       "sha256": "dea1ddad3c4ae53134fce42920f59ff1e6ca80ad9da0809f05f674c10ace9f55",
