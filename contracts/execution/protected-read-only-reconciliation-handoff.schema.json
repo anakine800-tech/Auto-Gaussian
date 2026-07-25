@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-protected-read-only-reconciliation-handoff/1",
+  "title": "Auto-G16 v2.6 protected read-only reconciliation handoff",
+  "$comment": "This typed projection does not obtain remote evidence and does not authorize an effect or retry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "owner", "handoff_id", "uncertain_receipt",
+    "observation", "scope", "handoff_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-protected-read-only-reconciliation-handoff/1"},
+    "owner": {"const": "auto-g16-protected-runtime-state-owner"},
+    "handoff_id": {
+      "type": "string",
+      "pattern": "^protected-read-only-reconciliation-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "uncertain_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_id", "receipt_payload_sha256", "journal_id",
+        "contract_id", "attempt_id", "state"
+      ],
+      "properties": {
+        "receipt_id": {
+          "type": "string",
+          "pattern": "^protected-runtime-receipt-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "receipt_payload_sha256": {"$ref": "#/$defs/sha"},
+        "journal_id": {
+          "type": "string",
+          "pattern": "^protected-runtime-journal-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "contract_id": {
+          "type": "string",
+          "pattern": "^protected-runtime-state-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^qsub-attempt-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "state": {"const": "effect_started_outcome_uncertain"}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification", "job_ids", "evidence_sha256", "observed_at",
+        "remote_read_only", "observation_acquired_by_this_contract",
+        "automatic_effect_authorized", "automatic_retry"
+      ],
+      "properties": {
+        "classification": {
+          "enum": [
+            "submitted_unique", "definitely_not_submitted",
+            "terminal_completed", "terminal_failed"
+          ]
+        },
+        "job_ids": {
+          "type": "array",
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[A-Za-z0-9._-]+)?$(?![\\s\\S])"
+          }
+        },
+        "evidence_sha256": {"$ref": "#/$defs/sha"},
+        "observed_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$(?![\\s\\S])"
+        },
+        "remote_read_only": {"const": true},
+        "observation_acquired_by_this_contract": {"const": false},
+        "automatic_effect_authorized": {"const": false},
+        "automatic_retry": {"const": false}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "typed_handoff_only", "remote_read", "effect", "terminal_acceptance"
+      ],
+      "properties": {
+        "typed_handoff_only": {"const": true},
+        "remote_read": {"const": false},
+        "effect": {"const": false},
+        "terminal_acceptance": {"const": true}
+      }
+    },
+    "handoff_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[a-f0-9]{64}$(?![\\s\\S])"
+    }
+  }
+}

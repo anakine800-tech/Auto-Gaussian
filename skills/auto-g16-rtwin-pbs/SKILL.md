@@ -122,6 +122,13 @@ The additive v2.6 PR4N handoff remains non-executable. Read
 It binds the exact PR4L materialization to the read-only PR4M readiness witness
 without creating an effect owner, calling a runner, or connecting an adapter.
 
+The additive runtime/state successor remains local and non-executable. Read
+[references/protected-runtime-state-contract.md](references/protected-runtime-state-contract.md).
+It owner-binds the exact runtime/Windows-root identity to PR4N and publishes a
+separate append-only receipt chain for ready, definitely-not-started,
+effect-outcome-uncertain, and accepted-terminal state. It does not connect the
+adapter, call the effect owner, or acquire remote reconciliation evidence.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-protected-runtime-state-receipt/1",
+  "title": "Auto-G16 v2.6 protected runtime state receipt",
+  "$comment": "Structural validity only. A JSON receipt is not an in-process owner capability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "owner", "receipt_id", "journal_id", "contract_id",
+    "handoff_id", "materialization_id", "attempt_id",
+    "runtime_binding_payload_sha256", "sequence", "state", "transition",
+    "previous_receipt_sha256", "issued_at", "status", "reconciliation",
+    "policy", "receipt_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-protected-runtime-state-receipt/1"},
+    "owner": {"const": "auto-g16-protected-runtime-state-owner"},
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^protected-runtime-receipt-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "journal_id": {
+      "type": "string",
+      "pattern": "^protected-runtime-journal-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "contract_id": {
+      "type": "string",
+      "pattern": "^protected-runtime-state-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "handoff_id": {
+      "type": "string",
+      "pattern": "^protected-legacy-effect-handoff-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "materialization_id": {
+      "type": "string",
+      "pattern": "^protected-local-materialization-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^qsub-attempt-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "runtime_binding_payload_sha256": {"$ref": "#/$defs/sha"},
+    "sequence": {"type": "integer", "minimum": 0, "maximum": 3},
+    "state": {
+      "enum": [
+        "ready", "effect_not_started",
+        "effect_started_outcome_uncertain", "accepted_terminal"
+      ]
+    },
+    "transition": {
+      "enum": [
+        "runtime_bound_ready", "consume_after_final_assert_current",
+        "enter_effect_boundary_outcome_uncertain",
+        "accept_read_only_reconciliation_terminal"
+      ]
+    },
+    "previous_receipt_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "issued_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$(?![\\s\\S])"
+    },
+    "status": {"$ref": "#/$defs/status"},
+    "reconciliation": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/reconciliation"}]
+    },
+    "policy": {"$ref": "#/$defs/policy"},
+    "receipt_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"sequence": {"const": 0}}, "required": ["sequence"]},
+      "then": {
+        "properties": {
+          "state": {"const": "ready"},
+          "transition": {"const": "runtime_bound_ready"},
+          "previous_receipt_sha256": {"const": "0000000000000000000000000000000000000000000000000000000000000000"},
+          "reconciliation": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"sequence": {"const": 1}}, "required": ["sequence"]},
+      "then": {
+        "properties": {
+          "state": {"const": "effect_not_started"},
+          "transition": {"const": "consume_after_final_assert_current"},
+          "previous_receipt_sha256": {"$ref": "#/$defs/sha"},
+          "reconciliation": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"sequence": {"const": 2}}, "required": ["sequence"]},
+      "then": {
+        "properties": {
+          "state": {"const": "effect_started_outcome_uncertain"},
+          "transition": {"const": "enter_effect_boundary_outcome_uncertain"},
+          "previous_receipt_sha256": {"$ref": "#/$defs/sha"},
+          "reconciliation": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"sequence": {"const": 3}}, "required": ["sequence"]},
+      "then": {
+        "properties": {
+          "state": {"const": "accepted_terminal"},
+          "transition": {"const": "accept_read_only_reconciliation_terminal"},
+          "previous_receipt_sha256": {"$ref": "#/$defs/sha"},
+          "reconciliation": {"$ref": "#/$defs/reconciliation"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ready", "consumed", "effect_not_started",
+        "effect_outcome_uncertain", "accepted", "terminal"
+      ],
+      "properties": {
+        "ready": {"type": "boolean"},
+        "consumed": {"type": "boolean"},
+        "effect_not_started": {"type": "boolean"},
+        "effect_outcome_uncertain": {"type": "boolean"},
+        "accepted": {"type": "boolean"},
+        "terminal": {"type": "boolean"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "single_consumption", "last_assert_current_before_effect_boundary",
+        "uncertain_before_external_effect",
+        "read_only_reconciliation_only_after_uncertain",
+        "automatic_retry", "automatic_cancel", "automatic_cleanup",
+        "automatic_delete", "automatic_rollback", "historical_migration",
+        "legacy_ledger_is_sole_authority", "remote_root_override_allowed"
+      ],
+      "properties": {
+        "single_consumption": {"const": true},
+        "last_assert_current_before_effect_boundary": {"const": true},
+        "uncertain_before_external_effect": {"const": true},
+        "read_only_reconciliation_only_after_uncertain": {"const": true},
+        "automatic_retry": {"const": false},
+        "automatic_cancel": {"const": false},
+        "automatic_cleanup": {"const": false},
+        "automatic_delete": {"const": false},
+        "automatic_rollback": {"const": false},
+        "historical_migration": {"const": false},
+        "legacy_ledger_is_sole_authority": {"const": false},
+        "remote_root_override_allowed": {"const": false}
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "handoff_id", "handoff_payload_sha256",
+        "classification", "evidence_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-protected-read-only-reconciliation-handoff/1"},
+        "handoff_id": {
+          "type": "string",
+          "pattern": "^protected-read-only-reconciliation-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "handoff_payload_sha256": {"$ref": "#/$defs/sha"},
+        "classification": {
+          "enum": [
+            "submitted_unique", "definitely_not_submitted",
+            "terminal_completed", "terminal_failed"
+          ]
+        },
+        "evidence_sha256": {"$ref": "#/$defs/sha"}
+      }
+    }
+  }
+}
