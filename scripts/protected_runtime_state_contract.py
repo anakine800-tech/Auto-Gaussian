@@ -14,6 +14,7 @@ import json
 import math
 import os
 import re
+import secrets
 import stat
 import sys
 import threading
@@ -30,6 +31,7 @@ RECONCILIATION_SCHEMA = (
     "auto-g16-protected-read-only-reconciliation-handoff/1"
 )
 OWNER = "auto-g16-protected-runtime-state-owner"
+MODULE_NAME = "protected_runtime_state_contract"
 HANDOFF_MODULE_NAME = "protected_legacy_effect_handoff"
 HANDOFF_SCHEMA = "auto-g16-protected-legacy-effect-handoff/1"
 FIXED_REMOTE_ROOT = "/home/user100/SDL"
@@ -116,9 +118,21 @@ VALIDATION_LAYERS = {
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$")
 ATTEMPT_RE = re.compile(r"^qsub-attempt-[a-f0-9]{64}$")
+HANDOFF_RE = re.compile(r"^protected-legacy-effect-handoff-[a-f0-9]{64}$")
+MATERIALIZATION_RE = re.compile(
+    r"^protected-local-materialization-[a-f0-9]{64}$"
+)
+INVOCATION_RE = re.compile(r"^protected-invocation-[a-f0-9]{64}$")
 JOB_RE = re.compile(r"^[0-9]+(?:\.[A-Za-z0-9._-]+)?$")
 ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 WINDOWS_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,63}$")
+WINDOWS_PATH_COMPONENT_RE = re.compile(
+    r"^(?:[A-Za-z0-9][A-Za-z0-9_. -]{0,63}|\.[A-Za-z0-9_. -]{1,63})$"
+)
+WINDOWS_RESERVED_COMPONENT_RE = re.compile(
+    r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$",
+    re.IGNORECASE,
+)
 CONTRACT_RE = re.compile(r"^protected-runtime-state-[a-f0-9]{64}$")
 JOURNAL_RE = re.compile(r"^protected-runtime-journal-[a-f0-9]{64}$")
 RECEIPT_RE = re.compile(r"^protected-runtime-receipt-[a-f0-9]{64}$")
@@ -384,8 +398,13 @@ def validate_protected_runtime_state_contract(
         "materialization_state_payload_sha256",
     ):
         _sha(handoff[field], f"handoff.{field}", nonzero=True)
-    _text(handoff["handoff_id"], "handoff.handoff_id")
-    _text(handoff["materialization_id"], "handoff.materialization_id")
+    if (
+        type(handoff["handoff_id"]) is not str
+        or HANDOFF_RE.fullmatch(handoff["handoff_id"]) is None
+        or type(handoff["materialization_id"]) is not str
+        or MATERIALIZATION_RE.fullmatch(handoff["materialization_id"]) is None
+    ):
+        raise ProtectedRuntimeStateError("contract handoff identity is malformed")
 
     identity = _exact(
         document["identity"],
@@ -405,7 +424,11 @@ def validate_protected_runtime_state_contract(
         or ATTEMPT_RE.fullmatch(identity["attempt_id"]) is None
     ):
         raise ProtectedRuntimeStateError("contract identity is malformed")
-    _text(identity["invocation_id"], "identity.invocation_id")
+    if (
+        type(identity["invocation_id"]) is not str
+        or INVOCATION_RE.fullmatch(identity["invocation_id"]) is None
+    ):
+        raise ProtectedRuntimeStateError("contract invocation_id is malformed")
     for field in ("invocation_payload_sha256", "input_sha256"):
         _sha(identity[field], f"identity.{field}", nonzero=True)
 
@@ -597,8 +620,15 @@ def validate_protected_runtime_state_receipt(
         or ATTEMPT_RE.fullmatch(document["attempt_id"]) is None
     ):
         raise ProtectedRuntimeStateError("runtime state receipt identity is malformed")
-    _text(document["handoff_id"], "receipt.handoff_id")
-    _text(document["materialization_id"], "receipt.materialization_id")
+    if (
+        type(document["handoff_id"]) is not str
+        or HANDOFF_RE.fullmatch(document["handoff_id"]) is None
+        or type(document["materialization_id"]) is not str
+        or MATERIALIZATION_RE.fullmatch(document["materialization_id"]) is None
+    ):
+        raise ProtectedRuntimeStateError(
+            "runtime state receipt predecessor identity is malformed"
+        )
     _sha(
         document["runtime_binding_payload_sha256"],
         "receipt runtime binding",
@@ -649,10 +679,14 @@ def validate_protected_runtime_state_receipt(
             raise ProtectedRuntimeStateError(
                 "terminal receipt reconciliation differs"
             )
-        _text(
-            reconciliation["handoff_id"],
-            "receipt reconciliation handoff_id",
-        )
+        if (
+            type(reconciliation["handoff_id"]) is not str
+            or RECONCILIATION_RE.fullmatch(reconciliation["handoff_id"])
+            is None
+        ):
+            raise ProtectedRuntimeStateError(
+                "receipt reconciliation handoff_id is malformed"
+            )
         for field in ("handoff_payload_sha256", "evidence_sha256"):
             _sha(
                 reconciliation[field],
@@ -740,8 +774,19 @@ def validate_protected_read_only_reconciliation_handoff(
         "receipt_payload_sha256",
     ):
         _sha(uncertain[field], f"uncertain_receipt.{field}", nonzero=True)
-    for field in ("receipt_id", "journal_id", "contract_id", "attempt_id"):
-        _text(uncertain[field], f"uncertain_receipt.{field}")
+    for field, pattern in (
+        ("receipt_id", RECEIPT_RE),
+        ("journal_id", JOURNAL_RE),
+        ("contract_id", CONTRACT_RE),
+        ("attempt_id", ATTEMPT_RE),
+    ):
+        if (
+            type(uncertain[field]) is not str
+            or pattern.fullmatch(uncertain[field]) is None
+        ):
+            raise ProtectedRuntimeStateError(
+                f"uncertain_receipt.{field} is malformed"
+            )
     observation = _exact(
         document["observation"],
         {
@@ -854,6 +899,13 @@ class _FileSnapshot:
 class _HandoffBinding:
     module: types.ModuleType
     issued_type: type
+    source: _FileSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _OwnerModuleBinding:
+    module: types.ModuleType
+    issued_types: tuple[tuple[str, type], ...]
     source: _FileSnapshot
 
 
@@ -1033,6 +1085,7 @@ _HANDOFF_BINDING = _capture_handoff_binding()
 
 
 def _assert_sources_current() -> None:
+    _assert_owner_module_binding()
     if _stable_file(_owner_path()) != _OWNER_SOURCE:
         raise ProtectedRuntimeStateError(
             "runtime/state owner source identity differs"
@@ -1098,35 +1151,54 @@ def _parse_runtime_config(snapshot: _FileSnapshot) -> dict[str, str]:
     return normalized
 
 
-def _normalized_windows_root(raw: str) -> tuple[str, str]:
+def _normalized_windows_path(
+    raw: str,
+    *,
+    label: str,
+    allow_hidden_component: bool = False,
+) -> tuple[str, str]:
     if "/" in raw or "'" in raw or '"' in raw or raw.endswith("\\"):
         raise ProtectedRuntimeStateError(
-            "Windows project root is not a canonical backslash path"
+            f"{label} is not a canonical backslash path"
         )
     if not re.fullmatch(r"[A-Za-z]:\\.*", raw):
         raise ProtectedRuntimeStateError(
-            "Windows project root must be drive-absolute"
+            f"{label} must be drive-absolute"
         )
     parts = raw[3:].split("\\") if len(raw) > 3 else []
+    component_pattern = (
+        WINDOWS_PATH_COMPONENT_RE
+        if allow_hidden_component
+        else WINDOWS_COMPONENT_RE
+    )
     if (
         not parts
         or any(
             part in {"", ".", ".."}
             or part.endswith((" ", "."))
-            or WINDOWS_COMPONENT_RE.fullmatch(part) is None
+            or component_pattern.fullmatch(part) is None
+            or WINDOWS_RESERVED_COMPONENT_RE.fullmatch(part) is not None
             for part in parts
         )
     ):
         raise ProtectedRuntimeStateError(
-            "Windows project root components are not canonical and safe"
+            f"{label} components are not canonical and safe"
         )
     parsed = PureWindowsPath(raw)
-    if not parsed.is_absolute() or parsed.drive.upper() != raw[:2].upper():
-        raise ProtectedRuntimeStateError(
-            "Windows project root identity differs"
-        )
     normalized = str(parsed)
+    if (
+        not parsed.is_absolute()
+        or parsed.drive.upper() != raw[:2].upper()
+        or normalized != raw
+    ):
+        raise ProtectedRuntimeStateError(
+            f"{label} identity differs"
+        )
     return normalized, normalized.casefold()
+
+
+def _normalized_windows_root(raw: str) -> tuple[str, str]:
+    return _normalized_windows_path(raw, label="Windows project root")
 
 
 def _adapter_reference_sha256(hop_role: str, reference: str) -> str:
@@ -1227,16 +1299,11 @@ def _runtime_and_identity(
     )
     project_directory = f"{normalized_root}\\{identity['project']}"
     project_directory_identity = project_directory.casefold()
-    second = values["windows_server_config"]
-    if (
-        ".." in PureWindowsPath(second).parts
-        or "'" in second
-        or '"' in second
-        or "\x00" in second
-    ):
-        raise ProtectedRuntimeStateError(
-            "second-hop config reference is not a safe Windows path"
-        )
+    second, _second_identity = _normalized_windows_path(
+        values["windows_server_config"],
+        label="second-hop config reference",
+        allow_hidden_component=True,
+    )
     first_ref = _adapter_reference_sha256(
         "first_hop",
         values["rtwin_ssh_config"],
@@ -1300,7 +1367,7 @@ def _journal_path(handoff: object, attempt_id: str) -> Path:
     return local_dir.parent / STATE_CONTAINER / attempt_id
 
 
-def _open_or_create_journal(path: Path, *, create: bool) -> tuple[int, tuple[int, ...]]:
+def _open_state_container(path: Path, *, create: bool) -> int:
     parent = path.parent.parent
     parent_fd = os.open(
         parent,
@@ -1309,15 +1376,13 @@ def _open_or_create_journal(path: Path, *, create: bool) -> tuple[int, tuple[int
         | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_CLOEXEC", 0),
     )
-    container_fd = -1
-    journal_fd = -1
     try:
         if create:
             try:
                 os.mkdir(STATE_CONTAINER, mode=0o700, dir_fd=parent_fd)
             except FileExistsError:
                 pass
-        container_fd = os.open(
+        return os.open(
             STATE_CONTAINER,
             os.O_RDONLY
             | os.O_DIRECTORY
@@ -1325,11 +1390,29 @@ def _open_or_create_journal(path: Path, *, create: bool) -> tuple[int, tuple[int
             | getattr(os, "O_CLOEXEC", 0),
             dir_fd=parent_fd,
         )
-        basename = path.name
-        if create:
-            os.mkdir(basename, mode=0o700, dir_fd=container_fd)
+    except OSError as exc:
+        raise ProtectedRuntimeStateError(
+            f"runtime/state container cannot be opened safely: {exc}"
+        ) from exc
+    finally:
+        os.close(parent_fd)
+
+
+def _open_existing_journal(
+    path: Path,
+    *,
+    missing_ok: bool = False,
+) -> tuple[int, tuple[int, ...]] | None:
+    try:
+        container_fd = _open_state_container(path, create=False)
+    except ProtectedRuntimeStateError as exc:
+        if missing_ok and isinstance(exc.__cause__, FileNotFoundError):
+            return None
+        raise
+    journal_fd = -1
+    try:
         journal_fd = os.open(
-            basename,
+            path.name,
             os.O_RDONLY
             | os.O_DIRECTORY
             | getattr(os, "O_NOFOLLOW", 0)
@@ -1338,9 +1421,11 @@ def _open_or_create_journal(path: Path, *, create: bool) -> tuple[int, tuple[int
         )
         identity = _directory_identity(os.fstat(journal_fd))
         return os.dup(journal_fd), identity
-    except FileExistsError as exc:
+    except FileNotFoundError as exc:
+        if missing_ok:
+            return None
         raise ProtectedRuntimeStateError(
-            "runtime/state journal already exists; use explicit recovery"
+            "runtime/state journal does not exist; use explicit recovery"
         ) from exc
     except OSError as exc:
         raise ProtectedRuntimeStateError(
@@ -1349,9 +1434,100 @@ def _open_or_create_journal(path: Path, *, create: bool) -> tuple[int, tuple[int
     finally:
         if journal_fd >= 0:
             os.close(journal_fd)
-        if container_fd >= 0:
-            os.close(container_fd)
-        os.close(parent_fd)
+        os.close(container_fd)
+
+
+def _write_staged_ready(container_fd: int, raw: bytes) -> str:
+    basename = f".initializing-ready-{secrets.token_hex(24)}"
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            basename,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            0o600,
+            dir_fd=container_fd,
+        )
+        written = 0
+        while written < len(raw):
+            count = os.write(descriptor, raw[written:])
+            if count <= 0:
+                raise ProtectedRuntimeStateError(
+                    "runtime/state staged ready write made no progress"
+                )
+            written += count
+        os.fsync(descriptor)
+        return basename
+    except OSError as exc:
+        raise ProtectedRuntimeStateError(
+            f"runtime/state staged ready publication failed safely: {exc}"
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _initialize_journal(
+    path: Path,
+    ready_raw: bytes,
+    *,
+    recovery: bool,
+) -> tuple[int, tuple[int, ...]]:
+    """Publish a complete ready receipt by no-clobber hard-link.
+
+    A failed staged write is never linked into the authority journal. Hidden
+    staging files are non-authoritative and intentionally need no destructive
+    cleanup for recovery to proceed.
+    """
+    container_fd = _open_state_container(path, create=True)
+    journal_fd = -1
+    try:
+        staged_name = _write_staged_ready(container_fd, ready_raw)
+        try:
+            os.mkdir(path.name, mode=0o700, dir_fd=container_fd)
+        except FileExistsError as exc:
+            if not recovery:
+                raise ProtectedRuntimeStateError(
+                    "runtime/state journal already exists; use explicit recovery"
+                ) from exc
+        journal_fd = os.open(
+            path.name,
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=container_fd,
+        )
+        names = sorted(os.listdir(journal_fd))
+        if not names:
+            try:
+                os.link(
+                    staged_name,
+                    RECEIPT_BASENAMES[0],
+                    src_dir_fd=container_fd,
+                    dst_dir_fd=journal_fd,
+                    follow_symlinks=False,
+                )
+            except FileExistsError:
+                if not recovery:
+                    raise ProtectedRuntimeStateError(
+                        "runtime/state ready publication collided"
+                    )
+        os.fsync(journal_fd)
+        os.fsync(container_fd)
+        identity = _directory_identity(os.fstat(journal_fd))
+        return os.dup(journal_fd), identity
+    except OSError as exc:
+        raise ProtectedRuntimeStateError(
+            f"runtime/state ready publication failed safely: {exc}"
+        ) from exc
+    finally:
+        if journal_fd >= 0:
+            os.close(journal_fd)
+        os.close(container_fd)
 
 
 def _write_receipt(directory_fd: int, basename: str, raw: bytes) -> None:
@@ -1384,6 +1560,49 @@ def _write_receipt(directory_fd: int, basename: str, raw: bytes) -> None:
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+
+def _fsync_recovered_journal(path: Path, names: list[str]) -> None:
+    """Re-establish durability of validated bytes without rewriting them."""
+    container_fd = _open_state_container(path, create=False)
+    journal_fd = -1
+    receipt_fd = -1
+    try:
+        journal_fd = os.open(
+            path.name,
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=container_fd,
+        )
+        if sorted(os.listdir(journal_fd)) != names:
+            raise ProtectedRuntimeStateError(
+                "runtime/state recovery topology changed before durability replay"
+            )
+        for name in names:
+            receipt_fd = os.open(
+                name,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=journal_fd,
+            )
+            os.fsync(receipt_fd)
+            os.close(receipt_fd)
+            receipt_fd = -1
+        os.fsync(journal_fd)
+        os.fsync(container_fd)
+    except OSError as exc:
+        raise ProtectedRuntimeStateError(
+            f"runtime/state recovery durability replay failed: {exc}"
+        ) from exc
+    finally:
+        if receipt_fd >= 0:
+            os.close(receipt_fd)
+        if journal_fd >= 0:
+            os.close(journal_fd)
+        os.close(container_fd)
 
 
 def _build_contract_document(
@@ -1551,7 +1770,13 @@ class SealedProtectedRuntimeStateReceipt:
         *,
         token: object,
     ) -> "SealedProtectedRuntimeStateReceipt":
-        if token is not _SEAL_TOKEN:
+        _assert_owner_module_binding()
+        if (
+            cls is not _owner_issued_type(
+                "SealedProtectedRuntimeStateReceipt"
+            )
+            or token is not _SEAL_TOKEN
+        ):
             raise ProtectedRuntimeStateError("runtime receipt seal differs")
         value = object.__new__(cls)
         object.__setattr__(value, "_canonical_document", canonical_bytes(document))
@@ -1563,6 +1788,7 @@ class SealedProtectedRuntimeStateReceipt:
         return json.loads(self._canonical_document)
 
     def assert_current(self) -> "SealedProtectedRuntimeStateReceipt":
+        _assert_owner_module_binding()
         if type(self) is not SealedProtectedRuntimeStateReceipt or self._seal is not _SEAL_TOKEN:
             raise ProtectedRuntimeStateError("runtime receipt seal differs")
         document = validate_protected_runtime_state_receipt(self.document())
@@ -1616,7 +1842,13 @@ class SealedProtectedReadOnlyReconciliationHandoff:
         *,
         token: object,
     ) -> "SealedProtectedReadOnlyReconciliationHandoff":
-        if token is not _RECONCILIATION_TOKEN:
+        _assert_owner_module_binding()
+        if (
+            cls is not _owner_issued_type(
+                "SealedProtectedReadOnlyReconciliationHandoff"
+            )
+            or token is not _RECONCILIATION_TOKEN
+        ):
             raise ProtectedRuntimeStateError("reconciliation seal differs")
         value = object.__new__(cls)
         object.__setattr__(value, "_canonical_document", canonical_bytes(document))
@@ -1630,6 +1862,7 @@ class SealedProtectedReadOnlyReconciliationHandoff:
     def assert_owner_sealed(
         self,
     ) -> "SealedProtectedReadOnlyReconciliationHandoff":
+        _assert_owner_module_binding()
         if (
             type(self) is not SealedProtectedReadOnlyReconciliationHandoff
             or self._seal is not _RECONCILIATION_TOKEN
@@ -1663,7 +1896,14 @@ class ProtectedReadOnlyReconciliationHandoffOwner:
     """Seal caller-acquired read-only evidence without obtaining it."""
 
     def __init__(self, *, _factory_token: object) -> None:
-        if _factory_token is not _OWNER_TOKEN:
+        _assert_owner_module_binding()
+        if (
+            type(self)
+            is not _owner_issued_type(
+                "ProtectedReadOnlyReconciliationHandoffOwner"
+            )
+            or _factory_token is not _OWNER_TOKEN
+        ):
             raise TypeError("reconciliation owner requires its fixed factory")
         self._lock = threading.Lock()
         self._sealed = False
@@ -1790,7 +2030,13 @@ class SealedProtectedRuntimeStateContract:
         clock: Callable[[], datetime],
         token: object,
     ) -> "SealedProtectedRuntimeStateContract":
-        if token is not _SEAL_TOKEN:
+        _assert_owner_module_binding()
+        if (
+            cls is not _owner_issued_type(
+                "SealedProtectedRuntimeStateContract"
+            )
+            or token is not _SEAL_TOKEN
+        ):
             raise ProtectedRuntimeStateError("runtime/state seal differs")
         value = object.__new__(cls)
         object.__setattr__(value, "_canonical_document", canonical_bytes(document))
@@ -1813,10 +2059,9 @@ class SealedProtectedRuntimeStateContract:
             return self._journal.receipts[-1]
 
     def _assert_journal_current(self) -> None:
-        descriptor, identity = _open_or_create_journal(
-            self.journal_path,
-            create=False,
-        )
+        opened = _open_existing_journal(self.journal_path)
+        assert opened is not None
+        descriptor, identity = opened
         try:
             if identity != self._journal.directory_identity:
                 raise ProtectedRuntimeStateError(
@@ -1889,10 +2134,9 @@ class SealedProtectedRuntimeStateContract:
             issued_at=_trusted_now(self._clock),
             reconciliation=reconciliation,
         )
-        descriptor, identity = _open_or_create_journal(
-            self.journal_path,
-            create=False,
-        )
+        opened = _open_existing_journal(self.journal_path)
+        assert opened is not None
+        descriptor, identity = opened
         try:
             if identity != self._journal.directory_identity:
                 raise ProtectedRuntimeStateError(
@@ -2015,7 +2259,12 @@ class ProtectedRuntimeStateContractOwner:
         *,
         _factory_token: object,
     ) -> None:
-        if _factory_token not in {_OWNER_TOKEN, _TEST_OWNER_TOKEN}:
+        _assert_owner_module_binding()
+        if (
+            type(self)
+            is not _owner_issued_type("ProtectedRuntimeStateContractOwner")
+            or _factory_token not in {_OWNER_TOKEN, _TEST_OWNER_TOKEN}
+        ):
             raise TypeError("runtime/state owner requires its fixed factory")
         if not runtime_config_path.is_absolute() or not callable(clock):
             raise TypeError("runtime/state owner path and clock differ")
@@ -2088,24 +2337,18 @@ class ProtectedRuntimeStateContractOwner:
                 )
             self._used = True
             document, runtime, first, values, path = self._prepare(handoff)
-            directory_fd, identity = _open_or_create_journal(
-                path,
-                create=True,
+            ready = _build_receipt(
+                document,
+                sequence=0,
+                previous=_ZERO_SHA,
+                issued_at=_trusted_now(self._clock),
             )
-            try:
-                ready = _build_receipt(
-                    document,
-                    sequence=0,
-                    previous=_ZERO_SHA,
-                    issued_at=_trusted_now(self._clock),
-                )
-                _write_receipt(
-                    directory_fd,
-                    RECEIPT_BASENAMES[0],
-                    canonical_bytes(ready),
-                )
-            finally:
-                os.close(directory_fd)
+            directory_fd, identity = _initialize_journal(
+                path,
+                canonical_bytes(ready),
+                recovery=False,
+            )
+            os.close(directory_fd)
             receipt = SealedProtectedRuntimeStateReceipt._from_owner(
                 ready,
                 _stable_file(path / RECEIPT_BASENAMES[0]),
@@ -2140,17 +2383,44 @@ class ProtectedRuntimeStateContractOwner:
                 )
             self._used = True
             document, runtime, first, values, path = self._prepare(handoff)
-            descriptor, identity = _open_or_create_journal(
-                path,
-                create=False,
-            )
+            opened = _open_existing_journal(path, missing_ok=True)
+            if opened is None:
+                names: list[str] = []
+            else:
+                descriptor, identity = opened
+                try:
+                    names = sorted(os.listdir(descriptor))
+                finally:
+                    os.close(descriptor)
+            if not names:
+                ready = _build_receipt(
+                    document,
+                    sequence=0,
+                    previous=_ZERO_SHA,
+                    issued_at=_trusted_now(self._clock),
+                )
+                descriptor, identity = _initialize_journal(
+                    path,
+                    canonical_bytes(ready),
+                    recovery=True,
+                )
+                try:
+                    names = sorted(os.listdir(descriptor))
+                finally:
+                    os.close(descriptor)
+            opened = _open_existing_journal(path)
+            assert opened is not None
+            descriptor, current_identity = opened
             try:
                 names = sorted(os.listdir(descriptor))
             finally:
                 os.close(descriptor)
+            if current_identity != identity:
+                raise ProtectedRuntimeStateError(
+                    "runtime/state recovery journal identity changed"
+                )
             if (
-                not names
-                or names
+                names
                 != list(RECEIPT_BASENAMES[: len(names)])
                 or len(names) > len(RECEIPT_BASENAMES)
             ):
@@ -2187,6 +2457,7 @@ class ProtectedRuntimeStateContractOwner:
                 )
                 receipts.append(receipt)
                 previous = receipt_document["receipt_payload_sha256"]
+            _fsync_recovered_journal(path, names)
             sealed = SealedProtectedRuntimeStateContract._from_owner(
                 document,
                 handoff=handoff,
@@ -2200,6 +2471,76 @@ class ProtectedRuntimeStateContractOwner:
             )
             sealed.assert_current()
             return sealed
+
+
+_OWNER_ISSUED_TYPE_NAMES = (
+    "ProtectedReadOnlyReconciliationEvidence",
+    "SealedProtectedRuntimeStateReceipt",
+    "SealedProtectedReadOnlyReconciliationHandoff",
+    "ProtectedReadOnlyReconciliationHandoffOwner",
+    "SealedProtectedRuntimeStateContract",
+    "ProtectedRuntimeStateContractOwner",
+)
+
+
+def _capture_owner_module_binding() -> _OwnerModuleBinding:
+    if __name__ != MODULE_NAME:
+        raise ImportError(
+            "runtime/state owner must load under its canonical module name"
+        )
+    module = sys.modules.get(MODULE_NAME)
+    if not isinstance(module, types.ModuleType):
+        raise ImportError("canonical runtime/state owner module is unavailable")
+    path = _owner_path()
+    if _module_origin(module) != (path, path):
+        raise ImportError("canonical runtime/state owner origin differs")
+    issued_types = []
+    for name in _OWNER_ISSUED_TYPE_NAMES:
+        value = getattr(module, name, None)
+        if (
+            not isinstance(value, type)
+            or value.__module__ != MODULE_NAME
+            or value.__qualname__ != name
+        ):
+            raise ImportError(
+                f"canonical runtime/state owner class identity differs: {name}"
+            )
+        issued_types.append((name, value))
+    return _OwnerModuleBinding(
+        module=module,
+        issued_types=tuple(issued_types),
+        source=_OWNER_SOURCE,
+    )
+
+
+def _assert_owner_module_binding() -> None:
+    binding = _OWNER_MODULE_BINDING
+    path = _owner_path()
+    if (
+        sys.modules.get(MODULE_NAME) is not binding.module
+        or _module_origin(binding.module) != (path, path)
+        or _stable_file(path) != binding.source
+    ):
+        raise ProtectedRuntimeStateError(
+            "runtime/state owner module identity differs"
+        )
+    for name, expected in binding.issued_types:
+        if getattr(binding.module, name, None) is not expected:
+            raise ProtectedRuntimeStateError(
+                f"runtime/state owner class identity differs: {name}"
+            )
+
+
+def _owner_issued_type(name: str) -> type:
+    for issued_name, issued_type in _OWNER_MODULE_BINDING.issued_types:
+        if issued_name == name:
+            return issued_type
+    raise ProtectedRuntimeStateError(
+        f"runtime/state owner issued type is unavailable: {name}"
+    )
+
+
+_OWNER_MODULE_BINDING = _capture_owner_module_binding()
 
 
 def _utc_now() -> datetime:

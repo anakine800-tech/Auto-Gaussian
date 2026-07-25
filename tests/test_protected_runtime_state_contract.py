@@ -6,12 +6,16 @@ from __future__ import annotations
 import ast
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 import pickle
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
+import textwrap
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -36,6 +40,7 @@ from tests import test_protected_local_materialization as SUPPORT  # noqa: E402
 from tests import test_protected_submit_contract as PR4D_SUPPORT  # noqa: E402
 import protected_legacy_effect_handoff as HANDOFF  # noqa: E402
 import protected_runtime_state_contract as STATE  # noqa: E402
+import skill_package as SKILL_PACKAGE  # noqa: E402
 
 
 NOW = datetime(2030, 1, 1, 12, 3, 0, tzinfo=timezone.utc)
@@ -52,7 +57,7 @@ class RuntimeStateFixture:
             "Host rtwin-placeholder\n  HostName example.invalid\n",
             encoding="utf-8",
         )
-        self.second_hop = r"C:\Users\placeholder\.ssh\config"
+        self.second_hop = r"C:\Synthetic\.ssh\config"
         first_hash = STATE._adapter_reference_sha256(
             "first_hop", str(self.ssh_config)
         )
@@ -423,6 +428,246 @@ class ProtectedRuntimeStateContractTests(unittest.TestCase):
         with self.assertRaises(STATE.ProtectedRuntimeStateError):
             sealed.assert_current()
 
+    def test_successor_module_and_issued_class_identity_fail_closed(
+        self,
+    ) -> None:
+        sealed = self.sealed()
+        original_module = sys.modules[STATE.MODULE_NAME]
+        sys.modules[STATE.MODULE_NAME] = mock.Mock()
+        try:
+            with self.assertRaises(STATE.ProtectedRuntimeStateError):
+                sealed.assert_current()
+        finally:
+            sys.modules[STATE.MODULE_NAME] = original_module
+
+        original_type = STATE.SealedProtectedRuntimeStateContract
+        STATE.SealedProtectedRuntimeStateContract = mock.Mock()
+        try:
+            with self.assertRaises(STATE.ProtectedRuntimeStateError):
+                sealed.current_receipt.assert_current()
+        finally:
+            STATE.SealedProtectedRuntimeStateContract = original_type
+
+        source = ROOT / "scripts/protected_runtime_state_contract.py"
+        spec = importlib.util.spec_from_file_location(
+            "foreign_protected_runtime_state_contract",
+            source,
+        )
+        assert spec is not None and spec.loader is not None
+        foreign = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = foreign
+        try:
+            with self.assertRaises(ImportError):
+                spec.loader.exec_module(foreign)
+        finally:
+            sys.modules.pop(spec.name, None)
+
+        same_name_spec = importlib.util.spec_from_file_location(
+            STATE.MODULE_NAME,
+            source,
+        )
+        assert (
+            same_name_spec is not None
+            and same_name_spec.loader is not None
+        )
+        same_name_foreign = importlib.util.module_from_spec(same_name_spec)
+        same_name_spec.loader.exec_module(same_name_foreign)
+        with self.assertRaises(TypeError):
+            (
+                same_name_foreign.ProtectedRuntimeStateContractOwner
+                ._for_testing_with_clock(
+                    self.fixture.runtime_config,
+                    lambda: NOW,
+                    _test_token=same_name_foreign._TEST_OWNER_TOKEN,
+                )
+            )
+
+    def test_ready_initialization_failures_are_explicitly_recoverable(
+        self,
+    ) -> None:
+        def new_fixture(label: str) -> RuntimeStateFixture:
+            root = self.root / label
+            root.mkdir()
+            return RuntimeStateFixture(root)
+
+        cases = ("clock", "zero-write", "short-write", "staged-fsync")
+        for label in cases:
+            with self.subTest(label=label):
+                fixture = new_fixture(label)
+                try:
+                    handoff = fixture.handoff()
+                    path = fixture.owner()._prepare(handoff)[-1]
+                    owner = fixture.owner()
+                    if label == "clock":
+                        owner = (
+                            STATE.ProtectedRuntimeStateContractOwner
+                            ._for_testing_with_clock(
+                                fixture.runtime_config,
+                                lambda: (_ for _ in ()).throw(
+                                    RuntimeError("clock failure")
+                                ),
+                                _test_token=STATE._TEST_OWNER_TOKEN,
+                            )
+                        )
+                        with self.assertRaises(RuntimeError):
+                            owner.seal(handoff)
+                    elif label == "zero-write":
+                        context = mock.patch.object(
+                            STATE.os,
+                            "write",
+                            return_value=0,
+                        )
+                    elif label == "short-write":
+                        real_write = os.write
+                        calls = 0
+
+                        def short_then_zero(
+                            descriptor: int,
+                            raw: bytes,
+                        ) -> int:
+                            nonlocal calls
+                            calls += 1
+                            if calls == 1:
+                                return real_write(descriptor, raw[:7])
+                            return 0
+
+                        context = mock.patch.object(
+                            STATE.os,
+                            "write",
+                            side_effect=short_then_zero,
+                        )
+                    else:
+                        context = mock.patch.object(
+                            STATE.os,
+                            "fsync",
+                            side_effect=OSError("staged fsync failure"),
+                        )
+                    if label != "clock":
+                        with context:
+                            with self.assertRaises(
+                                STATE.ProtectedRuntimeStateError
+                            ):
+                                owner.seal(handoff)
+                    self.assertFalse(path.exists())
+                    recovered = fixture.owner().recover(handoff)
+                    self.assertEqual(
+                        recovered.current_receipt.document()["state"],
+                        "ready",
+                    )
+                finally:
+                    fixture.close()
+
+    def test_post_link_fsync_failure_empty_recovery_and_partial_fail_closed(
+        self,
+    ) -> None:
+        handoff = self.fixture.handoff()
+        path = self.fixture.owner()._prepare(handoff)[-1]
+        real_fsync = os.fsync
+        calls = 0
+
+        def fail_after_link(descriptor: int) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("journal fsync failure")
+            real_fsync(descriptor)
+
+        with mock.patch.object(
+            STATE.os,
+            "fsync",
+            side_effect=fail_after_link,
+        ):
+            with self.assertRaises(STATE.ProtectedRuntimeStateError):
+                self.fixture.owner().seal(handoff)
+        self.assertTrue(
+            (path / STATE.RECEIPT_BASENAMES[0]).is_file()
+        )
+        recovered = self.fixture.owner().recover(handoff)
+        self.assertEqual(
+            recovered.current_receipt.document()["state"],
+            "ready",
+        )
+
+        other_root = self.root / "empty-and-partial"
+        other_root.mkdir()
+        other = RuntimeStateFixture(other_root)
+        try:
+            other_handoff = other.handoff()
+            other_path = other.owner()._prepare(other_handoff)[-1]
+            container = STATE._open_state_container(
+                other_path,
+                create=True,
+            )
+            try:
+                os.mkdir(other_path.name, mode=0o700, dir_fd=container)
+            finally:
+                os.close(container)
+            recovered_empty = other.owner().recover(other_handoff)
+            self.assertEqual(
+                recovered_empty.current_receipt.document()["state"],
+                "ready",
+            )
+        finally:
+            other.close()
+
+        partial_root = self.root / "partial"
+        partial_root.mkdir()
+        partial = RuntimeStateFixture(partial_root)
+        try:
+            partial_handoff = partial.handoff()
+            partial_path = partial.owner()._prepare(partial_handoff)[-1]
+            container = STATE._open_state_container(
+                partial_path,
+                create=True,
+            )
+            try:
+                os.mkdir(partial_path.name, mode=0o700, dir_fd=container)
+            finally:
+                os.close(container)
+            partial_ready = partial_path / STATE.RECEIPT_BASENAMES[0]
+            partial_ready.write_bytes(b"{")
+            with self.assertRaises(STATE.ProtectedRuntimeStateError):
+                partial.owner().recover(partial_handoff)
+            self.assertEqual(partial_ready.read_bytes(), b"{")
+        finally:
+            partial.close()
+
+    def test_concurrent_initial_seal_and_recovery_publish_one_ready(
+        self,
+    ) -> None:
+        handoff = self.fixture.handoff()
+        barrier = threading.Barrier(6)
+
+        def initialize(index: int) -> object:
+            barrier.wait()
+            owner = self.fixture.owner()
+            try:
+                sealed = (
+                    owner.seal(handoff)
+                    if index == 0
+                    else owner.recover(handoff)
+                )
+                return sealed.current_receipt.document()
+            except STATE.ProtectedRuntimeStateError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            results = list(pool.map(initialize, range(6)))
+        successes = [item for item in results if item is not None]
+        self.assertGreaterEqual(len(successes), 1)
+        self.assertTrue(
+            all(item == successes[0] for item in successes)
+        )
+        recovered = self.fixture.owner().recover(handoff)
+        self.assertEqual(
+            recovered.current_receipt.document(),
+            successes[0],
+        )
+        self.assertEqual(
+            sorted(path.name for path in recovered.journal_path.iterdir()),
+            [STATE.RECEIPT_BASENAMES[0]],
+        )
+
     def test_reconciliation_semantics_and_splice_are_owner_checked(self) -> None:
         sealed = self.sealed()
         not_started = sealed.consume_for_effect_once()
@@ -533,6 +778,73 @@ class ProtectedRuntimeStateContractTests(unittest.TestCase):
             "protected-runtime-state-contract.md",
             fixture["new_files"],
         )
+
+    def test_actual_copied_named_package_imports_canonical_owner(
+        self,
+    ) -> None:
+        installed = self.root / "installed-auto-g16-rtwin-pbs"
+        installed.mkdir()
+        for relative, source in SKILL_PACKAGE.package_files(
+            ROOT,
+            "auto-g16-rtwin-pbs",
+        ).items():
+            target = installed / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        script = textwrap.dedent(
+            f"""
+            import json
+            import sys
+            from pathlib import Path
+
+            installed = Path({str(installed)!r})
+            sys.path.insert(0, str(installed / "scripts"))
+            import legacy_rtwin_pbs
+            import protected_lifecycle_contract
+            import protected_local_materialization
+            import protected_legacy_effect_handoff
+            import protected_runtime_state_contract as state
+
+            print(json.dumps({{
+                "module": state.__name__,
+                "origin": str(Path(state.__file__).resolve()),
+                "bound": (
+                    state._OWNER_MODULE_BINDING.module is state
+                    and state._owner_issued_type(
+                        "ProtectedRuntimeStateContractOwner"
+                    )
+                    is state.ProtectedRuntimeStateContractOwner
+                ),
+            }}))
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=installed,
+            text=True,
+            capture_output=True,
+            env={
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "AUTO_G16_RUNTIME_CONFIG": str(
+                    TEST_TEMP_PARENT
+                    / "auto-g16-copied-package-placeholder.json"
+                ),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        self.assertEqual(output["module"], STATE.MODULE_NAME)
+        self.assertEqual(
+            output["origin"],
+            str(
+                (
+                    installed
+                    / "scripts/protected_runtime_state_contract.py"
+                ).resolve()
+            ),
+        )
+        self.assertTrue(output["bound"])
 
 
 def _try_boundary(

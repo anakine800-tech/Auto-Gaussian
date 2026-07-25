@@ -139,6 +139,92 @@ class ProtectedRuntimeStateDraft202012Tests(unittest.TestCase):
         with self.assertRaises(SUPPORT.STATE.ProtectedRuntimeStateError):
             validators[kind](document)
 
+    def rebind_successor_hashes(self, kind: str, document: dict) -> None:
+        if kind == "contract":
+            document["contract_payload_sha256"] = (
+                SUPPORT.STATE._contract_payload_sha256(document)
+            )
+            document["contract_id"] = (
+                "protected-runtime-state-"
+                + SUPPORT.STATE.digest(
+                    {
+                        "schema": "auto-g16-protected-runtime-state-id/1",
+                        "handoff_id": document["handoff"]["handoff_id"],
+                        "attempt_id": document["identity"]["attempt_id"],
+                        "runtime_binding_payload_sha256": document[
+                            "runtime_binding"
+                        ]["binding_payload_sha256"],
+                        "journal_path_sha256": document["journal"][
+                            "journal_path_sha256"
+                        ],
+                        "contract_payload_sha256": document[
+                            "contract_payload_sha256"
+                        ],
+                    }
+                )
+            )
+            document["journal"]["journal_id"] = (
+                "protected-runtime-journal-"
+                + SUPPORT.STATE.digest(
+                    {
+                        "schema": "auto-g16-protected-runtime-journal-id/1",
+                        "contract_id": document["contract_id"],
+                        "attempt_id": document["identity"]["attempt_id"],
+                    }
+                )
+            )
+        elif kind == "receipt":
+            document["receipt_payload_sha256"] = SUPPORT.STATE._payload_sha256(
+                document,
+                id_field="receipt_id",
+                payload_field="receipt_payload_sha256",
+            )
+            document["receipt_id"] = (
+                "protected-runtime-receipt-"
+                + SUPPORT.STATE.digest(
+                    {
+                        "schema": "auto-g16-protected-runtime-receipt-id/1",
+                        "journal_id": document["journal_id"],
+                        "sequence": document["sequence"],
+                        "previous_receipt_sha256": document[
+                            "previous_receipt_sha256"
+                        ],
+                        "receipt_payload_sha256": document[
+                            "receipt_payload_sha256"
+                        ],
+                    }
+                )
+            )
+        else:
+            document["handoff_payload_sha256"] = SUPPORT.STATE._payload_sha256(
+                document,
+                id_field="handoff_id",
+                payload_field="handoff_payload_sha256",
+            )
+            document["handoff_id"] = (
+                "protected-read-only-reconciliation-"
+                + SUPPORT.STATE.digest(
+                    {
+                        "schema": (
+                            "auto-g16-protected-read-only-"
+                            "reconciliation-id/1"
+                        ),
+                        "uncertain_receipt_payload_sha256": document[
+                            "uncertain_receipt"
+                        ]["receipt_payload_sha256"],
+                        "evidence_sha256": document["observation"][
+                            "evidence_sha256"
+                        ],
+                        "classification": document["observation"][
+                            "classification"
+                        ],
+                        "handoff_payload_sha256": document[
+                            "handoff_payload_sha256"
+                        ],
+                    }
+                )
+            )
+
     def test_exact_pins_schemas_and_owner_documents_validate(self) -> None:
         declared = {}
         for line in (
@@ -213,18 +299,60 @@ class ProtectedRuntimeStateDraft202012Tests(unittest.TestCase):
             (
                 "contract",
                 self.contract,
+                ("handoff", "handoff_id"),
+            ),
+            (
+                "contract",
+                self.contract,
+                ("handoff", "materialization_id"),
+            ),
+            (
+                "contract",
+                self.contract,
+                ("identity", "invocation_id"),
+            ),
+            (
+                "contract",
+                self.contract,
                 ("runtime_binding", "binding_payload_sha256"),
             ),
             ("receipt", self.ready, ("receipt_id",)),
+            ("receipt", self.ready, ("handoff_id",)),
+            ("receipt", self.ready, ("materialization_id",)),
             (
                 "receipt",
                 self.ready,
                 ("receipt_payload_sha256",),
             ),
             (
+                "receipt",
+                self.terminal,
+                ("reconciliation", "handoff_id"),
+            ),
+            (
                 "reconciliation",
                 self.reconciliation,
                 ("handoff_id",),
+            ),
+            (
+                "reconciliation",
+                self.reconciliation,
+                ("uncertain_receipt", "receipt_id"),
+            ),
+            (
+                "reconciliation",
+                self.reconciliation,
+                ("uncertain_receipt", "journal_id"),
+            ),
+            (
+                "reconciliation",
+                self.reconciliation,
+                ("uncertain_receipt", "contract_id"),
+            ),
+            (
+                "reconciliation",
+                self.reconciliation,
+                ("uncertain_receipt", "attempt_id"),
             ),
         )
         for kind, source, path in paths:
@@ -242,6 +370,17 @@ class ProtectedRuntimeStateDraft202012Tests(unittest.TestCase):
                 for component in path[:-1]:
                     changed_target = changed_target[component]
                 changed_target[path[-1]] = replacement
+                if (kind, path) not in {
+                    ("contract", ("contract_id",)),
+                    (
+                        "contract",
+                        ("runtime_binding", "binding_payload_sha256"),
+                    ),
+                    ("receipt", ("receipt_id",)),
+                    ("receipt", ("receipt_payload_sha256",)),
+                    ("reconciliation", ("handoff_id",)),
+                }:
+                    self.rebind_successor_hashes(kind, changed)
                 with self.subTest(
                     kind=kind,
                     path=path,

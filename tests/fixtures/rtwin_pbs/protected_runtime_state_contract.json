@@ -81,6 +81,7 @@
     "adapter_connected": false,
     "qsub_invocation_started": false,
     "remote_reconciliation_observation_acquired": false,
+    "cross_process_topology_snapshot_proven": false,
     "live_validation_performed": false
   }
 }

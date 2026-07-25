@@ -4,12 +4,16 @@
 successor after PR4N.
 
 - It accepts only an exact current owner-issued PR4N handoff.
+- Its own canonical module object, source origin, and issued classes remain
+  identity-bound for seal, recovery, and `assert_current()`.
 - It stably reads the owner-selected runtime config and first-hop SSH config,
   recomputes the protected two-hop config binding, and binds normalized
   Windows root/project identities without publishing private path text.
 - It keeps `/home/user100/SDL` fixed and exposes no remote-root override.
 - It writes an append-only sibling journal, leaving the PR4L directory and
-  every historical artifact unchanged.
+  every historical artifact unchanged. Ready initialization publishes only a
+  complete staged inode; explicit recovery may complete an absent/empty ready
+  journal but never overwrites an invalid authority receipt.
 - Its states are `ready`, `effect_not_started`,
   `effect_started_outcome_uncertain`, and `accepted_terminal`.
 - One consumption performs the final `assert_current()`. The uncertain receipt
