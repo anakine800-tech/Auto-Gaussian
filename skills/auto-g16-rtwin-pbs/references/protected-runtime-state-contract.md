@@ -6,6 +6,9 @@ successor after PR4N.
 - It accepts only an exact current owner-issued PR4N handoff.
 - Its own canonical module object, source origin, and issued classes remain
   identity-bound for seal, recovery, and `assert_current()`.
+- Its exact adjacent PR4N module records the process's first canonical
+  runtime/state owner; a later same-name execution cannot replace that
+  registration, create a new journal, or recover the first owner's journal.
 - It stably reads the owner-selected runtime config and first-hop SSH config,
   recomputes the protected two-hop config binding, and binds normalized
   Windows root/project identities without publishing private path text.
@@ -29,3 +32,5 @@ required to append a state transition.
 This contract does not construct a legacy effect plan/raw owner, connect
 `LegacyTransportAdapter`, invoke a runner, transfer, submit, query PBS, fetch,
 cancel, clean up, delete, deploy, or grant live authority.
+The registration is a Python import-graph duplicate-load guard, not protection
+from arbitrary code already running in the same interpreter.

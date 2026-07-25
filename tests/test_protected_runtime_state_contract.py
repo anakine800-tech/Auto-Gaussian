@@ -433,6 +433,10 @@ class ProtectedRuntimeStateContractTests(unittest.TestCase):
     ) -> None:
         sealed = self.sealed()
         original_module = sys.modules[STATE.MODULE_NAME]
+        self.assertIs(
+            vars(HANDOFF)[STATE.OWNER_REGISTRATION_ATTRIBUTE],
+            original_module,
+        )
         sys.modules[STATE.MODULE_NAME] = mock.Mock()
         try:
             with self.assertRaises(STATE.ProtectedRuntimeStateError):
@@ -471,16 +475,67 @@ class ProtectedRuntimeStateContractTests(unittest.TestCase):
             and same_name_spec.loader is not None
         )
         same_name_foreign = importlib.util.module_from_spec(same_name_spec)
-        same_name_spec.loader.exec_module(same_name_foreign)
-        with self.assertRaises(TypeError):
-            (
-                same_name_foreign.ProtectedRuntimeStateContractOwner
-                ._for_testing_with_clock(
-                    self.fixture.runtime_config,
-                    lambda: NOW,
-                    _test_token=same_name_foreign._TEST_OWNER_TOKEN,
-                )
+        other_root = self.root / "installed-replacement"
+        other_root.mkdir()
+        other = RuntimeStateFixture(other_root)
+        original_receipts = {
+            path.name: path.read_bytes()
+            for path in sealed.journal_path.iterdir()
+        }
+        other_handoff = other.handoff()
+        other_journal = STATE._journal_path(
+            other_handoff,
+            other_handoff.document()["materialization"]["attempt_id"],
+        )
+        sys.modules[STATE.MODULE_NAME] = same_name_foreign
+        try:
+            with self.assertRaisesRegex(
+                ImportError,
+                "owner is already registered",
+            ):
+                same_name_spec.loader.exec_module(same_name_foreign)
+            self.assertIsNone(
+                same_name_foreign._OWNER_MODULE_BINDING
             )
+            for action, runtime_config, handoff in (
+                ("seal", other.runtime_config, other_handoff),
+                ("recover", self.fixture.runtime_config, sealed.handoff),
+            ):
+                with self.subTest(replacement_action=action):
+                    with self.assertRaisesRegex(
+                        same_name_foreign.ProtectedRuntimeStateError,
+                        "owner module is not registered",
+                    ):
+                        replacement_owner = (
+                            same_name_foreign
+                            .ProtectedRuntimeStateContractOwner
+                            ._for_testing_with_clock(
+                                runtime_config,
+                                lambda: NOW,
+                                _test_token=(
+                                    same_name_foreign._TEST_OWNER_TOKEN
+                                ),
+                            )
+                        )
+                        getattr(replacement_owner, action)(handoff)
+            with self.assertRaises(STATE.ProtectedRuntimeStateError):
+                sealed.assert_current()
+            self.assertFalse(other_journal.exists())
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in sealed.journal_path.iterdir()
+                },
+                original_receipts,
+            )
+        finally:
+            sys.modules[STATE.MODULE_NAME] = original_module
+            other.close()
+        self.assertIs(
+            vars(HANDOFF)[STATE.OWNER_REGISTRATION_ATTRIBUTE],
+            original_module,
+        )
+        sealed.assert_current()
 
     def test_ready_initialization_failures_are_explicitly_recoverable(
         self,

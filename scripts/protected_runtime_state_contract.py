@@ -32,6 +32,9 @@ RECONCILIATION_SCHEMA = (
 )
 OWNER = "auto-g16-protected-runtime-state-owner"
 MODULE_NAME = "protected_runtime_state_contract"
+OWNER_REGISTRATION_ATTRIBUTE = (
+    "_auto_g16_protected_runtime_state_owner_registration_v1"
+)
 HANDOFF_MODULE_NAME = "protected_legacy_effect_handoff"
 HANDOFF_SCHEMA = "auto-g16-protected-legacy-effect-handoff/1"
 FIXED_REMOTE_ROOT = "/home/user100/SDL"
@@ -2506,6 +2509,14 @@ def _capture_owner_module_binding() -> _OwnerModuleBinding:
                 f"canonical runtime/state owner class identity differs: {name}"
             )
         issued_types.append((name, value))
+    registered = vars(_HANDOFF_BINDING.module).setdefault(
+        OWNER_REGISTRATION_ATTRIBUTE,
+        module,
+    )
+    if registered is not module:
+        raise ImportError(
+            "canonical runtime/state owner is already registered"
+        )
     return _OwnerModuleBinding(
         module=module,
         issued_types=tuple(issued_types),
@@ -2515,9 +2526,17 @@ def _capture_owner_module_binding() -> _OwnerModuleBinding:
 
 def _assert_owner_module_binding() -> None:
     binding = _OWNER_MODULE_BINDING
+    if not isinstance(binding, _OwnerModuleBinding):
+        raise ProtectedRuntimeStateError(
+            "runtime/state owner module is not registered"
+        )
     path = _owner_path()
     if (
-        sys.modules.get(MODULE_NAME) is not binding.module
+        vars(_HANDOFF_BINDING.module).get(
+            OWNER_REGISTRATION_ATTRIBUTE
+        )
+        is not binding.module
+        or sys.modules.get(MODULE_NAME) is not binding.module
         or _module_origin(binding.module) != (path, path)
         or _stable_file(path) != binding.source
     ):
@@ -2540,6 +2559,7 @@ def _owner_issued_type(name: str) -> type:
     )
 
 
+_OWNER_MODULE_BINDING: _OwnerModuleBinding | None = None
 _OWNER_MODULE_BINDING = _capture_owner_module_binding()
 
 
