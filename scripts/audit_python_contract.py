@@ -40,6 +40,7 @@ PROTECTED_SCHEMA_DRAFT_TEST_MODULES = (
     "tests.test_protected_lifecycle_schema_draft202012",
     "tests.test_protected_local_materialization_schema_draft202012",
     "tests.test_protected_legacy_effect_handoff_schema_draft202012",
+    "tests.test_protected_runtime_state_schema_draft202012",
 )
 SCHEMA_VALIDATION_TEST_COMMAND = (
     "python -m unittest "

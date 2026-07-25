@@ -1,0 +1,86 @@
+{
+  "schema": "auto-g16-protected-runtime-state-contract-fixture/1",
+  "base_commit": "160fe9f7b933313913b89a1352a856788286330b",
+  "base_tree": "ac390e077a01549650233606b426dd8f010a4351",
+  "scope": {
+    "additive_successor_only": true,
+    "runtime_identity_owner_bound": true,
+    "pr4l_sibling_append_only_journal": true,
+    "effect_not_started_and_uncertain_distinct": true,
+    "typed_read_only_reconciliation_handoff": true,
+    "adapter_connected": false,
+    "effects_performed": false,
+    "live_actions": false
+  },
+  "frozen_predecessors": {
+    "scripts/protected_submit_contract.py": "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a",
+    "scripts/local_state_binding.py": "6a23eb9307fdf930d4055589dd08baff8dea9275470db7ea9154f6ffa324b6b5",
+    "scripts/protected_invocation_contract.py": "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28",
+    "scripts/protected_lifecycle_contract.py": "166e8b398922682eb94c9705e8ee1ccf0ed13546a75c49010090f7d7182fbafb",
+    "scripts/protected_local_materialization.py": "e79a703c9f68a7d047210cf3b939caac06cef25f7d664ecece335ea5c444e2d7",
+    "scripts/protected_legacy_effect_handoff.py": "ceb4ff659070f077b095a76fdcac589bda9dd5d217a5d6680f4bdb31c738d479",
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "f100182aed304cb35d57c8a000b8bbb2960534cd1a43ae6828a53bbd6f45410b",
+    "contracts/execution/protected-submit-bundle.schema.json": "eb88ae46acc4f8a17166ffb2d124430782e8bb563817eba50fa34a80e8851ac4",
+    "contracts/execution/local-state-binding.schema.json": "1fbafcbefeba67115e33a9ad5402dc19e0ac426945f51c995fea3c560132e270",
+    "contracts/execution/protected-invocation-bundle.schema.json": "77274b93dabba0cbcbd93ff9b1c75b739a9a18c8d68d5a1078fa5b601de62197",
+    "contracts/execution/protected-lifecycle-contract.schema.json": "7ad4342464ce6d4b85d3b56af933d4ee314570b550b833cfba9d3dda599d4321",
+    "contracts/execution/protected-local-materialization.schema.json": "e3a253c911efacf3d64d539ab500ba5aad120399c249faffc48e60dfe613951b",
+    "contracts/execution/protected-legacy-effect-handoff.schema.json": "5b16d65653a10bb0e60ff57554c67eee6dab269ec4adb069b7e6f7f87b59567a",
+    "tests/fixtures/rtwin_pbs/protected_legacy_effect_handoff.json": "12778362073cb1d048ff6655a7df10c45f77405a673666e974592a5baf5ce867"
+  },
+  "successor_files": {
+    ".github/workflows/offline-tests.yml": {
+      "before_sha256": "06fce9f7f873a4e23da7ff42df5f289ff2b75cd0ce7a60b9d638f8643d9f0628",
+      "sha256": "053b7890fe763e4f7924dd449d70f329dedcfc7df7787e0f9466df3cfb20c475",
+      "change_class": "add_runtime_state_schema_to_required_pinned_draft_ladder"
+    },
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "6b80edfad2a3b5f9f7aeed07a31c66dd8ac4ed6b7d3c7b6b96559aeeb28e901d",
+      "sha256": "93c488a3158e7b44d6572252f3ff16a88895f4906ad42fb3d05f978a6c1fe39c",
+      "change_class": "freeze_runtime_state_schema_test_command"
+    },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "before_sha256": "72aad0d85143698a847e13ec2f4f99516435626f5cef0806c439e7167085314f",
+      "sha256": "0e24fad6cb18ec2afe6cb7390a5699a69efd2febbc694411046a690a4215627a",
+      "change_class": "add_runtime_state_successor_navigation"
+    },
+    "skills/auto-g16-rtwin-pbs/deployment-package.json": {
+      "before_sha256": "dea1ddad3c4ae53134fce42920f59ff1e6ca80ad9da0809f05f674c10ace9f55",
+      "sha256": "fba46780848eb03a8b573eff6377af7dc19d874c3db694ff3e2330401d1c9928",
+      "change_class": "add_runtime_state_owner_to_named_package"
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_sha256": "dff8dbd260ccc0be0b1fdba48b588069fc10cac2c69a1134ae63a038a666187a",
+      "sha256": "b1848dbdc7116ab235e9f65b1e20fa89a4a8d4389174cdd08442fc837cb271f4",
+      "change_class": "append_runtime_state_successor_freeze_chain"
+    },
+    "tests/test_protected_local_materialization.py": {
+      "before_sha256": "208b279208198064cc2253647f2799ec38df4b72b0fcbd0d772f4512411a0338",
+      "sha256": "fd75c1e16b2c705953fe1095b5bf355f44f1e6d2262143caf2dbc68985fb7dfa",
+      "change_class": "append_runtime_state_package_and_freeze_chain"
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "before_sha256": "b7e2bccefe5123f1d541107402351b13671cc61d41c3834137919c412b892e3d",
+      "sha256": "a1dd1048ceb6f42a9c98e4c16a20db74b8cfa9760ae9383350fb0f3f4b3f3f10",
+      "change_class": "append_runtime_state_package_and_freeze_chain"
+    }
+  },
+  "new_files": [
+    "scripts/protected_runtime_state_contract.py",
+    "contracts/execution/protected-runtime-state-contract.schema.json",
+    "contracts/execution/protected-runtime-state-receipt.schema.json",
+    "contracts/execution/protected-read-only-reconciliation-handoff.schema.json",
+    "docs/v2.6-protected-runtime-state-contract.md",
+    "skills/auto-g16-rtwin-pbs/references/protected-runtime-state-contract.md",
+    "tests/test_protected_runtime_state_contract.py",
+    "tests/test_protected_runtime_state_schema_draft202012.py",
+    "tests/fixtures/rtwin_pbs/protected_runtime_state_contract.json"
+  ],
+  "remaining_gates": {
+    "legacy_effect_plan_adapter_mapping_proven": false,
+    "adapter_connected": false,
+    "qsub_invocation_started": false,
+    "remote_reconciliation_observation_acquired": false,
+    "live_validation_performed": false
+  }
+}

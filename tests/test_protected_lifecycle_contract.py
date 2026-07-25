@@ -1268,6 +1268,13 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 "legacy_rtwin_pbs_fixed_constraint_successor.json"
             ).read_text(encoding="utf-8")
         )["files"]
+        runtime_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_runtime_state_contract.json"
+            ).read_text(encoding="utf-8")
+        )["successor_files"]
         expected = {
             "scripts/protected_invocation_contract.py": (
                 "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28"
@@ -1318,6 +1325,12 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                     current_hash = fixed_constraint_successor[relative][
                         "sha256"
                     ]
+                if relative in runtime_successor:
+                    self.assertEqual(
+                        runtime_successor[relative]["before_sha256"],
+                        current_hash,
+                    )
+                    current_hash = runtime_successor[relative]["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_hash,
@@ -1343,9 +1356,26 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
             present_successor_targets,
             (set(), successor_targets),
         )
+        runtime_targets = {
+            Path("scripts/protected_runtime_state_contract.py"),
+            Path(
+                "contracts/execution/"
+                "protected-runtime-state-contract.schema.json"
+            ),
+            Path(
+                "contracts/execution/"
+                "protected-runtime-state-receipt.schema.json"
+            ),
+            Path(
+                "contracts/execution/"
+                "protected-read-only-reconciliation-handoff.schema.json"
+            ),
+            Path("references/protected-runtime-state-contract.md"),
+        }
+        self.assertTrue(runtime_targets <= set(package))
         self.assertEqual(
             len(package),
-            81 + len(present_successor_targets),
+            81 + len(present_successor_targets) + len(runtime_targets),
         )
         expected = {
             Path("scripts/protected_lifecycle_contract.py"): (

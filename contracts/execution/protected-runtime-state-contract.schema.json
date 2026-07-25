@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-protected-runtime-state-contract/1",
+  "title": "Auto-G16 v2.6 protected runtime and state successor",
+  "$comment": "Structural validity only. Owner replay and an in-process seal are required before any transition; this Schema cannot authorize or perform an effect.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "owner", "contract_id", "handoff", "identity",
+    "runtime_binding", "workspace", "journal", "state_protocol",
+    "validation", "scope", "policy", "contract_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-protected-runtime-state-contract/1"},
+    "owner": {"const": "auto-g16-protected-runtime-state-owner"},
+    "contract_id": {
+      "type": "string",
+      "pattern": "^protected-runtime-state-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "handoff_id", "handoff_payload_sha256",
+        "materialization_id", "materialization_state_payload_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-protected-legacy-effect-handoff/1"},
+        "handoff_id": {
+          "type": "string",
+          "pattern": "^protected-legacy-effect-handoff-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "handoff_payload_sha256": {"$ref": "#/$defs/sha"},
+        "materialization_id": {
+          "type": "string",
+          "pattern": "^protected-local-materialization-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "materialization_state_payload_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project", "attempt_id", "invocation_id",
+        "invocation_payload_sha256", "input_sha256"
+      ],
+      "properties": {
+        "project": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^qsub-attempt-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "invocation_id": {
+          "type": "string",
+          "pattern": "^protected-invocation-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "invocation_payload_sha256": {"$ref": "#/$defs/sha"},
+        "input_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "runtime_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_config_path_sha256", "runtime_config_sha256",
+        "runtime_config_size_bytes", "first_hop_config_path_sha256",
+        "first_hop_config_sha256", "first_hop_config_size_bytes",
+        "windows_target_sha256", "first_hop_ref_sha256",
+        "second_hop_ref_sha256", "transport_config_bindings_sha256",
+        "windows_root_identity_sha256",
+        "windows_project_dir_identity_sha256", "binding_payload_sha256"
+      ],
+      "properties": {
+        "runtime_config_path_sha256": {"$ref": "#/$defs/sha"},
+        "runtime_config_sha256": {"$ref": "#/$defs/sha"},
+        "runtime_config_size_bytes": {"$ref": "#/$defs/positiveInteger"},
+        "first_hop_config_path_sha256": {"$ref": "#/$defs/sha"},
+        "first_hop_config_sha256": {"$ref": "#/$defs/sha"},
+        "first_hop_config_size_bytes": {"$ref": "#/$defs/positiveInteger"},
+        "windows_target_sha256": {"$ref": "#/$defs/sha"},
+        "first_hop_ref_sha256": {"$ref": "#/$defs/sha"},
+        "second_hop_ref_sha256": {"$ref": "#/$defs/sha"},
+        "transport_config_bindings_sha256": {"$ref": "#/$defs/sha"},
+        "windows_root_identity_sha256": {"$ref": "#/$defs/sha"},
+        "windows_project_dir_identity_sha256": {"$ref": "#/$defs/sha"},
+        "binding_payload_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windows_path_normalization", "remote_root",
+        "remote_project_dir", "remote_root_override_allowed"
+      ],
+      "properties": {
+        "windows_path_normalization": {
+          "const": "drive-absolute-backslash-casefold/1"
+        },
+        "remote_root": {"const": "/home/user100/SDL"},
+        "remote_project_dir": {
+          "type": "string",
+          "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+        },
+        "remote_root_override_allowed": {"const": false}
+      }
+    },
+    "journal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "journal_id", "state_container", "journal_path_sha256",
+        "receipt_schema", "receipt_basenames", "append_only",
+        "no_clobber", "legacy_ledger_is_sole_authority"
+      ],
+      "properties": {
+        "journal_id": {
+          "type": "string",
+          "pattern": "^protected-runtime-journal-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "state_container": {"const": ".auto-g16-protected-runtime-state-v1"},
+        "journal_path_sha256": {"$ref": "#/$defs/sha"},
+        "receipt_schema": {"const": "auto-g16-protected-runtime-state-receipt/1"},
+        "receipt_basenames": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "000000-ready.json"},
+            {"const": "000001-effect-not-started.json"},
+            {"const": "000002-effect-started-outcome-uncertain.json"},
+            {"const": "000003-accepted-terminal.json"}
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "append_only": {"const": true},
+        "no_clobber": {"const": true},
+        "legacy_ledger_is_sole_authority": {"const": false}
+      }
+    },
+    "state_protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "states", "transitions", "initial_state", "terminal_state",
+        "uncertain_recovery", "not_started_recovery"
+      ],
+      "properties": {
+        "states": {
+          "const": [
+            "ready", "effect_not_started",
+            "effect_started_outcome_uncertain", "accepted_terminal"
+          ]
+        },
+        "transitions": {
+          "const": [
+            "runtime_bound_ready", "consume_after_final_assert_current",
+            "enter_effect_boundary_outcome_uncertain",
+            "accept_read_only_reconciliation_terminal"
+          ]
+        },
+        "initial_state": {"const": "ready"},
+        "terminal_state": {"const": "accepted_terminal"},
+        "uncertain_recovery": {"const": "typed_read_only_reconciliation_only"},
+        "not_started_recovery": {
+          "const": "resume_before_effect_boundary_without_reconsumption"
+        }
+      }
+    },
+    "validation": {"$ref": "#/$defs/validation"},
+    "scope": {"$ref": "#/$defs/scope"},
+    "policy": {"$ref": "#/$defs/policy"},
+    "contract_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "positiveInteger": {"type": "integer", "minimum": 1},
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft_schema_structural_only", "public_validator_semantic_projection",
+        "owner_replay_required", "in_process_seal_required_for_transition"
+      ],
+      "properties": {
+        "draft_schema_structural_only": {"const": true},
+        "public_validator_semantic_projection": {"const": true},
+        "owner_replay_required": {"const": true},
+        "in_process_seal_required_for_transition": {"const": true}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bind_exact_pr4n_handoff", "bind_runtime_config_identity",
+        "bind_windows_work_root_identity", "publish_append_only_local_receipts",
+        "issue_effect_capability", "create_effect_plan",
+        "create_raw_effect_owner", "invoke_adapter", "invoke_runner",
+        "transfer", "submit", "status", "fetch", "cancel", "cleanup", "delete"
+      ],
+      "properties": {
+        "bind_exact_pr4n_handoff": {"const": true},
+        "bind_runtime_config_identity": {"const": true},
+        "bind_windows_work_root_identity": {"const": true},
+        "publish_append_only_local_receipts": {"const": true},
+        "issue_effect_capability": {"const": false},
+        "create_effect_plan": {"const": false},
+        "create_raw_effect_owner": {"const": false},
+        "invoke_adapter": {"const": false},
+        "invoke_runner": {"const": false},
+        "transfer": {"const": false},
+        "submit": {"const": false},
+        "status": {"const": false},
+        "fetch": {"const": false},
+        "cancel": {"const": false},
+        "cleanup": {"const": false},
+        "delete": {"const": false}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "single_consumption", "last_assert_current_before_effect_boundary",
+        "uncertain_before_external_effect",
+        "read_only_reconciliation_only_after_uncertain",
+        "automatic_retry", "automatic_cancel", "automatic_cleanup",
+        "automatic_delete", "automatic_rollback", "historical_migration",
+        "legacy_ledger_is_sole_authority", "remote_root_override_allowed"
+      ],
+      "properties": {
+        "single_consumption": {"const": true},
+        "last_assert_current_before_effect_boundary": {"const": true},
+        "uncertain_before_external_effect": {"const": true},
+        "read_only_reconciliation_only_after_uncertain": {"const": true},
+        "automatic_retry": {"const": false},
+        "automatic_cancel": {"const": false},
+        "automatic_cleanup": {"const": false},
+        "automatic_delete": {"const": false},
+        "automatic_rollback": {"const": false},
+        "historical_migration": {"const": false},
+        "legacy_ledger_is_sole_authority": {"const": false},
+        "remote_root_override_allowed": {"const": false}
+      }
+    }
+  }
+}

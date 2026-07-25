@@ -548,6 +548,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         successor = json.loads(
             FIXED_CONSTRAINT_SUCCESSOR_PATH.read_text(encoding="utf-8")
         )
+        runtime_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_runtime_state_contract.json"
+            ).read_text(encoding="utf-8")
+        )["successor_files"]
         self.assertEqual(
             fixture["schema"],
             "auto-g16-protected-legacy-effect-handoff-fixture/1",
@@ -589,15 +596,30 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = successor_binding["sha256"]
+                if relative in runtime_successor:
+                    successor_binding = runtime_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
                 )
         for relative, binding in successor["files"].items():
             with self.subTest(successor_path=relative):
+                current_sha256 = binding["sha256"]
+                if relative in runtime_successor:
+                    runtime_binding = runtime_successor[relative]
+                    self.assertEqual(
+                        runtime_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = runtime_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    binding["sha256"],
+                    current_sha256,
                 )
         self.assertFalse(fixture["remaining_gates"]["adapter_connected"])
         self.assertFalse(
