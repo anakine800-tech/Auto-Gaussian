@@ -9,6 +9,15 @@ reconciliation evidence.
 
 from __future__ import annotations
 
+# Standard importlib.reload() re-executes source in the existing module
+# dictionary.  Stop before any owner classes or tokens can be replaced.
+try:
+    _AUTO_G16_RUNTIME_STATE_EXECUTION_GUARD
+except NameError:
+    _AUTO_G16_RUNTIME_STATE_EXECUTION_GUARD = object()
+else:
+    raise ImportError("runtime/state owner module has already executed")
+
 import hashlib
 import json
 import math

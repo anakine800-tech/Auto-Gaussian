@@ -537,6 +537,30 @@ class ProtectedRuntimeStateContractTests(unittest.TestCase):
         )
         sealed.assert_current()
 
+        original_binding = STATE._OWNER_MODULE_BINDING
+        original_types = tuple(
+            getattr(STATE, name)
+            for name in STATE._OWNER_ISSUED_TYPE_NAMES
+        )
+        with self.assertRaisesRegex(
+            ImportError,
+            "module has already executed",
+        ):
+            importlib.reload(STATE)
+        self.assertIs(STATE._OWNER_MODULE_BINDING, original_binding)
+        self.assertEqual(
+            tuple(
+                getattr(STATE, name)
+                for name in STATE._OWNER_ISSUED_TYPE_NAMES
+            ),
+            original_types,
+        )
+        self.assertIs(
+            vars(HANDOFF)[STATE.OWNER_REGISTRATION_ATTRIBUTE],
+            original_module,
+        )
+        sealed.assert_current()
+
     def test_ready_initialization_failures_are_explicitly_recoverable(
         self,
     ) -> None:

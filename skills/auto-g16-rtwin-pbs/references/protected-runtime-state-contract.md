@@ -9,6 +9,8 @@ successor after PR4N.
 - Its exact adjacent PR4N module records the process's first canonical
   runtime/state owner; a later same-name execution cannot replace that
   registration, create a new journal, or recover the first owner's journal.
+  Standard same-object reload is rejected before owner definitions or bindings
+  can be replaced.
 - It stably reads the owner-selected runtime config and first-hop SSH config,
   recomputes the protected two-hop config binding, and binds normalized
   Windows root/project identities without publishing private path text.
