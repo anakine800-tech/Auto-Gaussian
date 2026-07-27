@@ -560,6 +560,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 "protected_runtime_state_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        consumer_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_owner_consumer_contract.json"
+            ).read_text(encoding="utf-8")
+        )["successor_files"]
         ci_portability = json.loads(
             CI_PORTABILITY_SUCCESSOR_PATH.read_text(encoding="utf-8")
         )
@@ -631,6 +638,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = successor_binding["sha256"]
+                if relative in consumer_successor:
+                    successor_binding = consumer_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -652,6 +666,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = successor_binding["sha256"]
+                if relative in consumer_successor:
+                    consumer_binding = consumer_successor[relative]
+                    self.assertEqual(
+                        consumer_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = consumer_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -667,9 +688,17 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         "legacy_semantics_changed",
                     },
                 )
+                current_sha256 = binding["sha256"]
+                if relative in consumer_successor:
+                    consumer_binding = consumer_successor[relative]
+                    self.assertEqual(
+                        consumer_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = consumer_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    binding["sha256"],
+                    current_sha256,
                 )
                 self.assertFalse(binding["legacy_semantics_changed"])
         self.assertFalse(fixture["remaining_gates"]["adapter_connected"])
