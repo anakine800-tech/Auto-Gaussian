@@ -1,0 +1,13 @@
+{
+  "binding_payload_sha256": "f774d065599ab8acbaf03e8fd3dca785e561e4ef8f59a3ba0840be0c832943a2",
+  "canonical_sample_sha256": "d7c47218dc498f2525faa381602af2e07632d35e8461bc365d17021aad67185f",
+  "capability_report_payload_sha256": "911051906fb5c95097efbb304ba94bea2d9bf82825004607049a3ce369c720d8",
+  "catalog_payload_sha256": "3969d6c162d9e92cd388d9826f48a248e97250f6e16a2534f11a66516c742c91",
+  "config_source_bundle_vectors": {
+    "a_bc": "ce82fcee6304f3847c219ac2102dd763871e4a02577dfbc747a040c02f96fb7b",
+    "ab_c": "f259d2c37b96d8507f2111ce2961dd8ca0a17653229d2131b7accce72fd48bf7"
+  },
+  "legacy_mapping_payload_sha256": "bd268f9ad44cd0856ab4f2c5fc5a132ec001521f3331ff462691a3804bc6d046",
+  "profile_payload_sha256": "60ee2456a2214750fa7a1e08a2266153d45f97116cfaf33aec4eebc22fa953e5",
+  "schema": "auto-g16-platform-contract-golden/1"
+}

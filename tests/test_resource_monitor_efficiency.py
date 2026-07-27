@@ -298,7 +298,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
                      mock.patch.object(PBS, "publish_new_json", side_effect=publish), \
                      mock.patch.object(PBS, "verify_staged_submission", side_effect=verify), \
                      mock.patch.object(PBS, "run") as network, self.assertRaises(SystemExit):
-                    PBS.command_submit(args)
+                    PBS.LegacyCLICompatibilityAdapter()._run_offline_differential_transaction(args)
                 network.assert_not_called()
                 ledger = RESOURCE.load(ledger_path)
                 attempt = next(item for item in ledger["attempts"] if item["attempt_id"] == attempt_id)
@@ -320,7 +320,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
                  mock.patch.object(PBS, "validate_live_approval_binding", return_value=(live, "d" * 64)), \
                  mock.patch.object(PBS, "publish_new_json", side_effect=publish), \
                  mock.patch.object(PBS, "run") as network, self.assertRaises(KeyboardInterrupt):
-                PBS.command_submit(args)
+                PBS.LegacyCLICompatibilityAdapter()._run_offline_differential_transaction(args)
             network.assert_not_called()
             ledger = RESOURCE.load(ledger_path)
             attempt = next(item for item in ledger["attempts"] if item["attempt_id"] == attempt_id)
@@ -341,7 +341,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             with mock.patch.object(PBS, "validate_input_approval", return_value=input_approval), \
                  mock.patch.object(PBS, "validate_live_approval_binding", return_value=(live, "d" * 64)), \
                  mock.patch.object(PBS, "run", side_effect=network), self.assertRaises(SystemExit):
-                PBS.command_submit(args)
+                PBS.LegacyCLICompatibilityAdapter()._run_offline_differential_transaction(args)
             job = PBS.read_job_state(root / "bundle")
             evidence = job["upload_hash_timeout_evidence"]
             self.assertEqual(observed_hash_timeout, [evidence["rtwin_sha256_timeout_seconds"]])

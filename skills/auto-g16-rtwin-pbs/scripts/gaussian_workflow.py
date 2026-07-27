@@ -12,7 +12,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import gaussian_rtwin_pbs as transport
+import execution_facade
+transport = execution_facade.bind_current()
 from gaussian_log import HARTREE_J_MOL, analyze_workflow_log_file
 
 

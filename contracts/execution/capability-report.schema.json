@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-execution-capability-report/1",
+  "title": "Auto-G16 v2.6 offline capability report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "profile_id", "profile_sha256", "backend_kind",
+    "transport_identity_binding_sha256", "scheduler", "gaussian_runtime",
+    "configured_typed_operations", "unsupported_backends", "unknown_live_properties",
+    "offline_only", "sanitization_version", "report_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-execution-capability-report/1"},
+    "profile_id": {"$ref": "#/$defs/id"},
+    "profile_sha256": {"$ref": "#/$defs/sha256"},
+    "backend_kind": {"enum": ["legacy_rtwin_pbs", "direct_ssh_pbs"]},
+    "transport_identity_binding_sha256": {"$ref": "#/$defs/sha256"},
+    "scheduler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dialect", "status"],
+      "properties": {
+        "dialect": {"const": "pbs_legacy_v1"},
+        "status": {"const": "configured_expressible_unverified"}
+      }
+    },
+    "gaussian_runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["invocation_mode", "status"],
+      "properties": {
+        "invocation_mode": {"const": "legacy_stdin"},
+        "status": {"const": "configured_expressible_unverified"}
+      }
+    },
+    "configured_typed_operations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/configured_operation"},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "unsupported_backends": {
+      "const": ["local_gaussian", "slurm", "mcp"]
+    },
+    "unknown_live_properties": {
+      "const": [
+        "network_reachability", "license_validity", "gaussian_availability",
+        "live_authority", "transport_identity_attestation"
+      ]
+    },
+    "offline_only": {"const": true},
+    "sanitization_version": {"const": "auto-g16-capability-sanitization/1"},
+    "report_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "configured_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "status"],
+      "properties": {
+        "operation": {
+          "enum": [
+            "typed_identity_attestation", "pbs_submit_once", "pbs_inspect_exact",
+            "pbs_fetch_allowlist", "pbs_cancel_exact"
+          ]
+        },
+        "status": {"const": "configured_expressible_unverified"}
+      }
+    }
+  }
+}

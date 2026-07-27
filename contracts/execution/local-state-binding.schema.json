@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-local-state-binding/1",
+  "title": "Auto-G16 v2.6 deterministic local-state binding",
+  "$comment": "Structural validation does not issue an in-process seal or execution authority. The relative ledger path is deterministically derived from relative_local_dir plus the fixed ledger_basename and is not a portable input. Absolute paths and filesystem identities exist only in the owner-issued in-process object.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "layout",
+    "path_bindings",
+    "ledger",
+    "identity",
+    "protected_submit",
+    "policy",
+    "binding_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-local-state-binding/1"},
+    "owner": {"const": "auto-g16-local-state-binding-owner"},
+    "layout": {"$ref": "#/$defs/layout"},
+    "path_bindings": {"$ref": "#/$defs/pathBindings"},
+    "ledger": {"$ref": "#/$defs/ledger"},
+    "identity": {"$ref": "#/$defs/identity"},
+    "protected_submit": {"$ref": "#/$defs/protectedSubmit"},
+    "policy": {"$ref": "#/$defs/policy"},
+    "binding_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "project": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+    },
+    "attempt": {
+      "type": "string",
+      "pattern": "^qsub-attempt-[a-f0-9]{64}$"
+    },
+    "relativeLocalDir": {
+      "type": "string",
+      "pattern": "^outputs/[A-Za-z0-9][A-Za-z0-9_-]{0,14}/qsub-attempt-[a-f0-9]{64}$"
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "relative_local_dir",
+        "ledger_basename"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-local-state-layout/1"},
+        "relative_local_dir": {"$ref": "#/$defs/relativeLocalDir"},
+        "ledger_basename": {"const": "execution-batch-v3.json"}
+      }
+    },
+    "pathBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace_root_path_sha256",
+        "local_dir_path_sha256"
+      ],
+      "properties": {
+        "workspace_root_path_sha256": {"$ref": "#/$defs/sha"},
+        "local_dir_path_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "artifact_sha256",
+        "artifact_size_bytes",
+        "ledger_sha256",
+        "revision",
+        "resource_state_revision",
+        "resource_state_sha256",
+        "batch_id_sha256",
+        "review_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "gaussian-execution-batch/3"},
+        "artifact_sha256": {"$ref": "#/$defs/sha"},
+        "artifact_size_bytes": {"type": "integer", "minimum": 1},
+        "ledger_sha256": {"$ref": "#/$defs/sha"},
+        "revision": {"type": "integer", "minimum": 0},
+        "resource_state_revision": {"type": "integer", "minimum": 0},
+        "resource_state_sha256": {"$ref": "#/$defs/sha"},
+        "batch_id_sha256": {"$ref": "#/$defs/sha"},
+        "review_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project",
+        "attempt_id",
+        "scientific_task_id",
+        "input_sha256",
+        "idempotency_key_sha256"
+      ],
+      "properties": {
+        "project": {"$ref": "#/$defs/project"},
+        "attempt_id": {"$ref": "#/$defs/attempt"},
+        "scientific_task_id": {
+          "type": "string",
+          "pattern": "^scientific-task-[a-f0-9]{64}$"
+        },
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "idempotency_key_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "protectedSubmit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "bundle_id",
+        "bundle_payload_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-protected-submit-bundle/1"},
+        "bundle_id": {
+          "type": "string",
+          "pattern": "^protected-submit-[a-f0-9]{64}$"
+        },
+        "bundle_payload_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "future_protected_successor_only",
+        "no_execution_authorization",
+        "local_state_directory_creation_performed",
+        "local_state_permissions_changed",
+        "ledger_lock_acquired",
+        "ledger_write_performed",
+        "external_actions_performed",
+        "legacy_cli_unchanged",
+        "historical_migration",
+        "protected_state_policy"
+      ],
+      "properties": {
+        "future_protected_successor_only": {"const": true},
+        "no_execution_authorization": {"const": true},
+        "local_state_directory_creation_performed": {"const": false},
+        "local_state_permissions_changed": {"const": false},
+        "ledger_lock_acquired": {"const": false},
+        "ledger_write_performed": {"const": false},
+        "external_actions_performed": {"const": false},
+        "legacy_cli_unchanged": {"const": true},
+        "historical_migration": {"const": false},
+        "protected_state_policy": {
+          "const": "exact_execution_batch_v3_only"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-protected-submit-legacy-hashes/1",
+  "base_commit": "3f0dfaac805de83626b45288994132fdac0501db",
+  "files": {
+    "contracts/execution/execution-request.schema.json": "a7625d8c6f07412f9718f24c8eec30d4e06518743681161235808c3a53efef6b",
+    "contracts/execution/execution-request-v2.schema.json": "1e64af699cd88b95994568c4c10bedda1a4c5a798057ae23099bf5ef8252c4e1",
+    "contracts/execution/execution-authorization.schema.json": "6514ee1a2480fd28669b7570c2e466810716e9ab47666fedd31b47757b39f58e",
+    "contracts/execution/execution-authorization-v2.schema.json": "89957d68c2a5879c4f9ecf3ec6a69001f7147f40f8a9c2476b6ad4f0654e9b13",
+    "scripts/execution_authorization.py": "0c000ba91145943b6d8aec7570fad96d2ff519a595682cc4926e8277a46efe61",
+    "scripts/transport_authority_closure.py": "b1990e66e518119799d49235791a61a61045c48d19c6eec9c54b411e3f315adb",
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_adapter_integration.py": "59037b296ec280b9a66837fc1259657c85bed476eb958b314971e8c3da92f0a4",
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "fbbd7a194e2c840a7173b61a3386fbb514be0dfe4a42ebebaadc0326ab6de1ce"
+  }
+}

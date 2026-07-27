@@ -1,0 +1,48 @@
+{
+  "schema": "auto-g16-legacy-effect-owner-lifecycle-fix/1",
+  "base_commit": "88f03149a59f7b7648cb92718b7705c93b09691d",
+  "base_tree": "a4c475b20ef72e20881e2bc488b2023394b3d807",
+  "base_parent": "7ea0ae19156ad3b6daeefc787ca6dda471669355",
+  "files": {
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_sha256": "259c6679fd9b2436b9c7e133fc4b19482e6fed5ea7bbd9f94a86ddac5e7aa8cb",
+      "after_sha256": "f5be502976643c9f78a68d61b830d39251817995100a1530be3fc364fd8631a7",
+      "change_class": "private_legacy_effect_owner_terminal_lifecycle_retirement",
+      "lifecycle_semantics_changed": true,
+      "legacy_semantics_changed": false,
+      "behavior_parity": {
+        "test": "tests/test_legacy_effect_owner.py",
+        "comparison": "exact frozen base, success and six-step failure differential, GC-disabled terminal registry retirement, post-transfer local failures, deterministic in-flight retirement, replay and lifecycle forgery refusal",
+        "runner_calls": 6,
+        "command_bytes_changed": false,
+        "transaction_policy_changed": false,
+        "automatic_retry": false,
+        "live_actions": false
+      }
+    },
+    "tests/test_local_state_binding.py": {
+      "before_sha256": "df96748d495a154244ba23406945ef2c3d4b8574a6916b83cb47742bcc464f66",
+      "after_sha256": "077e9514f07117da045b8556849558ee9c76450ca5c8a04e04b39f9d8fc2a5c4",
+      "change_class": "append_pr4m_successor_fixture_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_submit_contract.py": {
+      "before_sha256": "4b761d796793d391a765b88efcee17e27a671facc06d1c685546153928ab917a",
+      "after_sha256": "6d46449d8071464d23b573e38206833f707fbfd12c8fc67baea0175288deace5",
+      "change_class": "append_pr4m_successor_fixture_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "before_sha256": "8f31e4c46283d41ea3132897816cb840a40d3d126280633695466ee05a7529eb",
+      "after_sha256": "0fb295370f1bced70d884920f1a6c94366464a9a3f51595dd2d0bb9c58c4bd34",
+      "change_class": "append_pr4m_successor_fixture_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_local_materialization.py": {
+      "before_sha256": "4bcc53e905210635a525864254890085ee33f783cd4ed16e01da8f1b95aeeae7",
+      "after_sha256": "d828cb610a463cdba80df19021dd7f7d59c028495b9b379489dc499423cb8e96",
+      "change_class": "append_pr4m_successor_fixture_chain",
+      "legacy_semantics_changed": false
+    }
+  }
+}

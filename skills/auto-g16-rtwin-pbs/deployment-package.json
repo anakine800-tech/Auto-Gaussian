@@ -5,6 +5,54 @@
     {
       "source": "contracts/rtwin-pbs",
       "target": "contracts/rtwin-pbs"
+    },
+    {
+      "source": "contracts/execution",
+      "target": "contracts/execution"
+    },
+    {
+      "source": "scripts/platform_contracts.py",
+      "target": "scripts/platform_contracts.py"
+    },
+    {
+      "source": "scripts/execution_authorization.py",
+      "target": "scripts/execution_authorization.py"
+    },
+    {
+      "source": "scripts/transport_authority_closure.py",
+      "target": "scripts/transport_authority_closure.py"
+    },
+    {
+      "source": "scripts/protected_submit_contract.py",
+      "target": "scripts/protected_submit_contract.py"
+    },
+    {
+      "source": "scripts/local_state_binding.py",
+      "target": "scripts/local_state_binding.py"
+    },
+    {
+      "source": "scripts/protected_invocation_contract.py",
+      "target": "scripts/protected_invocation_contract.py"
+    },
+    {
+      "source": "scripts/protected_lifecycle_contract.py",
+      "target": "scripts/protected_lifecycle_contract.py"
+    },
+    {
+      "source": "scripts/protected_local_materialization.py",
+      "target": "scripts/protected_local_materialization.py"
+    },
+    {
+      "source": "scripts/protected_legacy_effect_handoff.py",
+      "target": "scripts/protected_legacy_effect_handoff.py"
+    },
+    {
+      "source": "scripts/protected_runtime_state_contract.py",
+      "target": "scripts/protected_runtime_state_contract.py"
+    },
+    {
+      "source": "scripts/runtime_config.py",
+      "target": "scripts/platform_runtime_config_owner.py"
     }
   ]
 }

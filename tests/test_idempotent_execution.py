@@ -229,7 +229,7 @@ class IdempotentExecutionTests(unittest.TestCase):
         script = PBS.remote_empty_directory_guard("safejob")
         self.assertIn("already exists, even if empty", script)
         self.assertNotIn("find \"$jobdir\"", script)
-        source = (SCRIPTS / "gaussian_rtwin_pbs.py").read_text()
+        source = (SCRIPTS / "legacy_rtwin_pbs.py").read_text()
         self.assertIn("AUTO_G16_ATTEMPT_ID=", source)
         self.assertIn("submission-receipt.json", source)
         self.assertNotIn("qsub {project}.pbs", source)
@@ -528,7 +528,8 @@ class IdempotentExecutionTests(unittest.TestCase):
             import io
             from contextlib import redirect_stderr
             error = io.StringIO()
-            with mock.patch.object(PBS, "run") as run, self.assertRaises(SystemExit), redirect_stderr(error): args.func(args)
+            with mock.patch.object(PBS, "run") as run, self.assertRaises(SystemExit), redirect_stderr(error):
+                PBS.LegacyCLICompatibilityAdapter()._run_offline_differential_transaction(args)
             run.assert_not_called()
             self.assertIn("protected live submit requires --execution-batch-ledger", error.getvalue())
             self.assertNotIn("%chk", error.getvalue())

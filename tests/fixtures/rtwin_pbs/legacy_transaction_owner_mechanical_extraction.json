@@ -1,0 +1,17 @@
+{
+  "schema": "auto-g16-legacy-transaction-owner-mechanical-extraction/1",
+  "base_commit": "ba9fb6f523edbc23e94cd20a1fc5d4d085567cec",
+  "files": {
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_sha256": "7c8795be69befa0222fabda87efcbf3fd2311d65a3e5fc680bb7b914c407eedf",
+      "after_sha256": "f3ba5823374a1ed7a11736a47ab2d44c5e2a116dde0d867e97ad577ea4ad9d67",
+      "change_class": "private_typed_legacy_transaction_owner_extraction",
+      "legacy_semantics_changed": false,
+      "behavior_parity": {
+        "test": "tests/test_legacy_transaction_owner.py",
+        "comparison": "preserve dry-run effect order, output, stable staged bytes, state transitions, error text and exit codes through the compatible wrapper",
+        "live_actions": false
+      }
+    }
+  }
+}

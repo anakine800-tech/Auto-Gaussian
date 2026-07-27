@@ -1,0 +1,131 @@
+{
+  "schema": "auto-g16-protected-legacy-effect-handoff-fixture/1",
+  "base_commit": "ab9530bcd6c9ec96e2bd37f7e9022314532a85bb",
+  "base_tree": "e887bdd294285ea35bf6fe98b4d58853dcdf69f2",
+  "base_parent": "88f03149a59f7b7648cb92718b7705c93b09691d",
+  "scope": {
+    "exact_pr4l_materialization_only": true,
+    "exact_pr4m_readiness_witness_only": true,
+    "effect_plan_created": false,
+    "raw_effect_owner_created": false,
+    "registry_entry_created": false,
+    "adapter_connected": false,
+    "runner_called": false,
+    "live_actions": false
+  },
+  "files": {
+    ".github/workflows/offline-tests.yml": {
+      "before_sha256": "6c3fa7444aa99c16939b1a8038d88fc8bf893d016f25e223a42fb55557b268ed",
+      "sha256": "06fce9f7f873a4e23da7ff42df5f289ff2b75cd0ce7a60b9d638f8643d9f0628",
+      "change_class": "mandatory_all_protected_schema_draft_ladder",
+      "legacy_semantics_changed": false
+    },
+    "contracts/execution/protected-legacy-effect-handoff.schema.json": {
+      "sha256": "5b16d65653a10bb0e60ff57554c67eee6dab269ec4adb069b7e6f7f87b59567a",
+      "change_class": "closed_non_executable_handoff_structure",
+      "legacy_semantics_changed": false
+    },
+    "docs/v2.6-protected-legacy-effect-handoff.md": {
+      "sha256": "4f84203ff8445cd05b2136ad2511a2d44ba57ff8cc54f3db64db9f352669de95",
+      "change_class": "typed_readiness_boundary_and_remaining_gate",
+      "legacy_semantics_changed": false
+    },
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "21b4a531d25d77edf6149158586b51daf070b8071697849549e0a301621a4d4d",
+      "sha256": "6b80edfad2a3b5f9f7aeed07a31c66dd8ac4ed6b7d3c7b6b96559aeeb28e901d",
+      "change_class": "freeze_mandatory_all_protected_schema_draft_command",
+      "legacy_semantics_changed": false
+    },
+    "scripts/protected_legacy_effect_handoff.py": {
+      "sha256": "ceb4ff659070f077b095a76fdcac589bda9dd5d217a5d6680f4bdb31c738d479",
+      "change_class": "exact_pr4l_pr4m_non_executable_typed_handoff_owner",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "before_sha256": "3bb26275857e4caaa553d8a9dabded4820a44cdd07352233b75b485299f866d4",
+      "sha256": "5b2f4f638bc0117215bd23537e72d11eb765dbcd0f15f36ec3177dfa637a5ac2",
+      "change_class": "add_pr4n_reference_and_bundled_script_navigation",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/deployment-package.json": {
+      "before_sha256": "498570a1a0aad2c4b70711d8a040e5a563e6fc032ca68bb89736a8d3e753d312",
+      "sha256": "dea1ddad3c4ae53134fce42920f59ff1e6ca80ad9da0809f05f674c10ace9f55",
+      "change_class": "additive_handoff_owner_packaging",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/references/protected-legacy-effect-handoff.md": {
+      "sha256": "3e0b38626ab6dc9bf50f4e858a110e1789b9f7589fde2f8871851aafdcce8b4a",
+      "change_class": "packaged_non_executable_handoff_boundary",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": {
+      "before_sha256": "421ffe0d25802a2c9b14968b773d2338001e159bed8c6f34abf17613980431d2",
+      "sha256": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
+      "change_class": "fixed_exact_seal_only_handoff_api",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_sha256": "f5be502976643c9f78a68d61b830d39251817995100a1530be3fc364fd8631a7",
+      "sha256": "89bc25ab8df2234168f1e6b722ad80190868d2c8dc2398b567c338f66ae94e75",
+      "change_class": "read_only_module_issued_pr4m_lifecycle_readiness_witness",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_legacy_effect_owner.py": {
+      "before_sha256": "a1a047774f756a620c9b37500edcf758e0b801cea35a6e941c8a38ac7fc7ff31",
+      "sha256": "239a2ae4635cfbfe81094cb26d71539670c1e78b580b6f331cf83939417b6824",
+      "change_class": "append_pr4n_successor_freeze_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_local_state_binding.py": {
+      "before_sha256": "077e9514f07117da045b8556849558ee9c76450ca5c8a04e04b39f9d8fc2a5c4",
+      "sha256": "76bb386044746e7c881814863b9616e3bfb7db8b44261341f8c18efe93a763a7",
+      "change_class": "append_pr4n_successor_freeze_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "sha256": "911b138117d44d18c68abf0be089db7c2fb3647ecf2a3e1b22416524f5a0945f",
+      "change_class": "focused_exact_adversarial_concurrency_package_tests",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_legacy_effect_handoff_schema_draft202012.py": {
+      "sha256": "834c4b2aa43558dcbcb6e139c2d83d23938510a7cb918de5e286a40c30a73800",
+      "change_class": "pinned_draft_2020_12_structure_parity_tests",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "before_sha256": "0fb295370f1bced70d884920f1a6c94366464a9a3f51595dd2d0bb9c58c4bd34",
+      "sha256": "294d3700180efcce6f55dd6c5f3a375242d2c92e1bea5a920dfdc45edea10342",
+      "change_class": "append_pr4n_successor_freeze_and_package_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_local_materialization.py": {
+      "before_sha256": "d828cb610a463cdba80df19021dd7f7d59c028495b9b379489dc499423cb8e96",
+      "sha256": "be57af1e1db4abd07875d71c733caaf6f6a219552e92089ecaf395554a230b91",
+      "change_class": "append_pr4n_successor_freeze_and_package_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_submit_contract.py": {
+      "before_sha256": "6d46449d8071464d23b573e38206833f707fbfd12c8fc67baea0175288deace5",
+      "sha256": "f918f81caae65809ef048246fec01260fa14e794c030402b926e05fba8607e50",
+      "change_class": "append_pr4n_successor_freeze_chain",
+      "legacy_semantics_changed": false
+    }
+  },
+  "frozen_predecessors": {
+    "protected_submit_owner_commit": "ad448b1",
+    "local_state_owner_commit": "70f1575",
+    "protected_invocation_owner_commit": "ba9fb6f",
+    "legacy_transaction_owner_commit": "fc7b59d",
+    "legacy_effect_plan_owner_commit": "477bada",
+    "protected_lifecycle_owner_commit": "45c1bb8",
+    "protected_local_materialization_commit": "88f0314",
+    "legacy_effect_owner_lifecycle_commit": "ab9530b"
+  },
+  "remaining_gates": {
+    "adapter_connected": false,
+    "runtime_transport_binding_complete": false,
+    "qsub_invocation_started": false,
+    "reconciliation_implementation_proven": false,
+    "live_validation_performed": false
+  }
+}

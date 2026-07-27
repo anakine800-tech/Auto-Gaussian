@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-execution-profile/1",
+  "title": "Auto-G16 v2.6 execution profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile_id",
+    "backend_kind",
+    "transport_config_ref",
+    "transport_identity_binding_sha256",
+    "scheduler_dialect",
+    "gaussian_runtime",
+    "workspace_policy",
+    "resource_catalog",
+    "declared_capabilities",
+    "profile_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-execution-profile/1"},
+    "profile_id": {"$ref": "#/$defs/id"},
+    "backend_kind": {"enum": ["legacy_rtwin_pbs", "direct_ssh_pbs"]},
+    "transport_config_ref": {"type": "string", "pattern": "^/[^\\u0000-\\u001f]+$"},
+    "transport_identity_binding_sha256": {"$ref": "#/$defs/sha256"},
+    "scheduler_dialect": {"const": "pbs_legacy_v1"},
+    "gaussian_runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["invocation_mode", "executable_ref"],
+      "properties": {
+        "invocation_mode": {"const": "legacy_stdin"},
+        "executable_ref": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"}
+      }
+    },
+    "workspace_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root_policy", "allowed_root", "fresh_project_required", "no_overwrite", "no_symlink", "no_delete"],
+      "properties": {
+        "root_policy": {"const": "fixed_sdl"},
+        "allowed_root": {"const": "/home/user100/SDL"},
+        "fresh_project_required": {"const": true},
+        "no_overwrite": {"const": true},
+        "no_symlink": {"const": true},
+        "no_delete": {"const": true}
+      }
+    },
+    "resource_catalog": {"$ref": "resource-catalog.schema.json"},
+    "declared_capabilities": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "typed_identity_attestation",
+          "pbs_submit_once",
+          "pbs_inspect_exact",
+          "pbs_fetch_allowlist",
+          "pbs_cancel_exact"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "profile_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

@@ -1,0 +1,299 @@
+{
+  "schema": "auto-g16-legacy-v2.5.4-characterization/1",
+  "golden_origin": {
+    "commit": "aa1c4614fc0d1cdecfc445a4db39a70700e2d7c6",
+    "tag": "v2.5.4",
+    "placeholder_only": true,
+    "offline_only": true
+  },
+  "classification_policy": {
+    "allowed": [
+      "required_compatibility",
+      "known_defect_requiring_separate_reviewed_change"
+    ],
+    "p0_p1_may_be_accepted_by_updating_golden": false
+  },
+  "surfaces": {
+    "runtime_precedence": {
+      "classification": "required_compatibility",
+      "order": ["cli", "environment", "runtime_json", "legacy_fallback", "repository_default"]
+    },
+    "public_cli": {
+      "classification": "required_compatibility",
+      "transport": {
+        "subcommands": [
+          "analyze", "batch-status", "build-input-approval", "cancel", "cleanup-zombie",
+          "diagnose-zombie", "fetch", "finalize-input-review", "inspect", "preflight",
+          "reconcile-cancellation", "reconcile-submission", "stage", "status", "submit",
+          "tail", "validate-input-approval", "watch"
+        ],
+        "action_semantics_sha256": "7b69df795ce16515872118ec950404f590036f6ab86e122b50b0fccc0760225c",
+        "submit_confirmed": {
+          "subcommand": "submit",
+          "option_strings": ["--confirmed"],
+          "dest": "confirmed",
+          "action_class": "_StoreTrueAction",
+          "nargs": 0,
+          "required": false,
+          "default": {"type": "bool", "value": false},
+          "type_identity": null,
+          "choices": null,
+          "const": {"type": "bool", "value": true},
+          "metavar": {"type": "NoneType", "value": null}
+        }
+      },
+      "wrapper": {
+        "subcommands": ["auto", "prepare"],
+        "action_semantics_sha256": "0aedc2d67af85174d799bb9f760b9d0277df0f51c4f1b1f26b6b916146b13a5a"
+      },
+      "error_categories": {
+        "argparse_contract": {"exit": 2, "prefix": "usage:"},
+        "policy_validation": {"exit": 2, "prefix": "ERROR:"},
+        "interrupted": {"exit": 130, "prefix": "ERROR:"}
+      }
+    },
+    "submit_help_defect": {
+      "classification": "known_defect_requiring_separate_reviewed_change",
+      "exception": "ValueError",
+      "message_category": "unsupported format character",
+      "severity": "P2",
+      "production_fix_in_scope": false
+    },
+    "dry_run_json": {
+      "classification": "required_compatibility",
+      "preflight_fields": [
+        "atom_count", "atom_order", "charge", "checkpoint", "elements", "geometry_source",
+        "has_relaxed_scan_directive", "input", "input_sha256", "link1_count", "manifest",
+        "manifest_sha256", "manifest_size", "manifest_warnings", "mem", "memory_bytes",
+        "multiplicity", "nprocshared", "oldcheckpoint", "oldcheckpoint_sha256", "project",
+        "remote_workdir", "route", "route_section_count", "trailing_blank_line",
+        "trailing_section_line_count"
+      ],
+      "stage_output_fields": ["files", "job"],
+      "stage_job_fields": [
+        "calculation_ready", "checksums", "gaussian", "input", "input_sha256", "job_id",
+        "no_submission_authorization", "pbs_script", "project", "remote_workdir",
+        "resource_binding", "schema", "status"
+      ],
+      "wrapper_preflight_fields": [
+        "atom_count", "automatic_retry_policy", "charge", "elements", "gaussian_input",
+        "input_approval", "input_sha256", "local_dir", "multiplicity", "project", "protocol",
+        "remote_workdir", "schema", "source", "warnings", "work_kind"
+      ],
+      "submit_dry_run_fields": [
+        "dry_run", "files", "input_approval", "input_sha256", "live_approval",
+        "live_submission_ready", "local_dir", "project", "remote_dir", "windows_dir"
+      ],
+      "stage_markers": {"calculation_ready": false, "no_submission_authorization": true},
+      "wrapper_markers": {"live_submission_ready": false, "no_submission_authorization": true},
+      "child_contains": ["submit", "--confirmed", "--dry-run"]
+    },
+    "pbs_bytes": {
+      "classification": "required_compatibility",
+      "template_sha256": "dac6799d4645570e1622e3ecae1d40de102934ce773ec8211aeb0d2b00254769",
+      "plain_sha256": "7d378ee20264f42443e3913d51bf9f00d71cbeb6d602ee4806e7b629a3839e37",
+      "resource_bound_sha256": "4abb5a70a8a38532d15a292c608e06c5d6e3f2b881e218ba7aff114a6abf41cf"
+    },
+    "command_scripts": {
+      "classification": "required_compatibility",
+      "remote_claim": {"sha256": "2ec7de78525412d318ab37037a6e72456f9eeac4f0938f6e1578cb8783a17ce9", "bytes": 566},
+      "remote_read": {"sha256": "83a35591ca10430059ebc408935187d335e93dc90e8a624e9a98314b170a64b2", "bytes": 435},
+      "job_snapshot": {"sha256": "d13307278eee4e1893c3e0dcbf54fbf4fe7cb5483970e67c524eef6b8db5ab0b", "bytes": 2506},
+      "fetch_inventory": {"sha256": "9eb9cf3174cb6fb0ce7b38a18b563015ea088d229d9c3de6169b2901bc6aa341", "bytes": 1189},
+      "fetch_hash": {"sha256": "316daafef32cb1bd16dd35eabb4d42075dd40a6dff21c5f9df9f468f1613cfb9", "bytes": 1377},
+      "powershell_utf16le_base64": "VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIABwAGwAYQBjAGUAaABvAGwAZABlAHIA",
+      "protected_submit_plan_sha256": "7f1f063207459e628040453c8170847036d4d95fc2c72ce66d3d0c03b3b1e15f",
+      "protected_submit_network_call_count": 6,
+      "fetch_plan_sha256": "18c534ae28c23e32fb6ea0850b0c09d9cd0d43dceb576d16bce3175fb3792c2e",
+      "fetch_network_call_count": 6
+    },
+    "state_matrix": {
+      "classification": "required_compatibility",
+      "qsub": {
+        "success_unique": {
+          "input": {"returncode": 0, "stdout": "123.placeholder\n", "stderr": ""},
+          "expected": {
+            "classification": "submitted_unique",
+            "job_id": "123.placeholder",
+            "output": "123.placeholder"
+          }
+        },
+        "success_without_job_id": {
+          "input": {"returncode": 0, "stdout": "", "stderr": ""},
+          "expected": {
+            "classification": "submission_uncertain",
+            "job_id": null,
+            "candidate_job_ids": [],
+            "output": ""
+          }
+        },
+        "failure_with_candidate": {
+          "input": {"returncode": 1, "stdout": "123.placeholder\n", "stderr": ""},
+          "expected": {
+            "classification": "submission_uncertain",
+            "job_id": null,
+            "candidate_job_ids": ["123.placeholder"],
+            "output": "123.placeholder"
+          }
+        }
+      },
+      "qstat": {
+        "parsed_present": {
+          "input": {
+            "returncode": 0,
+            "stdout": "Job Id: 123.placeholder\n    Job_Name = goldenjob\n    job_state = R\n    session_id = 77\n",
+            "stderr": ""
+          },
+          "expected": {
+            "status": "present",
+            "record_present": true,
+            "pbs_state": "R",
+            "job_name": "goldenjob",
+            "session_id": "77",
+            "returncode": 0,
+            "error": null
+          }
+        },
+        "explicit_unknown_job_id": {
+          "input": {"returncode": 153, "stdout": "", "stderr": "Unknown Job Id 123.placeholder"},
+          "expected": {
+            "status": "absent",
+            "record_present": false,
+            "pbs_state": null,
+            "job_name": null,
+            "session_id": null,
+            "returncode": 153,
+            "error": null
+          }
+        },
+        "transport_failure": {
+          "input": {"returncode": 255, "stdout": "", "stderr": "transport failed"},
+          "expected": {
+            "status": "unknown",
+            "record_present": null,
+            "pbs_state": null,
+            "job_name": null,
+            "session_id": null,
+            "returncode": 255,
+            "error": "transport failed"
+          }
+        },
+        "unparseable_success": {
+          "input": {"returncode": 0, "stdout": "partial", "stderr": ""},
+          "expected": {
+            "status": "unknown",
+            "record_present": null,
+            "pbs_state": null,
+            "job_name": null,
+            "session_id": null,
+            "returncode": 0,
+            "error": "qstat succeeded but its exact job record could not be parsed"
+          }
+        }
+      },
+      "process": {
+        "session_present": {
+          "input": {"returncode": 0, "stdout": "77\n", "stderr": ""},
+          "expected": {"status": "present", "process_alive": true, "returncode": 0, "error": null}
+        },
+        "session_absent": {
+          "input": {"returncode": 1, "stdout": "", "stderr": ""},
+          "expected": {"status": "absent", "process_alive": false, "returncode": 1, "error": null}
+        },
+        "transport_failure": {
+          "input": {"returncode": 255, "stdout": "", "stderr": "transport failed"},
+          "expected": {"status": "unknown", "process_alive": null, "returncode": 255, "error": "transport failed"}
+        }
+      },
+      "qdel": {
+        "success": {
+          "input": {"returncode": 0, "stdout": "", "stderr": ""},
+          "expected": {"status": "success", "returncode": 0, "error": null}
+        },
+        "explicit_unknown_job_id": {
+          "input": {"returncode": 153, "stdout": "", "stderr": "Unknown Job Id"},
+          "expected": {"status": "unknown_job_id", "returncode": 153, "error": null}
+        },
+        "transport_failure": {
+          "input": {"returncode": 255, "stdout": "", "stderr": "transport failed"},
+          "expected": {"status": "failed", "returncode": 255, "error": "transport failed"}
+        }
+      },
+      "inspection": {
+        "queued": {
+          "input": {"workflow_manifest": null, "full_normal_count": 0, "full_error_count": 0, "analysis": {"normal_termination": false, "error_termination": false}, "qstate": "Q", "process_alive": null, "pbs_evidence_status": "present"},
+          "expected": {"state": "queued", "expected_stages": 1, "workflow_complete": false, "workflow_failed": false}
+        },
+        "running": {
+          "input": {"workflow_manifest": null, "full_normal_count": 0, "full_error_count": 0, "analysis": {"normal_termination": false, "error_termination": false}, "qstate": "R", "process_alive": true, "pbs_evidence_status": "present"},
+          "expected": {"state": "running", "expected_stages": 1, "workflow_complete": false, "workflow_failed": false}
+        },
+        "held": {
+          "input": {"workflow_manifest": null, "full_normal_count": 0, "full_error_count": 0, "analysis": {"normal_termination": false, "error_termination": false}, "qstate": "H", "process_alive": null, "pbs_evidence_status": "present"},
+          "expected": {"state": "held", "expected_stages": 1, "workflow_complete": false, "workflow_failed": false}
+        },
+        "exiting": {
+          "input": {"workflow_manifest": null, "full_normal_count": 0, "full_error_count": 0, "analysis": {"normal_termination": false, "error_termination": false}, "qstate": "E", "process_alive": null, "pbs_evidence_status": "present"},
+          "expected": {"state": "exiting", "expected_stages": 1, "workflow_complete": false, "workflow_failed": false}
+        },
+        "stale": {
+          "input": {"workflow_manifest": null, "full_normal_count": 0, "full_error_count": 0, "analysis": {"normal_termination": false, "error_termination": false}, "qstate": "R", "process_alive": false, "pbs_evidence_status": "present"},
+          "expected": {"state": "stale", "expected_stages": 1, "workflow_complete": false, "workflow_failed": false}
+        },
+        "completed": {
+          "input": {"workflow_manifest": null, "full_normal_count": 1, "full_error_count": 0, "analysis": {"normal_termination": false, "error_termination": false}, "qstate": null, "process_alive": null, "pbs_evidence_status": "absent"},
+          "expected": {"state": "completed", "expected_stages": 1, "workflow_complete": false, "workflow_failed": false}
+        },
+        "failed": {
+          "input": {"workflow_manifest": null, "full_normal_count": 0, "full_error_count": 1, "analysis": {"normal_termination": false, "error_termination": false}, "qstate": null, "process_alive": null, "pbs_evidence_status": "absent"},
+          "expected": {"state": "failed", "expected_stages": 1, "workflow_complete": false, "workflow_failed": false}
+        },
+        "unknown": {
+          "input": {"workflow_manifest": null, "full_normal_count": 0, "full_error_count": 0, "analysis": {"normal_termination": false, "error_termination": false}, "qstate": null, "process_alive": null, "pbs_evidence_status": "unknown"},
+          "expected": {"state": "unknown", "expected_stages": 1, "workflow_complete": false, "workflow_failed": false}
+        }
+      },
+      "submission_reconciliation": {
+        "exact_qstat_and_intent": {
+          "input": {
+            "project": "goldenjob",
+            "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "attempt_id": "attempt-placeholder",
+            "directory_present": true,
+            "remote_intent": {"project": "goldenjob", "job_name": "goldenjob", "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "attempt_id": "attempt-placeholder"},
+            "remote_receipt": null,
+            "qstat_text": "Job Id: 123.placeholder\n    Job_Name = goldenjob\n    Variable_List = AUTO_G16_ATTEMPT_ID=attempt-placeholder,AUTO_G16_INPUT_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+          },
+          "expected": {"classification": "submitted_unique", "job_ids": ["123.placeholder"], "intent_matches": true, "evidence_source": "exact_qstat_variables_and_remote_intent", "automatic_qsub_authorized": false}
+        },
+        "directory_absent_no_job": {
+          "input": {"project": "goldenjob", "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "attempt_id": "attempt-placeholder", "directory_present": false, "remote_intent": null, "remote_receipt": null, "qstat_text": ""},
+          "expected": {"classification": "definitely_not_submitted", "job_ids": [], "intent_matches": false, "evidence_source": "atomic_project_directory_absent_and_no_exact_scheduler_job", "automatic_qsub_authorized": false}
+        },
+        "intent_without_scheduler_job": {
+          "input": {"project": "goldenjob", "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "attempt_id": "attempt-placeholder", "directory_present": true, "remote_intent": {"project": "goldenjob", "job_name": "goldenjob", "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "attempt_id": "attempt-placeholder"}, "remote_receipt": null, "qstat_text": ""},
+          "expected": {"classification": "still_uncertain_zero", "job_ids": [], "intent_matches": true, "automatic_qsub_authorized": false}
+        },
+        "unbound_single_qstat_job": {
+          "input": {"project": "goldenjob", "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "attempt_id": "attempt-placeholder", "directory_present": true, "remote_intent": null, "remote_receipt": null, "qstat_text": "Job Id: 124.placeholder\n    Job_Name = goldenjob\n    Variable_List = AUTO_G16_ATTEMPT_ID=attempt-placeholder,AUTO_G16_INPUT_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"},
+          "expected": {"classification": "still_uncertain_one_unbound", "job_ids": ["124.placeholder"], "intent_matches": false, "automatic_qsub_authorized": false}
+        },
+        "multiple_qstat_jobs": {
+          "input": {"project": "goldenjob", "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "attempt_id": "attempt-placeholder", "directory_present": true, "remote_intent": {"project": "goldenjob", "job_name": "goldenjob", "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "attempt_id": "attempt-placeholder"}, "remote_receipt": null, "qstat_text": "Job Id: 125.placeholder\n    Job_Name = goldenjob\n    Variable_List = AUTO_G16_ATTEMPT_ID=attempt-placeholder,AUTO_G16_INPUT_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nJob Id: 126.placeholder\n    Job_Name = goldenjob\n    Variable_List = AUTO_G16_ATTEMPT_ID=attempt-placeholder,AUTO_G16_INPUT_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"},
+          "expected": {"classification": "still_uncertain_multiple", "job_ids": ["125.placeholder", "126.placeholder"], "intent_matches": true, "automatic_qsub_authorized": false}
+        }
+      }
+    },
+    "fetch_and_historical_owners": {
+      "classification": "required_compatibility",
+      "adjacent_modules": [
+        "tests.test_execution_batch", "tests.test_gaussian_auto_gate",
+        "tests.test_idempotent_execution", "tests.test_resource_monitor_efficiency",
+        "tests.test_runtime_config", "tests.test_runtime_safety_hardening"
+      ],
+      "automatic_retry": false,
+      "delete_server_data": false,
+      "remote_root_override": false
+    }
+  }
+}

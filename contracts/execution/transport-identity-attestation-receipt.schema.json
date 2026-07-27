@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-transport-identity-attestation-receipt/1",
+  "title": "Auto-G16 v2.6 typed identity attestation receipts",
+  "oneOf": [
+    {"$ref": "#/$defs/first_hop_receipt"},
+    {"$ref": "#/$defs/nested_hop_receipt"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonce": {"type": "string", "pattern": "^[a-f0-9]{32,128}$"},
+    "time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "first_hop_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "receipt_kind", "profile_sha256", "transport_identity_binding_sha256",
+        "first_hop_identity_sha256", "config_source_bundle_sha256", "alias_utf8_sha256",
+        "effective_target_identity_sha256", "host_key_evidence_sha256",
+        "observed_fingerprint_evidence_sha256", "request_nonce", "issued_at", "expires_at",
+        "operation_version", "classification", "read_only_attestation", "automatic_retry",
+        "no_execution_authorization", "receipt_payload_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-transport-identity-attestation-receipt/1"},
+        "receipt_kind": {"const": "first_hop"},
+        "profile_sha256": {"$ref": "#/$defs/sha256"},
+        "transport_identity_binding_sha256": {"$ref": "#/$defs/sha256"},
+        "first_hop_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "config_source_bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "alias_utf8_sha256": {"$ref": "#/$defs/sha256"},
+        "effective_target_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "host_key_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "observed_fingerprint_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "request_nonce": {"$ref": "#/$defs/nonce"},
+        "issued_at": {"$ref": "#/$defs/time"},
+        "expires_at": {"$ref": "#/$defs/time"},
+        "operation_version": {"const": "first-hop-identity-attestation/1"},
+        "classification": {"const": "verified"},
+        "read_only_attestation": {"const": true},
+        "automatic_retry": {"const": false},
+        "no_execution_authorization": {"const": true},
+        "receipt_payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "nested_hop_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "receipt_kind", "profile_sha256", "transport_identity_binding_sha256",
+        "first_hop_identity_sha256", "first_hop_receipt_sha256",
+        "config_source_bundle_sha256", "alias_utf8_sha256", "effective_target_identity_sha256",
+        "host_key_evidence_sha256", "request_nonce", "issued_at", "expires_at",
+        "operation_version", "classification", "read_only_attestation", "automatic_retry",
+        "no_execution_authorization", "receipt_payload_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-transport-identity-attestation-receipt/1"},
+        "receipt_kind": {"const": "nested_hop"},
+        "profile_sha256": {"$ref": "#/$defs/sha256"},
+        "transport_identity_binding_sha256": {"$ref": "#/$defs/sha256"},
+        "first_hop_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "first_hop_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "config_source_bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "alias_utf8_sha256": {"$ref": "#/$defs/sha256"},
+        "effective_target_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "host_key_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "request_nonce": {"$ref": "#/$defs/nonce"},
+        "issued_at": {"$ref": "#/$defs/time"},
+        "expires_at": {"$ref": "#/$defs/time"},
+        "operation_version": {"const": "nested-hop-identity-attestation/1"},
+        "classification": {"const": "verified"},
+        "read_only_attestation": {"const": true},
+        "automatic_retry": {"const": false},
+        "no_execution_authorization": {"const": true},
+        "receipt_payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
