@@ -1,0 +1,31 @@
+{
+  "schema": "auto-g16-legacy-differential-ci-portability-successor/1",
+  "base_commit": "97ddfbd7aa4710a0bd833fd3944ccb8156029a30",
+  "base_tree": "3ba2053be2494b0d3db53d2f65746b09a0c19c1a",
+  "scope": {
+    "offline_tests_only": true,
+    "historical_fixture_rewritten": false,
+    "legacy_runtime_semantics_changed": false,
+    "live_actions": false
+  },
+  "files": {
+    "tests/test_legacy_effect_owner.py": {
+      "before_sha256": "ee20840d3992143e9441dc88ce2e318972d7393b9b07e46810f526b6133723d8",
+      "sha256": "5dfe89f68439a799fc5cdea4129f5181aba160552dce9718459a45141a8743f9",
+      "change_class": "git_free_skip_and_historical_source_path_depth",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_invocation_legacy_differential.py": {
+      "before_sha256": "e9e82965f0786f225734663fa9b3b8454ab39c2d0cd8e6d11d7e420bba2d1cfb",
+      "sha256": "68ee5adae899096dcaec47d77f5f84fa362d966d0fdc021663b0698c708d1d1d",
+      "change_class": "git_free_skip_and_historical_source_path_depth",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_sha256": "b1848dbdc7116ab235e9f65b1e20fa89a4a8d4389174cdd08442fc837cb271f4",
+      "sha256": "2673da0005f44e4ff71cd9ee77bc9c369999706d730ffd96b95db240a2927453",
+      "change_class": "append_ci_portability_successor_freeze_chain",
+      "legacy_semantics_changed": false
+    }
+  }
+}

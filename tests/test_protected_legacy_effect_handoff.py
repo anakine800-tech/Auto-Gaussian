@@ -53,6 +53,11 @@ FIXED_CONSTRAINT_SUCCESSOR_PATH = (
     / "tests/fixtures/rtwin_pbs/"
     "legacy_rtwin_pbs_fixed_constraint_successor.json"
 )
+CI_PORTABILITY_SUCCESSOR_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "legacy_differential_ci_portability_successor.json"
+)
 
 
 class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
@@ -555,6 +560,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 "protected_runtime_state_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        ci_portability = json.loads(
+            CI_PORTABILITY_SUCCESSOR_PATH.read_text(encoding="utf-8")
+        )
+        ci_successor = ci_portability["files"]
         self.assertEqual(
             fixture["schema"],
             "auto-g16-protected-legacy-effect-handoff-fixture/1",
@@ -586,6 +595,18 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 "e9ff2c58c903aea1eee5e1cf56f037606cb3cf9d",
             ],
         )
+        self.assertEqual(
+            ci_portability["schema"],
+            "auto-g16-legacy-differential-ci-portability-successor/1",
+        )
+        self.assertEqual(
+            ci_portability["base_commit"],
+            "97ddfbd7aa4710a0bd833fd3944ccb8156029a30",
+        )
+        self.assertEqual(
+            ci_portability["base_tree"],
+            "3ba2053be2494b0d3db53d2f65746b09a0c19c1a",
+        )
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
                 current_sha256 = binding["sha256"]
@@ -598,6 +619,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     current_sha256 = successor_binding["sha256"]
                 if relative in runtime_successor:
                     successor_binding = runtime_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
+                if relative in ci_successor:
+                    successor_binding = ci_successor[relative]
                     self.assertEqual(
                         successor_binding["before_sha256"],
                         current_sha256,
@@ -617,10 +645,33 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = runtime_binding["sha256"]
+                if relative in ci_successor:
+                    successor_binding = ci_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
                 )
+        for relative, binding in ci_successor.items():
+            with self.subTest(ci_successor_path=relative):
+                self.assertEqual(
+                    set(binding),
+                    {
+                        "before_sha256",
+                        "sha256",
+                        "change_class",
+                        "legacy_semantics_changed",
+                    },
+                )
+                self.assertEqual(
+                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                    binding["sha256"],
+                )
+                self.assertFalse(binding["legacy_semantics_changed"])
         self.assertFalse(fixture["remaining_gates"]["adapter_connected"])
         self.assertFalse(
             fixture["remaining_gates"][
