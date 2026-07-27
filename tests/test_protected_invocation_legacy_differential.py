@@ -251,10 +251,21 @@ def _run(module: types.ModuleType, root: Path, case: str) -> dict[str, object]:
 class LegacyStageDifferentialTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        if not (ROOT / ".git").exists():
+            raise unittest.SkipTest(
+                "historical legacy differential requires Git metadata"
+            )
         cls.temporary = tempfile.TemporaryDirectory(
             prefix="auto-g16-legacy-stage-differential-",
         )
-        cls.root = Path(cls.temporary.name).resolve()
+        cls.root = (
+            Path(cls.temporary.name).resolve()
+            / "repository"
+            / "skills"
+            / "auto-g16-rtwin-pbs"
+            / "scripts"
+        )
+        cls.root.mkdir(parents=True)
         base_path = cls.root / "legacy_base.py"
         base_path.write_bytes(_base_source())
         cls.base = _load("auto_g16_legacy_stage_base", base_path)

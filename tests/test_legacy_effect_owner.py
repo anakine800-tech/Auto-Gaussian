@@ -580,10 +580,21 @@ class LegacyEffectOwnerTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        if not (ROOT / ".git").exists():
+            raise unittest.SkipTest(
+                "historical legacy differential requires Git metadata"
+            )
         cls.temporary = tempfile.TemporaryDirectory(
             prefix="auto-g16-pr4j-effect-owner-"
         )
-        cls.root = Path(cls.temporary.name).resolve()
+        cls.root = (
+            Path(cls.temporary.name).resolve()
+            / "repository"
+            / "skills"
+            / "auto-g16-rtwin-pbs"
+            / "scripts"
+        )
+        cls.root.mkdir(parents=True)
         cls.base_path = cls.root / "legacy-effect-base.py"
         cls.base_path.write_bytes(_base_source())
         cls.base = _load_source("auto_g16_pr4j_effect_base", cls.base_path)
