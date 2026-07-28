@@ -20,6 +20,9 @@ calls an adapter or runner, or performs transport/PBS/Gaussian. Schema
 validity is structural and never issues a seal. Exact owner replay rejects
 wrong import order, foreign identical modules/classes, pre-call cache
 replacement and source drift before the predecessor plan inputs are claimed.
+Integral JSON numbers at the three declared `integer` positions normalize to
+exact Python `int` before semantic and hash closure; booleans,
+fractional/non-finite numbers and below-minimum values remain rejected.
 It does not claim atomic protection against arbitrary same-process
 `sys.modules` mutation after the final check.
 

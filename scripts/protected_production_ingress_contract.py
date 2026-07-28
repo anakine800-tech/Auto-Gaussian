@@ -265,11 +265,23 @@ def _sha(value: object, label: str, *, nonzero: bool = True) -> str:
 
 
 def _integer(value: object, label: str, minimum: int = 0) -> int:
-    if type(value) is not int or value < minimum:
+    if type(value) is int:
+        result = value
+    elif (
+        type(value) is float
+        and math.isfinite(value)
+        and value.is_integer()
+    ):
+        result = int(value)
+    else:
         raise ProtectedProductionIngressError(
             f"{label} is not an exact integer"
         )
-    return value
+    if result < minimum:
+        raise ProtectedProductionIngressError(
+            f"{label} is below its minimum"
+        )
+    return result
 
 
 def _fixed(value: object, expected: dict[str, bool], label: str) -> None:
@@ -288,10 +300,31 @@ def _payload_sha256(document: dict[str, Any]) -> str:
     return digest(projection)
 
 
+def _contract_id(
+    *,
+    predecessor_contract_id: str,
+    uncertain_receipt_payload_sha256: str,
+    plan_inputs_sha256: str,
+    contract_payload_sha256: str,
+) -> str:
+    return "protected-production-ingress-" + digest(
+        {
+            "schema": "auto-g16-protected-production-ingress-id/1",
+            "predecessor_contract_id": predecessor_contract_id,
+            "uncertain_receipt_payload_sha256": (
+                uncertain_receipt_payload_sha256
+            ),
+            "plan_inputs_sha256": plan_inputs_sha256,
+            "contract_payload_sha256": contract_payload_sha256,
+        }
+    )
+
+
 def validate_protected_production_ingress_contract(
     value: object,
 ) -> dict[str, Any]:
-    document = _rebuild_public_json(value)
+    raw_document = _rebuild_public_json(value)
+    document = _rebuild_public_json(raw_document)
     document = _exact(
         document,
         {
@@ -477,6 +510,26 @@ def validate_protected_production_ingress_contract(
         },
         "legacy factory plan inputs",
     )
+    raw_port = _exact(
+        raw_document["legacy_factory_port"],
+        set(port),
+        "raw legacy factory port",
+    )
+    raw_plan = _exact(
+        raw_port["plan_inputs"],
+        set(plan),
+        "raw legacy factory plan inputs",
+    )
+    plan["upload_timeout_seconds"] = _integer(
+        plan["upload_timeout_seconds"],
+        "legacy upload timeout",
+        1,
+    )
+    plan["upload_hash_timeout_seconds"] = _integer(
+        plan["upload_hash_timeout_seconds"],
+        "legacy upload hash timeout",
+        1,
+    )
     if (
         plan["project"] != identity["project"]
         or plan["remote_directory"]
@@ -496,6 +549,11 @@ def validate_protected_production_ingress_contract(
             binding,
             {"relative_name", "sha256", "order"},
             f"legacy factory binding {index}",
+        )
+        item["order"] = _integer(
+            item["order"],
+            f"legacy factory binding {index} order",
+            1,
         )
         if (
             type(item["relative_name"]) is not str
@@ -519,17 +577,18 @@ def validate_protected_production_ingress_contract(
         "server_alias_sha256",
     ):
         _sha(plan[field], f"legacy factory {field}")
-    _integer(plan["upload_timeout_seconds"], "legacy upload timeout", 1)
-    _integer(
-        plan["upload_hash_timeout_seconds"],
-        "legacy upload hash timeout",
-        1,
-    )
-    expected_plan_sha = digest(plan)
-    if port["plan_inputs_sha256"] != expected_plan_sha:
+    canonical_plan_sha = digest(plan)
+    raw_plan_sha = digest(raw_plan)
+    supplied_plan_sha = raw_port["plan_inputs_sha256"]
+    if supplied_plan_sha == canonical_plan_sha:
+        closure_mode = "canonical"
+    elif supplied_plan_sha == raw_plan_sha:
+        closure_mode = "raw_integral_number"
+    else:
         raise ProtectedProductionIngressError(
             "legacy factory plan inputs hash differs"
         )
+    port["plan_inputs_sha256"] = canonical_plan_sha
     call_chain = _exact(
         document["call_chain"],
         {
@@ -569,26 +628,43 @@ def validate_protected_production_ingress_contract(
     _fixed(document["scope"], SCOPE, "scope")
     _fixed(document["policy"], POLICY, "policy")
     _fixed(document["threat_model"], THREAT_MODEL, "threat model")
-    expected_payload = _payload_sha256(document)
-    if document["contract_payload_sha256"] != expected_payload:
+    canonical_payload = _payload_sha256(document)
+    raw_payload = _payload_sha256(raw_document)
+    supplied_payload = raw_document["contract_payload_sha256"]
+    expected_payload = (
+        canonical_payload
+        if closure_mode == "canonical"
+        else raw_payload
+    )
+    if supplied_payload != expected_payload:
         raise ProtectedProductionIngressError(
             "production ingress payload differs"
         )
-    expected_id = "protected-production-ingress-" + digest(
-        {
-            "schema": "auto-g16-protected-production-ingress-id/1",
-            "predecessor_contract_id": predecessor["contract_id"],
-            "uncertain_receipt_payload_sha256": predecessor[
-                "uncertain_receipt_payload_sha256"
-            ],
-            "plan_inputs_sha256": port["plan_inputs_sha256"],
-            "contract_payload_sha256": expected_payload,
-        }
+    expected_id = _contract_id(
+        predecessor_contract_id=predecessor["contract_id"],
+        uncertain_receipt_payload_sha256=predecessor[
+            "uncertain_receipt_payload_sha256"
+        ],
+        plan_inputs_sha256=(
+            canonical_plan_sha
+            if closure_mode == "canonical"
+            else raw_plan_sha
+        ),
+        contract_payload_sha256=expected_payload,
     )
-    if document["contract_id"] != expected_id:
+    if raw_document["contract_id"] != expected_id:
         raise ProtectedProductionIngressError(
             "production ingress contract id differs"
         )
+    document["contract_payload_sha256"] = canonical_payload
+    document["contract_id"] = _contract_id(
+        predecessor_contract_id=predecessor["contract_id"],
+        uncertain_receipt_payload_sha256=predecessor[
+            "uncertain_receipt_payload_sha256"
+        ],
+        plan_inputs_sha256=canonical_plan_sha,
+        contract_payload_sha256=canonical_payload,
+    )
     return document
 
 
@@ -1164,20 +1240,15 @@ def _build_document(
         "contract_payload_sha256": "",
     }
     document["contract_payload_sha256"] = _payload_sha256(document)
-    document["contract_id"] = "protected-production-ingress-" + digest(
-        {
-            "schema": "auto-g16-protected-production-ingress-id/1",
-            "predecessor_contract_id": predecessor["contract_id"],
-            "uncertain_receipt_payload_sha256": receipt[
-                "receipt_payload_sha256"
-            ],
-            "plan_inputs_sha256": document["legacy_factory_port"][
-                "plan_inputs_sha256"
-            ],
-            "contract_payload_sha256": document[
-                "contract_payload_sha256"
-            ],
-        }
+    document["contract_id"] = _contract_id(
+        predecessor_contract_id=predecessor["contract_id"],
+        uncertain_receipt_payload_sha256=receipt[
+            "receipt_payload_sha256"
+        ],
+        plan_inputs_sha256=document["legacy_factory_port"][
+            "plan_inputs_sha256"
+        ],
+        contract_payload_sha256=document["contract_payload_sha256"],
     )
     return validate_protected_production_ingress_contract(document)
 

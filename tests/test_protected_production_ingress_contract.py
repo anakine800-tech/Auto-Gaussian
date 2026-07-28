@@ -45,6 +45,54 @@ import protected_production_ingress_contract as INGRESS  # noqa: E402
 import skill_package as SKILL_PACKAGE  # noqa: E402
 
 
+PUBLIC_INTEGER_FIELDS = (
+    "binding_order",
+    "upload_timeout_seconds",
+    "upload_hash_timeout_seconds",
+)
+
+
+def set_public_integer(
+    document: dict[str, object],
+    field: str,
+    value: object,
+) -> None:
+    plan = document["legacy_factory_port"]["plan_inputs"]
+    if field == "binding_order":
+        plan["expected_bindings"][0]["order"] = value
+    else:
+        plan[field] = value
+
+
+def get_public_integer(
+    document: dict[str, object],
+    field: str,
+) -> object:
+    plan = document["legacy_factory_port"]["plan_inputs"]
+    if field == "binding_order":
+        return plan["expected_bindings"][0]["order"]
+    return plan[field]
+
+
+def reclose_public_document(
+    document: dict[str, object],
+) -> dict[str, object]:
+    port = document["legacy_factory_port"]
+    plan = port["plan_inputs"]
+    port["plan_inputs_sha256"] = INGRESS.digest(plan)
+    document["contract_payload_sha256"] = INGRESS._payload_sha256(document)
+    predecessor = document["predecessor"]
+    document["contract_id"] = INGRESS._contract_id(
+        predecessor_contract_id=predecessor["contract_id"],
+        uncertain_receipt_payload_sha256=predecessor[
+            "uncertain_receipt_payload_sha256"
+        ],
+        plan_inputs_sha256=port["plan_inputs_sha256"],
+        contract_payload_sha256=document["contract_payload_sha256"],
+    )
+    return document
+
+
 class ProtectedProductionIngressContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(
@@ -348,6 +396,97 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
         for changed in cases:
             with self.assertRaises(INGRESS.ProtectedProductionIngressError):
                 INGRESS.validate_protected_production_ingress_contract(changed)
+
+    def test_public_integer_normalization_and_rejection_matrix(self) -> None:
+        original = self.sealed().document()
+        for field in PUBLIC_INTEGER_FIELDS:
+            with self.subTest(field=field, representation="exact-int"):
+                normalized = (
+                    INGRESS.validate_protected_production_ingress_contract(
+                        copy.deepcopy(original)
+                    )
+                )
+                self.assertEqual(normalized, original)
+                self.assertIs(type(get_public_integer(normalized, field)), int)
+
+            integral = copy.deepcopy(original)
+            set_public_integer(
+                integral,
+                field,
+                float(get_public_integer(integral, field)),
+            )
+            with self.subTest(field=field, representation="canonical-hash"):
+                normalized = (
+                    INGRESS.validate_protected_production_ingress_contract(
+                        integral
+                    )
+                )
+                self.assertEqual(normalized, original)
+                self.assertIs(type(get_public_integer(normalized, field)), int)
+
+            raw_closed = reclose_public_document(copy.deepcopy(integral))
+            with self.subTest(field=field, representation="raw-hash"):
+                normalized = (
+                    INGRESS.validate_protected_production_ingress_contract(
+                        raw_closed
+                    )
+                )
+                self.assertEqual(normalized, original)
+                self.assertIs(type(get_public_integer(normalized, field)), int)
+
+            hybrid_payload = copy.deepcopy(raw_closed)
+            hybrid_payload["contract_payload_sha256"] = original[
+                "contract_payload_sha256"
+            ]
+            hybrid_payload["contract_id"] = original["contract_id"]
+            with self.subTest(field=field, representation="hybrid-payload"):
+                with self.assertRaises(
+                    INGRESS.ProtectedProductionIngressError
+                ):
+                    INGRESS.validate_protected_production_ingress_contract(
+                        hybrid_payload
+                    )
+
+            hybrid_id = copy.deepcopy(raw_closed)
+            hybrid_id["contract_id"] = original["contract_id"]
+            with self.subTest(field=field, representation="hybrid-id"):
+                with self.assertRaises(
+                    INGRESS.ProtectedProductionIngressError
+                ):
+                    INGRESS.validate_protected_production_ingress_contract(
+                        hybrid_id
+                    )
+
+            for label, replacement in (
+                ("bool", True),
+                ("fractional", 1.5),
+                ("zero", 0),
+                ("negative", -1),
+                ("nan", float("nan")),
+                ("positive-infinity", float("inf")),
+                ("negative-infinity", float("-inf")),
+            ):
+                changed = copy.deepcopy(original)
+                set_public_integer(changed, field, replacement)
+                if label not in {
+                    "nan",
+                    "positive-infinity",
+                    "negative-infinity",
+                }:
+                    reclose_public_document(changed)
+                with self.subTest(
+                    field=field,
+                    representation=label,
+                ):
+                    with self.assertRaises(
+                        INGRESS.ProtectedProductionIngressError
+                    ):
+                        (
+                            INGRESS
+                            .validate_protected_production_ingress_contract(
+                                changed
+                            )
+                        )
 
     def test_cache_class_callable_and_foreign_identical_reject_before_claim(
         self,

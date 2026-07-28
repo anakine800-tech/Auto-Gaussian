@@ -114,6 +114,75 @@ class ProtectedProductionIngressSchemaDraft202012Tests(unittest.TestCase):
                         changed
                     )
 
+    def test_all_integer_fields_have_draft_helper_acceptance_parity(
+        self,
+    ) -> None:
+        for field in SUPPORT.PUBLIC_INTEGER_FIELDS:
+            with self.subTest(field=field, representation="exact-int"):
+                self.validator.validate(self.document)
+                normalized = (
+                    SUPPORT.INGRESS
+                    .validate_protected_production_ingress_contract(
+                        copy.deepcopy(self.document)
+                    )
+                )
+                self.assertIs(
+                    type(SUPPORT.get_public_integer(normalized, field)),
+                    int,
+                )
+
+            integral = copy.deepcopy(self.document)
+            SUPPORT.set_public_integer(
+                integral,
+                field,
+                float(SUPPORT.get_public_integer(integral, field)),
+            )
+            SUPPORT.reclose_public_document(integral)
+            with self.subTest(field=field, representation="integral-float"):
+                self.validator.validate(integral)
+                normalized = (
+                    SUPPORT.INGRESS
+                    .validate_protected_production_ingress_contract(integral)
+                )
+                self.assertEqual(normalized, self.document)
+                self.assertIs(
+                    type(SUPPORT.get_public_integer(normalized, field)),
+                    int,
+                )
+
+            for label, replacement in (
+                ("bool", True),
+                ("fractional", 1.5),
+                ("zero", 0),
+                ("negative", -1),
+                ("nan", float("nan")),
+                ("positive-infinity", float("inf")),
+                ("negative-infinity", float("-inf")),
+            ):
+                changed = copy.deepcopy(self.document)
+                SUPPORT.set_public_integer(
+                    changed,
+                    field,
+                    replacement,
+                )
+                if label not in {
+                    "nan",
+                    "positive-infinity",
+                    "negative-infinity",
+                }:
+                    SUPPORT.reclose_public_document(changed)
+                with self.subTest(field=field, representation=label):
+                    self.assertFalse(self.validator.is_valid(changed))
+                    with self.assertRaises(
+                        SUPPORT.INGRESS.ProtectedProductionIngressError
+                    ):
+                        (
+                            SUPPORT.INGRESS
+                            .validate_protected_production_ingress_contract(
+                                changed
+                            )
+                        )
+
     def test_schema_validity_does_not_issue_owner_seal(self) -> None:
         self.validator.validate(self.document)
         structural = copy.deepcopy(self.document)

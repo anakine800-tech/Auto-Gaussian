@@ -65,12 +65,12 @@
     }
   },
   "new_files": {
-    "scripts/protected_production_ingress_contract.py": "c29dc1ac97fbfe8efef257cdaffd9a350ee4041acfa62999489e0863a9b845a5",
+    "scripts/protected_production_ingress_contract.py": "3fcea360de2e47ea66c9e5dcf3809aaf4339c062dc85d849d095c8430e9a0ce3",
     "contracts/execution/protected-production-ingress-contract.schema.json": "34e8daa65cf6fb3ce2cf7e653d2caaf757dde36e055f11485dd4c9bf613b97c0",
-    "docs/v2.6-protected-production-ingress-contract.md": "caeae9f97e67164a86fa08f27c709cffee7d8542f4528170cc6d6f210b5d3a25",
-    "skills/auto-g16-rtwin-pbs/references/protected-production-ingress-contract.md": "1ad1de8411556b0420bc644e040a388cc357f13b66ed9ac9f1c784adeb68181f",
-    "tests/test_protected_production_ingress_contract.py": "1bb889d3980813fe1d0f0f1af8e0f9927d945e0656874bd8eb5f64cfe711bc27",
-    "tests/test_protected_production_ingress_schema_draft202012.py": "13f025764c0400812cb7d7f77aa1d1fed03b899b08e236ad4e52db33e41b0f72"
+    "docs/v2.6-protected-production-ingress-contract.md": "6206730bd01dd1cee0cf946987b55589f6d31768911dc41fd59aee272c375c2d",
+    "skills/auto-g16-rtwin-pbs/references/protected-production-ingress-contract.md": "888f346bd98a1796488b8861929364247a2b3adad172b8a7175443ac75356f85",
+    "tests/test_protected_production_ingress_contract.py": "2e0a1f0e388a94434d6b32829a7d951ec0dc4a7e40dce1062645aaa25359a160",
+    "tests/test_protected_production_ingress_schema_draft202012.py": "4f9dd6d1af3c5386b82d36277ea1bb19e606fedf35be2b5ccf883805fe670364"
   },
   "remaining_gates": {
     "production_submit_ingress_wired": false,
