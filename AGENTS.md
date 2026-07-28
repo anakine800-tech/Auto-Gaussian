@@ -25,12 +25,19 @@ These rules apply to the entire repository.
   repository-owner and server-safety review, and is covered by the profile
   hash. A CLI flag, environment variable, local runtime setting, caller
   argument, or other override must never select or replace it.
-- Before approval and again before the first remote mutation, resolve the
-  allowed root, project, and scratch paths canonically; reject every symlink or
-  reparse-point component and every path outside the allowed root. The exact
-  approval must bind both the profile hash and backend-owner-issued canonical
-  root evidence. Any root, evidence, profile, or path-identity drift requires a
-  new review and approval.
+- Before approval, resolve the allowed root policy and identity canonically into
+  backend-owner-issued stable evidence that excludes observation time and
+  expiry. The exact approval must bind both the profile hash and that stable
+  evidence hash.
+- Immediately before the first remote mutation, the same owner must issue a
+  fresh, time-bounded no-follow observation receipt that references the stable
+  evidence hash and must give the mutation owner a single-use descriptor- or
+  capability-bound handle to the same verified component identities. The
+  mutation must consume that handle atomically or by descriptor-relative
+  operations without reopening a path. Any symlink, reparse point, root escape,
+  identity drift, expired receipt, replacement, or capability failure stops
+  with zero remote effect and requires a new review or observation as
+  applicable.
 - Never upload into a non-empty server project directory or overwrite an existing job implicitly.
 - Never issue `rm`, `rmdir`, truncation, recursive replacement, or a server-data cleanup command.
 - Treat active-job cancellation and terminal scheduler-zombie cleanup as different `qdel` operations. Require explicit authorization for the exact PBS job ID before cancelling a queued or running job. Permit one automatic exact `qdel` only after results are fetched and repeated stable evidence proves a terminal scheduler zombie; never retry it automatically. Neither operation authorizes file deletion.
