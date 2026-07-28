@@ -18,9 +18,19 @@ These rules apply to the entire repository.
 
 ## Server safety boundary
 
-- Permit Skill-managed server data and scratch only below `/home/user100/SDL`.
-- Resolve the allowed root and project paths with `realpath`; reject symlinks and any path outside the allowed root.
-- Never add a remote-root override.
+- Keep every legacy backend, including `legacy_rtwin_pbs`, permanently fixed
+  below `/home/user100/SDL`.
+- A new backend may use a different server root only when that root is a
+  mandatory field owned by the backend's closed profile contract, has received
+  repository-owner and server-safety review, and is covered by the profile
+  hash. A CLI flag, environment variable, local runtime setting, caller
+  argument, or other override must never select or replace it.
+- Before approval and again before the first remote mutation, resolve the
+  allowed root, project, and scratch paths canonically; reject every symlink or
+  reparse-point component and every path outside the allowed root. The exact
+  approval must bind both the profile hash and backend-owner-issued canonical
+  root evidence. Any root, evidence, profile, or path-identity drift requires a
+  new review and approval.
 - Never upload into a non-empty server project directory or overwrite an existing job implicitly.
 - Never issue `rm`, `rmdir`, truncation, recursive replacement, or a server-data cleanup command.
 - Treat active-job cancellation and terminal scheduler-zombie cleanup as different `qdel` operations. Require explicit authorization for the exact PBS job ID before cancelling a queued or running job. Permit one automatic exact `qdel` only after results are fetched and repeated stable evidence proves a terminal scheduler zombie; never retry it automatically. Neither operation authorizes file deletion.
