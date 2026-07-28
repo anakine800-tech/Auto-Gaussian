@@ -22,6 +22,8 @@ except NameError:
 else:
     raise ImportError("owner consumer module has already executed")
 
+import _imp
+import contextlib
 import hashlib
 import json
 import math
@@ -842,11 +844,14 @@ _OWNER_SOURCE = _stable_source(Path(__file__).resolve(strict=True))
 _RUNTIME_BINDING = _capture_runtime_binding()
 _LEGACY_BINDING = _capture_legacy_binding()
 _register_owner(_RUNTIME_BINDING)
+_OWNER_MODULE = sys.modules[MODULE_NAME]
 
 
-def _assert_bindings_current() -> None:
+def _assert_bindings_current_locked() -> None:
     if (
-        sys.modules.get(MODULE_NAME) is not vars(_RUNTIME_BINDING.module).get(_REGISTRATION_ATTRIBUTE)
+        sys.modules.get(MODULE_NAME) is not _OWNER_MODULE
+        or vars(_RUNTIME_BINDING.module).get(_REGISTRATION_ATTRIBUTE)
+        is not _OWNER_MODULE
         or sys.modules.get(RUNTIME_MODULE_NAME) is not _RUNTIME_BINDING.module
         or sys.modules.get(LEGACY_MODULE_NAME) is not _LEGACY_BINDING.module
         or _stable_source(Path(__file__).resolve(strict=True)) != _OWNER_SOURCE
@@ -868,8 +873,30 @@ def _assert_bindings_current() -> None:
         is not _LEGACY_BINDING.hash_timeout
         or getattr(_LEGACY_BINDING.module, "DEFAULT_SERVER_ALIAS", None)
         != _LEGACY_BINDING.server_alias
+        or getattr(_OWNER_MODULE, "ProtectedOwnerConsumerContractOwner", None)
+        is not _CONSUMER_OWNER_TYPE
+        or getattr(_OWNER_MODULE, "SealedProtectedOwnerConsumerContract", None)
+        is not _CONSUMER_SEALED_TYPE
+        or getattr(_OWNER_MODULE, "ProtectedLegacyEffectPlanInputs", None)
+        is not _CONSUMER_PLAN_INPUT_TYPE
     ):
         raise ProtectedOwnerConsumerError("owner module or class identity differs")
+
+
+def _assert_bindings_current() -> None:
+    with _MODULE_LOCK:
+        _assert_bindings_current_locked()
+
+
+@contextlib.contextmanager
+def _binding_mutation_guard() -> Any:
+    with _MODULE_LOCK:
+        _imp.acquire_lock()
+        try:
+            _assert_bindings_current_locked()
+            yield
+        finally:
+            _imp.release_lock()
 
 
 def _file_identity(path: Path) -> _FileIdentity:
@@ -1714,65 +1741,85 @@ class ProtectedOwnerConsumerContractOwner:
         self,
         runtime_state: object,
     ) -> SealedProtectedOwnerConsumerContract:
-        with self._lock:
-            if self._used:
-                raise ProtectedOwnerConsumerError("owner consumer is single-use")
-            self._used = True
-            return self._finish(runtime_state, recover_existing=False)
+        with _binding_mutation_guard():
+            with self._lock:
+                if self._used:
+                    raise ProtectedOwnerConsumerError(
+                        "owner consumer is single-use"
+                    )
+                self._used = True
+                return self._finish(runtime_state, recover_existing=False)
 
     def recover_before_effect_once(
         self,
         runtime_state: object,
     ) -> SealedProtectedOwnerConsumerContract:
-        with self._lock:
-            if self._used:
-                raise ProtectedOwnerConsumerError("owner consumer is single-use")
-            self._used = True
-            return self._finish(runtime_state, recover_existing=True)
+        with _binding_mutation_guard():
+            with self._lock:
+                if self._used:
+                    raise ProtectedOwnerConsumerError(
+                        "owner consumer is single-use"
+                    )
+                self._used = True
+                return self._finish(runtime_state, recover_existing=True)
 
     def read_only_reconciliation_inputs(
         self,
         runtime_state: object,
     ) -> dict[str, Any]:
         """Rebuild only local reconciliation inputs from an uncertain journal."""
-        with self._lock:
-            if self._used:
-                raise ProtectedOwnerConsumerError("owner consumer is single-use")
-            self._used = True
-            if type(runtime_state) is not _RUNTIME_BINDING.sealed_type:
-                raise TypeError("owner consumer accepts only exact runtime/state capability")
-            runtime_state.assert_current()
-            if (
-                runtime_state.current_receipt.document()["state"]
-                != "effect_started_outcome_uncertain"
-            ):
-                raise ProtectedOwnerConsumerError(
-                    "read-only reconciliation requires uncertain state"
+        with _binding_mutation_guard():
+            with self._lock:
+                if self._used:
+                    raise ProtectedOwnerConsumerError(
+                        "owner consumer is single-use"
+                    )
+                self._used = True
+                if type(runtime_state) is not _RUNTIME_BINDING.sealed_type:
+                    raise TypeError(
+                        "owner consumer accepts only exact runtime/state capability"
+                    )
+                runtime_state.assert_current()
+                if (
+                    runtime_state.current_receipt.document()["state"]
+                    != "effect_started_outcome_uncertain"
+                ):
+                    raise ProtectedOwnerConsumerError(
+                        "read-only reconciliation requires uncertain state"
+                    )
+                upload_path, identities, portable = _recover_bundle(
+                    runtime_state
                 )
-            upload_path, identities, portable = _recover_bundle(runtime_state)
-            _assert_bundle_current(upload_path, identities, portable)
-            intent = _derive_intent(runtime_state)
-            return {
-                "schema": "auto-g16-protected-owner-consumer-reconciliation-inputs/1",
-                "project": intent["project"],
-                "attempt_id": intent["attempt_id"],
-                "input_sha256": intent["input_sha256"],
-                "intent_id": intent["intent_id"],
-                "intent_file_sha256": portable[-2]["sha256"],
-                "uncertain_receipt_id": runtime_state.current_receipt.document()[
-                    "receipt_id"
-                ],
-                "uncertain_receipt_payload_sha256": runtime_state.current_receipt.document()[
-                    "receipt_payload_sha256"
-                ],
-                "required_remote_observations": [
-                    "project_directory",
-                    "submission_intent",
-                    "submission_receipt",
-                    "qstat_exact_attempt",
-                ],
-                "observation_acquired": False,
-                "remote_read_performed": False,
-                "automatic_effect_authorized": False,
-                "automatic_retry": False,
-            }
+                _assert_bundle_current(upload_path, identities, portable)
+                intent = _derive_intent(runtime_state)
+                return {
+                    "schema": "auto-g16-protected-owner-consumer-reconciliation-inputs/1",
+                    "project": intent["project"],
+                    "attempt_id": intent["attempt_id"],
+                    "input_sha256": intent["input_sha256"],
+                    "intent_id": intent["intent_id"],
+                    "intent_file_sha256": portable[-2]["sha256"],
+                    "uncertain_receipt_id": (
+                        runtime_state.current_receipt.document()["receipt_id"]
+                    ),
+                    "uncertain_receipt_payload_sha256": (
+                        runtime_state.current_receipt.document()[
+                            "receipt_payload_sha256"
+                        ]
+                    ),
+                    "required_remote_observations": [
+                        "project_directory",
+                        "submission_intent",
+                        "submission_receipt",
+                        "qstat_exact_attempt",
+                    ],
+                    "observation_acquired": False,
+                    "remote_read_performed": False,
+                    "automatic_effect_authorized": False,
+                    "automatic_retry": False,
+                }
+
+
+_CONSUMER_PLAN_INPUT_TYPE = ProtectedLegacyEffectPlanInputs
+_CONSUMER_SEALED_TYPE = SealedProtectedOwnerConsumerContract
+_CONSUMER_OWNER_TYPE = ProtectedOwnerConsumerContractOwner

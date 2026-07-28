@@ -67,6 +67,27 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
             .prepare_once(self.runtime())
         )
 
+    def foreign_identical_consumer_module(self) -> object:
+        canonical = sys.modules[CONSUMER.MODULE_NAME]
+        runtime_module = CONSUMER._RUNTIME_BINDING.module
+        registration = CONSUMER._REGISTRATION_ATTRIBUTE
+        registered = getattr(runtime_module, registration)
+        source = ROOT / "scripts/protected_owner_consumer_contract.py"
+        spec = importlib.util.spec_from_file_location(
+            CONSUMER.MODULE_NAME,
+            source,
+        )
+        assert spec is not None and spec.loader is not None
+        foreign = importlib.util.module_from_spec(spec)
+        delattr(runtime_module, registration)
+        sys.modules[CONSUMER.MODULE_NAME] = foreign
+        try:
+            spec.loader.exec_module(foreign)
+        finally:
+            sys.modules[CONSUMER.MODULE_NAME] = canonical
+            setattr(runtime_module, registration, registered)
+        return foreign
+
     def test_exact_upload_bytes_authority_matrix_and_no_effects(self) -> None:
         runtime = self.runtime()
         predecessor_dir = runtime.handoff.materialization.local_dir
@@ -402,6 +423,122 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
                 spec.loader.exec_module(foreign)
         finally:
             sys.modules.pop(spec.name, None)
+
+    def test_owner_created_before_foreign_identical_consumer_rejects_zero_change(
+        self,
+    ) -> None:
+        runtime = self.runtime()
+        owner_type = CONSUMER.ProtectedOwnerConsumerContractOwner
+        owner = owner_type.production()
+        before = runtime.current_receipt.document()
+        bundle = CONSUMER._consumer_path(runtime)
+        foreign = self.foreign_identical_consumer_module()
+        canonical = sys.modules[CONSUMER.MODULE_NAME]
+        self.assertIsNot(
+            foreign.ProtectedOwnerConsumerContractOwner,
+            owner_type,
+        )
+        self.assertIsNot(
+            foreign.SealedProtectedOwnerConsumerContract,
+            CONSUMER.SealedProtectedOwnerConsumerContract,
+        )
+        self.assertIsNot(
+            foreign.ProtectedLegacyEffectPlanInputs,
+            CONSUMER.ProtectedLegacyEffectPlanInputs,
+        )
+
+        sys.modules[CONSUMER.MODULE_NAME] = foreign
+        try:
+            with self.assertRaisesRegex(
+                CONSUMER.ProtectedOwnerConsumerError,
+                "owner module or class identity differs",
+            ):
+                owner.prepare_once(runtime)
+        finally:
+            sys.modules[CONSUMER.MODULE_NAME] = canonical
+        self.assertEqual(runtime.current_receipt.document(), before)
+        self.assertFalse(bundle.exists())
+        self.assertFalse(owner._used)
+
+        for attribute in (
+            "ProtectedOwnerConsumerContractOwner",
+            "SealedProtectedOwnerConsumerContract",
+            "ProtectedLegacyEffectPlanInputs",
+        ):
+            with self.subTest(attribute=attribute):
+                exact = getattr(CONSUMER, attribute)
+                candidate = owner_type.production()
+                setattr(CONSUMER, attribute, getattr(foreign, attribute))
+                try:
+                    with self.assertRaisesRegex(
+                        CONSUMER.ProtectedOwnerConsumerError,
+                        "owner module or class identity differs",
+                    ):
+                        candidate.prepare_once(runtime)
+                finally:
+                    setattr(CONSUMER, attribute, exact)
+                self.assertEqual(runtime.current_receipt.document(), before)
+                self.assertFalse(bundle.exists())
+                self.assertFalse(candidate._used)
+
+    def test_module_lock_closes_identity_check_to_first_mutation_window(
+        self,
+    ) -> None:
+        runtime = self.runtime()
+        owner = CONSUMER.ProtectedOwnerConsumerContractOwner.production()
+        canonical = sys.modules[CONSUMER.MODULE_NAME]
+        foreign = self.foreign_identical_consumer_module()
+        identity_checked = threading.Event()
+        replacement_attempted = threading.Event()
+        replacement_completed = threading.Event()
+        original_assert = CONSUMER._assert_bindings_current_locked
+        original_materialize = CONSUMER._materialize_bundle
+
+        def checked() -> None:
+            original_assert()
+            identity_checked.set()
+
+        def replace_cache() -> None:
+            replacement_attempted.set()
+            with CONSUMER._MODULE_LOCK:
+                sys.modules[CONSUMER.MODULE_NAME] = foreign
+                replacement_completed.set()
+
+        def materialize_guarded(
+            candidate: object,
+        ) -> tuple[Path, dict[str, object], list[dict[str, object]]]:
+            self.assertTrue(replacement_attempted.wait(timeout=5))
+            self.assertFalse(replacement_completed.is_set())
+            self.assertIs(sys.modules[CONSUMER.MODULE_NAME], canonical)
+            return original_materialize(candidate)
+
+        try:
+            with (
+                mock.patch.object(
+                    CONSUMER,
+                    "_assert_bindings_current_locked",
+                    side_effect=checked,
+                ),
+                mock.patch.object(
+                    CONSUMER,
+                    "_materialize_bundle",
+                    side_effect=materialize_guarded,
+                ),
+                ThreadPoolExecutor(max_workers=2) as pool,
+            ):
+                prepared = pool.submit(owner.prepare_once, runtime)
+                self.assertTrue(identity_checked.wait(timeout=5))
+                replacement = pool.submit(replace_cache)
+                sealed = prepared.result(timeout=30)
+                replacement.result(timeout=30)
+        finally:
+            sys.modules[CONSUMER.MODULE_NAME] = canonical
+        self.assertTrue(replacement_completed.is_set())
+        self.assertEqual(
+            runtime.current_receipt.document()["state"],
+            "effect_started_outcome_uncertain",
+        )
+        sealed.assert_current()
 
     def test_materialized_mutation_rejects_claim_before_any_effect(self) -> None:
         sealed = self.prepared()
