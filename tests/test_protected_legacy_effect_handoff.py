@@ -567,6 +567,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 "protected_owner_consumer_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        ingress_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_production_ingress_contract.json"
+            ).read_text(encoding="utf-8")
+        )["successor_files"]
         ci_portability = json.loads(
             CI_PORTABILITY_SUCCESSOR_PATH.read_text(encoding="utf-8")
         )
@@ -645,6 +652,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = successor_binding["sha256"]
+                if relative in ingress_successor:
+                    successor_binding = ingress_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -673,6 +687,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = consumer_binding["sha256"]
+                if relative in ingress_successor:
+                    ingress_binding = ingress_successor[relative]
+                    self.assertEqual(
+                        ingress_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = ingress_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -696,6 +717,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = consumer_binding["sha256"]
+                if relative in ingress_successor:
+                    ingress_binding = ingress_successor[relative]
+                    self.assertEqual(
+                        ingress_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = ingress_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,

@@ -696,9 +696,23 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
             Path("references/protected-owner-consumer-contract.md"),
         }
         self.assertTrue(consumer_targets <= set(package))
+        ingress_targets = {
+            Path("scripts/protected_production_ingress_contract.py"),
+            Path(
+                "contracts/execution/"
+                "protected-production-ingress-contract.schema.json"
+            ),
+            Path("references/protected-production-ingress-contract.md"),
+        }
+        self.assertTrue(ingress_targets <= set(package))
         self.assertEqual(
             len(package),
-            84 + len(runtime_targets) + len(consumer_targets),
+            (
+                84
+                + len(runtime_targets)
+                + len(consumer_targets)
+                + len(ingress_targets)
+            ),
         )
 
     def test_predecessor_and_effect_owner_bytes_remain_frozen(self) -> None:
@@ -735,6 +749,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 ROOT
                 / "tests/fixtures/rtwin_pbs/"
                 "protected_owner_consumer_contract.json"
+            ).read_text(encoding="utf-8")
+        )["successor_files"]
+        ingress_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
         expected = {
@@ -796,6 +817,12 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = consumer_successor[relative]["sha256"]
+                if relative in ingress_successor:
+                    self.assertEqual(
+                        ingress_successor[relative]["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = ingress_successor[relative]["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -894,6 +921,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "protected_owner_consumer_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        ingress_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_production_ingress_contract.json"
+            ).read_text(encoding="utf-8")
+        )["successor_files"]
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
                 self.assertEqual(set(binding), {"sha256", "change_class"})
@@ -928,6 +962,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                     current_sha256 = successor_binding["sha256"]
                 if relative in consumer_successor:
                     successor_binding = consumer_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
+                if relative in ingress_successor:
+                    successor_binding = ingress_successor[relative]
                     self.assertEqual(
                         successor_binding["before_sha256"],
                         current_sha256,
