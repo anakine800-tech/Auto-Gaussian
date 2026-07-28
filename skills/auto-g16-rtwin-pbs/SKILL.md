@@ -129,6 +129,13 @@ separate append-only receipt chain for ready, definitely-not-started,
 effect-outcome-uncertain, and accepted-terminal state. It does not connect the
 adapter, call the effect owner, or acquire remote reconciliation evidence.
 
+The additive owner-consumer successor remains local and effect-free. Read
+[references/protected-owner-consumer-contract.md](references/protected-owner-consumer-contract.md).
+It keeps PR4L bytes frozen, materializes one sibling upload bundle, consumes
+the exact runtime/state capability once, and persists uncertainty before
+issuing local legacy effect-plan inputs. It does not construct an effect plan
+or raw owner, connect the adapter, or acquire reconciliation evidence.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
