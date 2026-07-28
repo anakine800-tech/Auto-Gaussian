@@ -13,6 +13,14 @@ reservation is present. The owner never constructs the legacy effect plan or
 raw owner, calls an adapter or runner, performs transport/PBS/Gaussian, reads
 remote state, retries, cancels, cleans up, deletes, migrates or backfills.
 
+Exact module/class/source checks reject foreign types, wrong import order,
+source drift, and canonical cache replacement already present at an owner
+entry point without consuming the owner or runtime state. They do not claim
+atomic protection against arbitrary same-process code that directly mutates
+`sys.modules` after the check; the contract records that limitation as a false
+machine-readable policy field. Such an attacker requires process isolation,
+not another Python lock.
+
 After uncertainty, recovery is read-only reconciliation only. Schema validity
 is structural and never substitutes for exact owner replay or the non-copyable
 in-process seal. See

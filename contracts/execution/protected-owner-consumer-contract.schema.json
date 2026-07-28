@@ -298,6 +298,8 @@
       "additionalProperties": false,
       "required": [
         "single_owner_use", "single_plan_input_claim",
+        "pre_call_canonical_cache_replacement_rejected",
+        "post_check_direct_sys_modules_mutation_protected",
         "predecessor_directories_unchanged", "authorities_remain_distinct",
         "legacy_ledger_reservation_present",
         "uncertain_receipt_durable_before_first_effect",
@@ -308,6 +310,8 @@
       "properties": {
         "single_owner_use": {"const": true},
         "single_plan_input_claim": {"const": true},
+        "pre_call_canonical_cache_replacement_rejected": {"const": true},
+        "post_check_direct_sys_modules_mutation_protected": {"const": false},
         "predecessor_directories_unchanged": {"const": true},
         "authorities_remain_distinct": {"const": true},
         "legacy_ledger_reservation_present": {"const": false},

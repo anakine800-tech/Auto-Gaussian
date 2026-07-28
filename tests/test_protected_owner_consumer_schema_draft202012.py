@@ -108,6 +108,16 @@ class ProtectedOwnerConsumerSchemaDraft202012Tests(unittest.TestCase):
         bad_bool = copy.deepcopy(self.document)
         bad_bool["scope"]["transfer"] = 0
         cases.append(bad_bool)
+        overstated_threat_model = copy.deepcopy(self.document)
+        overstated_threat_model["policy"][
+            "post_check_direct_sys_modules_mutation_protected"
+        ] = True
+        cases.append(overstated_threat_model)
+        weakened_pre_call_identity = copy.deepcopy(self.document)
+        weakened_pre_call_identity["policy"][
+            "pre_call_canonical_cache_replacement_rejected"
+        ] = False
+        cases.append(weakened_pre_call_identity)
         bad_pattern = copy.deepcopy(self.document)
         bad_pattern["contract_id"] += "\n"
         cases.append(bad_pattern)

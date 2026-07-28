@@ -133,6 +133,16 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
         document = sealed.document()
         self.assertEqual(document["scope"], CONSUMER.SCOPE)
         self.assertEqual(document["policy"], CONSUMER.POLICY)
+        self.assertTrue(
+            document["policy"][
+                "pre_call_canonical_cache_replacement_rejected"
+            ]
+        )
+        self.assertFalse(
+            document["policy"][
+                "post_check_direct_sys_modules_mutation_protected"
+            ]
+        )
         self.assertFalse(
             document["intent"]["protected_authority"][
                 "legacy_execution_batch_reservation_present"
@@ -481,65 +491,6 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
                 self.assertFalse(bundle.exists())
                 self.assertFalse(candidate._used)
 
-    def test_module_lock_closes_identity_check_to_first_mutation_window(
-        self,
-    ) -> None:
-        runtime = self.runtime()
-        owner = CONSUMER.ProtectedOwnerConsumerContractOwner.production()
-        canonical = sys.modules[CONSUMER.MODULE_NAME]
-        foreign = self.foreign_identical_consumer_module()
-        identity_checked = threading.Event()
-        replacement_attempted = threading.Event()
-        replacement_completed = threading.Event()
-        original_assert = CONSUMER._assert_bindings_current_locked
-        original_materialize = CONSUMER._materialize_bundle
-
-        def checked() -> None:
-            original_assert()
-            identity_checked.set()
-
-        def replace_cache() -> None:
-            replacement_attempted.set()
-            with CONSUMER._MODULE_LOCK:
-                sys.modules[CONSUMER.MODULE_NAME] = foreign
-                replacement_completed.set()
-
-        def materialize_guarded(
-            candidate: object,
-        ) -> tuple[Path, dict[str, object], list[dict[str, object]]]:
-            self.assertTrue(replacement_attempted.wait(timeout=5))
-            self.assertFalse(replacement_completed.is_set())
-            self.assertIs(sys.modules[CONSUMER.MODULE_NAME], canonical)
-            return original_materialize(candidate)
-
-        try:
-            with (
-                mock.patch.object(
-                    CONSUMER,
-                    "_assert_bindings_current_locked",
-                    side_effect=checked,
-                ),
-                mock.patch.object(
-                    CONSUMER,
-                    "_materialize_bundle",
-                    side_effect=materialize_guarded,
-                ),
-                ThreadPoolExecutor(max_workers=2) as pool,
-            ):
-                prepared = pool.submit(owner.prepare_once, runtime)
-                self.assertTrue(identity_checked.wait(timeout=5))
-                replacement = pool.submit(replace_cache)
-                sealed = prepared.result(timeout=30)
-                replacement.result(timeout=30)
-        finally:
-            sys.modules[CONSUMER.MODULE_NAME] = canonical
-        self.assertTrue(replacement_completed.is_set())
-        self.assertEqual(
-            runtime.current_receipt.document()["state"],
-            "effect_started_outcome_uncertain",
-        )
-        sealed.assert_current()
-
     def test_materialized_mutation_rejects_claim_before_any_effect(self) -> None:
         sealed = self.prepared()
         target = sealed.upload_path / sealed.document()["upload_bundle"][
@@ -558,6 +509,56 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
                 sealed.claim_effect_plan_inputs_once()
         effect_plan.assert_not_called()
         runner.assert_not_called()
+
+    def test_identity_threat_model_is_explicit_and_does_not_claim_atomicity(
+        self,
+    ) -> None:
+        schema = json.loads(
+            (
+                ROOT
+                / "contracts/execution/"
+                "protected-owner-consumer-contract.schema.json"
+            ).read_text(encoding="utf-8")
+        )
+        policy = schema["$defs"]["policy"]["properties"]
+        self.assertTrue(
+            policy["pre_call_canonical_cache_replacement_rejected"]["const"]
+        )
+        self.assertFalse(
+            policy[
+                "post_check_direct_sys_modules_mutation_protected"
+            ]["const"]
+        )
+        fixture = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_owner_consumer_contract.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertTrue(
+            fixture["scope"][
+                "pre_call_canonical_cache_replacement_zero_change"
+            ]
+        )
+        self.assertFalse(
+            fixture["scope"][
+                "post_check_direct_sys_modules_mutation_protected"
+            ]
+        )
+        documentation = (
+            ROOT / "docs/v2.6-protected-owner-consumer-contract.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "`post_check_direct_sys_modules_mutation_protected=false`",
+            documentation,
+        )
+        source = (
+            ROOT / "scripts/protected_owner_consumer_contract.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("_MODULE_LOCK", source)
+        self.assertNotIn("_binding_mutation_guard", source)
+        self.assertNotIn("_imp.acquire_lock", source)
 
     def test_source_has_no_effect_transport_or_adapter_call(self) -> None:
         source_path = ROOT / "scripts/protected_owner_consumer_contract.py"
@@ -626,6 +627,16 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
 
             installed = Path({str(installed)!r})
             sys.path.insert(0, str(installed / "scripts"))
+            wrong_order_rejected = False
+            try:
+                import protected_owner_consumer_contract
+            except ImportError:
+                wrong_order_rejected = True
+            else:
+                raise AssertionError(
+                    "consumer import before exact dependencies must fail"
+                )
+
             import legacy_rtwin_pbs
             import protected_lifecycle_contract
             import protected_local_materialization
@@ -633,9 +644,53 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
             import protected_runtime_state_contract
             import protected_owner_consumer_contract as consumer
 
+            class UntouchedRuntime:
+                def __init__(self):
+                    self.touched = False
+
+                def __getattribute__(self, name):
+                    if name != "touched":
+                        object.__setattr__(self, "touched", True)
+                        raise AssertionError("runtime must remain untouched")
+                    return object.__getattribute__(self, name)
+
+            runtime = UntouchedRuntime()
+            owner = (
+                consumer.ProtectedOwnerConsumerContractOwner.production()
+            )
+            forbidden_bundle = installed / "forbidden-bundle-write"
+            original_materialize = consumer._materialize_bundle
+
+            def materialize_forbidden(candidate):
+                del candidate
+                forbidden_bundle.write_bytes(b"called")
+                raise AssertionError("materialization must not run")
+
+            consumer._materialize_bundle = materialize_forbidden
+            source_path = Path(consumer.__file__).resolve()
+            source_raw = source_path.read_bytes()
+            source_path.write_bytes(source_raw + b"\\n")
+            try:
+                owner.prepare_once(runtime)
+            except consumer.ProtectedOwnerConsumerError:
+                source_drift_rejected = True
+            else:
+                source_drift_rejected = False
+            finally:
+                source_path.write_bytes(source_raw)
+                consumer._materialize_bundle = original_materialize
+            source_drift_zero_change = (
+                not runtime.touched
+                and not forbidden_bundle.exists()
+                and not owner._used
+            )
+
             print(json.dumps({{
                 "module": consumer.__name__,
                 "origin": str(Path(consumer.__file__).resolve()),
+                "wrong_order_rejected": wrong_order_rejected,
+                "source_drift_rejected": source_drift_rejected,
+                "source_drift_zero_change": source_drift_zero_change,
                 "runtime_bound": (
                     consumer._RUNTIME_BINDING.module
                     is protected_runtime_state_contract
@@ -663,6 +718,9 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         output = json.loads(result.stdout)
         self.assertEqual(output["module"], CONSUMER.MODULE_NAME)
+        self.assertTrue(output["wrong_order_rejected"])
+        self.assertTrue(output["source_drift_rejected"])
+        self.assertTrue(output["source_drift_zero_change"])
         self.assertTrue(output["runtime_bound"])
         self.assertTrue(output["legacy_bound"])
 

@@ -4,6 +4,8 @@
   "scope": {
     "single_owner_consumer": true,
     "exact_runtime_state_capability_only": true,
+    "pre_call_canonical_cache_replacement_zero_change": true,
+    "post_check_direct_sys_modules_mutation_protected": false,
     "sibling_upload_bundle": true,
     "protected_and_legacy_reservations_distinct": true,
     "uncertain_before_effect": true,
