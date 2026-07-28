@@ -55,6 +55,10 @@
       "target": "scripts/protected_owner_consumer_contract.py"
     },
     {
+      "source": "scripts/protected_production_ingress_contract.py",
+      "target": "scripts/protected_production_ingress_contract.py"
+    },
+    {
       "source": "scripts/runtime_config.py",
       "target": "scripts/platform_runtime_config_owner.py"
     }

@@ -136,6 +136,14 @@ the exact runtime/state capability once, and persists uncertainty before
 issuing local legacy effect-plan inputs. It does not construct an effect plan
 or raw owner, connect the adapter, or acquire reconciliation evidence.
 
+The additive production-ingress successor remains non-executable. Read
+[references/protected-production-ingress-contract.md](references/protected-production-ingress-contract.md).
+It consumes only the exact sealed owner-consumer capability and its plan
+inputs, then issues one exact production ingress and one single-claim legacy
+factory port. Production `_submit_new()` remains unwired, the current legacy
+factory still accepts only the CLI transaction plan, and no effect plan, raw
+owner, adapter, runner or external effect is created or called.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -521,6 +529,10 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/protected_legacy_effect_handoff.py`: packaged additive PR4N owner
   for the non-executable typed PR4L-to-PR4M handoff; every effect, adapter and
   runner status remains false.
+- `scripts/protected_production_ingress_contract.py`: packaged additive
+  effect-free owner for the exact owner-consumer to production/factory-port
+  handoff; production and the legacy internal factory consumer remain
+  deliberately unwired.
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
 - `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for

@@ -1,0 +1,84 @@
+{
+  "schema": "auto-g16-protected-production-ingress-contract-fixture/1",
+  "base_commit": "504f017d539b6d8891e593cf5eed15c552c9817d",
+  "base_tree": "bb2892cac42faab90064f54f354ecd28f413110c",
+  "scope": {
+    "production_ingress_capability_issued": true,
+    "legacy_factory_port_issued": true,
+    "exact_owner_consumer_claim_only": true,
+    "predecessor_upload_intent_checksum_bytes_frozen": true,
+    "uncertain_receipt_precedes_ingress": true,
+    "production_submit_wired": false,
+    "legacy_factory_accepts_port": false,
+    "legacy_factory_invoked": false,
+    "effect_plan_created": false,
+    "raw_effect_owner_created": false,
+    "adapter_called": false,
+    "runner_called": false,
+    "reservation_or_write_performed": false,
+    "external_effects": false
+  },
+  "frozen_predecessors": {
+    "scripts/protected_owner_consumer_contract.py": "01fe0e30fdbd155e982962d8c4258d4d773d9d0de0b1323e119a6ab3573cd899",
+    "contracts/execution/protected-owner-consumer-contract.schema.json": "f5f6293ac71238e0033f667691e541855a6e5fd7421d84919086be0ffa844f82",
+    "contracts/execution/protected-owner-submission-intent.schema.json": "3164dd94fde648421fb4304cd61412dea0d92edac6c4bc2021667f1182e412f4",
+    "tests/fixtures/rtwin_pbs/protected_owner_consumer_contract.json": "275be4d4e65ba8c74cff283e10de2a0679e3fad84b0dee01576d76db43c365f3",
+    "scripts/protected_runtime_state_contract.py": "3c8a5b523c695b9ecba3345af5ab56a85fd4d578cfbd00832c07751e97d86d9f",
+    "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "f100182aed304cb35d57c8a000b8bbb2960534cd1a43ae6828a53bbd6f45410b"
+  },
+  "successor_files": {
+    ".github/workflows/offline-tests.yml": {
+      "before_sha256": "0a3dc434c33d937b2bdb9b7bb2d5a8a3e1227624f6028da55af428c8b42589cf",
+      "sha256": "4c8b90301f82e6afae553ae8b6ce8e88dd8bcfa439467fbaf915a25f89db1886",
+      "change_class": "append_production_ingress_pinned_draft_test"
+    },
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "0e61cb2135ef163dabb02d46c284267a9a580bbe296e6d533d23819b1a71e3bb",
+      "sha256": "4fc49831bd0edbed3ec3b4260d2cf2801b80a70153f046b9d1773c5c97611a1f",
+      "change_class": "append_production_ingress_schema_test_contract"
+    },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "before_sha256": "b1dc8cec35e9e62d5349aa3c5712fd4b803547e6b2855287b602b93c5aa54060",
+      "sha256": "6e2c71e44b9d7af667da5d18dcc85b16afcb4da1a83cf0e34537c73bf7127d8e",
+      "change_class": "append_effect_free_production_ingress_navigation"
+    },
+    "skills/auto-g16-rtwin-pbs/deployment-package.json": {
+      "before_sha256": "710c188aecdee0c44675e32b33680ca3181bd327f1bdf6d1414caedd3de014ea",
+      "sha256": "94e8fdf2ccd2b1fca352c562fdce583c95fc16b695a195e612d957a6c1fa5379",
+      "change_class": "append_named_production_ingress_owner"
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_sha256": "191951ebe12209ed8caea16ebbe26f066bb2d70c439d59321e95fa3f8c1f7952",
+      "sha256": "45d2938842568fea8c68b17c77b51306b5cee0b828e5526c4fd9f6e0e916b5e0",
+      "change_class": "append_production_ingress_successor_hash_chain"
+    },
+    "tests/test_protected_local_materialization.py": {
+      "before_sha256": "1c231561e6b9531f91db718d4164f883a2893acc6675a8585e9d27f180a698eb",
+      "sha256": "43f5648b38383f5ff9ebc37b13c8435bbeacd2cf32efd492ef0526fe53b5d37c",
+      "change_class": "append_production_ingress_successor_hash_chain"
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "before_sha256": "479eb1c0433eb5322c3e15a684ff55fed10013f5c85a1749c833f2f5344056c1",
+      "sha256": "c546e7619f5861b81b15bdd94eaae687ffb1cd2244d1b47cdbc7956b8d91bf22",
+      "change_class": "append_production_ingress_successor_hash_chain"
+    }
+  },
+  "new_files": {
+    "scripts/protected_production_ingress_contract.py": "0cb8d84271968dbc5641a2a2f625d3f3a950a793952104f773c73f71ff45e2df",
+    "contracts/execution/protected-production-ingress-contract.schema.json": "8469c02976eb82a929f7f0df04d473c7d53f2c955f730feb74b9d0f70264b19c",
+    "docs/v2.6-protected-production-ingress-contract.md": "eb07d867d2b41264bc451c5a6ee11136a049e683aa8680ff95607d71ad44e8bf",
+    "skills/auto-g16-rtwin-pbs/references/protected-production-ingress-contract.md": "a4634bcffcad5f74c125441a70639e2f6c250d41221f5ddb99c00a905751ce67",
+    "tests/test_protected_production_ingress_contract.py": "edc61c2950e90bd26b9d3f2110aec71c73b047b154b76c29a53279d9b04d0011",
+    "tests/test_protected_production_ingress_schema_draft202012.py": "22a71e6231b4743a8c8c5ac8a6730277d5d8643aa7a5e67af5c2fb7db02f679a"
+  },
+  "remaining_gates": {
+    "production_submit_ingress_wired": false,
+    "legacy_internal_port_consumer_implemented": false,
+    "legacy_effect_plan_factory_invoked": false,
+    "raw_effect_owner_connected": false,
+    "adapter_connected": false,
+    "remote_reconciliation_observation_acquired": false,
+    "live_validation_performed": false
+  }
+}
