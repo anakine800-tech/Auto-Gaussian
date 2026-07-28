@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -171,6 +172,122 @@ class ProtectedProductionIngressSchemaDraft202012Tests(unittest.TestCase):
                     "negative-infinity",
                 }:
                     SUPPORT.reclose_public_document(changed)
+                with self.subTest(field=field, representation=label):
+                    self.assertFalse(self.validator.is_valid(changed))
+                    with self.assertRaises(
+                        SUPPORT.INGRESS.ProtectedProductionIngressError
+                    ):
+                        (
+                            SUPPORT.INGRESS
+                            .validate_protected_production_ingress_contract(
+                                changed
+                            )
+                        )
+
+    def test_safe_integer_maximum_precision_and_closure(self) -> None:
+        maximum = SUPPORT.INGRESS.MAX_SAFE_INTEGER
+        plan_schema = self.schema["$defs"]["planInputs"]["properties"]
+        self.assertEqual(
+            plan_schema["expected_bindings"]["items"]["properties"][
+                "order"
+            ]["maximum"],
+            maximum,
+        )
+        for field in (
+            "upload_timeout_seconds",
+            "upload_hash_timeout_seconds",
+        ):
+            self.assertEqual(plan_schema[field]["maximum"], maximum)
+
+        order = copy.deepcopy(self.document)
+        SUPPORT.set_public_integer(order, "binding_order", maximum)
+        self.validator.validate(order)
+        self.assertEqual(
+            SUPPORT.INGRESS._integer(
+                float(maximum),
+                "binding order",
+                1,
+            ),
+            maximum,
+        )
+        with self.assertRaises(
+            SUPPORT.INGRESS.ProtectedProductionIngressError
+        ):
+            SUPPORT.INGRESS.validate_protected_production_ingress_contract(
+                SUPPORT.reclose_public_document(order)
+            )
+
+        for field in (
+            "upload_timeout_seconds",
+            "upload_hash_timeout_seconds",
+        ):
+            canonical = copy.deepcopy(self.document)
+            SUPPORT.set_public_integer(canonical, field, maximum)
+            SUPPORT.reclose_public_document(canonical)
+            self.validator.validate(canonical)
+            self.assertEqual(
+                SUPPORT.INGRESS
+                .validate_protected_production_ingress_contract(canonical),
+                canonical,
+            )
+
+            canonical_float = copy.deepcopy(canonical)
+            SUPPORT.set_public_integer(
+                canonical_float,
+                field,
+                float(maximum),
+            )
+            self.validator.validate(canonical_float)
+            self.assertEqual(
+                SUPPORT.INGRESS
+                .validate_protected_production_ingress_contract(
+                    canonical_float
+                ),
+                canonical,
+            )
+
+            raw_float = SUPPORT.reclose_public_document(
+                copy.deepcopy(canonical_float)
+            )
+            self.validator.validate(raw_float)
+            self.assertEqual(
+                SUPPORT.INGRESS
+                .validate_protected_production_ingress_contract(raw_float),
+                canonical,
+            )
+
+            hybrid = copy.deepcopy(raw_float)
+            hybrid["contract_payload_sha256"] = canonical[
+                "contract_payload_sha256"
+            ]
+            hybrid["contract_id"] = canonical["contract_id"]
+            self.validator.validate(hybrid)
+            with self.assertRaises(
+                SUPPORT.INGRESS.ProtectedProductionIngressError
+            ):
+                (
+                    SUPPORT.INGRESS
+                    .validate_protected_production_ingress_contract(hybrid)
+                )
+
+        unsafe = (
+            ("max-safe-plus-one-int", maximum + 1),
+            ("max-safe-plus-one-float", float(maximum + 1)),
+            ("two-to-53-plus-one-collapse", float((1 << 53) + 1)),
+            ("one-e23", 1e23),
+            ("one-e308", 1e308),
+            ("max-finite", sys.float_info.max),
+            ("negative-zero", -0.0),
+        )
+        self.assertEqual(
+            float((1 << 53) + 1),
+            float(1 << 53),
+        )
+        for field in SUPPORT.PUBLIC_INTEGER_FIELDS:
+            for label, replacement in unsafe:
+                changed = copy.deepcopy(self.document)
+                SUPPORT.set_public_integer(changed, field, replacement)
+                SUPPORT.reclose_public_document(changed)
                 with self.subTest(field=field, representation=label):
                     self.assertFalse(self.validator.is_valid(changed))
                     with self.assertRaises(

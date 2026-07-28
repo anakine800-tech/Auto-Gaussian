@@ -461,6 +461,7 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                 ("bool", True),
                 ("fractional", 1.5),
                 ("zero", 0),
+                ("negative-zero-float", -0.0),
                 ("negative", -1),
                 ("nan", float("nan")),
                 ("positive-infinity", float("inf")),
@@ -487,6 +488,153 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                                 changed
                             )
                         )
+
+    def test_safe_integer_precision_bound_and_closure(self) -> None:
+        original = self.sealed().document()
+        maximum = INGRESS.MAX_SAFE_INTEGER
+        for representation in (maximum, float(maximum)):
+            with self.subTest(
+                field="integer-helper",
+                representation=type(representation).__name__,
+            ):
+                self.assertEqual(
+                    INGRESS._integer(representation, "safe integer", 1),
+                    maximum,
+                )
+
+        for field in (
+            "upload_timeout_seconds",
+            "upload_hash_timeout_seconds",
+        ):
+            canonical = copy.deepcopy(original)
+            set_public_integer(canonical, field, maximum)
+            reclose_public_document(canonical)
+            with self.subTest(field=field, closure="exact-int"):
+                normalized = (
+                    INGRESS.validate_protected_production_ingress_contract(
+                        canonical
+                    )
+                )
+                self.assertEqual(
+                    get_public_integer(normalized, field),
+                    maximum,
+                )
+                self.assertIs(
+                    type(get_public_integer(normalized, field)),
+                    int,
+                )
+
+            canonical_float = copy.deepcopy(canonical)
+            set_public_integer(canonical_float, field, float(maximum))
+            with self.subTest(field=field, closure="canonical-float"):
+                normalized = (
+                    INGRESS.validate_protected_production_ingress_contract(
+                        canonical_float
+                    )
+                )
+                self.assertEqual(normalized, canonical)
+
+            raw_float = reclose_public_document(
+                copy.deepcopy(canonical_float)
+            )
+            with self.subTest(field=field, closure="raw-float"):
+                normalized = (
+                    INGRESS.validate_protected_production_ingress_contract(
+                        raw_float
+                    )
+                )
+                self.assertEqual(normalized, canonical)
+
+            hybrid_payload = copy.deepcopy(raw_float)
+            hybrid_payload["contract_payload_sha256"] = canonical[
+                "contract_payload_sha256"
+            ]
+            hybrid_payload["contract_id"] = canonical["contract_id"]
+            with self.subTest(field=field, closure="hybrid-payload"):
+                with self.assertRaises(
+                    INGRESS.ProtectedProductionIngressError
+                ):
+                    INGRESS.validate_protected_production_ingress_contract(
+                        hybrid_payload
+                    )
+
+            hybrid_id = copy.deepcopy(raw_float)
+            hybrid_id["contract_id"] = canonical["contract_id"]
+            with self.subTest(field=field, closure="hybrid-id"):
+                with self.assertRaises(
+                    INGRESS.ProtectedProductionIngressError
+                ):
+                    INGRESS.validate_protected_production_ingress_contract(
+                        hybrid_id
+                    )
+
+        unsafe = (
+            ("max-safe-plus-one-int", maximum + 1),
+            ("max-safe-plus-one-float", float(maximum + 1)),
+            ("two-to-53-plus-one-collapse", float((1 << 53) + 1)),
+            ("one-e23", 1e23),
+            ("one-e308", 1e308),
+            ("max-finite", sys.float_info.max),
+        )
+        self.assertEqual(
+            float((1 << 53) + 1),
+            float(1 << 53),
+        )
+        for field in PUBLIC_INTEGER_FIELDS:
+            for label, replacement in unsafe:
+                changed = copy.deepcopy(original)
+                set_public_integer(changed, field, replacement)
+                reclose_public_document(changed)
+                with self.subTest(field=field, representation=label):
+                    with self.assertRaises(
+                        INGRESS.ProtectedProductionIngressError
+                    ):
+                        (
+                            INGRESS
+                            .validate_protected_production_ingress_contract(
+                                changed
+                            )
+                        )
+
+    def test_owner_issuance_enforces_exact_safe_timeout_integers(self) -> None:
+        predecessor = self.predecessor()
+        for field in (
+            "upload_timeout_seconds",
+            "upload_hash_timeout_seconds",
+        ):
+            safe_values = dict(predecessor._plan_values)
+            safe_values[field] = INGRESS.MAX_SAFE_INTEGER
+            safe_plan = CONSUMER.ProtectedLegacyEffectPlanInputs._from_owner(
+                safe_values,
+                token=CONSUMER._PLAN_INPUT_TOKEN,
+            )
+            with self.subTest(field=field, representation="max-safe-int"):
+                snapshot = INGRESS._plan_snapshot(safe_plan)
+                self.assertEqual(
+                    snapshot[INGRESS.PLAN_FIELDS.index(field)],
+                    INGRESS.MAX_SAFE_INTEGER,
+                )
+
+            for label, replacement in (
+                ("integral-float", float(INGRESS.MAX_SAFE_INTEGER)),
+                ("above-safe-int", INGRESS.MAX_SAFE_INTEGER + 1),
+            ):
+                unsafe_values = dict(predecessor._plan_values)
+                unsafe_values[field] = replacement
+                unsafe_plan = (
+                    CONSUMER.ProtectedLegacyEffectPlanInputs._from_owner(
+                        unsafe_values,
+                        token=CONSUMER._PLAN_INPUT_TOKEN,
+                    )
+                )
+                with self.subTest(field=field, representation=label):
+                    with self.assertRaises(
+                        (
+                            CONSUMER.ProtectedOwnerConsumerError,
+                            INGRESS.ProtectedProductionIngressError,
+                        )
+                    ):
+                        INGRESS._plan_snapshot(unsafe_plan)
 
     def test_cache_class_callable_and_foreign_identical_reject_before_claim(
         self,

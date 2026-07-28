@@ -144,6 +144,7 @@ INTENT_ID_RE = re.compile(r"^protected-owner-intent-[a-f0-9]{64}$")
 RECEIPT_ID_RE = re.compile(r"^protected-runtime-receipt-[a-f0-9]{64}$")
 INGRESS_ID_RE = re.compile(r"^protected-production-ingress-[a-f0-9]{64}$")
 _ZERO_SHA = "0" * 64
+MAX_SAFE_INTEGER = (1 << 53) - 1
 _MAX_JSON_DEPTH = 64
 _MAX_SOURCE_BYTES = 4 * 1024 * 1024
 _SOURCE_CHUNK = 64 * 1024
@@ -264,22 +265,28 @@ def _sha(value: object, label: str, *, nonzero: bool = True) -> str:
     return value
 
 
-def _integer(value: object, label: str, minimum: int = 0) -> int:
+def _integer(
+    value: object,
+    label: str,
+    minimum: int = 0,
+    maximum: int = MAX_SAFE_INTEGER,
+) -> int:
     if type(value) is int:
         result = value
     elif (
         type(value) is float
         and math.isfinite(value)
         and value.is_integer()
+        and minimum <= value <= maximum
     ):
         result = int(value)
     else:
         raise ProtectedProductionIngressError(
             f"{label} is not an exact integer"
         )
-    if result < minimum:
+    if result < minimum or result > maximum:
         raise ProtectedProductionIngressError(
-            f"{label} is below its minimum"
+            f"{label} is outside its safe integer range"
         )
     return result
 
@@ -1057,6 +1064,7 @@ def _plan_snapshot(values: object) -> tuple[Any, ...]:
     if any(
         type(getattr(values, name)) is not int
         or getattr(values, name) < 1
+        or getattr(values, name) > MAX_SAFE_INTEGER
         for name in scalar_names
     ):
         raise ProtectedProductionIngressError(

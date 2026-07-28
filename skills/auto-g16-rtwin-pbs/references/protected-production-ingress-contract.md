@@ -22,7 +22,9 @@ wrong import order, foreign identical modules/classes, pre-call cache
 replacement and source drift before the predecessor plan inputs are claimed.
 Integral JSON numbers at the three declared `integer` positions normalize to
 exact Python `int` before semantic and hash closure; booleans,
-fractional/non-finite numbers and below-minimum values remain rejected.
+fractional/non-finite numbers and values outside `1..9007199254740991`
+remain rejected by both Schema and helper. The `2^53-1` maximum prevents
+cross-language JSON-number precision folding after binary-float parsing.
 It does not claim atomic protection against arbitrary same-process
 `sys.modules` mutation after the final check.
 

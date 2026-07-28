@@ -270,18 +270,21 @@
               },
               "order": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 1,
+                "maximum": 9007199254740991
               }
             }
           }
         },
         "upload_timeout_seconds": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 9007199254740991
         },
         "upload_hash_timeout_seconds": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 9007199254740991
         },
         "attempt_id": {
           "type": "string",
