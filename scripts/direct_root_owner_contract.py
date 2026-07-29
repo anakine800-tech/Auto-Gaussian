@@ -51,6 +51,8 @@ TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
 NONCE_RE = re.compile(r"^[a-f0-9]{32,128}$")
 TASK_RE = re.compile(r"^scientific-task-[a-f0-9]{64}$")
 ATTEMPT_RE = re.compile(r"^qsub-attempt-[a-f0-9]{64}$")
+NONNEGATIVE_DECIMAL_RE = re.compile(r"^(?:0|[1-9][0-9]*)$")
+POSITIVE_DECIMAL_RE = re.compile(r"^[1-9][0-9]*$")
 RFC3339_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
 )
@@ -166,6 +168,32 @@ def _positive_integer(value: Any, label: str) -> int:
     return value
 
 
+def _nonnegative_decimal(value: Any, label: str) -> int:
+    _require(
+        type(value) is str
+        and NONNEGATIVE_DECIMAL_RE.fullmatch(value) is not None,
+        f"{label} must be a canonical non-negative decimal string",
+    )
+    return int(value)
+
+
+def _positive_decimal(
+    value: Any,
+    label: str,
+    *,
+    maximum: int | None = None,
+) -> int:
+    _require(
+        type(value) is str
+        and POSITIVE_DECIMAL_RE.fullmatch(value) is not None,
+        f"{label} must be a canonical positive decimal string",
+    )
+    parsed = int(value)
+    if maximum is not None:
+        _require(parsed <= maximum, f"{label} exceeds owner bound")
+    return parsed
+
+
 def _utc_text(value: Any, label: str) -> datetime:
     _require(type(value) is str and RFC3339_RE.fullmatch(value) is not None, f"{label} must be UTC RFC3339")
     parsed = datetime.fromisoformat(value[:-1] + "+00:00")
@@ -261,8 +289,12 @@ def _component_chain(value: Any, label: str) -> dict[str, Any]:
             {"ordinal", "component_path_sha256", "identity_sha256"},
             f"{label}.component",
         )
-        _require(type(component["ordinal"]) is int and component["ordinal"] >= 0, f"{label}.ordinal is invalid")
-        ordinals.append(component["ordinal"])
+        ordinals.append(
+            _nonnegative_decimal(
+                component["ordinal"],
+                f"{label}.ordinal",
+            )
+        )
         _sha(component["component_path_sha256"], f"{label}.component path")
         _sha(component["identity_sha256"], f"{label}.component identity")
     _require(ordinals == expected_ordinals, f"{label}.component order differs")
@@ -447,7 +479,7 @@ def _input_binding(value: Any) -> dict[str, Any]:
     binding = _exact(value, {"basename", "sha256", "size_bytes"}, "authorization input")
     _text(binding["basename"], "input basename", TOKEN_RE)
     _sha(binding["sha256"], "input hash")
-    _positive_integer(binding["size_bytes"], "input size")
+    _positive_decimal(binding["size_bytes"], "input size")
     return binding
 
 
@@ -459,7 +491,7 @@ def _resources(value: Any) -> dict[str, Any]:
     )
     _text(resources["tier"], "resource tier")
     for field in ("cores", "memory_gb", "walltime_seconds"):
-        _positive_integer(resources[field], f"resource {field}")
+        _positive_decimal(resources[field], f"resource {field}")
     expected = digest({
         "schema": "auto-g16-direct-resource-binding/1",
         "tier": resources["tier"],
@@ -570,8 +602,11 @@ def validate_direct_execution_authorization(
     )
     for key, expected in FRESH_RULES.items():
         _require(rules[key] == expected, f"fresh observation rule differs: {key}")
-    _positive_integer(rules["maximum_receipt_age_seconds"], "maximum receipt age")
-    _require(rules["maximum_receipt_age_seconds"] <= 300, "maximum receipt age exceeds owner bound")
+    _positive_decimal(
+        rules["maximum_receipt_age_seconds"],
+        "maximum receipt age",
+        maximum=300,
+    )
     _require(rules["future_receipt_hash_prebound"] is False, "future receipt hash must not be prebound")
     consumption = _exact(authorization["consumption"], {"single_use", "consumed"}, "authorization consumption")
     _require(consumption == {"single_use": True, "consumed": False}, "authorization consumption differs")
@@ -634,7 +669,11 @@ def validate_fresh_root_observation_receipt(
     )
     observed_at = _utc_text(window["observed_at"], "fresh receipt observed_at")
     expires_at = _utc_text(window["expires_at"], "fresh receipt expires_at")
-    age = _positive_integer(window["maximum_receipt_age_seconds"], "fresh receipt maximum age")
+    age = _positive_decimal(
+        window["maximum_receipt_age_seconds"],
+        "fresh receipt maximum age",
+        maximum=300,
+    )
     _require(expires_at == observed_at + timedelta(seconds=age), "fresh receipt expiry differs from maximum age")
     observed = _exact(
         receipt["observed_root"],
@@ -810,6 +849,23 @@ def build_direct_execution_authorization(
     maximum_receipt_age_seconds: int,
 ) -> dict[str, Any]:
     _assert_owner_binding()
+    for value, label in (
+        (input_size_bytes, "input size"),
+        (cores, "resource cores"),
+        (memory_gb, "resource memory"),
+        (walltime_seconds, "resource walltime"),
+        (maximum_receipt_age_seconds, "maximum receipt age"),
+    ):
+        _positive_integer(value, label)
+    _require(
+        maximum_receipt_age_seconds <= 300,
+        "maximum receipt age exceeds owner bound",
+    )
+    input_size_text = str(input_size_bytes)
+    cores_text = str(cores)
+    memory_text = str(memory_gb)
+    walltime_text = str(walltime_seconds)
+    maximum_age_text = str(maximum_receipt_age_seconds)
     validated_profile = validate_direct_execution_profile(profile)
     evidence_document = (
         stable_evidence.document()
@@ -840,17 +896,17 @@ def build_direct_execution_authorization(
     })
     resources = {
         "tier": tier,
-        "cores": cores,
-        "memory_gb": memory_gb,
-        "walltime_seconds": walltime_seconds,
+        "cores": cores_text,
+        "memory_gb": memory_text,
+        "walltime_seconds": walltime_text,
         "resources_binding_sha256": "",
     }
     resources["resources_binding_sha256"] = digest({
         "schema": "auto-g16-direct-resource-binding/1",
         "tier": tier,
-        "cores": cores,
-        "memory_gb": memory_gb,
-        "walltime_seconds": walltime_seconds,
+        "cores": cores_text,
+        "memory_gb": memory_text,
+        "walltime_seconds": walltime_text,
     })
     document = {
         "schema": DIRECT_AUTHORIZATION_SCHEMA,
@@ -875,7 +931,7 @@ def build_direct_execution_authorization(
         "input": {
             "basename": input_basename,
             "sha256": input_sha256,
-            "size_bytes": input_size_bytes,
+            "size_bytes": input_size_text,
         },
         "resources": resources,
         "scope": {
@@ -887,7 +943,7 @@ def build_direct_execution_authorization(
         },
         "fresh_observation_rules": {
             **FRESH_RULES,
-            "maximum_receipt_age_seconds": maximum_receipt_age_seconds,
+            "maximum_receipt_age_seconds": maximum_age_text,
             "future_receipt_hash_prebound": False,
         },
         "consumption": {"single_use": True, "consumed": False},
@@ -1088,7 +1144,7 @@ class FreshRootObservationReceipt:
 @dataclass(frozen=True, slots=True, init=False)
 class _OwnerRootIdentitySnapshot:
     canonical_root: str
-    components: tuple[tuple[int, str, str], ...]
+    components: tuple[tuple[str, str, str], ...]
     identity_chain_sha256: str
     project: str
     remote_workdir: str
@@ -1317,6 +1373,145 @@ class ConsumedWorkspaceDescriptorLease:
         raise TypeError("descriptor leases are not serializable")
 
 
+@dataclass(slots=True)
+class _CapabilityState:
+    capability: object
+    evidence: StableRootIdentityEvidence
+    receipt: FreshRootObservationReceipt
+    profile_bytes: bytes
+    authorization_bytes: bytes
+    descriptor_set: _DescriptorSet
+    descriptor_handles: tuple[object, ...]
+    clock: Callable[[], datetime]
+    lock: threading.Lock
+    consumed: bool = False
+    latest_now: datetime | None = None
+
+
+_CAPABILITY_REGISTRY_LOCK = threading.Lock()
+_CAPABILITY_REGISTRY: dict[int, _CapabilityState] = {}
+
+
+def _register_capability(
+    capability: object,
+    state: _CapabilityState,
+) -> None:
+    _require(
+        state.capability is capability,
+        "capability owner state identity differs",
+    )
+    key = id(capability)
+    with _CAPABILITY_REGISTRY_LOCK:
+        _require(
+            key not in _CAPABILITY_REGISTRY,
+            "capability owner state identity is already registered",
+        )
+        _CAPABILITY_REGISTRY[key] = state
+
+
+def _capability_state(capability: object) -> _CapabilityState:
+    with _CAPABILITY_REGISTRY_LOCK:
+        state = _CAPABILITY_REGISTRY.get(id(capability))
+    _require(
+        type(state) is _CapabilityState
+        and state.capability is capability,
+        "capability owner state is unavailable",
+    )
+    return state
+
+
+def _trusted_capability_now(state: _CapabilityState) -> datetime:
+    current = state.clock()
+    _format_utc(current)
+    if state.latest_now is not None:
+        _require(
+            current >= state.latest_now,
+            "trusted clock moved backward",
+        )
+    state.latest_now = current
+    return current
+
+
+def _assert_capability_current(
+    capability: "SingleUseWorkspaceDescriptorCapability",
+    state: _CapabilityState,
+) -> None:
+    _assert_owner_binding()
+    _require(
+        type(capability) is SingleUseWorkspaceDescriptorCapability
+        and capability._seal is _CAPABILITY_TOKEN,
+        "workspace capability seal differs",
+    )
+    _require(
+        capability.evidence is state.evidence
+        and capability.receipt is state.receipt
+        and capability._evidence_identity is state.evidence
+        and capability._receipt_identity is state.receipt,
+        "workspace capability portable artifact identity differs",
+    )
+    _require(
+        capability._profile_bytes == state.profile_bytes
+        and capability._authorization_bytes == state.authorization_bytes,
+        "workspace capability canonical snapshot differs",
+    )
+    _require(
+        capability._descriptor_set is state.descriptor_set
+        and capability._descriptor_handles is state.descriptor_handles,
+        "capability descriptor set differs",
+    )
+    state.evidence.assert_owner_sealed()
+    state.receipt.assert_owner_sealed()
+    profile = validate_direct_execution_profile(
+        json.loads(state.profile_bytes)
+    )
+    trusted_now = _trusted_capability_now(state)
+    authorization = validate_direct_execution_authorization(
+        json.loads(state.authorization_bytes),
+        now=trusted_now,
+    )
+    receipt = validate_fresh_root_observation_receipt(
+        state.receipt.document(),
+        now=trusted_now,
+    )
+    state.descriptor_set.assert_owner_sealed()
+    _require(
+        state.descriptor_set._opaque_handles is state.descriptor_handles,
+        "capability descriptor set differs",
+    )
+    _require(
+        profile["profile_payload_sha256"]
+        == authorization["profile"]["profile_payload_sha256"]
+        == receipt["profile"]["profile_payload_sha256"],
+        "capability profile replay differs",
+    )
+    _require(
+        state.evidence.document()["evidence_payload_sha256"]
+        == authorization["root_evidence"]["evidence_payload_sha256"]
+        == receipt["stable_root_evidence"]["evidence_payload_sha256"],
+        "capability stable evidence replay differs",
+    )
+    _require(
+        authorization["scope"]["authorization_scope_sha256"]
+        == receipt["authorization"]["authorization_scope_sha256"],
+        "capability authorization scope replay differs",
+    )
+    _require(
+        receipt["observed_root"]["descriptor_set_sha256"]
+        == state.descriptor_set.descriptor_set_sha256,
+        "capability descriptor set differs",
+    )
+    _require(
+        receipt["observed_root"]["identity"]["identity_chain_sha256"]
+        == state.descriptor_set.identity_chain_sha256,
+        "capability descriptor identity differs",
+    )
+    _require(
+        receipt["observed_root"]["workspace_binding_sha256"]
+        == state.descriptor_set.workspace_binding_sha256,
+        "capability descriptor workspace differs",
+    )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class SingleUseWorkspaceDescriptorCapability:
     evidence: StableRootIdentityEvidence
@@ -1327,9 +1522,6 @@ class SingleUseWorkspaceDescriptorCapability:
     _authorization_bytes: bytes
     _descriptor_set: _DescriptorSet
     _descriptor_handles: tuple[object, ...]
-    _clock: Callable[[], datetime]
-    _lock: threading.Lock
-    _consumed: bool
     _seal: object
 
     def __new__(cls, *args: Any, **kwargs: Any) -> "SingleUseWorkspaceDescriptorCapability":
@@ -1363,60 +1555,45 @@ class SingleUseWorkspaceDescriptorCapability:
             "_descriptor_handles",
             descriptor_set._opaque_handles,
         )
-        object.__setattr__(value, "_clock", clock)
-        object.__setattr__(value, "_lock", threading.Lock())
-        object.__setattr__(value, "_consumed", False)
         object.__setattr__(value, "_seal", _CAPABILITY_TOKEN)
+        _register_capability(
+            value,
+            _CapabilityState(
+                capability=value,
+                evidence=evidence,
+                receipt=receipt,
+                profile_bytes=canonical_bytes(profile),
+                authorization_bytes=canonical_bytes(authorization),
+                descriptor_set=descriptor_set,
+                descriptor_handles=descriptor_set._opaque_handles,
+                clock=clock,
+                lock=threading.Lock(),
+            ),
+        )
         return value
 
     def portable_receipt(self) -> dict[str, Any]:
         return self.receipt.document()
 
     def assert_current(self) -> "SingleUseWorkspaceDescriptorCapability":
-        _assert_owner_binding()
-        _require(type(self) is SingleUseWorkspaceDescriptorCapability and self._seal is _CAPABILITY_TOKEN, "workspace capability seal differs")
-        _require(
-            self.evidence is self._evidence_identity
-            and self.receipt is self._receipt_identity,
-            "workspace capability portable artifact identity differs",
-        )
-        self.evidence.assert_owner_sealed()
-        self.receipt.assert_owner_sealed()
-        profile = validate_direct_execution_profile(json.loads(self._profile_bytes))
-        trusted_now = self._clock()
-        authorization = validate_direct_execution_authorization(
-            json.loads(self._authorization_bytes),
-            now=trusted_now,
-        )
-        receipt = validate_fresh_root_observation_receipt(
-            self.receipt.document(),
-            now=trusted_now,
-        )
-        self._descriptor_set.assert_owner_sealed()
-        _require(
-            self._descriptor_set._opaque_handles is self._descriptor_handles,
-            "capability descriptor set differs",
-        )
-        _require(profile["profile_payload_sha256"] == authorization["profile"]["profile_payload_sha256"] == receipt["profile"]["profile_payload_sha256"], "capability profile replay differs")
-        _require(self.evidence.document()["evidence_payload_sha256"] == authorization["root_evidence"]["evidence_payload_sha256"] == receipt["stable_root_evidence"]["evidence_payload_sha256"], "capability stable evidence replay differs")
-        _require(authorization["scope"]["authorization_scope_sha256"] == receipt["authorization"]["authorization_scope_sha256"], "capability authorization scope replay differs")
-        _require(receipt["observed_root"]["descriptor_set_sha256"] == self._descriptor_set.descriptor_set_sha256, "capability descriptor set differs")
-        _require(receipt["observed_root"]["identity"]["identity_chain_sha256"] == self._descriptor_set.identity_chain_sha256, "capability descriptor identity differs")
-        _require(receipt["observed_root"]["workspace_binding_sha256"] == self._descriptor_set.workspace_binding_sha256, "capability descriptor workspace differs")
+        state = _capability_state(self)
+        with state.lock:
+            _assert_capability_current(self, state)
         return self
 
     def consume_once(self) -> ConsumedWorkspaceDescriptorLease:
         """Replay under one lock and consume the retained offline handle model."""
-        with self._lock:
-            if self._consumed:
+        state = _capability_state(self)
+        with state.lock:
+            if state.consumed:
                 raise DirectRootOwnerError("workspace descriptor capability is already consumed")
-            self.assert_current()
-            object.__setattr__(self, "_consumed", True)
-            receipt = self.receipt.document()
+            _assert_capability_current(self, state)
+            state.consumed = True
+            receipt = state.receipt.document()
             return ConsumedWorkspaceDescriptorLease._from_owner(
                 receipt_payload_sha256=receipt["receipt_payload_sha256"],
                 authorization_scope_sha256=receipt["authorization"]["authorization_scope_sha256"],
-                descriptor_set=self._descriptor_set,
+                descriptor_set=state.descriptor_set,
                 token=_LEASE_TOKEN,
             )
 
@@ -1498,7 +1675,7 @@ class DirectRootOwnerContractOwner:
         _require(len(component_identity_seeds) == len(parts), "owner snapshot component count differs")
         components = [
             {
-                "ordinal": index,
+                "ordinal": str(index),
                 "component_path_sha256": hashlib.sha256(
                     ("/" + "/".join(parts[: index + 1])).encode("utf-8")
                 ).hexdigest(),
@@ -1602,7 +1779,14 @@ class DirectRootOwnerContractOwner:
             )
             nonce = self._nonce_source()
             _text(nonce, "owner nonce", NONCE_RE)
-            age = validated_authorization["fresh_observation_rules"]["maximum_receipt_age_seconds"]
+            age_text = validated_authorization["fresh_observation_rules"][
+                "maximum_receipt_age_seconds"
+            ]
+            age = _positive_decimal(
+                age_text,
+                "fresh issuance maximum receipt age",
+                maximum=300,
+            )
             observed_at = _format_utc(now)
             expires_at = _format_utc(now + timedelta(seconds=age))
             scope = validated_authorization["scope"]
@@ -1631,7 +1815,7 @@ class DirectRootOwnerContractOwner:
                 "window": {
                     "observed_at": observed_at,
                     "expires_at": expires_at,
-                    "maximum_receipt_age_seconds": age,
+                    "maximum_receipt_age_seconds": age_text,
                 },
                 "observed_root": {
                     "identity": observation.identity_document(),

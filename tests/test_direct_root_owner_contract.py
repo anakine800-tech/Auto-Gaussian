@@ -168,9 +168,9 @@ class DirectRootOwnerContractTests(unittest.TestCase):
             authorization["resources"],
             {
                 "tier": "simple",
-                "cores": 8,
-                "memory_gb": 12,
-                "walltime_seconds": 3600,
+                "cores": "8",
+                "memory_gb": "12",
+                "walltime_seconds": "3600",
                 "resources_binding_sha256": authorization["resources"][
                     "resources_binding_sha256"
                 ],
@@ -297,6 +297,54 @@ class DirectRootOwnerContractTests(unittest.TestCase):
             15,
         )
 
+    def test_capability_field_reset_cannot_reopen_consumption(self) -> None:
+        capability = self.fixture.capability()
+        capability.consume_once().assert_owner_sealed()
+        with self.assertRaises(AttributeError):
+            object.__setattr__(capability, "_consumed", False)
+        with self.assertRaisesRegex(
+            DIRECT.DirectRootOwnerError,
+            "already consumed",
+        ):
+            capability.consume_once()
+
+    def test_capability_clock_replacement_cannot_bypass_expiry(self) -> None:
+        capability = self.fixture.capability()
+        self.fixture.clock.advance(61)
+        with self.assertRaisesRegex(
+            DIRECT.DirectRootOwnerError,
+            "fresh receipt is outside",
+        ):
+            capability.consume_once()
+        with self.assertRaises(AttributeError):
+            object.__setattr__(
+                capability,
+                "_clock",
+                lambda: datetime(
+                    2026,
+                    7,
+                    29,
+                    0,
+                    0,
+                    1,
+                    tzinfo=timezone.utc,
+                ),
+            )
+        self.fixture.clock.value = datetime(
+            2026,
+            7,
+            29,
+            0,
+            0,
+            1,
+            tzinfo=timezone.utc,
+        )
+        with self.assertRaisesRegex(
+            DIRECT.DirectRootOwnerError,
+            "trusted clock moved backward",
+        ):
+            capability.consume_once()
+
     def test_expiry_replay_and_owner_reuse_fail_before_consumption(self) -> None:
         owner = self.fixture.new_owner()
         observation = self.fixture.snapshot(owner)
@@ -325,11 +373,9 @@ class DirectRootOwnerContractTests(unittest.TestCase):
         self.fixture.clock.value = datetime(
             2026, 7, 29, 0, 0, 1, tzinfo=timezone.utc
         )
-        lease = capability.consume_once()
-        lease.assert_owner_sealed()
         with self.assertRaisesRegex(
             DIRECT.DirectRootOwnerError,
-            "already consumed",
+            "trusted clock moved backward",
         ):
             capability.consume_once()
 

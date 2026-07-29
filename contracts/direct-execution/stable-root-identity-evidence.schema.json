@@ -74,7 +74,7 @@
       "additionalProperties": false,
       "required": ["ordinal", "component_path_sha256", "identity_sha256"],
       "properties": {
-        "ordinal": {"type": "integer", "minimum": 0},
+        "ordinal": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$"},
         "component_path_sha256": {"$ref": "#/$defs/sha"},
         "identity_sha256": {"$ref": "#/$defs/sha"}
       }

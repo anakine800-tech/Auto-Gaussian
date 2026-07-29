@@ -147,7 +147,7 @@ class DirectRootOwnerSchemaDraft202012Tests(unittest.TestCase):
         profile["declared_capabilities"] = list(reversed(profile["declared_capabilities"]))
         cases.append(("profile", profile))
         authorization = copy.deepcopy(self.documents["authorization"])
-        authorization["fresh_observation_rules"]["maximum_receipt_age_seconds"] = 301
+        authorization["fresh_observation_rules"]["maximum_receipt_age_seconds"] = "301"
         cases.append(("authorization", authorization))
         authorization = copy.deepcopy(self.documents["authorization"])
         authorization["scope"]["scientific_task_id"] += "\n"
@@ -158,6 +158,46 @@ class DirectRootOwnerSchemaDraft202012Tests(unittest.TestCase):
         receipt = copy.deepcopy(self.documents["receipt"])
         receipt["authority"]["portable_receipt_authorizes_effect"] = True
         cases.append(("receipt", receipt))
+        for name, changed in cases:
+            with self.subTest(name=name, changed=changed):
+                self.assert_both_reject(name, changed)
+
+    def test_all_integer_positions_reject_integral_float_bidirectionally(self) -> None:
+        cases: list[tuple[str, dict[str, object]]] = []
+
+        stable = copy.deepcopy(self.documents["stable"])
+        stable["expected_root_identity"]["components"][0]["ordinal"] = 0.0
+        cases.append(("stable", stable))
+
+        for field in ("size_bytes",):
+            authorization = copy.deepcopy(self.documents["authorization"])
+            authorization["input"][field] = float(
+                authorization["input"][field]
+            )
+            cases.append(("authorization", authorization))
+
+        for field in ("cores", "memory_gb", "walltime_seconds"):
+            authorization = copy.deepcopy(self.documents["authorization"])
+            authorization["resources"][field] = float(
+                authorization["resources"][field]
+            )
+            cases.append(("authorization", authorization))
+
+        authorization = copy.deepcopy(self.documents["authorization"])
+        authorization["fresh_observation_rules"][
+            "maximum_receipt_age_seconds"
+        ] = 60.0
+        cases.append(("authorization", authorization))
+
+        receipt = copy.deepcopy(self.documents["receipt"])
+        receipt["observed_root"]["identity"]["components"][0]["ordinal"] = 0.0
+        cases.append(("receipt", receipt))
+
+        receipt = copy.deepcopy(self.documents["receipt"])
+        receipt["window"]["maximum_receipt_age_seconds"] = 60.0
+        cases.append(("receipt", receipt))
+
+        self.assertEqual(len(cases), 8)
         for name, changed in cases:
             with self.subTest(name=name, changed=changed):
                 self.assert_both_reject(name, changed)
