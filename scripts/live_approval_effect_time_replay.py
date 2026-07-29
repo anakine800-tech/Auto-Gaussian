@@ -180,6 +180,22 @@ def _positive_integer(value: Any, label: str) -> int:
     return value
 
 
+def _fixed_boolean(value: Any, expected: bool, label: str) -> bool:
+    _require(
+        type(value) is bool and value is expected,
+        f"{label} differs",
+    )
+    return expected
+
+
+def _fixed_integer(value: Any, expected: int, label: str) -> int:
+    _require(
+        type(value) is int and value == expected,
+        f"{label} differs",
+    )
+    return expected
+
+
 def _utc(value: Any, label: str) -> datetime:
     _require(
         type(value) is str and RFC3339_RE.fullmatch(value) is not None,
@@ -930,23 +946,35 @@ def validate_live_approval_effect_time_replay(
         },
         "effect-time replay policy",
     )
-    _utc(replay["issued_at"], "replay issued_at")
-    _require(
-        replay
-        == {
-            "phase": PHASE,
-            "issued_at": replay["issued_at"],
-            "single_use": True,
-            "replay_count": 0,
-            "owner_private_registry": True,
-            "owner_private_lock": True,
-            "trusted_wall_time": True,
-            "trusted_monotonic_lower_bound": True,
-            "clock_rollback_rejected": True,
-            "capability_authorizes_effect": False,
-        },
-        "effect-time replay policy differs",
+    issued_at = replay["issued_at"]
+    _utc(issued_at, "replay issued_at")
+    _require(replay["phase"] == PHASE, "effect-time replay phase differs")
+    replay_boolean_fields = {
+        "single_use": True,
+        "owner_private_registry": True,
+        "owner_private_lock": True,
+        "trusted_wall_time": True,
+        "trusted_monotonic_lower_bound": True,
+        "clock_rollback_rejected": True,
+        "capability_authorizes_effect": False,
+    }
+    rebuilt_replay: dict[str, Any] = {
+        "phase": PHASE,
+        "issued_at": issued_at,
+    }
+    for field, expected in replay_boolean_fields.items():
+        rebuilt_replay[field] = _fixed_boolean(
+            replay[field],
+            expected,
+            f"effect-time replay {field}",
+        )
+    rebuilt_replay["replay_count"] = _fixed_integer(
+        replay["replay_count"],
+        0,
+        "effect-time replay replay_count",
     )
+    document["replay"] = rebuilt_replay
+    replay = rebuilt_replay
     sources = _exact(
         document["source_bindings"],
         {
@@ -958,19 +986,57 @@ def validate_live_approval_effect_time_replay(
     )
     for field in sources:
         _sha(sources[field], f"source binding {field}")
-    _require(
-        document["effect_boundary"]
-        == {
-            "production_submit_wired": False,
-            "factory_calls": 0,
-            "runner_calls": 0,
-            "qsub_calls": 0,
-            "transport_calls": 0,
-            "external_effects_performed": False,
-            "non_authorizing": True,
+    effect_boundary = _exact(
+        document["effect_boundary"],
+        {
+            "production_submit_wired",
+            "factory_calls",
+            "runner_calls",
+            "qsub_calls",
+            "transport_calls",
+            "external_effects_performed",
+            "non_authorizing",
         },
-        "effect-time effect boundary differs",
+        "effect-time effect boundary",
     )
+    rebuilt_effect_boundary = {
+        "production_submit_wired": _fixed_boolean(
+            effect_boundary["production_submit_wired"],
+            False,
+            "effect-time effect boundary production_submit_wired",
+        ),
+        "factory_calls": _fixed_integer(
+            effect_boundary["factory_calls"],
+            0,
+            "effect-time effect boundary factory_calls",
+        ),
+        "runner_calls": _fixed_integer(
+            effect_boundary["runner_calls"],
+            0,
+            "effect-time effect boundary runner_calls",
+        ),
+        "qsub_calls": _fixed_integer(
+            effect_boundary["qsub_calls"],
+            0,
+            "effect-time effect boundary qsub_calls",
+        ),
+        "transport_calls": _fixed_integer(
+            effect_boundary["transport_calls"],
+            0,
+            "effect-time effect boundary transport_calls",
+        ),
+        "external_effects_performed": _fixed_boolean(
+            effect_boundary["external_effects_performed"],
+            False,
+            "effect-time effect boundary external_effects_performed",
+        ),
+        "non_authorizing": _fixed_boolean(
+            effect_boundary["non_authorizing"],
+            True,
+            "effect-time effect boundary non_authorizing",
+        ),
+    }
+    document["effect_boundary"] = rebuilt_effect_boundary
     payload = _sha(
         document["contract_payload_sha256"],
         "effect-time replay payload",

@@ -96,6 +96,38 @@ class LiveApprovalEffectTimeReplayDraft202012Tests(unittest.TestCase):
                         "live_approval_effect_time_replay"
                     ].validate_live_approval_effect_time_replay(changed)
 
+    def test_fixed_bool_int_acceptance_matches_semantic_owner(self) -> None:
+        document = self.support.capability().document()
+        owner = sys.modules["live_approval_effect_time_replay"]
+        for section, field, expected in SUPPORT.FIXED_BOOL_INT_FIELDS:
+            for replacement in SUPPORT.BOOL_INT_SPLICES:
+                changed = copy.deepcopy(document)
+                changed[section][field] = replacement
+                SUPPORT.reseal_projection(changed)
+                schema_accepts = not list(
+                    self.validator.iter_errors(changed)
+                )
+                try:
+                    owner.validate_live_approval_effect_time_replay(
+                        changed
+                    )
+                    owner_accepts = True
+                except SUPPORT.REPLAY.LiveApprovalEffectTimeReplayError:
+                    owner_accepts = False
+                exact = (
+                    type(replacement) is type(expected)
+                    and replacement == expected
+                )
+                with self.subTest(
+                    section=section,
+                    field=field,
+                    replacement=repr(replacement),
+                    replacement_type=type(replacement).__name__,
+                ):
+                    self.assertEqual(schema_accepts, exact)
+                    self.assertEqual(owner_accepts, exact)
+                    self.assertEqual(owner_accepts, schema_accepts)
+
     def test_schema_valid_document_does_not_mint_owner_capability(self) -> None:
         document = self.support.capability().document()
         self.validator.validate(document)

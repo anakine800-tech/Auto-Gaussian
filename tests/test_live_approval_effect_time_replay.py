@@ -44,6 +44,57 @@ import live_approval_effect_time_replay as REPLAY  # noqa: E402
 
 ISSUED = datetime(2030, 1, 1, 12, 3, 0, tzinfo=timezone.utc)
 REPLAYED = ISSUED + timedelta(seconds=1)
+FIXED_BOOL_INT_FIELDS = (
+    ("replay", "single_use", True),
+    ("replay", "replay_count", 0),
+    ("replay", "owner_private_registry", True),
+    ("replay", "owner_private_lock", True),
+    ("replay", "trusted_wall_time", True),
+    ("replay", "trusted_monotonic_lower_bound", True),
+    ("replay", "clock_rollback_rejected", True),
+    ("replay", "capability_authorizes_effect", False),
+    ("effect_boundary", "production_submit_wired", False),
+    ("effect_boundary", "factory_calls", 0),
+    ("effect_boundary", "runner_calls", 0),
+    ("effect_boundary", "qsub_calls", 0),
+    ("effect_boundary", "transport_calls", 0),
+    ("effect_boundary", "external_effects_performed", False),
+    ("effect_boundary", "non_authorizing", True),
+)
+BOOL_INT_SPLICES = (False, True, 0, 1)
+
+
+def reseal_projection(document: dict[str, object]) -> None:
+    document["contract_payload_sha256"] = REPLAY.digest(
+        {
+            **document,
+            "capability_id": "",
+            "contract_payload_sha256": "",
+        }
+    )
+    predecessor = document["predecessor"]
+    artifact = document["approval_artifact"]
+    replay = document["replay"]
+    assert isinstance(predecessor, dict)
+    assert isinstance(artifact, dict)
+    assert isinstance(replay, dict)
+    document["capability_id"] = (
+        "pre-qsub-live-approval-replay-"
+        + REPLAY.digest(
+            {
+                "schema": "auto-g16-pre-qsub-replay-capability-id/1",
+                "predecessor_contract_id": predecessor["contract_id"],
+                "approval_artifact_sha256": artifact["artifact_sha256"],
+                "file_identity_sha256": artifact[
+                    "file_identity_sha256"
+                ],
+                "issued_at": replay["issued_at"],
+                "contract_payload_sha256": document[
+                    "contract_payload_sha256"
+                ],
+            }
+        )
+    )
 
 
 class LiveApprovalEffectTimeReplayTests(unittest.TestCase):
@@ -441,6 +492,44 @@ class LiveApprovalEffectTimeReplayTests(unittest.TestCase):
             REPLAY.LiveApprovalEffectTimeReplayError
         ):
             REPLAY.validate_live_approval_effect_time_replay(changed)
+
+    def test_fixed_bool_int_semantic_splice_matrix_is_exact(self) -> None:
+        document = self.capability().document()
+        for section, field, expected in FIXED_BOOL_INT_FIELDS:
+            for replacement in BOOL_INT_SPLICES:
+                changed = copy.deepcopy(document)
+                changed[section][field] = replacement
+                reseal_projection(changed)
+                accepted = True
+                try:
+                    rebuilt = (
+                        REPLAY.validate_live_approval_effect_time_replay(
+                            changed
+                        )
+                    )
+                except REPLAY.LiveApprovalEffectTimeReplayError:
+                    accepted = False
+                    rebuilt = None
+                exact = (
+                    type(replacement) is type(expected)
+                    and replacement == expected
+                )
+                with self.subTest(
+                    section=section,
+                    field=field,
+                    replacement=repr(replacement),
+                    replacement_type=type(replacement).__name__,
+                ):
+                    self.assertEqual(accepted, exact)
+                    if accepted:
+                        self.assertIsNot(
+                            rebuilt[section],
+                            changed[section],
+                        )
+                        self.assertIs(
+                            type(rebuilt[section][field]),
+                            type(expected),
+                        )
 
     def test_package_supplement_maps_owner_schema_and_reference(self) -> None:
         packaged = SKILL_PACKAGE.package_files_with_supplements(
