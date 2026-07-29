@@ -1,0 +1,18 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/legacy_root_authority_contract.py",
+      "target": "scripts/legacy_root_authority_contract.py"
+    },
+    {
+      "source": "contracts/legacy-root-authority",
+      "target": "contracts/legacy-root-authority"
+    },
+    {
+      "source": "docs/v2.6-legacy-root-authority-contract.md",
+      "target": "references/legacy-root-authority-contract.md"
+    }
+  ]
+}
