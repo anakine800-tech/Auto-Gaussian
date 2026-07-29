@@ -1,0 +1,375 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/execution/live-approval-effect-time-replay.schema.json",
+  "title": "Auto-G16 live-approval effect-time replay capability",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "capability_id",
+    "predecessor",
+    "approval_artifact",
+    "execution_scope",
+    "replay",
+    "source_bindings",
+    "effect_boundary",
+    "contract_payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "auto-g16-live-approval-effect-time-replay/1"
+    },
+    "owner": {
+      "const": "auto-g16-live-approval-effect-time-replay-owner"
+    },
+    "capability_id": {
+      "type": "string",
+      "pattern": "^pre-qsub-live-approval-replay-[a-f0-9]{64}$"
+    },
+    "predecessor": {
+      "$ref": "#/$defs/predecessor"
+    },
+    "approval_artifact": {
+      "$ref": "#/$defs/approvalArtifact"
+    },
+    "execution_scope": {
+      "$ref": "#/$defs/executionScope"
+    },
+    "replay": {
+      "$ref": "#/$defs/replay"
+    },
+    "source_bindings": {
+      "$ref": "#/$defs/sourceBindings"
+    },
+    "effect_boundary": {
+      "$ref": "#/$defs/effectBoundary"
+    },
+    "contract_payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{6})?Z$"
+    },
+    "predecessor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "contract_id",
+        "contract_payload_sha256",
+        "owner_consumer_contract_id",
+        "protected_bundle_id",
+        "protected_bundle_payload_sha256",
+        "protected_consumption_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "auto-g16-protected-production-ingress-contract/1"
+        },
+        "contract_id": {
+          "type": "string",
+          "pattern": "^protected-production-ingress-[a-f0-9]{64}$"
+        },
+        "contract_payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "owner_consumer_contract_id": {
+          "type": "string",
+          "pattern": "^protected-owner-consumer-[a-f0-9]{64}$"
+        },
+        "protected_bundle_id": {
+          "type": "string",
+          "pattern": "^protected-submit-[a-f0-9]{64}$"
+        },
+        "protected_bundle_payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "protected_consumption_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "approvalArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "approval_id",
+        "artifact_sha256",
+        "size_bytes",
+        "resolved_path_sha256",
+        "file_identity_sha256",
+        "scope_sha256",
+        "approver_identity",
+        "approved_at",
+        "expires_at",
+        "revocation"
+      ],
+      "properties": {
+        "schema": {
+          "enum": [
+            "auto-g16-live-submission-approval/9",
+            "auto-g16-live-submission-approval/10",
+            "auto-g16-live-submission-approval/11"
+          ]
+        },
+        "approval_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved_path_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "file_identity_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scope_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "approver_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approved_at": {
+          "$ref": "#/$defs/utc"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/utc"
+        },
+        "revocation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revoked",
+            "revoked_at",
+            "reason"
+          ],
+          "properties": {
+            "revoked": {
+              "const": false
+            },
+            "revoked_at": {
+              "type": "null"
+            },
+            "reason": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    "executionScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "batch_id",
+        "review_sha256",
+        "scientific_task_id",
+        "attempt_id",
+        "idempotency_key_sha256",
+        "project",
+        "input_sha256",
+        "resources"
+      ],
+      "properties": {
+        "operation": {
+          "const": "submit"
+        },
+        "batch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "review_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scientific_task_id": {
+          "type": "string",
+          "pattern": "^scientific-task-[a-f0-9]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^qsub-attempt-[a-f0-9]{64}$"
+        },
+        "idempotency_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resources": {
+          "$ref": "#/$defs/resources"
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_id",
+        "policy_sha256",
+        "gate_id",
+        "gate_sha256",
+        "resource_tier",
+        "cores",
+        "memory_gb",
+        "walltime_seconds"
+      ],
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gate_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resource_tier": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memory_gb": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "walltime_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "issued_at",
+        "single_use",
+        "replay_count",
+        "owner_private_registry",
+        "owner_private_lock",
+        "trusted_wall_time",
+        "trusted_monotonic_lower_bound",
+        "clock_rollback_rejected",
+        "capability_authorizes_effect"
+      ],
+      "properties": {
+        "phase": {
+          "const": "immediately_before_qsub"
+        },
+        "issued_at": {
+          "$ref": "#/$defs/utc"
+        },
+        "single_use": {
+          "const": true
+        },
+        "replay_count": {
+          "const": 0
+        },
+        "owner_private_registry": {
+          "const": true
+        },
+        "owner_private_lock": {
+          "const": true
+        },
+        "trusted_wall_time": {
+          "const": true
+        },
+        "trusted_monotonic_lower_bound": {
+          "const": true
+        },
+        "clock_rollback_rejected": {
+          "const": true
+        },
+        "capability_authorizes_effect": {
+          "const": false
+        }
+      }
+    },
+    "sourceBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_source_sha256",
+        "production_ingress_source_sha256",
+        "live_approval_owner_source_sha256"
+      ],
+      "properties": {
+        "owner_source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "production_ingress_source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "live_approval_owner_source_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "effectBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "production_submit_wired",
+        "factory_calls",
+        "runner_calls",
+        "qsub_calls",
+        "transport_calls",
+        "external_effects_performed",
+        "non_authorizing"
+      ],
+      "properties": {
+        "production_submit_wired": {
+          "const": false
+        },
+        "factory_calls": {
+          "const": 0
+        },
+        "runner_calls": {
+          "const": 0
+        },
+        "qsub_calls": {
+          "const": 0
+        },
+        "transport_calls": {
+          "const": 0
+        },
+        "external_effects_performed": {
+          "const": false
+        },
+        "non_authorizing": {
+          "const": true
+        }
+      }
+    }
+  }
+}

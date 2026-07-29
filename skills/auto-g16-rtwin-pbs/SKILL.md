@@ -144,6 +144,15 @@ factory port. Production `_submit_new()` remains unwired, the current legacy
 factory still accepts only the CLI transaction plan, and no effect plan, raw
 owner, adapter, runner or external effect is created or called.
 
+The additive live-approval effect-time replay owner also remains
+non-executable. Read
+[references/live-approval-effect-time-replay.md](references/live-approval-effect-time-replay.md).
+It binds one exact production-ingress predecessor to the exact approval file
+identity, bytes, hash and owner-replayed submit scope, then permits one
+owner-private pre-qsub replay under trusted wall and monotonic time. The
+capability remains non-authorizing; production wiring, the legacy factory,
+runner, qsub, transport and every external effect remain absent.
+
 ## Non-negotiable filesystem boundary
 
 - Hard-code `/home/user100/SDL`; provide no remote-root override.
@@ -533,6 +542,10 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
   effect-free owner for the exact owner-consumer to production/factory-port
   handoff; production and the legacy internal factory consumer remain
   deliberately unwired.
+- `scripts/live_approval_effect_time_replay.py`: packaged additive,
+  non-authorizing owner for one exact file-identity-bound live-approval replay
+  immediately before a future qsub call; it contains no factory, runner,
+  transport or qsub implementation.
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
 - `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for
