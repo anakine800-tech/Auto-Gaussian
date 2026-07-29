@@ -461,7 +461,7 @@ class LiveApprovalEffectTimeReplayTests(unittest.TestCase):
                 )
             ],
             ROOT
-            / "contracts/execution/"
+            / "contracts/live-approval-replay/"
             "live-approval-effect-time-replay.schema.json",
         )
         self.assertEqual(
@@ -479,6 +479,13 @@ class LiveApprovalEffectTimeReplayTests(unittest.TestCase):
         )
         self.assertNotIn(
             Path("scripts/live_approval_effect_time_replay.py"),
+            base,
+        )
+        self.assertNotIn(
+            Path(
+                "contracts/execution/"
+                "live-approval-effect-time-replay.schema.json"
+            ),
             base,
         )
 

@@ -28,7 +28,7 @@ from tests import test_live_approval_effect_time_replay as SUPPORT  # noqa: E402
 
 SCHEMA_PATH = (
     ROOT
-    / "contracts/execution/"
+    / "contracts/live-approval-replay/"
     "live-approval-effect-time-replay.schema.json"
 )
 
