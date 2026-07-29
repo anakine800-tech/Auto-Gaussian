@@ -1,0 +1,18 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/resource_effect_time_replay_owner.py",
+      "target": "scripts/resource_effect_time_replay_owner.py"
+    },
+    {
+      "source": "contracts/resource-effect-time-replay/resource-effect-time-replay-capability.schema.json",
+      "target": "contracts/rtwin-pbs/resource-effect-time-replay-capability.schema.json"
+    },
+    {
+      "source": "docs/v2.6-resource-effect-time-replay-owner.md",
+      "target": "references/resource-effect-time-replay-owner.md"
+    }
+  ]
+}

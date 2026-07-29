@@ -1,0 +1,440 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/resource-effect-time-replay/resource-effect-time-replay-capability.schema.json",
+  "title": "Auto-G16 resource effect-time replay capability projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "capability_id",
+    "identity",
+    "reservation_capability",
+    "resource_policy",
+    "resource_gate",
+    "scheduler_snapshot",
+    "current_resource_state",
+    "freshness",
+    "authority",
+    "failure_policy",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "auto-g16-resource-effect-time-replay-capability/1"
+    },
+    "owner": {
+      "const": "auto-g16-package-4"
+    },
+    "capability_id": {
+      "type": "string",
+      "pattern": "^resource-effect-replay-capability-[a-f0-9]{64}$"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scientific_task_id",
+        "attempt_id",
+        "idempotency_key_sha256",
+        "project",
+        "input_sha256",
+        "resource_tier",
+        "cores",
+        "memory_gb"
+      ],
+      "properties": {
+        "scientific_task_id": {
+          "type": "string",
+          "pattern": "^scientific-task-[a-f0-9]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^qsub-attempt-[a-f0-9]{64}$"
+        },
+        "idempotency_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "project": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+        },
+        "input_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resource_tier": {
+          "enum": [
+            "simple",
+            "general",
+            "complex",
+            "custom_reviewed"
+          ]
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memory_gb": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "resource_tier": {
+                "const": "simple"
+              }
+            },
+            "required": [
+              "resource_tier"
+            ]
+          },
+          "then": {
+            "properties": {
+              "cores": {
+                "const": 8
+              },
+              "memory_gb": {
+                "const": 12
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resource_tier": {
+                "const": "general"
+              }
+            },
+            "required": [
+              "resource_tier"
+            ]
+          },
+          "then": {
+            "properties": {
+              "cores": {
+                "const": 22
+              },
+              "memory_gb": {
+                "const": 50
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resource_tier": {
+                "const": "complex"
+              }
+            },
+            "required": [
+              "resource_tier"
+            ]
+          },
+          "then": {
+            "properties": {
+              "cores": {
+                "const": 44
+              },
+              "memory_gb": {
+                "const": 120
+              }
+            }
+          }
+        }
+      ]
+    },
+    "reservation_capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "owner",
+        "capability_id",
+        "payload_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "auto-g16-execution-batch-v3-reservation-capability/1"
+        },
+        "owner": {
+          "const": "auto-g16-package-4"
+        },
+        "capability_id": {
+          "type": "string",
+          "pattern": "^reservation-capability-[a-f0-9]{64}$"
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "resource_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "policy_revision_id",
+        "policy_sha256",
+        "artifact_sha256",
+        "artifact_size"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gaussian-execution-resource-policy/1"
+        },
+        "policy_revision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_size": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "resource_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "gate_id",
+        "gate_sha256",
+        "artifact_sha256",
+        "artifact_size",
+        "evaluated_resource_state_revision",
+        "evaluated_resource_state_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gaussian-execution-resource-gate/2"
+        },
+        "gate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gate_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "evaluated_resource_state_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evaluated_resource_state_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "scheduler_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "snapshot_id",
+        "payload_sha256",
+        "artifact_sha256",
+        "artifact_size",
+        "collected_at",
+        "max_age_seconds"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gaussian-scheduler-resource-snapshot/1"
+        },
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "collected_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "max_age_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "current_resource_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ledger_schema",
+        "batch_id",
+        "ledger_revision",
+        "resource_state_revision",
+        "resource_state_sha256",
+        "attempt_state"
+      ],
+      "properties": {
+        "ledger_schema": {
+          "const": "gaussian-execution-batch/3"
+        },
+        "batch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ledger_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resource_state_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resource_state_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "attempt_state": {
+          "const": "submission_uncertain"
+        }
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issued_at",
+        "expires_at",
+        "max_age_seconds",
+        "wall_clock_enforced",
+        "monotonic_clock_enforced"
+      ],
+      "properties": {
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "max_age_seconds": {
+          "const": 30
+        },
+        "wall_clock_enforced": {
+          "const": true
+        },
+        "monotonic_clock_enforced": {
+          "const": true
+        }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_private_registry_required",
+        "canonical_module_cache_required",
+        "single_consumption",
+        "schema_valid_is_capability",
+        "portable_projection_authorizes",
+        "raw_json_authorizes",
+        "raw_hash_authorizes",
+        "cli_argument_authorizes",
+        "capability_authorizes_runner",
+        "capability_authorizes_transport",
+        "capability_authorizes_qsub",
+        "production_port_wired"
+      ],
+      "properties": {
+        "owner_private_registry_required": {
+          "const": true
+        },
+        "canonical_module_cache_required": {
+          "const": true
+        },
+        "single_consumption": {
+          "const": true
+        },
+        "schema_valid_is_capability": {
+          "const": false
+        },
+        "portable_projection_authorizes": {
+          "const": false
+        },
+        "raw_json_authorizes": {
+          "const": false
+        },
+        "raw_hash_authorizes": {
+          "const": false
+        },
+        "cli_argument_authorizes": {
+          "const": false
+        },
+        "capability_authorizes_runner": {
+          "const": false
+        },
+        "capability_authorizes_transport": {
+          "const": false
+        },
+        "capability_authorizes_qsub": {
+          "const": false
+        },
+        "production_port_wired": {
+          "const": false
+        }
+      }
+    },
+    "failure_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fail_closed_on_drift",
+        "failed_consumption_terminal",
+        "automatic_retry",
+        "external_effect"
+      ],
+      "properties": {
+        "fail_closed_on_drift": {
+          "const": true
+        },
+        "failed_consumption_terminal": {
+          "const": true
+        },
+        "automatic_retry": {
+          "const": false
+        },
+        "external_effect": {
+          "const": false
+        }
+      }
+    },
+    "payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}
