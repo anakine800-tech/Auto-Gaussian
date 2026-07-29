@@ -59,6 +59,8 @@ validate_scheduler_snapshot = RESOURCE.validate_scheduler_snapshot
 _RESOURCE_EFFECT_REPLAY_ISSUE_TOKEN = object()
 _RESOURCE_EFFECT_REPLAY_REGISTRY_LOCK = threading.Lock()
 _RESOURCE_EFFECT_REPLAY_REGISTRY: dict[Any, Any] = {}
+_RESOURCE_EFFECT_REPLAY_CLAIM_REGISTRY_LOCK = threading.Lock()
+_RESOURCE_EFFECT_REPLAY_CLAIM_REGISTRY: dict[Any, Any] = {}
 _SELF_MODULE_CACHE_ENTRY = sys.modules.get(__name__)
 _RESOURCE_OWNER_MODULE_CACHE_ENTRY = sys.modules.get(RESOURCE.__name__)
 
@@ -184,6 +186,27 @@ class _ResourceEffectReplayCapabilityState:
         self.owner_document_bytes = None
         self.owner_document_snapshot = None
 
+
+class _ClaimedResourceEffectTimeReplayState:
+    __slots__ = (
+        "lock",
+        "registered_claim",
+        "owner_scope_bytes",
+        "owner_scope_snapshot",
+    )
+
+    def __init__(
+        self,
+        *,
+        owner_scope_bytes: bytes,
+        owner_scope_snapshot: dict[str, Any],
+    ) -> None:
+        self.lock = threading.Lock()
+        self.registered_claim = None
+        self.owner_scope_bytes = owner_scope_bytes
+        self.owner_scope_snapshot = copy.deepcopy(owner_scope_snapshot)
+
+
 class ClaimedResourceEffectTimeReplay:
     """Exact effect-time resource replay result with no execution surface."""
 
@@ -211,10 +234,34 @@ class ClaimedResourceEffectTimeReplay:
             "_ClaimedResourceEffectTimeReplay__scope",
             copy.deepcopy(scope),
         )
+        owner_scope_snapshot = copy.deepcopy(scope)
+        owner_scope_bytes = execution_batch.canonical_bytes(
+            owner_scope_snapshot
+        )
+        state = _ClaimedResourceEffectTimeReplayState(
+            owner_scope_bytes=owner_scope_bytes,
+            owner_scope_snapshot=owner_scope_snapshot,
+        )
+        with _RESOURCE_EFFECT_REPLAY_CLAIM_REGISTRY_LOCK:
+            state.registered_claim = value
+            _RESOURCE_EFFECT_REPLAY_CLAIM_REGISTRY[value] = state
         return value
 
     def exact_scope(self) -> dict[str, Any]:
-        return copy.deepcopy(self.__scope)
+        _assert_resource_owner_module_cache()
+        if type(self) is not ClaimedResourceEffectTimeReplay:
+            raise ResourceError(
+                "resource effect-time replay claim type differs"
+            )
+        with _RESOURCE_EFFECT_REPLAY_CLAIM_REGISTRY_LOCK:
+            state = _RESOURCE_EFFECT_REPLAY_CLAIM_REGISTRY.get(self)
+        if state is None:
+            raise ResourceError(
+                "resource effect-time replay claim is absent from the "
+                "owner-private registry"
+            )
+        with state.lock:
+            return _registered_owner_claim_scope(self, state)
 
     def __copy__(self) -> "ClaimedResourceEffectTimeReplay":
         raise _not_copyable("resource effect-time replay claims")
@@ -229,6 +276,41 @@ class ClaimedResourceEffectTimeReplay:
 
     def __reduce_ex__(self, _protocol: int) -> Any:
         raise _not_copyable("resource effect-time replay claims")
+
+
+def _registered_owner_claim_scope(
+    claim: ClaimedResourceEffectTimeReplay,
+    state: _ClaimedResourceEffectTimeReplayState,
+) -> dict[str, Any]:
+    if (
+        type(claim) is not ClaimedResourceEffectTimeReplay
+        or type(state) is not _ClaimedResourceEffectTimeReplayState
+        or state.registered_claim is not claim
+        or type(state.owner_scope_bytes) is not bytes
+        or type(state.owner_scope_snapshot) is not dict
+    ):
+        raise ResourceError(
+            "resource effect-time replay registered claim identity differs"
+        )
+    current = copy.deepcopy(
+        object.__getattribute__(
+            claim,
+            "_ClaimedResourceEffectTimeReplay__scope",
+        )
+    )
+    owner_snapshot = copy.deepcopy(state.owner_scope_snapshot)
+    if (
+        execution_batch.canonical_bytes(current)
+        != state.owner_scope_bytes
+        or execution_batch.canonical_bytes(owner_snapshot)
+        != state.owner_scope_bytes
+        or current != owner_snapshot
+    ):
+        raise ResourceError(
+            "resource effect-time replay registered owner scope differs"
+        )
+    return owner_snapshot
+
 
 class ResourceEffectTimeReplayCapability:
     """Fresh, registry-bound, single-use effect-time resource replay handle."""

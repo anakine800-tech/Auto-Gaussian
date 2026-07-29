@@ -192,6 +192,96 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             self.assertEqual(results.count("consumed"), 1)
             self.assertEqual(results.count("blocked"), 63)
 
+    def test_registered_claim_scope_slot_replacement_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = ResourceEffectReplayFixture(Path(temporary))
+            claim = self.consume_at(fixture.issue())
+            owner_scope = claim.exact_scope()
+            cases = (
+                (
+                    "capability_id",
+                    lambda scope: scope.__setitem__(
+                        "capability_id",
+                        "resource-effect-replay-capability-" + "f" * 64,
+                    ),
+                ),
+                (
+                    "identity",
+                    lambda scope: scope["identity"].__setitem__(
+                        "project",
+                        "otherjob",
+                    ),
+                ),
+                (
+                    "resource",
+                    lambda scope: scope["identity"].__setitem__(
+                        "cores",
+                        22,
+                    ),
+                ),
+                (
+                    "reservation",
+                    lambda scope: scope["reservation_capability"].__setitem__(
+                        "capability_id",
+                        "reservation-capability-" + "d" * 64,
+                    ),
+                ),
+                (
+                    "policy",
+                    lambda scope: scope["resource_policy"].__setitem__(
+                        "policy_revision_id",
+                        "replacement-policy",
+                    ),
+                ),
+                (
+                    "gate",
+                    lambda scope: scope["resource_gate"].__setitem__(
+                        "gate_id",
+                        "replacement-gate",
+                    ),
+                ),
+                (
+                    "state",
+                    lambda scope: scope["current_resource_state"].__setitem__(
+                        "batch_id",
+                        "replacement-batch",
+                    ),
+                ),
+            )
+            for label, replace in cases:
+                with self.subTest(label=label):
+                    replacement = copy.deepcopy(owner_scope)
+                    replace(replacement)
+                    object.__setattr__(
+                        claim,
+                        "_ClaimedResourceEffectTimeReplay__scope",
+                        replacement,
+                    )
+                    with self.assertRaisesRegex(
+                        REPLAY.ResourceError,
+                        "registered owner scope differs",
+                    ):
+                        claim.exact_scope()
+                    object.__setattr__(
+                        claim,
+                        "_ClaimedResourceEffectTimeReplay__scope",
+                        copy.deepcopy(owner_scope),
+                    )
+                    self.assertEqual(claim.exact_scope(), owner_scope)
+
+            self.assertEqual(claim.exact_scope(), owner_scope)
+            forged = object.__new__(REPLAY.ClaimedResourceEffectTimeReplay)
+            object.__setattr__(
+                forged,
+                "_ClaimedResourceEffectTimeReplay__scope",
+                copy.deepcopy(owner_scope),
+            )
+            with self.assertRaisesRegex(
+                REPLAY.ResourceError,
+                "absent from the owner-private registry",
+            ):
+                forged.exact_scope()
+
     def test_registered_capability_slot_replacement_fails_without_consuming(
         self,
     ) -> None:
