@@ -151,6 +151,9 @@ class _ResourceEffectReplayCapabilityState:
         "expected_replay",
         "issued_wall",
         "issued_monotonic_ns",
+        "registered_capability",
+        "owner_document_bytes",
+        "owner_document_snapshot",
     )
 
     def __init__(
@@ -177,6 +180,9 @@ class _ResourceEffectReplayCapabilityState:
         self.expected_replay = copy.deepcopy(expected_replay)
         self.issued_wall = issued_wall
         self.issued_monotonic_ns = issued_monotonic_ns
+        self.registered_capability = None
+        self.owner_document_bytes = None
+        self.owner_document_snapshot = None
 
 class ClaimedResourceEffectTimeReplay:
     """Exact effect-time resource replay result with no execution surface."""
@@ -255,7 +261,22 @@ class ResourceEffectTimeReplayCapability:
             "_ResourceEffectTimeReplayCapability__document",
             copy.deepcopy(document),
         )
+        owner_document_snapshot = copy.deepcopy(document)
+        owner_document_bytes = execution_batch.canonical_bytes(
+            owner_document_snapshot
+        )
         with _RESOURCE_EFFECT_REPLAY_REGISTRY_LOCK:
+            if (
+                state.registered_capability is not None
+                or state.owner_document_bytes is not None
+                or state.owner_document_snapshot is not None
+            ):
+                raise ResourceError(
+                    "resource effect-time replay registry state is already bound"
+                )
+            state.registered_capability = value
+            state.owner_document_bytes = owner_document_bytes
+            state.owner_document_snapshot = owner_document_snapshot
             _RESOURCE_EFFECT_REPLAY_REGISTRY[value] = state
         return value
 
@@ -274,13 +295,17 @@ class ResourceEffectTimeReplayCapability:
                 "owner-private registry"
             )
         with state.lock:
+            owner_document = _registered_owner_document(self, state)
             if state.status != "unconsumed":
                 raise ResourceError(
                     "resource effect-time replay capability has already been consumed"
                 )
             state.status = "consuming"
             try:
-                scope = _consume_resource_effect_time_replay(self, state)
+                scope = _consume_resource_effect_time_replay(
+                    state,
+                    owner_document,
+                )
                 claim = ClaimedResourceEffectTimeReplay._from_owner(
                     scope,
                     token=_RESOURCE_EFFECT_REPLAY_ISSUE_TOKEN,
@@ -304,6 +329,42 @@ class ResourceEffectTimeReplayCapability:
 
     def __reduce_ex__(self, _protocol: int) -> Any:
         raise _not_copyable("resource effect-time replay capabilities")
+
+
+def _registered_owner_document(
+    capability: ResourceEffectTimeReplayCapability,
+    state: _ResourceEffectReplayCapabilityState,
+) -> dict[str, Any]:
+    if (
+        type(capability) is not ResourceEffectTimeReplayCapability
+        or type(state) is not _ResourceEffectReplayCapabilityState
+        or state.registered_capability is not capability
+        or type(state.owner_document_bytes) is not bytes
+        or type(state.owner_document_snapshot) is not dict
+    ):
+        raise ResourceError(
+            "resource effect-time replay registered object identity differs"
+        )
+    current = copy.deepcopy(
+        object.__getattribute__(
+            capability,
+            "_ResourceEffectTimeReplayCapability__document",
+        )
+    )
+    validate_resource_effect_time_replay_capability_document(current)
+    owner_snapshot = copy.deepcopy(state.owner_document_snapshot)
+    if (
+        execution_batch.canonical_bytes(current)
+        != state.owner_document_bytes
+        or execution_batch.canonical_bytes(owner_snapshot)
+        != state.owner_document_bytes
+        or current != owner_snapshot
+    ):
+        raise ResourceError(
+            "resource effect-time replay registered owner document differs"
+        )
+    return owner_snapshot
+
 
 def validate_resource_effect_time_replay_capability_document(
     document: dict[str, Any],
@@ -931,12 +992,18 @@ def _assert_resource_effect_replay_clock(
     return now_wall
 
 def _consume_resource_effect_time_replay(
-    capability: ResourceEffectTimeReplayCapability,
     state: _ResourceEffectReplayCapabilityState,
+    owner_document: dict[str, Any],
 ) -> dict[str, Any]:
     _assert_resource_owner_module_cache()
-    document = capability.portable_projection()
-    validate_resource_effect_time_replay_capability_document(document)
+    validate_resource_effect_time_replay_capability_document(owner_document)
+    if (
+        execution_batch.canonical_bytes(owner_document)
+        != state.owner_document_bytes
+    ):
+        raise ResourceError(
+            "resource effect-time replay owner snapshot bytes differ"
+        )
     now_wall = _assert_resource_effect_replay_clock(state)
     replay = _replay_resource_effect_time_scope(
         ledger_path=state.ledger_path,
@@ -952,7 +1019,7 @@ def _consume_resource_effect_time_replay(
     _assert_resource_owner_module_cache()
     return {
         "schema": RESOURCE_EFFECT_REPLAY_CAPABILITY_SCHEMA,
-        "capability_id": document["capability_id"],
+        "capability_id": owner_document["capability_id"],
         **copy.deepcopy(replay),
         "resource_replay_passed": True,
         "authorizes_runner": False,

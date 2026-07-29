@@ -192,6 +192,101 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             self.assertEqual(results.count("consumed"), 1)
             self.assertEqual(results.count("blocked"), 63)
 
+    def test_registered_capability_slot_replacement_fails_without_consuming(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = ResourceEffectReplayFixture(Path(temporary))
+            capability = fixture.issue()
+            owner_document = capability.portable_projection()
+            cases = (
+                (
+                    "capability_id",
+                    lambda document: document.__setitem__(
+                        "capability_id",
+                        "resource-effect-replay-capability-" + "f" * 64,
+                    ),
+                ),
+                (
+                    "identity",
+                    lambda document: document["identity"].__setitem__(
+                        "project",
+                        "otherjob",
+                    ),
+                ),
+                (
+                    "reservation",
+                    lambda document: document[
+                        "reservation_capability"
+                    ].__setitem__(
+                        "capability_id",
+                        "reservation-capability-" + "d" * 64,
+                    ),
+                ),
+                (
+                    "policy",
+                    lambda document: document["resource_policy"].__setitem__(
+                        "policy_revision_id",
+                        "replacement-policy",
+                    ),
+                ),
+                (
+                    "gate",
+                    lambda document: document["resource_gate"].__setitem__(
+                        "gate_id",
+                        "replacement-gate",
+                    ),
+                ),
+                (
+                    "state",
+                    lambda document: document[
+                        "current_resource_state"
+                    ].__setitem__(
+                        "batch_id",
+                        "replacement-batch",
+                    ),
+                ),
+            )
+            for label, replace in cases:
+                with self.subTest(label=label):
+                    replacement = copy.deepcopy(owner_document)
+                    replace(replacement)
+                    replacement["payload_sha256"] = RESOURCE._payload(
+                        replacement
+                    )
+                    REPLAY.validate_resource_effect_time_replay_capability_document(
+                        replacement
+                    )
+                    object.__setattr__(
+                        capability,
+                        "_ResourceEffectTimeReplayCapability__document",
+                        replacement,
+                    )
+                    with self.assertRaisesRegex(
+                        REPLAY.ResourceError,
+                        "registered owner document differs",
+                    ):
+                        self.consume_at(capability)
+                    object.__setattr__(
+                        capability,
+                        "_ResourceEffectTimeReplayCapability__document",
+                        copy.deepcopy(owner_document),
+                    )
+            scope = self.consume_at(capability).exact_scope()
+            self.assertEqual(
+                scope["capability_id"],
+                owner_document["capability_id"],
+            )
+            self.assertEqual(
+                scope["identity"],
+                owner_document["identity"],
+            )
+            with self.assertRaisesRegex(
+                REPLAY.ResourceError,
+                "already been consumed",
+            ):
+                capability.consume_once()
+
     def test_policy_gate_scheduler_and_resource_state_drift_fail_closed(
         self,
     ) -> None:
