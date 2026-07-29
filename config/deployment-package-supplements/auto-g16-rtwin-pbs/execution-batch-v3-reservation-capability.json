@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "contracts/execution-batch-reservation/execution-batch-v3-reservation-capability.schema.json",
+      "target": "contracts/rtwin-pbs/execution-batch-v3-reservation-capability.schema.json"
+    },
+    {
+      "source": "docs/v2.6-execution-batch-v3-reservation-capability.md",
+      "target": "references/execution-batch-v3-reservation-capability.md"
+    }
+  ]
+}
