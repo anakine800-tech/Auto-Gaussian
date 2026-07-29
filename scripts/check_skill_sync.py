@@ -8,7 +8,11 @@ import platform
 import sys
 from pathlib import Path
 
-from skill_package import PackageError, inventory, package_inventory
+from skill_package import (
+    PackageError,
+    deployment_package_inventory,
+    inventory,
+)
 
 
 def main() -> int:
@@ -40,7 +44,7 @@ def main() -> int:
     drift = False
     for name in names:
         try:
-            source = package_inventory(repo_root, name)
+            source = deployment_package_inventory(repo_root, name)
         except PackageError as exc:
             print(f"{name}: INVALID PACKAGE: {exc}")
             drift = True

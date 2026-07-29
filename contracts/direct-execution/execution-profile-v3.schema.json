@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-execution-profile/3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile_id",
+    "backend_kind",
+    "profile_policy",
+    "root_policy_owner_version",
+    "stable_root_identity_evidence_sha256",
+    "transport_identity_binding_sha256",
+    "scheduler_dialect",
+    "gaussian_runtime_binding_sha256",
+    "resource_catalog_sha256",
+    "declared_allowed_root",
+    "declared_capabilities",
+    "profile_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-execution-profile/3"},
+    "profile_id": {"$ref": "#/$defs/id"},
+    "backend_kind": {"const": "direct_ssh_pbs"},
+    "profile_policy": {"$ref": "#/$defs/profile_policy"},
+    "root_policy_owner_version": {"const": "direct-root-owner-contract/1"},
+    "stable_root_identity_evidence_sha256": {"$ref": "#/$defs/sha"},
+    "transport_identity_binding_sha256": {"$ref": "#/$defs/sha"},
+    "scheduler_dialect": {"const": "pbs_legacy_v1"},
+    "gaussian_runtime_binding_sha256": {"$ref": "#/$defs/sha"},
+    "resource_catalog_sha256": {"$ref": "#/$defs/sha"},
+    "declared_allowed_root": {"$ref": "#/$defs/root"},
+    "declared_capabilities": {
+      "const": [
+        "direct_root_stable_identity",
+        "direct_root_fresh_observation",
+        "descriptor_relative_workspace_claim"
+      ]
+    },
+    "profile_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$", "not": {"pattern": "[\\r\\n]"}},
+    "root": {
+      "type": "string",
+      "pattern": "^/(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$",
+      "allOf": [
+        {"not": {"pattern": "(?:^|/)\\.\\.?(/|$)"}},
+        {"not": {"pattern": "[\\r\\n]"}}
+      ]
+    },
+    "profile_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "profile_id", "profile_payload_sha256"],
+      "properties": {
+        "schema": {"const": "auto-g16-direct-profile-policy/1"},
+        "profile_id": {"$ref": "#/$defs/id"},
+        "profile_payload_sha256": {"$ref": "#/$defs/sha"}
+      }
+    }
+  }
+}
