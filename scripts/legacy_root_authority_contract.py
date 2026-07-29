@@ -651,7 +651,9 @@ def validate_legacy_fresh_root_observation_receipt(
     )
     _require(receipt["authority"] == AUTHORITY, "fresh receipt authority differs")
     _require(
-        operation["project"] == project
+        operation["project"]
+        == project
+        == receipt["protected_production_ingress"]["project"]
         and operation["attempt_id"]
         == receipt["protected_production_ingress"]["attempt_id"]
         and operation["input_sha256"]
@@ -1783,6 +1785,10 @@ class LegacyRootAuthorityContractOwner:
                 ingress["contract_id"] == ingress_ref["contract_id"]
                 and ingress["contract_payload_sha256"]
                 == ingress_ref["contract_payload_sha256"]
+                and ingress["identity"]["project"] == ingress_ref["project"]
+                and ingress["identity"]["attempt_id"] == ingress_ref["attempt_id"]
+                and ingress["identity"]["input_sha256"]
+                == ingress_ref["input_sha256"]
                 and stable["evidence_payload_sha256"]
                 == validated_authorization["stable_root_evidence"][
                     "evidence_payload_sha256"

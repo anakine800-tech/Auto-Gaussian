@@ -412,6 +412,54 @@ class LegacyRootAuthorityContractTests(unittest.TestCase):
                         document
                     )
 
+    def test_rehashed_authorization_ingress_identity_splices_fail_issuance(
+        self,
+    ) -> None:
+        cases = {
+            "project": "OtherProject",
+            "attempt_id": f"qsub-attempt-{'c' * 64}",
+            "input_sha256": "d" * 64,
+        }
+        for field, replacement in cases.items():
+            with self.subTest(field=field):
+                changed = copy.deepcopy(self.fixture.authorization)
+                changed["protected_production_ingress"][field] = replacement
+                changed["scope"]["authorization_scope_sha256"] = (
+                    ROOT_AUTHORITY.digest(
+                        ROOT_AUTHORITY._authorization_scope_projection(changed)
+                    )
+                )
+                changed = ROOT_AUTHORITY._finalize(
+                    changed,
+                    "authorization_payload_sha256",
+                )
+                owner = self.fixture.new_owner()
+                with self.assertRaisesRegex(
+                    ROOT_AUTHORITY.LegacyRootAuthorityError,
+                    "predecessor replay differs",
+                ):
+                    owner.issue_fresh_capability_once(
+                        stable_evidence=self.fixture.evidence,
+                        authorization=changed,
+                        protected_production_ingress=self.fixture.ingress,
+                        observation=self.fixture.observation(owner),
+                    )
+
+    def test_rehashed_portable_receipt_ingress_project_splice_fails(self) -> None:
+        receipt = self.fixture.capability().portable_receipt()
+        receipt["protected_production_ingress"]["project"] = "OtherProject"
+        receipt = ROOT_AUTHORITY._finalize(
+            receipt,
+            "receipt_payload_sha256",
+        )
+        with self.assertRaisesRegex(
+            ROOT_AUTHORITY.LegacyRootAuthorityError,
+            "cross-field identity differs",
+        ):
+            ROOT_AUTHORITY.validate_legacy_fresh_root_observation_receipt(
+                receipt
+            )
+
     def test_no_transport_or_effect_api_is_present(self) -> None:
         source = (
             ROOT / "scripts/legacy_root_authority_contract.py"
