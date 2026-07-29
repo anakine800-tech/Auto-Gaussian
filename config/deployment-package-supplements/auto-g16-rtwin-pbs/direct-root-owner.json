@@ -1,0 +1,18 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/direct_root_owner_contract.py",
+      "target": "scripts/direct_root_owner_contract.py"
+    },
+    {
+      "source": "contracts/direct-execution",
+      "target": "contracts/direct-execution"
+    },
+    {
+      "source": "docs/v2.6-direct-root-owner-contract.md",
+      "target": "references/direct-root-owner-contract.md"
+    }
+  ]
+}

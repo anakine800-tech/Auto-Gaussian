@@ -33,6 +33,121 @@ ADAPTER = load_adapter()
 
 
 class SkillPackagingTests(unittest.TestCase):
+    def test_additive_package_supplements_map_and_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            skill = root / "skills/auto-g16-demo"
+            supplements = (
+                root
+                / "config/deployment-package-supplements/auto-g16-demo"
+            )
+            scripts = root / "scripts"
+            skill.mkdir(parents=True)
+            supplements.mkdir(parents=True)
+            scripts.mkdir()
+            (skill / "SKILL.md").write_text(
+                "---\nname: auto-g16-demo\ndescription: package test\n---\n",
+                encoding="utf-8",
+            )
+            (scripts / "base.py").write_text("BASE = True\n", encoding="utf-8")
+            (scripts / "successor.py").write_text(
+                "SUCCESSOR = True\n",
+                encoding="utf-8",
+            )
+            (skill / "deployment-package.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "auto-g16-named-skill-package/1",
+                        "skill": "auto-g16-demo",
+                        "include": [
+                            {
+                                "source": "scripts/base.py",
+                                "target": "scripts/base.py",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            supplement = supplements / "successor.json"
+            supplement.write_text(
+                json.dumps(
+                    {
+                        "schema": "auto-g16-named-skill-package/1",
+                        "skill": "auto-g16-demo",
+                        "include": [
+                            {
+                                "source": "scripts/successor.py",
+                                "target": "scripts/successor.py",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            files = package.package_files_with_supplements(
+                root,
+                "auto-g16-demo",
+            )
+            self.assertEqual(
+                files[Path("scripts/base.py")],
+                scripts / "base.py",
+            )
+            self.assertEqual(
+                files[Path("scripts/successor.py")],
+                scripts / "successor.py",
+            )
+            supplement.write_text(
+                json.dumps(
+                    {
+                        "schema": "auto-g16-named-skill-package/1",
+                        "skill": "auto-g16-demo",
+                        "include": [
+                            {
+                                "source": "scripts/base.py",
+                                "target": "scripts/other.py",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                package.PackageError,
+                "duplicate deployment source",
+            ):
+                package.package_files_with_supplements(
+                    root,
+                    "auto-g16-demo",
+                )
+            supplement.write_text(
+                json.dumps(
+                    {
+                        "schema": "auto-g16-named-skill-package/1",
+                        "skill": "auto-g16-demo",
+                        "include": [
+                            {
+                                "source": "scripts/successor.py",
+                                "target": "scripts/successor.py",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (supplements / "unexpected.txt").write_text(
+                "not a manifest\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                package.PackageError,
+                "regular JSON file",
+            ):
+                package.package_files_with_supplements(
+                    root,
+                    "auto-g16-demo",
+                )
+
     def test_package_manifests_map_authoritative_contracts_without_repository_duplicates(self) -> None:
         reaction = package.package_files(ROOT, "auto-g16-reaction-workflow")
         knowledge = package.package_files(ROOT, "auto-g16-knowledge-base")
