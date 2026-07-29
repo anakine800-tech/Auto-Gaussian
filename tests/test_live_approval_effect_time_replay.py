@@ -318,6 +318,79 @@ class LiveApprovalEffectTimeReplayTests(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     operation()
 
+    def test_capability_id_drift_rejects_before_claim_and_restores_once(
+        self,
+    ) -> None:
+        effect_codes = {
+            FACADE.LegacyCLICompatibilityAdapter._submit_new.__code__,
+            LEGACY._legacy_effect_plan_from_transaction.__code__,
+            LEGACY._legacy_raw_effect_owner_from_plan.__code__,
+            LEGACY._LegacyRawEffectOwner.submit_qsub_once.__code__,
+        }
+        observed_effect_calls: list[object] = []
+
+        def profile(_frame: object, event: str, arg: object) -> None:
+            del arg
+            if (
+                event == "call"
+                and getattr(_frame, "f_code", None) in effect_codes
+            ):
+                observed_effect_calls.append(getattr(_frame, "f_code"))
+
+        capability = self.capability()
+        original_id = capability.capability_id
+        before_plan_bindings = len(LEGACY._LEGACY_EFFECT_PLAN_BINDINGS)
+        before_owner_bindings = len(LEGACY._LEGACY_EFFECT_OWNER_BINDINGS)
+        previous_profile = sys.getprofile()
+        sys.setprofile(profile)
+        try:
+            with mock.patch.object(LEGACY, "run") as runner, \
+                    mock.patch.object(
+                        LEGACY.LegacyTransportAdapter,
+                        "invoke_reserved_once",
+                    ) as adapter:
+                object.__setattr__(
+                    capability,
+                    "capability_id",
+                    "forged",
+                )
+                with self.assertRaisesRegex(
+                    REPLAY.LiveApprovalEffectTimeReplayError,
+                    "projection differs",
+                ):
+                    capability.replay_once()
+                self.assertEqual(
+                    REPLAY._CAPABILITY_REGISTRY[capability].status,
+                    "issued",
+                )
+                object.__setattr__(
+                    capability,
+                    "capability_id",
+                    original_id,
+                )
+                capability.assert_current()
+                result = capability.replay_once()
+                with self.assertRaisesRegex(
+                    REPLAY.LiveApprovalEffectTimeReplayError,
+                    "unavailable or already used",
+                ):
+                    capability.replay_once()
+        finally:
+            sys.setprofile(previous_profile)
+        runner.assert_not_called()
+        adapter.assert_not_called()
+        self.assertEqual(observed_effect_calls, [])
+        self.assertEqual(
+            len(LEGACY._LEGACY_EFFECT_PLAN_BINDINGS),
+            before_plan_bindings,
+        )
+        self.assertEqual(
+            len(LEGACY._LEGACY_EFFECT_OWNER_BINDINGS),
+            before_owner_bindings,
+        )
+        result.assert_owner_sealed()
+        self.assertEqual(result.document()["capability_id"], original_id)
+
     def test_file_replacement_revocation_and_failed_replay_are_terminal(
         self,
     ) -> None:

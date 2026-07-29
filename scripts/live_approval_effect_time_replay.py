@@ -1086,6 +1086,31 @@ _RESULT_REGISTRY: dict[object, bytes] = {}
 _ISSUANCE_REGISTRY: dict[int, tuple[object, str, str]] = {}
 
 
+def _snapshot_current_capability_locked(
+    capability: "PreQsubLiveApprovalReplayCapability",
+    unavailable_message: str,
+) -> tuple[_ReplayState, dict[str, Any]]:
+    state = _CAPABILITY_REGISTRY.get(capability)
+    _require(
+        type(capability) is PreQsubLiveApprovalReplayCapability
+        and capability._seal is _CAPABILITY_TOKEN
+        and state is not None
+        and state.status == "issued",
+        unavailable_message,
+    )
+    if state is None:
+        raise LiveApprovalEffectTimeReplayError(unavailable_message)
+    document = validate_live_approval_effect_time_replay(
+        json.loads(state.document_bytes)
+    )
+    _require(
+        type(capability.capability_id) is str
+        and document["capability_id"] == capability.capability_id,
+        "replay capability projection differs",
+    )
+    return state, document
+
+
 class PreQsubLiveApprovalReplayCapability:
     """One in-process replay claim; it never authorizes or invokes an effect."""
 
@@ -1120,20 +1145,9 @@ class PreQsubLiveApprovalReplayCapability:
     def assert_current(self) -> "PreQsubLiveApprovalReplayCapability":
         _assert_bindings_current()
         with _REGISTRY_LOCK:
-            state = _CAPABILITY_REGISTRY.get(self)
-            _require(
-                type(self) is PreQsubLiveApprovalReplayCapability
-                and self._seal is _CAPABILITY_TOKEN
-                and state is not None
-                and state.status == "issued",
+            state, _ = _snapshot_current_capability_locked(
+                self,
                 "replay capability is not current",
-            )
-            document = validate_live_approval_effect_time_replay(
-                json.loads(state.document_bytes)
-            )
-            _require(
-                document["capability_id"] == self.capability_id,
-                "replay capability projection differs",
             )
             state.ingress.assert_current()
         return self
@@ -1410,12 +1424,8 @@ def _consume_replay_capability(
 ) -> CompletedPreQsubLiveApprovalReplay:
     _assert_bindings_current()
     with _REGISTRY_LOCK:
-        state = _CAPABILITY_REGISTRY.get(capability)
-        _require(
-            type(capability) is PreQsubLiveApprovalReplayCapability
-            and capability._seal is _CAPABILITY_TOKEN
-            and state is not None
-            and state.status == "issued",
+        state, document = _snapshot_current_capability_locked(
+            capability,
             "pre-qsub replay capability is unavailable or already used",
         )
         state.status = "claiming"
@@ -1449,9 +1459,6 @@ def _consume_replay_capability(
                 state.ingress,
                 replayed,
                 snapshot.sha256,
-            )
-            document = validate_live_approval_effect_time_replay(
-                json.loads(state.document_bytes)
             )
             result_document = {
                 "schema": "auto-g16-live-approval-effect-time-replay-result/1",
