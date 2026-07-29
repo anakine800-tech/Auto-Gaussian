@@ -204,6 +204,35 @@ def _exact(value: Any, fields: set[str], label: str) -> dict[str, Any]:
     return value
 
 
+def _rebuild_fixed_builtin_mapping(
+    value: Any,
+    expected: dict[str, str | int | bool],
+    label: str,
+    *,
+    variable_types: dict[str, type] | None = None,
+) -> dict[str, Any]:
+    variable_types = variable_types or {}
+    source = _exact(value, set(expected) | set(variable_types), label)
+    rebuilt: dict[str, Any] = {}
+    for field, expected_value in expected.items():
+        actual = source[field]
+        if type(actual) is not type(expected_value) or actual != expected_value:
+            raise ResourceError(
+                f"{label}.{field} must be exact builtin "
+                f"{type(expected_value).__name__} {expected_value!r}"
+            )
+        rebuilt[field] = actual
+    for field, expected_type in variable_types.items():
+        actual = source[field]
+        if type(actual) is not expected_type:
+            raise ResourceError(
+                f"{label}.{field} must be exact builtin "
+                f"{expected_type.__name__}"
+            )
+        rebuilt[field] = actual
+    return rebuilt
+
+
 def _text(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ResourceError(f"{label} must be a non-empty string")
@@ -319,25 +348,17 @@ def validate_reservation_capability_document(
         integer=True,
     )
     _sha(ledger["resource_state_sha256"], "resource_state_sha256")
-    reservation = _exact(
+    reservation = _rebuild_fixed_builtin_mapping(
         document["reservation"],
         {
-            "state",
-            "reserved_at",
-            "ledger_write_durable",
-            "physical_attempt_count",
-            "second_physical_attempt_permanently_forbidden",
+            "state": "submission_uncertain",
+            "ledger_write_durable": True,
+            "physical_attempt_count": 1,
+            "second_physical_attempt_permanently_forbidden": True,
         },
         "reservation capability reservation",
+        variable_types={"reserved_at": str},
     )
-    if reservation != {
-        "state": "submission_uncertain",
-        "reserved_at": reservation["reserved_at"],
-        "ledger_write_durable": True,
-        "physical_attempt_count": 1,
-        "second_physical_attempt_permanently_forbidden": True,
-    }:
-        raise ResourceError("reservation capability uncertainty policy differs")
     _time(reservation["reserved_at"], "reserved_at")
     resources = _exact(
         document["resources"],
@@ -367,26 +388,32 @@ def validate_reservation_capability_document(
         raise ResourceError(
             "reservation capability estimated core-hours must be positive"
         )
-    if document["authority"] != {
-        "owner_private_registry_required": True,
-        "single_consumption": True,
-        "schema_valid_is_capability": False,
-        "portable_projection_authorizes": False,
-        "raw_reservation_json_is_authority": False,
-        "raw_reservation_sha256_is_authority": False,
-        "capability_authorizes_runner": False,
-        "capability_authorizes_transport": False,
-        "capability_authorizes_qsub": False,
-    }:
-        raise ResourceError("reservation capability authority boundary differs")
-    if document["failure_policy"] != {
-        "durable_state": "submission_uncertain",
-        "automatic_retry": False,
-        "second_physical_attempt": False,
-        "second_qsub": False,
-        "reconciliation_only": "read_only",
-    }:
-        raise ResourceError("reservation capability failure policy differs")
+    _rebuild_fixed_builtin_mapping(
+        document["authority"],
+        {
+            "owner_private_registry_required": True,
+            "single_consumption": True,
+            "schema_valid_is_capability": False,
+            "portable_projection_authorizes": False,
+            "raw_reservation_json_is_authority": False,
+            "raw_reservation_sha256_is_authority": False,
+            "capability_authorizes_runner": False,
+            "capability_authorizes_transport": False,
+            "capability_authorizes_qsub": False,
+        },
+        "reservation capability authority",
+    )
+    _rebuild_fixed_builtin_mapping(
+        document["failure_policy"],
+        {
+            "durable_state": "submission_uncertain",
+            "automatic_retry": False,
+            "second_physical_attempt": False,
+            "second_qsub": False,
+            "reconciliation_only": "read_only",
+        },
+        "reservation capability failure policy",
+    )
     if _sha(document["payload_sha256"], "payload_sha256") != _payload(document):
         raise ResourceError("reservation capability payload hash mismatch")
     return document

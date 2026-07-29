@@ -114,6 +114,34 @@ class ReservationCapabilityDraft202012Tests(unittest.TestCase):
                 changed["authority"][field] = True
                 self.assert_both_reject(changed)
 
+    def test_all_fifteen_fixed_bool_integer_fields_have_bidirectional_parity(
+        self,
+    ) -> None:
+        fields_by_section = SUPPORT.FIXED_BOOL_INTEGER_FIELDS
+        self.assertEqual(
+            sum(len(fields) for fields in fields_by_section.values()),
+            15,
+        )
+        for section, fields in fields_by_section.items():
+            for field, expected in fields.items():
+                replacements = (
+                    (0, 1)
+                    if type(expected) is bool
+                    else (False, True)
+                )
+                for replacement in replacements:
+                    with self.subTest(
+                        section=section,
+                        field=field,
+                        replacement=replacement,
+                    ):
+                        changed = copy.deepcopy(self.document)
+                        changed[section][field] = replacement
+                        changed["payload_sha256"] = (
+                            SUPPORT.RESOURCE._payload(changed)
+                        )
+                        self.assert_both_reject(changed)
+
     def test_unknown_missing_pattern_and_numeric_confusion_reject(self) -> None:
         cases = []
         changed = copy.deepcopy(self.document)

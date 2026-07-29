@@ -25,6 +25,29 @@ SCHEMA_PATH = (
     / "contracts/execution-batch-reservation"
     / "execution-batch-v3-reservation-capability.schema.json"
 )
+FIXED_BOOL_INTEGER_FIELDS = {
+    "reservation": {
+        "ledger_write_durable": True,
+        "physical_attempt_count": 1,
+        "second_physical_attempt_permanently_forbidden": True,
+    },
+    "authority": {
+        "owner_private_registry_required": True,
+        "single_consumption": True,
+        "schema_valid_is_capability": False,
+        "portable_projection_authorizes": False,
+        "raw_reservation_json_is_authority": False,
+        "raw_reservation_sha256_is_authority": False,
+        "capability_authorizes_runner": False,
+        "capability_authorizes_transport": False,
+        "capability_authorizes_qsub": False,
+    },
+    "failure_policy": {
+        "automatic_retry": False,
+        "second_physical_attempt": False,
+        "second_qsub": False,
+    },
+}
 
 
 class ReservationCapabilityFixture:
@@ -132,6 +155,43 @@ class ExecutionBatchReservationCapabilityTests(unittest.TestCase):
                     for event in ledger["events"]
                 )
             )
+
+    def test_all_fifteen_fixed_bool_integer_fields_reject_semantic_splices(
+        self,
+    ) -> None:
+        self.assertEqual(
+            sum(len(fields) for fields in FIXED_BOOL_INTEGER_FIELDS.values()),
+            15,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            document = ReservationCapabilityFixture(
+                Path(temporary)
+            ).capability().portable_projection()
+            for section, fields in FIXED_BOOL_INTEGER_FIELDS.items():
+                for field, expected in fields.items():
+                    replacements = (
+                        (0, 1)
+                        if type(expected) is bool
+                        else (False, True)
+                    )
+                    for replacement in replacements:
+                        with self.subTest(
+                            section=section,
+                            field=field,
+                            replacement=replacement,
+                        ):
+                            changed = copy.deepcopy(document)
+                            changed[section][field] = replacement
+                            changed["payload_sha256"] = RESOURCE._payload(
+                                changed
+                            )
+                            with self.assertRaisesRegex(
+                                RESOURCE.ResourceError,
+                                "must be exact builtin",
+                            ):
+                                RESOURCE.validate_reservation_capability_document(
+                                    changed
+                                )
 
     def test_capability_and_claim_are_noncopyable_single_use(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
