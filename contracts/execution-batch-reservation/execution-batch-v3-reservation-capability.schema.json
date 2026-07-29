@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/execution-batch-reservation/execution-batch-v3-reservation-capability.schema.json",
+  "title": "Auto-G16 execution-batch /3 reservation capability projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "capability_id",
+    "identity",
+    "ledger",
+    "reservation",
+    "resources",
+    "authority",
+    "failure_policy",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "auto-g16-execution-batch-v3-reservation-capability/1"
+    },
+    "owner": {
+      "const": "auto-g16-package-4"
+    },
+    "capability_id": {
+      "type": "string",
+      "pattern": "^reservation-capability-[a-f0-9]{64}$"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scientific_task_id",
+        "attempt_id",
+        "idempotency_key_sha256",
+        "project",
+        "input_sha256"
+      ],
+      "properties": {
+        "scientific_task_id": {
+          "type": "string",
+          "pattern": "^scientific-task-[a-f0-9]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^qsub-attempt-[a-f0-9]{64}$"
+        },
+        "idempotency_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "project": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+        },
+        "input_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "batch_id",
+        "revision",
+        "resource_state_revision",
+        "resource_state_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gaussian-execution-batch/3"
+        },
+        "batch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resource_state_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resource_state_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "reservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "reserved_at",
+        "ledger_write_durable",
+        "physical_attempt_count",
+        "second_physical_attempt_permanently_forbidden"
+      ],
+      "properties": {
+        "state": {
+          "const": "submission_uncertain"
+        },
+        "reserved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ledger_write_durable": {
+          "const": true
+        },
+        "physical_attempt_count": {
+          "const": 1
+        },
+        "second_physical_attempt_permanently_forbidden": {
+          "const": true
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_sha256",
+        "gate_id",
+        "gate_sha256",
+        "resource_tier",
+        "cores",
+        "memory_gb",
+        "walltime_seconds",
+        "estimated_core_hours"
+      ],
+      "properties": {
+        "policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gate_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resource_tier": {
+          "enum": [
+            "simple",
+            "general",
+            "complex",
+            "custom_reviewed"
+          ]
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memory_gb": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "walltime_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "estimated_core_hours": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_private_registry_required",
+        "single_consumption",
+        "schema_valid_is_capability",
+        "portable_projection_authorizes",
+        "raw_reservation_json_is_authority",
+        "raw_reservation_sha256_is_authority",
+        "capability_authorizes_runner",
+        "capability_authorizes_transport",
+        "capability_authorizes_qsub"
+      ],
+      "properties": {
+        "owner_private_registry_required": {
+          "const": true
+        },
+        "single_consumption": {
+          "const": true
+        },
+        "schema_valid_is_capability": {
+          "const": false
+        },
+        "portable_projection_authorizes": {
+          "const": false
+        },
+        "raw_reservation_json_is_authority": {
+          "const": false
+        },
+        "raw_reservation_sha256_is_authority": {
+          "const": false
+        },
+        "capability_authorizes_runner": {
+          "const": false
+        },
+        "capability_authorizes_transport": {
+          "const": false
+        },
+        "capability_authorizes_qsub": {
+          "const": false
+        }
+      }
+    },
+    "failure_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "durable_state",
+        "automatic_retry",
+        "second_physical_attempt",
+        "second_qsub",
+        "reconciliation_only"
+      ],
+      "properties": {
+        "durable_state": {
+          "const": "submission_uncertain"
+        },
+        "automatic_retry": {
+          "const": false
+        },
+        "second_physical_attempt": {
+          "const": false
+        },
+        "second_qsub": {
+          "const": false
+        },
+        "reconciliation_only": {
+          "const": "read_only"
+        }
+      }
+    },
+    "payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}
