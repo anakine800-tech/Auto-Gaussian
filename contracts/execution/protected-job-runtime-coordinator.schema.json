@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/execution/protected-job-runtime-coordinator.schema.json",
+  "title": "Auto-G16 protected job/runtime coordinator portable projection",
+  "type": "object",
+  "required": [
+    "schema",
+    "owner",
+    "coordinator_id",
+    "identity",
+    "predecessors",
+    "owner_map",
+    "state_machine",
+    "recovery_order",
+    "factory_port",
+    "authority",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-protected-job-runtime-coordinator/1"},
+    "owner": {"const": "auto-g16-protected-job-runtime-coordinator-owner"},
+    "coordinator_id": {
+      "type": "string",
+      "pattern": "^protected-job-runtime-coordinator-[a-f0-9]{64}$"
+    },
+    "identity": {"type": "object"},
+    "predecessors": {"type": "object"},
+    "owner_map": {
+      "type": "object",
+      "required": [
+        "transition_caller",
+        "runtime_state_and_journal",
+        "execution_batch_ledger",
+        "job_state_projection",
+        "live_approval_replay",
+        "resource_effect_time_replay",
+        "legacy_root_descriptor",
+        "read_only_reconciliation",
+        "effect_plan_and_raw_owner"
+      ],
+      "properties": {
+        "transition_caller": {
+          "const": "auto-g16-protected-job-runtime-coordinator-owner"
+        },
+        "runtime_state_and_journal": {
+          "const": "auto-g16-protected-runtime-state-owner"
+        },
+        "execution_batch_ledger": {"const": "auto-g16-package-4"},
+        "job_state_projection": {
+          "const": "legacy-job-state-derived-projection-only"
+        },
+        "live_approval_replay": {
+          "const": "auto-g16-live-approval-effect-time-replay-owner"
+        },
+        "resource_effect_time_replay": {"const": "auto-g16-package-4"},
+        "legacy_root_descriptor": {
+          "const": "auto-g16-legacy-root-authority-owner"
+        },
+        "read_only_reconciliation": {
+          "const": "auto-g16-protected-runtime-state-owner"
+        },
+        "effect_plan_and_raw_owner": {"const": "legacy_rtwin_pbs-sole-owner"}
+      },
+      "additionalProperties": false
+    },
+    "state_machine": {"type": "object"},
+    "recovery_order": {"type": "array", "items": {"type": "string"}},
+    "factory_port": {"type": "object"},
+    "authority": {"type": "object"},
+    "payload_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "additionalProperties": false
+}

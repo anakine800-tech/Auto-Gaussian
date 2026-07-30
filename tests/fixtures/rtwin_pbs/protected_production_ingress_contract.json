@@ -55,12 +55,12 @@
     },
     "tests/test_protected_local_materialization.py": {
       "before_sha256": "1c231561e6b9531f91db718d4164f883a2893acc6675a8585e9d27f180a698eb",
-      "sha256": "43f5648b38383f5ff9ebc37b13c8435bbeacd2cf32efd492ef0526fe53b5d37c",
+      "sha256": "6dba9d74f5ae04d50cad226e8b36f95c82e57512445bf5440b7cc8f85a0d1660",
       "change_class": "append_production_ingress_successor_hash_chain"
     },
     "tests/test_protected_lifecycle_contract.py": {
       "before_sha256": "479eb1c0433eb5322c3e15a684ff55fed10013f5c85a1749c833f2f5344056c1",
-      "sha256": "c546e7619f5861b81b15bdd94eaae687ffb1cd2244d1b47cdbc7956b8d91bf22",
+      "sha256": "91fa1b79673fec5534639d3bfd2956b8b9e5197d7f01fc9b9d4a8c8c4b45c43e",
       "change_class": "append_production_ingress_successor_hash_chain"
     }
   },
