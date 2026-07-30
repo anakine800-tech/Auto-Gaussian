@@ -54,6 +54,34 @@ class ProtectedJobRuntimeCoordinatorDraft202012Tests(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             self.validator.validate(additional)
 
+    def test_ledger_owner_is_exact_real_package_4_predecessor(self) -> None:
+        owner = self.document["owner_map"]["execution_batch_ledger"]
+        self.assertIs(type(owner), str)
+        self.assertEqual(
+            owner,
+            SUPPORT.RESOURCE.RESERVATION_CAPABILITY_OWNER,
+        )
+        self.assertEqual(
+            owner,
+            SUPPORT.RESOURCE_REPLAY.RESOURCE_EFFECT_REPLAY_CAPABILITY_OWNER,
+        )
+        for replacement in (
+            "auto-g16-resource-efficiency-owner",
+            "foreign-package-4-owner",
+        ):
+            with self.subTest(owner=replacement):
+                changed = copy.deepcopy(self.document)
+                changed["owner_map"]["execution_batch_ledger"] = replacement
+                SUPPORT.ProtectedJobRuntimeCoordinatorTests().reseal(changed)
+                with self.assertRaises(jsonschema.ValidationError):
+                    self.validator.validate(changed)
+                with self.assertRaises(
+                    SUPPORT.COORDINATOR.ProtectedJobRuntimeCoordinatorError
+                ):
+                    SUPPORT.COORDINATOR.validate_protected_job_runtime_coordinator(
+                        changed
+                    )
+
     def test_semantic_owner_still_rejects_schema_valid_splice(self) -> None:
         changed = copy.deepcopy(self.document)
         changed["authority"]["portable_projection_authorizes"] = True

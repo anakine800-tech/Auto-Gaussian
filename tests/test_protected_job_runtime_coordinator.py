@@ -128,6 +128,56 @@ class ProtectedJobRuntimeCoordinatorTests(unittest.TestCase):
             "rebuild_legacy_job_state_as_derived_projection_last",
         )
 
+    def test_ledger_owner_is_exact_real_package_4_predecessor(self) -> None:
+        owners = (
+            COORDINATOR.COORDINATOR_LEDGER_OWNER,
+            RESOURCE.RESERVATION_CAPABILITY_OWNER,
+            RESOURCE_REPLAY.RESOURCE_EFFECT_REPLAY_CAPABILITY_OWNER,
+        )
+        for owner in owners:
+            self.assertIs(type(owner), str)
+            self.assertEqual(owner, "auto-g16-package-4")
+        self.assertEqual(
+            COORDINATOR.OWNER_MAP["execution_batch_ledger"],
+            COORDINATOR.COORDINATOR_LEDGER_OWNER,
+        )
+        for replacement in (
+            "auto-g16-resource-efficiency-owner",
+            "foreign-package-4-owner",
+        ):
+            with self.subTest(portable_owner=replacement):
+                document = self.valid_projection()
+                document["owner_map"]["execution_batch_ledger"] = replacement
+                self.reseal(document)
+                with self.assertRaises(
+                    COORDINATOR.ProtectedJobRuntimeCoordinatorError
+                ):
+                    COORDINATOR.validate_protected_job_runtime_coordinator(
+                        document
+                    )
+        for target, attribute, replacement in (
+            (
+                RESOURCE,
+                "RESERVATION_CAPABILITY_OWNER",
+                "auto-g16-resource-efficiency-owner",
+            ),
+            (
+                RESOURCE_REPLAY,
+                "RESOURCE_EFFECT_REPLAY_CAPABILITY_OWNER",
+                "foreign-package-4-owner",
+            ),
+        ):
+            with self.subTest(
+                predecessor=f"{target.__name__}.{attribute}"
+            ), mock.patch.object(target, attribute, replacement):
+                with self.assertRaisesRegex(
+                    COORDINATOR.ProtectedJobRuntimeCoordinatorError,
+                    "owner",
+                ):
+                    COORDINATOR.validate_protected_job_runtime_coordinator(
+                        self.valid_projection()
+                    )
+
     def test_projection_and_semantic_splices_never_issue_authority(self) -> None:
         for section, field, replacement in (
             ("authority", "portable_projection_authorizes", True),

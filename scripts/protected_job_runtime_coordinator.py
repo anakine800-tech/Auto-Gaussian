@@ -24,6 +24,7 @@ import protected_production_ingress_contract as INGRESS
 import protected_runtime_state_contract as RUNTIME
 import legacy_root_authority_contract as ROOT
 import live_approval_effect_time_replay as LIVE
+import resource_efficiency as LEDGER
 import resource_effect_time_replay_owner as RESOURCE
 
 
@@ -31,6 +32,7 @@ SCHEMA = "auto-g16-protected-job-runtime-coordinator/1"
 OWNER = "auto-g16-protected-job-runtime-coordinator-owner"
 MODULE_NAME = "protected_job_runtime_coordinator"
 FACTORY_PORT_SCHEMA = "auto-g16-protected-coordinator-factory-port/1"
+COORDINATOR_LEDGER_OWNER = LEDGER.RESERVATION_CAPABILITY_OWNER
 _ZERO_SHA = "0" * 64
 _OWNER_TOKEN = object()
 _SEAL_TOKEN = object()
@@ -40,7 +42,7 @@ _CLAIM_TOKEN = object()
 OWNER_MAP = {
     "transition_caller": OWNER,
     "runtime_state_and_journal": RUNTIME.OWNER,
-    "execution_batch_ledger": "auto-g16-resource-efficiency-owner",
+    "execution_batch_ledger": COORDINATOR_LEDGER_OWNER,
     "job_state_projection": "legacy-job-state-derived-projection-only",
     "live_approval_replay": LIVE.OWNER,
     "resource_effect_time_replay": RESOURCE.RESOURCE_EFFECT_REPLAY_CAPABILITY_OWNER,
@@ -136,9 +138,28 @@ def _fixed(value: Any, expected: Any, label: str) -> None:
     _require(_same_exact(value, expected), f"{label} differs")
 
 
+def _assert_predecessor_ledger_owner() -> None:
+    _require(
+        LEDGER is RESOURCE.RESOURCE,
+        "package-4 ledger module identity differs",
+    )
+    for value, label in (
+        (COORDINATOR_LEDGER_OWNER, "coordinator ledger owner"),
+        (LEDGER.RESERVATION_CAPABILITY_OWNER, "reservation capability owner"),
+        (RESOURCE.RESERVATION_CAPABILITY_OWNER, "resource replay reservation owner"),
+        (
+            RESOURCE.RESOURCE_EFFECT_REPLAY_CAPABILITY_OWNER,
+            "resource effect replay owner",
+        ),
+    ):
+        _require(type(value) is str, f"{label} type differs")
+        _fixed(value, COORDINATOR_LEDGER_OWNER, label)
+
+
 def validate_protected_job_runtime_coordinator(
     document: dict[str, Any],
 ) -> dict[str, Any]:
+    _assert_predecessor_ledger_owner()
     document = copy.deepcopy(document)
     _exact(
         document,
@@ -701,6 +722,7 @@ _SOURCE_SNAPSHOT = _stable_source(_SOURCE)
 
 
 def _assert_module_binding() -> None:
+    _assert_predecessor_ledger_owner()
     module = sys.modules.get(MODULE_NAME)
     _require(
         isinstance(module, types.ModuleType)
