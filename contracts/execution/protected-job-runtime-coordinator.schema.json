@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/execution/protected-job-runtime-coordinator.schema.json",
+  "title": "Auto-G16 protected job/runtime coordinator portable projection",
+  "type": "object",
+  "required": [
+    "schema",
+    "owner",
+    "coordinator_id",
+    "identity",
+    "predecessors",
+    "owner_map",
+    "state_machine",
+    "recovery_order",
+    "factory_port",
+    "authority",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-protected-job-runtime-coordinator/1"},
+    "owner": {"const": "auto-g16-protected-job-runtime-coordinator-owner"},
+    "coordinator_id": {
+      "type": "string",
+      "pattern": "^protected-job-runtime-coordinator-[a-f0-9]{64}$"
+    },
+    "identity": {"type": "object"},
+    "predecessors": {"type": "object"},
+    "owner_map": {"type": "object"},
+    "state_machine": {"type": "object"},
+    "recovery_order": {"type": "array", "items": {"type": "string"}},
+    "factory_port": {"type": "object"},
+    "authority": {"type": "object"},
+    "payload_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "additionalProperties": false
+}

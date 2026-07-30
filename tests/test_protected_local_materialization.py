@@ -663,6 +663,14 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 / "skills/auto-g16-rtwin-pbs/references/"
                 "protected-local-materialization.md"
             ),
+            Path(
+                "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
+            ): (
+                ROOT
+                / "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
+            ),
         }
         for target, source in expected.items():
             self.assertEqual(package[target], source)
@@ -705,6 +713,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
             Path("references/protected-production-ingress-contract.md"),
         }
         self.assertTrue(ingress_targets <= set(package))
+        coordinator_targets = {
+            Path(
+                "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
+            ),
+        }
+        self.assertTrue(coordinator_targets <= set(package))
         self.assertEqual(
             len(package),
             (
@@ -712,6 +727,7 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 + len(runtime_targets)
                 + len(consumer_targets)
                 + len(ingress_targets)
+                + len(coordinator_targets)
             ),
         )
 

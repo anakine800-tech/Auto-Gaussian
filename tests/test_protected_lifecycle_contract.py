@@ -1421,13 +1421,21 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
             Path("references/protected-production-ingress-contract.md"),
         }
         self.assertTrue(ingress_targets <= set(package))
+        coordinator_targets = {
+            Path(
+                "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
+            ),
+        }
+        self.assertTrue(coordinator_targets <= set(package))
         self.assertEqual(
             len(package),
             81
             + len(present_successor_targets)
             + len(runtime_targets)
             + len(consumer_targets)
-            + len(ingress_targets),
+            + len(ingress_targets)
+            + len(coordinator_targets),
         )
         expected = {
             Path("scripts/protected_lifecycle_contract.py"): (
@@ -1445,6 +1453,14 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 ROOT
                 / "skills/auto-g16-rtwin-pbs/references/"
                 "protected-lifecycle-contract.md"
+            ),
+            Path(
+                "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
+            ): (
+                ROOT
+                / "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
             ),
         }
         for target, source in expected.items():
