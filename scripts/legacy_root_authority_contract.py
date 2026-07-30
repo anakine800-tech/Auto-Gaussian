@@ -1856,8 +1856,8 @@ class SingleUseLegacyDescriptorRelativeMutationCapability:
                 is state.descriptor_handles,
                 "production factory/coordinator/root owner identity drifted",
             )
-            state.outcome_recorder("effect_started_outcome_uncertain")
             state.outcome = "effect_started_outcome_uncertain"
+            state.outcome_recorder("effect_started_outcome_uncertain")
         result = state.operation_method(
             state.operation,
             state.descriptor_handles,

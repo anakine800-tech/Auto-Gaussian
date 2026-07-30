@@ -100,6 +100,33 @@ class LegacyDescriptorMutationCapabilityTests(unittest.TestCase):
             capability.consume_and_invoke_once()
         self.assertEqual(len(effects), 1)
 
+    def test_durability_recorder_failure_is_authoritatively_uncertain(self) -> None:
+        effects = []
+        callback_count = 0
+
+        def fail_durability(_outcome: str) -> None:
+            nonlocal callback_count
+            callback_count += 1
+            raise RuntimeError("synthetic durability unavailable")
+
+        capability = self.capability(
+            lambda *_: effects.append("effect"),
+            fail_durability,
+        )
+        with self.assertRaisesRegex(RuntimeError, "durability unavailable"):
+            capability.consume_and_invoke_once()
+        self.assertEqual(
+            capability.outcome(),
+            "effect_started_outcome_uncertain",
+        )
+        with self.assertRaisesRegex(
+            ROOT_AUTHORITY.LegacyRootAuthorityError,
+            "already consumed or uncertain",
+        ):
+            capability.consume_and_invoke_once()
+        self.assertEqual(callback_count, 1)
+        self.assertEqual(effects, [])
+
     def test_copy_pickle_forgery_replacement_and_reload_fail_closed(self) -> None:
         capability = self.capability(lambda *_: "ok")
         for copier in (copy.copy, copy.deepcopy, pickle.dumps):
