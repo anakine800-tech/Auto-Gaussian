@@ -1,0 +1,367 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/production-factory-consumer/protected-production-factory-result.schema.json",
+  "title": "Auto-G16 protected production factory result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "result_id",
+    "identity",
+    "predecessors",
+    "coordinator_claim_order",
+    "consumer_order",
+    "output",
+    "legacy_factory_binding",
+    "uncertain_boundary",
+    "authority",
+    "payload_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "auto-g16-protected-production-factory-result/1"
+    },
+    "owner": {
+      "const": "auto-g16-protected-production-factory-consumer"
+    },
+    "result_id": {
+      "type": "string",
+      "pattern": "^protected-production-factory-result-[a-f0-9]{64}$"
+    },
+    "identity": {
+      "$ref": "#/$defs/identity"
+    },
+    "predecessors": {
+      "$ref": "#/$defs/predecessors"
+    },
+    "coordinator_claim_order": {
+      "const": [
+        "consume_exact_legacy_root_capability_once",
+        "consume_exact_resource_replay_capability_once",
+        "replay_exact_live_approval_capability_once",
+        "replay_exact_uncertain_runtime_receipt",
+        "claim_exact_production_ingress_factory_port_once"
+      ]
+    },
+    "consumer_order": {
+      "const": [
+        "validate_exact_coordinator_factory_port_before_claim",
+        "claim_exact_coordinator_factory_port_once",
+        "replay_exact_owner_issued_claim_objects",
+        "seal_non_executable_production_factory_result"
+      ]
+    },
+    "output": {
+      "$ref": "#/$defs/output"
+    },
+    "legacy_factory_binding": {
+      "$ref": "#/$defs/legacyFactoryBinding"
+    },
+    "uncertain_boundary": {
+      "$ref": "#/$defs/uncertainBoundary"
+    },
+    "authority": {
+      "$ref": "#/$defs/authority"
+    },
+    "payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project",
+        "input_sha256",
+        "attempt_id",
+        "scientific_task_id",
+        "idempotency_key_sha256"
+      ],
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^qsub-attempt-.+$"
+        },
+        "scientific_task_id": {
+          "type": "string",
+          "pattern": "^scientific-task-.+$"
+        },
+        "idempotency_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "predecessors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinator_id",
+        "production_ingress_contract_id",
+        "runtime_contract_id",
+        "runtime_uncertain_receipt_id",
+        "runtime_uncertain_receipt_payload_sha256",
+        "live_replay_capability_id",
+        "live_replay_result_payload_sha256",
+        "resource_replay_capability_id",
+        "resource_reservation_capability_id",
+        "legacy_root_receipt_payload_sha256",
+        "legacy_root_authorization_scope_sha256",
+        "legacy_root_descriptor_set_sha256",
+        "plan_inputs_sha256"
+      ],
+      "properties": {
+        "coordinator_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "production_ingress_contract_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_contract_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_uncertain_receipt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_uncertain_receipt_payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "live_replay_capability_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "live_replay_result_payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resource_replay_capability_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resource_reservation_capability_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "legacy_root_receipt_payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "legacy_root_authorization_scope_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "legacy_root_descriptor_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "plan_inputs_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "contains_exact_owner_objects",
+        "portable_projection_authorizes",
+        "legacy_effect_plan_created",
+        "legacy_raw_effect_owner_created",
+        "production_adapter_connected",
+        "physical_effect_possible"
+      ],
+      "properties": {
+        "type": {
+          "const": "SealedProtectedProductionFactoryResult"
+        },
+        "contains_exact_owner_objects": {
+          "const": true
+        },
+        "portable_projection_authorizes": {
+          "const": false
+        },
+        "legacy_effect_plan_created": {
+          "const": false
+        },
+        "legacy_raw_effect_owner_created": {
+          "const": false
+        },
+        "production_adapter_connected": {
+          "const": false
+        },
+        "physical_effect_possible": {
+          "const": false
+        }
+      }
+    },
+    "legacyFactoryBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "factory",
+        "effect_plan_type",
+        "raw_owner_factory",
+        "raw_owner_type",
+        "legacy_source_sha256",
+        "exact_identity_bound",
+        "frozen_predecessor_bytes_modified",
+        "factory_invoked"
+      ],
+      "properties": {
+        "module": {
+          "const": "legacy_rtwin_pbs"
+        },
+        "factory": {
+          "const": "_legacy_effect_plan_from_transaction"
+        },
+        "effect_plan_type": {
+          "const": "_LegacyEffectPlan"
+        },
+        "raw_owner_factory": {
+          "const": "_legacy_raw_effect_owner_from_plan"
+        },
+        "raw_owner_type": {
+          "const": "_LegacyRawEffectOwner"
+        },
+        "legacy_source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "exact_identity_bound": {
+          "const": true
+        },
+        "frozen_predecessor_bytes_modified": {
+          "const": false
+        },
+        "factory_invoked": {
+          "const": false
+        }
+      }
+    },
+    "uncertainBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_runtime_state",
+        "failure_before_coordinator_claim",
+        "failure_after_coordinator_claim_started",
+        "recovery_owner",
+        "automatic_retry",
+        "second_physical_attempt",
+        "second_qsub"
+      ],
+      "properties": {
+        "required_runtime_state": {
+          "const": "effect_started_outcome_uncertain"
+        },
+        "failure_before_coordinator_claim": {
+          "const": "no_predecessor_consumption"
+        },
+        "failure_after_coordinator_claim_started": {
+          "const": "typed_read_only_reconciliation_only"
+        },
+        "recovery_owner": {
+          "const": "protected-job-runtime-coordinator-owner"
+        },
+        "automatic_retry": {
+          "const": false
+        },
+        "second_physical_attempt": {
+          "const": false
+        },
+        "second_qsub": {
+          "const": false
+        }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact_in_process_owner_objects_required",
+        "canonical_module_class_source_required",
+        "schema_valid_is_sealed_result",
+        "raw_json_authorizes",
+        "raw_hash_authorizes",
+        "thirteen_field_projection_authorizes",
+        "parallel_owner_created",
+        "legacy_transaction_plan_created",
+        "legacy_factory_calls",
+        "legacy_raw_owner_calls",
+        "adapter_calls",
+        "runner_calls",
+        "write_calls",
+        "transport_calls",
+        "qsub_calls",
+        "remote_reads",
+        "external_effects"
+      ],
+      "properties": {
+        "exact_in_process_owner_objects_required": {
+          "const": true
+        },
+        "canonical_module_class_source_required": {
+          "const": true
+        },
+        "schema_valid_is_sealed_result": {
+          "const": false
+        },
+        "raw_json_authorizes": {
+          "const": false
+        },
+        "raw_hash_authorizes": {
+          "const": false
+        },
+        "thirteen_field_projection_authorizes": {
+          "const": false
+        },
+        "parallel_owner_created": {
+          "const": false
+        },
+        "legacy_transaction_plan_created": {
+          "const": false
+        },
+        "legacy_factory_calls": {
+          "const": 0
+        },
+        "legacy_raw_owner_calls": {
+          "const": 0
+        },
+        "adapter_calls": {
+          "const": 0
+        },
+        "runner_calls": {
+          "const": 0
+        },
+        "write_calls": {
+          "const": 0
+        },
+        "transport_calls": {
+          "const": 0
+        },
+        "qsub_calls": {
+          "const": 0
+        },
+        "remote_reads": {
+          "const": 0
+        },
+        "external_effects": {
+          "const": 0
+        }
+      }
+    }
+  }
+}
