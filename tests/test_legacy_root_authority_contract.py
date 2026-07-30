@@ -510,6 +510,7 @@ class LegacyRootAuthorityContractTests(unittest.TestCase):
             "legacy-stable-root-identity-evidence.schema.json",
             "legacy-root-authority-authorization.schema.json",
             "legacy-fresh-root-observation-receipt.schema.json",
+            "legacy-descriptor-relative-mutation-capability-binding.schema.json",
         ):
             target = Path("contracts/legacy-root-authority") / name
             self.assertEqual(package[target], ROOT / target)

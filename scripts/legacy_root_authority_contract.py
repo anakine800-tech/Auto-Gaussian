@@ -27,6 +27,7 @@ from typing import Any, Callable
 
 MODULE_NAME = "legacy_root_authority_contract"
 INGRESS_MODULE_NAME = "protected_production_ingress_contract"
+FACTORY_CONSUMER_MODULE_NAME = "protected_production_factory_consumer"
 BACKEND_KIND = "legacy_rtwin_pbs"
 FIXED_REMOTE_ROOT = "/home/user100/SDL"
 OWNER_ID = "auto-g16-legacy-root-authority-owner"
@@ -34,6 +35,9 @@ OWNER_VERSION = "legacy-root-authority-contract/1"
 STABLE_SCHEMA = "auto-g16-legacy-stable-root-identity-evidence/1"
 AUTHORIZATION_SCHEMA = "auto-g16-legacy-root-authority-authorization/1"
 RECEIPT_SCHEMA = "auto-g16-legacy-fresh-root-observation-receipt/1"
+MUTATION_BINDING_SCHEMA = (
+    "auto-g16-legacy-descriptor-relative-mutation-capability-binding/1"
+)
 PROFILE_SCHEMA = "auto-g16-execution-profile/2"
 INGRESS_SCHEMA = "auto-g16-protected-production-ingress-contract/1"
 OPERATION_VERSION = "legacy-root-fresh-observation/1"
@@ -669,6 +673,48 @@ def validate_legacy_fresh_root_observation_receipt(
     return copy.deepcopy(receipt)
 
 
+def validate_legacy_descriptor_relative_mutation_binding(
+    document: Any,
+) -> dict[str, Any]:
+    binding = _exact(
+        _rebuild_json(document),
+        {
+            "schema", "fixed_root", "fresh_receipt_sha256",
+            "descriptor_set_sha256", "production_factory_result_sha256",
+            "coordinator_id", "operation_identity",
+            "path_reopen_allowed", "automatic_retry",
+        },
+        "legacy mutation capability binding",
+    )
+    _require(
+        binding["schema"] == MUTATION_BINDING_SCHEMA
+        and binding["fixed_root"] == FIXED_REMOTE_ROOT
+        and binding["path_reopen_allowed"] is False
+        and binding["automatic_retry"] is False,
+        "legacy mutation binding policy differs",
+    )
+    for field in (
+        "fresh_receipt_sha256", "descriptor_set_sha256",
+        "production_factory_result_sha256",
+    ):
+        _sha(binding[field], f"mutation binding {field}")
+    _text(binding["coordinator_id"], "mutation coordinator id")
+    identity = _exact(
+        binding["operation_identity"],
+        {"module", "class", "method"},
+        "mutation operation identity",
+    )
+    _require(
+        identity == {
+            "module": MODULE_NAME,
+            "class": "_DescriptorRelativeMutationOperation",
+            "method": "perform_descriptor_relative_once",
+        },
+        "mutation operation identity differs",
+    )
+    return copy.deepcopy(binding)
+
+
 @dataclass(frozen=True, slots=True)
 class _FileSnapshot:
     path: Path
@@ -871,6 +917,8 @@ _CAPABILITY_TOKEN = object()
 _LEASE_TOKEN = object()
 _OWNER_TOKEN = object()
 _TEST_TOKEN = object()
+_MUTATION_TOKEN = object()
+_OPERATION_TOKEN = object()
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1529,6 +1577,314 @@ class SingleUseLegacyWorkspaceDescriptorCapability:
         raise TypeError("legacy workspace capability is not serializable")
 
 
+@dataclass(slots=True)
+class _MutationCapabilityState:
+    capability: object
+    factory_result: object
+    coordinator_claim: object
+    root_lease: ConsumedLegacyWorkspaceDescriptorLease
+    descriptor_set: _DescriptorSet
+    descriptor_handles: tuple[object, ...]
+    factory_module: types.ModuleType
+    factory_source: _FileSnapshot
+    factory_result_type: type
+    assert_method: Callable[..., Any]
+    exact_objects_method: Callable[..., Any]
+    operation: object
+    operation_method: Callable[[tuple[object, ...], tuple[str, ...]], Any]
+    operation_recorder: Callable[[tuple[object, ...], tuple[str, ...]], Any]
+    outcome_recorder: Callable[[str], None]
+    binding: bytes
+    lock: threading.Lock
+    outcome: str = "ready"
+
+
+_MUTATION_REGISTRY_LOCK = threading.Lock()
+_MUTATION_REGISTRY: dict[int, _MutationCapabilityState] = {}
+
+
+def _bind_production_factory_result(
+    result: object,
+) -> tuple[
+    types.ModuleType,
+    _FileSnapshot,
+    type,
+    Callable[..., Any],
+    Callable[..., Any],
+    object,
+    ConsumedLegacyWorkspaceDescriptorLease,
+]:
+    module = sys.modules.get(FACTORY_CONSUMER_MODULE_NAME)
+    path = _owner_path().with_name(f"{FACTORY_CONSUMER_MODULE_NAME}.py")
+    _require(
+        isinstance(module, types.ModuleType)
+        and path.is_file()
+        and not path.is_symlink()
+        and _module_origin(module) == (path.resolve(), path.resolve()),
+        "exact production factory-consumer module must load first",
+    )
+    source = _stable_source(path.resolve())
+    result_type = getattr(module, "SealedProtectedProductionFactoryResult", None)
+    assert_method = getattr(result_type, "assert_owner_sealed", None)
+    exact_objects_method = getattr(result_type, "exact_owner_objects", None)
+    _require(
+        isinstance(result_type, type)
+        and type(result) is result_type
+        and callable(assert_method)
+        and callable(exact_objects_method),
+        "production factory result class/method identity differs",
+    )
+    assert_method(result)
+    claim = exact_objects_method(result)
+    root_lease = getattr(claim, "root_lease", None)
+    _require(
+        type(root_lease)
+        is _ISSUED_TYPES["ConsumedLegacyWorkspaceDescriptorLease"],
+        "production factory result root lease identity differs",
+    )
+    root_lease.assert_current()
+    return (
+        module,
+        source,
+        result_type,
+        assert_method,
+        exact_objects_method,
+        claim,
+        root_lease,
+    )
+
+
+def _mutation_state(capability: object) -> _MutationCapabilityState:
+    with _MUTATION_REGISTRY_LOCK:
+        state = _MUTATION_REGISTRY.get(id(capability))
+    _require(
+        type(state) is _MutationCapabilityState and state.capability is capability,
+        "mutation capability owner-private state is unavailable",
+    )
+    return state
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class _DescriptorRelativeMutationOperation:
+    _recorder: Callable[[tuple[object, ...], tuple[str, ...]], Any]
+    _outcome_recorder: Callable[[str], None]
+    _seal: object
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_DescriptorRelativeMutationOperation":
+        raise TypeError("descriptor-relative mutation operations are owner-issued only")
+
+    @classmethod
+    def _for_testing(
+        cls,
+        recorder: Callable[[tuple[object, ...], tuple[str, ...]], Any],
+        outcome_recorder: Callable[[str], None],
+        *,
+        token: object,
+    ) -> "_DescriptorRelativeMutationOperation":
+        _require(
+            cls is _DescriptorRelativeMutationOperation
+            and token is _OPERATION_TOKEN
+            and callable(recorder)
+            and callable(outcome_recorder),
+            "descriptor-relative mutation operation identity differs",
+        )
+        value = object.__new__(cls)
+        object.__setattr__(value, "_recorder", recorder)
+        object.__setattr__(value, "_outcome_recorder", outcome_recorder)
+        object.__setattr__(value, "_seal", _OPERATION_TOKEN)
+        return value
+
+    def perform_descriptor_relative_once(
+        self,
+        handles: tuple[object, ...],
+        relative_components: tuple[str, ...],
+    ) -> Any:
+        _require(
+            type(self) is _DescriptorRelativeMutationOperation
+            and self._seal is _OPERATION_TOKEN
+            and type(handles) is tuple
+            and len(handles) == 3
+            and all(type(item) is object for item in handles)
+            and relative_components == ("project", "scratch"),
+            "descriptor-relative mutation invocation differs",
+        )
+        return self._recorder(handles, relative_components)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class SingleUseLegacyDescriptorRelativeMutationCapability:
+    _factory_result: object
+    _operation: _DescriptorRelativeMutationOperation
+    _binding: bytes
+    _seal: object
+
+    def __new__(
+        cls, *args: Any, **kwargs: Any
+    ) -> "SingleUseLegacyDescriptorRelativeMutationCapability":
+        raise TypeError("legacy mutation capabilities are owner-issued only")
+
+    @classmethod
+    def _from_owner(
+        cls,
+        *,
+        production_factory_result: object,
+        operation: _DescriptorRelativeMutationOperation,
+        token: object,
+    ) -> "SingleUseLegacyDescriptorRelativeMutationCapability":
+        _assert_bindings_current()
+        _require(
+            cls is _ISSUED_TYPES[
+                "SingleUseLegacyDescriptorRelativeMutationCapability"
+            ]
+            and token is _MUTATION_TOKEN
+            and type(operation) is _DescriptorRelativeMutationOperation,
+            "legacy mutation capability exact identities differ",
+        )
+        (
+            factory_module,
+            factory_source,
+            factory_result_type,
+            assert_method,
+            exact_objects_method,
+            coordinator_claim,
+            root_lease,
+        ) = _bind_production_factory_result(production_factory_result)
+        descriptor_set = root_lease._descriptor_set
+        descriptor_set.assert_current()
+        result_document = production_factory_result.document()
+        binding = {
+            "schema": MUTATION_BINDING_SCHEMA,
+            "fixed_root": FIXED_REMOTE_ROOT,
+            "fresh_receipt_sha256": root_lease.receipt_payload_sha256,
+            "descriptor_set_sha256": root_lease.descriptor_set_sha256,
+            "production_factory_result_sha256": result_document["payload_sha256"],
+            "coordinator_id": result_document["predecessors"]["coordinator_id"],
+            "operation_identity": {
+                "module": MODULE_NAME,
+                "class": "_DescriptorRelativeMutationOperation",
+                "method": "perform_descriptor_relative_once",
+            },
+            "path_reopen_allowed": False,
+            "automatic_retry": False,
+        }
+        value = object.__new__(cls)
+        binding_bytes = canonical_bytes(
+            validate_legacy_descriptor_relative_mutation_binding(binding)
+        )
+        object.__setattr__(value, "_factory_result", production_factory_result)
+        object.__setattr__(value, "_operation", operation)
+        object.__setattr__(value, "_binding", binding_bytes)
+        object.__setattr__(value, "_seal", _MUTATION_TOKEN)
+        state = _MutationCapabilityState(
+            capability=value,
+            factory_result=production_factory_result,
+            coordinator_claim=coordinator_claim,
+            root_lease=root_lease,
+            descriptor_set=descriptor_set,
+            descriptor_handles=descriptor_set._opaque_handles,
+            factory_module=factory_module,
+            factory_source=factory_source,
+            factory_result_type=factory_result_type,
+            assert_method=assert_method,
+            exact_objects_method=exact_objects_method,
+            operation=operation,
+            operation_method=_DescriptorRelativeMutationOperation.perform_descriptor_relative_once,
+            operation_recorder=operation._recorder,
+            outcome_recorder=operation._outcome_recorder,
+            binding=binding_bytes,
+            lock=threading.Lock(),
+        )
+        with _MUTATION_REGISTRY_LOCK:
+            _require(id(value) not in _MUTATION_REGISTRY, "mutation state already exists")
+            _MUTATION_REGISTRY[id(value)] = state
+        return value
+
+    def portable_binding(self) -> dict[str, Any]:
+        return json.loads(self._binding)
+
+    def outcome(self) -> str:
+        state = _mutation_state(self)
+        with state.lock:
+            return state.outcome
+
+    def consume_and_invoke_once(self) -> Any:
+        state = _mutation_state(self)
+        with state.lock:
+            _require(
+                state.outcome == "ready",
+                "legacy mutation capability is already consumed or uncertain",
+            )
+            _assert_bindings_current()
+            _require(
+                type(self) is _ISSUED_TYPES[
+                    "SingleUseLegacyDescriptorRelativeMutationCapability"
+                ]
+                and self._seal is _MUTATION_TOKEN
+                and self._factory_result is state.factory_result
+                and self._operation is state.operation
+                and self._binding == state.binding,
+                "legacy mutation capability snapshot differs",
+            )
+            _require(
+                type(state.operation) is _DescriptorRelativeMutationOperation
+                and state.operation._seal is _OPERATION_TOKEN
+                and state.operation._recorder is state.operation_recorder
+                and state.operation._outcome_recorder is state.outcome_recorder
+                and state.operation_method
+                is _DescriptorRelativeMutationOperation.perform_descriptor_relative_once,
+                "descriptor-relative mutation class/module/method identity differs",
+            )
+            (
+                factory_module,
+                factory_source,
+                factory_result_type,
+                assert_method,
+                exact_objects_method,
+                coordinator_claim,
+                root_lease,
+            ) = _bind_production_factory_result(state.factory_result)
+            _require(
+                factory_module is state.factory_module
+                and factory_source == state.factory_source
+                and factory_result_type is state.factory_result_type
+                and assert_method is state.assert_method
+                and exact_objects_method is state.exact_objects_method
+                and coordinator_claim is state.coordinator_claim
+                and root_lease is state.root_lease
+                and root_lease._descriptor_set is state.descriptor_set
+                and state.descriptor_set._opaque_handles
+                is state.descriptor_handles,
+                "production factory/coordinator/root owner identity drifted",
+            )
+            state.outcome = "effect_started_outcome_uncertain"
+            state.outcome_recorder("effect_started_outcome_uncertain")
+        result = state.operation_method(
+            state.operation,
+            state.descriptor_handles,
+            ("project", "scratch"),
+        )
+        with state.lock:
+            state.outcome_recorder("completed")
+            state.outcome = "completed"
+        return result
+
+    def __copy__(self) -> "SingleUseLegacyDescriptorRelativeMutationCapability":
+        raise TypeError("legacy mutation capability is not clonable")
+
+    def __deepcopy__(
+        self, memo: dict[int, Any]
+    ) -> "SingleUseLegacyDescriptorRelativeMutationCapability":
+        del memo
+        raise TypeError("legacy mutation capability is not clonable")
+
+    def __reduce__(self) -> object:
+        raise TypeError("legacy mutation capability is not serializable")
+
+    def __reduce_ex__(self, protocol: int) -> object:
+        del protocol
+        raise TypeError("legacy mutation capability is not serializable")
+
+
 class LegacyRootAuthorityContractOwner:
     """Issue stable legacy evidence and one effect-free fresh capability."""
 
@@ -1908,12 +2264,42 @@ class LegacyRootAuthorityContractOwner:
             self._fresh_used = True
             return capability
 
+    def issue_descriptor_relative_mutation_capability_once(
+        self,
+        *,
+        production_factory_result: object,
+        operation: _DescriptorRelativeMutationOperation,
+    ) -> SingleUseLegacyDescriptorRelativeMutationCapability:
+        return SingleUseLegacyDescriptorRelativeMutationCapability._from_owner(
+            production_factory_result=production_factory_result,
+            operation=operation,
+            token=_MUTATION_TOKEN,
+        )
+
+    def _mutation_operation_for_testing(
+        self,
+        recorder: Callable[[tuple[object, ...], tuple[str, ...]], Any],
+        outcome_recorder: Callable[[str], None] | None = None,
+        *,
+        _test_token: object,
+    ) -> _DescriptorRelativeMutationOperation:
+        _require(
+            _test_token is _TEST_TOKEN,
+            "descriptor-relative mutation test token differs",
+        )
+        return _DescriptorRelativeMutationOperation._for_testing(
+            recorder,
+            outcome_recorder or (lambda outcome: None),
+            token=_OPERATION_TOKEN,
+        )
+
 
 _ISSUED_TYPE_NAMES = (
     "LegacyStableRootIdentityEvidence",
     "LegacyFreshRootObservationReceipt",
     "ConsumedLegacyWorkspaceDescriptorLease",
     "SingleUseLegacyWorkspaceDescriptorCapability",
+    "SingleUseLegacyDescriptorRelativeMutationCapability",
     "LegacyRootAuthorityContractOwner",
 )
 _ISSUED_TYPES = {name: getattr(_OWNER_MODULE, name) for name in _ISSUED_TYPE_NAMES}

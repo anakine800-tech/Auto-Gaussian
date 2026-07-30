@@ -67,6 +67,11 @@ SCHEMA_PATHS = {
         / "contracts/legacy-root-authority/"
         "legacy-fresh-root-observation-receipt.schema.json"
     ),
+    "mutation": (
+        ROOT
+        / "contracts/legacy-root-authority/"
+        "legacy-descriptor-relative-mutation-capability-binding.schema.json"
+    ),
 }
 
 
@@ -102,6 +107,10 @@ class LegacyRootAuthoritySchemaDraft202012Tests(unittest.TestCase):
                 SUPPORT.ROOT_AUTHORITY
                 .validate_legacy_fresh_root_observation_receipt
             ),
+            "mutation": (
+                SUPPORT.ROOT_AUTHORITY
+                .validate_legacy_descriptor_relative_mutation_binding
+            ),
         }
 
     def setUp(self) -> None:
@@ -113,10 +122,26 @@ class LegacyRootAuthoritySchemaDraft202012Tests(unittest.TestCase):
             Path(self.temporary.name).resolve()
         )
         capability = self.fixture.capability()
+        mutation = {
+            "schema": SUPPORT.ROOT_AUTHORITY.MUTATION_BINDING_SCHEMA,
+            "fixed_root": SUPPORT.ROOT_AUTHORITY.FIXED_REMOTE_ROOT,
+            "fresh_receipt_sha256": "a" * 64,
+            "descriptor_set_sha256": "b" * 64,
+            "production_factory_result_sha256": "c" * 64,
+            "coordinator_id": "coordinator-1",
+            "operation_identity": {
+                "module": SUPPORT.ROOT_AUTHORITY.MODULE_NAME,
+                "class": "_DescriptorRelativeMutationOperation",
+                "method": "perform_descriptor_relative_once",
+            },
+            "path_reopen_allowed": False,
+            "automatic_retry": False,
+        }
         self.documents = {
             "stable": self.fixture.evidence.document(),
             "authorization": self.fixture.authorization,
             "receipt": capability.portable_receipt(),
+            "mutation": copy.deepcopy(mutation),
         }
 
     def tearDown(self) -> None:
@@ -180,6 +205,9 @@ class LegacyRootAuthoritySchemaDraft202012Tests(unittest.TestCase):
         receipt = copy.deepcopy(self.documents["receipt"])
         receipt["observed_root"]["reparse_point_detected"] = True
         cases.append(("receipt", receipt))
+        mutation = copy.deepcopy(self.documents["mutation"])
+        mutation["fixed_root"] = "/tmp"
+        cases.append(("mutation", mutation))
         receipt = copy.deepcopy(self.documents["receipt"])
         receipt["authority"][
             "synthetic_observation_authorizes_remote_effect"

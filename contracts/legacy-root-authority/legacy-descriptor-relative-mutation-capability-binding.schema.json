@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-legacy-descriptor-relative-mutation-capability-binding/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "fixed_root", "fresh_receipt_sha256",
+    "descriptor_set_sha256", "production_factory_result_sha256",
+    "coordinator_id", "operation_identity",
+    "path_reopen_allowed", "automatic_retry"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-legacy-descriptor-relative-mutation-capability-binding/1"},
+    "fixed_root": {"const": "/home/user100/SDL"},
+    "fresh_receipt_sha256": {"$ref": "#/$defs/sha"},
+    "descriptor_set_sha256": {"$ref": "#/$defs/sha"},
+    "production_factory_result_sha256": {"$ref": "#/$defs/sha"},
+    "coordinator_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+    },
+    "operation_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module", "class", "method"],
+      "properties": {
+        "module": {"const": "legacy_root_authority_contract"},
+        "class": {"const": "_DescriptorRelativeMutationOperation"},
+        "method": {"const": "perform_descriptor_relative_once"}
+      }
+    },
+    "path_reopen_allowed": {"const": false},
+    "automatic_retry": {"const": false}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}
