@@ -38,6 +38,26 @@ from tests import test_live_approval_effect_time_replay as LIVE_SUPPORT  # noqa:
 
 
 class ProtectedProductionFactoryConsumerTests(unittest.TestCase):
+    def registry_identity_snapshot(self) -> tuple:
+        with CONSUMER._RESULT_REGISTRY_LOCK:
+            return tuple(
+                sorted(
+                    (
+                        id(result),
+                        id(state),
+                        id(state.result),
+                        id(state.result_document_bytes),
+                        state.result_document_sha256,
+                        id(state.claim),
+                        id(state.coordinator_port),
+                        id(state.coordinator),
+                        id(state.coordinator_document_bytes),
+                        state.coordinator_document_sha256,
+                    )
+                    for result, state in CONSUMER._RESULT_REGISTRY.items()
+                )
+            )
+
     def valid_projection(self) -> dict:
         identity = {
             "project": "safejob",
@@ -323,6 +343,7 @@ class ProtectedProductionFactoryConsumerTests(unittest.TestCase):
     def test_missing_foreign_and_spliced_ports_stop_before_claim(self) -> None:
         before_plans = len(LEGACY._LEGACY_EFFECT_PLAN_BINDINGS)
         before_owners = len(LEGACY._LEGACY_EFFECT_OWNER_BINDINGS)
+        registry = self.registry_identity_snapshot()
         for value in ({}, types.SimpleNamespace()):
             with self.subTest(value=type(value).__name__):
                 with self.assertRaisesRegex(
@@ -335,6 +356,7 @@ class ProtectedProductionFactoryConsumerTests(unittest.TestCase):
         with self.assertRaises(Exception):
             CONSUMER.consume_protected_production_factory_once(port)
         self.assertFalse(port._claimed)
+        self.assertEqual(self.registry_identity_snapshot(), registry)
         self.assert_no_legacy_factory_objects(before_plans, before_owners)
 
     def test_already_consumed_port_and_partial_claim_failure_are_terminal(
@@ -344,9 +366,11 @@ class ProtectedProductionFactoryConsumerTests(unittest.TestCase):
         before_owners = len(LEGACY._LEGACY_EFFECT_OWNER_BINDINGS)
         port = self.make_port()
         self.consume(port)
+        registry = self.registry_identity_snapshot()
         with self.assertRaises(Exception):
             CONSUMER.consume_protected_production_factory_once(port)
         self.assertTrue(port._claimed)
+        self.assertEqual(self.registry_identity_snapshot(), registry)
         self.assert_no_legacy_factory_objects(before_plans, before_owners)
 
         failed = self.make_port()
@@ -371,6 +395,7 @@ class ProtectedProductionFactoryConsumerTests(unittest.TestCase):
         self.assertTrue(failed._claimed)
         with self.assertRaises(Exception):
             CONSUMER.consume_protected_production_factory_once(failed)
+        self.assertEqual(self.registry_identity_snapshot(), registry)
         self.assert_no_legacy_factory_objects(before_plans, before_owners)
 
     def test_concurrent_consumers_produce_exactly_one_result(self) -> None:
@@ -413,10 +438,18 @@ class ProtectedProductionFactoryConsumerTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             CONSUMER.SealedProtectedProductionFactoryResult()
         result = self.consume(self.make_port())
+        registry = self.registry_identity_snapshot()
+        state = CONSUMER._RESULT_REGISTRY[result]
         for operation in (copy.copy, copy.deepcopy, pickle.dumps):
             with self.subTest(operation=operation.__name__):
                 with self.assertRaises(Exception):
                     operation(result)
+                self.assertEqual(
+                    self.registry_identity_snapshot(),
+                    registry,
+                )
+                self.assertTrue(state.coordinator_port._claimed)
+                result.assert_owner_sealed()
 
     def test_module_factory_or_class_replacement_fails_before_claim(
         self,
@@ -474,6 +507,188 @@ class ProtectedProductionFactoryConsumerTests(unittest.TestCase):
                 "authorization_scope_sha256",
                 original,
             )
+
+    def test_rehashed_coordinator_id_replacement_is_not_owner_sealed(
+        self,
+    ) -> None:
+        result = self.consume(self.make_port())
+        state = CONSUMER._RESULT_REGISTRY[result]
+        registry = self.registry_identity_snapshot()
+        original = result._canonical_document
+        changed = result.document()
+        changed["predecessors"]["coordinator_id"] = (
+            "protected-job-runtime-coordinator-" + "f" * 64
+        )
+        changed["payload_sha256"] = CONSUMER._payload(changed)
+        changed["result_id"] = CONSUMER._result_id(changed)
+        object.__setattr__(
+            result,
+            "_canonical_document",
+            CONSUMER.canonical_bytes(changed),
+        )
+        try:
+            with self.assertRaises(
+                CONSUMER.ProtectedProductionFactoryConsumerError
+            ):
+                result.assert_owner_sealed()
+            self.assertEqual(self.registry_identity_snapshot(), registry)
+            self.assertIs(CONSUMER._RESULT_REGISTRY[result], state)
+            self.assertTrue(state.coordinator_port._claimed)
+        finally:
+            object.__setattr__(result, "_canonical_document", original)
+        result.assert_owner_sealed()
+
+    def test_private_slot_replacement_and_foreign_shape_fail_closed(
+        self,
+    ) -> None:
+        result = self.consume(self.make_port())
+        state = CONSUMER._RESULT_REGISTRY[result]
+        registry = self.registry_identity_snapshot()
+        for name, replacement in (
+            ("_canonical_document", b"{}"),
+            ("_claim", object()),
+            ("_seal", object()),
+        ):
+            with self.subTest(slot=name):
+                original = getattr(result, name)
+                object.__setattr__(result, name, replacement)
+                try:
+                    with self.assertRaises(
+                        CONSUMER.ProtectedProductionFactoryConsumerError
+                    ):
+                        result.assert_owner_sealed()
+                    self.assertEqual(
+                        self.registry_identity_snapshot(),
+                        registry,
+                    )
+                    self.assertIs(CONSUMER._RESULT_REGISTRY[result], state)
+                    self.assertTrue(state.coordinator_port._claimed)
+                finally:
+                    object.__setattr__(result, name, original)
+                result.assert_owner_sealed()
+
+        foreign = object.__new__(
+            CONSUMER.SealedProtectedProductionFactoryResult
+        )
+        for name in ("_canonical_document", "_claim", "_seal"):
+            object.__setattr__(foreign, name, getattr(result, name))
+        with self.assertRaisesRegex(
+            CONSUMER.ProtectedProductionFactoryConsumerError,
+            "owner-registered|seal differs",
+        ):
+            foreign.assert_owner_sealed()
+        self.assertEqual(self.registry_identity_snapshot(), registry)
+        self.assertNotIn(foreign, CONSUMER._RESULT_REGISTRY)
+        self.assertTrue(state.coordinator_port._claimed)
+        result.assert_owner_sealed()
+
+    def test_exact_coordinator_port_object_and_document_are_registry_bound(
+        self,
+    ) -> None:
+        result = self.consume(self.make_port())
+        state = CONSUMER._RESULT_REGISTRY[result]
+        registry = self.registry_identity_snapshot()
+        changed_bytes = memoryview(
+            state.coordinator_document_bytes
+        ).tobytes()
+        self.assertIsNot(changed_bytes, state.coordinator_document_bytes)
+        for target, name, replacement in (
+            (state.coordinator_port, "_coordinator", object()),
+            (state.coordinator_port, "_document", changed_bytes),
+            (state.coordinator, "_document", changed_bytes),
+        ):
+            with self.subTest(
+                target=type(target).__name__,
+                slot=name,
+            ):
+                original = getattr(target, name)
+                object.__setattr__(target, name, replacement)
+                try:
+                    with self.assertRaises(
+                        CONSUMER.ProtectedProductionFactoryConsumerError
+                    ):
+                        result.assert_owner_sealed()
+                    self.assertEqual(
+                        self.registry_identity_snapshot(),
+                        registry,
+                    )
+                    self.assertTrue(state.coordinator_port._claimed)
+                finally:
+                    object.__setattr__(target, name, original)
+                result.assert_owner_sealed()
+
+    def test_coordinator_method_replacement_stops_before_claim(
+        self,
+    ) -> None:
+        before_plans = len(LEGACY._LEGACY_EFFECT_PLAN_BINDINGS)
+        before_owners = len(LEGACY._LEGACY_EFFECT_OWNER_BINDINGS)
+        registry = self.registry_identity_snapshot()
+        bindings = (
+            (
+                COORDINATOR.SealedProtectedCoordinatorFactoryPort,
+                "document",
+            ),
+            (
+                COORDINATOR.SealedProtectedCoordinatorFactoryPort,
+                "assert_owner_sealed",
+            ),
+            (
+                COORDINATOR.SealedProtectedCoordinatorFactoryPort,
+                "claim_once",
+            ),
+            (
+                COORDINATOR.ClaimedProtectedCoordinatorFactoryPort,
+                "assert_owner_sealed",
+            ),
+            (
+                COORDINATOR.SealedProtectedJobRuntimeCoordinator,
+                "document",
+            ),
+            (
+                COORDINATOR.SealedProtectedJobRuntimeCoordinator,
+                "assert_current",
+            ),
+            (
+                COORDINATOR.SealedProtectedJobRuntimeCoordinator,
+                "_claim_factory_inputs_once",
+            ),
+        )
+        for coordinator_type, method_name in bindings:
+            with self.subTest(
+                coordinator_type=coordinator_type.__name__,
+                method=method_name,
+            ):
+                port = self.make_port()
+                original = getattr(coordinator_type, method_name)
+
+                def wrapper(
+                    *args: object,
+                    _original: object = original,
+                    **kwargs: object,
+                ) -> object:
+                    return _original(*args, **kwargs)
+
+                with mock.patch.object(
+                    coordinator_type,
+                    method_name,
+                    wrapper,
+                ):
+                    with self.assertRaisesRegex(
+                        CONSUMER.ProtectedProductionFactoryConsumerError,
+                        "coordinator method identity",
+                    ):
+                        CONSUMER.consume_protected_production_factory_once(
+                            port
+                        )
+                self.assertFalse(port._claimed)
+                self.assertEqual(
+                    self.registry_identity_snapshot(),
+                    registry,
+                )
+                self.assert_no_legacy_factory_objects(
+                    before_plans,
+                    before_owners,
+                )
 
     def test_source_has_no_factory_raw_owner_adapter_runner_or_write_call(
         self,

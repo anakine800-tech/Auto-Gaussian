@@ -15,9 +15,10 @@ import json
 import os
 import re
 import sys
+import threading
 import types
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import legacy_root_authority_contract as ROOT
 import legacy_rtwin_pbs as LEGACY
@@ -94,6 +95,21 @@ AUTHORITY = {
 
 class ProtectedProductionFactoryConsumerError(ValueError):
     """The exact production factory consumer boundary was not satisfied."""
+
+
+class _ResultOwnerState(NamedTuple):
+    result: Any
+    result_document_bytes: bytes
+    result_document_sha256: str
+    claim: Any
+    coordinator_port: Any
+    coordinator: Any
+    coordinator_document_bytes: bytes
+    coordinator_document_sha256: str
+
+
+_RESULT_REGISTRY_LOCK = threading.RLock()
+_RESULT_REGISTRY: dict[Any, _ResultOwnerState] = {}
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -371,15 +387,67 @@ def _plan_snapshot(plan: Any) -> dict[str, Any]:
     }
 
 
+def _assert_exact_coordinator_port(
+    coordinator_port: Any,
+    coordinator_document_bytes: bytes,
+) -> tuple[Any, dict[str, Any]]:
+    _require(
+        type(coordinator_port)
+        is COORDINATOR.SealedProtectedCoordinatorFactoryPort,
+        "consumer requires exact coordinator factory port",
+    )
+    _require(
+        type(coordinator_document_bytes) is bytes
+        and type(coordinator_port._document) is bytes,
+        "coordinator owner document bytes differ",
+    )
+    coordinator = coordinator_port._coordinator
+    _require(
+        type(coordinator)
+        is COORDINATOR.SealedProtectedJobRuntimeCoordinator,
+        "coordinator object identity differs",
+    )
+    _require(
+        coordinator_port._seal is COORDINATOR._PORT_TOKEN
+        and coordinator._seal is COORDINATOR._SEAL_TOKEN
+        and coordinator_port._document is coordinator_document_bytes
+        and coordinator._document is coordinator_document_bytes,
+        "coordinator port owner snapshot differs",
+    )
+    document = COORDINATOR.validate_protected_job_runtime_coordinator(
+        json.loads(coordinator_document_bytes)
+    )
+    _require(
+        canonical_bytes(document) == coordinator_document_bytes
+        and canonical_bytes(coordinator_port.document())
+        == coordinator_document_bytes
+        and canonical_bytes(coordinator.document())
+        == coordinator_document_bytes,
+        "coordinator owner document differs",
+    )
+    return coordinator, document
+
+
 def _assert_exact_claim(
     claim: Any,
-    coordinator_document: dict[str, Any],
+    coordinator_port: Any,
+    coordinator_document_bytes: bytes,
 ) -> tuple[
+    Any,
+    dict[str, Any],
     dict[str, Any],
     dict[str, Any],
     dict[str, Any],
     dict[str, Any],
 ]:
+    coordinator, coordinator_document = _assert_exact_coordinator_port(
+        coordinator_port,
+        coordinator_document_bytes,
+    )
+    _require(
+        coordinator_port._claimed is True,
+        "coordinator factory port claim state differs",
+    )
     _require(
         type(claim) is COORDINATOR.ClaimedProtectedCoordinatorFactoryPort,
         "consumer requires exact coordinator claim",
@@ -485,16 +553,32 @@ def _assert_exact_claim(
         and live["qsub_calls"] == 0,
         "live replay effect boundary differs",
     )
-    return receipt, live, resource, _plan_snapshot(plan)
+    return (
+        coordinator,
+        coordinator_document,
+        receipt,
+        live,
+        resource,
+        _plan_snapshot(plan),
+    )
 
 
 def _build_document(
-    coordinator_document: dict[str, Any],
+    coordinator_port: Any,
+    coordinator_document_bytes: bytes,
     claim: Any,
 ) -> dict[str, Any]:
-    receipt, live, resource, plan = _assert_exact_claim(
-        claim,
+    (
+        _coordinator,
         coordinator_document,
+        receipt,
+        live,
+        resource,
+        plan,
+    ) = _assert_exact_claim(
+        claim,
+        coordinator_port,
+        coordinator_document_bytes,
     )
     predecessors = coordinator_document["predecessors"]
     document = {
@@ -571,6 +655,8 @@ class SealedProtectedProductionFactoryResult:
         cls,
         document: dict[str, Any],
         claim: Any,
+        coordinator_port: Any,
+        coordinator_document_bytes: bytes,
         *,
         token: object,
     ) -> "SealedProtectedProductionFactoryResult":
@@ -580,65 +666,120 @@ class SealedProtectedProductionFactoryResult:
             and token is _RESULT_TOKEN,
             "production factory result seal differs",
         )
+        coordinator, coordinator_document = _assert_exact_coordinator_port(
+            coordinator_port,
+            coordinator_document_bytes,
+        )
+        _require(
+            coordinator_port._claimed is True
+            and document["predecessors"]["coordinator_id"]
+            == coordinator_document["coordinator_id"],
+            "result coordinator owner binding differs",
+        )
+        result_document_bytes = canonical_bytes(document)
         value = object.__new__(cls)
         object.__setattr__(
             value,
             "_canonical_document",
-            canonical_bytes(document),
+            result_document_bytes,
         )
         object.__setattr__(value, "_claim", claim)
         object.__setattr__(value, "_seal", _RESULT_TOKEN)
+        state = _ResultOwnerState(
+            result=value,
+            result_document_bytes=result_document_bytes,
+            result_document_sha256=hashlib.sha256(
+                result_document_bytes
+            ).hexdigest(),
+            claim=claim,
+            coordinator_port=coordinator_port,
+            coordinator=coordinator,
+            coordinator_document_bytes=coordinator_document_bytes,
+            coordinator_document_sha256=hashlib.sha256(
+                coordinator_document_bytes
+            ).hexdigest(),
+        )
+        with _RESULT_REGISTRY_LOCK:
+            _require(
+                value not in _RESULT_REGISTRY,
+                "production factory result is already registered",
+            )
+            _RESULT_REGISTRY[value] = state
         return value
 
     def document(self) -> dict[str, Any]:
-        return json.loads(self._canonical_document)
+        with _RESULT_REGISTRY_LOCK:
+            state = _RESULT_REGISTRY.get(self)
+            _require(
+                state is not None
+                and state.result is self
+                and self._canonical_document
+                is state.result_document_bytes,
+                "production factory result is not owner-registered",
+            )
+            return json.loads(state.result_document_bytes)
 
     def assert_owner_sealed(
         self,
     ) -> "SealedProtectedProductionFactoryResult":
         _assert_module_binding()
+        with _RESULT_REGISTRY_LOCK:
+            state = _RESULT_REGISTRY.get(self)
         _require(
             type(self) is SealedProtectedProductionFactoryResult
+            and state is not None
+            and state.result is self
             and self._seal is _RESULT_TOKEN
-            and type(self._canonical_document) is bytes,
+            and self._canonical_document
+            is state.result_document_bytes
+            and self._claim is state.claim,
             "production factory result seal differs",
         )
-        document = validate_protected_production_factory_result(
-            self.document()
-        )
-        coordinator_document = {
-            "coordinator_id": document["predecessors"]["coordinator_id"],
-            "identity": copy.deepcopy(document["identity"]),
-            "predecessors": {
-                "production_ingress_contract_id": document[
-                    "predecessors"
-                ]["production_ingress_contract_id"],
-                "runtime_contract_id": document["predecessors"][
-                    "runtime_contract_id"
-                ],
-                "runtime_uncertain_receipt_id": document[
-                    "predecessors"
-                ]["runtime_uncertain_receipt_id"],
-                "live_replay_capability_id": document["predecessors"][
-                    "live_replay_capability_id"
-                ],
-                "resource_replay_capability_id": document[
-                    "predecessors"
-                ]["resource_replay_capability_id"],
-                "resource_reservation_capability_id": document[
-                    "predecessors"
-                ]["resource_reservation_capability_id"],
-                "legacy_root_receipt_payload_sha256": document[
-                    "predecessors"
-                ]["legacy_root_receipt_payload_sha256"],
-                "legacy_root_authorization_scope_sha256": document[
-                    "predecessors"
-                ]["legacy_root_authorization_scope_sha256"],
-            },
-        }
-        rebuilt = _build_document(coordinator_document, self._claim)
+        if state is None:
+            raise ProtectedProductionFactoryConsumerError(
+                "production factory result is not owner-registered"
+            )
         _require(
-            canonical_bytes(rebuilt) == self._canonical_document,
+            type(state.result_document_bytes) is bytes
+            and hashlib.sha256(state.result_document_bytes).hexdigest()
+            == state.result_document_sha256
+            and type(state.coordinator_document_bytes) is bytes
+            and hashlib.sha256(
+                state.coordinator_document_bytes
+            ).hexdigest()
+            == state.coordinator_document_sha256,
+            "production factory result owner bytes differ",
+        )
+        coordinator, coordinator_document = _assert_exact_coordinator_port(
+            state.coordinator_port,
+            state.coordinator_document_bytes,
+        )
+        _require(
+            coordinator is state.coordinator,
+            "production factory result coordinator object differs",
+        )
+        document = validate_protected_production_factory_result(
+            json.loads(state.result_document_bytes)
+        )
+        _require(
+            document["predecessors"]["coordinator_id"]
+            == coordinator_document["coordinator_id"],
+            "production factory result coordinator id differs",
+        )
+        _require(
+            state.claim.root_lease.authorization_scope_sha256
+            == document["predecessors"][
+                "legacy_root_authorization_scope_sha256"
+            ],
+            "legacy root authorization scope differs",
+        )
+        rebuilt = _build_document(
+            state.coordinator_port,
+            state.coordinator_document_bytes,
+            state.claim,
+        )
+        _require(
+            canonical_bytes(rebuilt) == state.result_document_bytes,
             "production factory result owner objects differ",
         )
         return self
@@ -677,17 +818,28 @@ def consume_protected_production_factory_once(
         "consumer requires exact coordinator factory port",
     )
     factory_port.assert_owner_sealed()
-    coordinator_document = (
-        COORDINATOR.validate_protected_job_runtime_coordinator(
-            factory_port.document()
-        )
+    coordinator_document_bytes = factory_port._document
+    coordinator, _coordinator_document = _assert_exact_coordinator_port(
+        factory_port,
+        coordinator_document_bytes,
     )
     claim = factory_port.claim_once()
-    document = _build_document(coordinator_document, claim)
+    document = _build_document(
+        factory_port,
+        coordinator_document_bytes,
+        claim,
+    )
     result = SealedProtectedProductionFactoryResult._from_owner(
         document,
         claim,
+        factory_port,
+        coordinator_document_bytes,
         token=_RESULT_TOKEN,
+    )
+    _require(
+        result.assert_owner_sealed().exact_owner_objects() is claim
+        and coordinator is factory_port._coordinator,
+        "production factory result issuance binding differs",
     )
     return result.assert_owner_sealed()
 
@@ -735,6 +887,32 @@ _SOURCE_SNAPSHOT = _stable_source(_SOURCE)
 _COORDINATOR_MODULE = sys.modules.get(COORDINATOR.MODULE_NAME)
 _COORDINATOR_SOURCE = Path(COORDINATOR.__file__).resolve()
 _COORDINATOR_SOURCE_SNAPSHOT = _stable_source(_COORDINATOR_SOURCE)
+_COORDINATOR_BINDINGS = {
+    "SealedProtectedCoordinatorFactoryPort.document": (
+        COORDINATOR.SealedProtectedCoordinatorFactoryPort.document
+    ),
+    "SealedProtectedCoordinatorFactoryPort.assert_owner_sealed": (
+        COORDINATOR.SealedProtectedCoordinatorFactoryPort
+        .assert_owner_sealed
+    ),
+    "SealedProtectedCoordinatorFactoryPort.claim_once": (
+        COORDINATOR.SealedProtectedCoordinatorFactoryPort.claim_once
+    ),
+    "ClaimedProtectedCoordinatorFactoryPort.assert_owner_sealed": (
+        COORDINATOR.ClaimedProtectedCoordinatorFactoryPort
+        .assert_owner_sealed
+    ),
+    "SealedProtectedJobRuntimeCoordinator.document": (
+        COORDINATOR.SealedProtectedJobRuntimeCoordinator.document
+    ),
+    "SealedProtectedJobRuntimeCoordinator.assert_current": (
+        COORDINATOR.SealedProtectedJobRuntimeCoordinator.assert_current
+    ),
+    "SealedProtectedJobRuntimeCoordinator._claim_factory_inputs_once": (
+        COORDINATOR.SealedProtectedJobRuntimeCoordinator
+        ._claim_factory_inputs_once
+    ),
+}
 _LEGACY_MODULE = sys.modules.get("legacy_rtwin_pbs")
 _LEGACY_SOURCE = Path(LEGACY.__file__).resolve()
 _LEGACY_SOURCE_SNAPSHOT = _stable_source(_LEGACY_SOURCE)
@@ -778,6 +956,14 @@ def _assert_module_binding() -> None:
         == _COORDINATOR_SOURCE_SNAPSHOT,
         "coordinator module identity or bytes differ",
     )
+    for binding, value in _COORDINATOR_BINDINGS.items():
+        type_name, method_name = binding.split(".", 1)
+        coordinator_type = getattr(COORDINATOR, type_name, None)
+        _require(
+            isinstance(coordinator_type, type)
+            and getattr(coordinator_type, method_name, None) is value,
+            f"coordinator method identity differs: {binding}",
+        )
     _require(
         sys.modules.get("legacy_rtwin_pbs") is _LEGACY_MODULE
         and Path(LEGACY.__file__).resolve() == _LEGACY_SOURCE
