@@ -2,7 +2,21 @@
 
 ## Current mainline state
 
-Status date: 2026-07-22
+Status date: 2026-07-31
+
+Auto-Gaussian 2.6.0 is the current local source candidate. It closes only the
+offline v2.6 foundation already covered by local independent L3 evidence. No
+tag, push, pull request, merge, GitHub Release, deployment, Skill sync, or live
+smoke has occurred for 2.6.0.
+
+PR4 real production adapter wiring and provider, PR6 direct SSH/PBS, and
+dependent runtime/onboarding support are deferred to 2.6.1. Consequently this
+candidate does not claim a connected production adapter, an executable
+production provider, direct SSH/PBS support, or successful SSH, RTwin, PBS,
+Gaussian, upload, submission, retry, cancellation, cleanup, or scientific
+execution. All existing fail-closed gates remain unchanged.
+
+## Latest published release
 
 Auto-Gaussian 2.5.4 is the latest published release. Its annotated `v2.5.4`
 tag and GitHub Release bind the exact reviewed, green post-merge `main` commit;

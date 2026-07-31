@@ -5,6 +5,34 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-07-31
+
+### Added
+
+- Added the independently reviewed offline v2.6 foundation: legacy behavior
+  characterization, platform/profile and execution-authorization contracts,
+  protected owner/capability successors, deterministic local state, and
+  fail-closed legacy-effect handoff and coordination records.
+- Added compatibility-preserving remote-root policy and owner contracts while
+  keeping the legacy `legacy_rtwin_pbs` backend permanently below
+  `/home/user100/SDL`.
+
+### Scope
+
+- This local 2.6.0 candidate closes only the offline foundation that already
+  has local independent L3 evidence. PR4 real production wiring and provider,
+  PR6 direct SSH/PBS, onboarding dependent on those runtime capabilities, and
+  every live smoke are explicitly deferred to 2.6.1.
+- The candidate does not claim that a production adapter is connected, that a
+  provider can execute a real operation, or that direct SSH/PBS is supported.
+  Existing fail-closed production boundaries remain unchanged.
+
+### Safety
+
+- This metadata closure performs no tag, push, pull request, GitHub Release,
+  merge, deployment, Skill synchronization, SSH, RTwin, PBS, Gaussian, upload,
+  submission, cancellation, cleanup, retry, or live smoke.
+
 ## [2.5.4] - 2026-07-22
 
 ### Changed
@@ -497,7 +525,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.4...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.4...v2.6.0
 [2.5.4]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.0...v2.5.2

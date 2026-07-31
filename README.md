@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.5.4
+# Auto-G16 — Auto-Gaussian 2.6.0
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -81,7 +81,21 @@ Historical endpoint review or path acceptance `/1` remains readable for
 display/replay only and cannot open maturity, thermochemistry, asymmetric
 comparison or any live gate.
 
-## 2.5.4 current release
+## 2.6.0 local release candidate
+
+Auto-Gaussian 2.6.0 is the current local source candidate. It closes only the
+independently reviewed offline v2.6 foundation. It has not been tagged, pushed,
+opened as a pull request, merged, published as a GitHub Release, deployed, or
+exercised through a live smoke.
+
+PR4 real production adapter wiring and provider, PR6 direct SSH/PBS, and the
+runtime/onboarding claims that depend on them are deferred to 2.6.1. The 2.6.0
+candidate therefore does not claim an executable production provider, direct
+SSH/PBS support, or successful SSH, RTwin, PBS, Gaussian, upload, submission,
+retry, cancellation, cleanup, or scientific execution. Existing fail-closed
+boundaries remain in force.
+
+## 2.5.4 latest published release
 
 Auto-Gaussian 2.5.4 is the latest published release. Its annotated `v2.5.4`
 tag identifies the exact reviewed, green post-merge `main` commit recorded by
