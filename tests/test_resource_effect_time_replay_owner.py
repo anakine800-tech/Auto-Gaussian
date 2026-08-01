@@ -696,7 +696,7 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             "tests/fixtures/rtwin_pbs/execution_batch_review.template.json": "0ed5a0b26041923a046a4a159edb1c94fafa53666c58fef4c597f9eb27be24c8",
             ".github/workflows/offline-tests.yml": "4c8b90301f82e6afae553ae8b6ce8e88dd8bcfa439467fbaf915a25f89db1886",
             "scripts/audit_python_contract.py": "4fc49831bd0edbed3ec3b4260d2cf2801b80a70153f046b9d1773c5c97611a1f",
-            "skills/auto-g16-rtwin-pbs/SKILL.md": "7ff52818ab7504653693b57ec4f9521cbf0860d280f99f93985fc692e6302594",
+            "skills/auto-g16-rtwin-pbs/SKILL.md": "d5107598c2a5dac5c6cf875cd474d502621996282b3116729b7546bed63e2280",
             "skills/auto-g16-rtwin-pbs/scripts/resource_efficiency.py": "2cb86711a748cdd1d4929e5d8c52bf601b80221deab70b3eb5c80a3d4db9cb9b",
         }
         for relative, expected in frozen.items():
