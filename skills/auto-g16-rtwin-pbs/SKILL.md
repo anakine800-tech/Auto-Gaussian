@@ -136,13 +136,16 @@ the exact runtime/state capability once, and persists uncertainty before
 issuing local legacy effect-plan inputs. It does not construct an effect plan
 or raw owner, connect the adapter, or acquire reconciliation evidence.
 
-The additive production-ingress successor remains non-executable. Read
+The historical additive production-ingress successor remains non-executable. Read
 [references/protected-production-ingress-contract.md](references/protected-production-ingress-contract.md).
 It consumes only the exact sealed owner-consumer capability and its plan
 inputs, then issues one exact production ingress and one single-claim legacy
-factory port. Production `_submit_new()` remains unwired, the current legacy
-factory still accepts only the CLI transaction plan, and no effect plan, raw
-owner, adapter, runner or external effect is created or called.
+factory port. The v2.6.1 B1 production command now routes the reviewed
+`gaussian_auto.py auto`/legacy `submit` namespace through the fixed
+`LegacyTransportAdapter` into the pre-existing legacy transaction and sole raw
+effect owner. It adds no second qsub or effect-owner path. Dry-run remains
+effect-free; live execution still requires every exact input, resource,
+one-time approval and execution-batch gate described below.
 
 ## Non-negotiable filesystem boundary
 

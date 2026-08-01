@@ -22,7 +22,7 @@
     "scripts/protected_local_materialization.py": "e79a703c9f68a7d047210cf3b939caac06cef25f7d664ecece335ea5c444e2d7",
     "scripts/protected_legacy_effect_handoff.py": "ceb4ff659070f077b095a76fdcac589bda9dd5d217a5d6680f4bdb31c738d479",
     "scripts/protected_runtime_state_contract.py": "3c8a5b523c695b9ecba3345af5ab56a85fd4d578cfbd00832c07751e97d86d9f",
-    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "f100182aed304cb35d57c8a000b8bbb2960534cd1a43ae6828a53bbd6f45410b",
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "feb281b1acc149f0d2dff7a34e3150aa3391e7d3fe2d3e99b4354c645cf21a4a",
     "contracts/execution/protected-runtime-state-contract.schema.json": "0741d5b7b37abc49b1bfc6b465b0698cce3d11da6af719b532bc73a774e645c3",
     "contracts/execution/protected-runtime-state-receipt.schema.json": "dc39b4cdb659fd28f33824fd697a601f51d595c940acdf2fdad19d3edf94f8ee",
     "contracts/execution/protected-read-only-reconciliation-handoff.schema.json": "688583c48c7c55ae2a9d2cecc04b466b170cc7682e9a02bd935a97edd3903625",

@@ -25,7 +25,7 @@
     "tests/fixtures/rtwin_pbs/protected_owner_consumer_contract.json": "275be4d4e65ba8c74cff283e10de2a0679e3fad84b0dee01576d76db43c365f3",
     "scripts/protected_runtime_state_contract.py": "3c8a5b523c695b9ecba3345af5ab56a85fd4d578cfbd00832c07751e97d86d9f",
     "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
-    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "f100182aed304cb35d57c8a000b8bbb2960534cd1a43ae6828a53bbd6f45410b"
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "feb281b1acc149f0d2dff7a34e3150aa3391e7d3fe2d3e99b4354c645cf21a4a"
   },
   "successor_files": {
     ".github/workflows/offline-tests.yml": {

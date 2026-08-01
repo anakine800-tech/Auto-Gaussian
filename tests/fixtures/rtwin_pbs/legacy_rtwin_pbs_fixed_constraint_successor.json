@@ -75,7 +75,7 @@
     },
     "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
       "before_sha256": "89bc25ab8df2234168f1e6b722ad80190868d2c8dc2398b567c338f66ae94e75",
-      "sha256": "f100182aed304cb35d57c8a000b8bbb2960534cd1a43ae6828a53bbd6f45410b",
+      "sha256": "feb281b1acc149f0d2dff7a34e3150aa3391e7d3fe2d3e99b4354c645cf21a4a",
       "change_class": "additive_fixed_constraint_review_approval_audit_and_live_v12_owner",
       "legacy_semantics_changed": false
     },
