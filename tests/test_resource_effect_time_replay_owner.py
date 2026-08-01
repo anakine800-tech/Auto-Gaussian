@@ -686,7 +686,7 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             & forbidden_functions
         )
         frozen = {
-            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "feb281b1acc149f0d2dff7a34e3150aa3391e7d3fe2d3e99b4354c645cf21a4a",
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
             "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
             "skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py": "3a978dbfbf6d5111d50c087c3c2df775fd15d5cd3924ea063e5ae674bafc0cdb",
             "scripts/protected_owner_consumer_contract.py": "01fe0e30fdbd155e982962d8c4258d4d773d9d0de0b1323e119a6ab3573cd899",
@@ -696,7 +696,7 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             "tests/fixtures/rtwin_pbs/execution_batch_review.template.json": "0ed5a0b26041923a046a4a159edb1c94fafa53666c58fef4c597f9eb27be24c8",
             ".github/workflows/offline-tests.yml": "4c8b90301f82e6afae553ae8b6ce8e88dd8bcfa439467fbaf915a25f89db1886",
             "scripts/audit_python_contract.py": "4fc49831bd0edbed3ec3b4260d2cf2801b80a70153f046b9d1773c5c97611a1f",
-            "skills/auto-g16-rtwin-pbs/SKILL.md": "6e2c71e44b9d7af667da5d18dcc85b16afcb4da1a83cf0e34537c73bf7127d8e",
+            "skills/auto-g16-rtwin-pbs/SKILL.md": "7ff52818ab7504653693b57ec4f9521cbf0860d280f99f93985fc692e6302594",
             "skills/auto-g16-rtwin-pbs/scripts/resource_efficiency.py": "2cb86711a748cdd1d4929e5d8c52bf601b80221deab70b3eb5c80a3d4db9cb9b",
         }
         for relative, expected in frozen.items():

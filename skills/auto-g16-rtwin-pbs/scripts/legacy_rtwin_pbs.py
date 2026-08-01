@@ -8822,7 +8822,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watch.add_argument("--zombie-stability-seconds", type=int, default=10)
     watch.add_argument("--zombie-verify-seconds", type=int, default=5)
-    watch.set_defaults(auto_cleanup_zombie=True)
+    watch.set_defaults(auto_cleanup_zombie=False)
     add_connection_options(watch)
     watch.set_defaults(func=command_watch)
 
