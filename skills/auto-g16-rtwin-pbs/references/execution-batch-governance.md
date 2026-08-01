@@ -87,10 +87,11 @@ and, by default, a cumulative operator summary after 60 minutes from the
 provided prior-summary time (or batch creation). It does not mutate the
 ledger, submit, retry, cancel, edit chemistry or expand a search.
 
-This governance does not alter scheduler-zombie authority. The existing
-repeated-evidence policy remains the only automatic exact qdel path, applies
-only after results are fetched, and never authorizes cancellation or server
-file deletion.
+This governance does not alter scheduler-zombie authority. `watch` and `auto`
+never invoke `qdel`. The existing repeated-evidence policy applies only to an
+explicit separate `cleanup-zombie` command after results are fetched, and it
+never authorizes cancellation or server file deletion. Active cancellation is
+a separate `cancel` command with exact approval.
 
 ## Submission transaction and reconcile
 

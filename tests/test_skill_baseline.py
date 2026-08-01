@@ -271,6 +271,17 @@ class RepositoryBaselineTests(unittest.TestCase):
 
     def test_watch_and_fetch_default_to_no_automatic_zombie_cleanup(self) -> None:
         parser = PBS.build_parser()
+        skill = (ROOT / "skills/auto-g16-rtwin-pbs/SKILL.md").read_text()
+        failures = (
+            ROOT
+            / "skills/auto-g16-rtwin-pbs/references/environment-and-failures.md"
+        ).read_text()
+        self.assertRegex(
+            skill,
+            r"`watch` and `auto` never invoke\s+`qdel`",
+        )
+        self.assertIn("explicit separate `cleanup-zombie` command", skill)
+        self.assertIn("`watch` and `auto` never issue `qdel`", failures)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()
             local_dir = root / "bundle"

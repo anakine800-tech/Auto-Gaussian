@@ -26,7 +26,7 @@
     "contracts/execution/protected-runtime-state-contract.schema.json": "0741d5b7b37abc49b1bfc6b465b0698cce3d11da6af719b532bc73a774e645c3",
     "contracts/execution/protected-runtime-state-receipt.schema.json": "dc39b4cdb659fd28f33824fd697a601f51d595c940acdf2fdad19d3edf94f8ee",
     "contracts/execution/protected-read-only-reconciliation-handoff.schema.json": "688583c48c7c55ae2a9d2cecc04b466b170cc7682e9a02bd935a97edd3903625",
-    "tests/fixtures/rtwin_pbs/protected_runtime_state_contract.json": "3a1f11fe438d814b1931dd4e01254723e568e22b2d68d99d51904a4701743cd7"
+    "tests/fixtures/rtwin_pbs/protected_runtime_state_contract.json": "ee8389c7c1002d9139ecd1b85eebb514e47c24fdf70faa8a3c57df28135bb62f"
   },
   "successor_files": {
     ".github/workflows/offline-tests.yml": {

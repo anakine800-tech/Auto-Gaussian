@@ -22,7 +22,7 @@
     "scripts/protected_owner_consumer_contract.py": "01fe0e30fdbd155e982962d8c4258d4d773d9d0de0b1323e119a6ab3573cd899",
     "contracts/execution/protected-owner-consumer-contract.schema.json": "f5f6293ac71238e0033f667691e541855a6e5fd7421d84919086be0ffa844f82",
     "contracts/execution/protected-owner-submission-intent.schema.json": "3164dd94fde648421fb4304cd61412dea0d92edac6c4bc2021667f1182e412f4",
-    "tests/fixtures/rtwin_pbs/protected_owner_consumer_contract.json": "275be4d4e65ba8c74cff283e10de2a0679e3fad84b0dee01576d76db43c365f3",
+    "tests/fixtures/rtwin_pbs/protected_owner_consumer_contract.json": "9e1b2cc07f70484fb13590c1b9e8d15d23ddf62650b922747a0e8cf3a3337792",
     "scripts/protected_runtime_state_contract.py": "3c8a5b523c695b9ecba3345af5ab56a85fd4d578cfbd00832c07751e97d86d9f",
     "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
     "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e"
@@ -40,7 +40,7 @@
     },
     "skills/auto-g16-rtwin-pbs/SKILL.md": {
       "before_sha256": "b1dc8cec35e9e62d5349aa3c5712fd4b803547e6b2855287b602b93c5aa54060",
-      "sha256": "7ff52818ab7504653693b57ec4f9521cbf0860d280f99f93985fc692e6302594",
+      "sha256": "d5107598c2a5dac5c6cf875cd474d502621996282b3116729b7546bed63e2280",
       "change_class": "append_effect_free_production_ingress_navigation"
     },
     "skills/auto-g16-rtwin-pbs/deployment-package.json": {

@@ -154,7 +154,11 @@ one-time approval and execution-batch gate described below.
 - Refuse upload to any non-empty server project directory. Use a new project name; never overwrite implicitly.
 - Put Gaussian scratch in `/home/user100/SDL/<project>/scratch`, never `/tmp`.
 - Provide no server data deletion command. Never issue `rm`, `rmdir`, truncation, or recursive replacement. A future deletion requires exact paths, canonical containment proof, impact preview, and a separate final confirmation.
-- Use `qsub/qstat` only for PBS-owned state. Permit one exact automatic `qdel` for a repeatedly proven terminal scheduler zombie; require exact approval for cancellation of a queued or running job. Never access scheduler spool directories.
+- Use `qsub/qstat` only for PBS-owned state. `watch` and `auto` never invoke
+  `qdel`. A repeatedly proven terminal scheduler zombie may be handled only by
+  an explicit separate `cleanup-zombie` command; cancellation of a queued or
+  running job requires the separate `cancel` command and exact approval. Never
+  access scheduler spool directories.
 
 ## One-command workflow
 
@@ -216,7 +220,7 @@ one-time approval and execution-batch gate described below.
    submission chain. The low-level `submit` command
    independently validates the same shared receipt; `--confirmed` is only an
    additional command confirmation.
-5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. PBS and process evidence are fail-closed three-state observations: `present`, `absent`, or `unknown`. SSH failures, non-recognized command return codes and parse failures are `unknown`; they never prove interruption, self-purge, process absence or a zombie. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` with explicitly absent process evidence is not a running calculation, but one observation is only a zombie candidate. After a verified terminal fetch, `watch` automatically performs the repeated zombie audit and issues at most one exact `qdel` only if every cleanup check passes.
+5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. PBS and process evidence are fail-closed three-state observations: `present`, `absent`, or `unknown`. SSH failures, non-recognized command return codes and parse failures are `unknown`; they never prove interruption, self-purge, process absence or a zombie. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` with explicitly absent process evidence is not a running calculation, but one observation is only a zombie candidate. After a verified terminal fetch, `watch` records the evidence and stops without `qdel`; invoke the separately selected `cleanup-zombie` command only after its repeated-evidence gate passes.
    Package 4 collects qstat, session process, log size/mtime/tail/terminal counts,
    manifest, collection time, transport and freshness in one remote read-only
    snapshot call per job per poll. Conflicts, timeout, stale evidence or parse
@@ -453,12 +457,17 @@ immutable receipt. Cancellation never authorizes retry, cleanup or deletion.
 
 ## PBS zombie records
 
-Treat terminal scheduler-zombie cleanup as an automatic evidence-gated operation after results are fetched. This standing policy applies only to a repeatedly proven zombie bound to the exact local job record; it never authorizes cancellation of a queued or running job.
+Treat terminal scheduler-zombie cleanup as an explicit, evidence-gated operation
+after results are fetched. Ordinary `watch` and `auto` commands never issue
+`qdel`. The operator must separately invoke `cleanup-zombie` for a repeatedly
+proven zombie bound to the exact local job record. This does not authorize
+cancellation of a queued or running job; that requires a separate `cancel`
+command and exact approval.
 
 1. Run `diagnose-zombie` first. It binds the request to local `job.json`, requires `results_fetched: true`, and observes the same job twice at least 5 seconds apart.
 2. Classify `confirmed_scheduler_zombie` only when both observations show the exact PBS job name, PBS `R`, a present session ID with no session process, unchanged log size and mtime, and terminal Gaussian evidence. A Link1 workflow must have all expected normal terminations or a definite error termination.
-3. Record the exact project, job ID, evidence, and the fact that only scheduler state will change. No per-job confirmation is required after every eligibility check passes.
-4. Run `cleanup-zombie`, or let `watch --fetch` invoke it automatically. It diagnoses again, issues at most one exact `qdel <job-id>`, and verifies with `qstat`. `cleared` requires an accepted qdel outcome (`0` or explicit `Unknown Job Id`) and an explicit post-qdel `Unknown Job Id`; qdel, qstat, transport or parse failure is `cleanup_unverified`. Never retry `qdel` automatically.
+3. Record the exact project, job ID, evidence, and the fact that only scheduler state will change. Select the separate `cleanup-zombie` operation explicitly after every eligibility check passes.
+4. Run `cleanup-zombie` as its own command. It diagnoses again, issues at most one exact `qdel <job-id>`, and verifies with `qstat`. `watch --fetch` never invokes it. `cleared` requires an accepted qdel outcome (`0` or explicit `Unknown Job Id`) and an explicit post-qdel `Unknown Job Id`; qdel, qstat, transport or parse failure is `cleanup_unverified`. Never retry `qdel` automatically.
 5. If the record self-purges during diagnosis, report `self_purged` and issue no `qdel`. Refuse cleanup for `Q`, `H`, `E`, a live or unknown session, a changing log, a job-name mismatch, missing terminal evidence, or results not yet fetched.
 
 ```bash
@@ -469,7 +478,7 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
   --project example --job-id 565.master --input-stem example \
   --local-dir /path/to/bundle --stability-seconds 10
 
-# Automatic only after the repeated evidence gate passes
+# Explicit separate command only after the repeated evidence gate passes
 "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" "$HELPER" cleanup-zombie \
   --project example --job-id 565.master --input-stem example \
   --local-dir /path/to/bundle --stability-seconds 10 \

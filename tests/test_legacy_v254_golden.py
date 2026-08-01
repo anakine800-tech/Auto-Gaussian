@@ -308,6 +308,31 @@ class LegacyV254GoldenTests(unittest.TestCase):
             for action in historical_actions["build-input-approval"]
             if action["option_strings"] != ["--fixed-constraint-audit"]
         ]
+        watch_cleanup = next(
+            action
+            for action in historical_actions["watch"]
+            if action["dest"] == "auto_cleanup_zombie"
+        )
+        self.assertEqual(
+            watch_cleanup,
+            {
+                "subcommand": "watch",
+                "option_strings": ["--no-auto-cleanup-zombie"],
+                "dest": "auto_cleanup_zombie",
+                "action_class": "_StoreFalseAction",
+                "nargs": 0,
+                "required": False,
+                "default": {"type": "bool", "value": False},
+                "type_identity": None,
+                "choices": None,
+                "const": {"type": "bool", "value": False},
+                "metavar": {"type": "NoneType", "value": None},
+            },
+        )
+        # The golden records the released v2.5.4 default.  Preserve that
+        # historical fact while separately asserting the B1 successor's
+        # fail-closed no-automatic-qdel default above.
+        watch_cleanup["default"] = {"type": "bool", "value": True}
         self.assertEqual(
             canonical_sha256(historical_actions),
             expected["transport"]["action_semantics_sha256"],
@@ -467,7 +492,32 @@ class LegacyV254GoldenTests(unittest.TestCase):
                 with redirect_stdout(output):
                     submit_args.func(submit_args)
                 plan = json.loads(output.getvalue())
-                self.assertEqual(sorted(plan), expected["submit_dry_run_fields"])
+                successor_fields = {
+                    "effects",
+                    "fixed_remote_root",
+                    "planned_files",
+                    "resource",
+                }
+                self.assertEqual(
+                    sorted(set(plan) - successor_fields),
+                    expected["submit_dry_run_fields"],
+                )
+                self.assertEqual(
+                    set(plan) - set(expected["submit_dry_run_fields"]),
+                    successor_fields,
+                )
+                self.assertIs(plan["effects"], False)
+                self.assertEqual(plan["fixed_remote_root"], "/home/user100/SDL")
+                self.assertEqual(plan["planned_files"], plan["files"])
+                self.assertEqual(
+                    plan["resource"],
+                    {
+                        "resource_tier": None,
+                        "cores": None,
+                        "memory_gb": None,
+                        "walltime_seconds": None,
+                    },
+                )
                 self.assertFalse(plan["live_submission_ready"])
                 self.assertTrue(plan["input_approval"]["no_submission_authorization"])
 
