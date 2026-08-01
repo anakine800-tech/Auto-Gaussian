@@ -253,6 +253,7 @@ def command_auto(args) -> None:
         "--input-stem", input_stem, "--local-dir", args.local_dir,
         "--output-dir", str(output_dir), "--poll-seconds", str(args.poll_seconds),
         "--timeout-seconds", str(args.timeout_seconds), "--fetch",
+        "--no-auto-cleanup-zombie",
         "--execution-batch-ledger", args.execution_batch_ledger,
         "--attempt-id", summary["execution"]["attempt_id"],
         *connection_arguments(args),

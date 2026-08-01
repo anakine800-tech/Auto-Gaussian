@@ -6983,11 +6983,24 @@ def _execute_legacy_transaction_once(
         "local_dir": str(local_dir),
         "windows_dir": windows_dir,
         "remote_dir": remote_dir,
+        "fixed_remote_root": DEFAULT_REMOTE_ROOT,
+        "planned_files": [path.name for path in files],
         "files": [path.name for path in files],
         "input_sha256": job["input_sha256"],
+        "resource": (
+            execution_binding["resource_binding"]
+            if execution_binding is not None
+            else {
+                "resource_tier": plan.resource_tier,
+                "cores": plan.resource_cores,
+                "memory_gb": plan.resource_memory_gb,
+                "walltime_seconds": plan.walltime_seconds,
+            }
+        ),
         "input_approval": input_approval,
         "live_approval": live_approval,
         "live_submission_ready": live_submission_ready,
+        "effects": False if plan.dry_run else None,
     }
     if maturity is not None:
         output_plan = {"scientific_maturity": maturity, **output_plan}
@@ -8523,7 +8536,14 @@ class LegacyTransportAdapter:
         return AttestationBoundaryPlan.from_validated(request)
 
     def invoke_reserved_once(self, request: object) -> object:
-        """Fail closed until the separately approved actual adapter check exists."""
+        """Invoke the sole legacy transaction plan, or reject old placeholders."""
+
+        if type(request) is _LegacyTransactionPlan:
+            request._assert_owner_sealed()
+            return _execute_legacy_transaction_once(
+                request,
+                _transaction_token=_BACKEND_TRANSACTION_TOKEN,
+            )
 
         assert_sealed = getattr(request, "assert_owner_sealed", None)
         if not callable(assert_sealed):
@@ -8565,34 +8585,13 @@ class LegacyCLICompatibilityAdapter:
         self.backend = LegacyRTWinPBSBackend()
 
     def _submit_new(self, args: argparse.Namespace) -> None:
-        """Fail closed at the separately authorized non-executable live boundary.
+        """Route the unique production command into the existing transaction."""
 
-        Dry-run compatibility is handled by ``dispatch``.  A new live submit
-        must present the transport-authority successor; published /1 approvals
-        are replay-only and cannot express the second-hop handshake authority.
-        The current task deliberately does not execute Stage A/B or consume the
-        authorization because no exact live-smoke authority exists.
-        """
-
-        if not args.approval_record:
-            fail("new live submission requires auto-g16-execution-authorization/2")
-        approval_path = Path(args.approval_record).expanduser()
-        try:
-            authorization = TransportAuthorityReplay.from_successor_owner(
-                approval_path,
-                now=utc_now(),
-            )
-        except (ImportError, OSError, ValueError) as exc:
-            fail(f"transport authority successor was rejected: {exc}")
-        if authorization.backend_kind != self.backend.backend_kind:
-            fail("execution authorization selects a different backend")
-        if authorization.project != validate_project(args.project):
-            fail("execution authorization project differs from CLI")
-        fail(
-            "transport_integration_required: the /2 contract is recognized but full PR3 current-state "
-            "replay and transport receipt binding remain unwired; no authorization consumption or "
-            "external mutation occurred"
+        plan = _legacy_transaction_plan_from_cli_namespace(
+            args,
+            _factory_token=_BACKEND_TRANSACTION_TOKEN,
         )
+        self.backend.transport.invoke_reserved_once(plan)
 
     def dispatch(self, args: argparse.Namespace) -> None:
         # argparse functions belong to this same implementation module.  No
@@ -8823,7 +8822,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watch.add_argument("--zombie-stability-seconds", type=int, default=10)
     watch.add_argument("--zombie-verify-seconds", type=int, default=5)
-    watch.set_defaults(auto_cleanup_zombie=True)
+    watch.set_defaults(auto_cleanup_zombie=False)
     add_connection_options(watch)
     watch.set_defaults(func=command_watch)
 

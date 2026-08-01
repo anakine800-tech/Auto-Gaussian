@@ -284,6 +284,7 @@ class GaussianAutoGateTests(unittest.TestCase):
                         (bundle / "job.json").write_text(json.dumps({"job_id": "123.master", "input": "input.gjf"}), encoding="utf-8")
                         return subprocess.CompletedProcess(command, 0)
                     self.assertIn("watch", command); self.assertIn("--fetch", command)
+                    self.assertIn("--no-auto-cleanup-zombie", command)
                     deadline_index = command.index("--timeout-seconds") + 1
                     self.assertEqual(command[deadline_index], "120")
                     output.mkdir()

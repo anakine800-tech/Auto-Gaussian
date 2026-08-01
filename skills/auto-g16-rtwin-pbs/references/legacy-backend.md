@@ -12,12 +12,9 @@ immutable fetch, one-shot mutation and no-delete rules. The PR3 strict
 no-follow loader seals active attestation operations into non-executable plans.
 Scientific method/input/result owners are unchanged.
 
-New non-dry-run submission rejects historical live approvals and direct `/1`
-entry, recognizes only `auto-g16-execution-authorization/2` referencing an
-exact `auto-g16-execution-request/2`, then stops at
-`transport_integration_required` before persistent consumption or external
-mutation. The `/2` overlay adds only the fixed read-only second-hop handshake
-authority and hash-bound two-config profile closure; it does not execute it or
-expand mutation authority. PR4B must restart from the exact reviewed
-prerequisite commit. Complete PR4 then requires independent L3 review and a separately
-authorized exact live smoke; PR4A must not merge independently.
+The v2.6.1 B1 non-dry-run production command uses the existing exact-input,
+resource-bound one-time live approval and execution-batch transaction gates.
+After those gates pass, the fixed legacy adapter invokes the pre-existing sole
+transaction/effect chain. There is no backend selector, second qsub path,
+automatic retry, qdel, overwrite, cleanup or server-data deletion path. Live
+behavior remains unverified until a separately authorized exact live smoke.

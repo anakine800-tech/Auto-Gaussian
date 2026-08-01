@@ -19,7 +19,7 @@
     "scripts/protected_lifecycle_contract.py": "166e8b398922682eb94c9705e8ee1ccf0ed13546a75c49010090f7d7182fbafb",
     "scripts/protected_local_materialization.py": "e79a703c9f68a7d047210cf3b939caac06cef25f7d664ecece335ea5c444e2d7",
     "scripts/protected_legacy_effect_handoff.py": "ceb4ff659070f077b095a76fdcac589bda9dd5d217a5d6680f4bdb31c738d479",
-    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "f100182aed304cb35d57c8a000b8bbb2960534cd1a43ae6828a53bbd6f45410b",
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
     "contracts/execution/protected-submit-bundle.schema.json": "eb88ae46acc4f8a17166ffb2d124430782e8bb563817eba50fa34a80e8851ac4",
     "contracts/execution/local-state-binding.schema.json": "1fbafcbefeba67115e33a9ad5402dc19e0ac426945f51c995fea3c560132e270",
     "contracts/execution/protected-invocation-bundle.schema.json": "77274b93dabba0cbcbd93ff9b1c75b739a9a18c8d68d5a1078fa5b601de62197",

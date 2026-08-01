@@ -413,7 +413,7 @@ class ExecutionBatchReservationCapabilityTests(unittest.TestCase):
         frozen = {
             "contracts/rtwin-pbs/execution-batch-v3.schema.json": "9716eead155775cd266d1621378925510070f626ef4ea3e7c628846c39c5b7ff",
             "tests/fixtures/rtwin_pbs/execution_batch_review.template.json": "0ed5a0b26041923a046a4a159edb1c94fafa53666c58fef4c597f9eb27be24c8",
-            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "f100182aed304cb35d57c8a000b8bbb2960534cd1a43ae6828a53bbd6f45410b",
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
             "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
             "skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py": "3a978dbfbf6d5111d50c087c3c2df775fd15d5cd3924ea063e5ae674bafc0cdb",
             "scripts/protected_owner_consumer_contract.py": "01fe0e30fdbd155e982962d8c4258d4d773d9d0de0b1323e119a6ab3573cd899",

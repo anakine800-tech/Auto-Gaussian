@@ -172,38 +172,25 @@ class LegacyBackendTests(unittest.TestCase):
         finally:
             helper.tearDown()
 
-    def test_production_submit_rejects_legacy_authority_and_stops_at_live_boundary(self) -> None:
-        from tests.test_execution_authorization import ExecutionAuthorizationTests
-
+    def test_production_submit_routes_one_existing_transaction_plan_through_adapter(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            old_approval = root / "old-approval.json"
-            old_approval.write_text('{"schema":"auto-g16-live-submission-approval/9"}\n', encoding="utf-8")
-            old_args = legacy.build_parser().parse_args([
-                "submit", str(FIXTURE), "--project", "safejob",
-                "--local-dir", str(root / "old"), "--work-kind", "ordinary",
-                "--approval-record", str(old_approval), "--confirmed",
-            ])
-            with mock.patch.object(legacy, "run", side_effect=AssertionError("network boundary crossed")):
-                with self.assertRaisesRegex(SystemExit, "2"):
-                    legacy.LegacyCLICompatibilityAdapter().dispatch(old_args)
-
-        helper = ExecutionAuthorizationTests("test_exact_synthetic_happy_path_is_only_closure_valid_offline")
-        helper.setUp()
-        try:
             args = legacy.build_parser().parse_args([
-                "submit", str(helper.fixture["input_path"]), "--project", "safejob",
-                "--local-dir", str(helper.root / "new"), "--work-kind", "minimum",
-                "--approval-record", str(helper.fixture["authorization_path"]), "--confirmed",
+                "submit", str(FIXTURE), "--project", "safejob",
+                "--local-dir", str(root / "bundle"), "--work-kind", "ordinary",
+                "--confirmed",
             ])
-            with mock.patch.object(legacy, "utc_now", return_value=helper.now), mock.patch.object(
-                legacy, "run", side_effect=AssertionError("network boundary crossed")
-            ):
-                with self.assertRaisesRegex(SystemExit, "2"):
-                    legacy.LegacyCLICompatibilityAdapter().dispatch(args)
-            self.assertFalse((helper.root / "new").exists())
-        finally:
-            helper.tearDown()
+            with mock.patch.object(
+                legacy.LegacyTransportAdapter,
+                "invoke_reserved_once",
+            ) as invoked:
+                legacy.LegacyCLICompatibilityAdapter().dispatch(args)
+            invoked.assert_called_once()
+            plan = invoked.call_args.args[0]
+            self.assertIs(type(plan), legacy._LegacyTransactionPlan)
+            plan._assert_owner_sealed()
+            self.assertEqual(plan.project, "safejob")
+            self.assertFalse(plan.dry_run)
 
     def test_atomic_consumption_is_single_use_and_idempotency_aware(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
