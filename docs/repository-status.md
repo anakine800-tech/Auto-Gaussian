@@ -2,7 +2,33 @@
 
 ## Current mainline state
 
-Status date: 2026-07-22
+Status date: 2026-08-02
+
+Auto-Gaussian 2.6.1 is the current local source candidate. Local `main` remains
+at the 2.6.0 offline-foundation candidate; the 2.6.1 release-closure work is
+isolated from it and starts from exact B1 integration commit
+`66afc5fd808993901a4a616d423fd185c35f8ffa`, tree
+`4f6267255ebe9ff6130762901cd390bfb65795ff`.
+
+The B1 candidate supplies one legacy RTwin/PBS production path under the fixed
+`/home/user100/SDL` root, exact project/input/resource/approval binding,
+existing-directory refusal, at-most-once `qsub`, structured job state,
+read-only uncertainty reconciliation, and allowlist-bound monitoring, fetch
+and analysis. Ordinary watch and auto-watch never issue automatic `qdel`.
+
+The exact B1 candidate passed practical independent L3 with P0-P3 all zero and
+one frozen offline full suite of 1228 tests with 81 skips. A separately
+approved H2 smoke completed one normal Gaussian execution and exact fetch and
+analysis with per-hop hashes verified. Raw operational evidence remains
+machine-local and grants no authority for another live action.
+
+PR6 direct SSH/PBS, non-SDL roots, multi-backend generalization and unrelated
+architecture are deferred beyond 2.6.1. Interpreter-tamper hardening is also
+out of scope. No
+tag, push, pull request, merge into `main`, GitHub Release, formal publication,
+or further live authorization is claimed by this candidate.
+
+## Latest published release
 
 Auto-Gaussian 2.5.4 is the latest published release. Its annotated `v2.5.4`
 tag and GitHub Release bind the exact reviewed, green post-merge `main` commit;

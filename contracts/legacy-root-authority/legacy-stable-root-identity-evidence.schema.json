@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-legacy-stable-root-identity-evidence/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "fixed_root_policy",
+    "expected_root_identity",
+    "source_bindings",
+    "safety",
+    "stable_projection",
+    "evidence_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-legacy-stable-root-identity-evidence/1"},
+    "owner": {"$ref": "#/$defs/owner"},
+    "fixed_root_policy": {"$ref": "#/$defs/fixed_root_policy"},
+    "expected_root_identity": {"$ref": "#/$defs/identity"},
+    "source_bindings": {"$ref": "#/$defs/source_bindings"},
+    "safety": {"$ref": "#/$defs/safety"},
+    "stable_projection": {"$ref": "#/$defs/stable_projection"},
+    "evidence_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_id", "owner_version", "owner_source_sha256"],
+      "properties": {
+        "owner_id": {"const": "auto-g16-legacy-root-authority-owner"},
+        "owner_version": {"const": "legacy-root-authority-contract/1"},
+        "owner_source_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "fixed_root_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend_kind",
+        "allowed_root",
+        "remote_root_override_allowed",
+        "cli_override_allowed",
+        "environment_override_allowed",
+        "runtime_override_allowed",
+        "caller_override_allowed"
+      ],
+      "properties": {
+        "backend_kind": {"const": "legacy_rtwin_pbs"},
+        "allowed_root": {"const": "/home/user100/SDL"},
+        "remote_root_override_allowed": {"const": false},
+        "cli_override_allowed": {"const": false},
+        "environment_override_allowed": {"const": false},
+        "runtime_override_allowed": {"const": false},
+        "caller_override_allowed": {"const": false}
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "component_path_sha256", "identity_sha256"],
+      "properties": {
+        "ordinal": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$"},
+        "component_path_sha256": {"$ref": "#/$defs/sha"},
+        "identity_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical_root", "components", "identity_chain_sha256"],
+      "properties": {
+        "canonical_root": {"const": "/home/user100/SDL"},
+        "components": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/component"}
+        },
+        "identity_chain_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "source_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "legacy_root_authority_source_sha256",
+        "production_ingress_source_sha256",
+        "owner_consumer_source_sha256",
+        "runtime_state_source_sha256",
+        "facade_source_sha256",
+        "legacy_backend_source_sha256"
+      ],
+      "properties": {
+        "legacy_root_authority_source_sha256": {"$ref": "#/$defs/sha"},
+        "production_ingress_source_sha256": {"$ref": "#/$defs/sha"},
+        "owner_consumer_source_sha256": {"$ref": "#/$defs/sha"},
+        "runtime_state_source_sha256": {"$ref": "#/$defs/sha"},
+        "facade_source_sha256": {"$ref": "#/$defs/sha"},
+        "legacy_backend_source_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fresh_project_required",
+        "no_overwrite",
+        "no_symlink",
+        "no_reparse_point",
+        "no_root_escape",
+        "no_delete"
+      ],
+      "properties": {
+        "fresh_project_required": {"const": true},
+        "no_overwrite": {"const": true},
+        "no_symlink": {"const": true},
+        "no_reparse_point": {"const": true},
+        "no_root_escape": {"const": true},
+        "no_delete": {"const": true}
+      }
+    },
+    "stable_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_time_excluded",
+        "expiry_excluded",
+        "nonce_excluded",
+        "receipt_id_excluded",
+        "project_excluded",
+        "attempt_excluded",
+        "input_excluded",
+        "per_operation_values_excluded"
+      ],
+      "properties": {
+        "observation_time_excluded": {"const": true},
+        "expiry_excluded": {"const": true},
+        "nonce_excluded": {"const": true},
+        "receipt_id_excluded": {"const": true},
+        "project_excluded": {"const": true},
+        "attempt_excluded": {"const": true},
+        "input_excluded": {"const": true},
+        "per_operation_values_excluded": {"const": true}
+      }
+    }
+  }
+}

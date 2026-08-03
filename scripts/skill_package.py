@@ -4,7 +4,11 @@
 The Skill directory remains the normal source.  A reviewed
 ``deployment-package.json`` may additionally map repository-root contracts or
 owner validators into the installed Skill without duplicating those files in
-version control.
+version control. Frozen package snapshots may be extended without changing
+their Skill-tree bytes by closed, lexically ordered repository-root
+``config/deployment-package-supplements/<skill>/*.json`` manifests using the
+same schema. The compatibility ``package_files`` API remains bound to the
+base manifest; deployment uses the explicit successor API.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from typing import Any
 
 
 MANIFEST_NAME = "deployment-package.json"
+SUPPLEMENT_ROOT = Path("config/deployment-package-supplements")
 MANIFEST_SCHEMA = "auto-g16-named-skill-package/1"
 SKILL_RE = re.compile(r"^auto-g16-[a-z0-9]+(?:-[a-z0-9]+)*$")
 IGNORED_NAMES = {".DS_Store", "__pycache__"}
@@ -117,26 +122,26 @@ def _tree_files(root: Path, source: Path, target: Path, label: str) -> dict[Path
     return result
 
 
-def package_files(repo_root: Path, skill_name: str) -> dict[Path, Path]:
-    """Return exact installed-relative paths mapped to authoritative sources."""
-    repo_root = repo_root.expanduser().resolve()
-    require(SKILL_RE.fullmatch(skill_name) is not None, "deployment requires a valid auto-g16-* Skill name")
-    skill_root = _assert_contained_no_symlink(
-        repo_root, repo_root / "skills" / skill_name, "repository Skill"
+def _apply_manifest(
+    *,
+    repo_root: Path,
+    skill_name: str,
+    files: dict[Path, Path],
+    manifest_path: Path,
+    seen_sources: set[str],
+    label: str,
+) -> None:
+    manifest_path = _assert_contained_no_symlink(
+        repo_root,
+        manifest_path,
+        label,
     )
-    require((skill_root / "SKILL.md").is_file(), f"unknown repository Skill: {skill_name}")
-    files = _tree_files(repo_root, skill_root, Path(), "repository Skill")
-    manifest_path = skill_root / MANIFEST_NAME
-    if not manifest_path.exists():
-        return files
-    manifest_path = _assert_contained_no_symlink(repo_root, manifest_path, "deployment package")
     manifest = load_json(manifest_path)
     require(set(manifest) == {"schema", "skill", "include"}, "deployment package has unknown or missing fields")
     require(manifest["schema"] == MANIFEST_SCHEMA, "deployment package schema is unsupported")
     require(manifest["skill"] == skill_name, "deployment package Skill name mismatch")
     include = manifest["include"]
     require(isinstance(include, list) and include, "deployment package include must be non-empty")
-    seen_sources: set[str] = set()
     for index, raw in enumerate(include):
         require(isinstance(raw, dict) and set(raw) == {"source", "target"}, f"deployment include[{index}] is not closed")
         source_relative = _relative(raw["source"], f"deployment include[{index}].source")
@@ -153,6 +158,70 @@ def package_files(repo_root: Path, skill_name: str) -> dict[Path, Path]:
         overlap = sorted(path.as_posix() for path in set(files) & set(mapped))
         require(not overlap, f"deployment target conflicts with Skill source: {', '.join(overlap)}")
         files.update(mapped)
+
+
+def package_files(repo_root: Path, skill_name: str) -> dict[Path, Path]:
+    """Return the frozen base package mapped to authoritative sources."""
+    repo_root = repo_root.expanduser().resolve()
+    require(SKILL_RE.fullmatch(skill_name) is not None, "deployment requires a valid auto-g16-* Skill name")
+    skill_root = _assert_contained_no_symlink(
+        repo_root, repo_root / "skills" / skill_name, "repository Skill"
+    )
+    require((skill_root / "SKILL.md").is_file(), f"unknown repository Skill: {skill_name}")
+    files = _tree_files(repo_root, skill_root, Path(), "repository Skill")
+    seen_sources: set[str] = set()
+    manifest_path = skill_root / MANIFEST_NAME
+    if manifest_path.exists():
+        _apply_manifest(
+            repo_root=repo_root,
+            skill_name=skill_name,
+            files=files,
+            manifest_path=manifest_path,
+            seen_sources=seen_sources,
+            label="deployment package",
+        )
+    return dict(sorted(files.items(), key=lambda item: item[0].as_posix()))
+
+
+def package_files_with_supplements(
+    repo_root: Path,
+    skill_name: str,
+) -> dict[Path, Path]:
+    """Return the deployment package after explicit additive supplements."""
+    repo_root = repo_root.expanduser().resolve()
+    files = package_files(repo_root, skill_name)
+    seen_sources = {
+        source.relative_to(repo_root).as_posix()
+        for source in files.values()
+    }
+    supplements = repo_root / SUPPLEMENT_ROOT / skill_name
+    if supplements.exists():
+        supplements = _assert_contained_no_symlink(
+            repo_root,
+            supplements,
+            "deployment package supplement directory",
+        )
+        require(
+            supplements.is_dir(),
+            "deployment package supplement path must be a directory",
+        )
+        entries = sorted(supplements.iterdir())
+        require(entries, "deployment package supplement directory is empty")
+        for entry in entries:
+            require(
+                entry.is_file()
+                and not entry.is_symlink()
+                and entry.suffix == ".json",
+                f"deployment package supplement must be a regular JSON file: {entry.name}",
+            )
+            _apply_manifest(
+                repo_root=repo_root,
+                skill_name=skill_name,
+                files=files,
+                manifest_path=entry,
+                seen_sources=seen_sources,
+                label=f"deployment package supplement {entry.name}",
+            )
     return dict(sorted(files.items(), key=lambda item: item[0].as_posix()))
 
 
@@ -172,3 +241,16 @@ def inventory(root: Path) -> dict[str, str]:
 
 def package_inventory(repo_root: Path, skill_name: str) -> dict[str, str]:
     return {target.as_posix(): digest(source) for target, source in package_files(repo_root, skill_name).items()}
+
+
+def deployment_package_inventory(
+    repo_root: Path,
+    skill_name: str,
+) -> dict[str, str]:
+    return {
+        target.as_posix(): digest(source)
+        for target, source in package_files_with_supplements(
+            repo_root,
+            skill_name,
+        ).items()
+    }

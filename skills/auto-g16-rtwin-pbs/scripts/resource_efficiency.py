@@ -10,6 +10,7 @@ import math
 import os
 import re
 import secrets
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,10 @@ LEDGER_SCHEMA = "gaussian-execution-batch/3"
 SCHEDULER_SNAPSHOT_SCHEMA = "gaussian-scheduler-resource-snapshot/1"
 ACCOUNTING_SCHEMA = "gaussian-pbs-resource-accounting/1"
 BATCH_QSTAT_SCHEMA = "gaussian-batch-qstat-snapshot/1"
+RESERVATION_CAPABILITY_SCHEMA = (
+    "auto-g16-execution-batch-v3-reservation-capability/1"
+)
+RESERVATION_CAPABILITY_OWNER = "auto-g16-package-4"
 ACTIVE_STATES = {"queued", "running"}
 UNRESOLVED_STATES = {"submission_uncertain", "submitted", "queued", "running"}
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
@@ -34,6 +39,137 @@ MAX_SCHEDULER_CLOCK_SKEW_SECONDS = 5.0
 
 class ResourceError(ValueError):
     """Raised when a package-4 contract cannot be proved exactly."""
+
+
+class _ReservationCapabilityState:
+    __slots__ = ("lock", "status", "snapshot")
+
+    def __init__(self, snapshot: dict[str, Any]) -> None:
+        self.lock = threading.Lock()
+        self.status = "unclaimed"
+        self.snapshot = copy.deepcopy(snapshot)
+
+
+_CAPABILITY_ISSUE_TOKEN = object()
+_CAPABILITY_REGISTRY_LOCK = threading.Lock()
+_CAPABILITY_REGISTRY: dict[
+    "ExecutionBatchReservationCapability", _ReservationCapabilityState
+] = {}
+
+
+def _not_copyable(label: str) -> TypeError:
+    return TypeError(f"{label} cannot be copied, serialized, or replayed")
+
+
+class ClaimedExecutionBatchReservation:
+    """Owner-issued non-authorizing claim over one exact durable reservation."""
+
+    __slots__ = ("__snapshot",)
+
+    def __new__(cls, *_args: Any, **_kwargs: Any) -> "ClaimedExecutionBatchReservation":
+        raise TypeError("reservation claims are owner-issued only")
+
+    @classmethod
+    def _from_owner(
+        cls, snapshot: dict[str, Any], *, token: object
+    ) -> "ClaimedExecutionBatchReservation":
+        if token is not _CAPABILITY_ISSUE_TOKEN:
+            raise TypeError("reservation claims are owner-issued only")
+        value = object.__new__(cls)
+        object.__setattr__(value, "_ClaimedExecutionBatchReservation__snapshot", copy.deepcopy(snapshot))
+        return value
+
+    def exact_scope(self) -> dict[str, Any]:
+        return copy.deepcopy(self.__snapshot)
+
+    def __copy__(self) -> "ClaimedExecutionBatchReservation":
+        raise _not_copyable("reservation claims")
+
+    def __deepcopy__(
+        self, _memo: dict[int, Any]
+    ) -> "ClaimedExecutionBatchReservation":
+        raise _not_copyable("reservation claims")
+
+    def __reduce__(self) -> Any:
+        raise _not_copyable("reservation claims")
+
+    def __reduce_ex__(self, _protocol: int) -> Any:
+        raise _not_copyable("reservation claims")
+
+
+class ExecutionBatchReservationCapability:
+    """Registry-bound, single-consumption, non-authorizing reservation handle."""
+
+    __slots__ = ("__document",)
+
+    def __new__(
+        cls, *_args: Any, **_kwargs: Any
+    ) -> "ExecutionBatchReservationCapability":
+        raise TypeError("reservation capabilities are owner-issued only")
+
+    @classmethod
+    def _from_locked_owner(
+        cls,
+        document: dict[str, Any],
+        snapshot: dict[str, Any],
+        *,
+        token: object,
+    ) -> "ExecutionBatchReservationCapability":
+        if token is not _CAPABILITY_ISSUE_TOKEN:
+            raise TypeError("reservation capabilities are owner-issued only")
+        validate_reservation_capability_document(document)
+        value = object.__new__(cls)
+        object.__setattr__(
+            value,
+            "_ExecutionBatchReservationCapability__document",
+            copy.deepcopy(document),
+        )
+        with _CAPABILITY_REGISTRY_LOCK:
+            _CAPABILITY_REGISTRY[value] = _ReservationCapabilityState(snapshot)
+        return value
+
+    def portable_projection(self) -> dict[str, Any]:
+        return copy.deepcopy(self.__document)
+
+    def claim_once(self) -> ClaimedExecutionBatchReservation:
+        if type(self) is not ExecutionBatchReservationCapability:
+            raise ResourceError("reservation capability type differs")
+        with _CAPABILITY_REGISTRY_LOCK:
+            state = _CAPABILITY_REGISTRY.get(self)
+        if state is None:
+            raise ResourceError(
+                "reservation capability is absent from the owner-private registry"
+            )
+        with state.lock:
+            if state.status != "unclaimed":
+                raise ResourceError(
+                    "reservation capability has already been claimed"
+                )
+            state.status = "claiming"
+            try:
+                claim = ClaimedExecutionBatchReservation._from_owner(
+                    state.snapshot,
+                    token=_CAPABILITY_ISSUE_TOKEN,
+                )
+            except BaseException:
+                state.status = "failed"
+                raise
+            state.status = "claimed"
+            return claim
+
+    def __copy__(self) -> "ExecutionBatchReservationCapability":
+        raise _not_copyable("reservation capabilities")
+
+    def __deepcopy__(
+        self, _memo: dict[int, Any]
+    ) -> "ExecutionBatchReservationCapability":
+        raise _not_copyable("reservation capabilities")
+
+    def __reduce__(self) -> Any:
+        raise _not_copyable("reservation capabilities")
+
+    def __reduce_ex__(self, _protocol: int) -> Any:
+        raise _not_copyable("reservation capabilities")
 
 
 def legacy_resource_catalog_facts() -> dict[str, Any]:
@@ -66,6 +202,35 @@ def _exact(value: Any, fields: set[str], label: str) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != fields:
         raise ResourceError(f"{label} must contain exactly {sorted(fields)}")
     return value
+
+
+def _rebuild_fixed_builtin_mapping(
+    value: Any,
+    expected: dict[str, str | int | bool],
+    label: str,
+    *,
+    variable_types: dict[str, type] | None = None,
+) -> dict[str, Any]:
+    variable_types = variable_types or {}
+    source = _exact(value, set(expected) | set(variable_types), label)
+    rebuilt: dict[str, Any] = {}
+    for field, expected_value in expected.items():
+        actual = source[field]
+        if type(actual) is not type(expected_value) or actual != expected_value:
+            raise ResourceError(
+                f"{label}.{field} must be exact builtin "
+                f"{type(expected_value).__name__} {expected_value!r}"
+            )
+        rebuilt[field] = actual
+    for field, expected_type in variable_types.items():
+        actual = source[field]
+        if type(actual) is not expected_type:
+            raise ResourceError(
+                f"{label}.{field} must be exact builtin "
+                f"{expected_type.__name__}"
+            )
+        rebuilt[field] = actual
+    return rebuilt
 
 
 def _text(value: Any, label: str) -> str:
@@ -109,6 +274,149 @@ def _time(value: Any, label: str) -> datetime:
 
 def _payload(document: dict[str, Any], field: str = "payload_sha256") -> str:
     return execution_batch.digest_value({key: value for key, value in document.items() if key != field})
+
+
+def validate_reservation_capability_document(
+    document: dict[str, Any],
+) -> dict[str, Any]:
+    _exact(
+        document,
+        {
+            "schema",
+            "owner",
+            "capability_id",
+            "identity",
+            "ledger",
+            "reservation",
+            "resources",
+            "authority",
+            "failure_policy",
+            "payload_sha256",
+        },
+        "reservation capability projection",
+    )
+    if document["schema"] != RESERVATION_CAPABILITY_SCHEMA:
+        raise ResourceError("reservation capability schema differs")
+    if document["owner"] != RESERVATION_CAPABILITY_OWNER:
+        raise ResourceError("reservation capability owner differs")
+    capability_id = _text(document["capability_id"], "capability_id")
+    if re.fullmatch(r"reservation-capability-[a-f0-9]{64}", capability_id) is None:
+        raise ResourceError("reservation capability id is malformed")
+    identity = _exact(
+        document["identity"],
+        {
+            "scientific_task_id",
+            "attempt_id",
+            "idempotency_key_sha256",
+            "project",
+            "input_sha256",
+        },
+        "reservation capability identity",
+    )
+    if re.fullmatch(
+        r"scientific-task-[a-f0-9]{64}",
+        _text(identity["scientific_task_id"], "scientific_task_id"),
+    ) is None:
+        raise ResourceError("reservation capability scientific task is malformed")
+    if re.fullmatch(
+        r"qsub-attempt-[a-f0-9]{64}",
+        _text(identity["attempt_id"], "attempt_id"),
+    ) is None:
+        raise ResourceError("reservation capability attempt is malformed")
+    _sha(identity["idempotency_key_sha256"], "idempotency_key_sha256")
+    if PROJECT_RE.fullmatch(identity["project"]) is None:
+        raise ResourceError("reservation capability project is unsafe")
+    _sha(identity["input_sha256"], "input_sha256")
+    ledger = _exact(
+        document["ledger"],
+        {
+            "schema",
+            "batch_id",
+            "revision",
+            "resource_state_revision",
+            "resource_state_sha256",
+        },
+        "reservation capability ledger",
+    )
+    if ledger["schema"] != LEDGER_SCHEMA:
+        raise ResourceError("reservation capability requires ledger /3")
+    _text(ledger["batch_id"], "batch_id")
+    _number(ledger["revision"], "revision", integer=True)
+    _number(
+        ledger["resource_state_revision"],
+        "resource_state_revision",
+        integer=True,
+    )
+    _sha(ledger["resource_state_sha256"], "resource_state_sha256")
+    reservation = _rebuild_fixed_builtin_mapping(
+        document["reservation"],
+        {
+            "state": "submission_uncertain",
+            "ledger_write_durable": True,
+            "physical_attempt_count": 1,
+            "second_physical_attempt_permanently_forbidden": True,
+        },
+        "reservation capability reservation",
+        variable_types={"reserved_at": str},
+    )
+    _time(reservation["reserved_at"], "reserved_at")
+    resources = _exact(
+        document["resources"],
+        {
+            "policy_sha256",
+            "gate_id",
+            "gate_sha256",
+            "resource_tier",
+            "cores",
+            "memory_gb",
+            "walltime_seconds",
+            "estimated_core_hours",
+        },
+        "reservation capability resources",
+    )
+    _sha(resources["policy_sha256"], "policy_sha256")
+    _text(resources["gate_id"], "gate_id")
+    _sha(resources["gate_sha256"], "gate_sha256")
+    validate_resource_tuple(
+        resources["resource_tier"],
+        resources["cores"],
+        resources["memory_gb"],
+    )
+    if _number(resources["walltime_seconds"], "walltime_seconds", integer=True) < 1:
+        raise ResourceError("reservation capability walltime must be positive")
+    if _number(resources["estimated_core_hours"], "estimated_core_hours") <= 0:
+        raise ResourceError(
+            "reservation capability estimated core-hours must be positive"
+        )
+    _rebuild_fixed_builtin_mapping(
+        document["authority"],
+        {
+            "owner_private_registry_required": True,
+            "single_consumption": True,
+            "schema_valid_is_capability": False,
+            "portable_projection_authorizes": False,
+            "raw_reservation_json_is_authority": False,
+            "raw_reservation_sha256_is_authority": False,
+            "capability_authorizes_runner": False,
+            "capability_authorizes_transport": False,
+            "capability_authorizes_qsub": False,
+        },
+        "reservation capability authority",
+    )
+    _rebuild_fixed_builtin_mapping(
+        document["failure_policy"],
+        {
+            "durable_state": "submission_uncertain",
+            "automatic_retry": False,
+            "second_physical_attempt": False,
+            "second_qsub": False,
+            "reconciliation_only": "read_only",
+        },
+        "reservation capability failure policy",
+    )
+    if _sha(document["payload_sha256"], "payload_sha256") != _payload(document):
+        raise ResourceError("reservation capability payload hash mismatch")
+    return document
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -666,8 +974,11 @@ def reserve_attempt(
     live_approval_sha256: str, estimated_core_hours_evidence: dict[str, str],
     reserved_at: str, audit_reason: str, policy: dict[str, Any], gate: dict[str, Any],
     scheduler_snapshot: dict[str, Any], scheduler_artifact_sha256: str,
-    scheduler_artifact_size: int,
-) -> dict[str, Any]:
+    scheduler_artifact_size: int, _capability_token: object | None = None,
+) -> dict[str, Any] | ExecutionBatchReservationCapability:
+    if _capability_token not in {None, _CAPABILITY_ISSUE_TOKEN}:
+        raise ResourceError("reservation capability issuance is owner-private")
+    issue_capability = _capability_token is _CAPABILITY_ISSUE_TOKEN
     validate_policy(policy)
     _validate_gate_binding(gate, allow_historical=False)
     if gate["policy_id"] != policy["policy_id"] or gate["policy_sha256"] != policy["payload_sha256"]:
@@ -699,6 +1010,14 @@ def reserve_attempt(
         attempt_id = execution_batch.attempt_id_for(ledger["batch"]["batch_id"], key)
         if gate["execution_scope"] != {"scientific_task_id": task_id, "attempt_id": attempt_id, "project": project, "input_sha256": input_sha256}:
             raise ResourceError("resource gate execution scope differs from the reservation")
+        if any(
+            event["event_type"] == "reservation_capability_issued"
+            and event["details"].get("scientific_task_id") == task_id
+            for event in ledger["events"]
+        ):
+            raise ResourceError(
+                "a capability-bound physical attempt permanently forbids a second attempt"
+            )
         if any(item["idempotency_key"] == key for item in ledger["attempts"]):
             raise ResourceError("idempotency key is already reserved")
         if any(item["live_approval_id"] == live_approval_id or item["live_approval_sha256"] == live_approval_sha256 for item in ledger["attempts"]):
@@ -730,11 +1049,151 @@ def reserve_attempt(
             "scheduler_snapshot_sha256": gate["scheduler_snapshot"]["payload_sha256"],
             "reason": "resource policy and fresh gate consumed before any network",
         }, timestamp=reserved_at, important=True)
+        capability_id = "reservation-capability-" + execution_batch.digest_value(
+            {
+                "schema": RESERVATION_CAPABILITY_SCHEMA,
+                "batch_id": ledger["batch"]["batch_id"],
+                "scientific_task_id": task_id,
+                "attempt_id": attempt_id,
+                "idempotency_key_sha256": __import__("hashlib").sha256(
+                    key.encode("utf-8")
+                ).hexdigest(),
+                "project": project,
+                "input_sha256": input_sha256,
+                "gate_sha256": gate["gate_sha256"],
+            }
+        )
+        if issue_capability:
+            execution_batch._append_event(
+                ledger,
+                "reservation_capability_issued",
+                {
+                    "capability_id": capability_id,
+                    "scientific_task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "state": "submission_uncertain",
+                    "second_physical_attempt_permanently_forbidden": True,
+                    "portable_projection_authorizes": False,
+                    "reason": (
+                        "owner-private capability issued from the real /3 "
+                        "reservation lock"
+                    ),
+                },
+                timestamp=reserved_at,
+                important=True,
+            )
         ledger["revision"] += 1
         _seal(ledger, resource_changed=True)
         validate_ledger(ledger)
         execution_batch._atomic_write(path, ledger)
+        if issue_capability:
+            request = gate["requested_resources"]
+            document = {
+                "schema": RESERVATION_CAPABILITY_SCHEMA,
+                "owner": RESERVATION_CAPABILITY_OWNER,
+                "capability_id": capability_id,
+                "identity": {
+                    "scientific_task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "idempotency_key_sha256": __import__("hashlib").sha256(
+                        key.encode("utf-8")
+                    ).hexdigest(),
+                    "project": project,
+                    "input_sha256": input_sha256,
+                },
+                "ledger": {
+                    "schema": LEDGER_SCHEMA,
+                    "batch_id": ledger["batch"]["batch_id"],
+                    "revision": ledger["revision"],
+                    "resource_state_revision": ledger[
+                        "resource_state_revision"
+                    ],
+                    "resource_state_sha256": ledger[
+                        "resource_state_sha256"
+                    ],
+                },
+                "reservation": {
+                    "state": "submission_uncertain",
+                    "reserved_at": reserved_at,
+                    "ledger_write_durable": True,
+                    "physical_attempt_count": 1,
+                    "second_physical_attempt_permanently_forbidden": True,
+                },
+                "resources": {
+                    "policy_sha256": gate["policy_sha256"],
+                    "gate_id": gate["gate_id"],
+                    "gate_sha256": gate["gate_sha256"],
+                    "resource_tier": request["resource_tier"],
+                    "cores": request["cores"],
+                    "memory_gb": request["memory_gb"],
+                    "walltime_seconds": request["walltime_seconds"],
+                    "estimated_core_hours": request[
+                        "estimated_core_hours"
+                    ],
+                },
+                "authority": {
+                    "owner_private_registry_required": True,
+                    "single_consumption": True,
+                    "schema_valid_is_capability": False,
+                    "portable_projection_authorizes": False,
+                    "raw_reservation_json_is_authority": False,
+                    "raw_reservation_sha256_is_authority": False,
+                    "capability_authorizes_runner": False,
+                    "capability_authorizes_transport": False,
+                    "capability_authorizes_qsub": False,
+                },
+                "failure_policy": {
+                    "durable_state": "submission_uncertain",
+                    "automatic_retry": False,
+                    "second_physical_attempt": False,
+                    "second_qsub": False,
+                    "reconciliation_only": "read_only",
+                },
+                "payload_sha256": "",
+            }
+            document["payload_sha256"] = _payload(document)
+            snapshot = {
+                "schema": RESERVATION_CAPABILITY_SCHEMA,
+                "capability_id": capability_id,
+                "scientific_task_id": task_id,
+                "attempt_id": attempt_id,
+                "idempotency_key": key,
+                "project": project,
+                "input_sha256": input_sha256,
+                "resource_state_revision": ledger[
+                    "resource_state_revision"
+                ],
+                "resource_state_sha256": ledger[
+                    "resource_state_sha256"
+                ],
+                "submission_state": "submission_uncertain",
+                "second_physical_attempt_permanently_forbidden": True,
+                "authorizes_external_effect": False,
+            }
+            return ExecutionBatchReservationCapability._from_locked_owner(
+                document,
+                snapshot,
+                token=_CAPABILITY_ISSUE_TOKEN,
+            )
         return copy.deepcopy(attempt)
+
+
+def reserve_attempt_capability(
+    path: Path,
+    task_id: str,
+    **kwargs: Any,
+) -> ExecutionBatchReservationCapability:
+    """Reserve once and issue the registry-bound capability before unlocking."""
+
+    result = reserve_attempt(
+        path,
+        task_id,
+        _capability_token=_CAPABILITY_ISSUE_TOKEN,
+        **kwargs,
+    )
+    if type(result) is not ExecutionBatchReservationCapability:
+        raise ResourceError("reservation owner did not issue the exact capability")
+    return result
 
 
 def reconcile_attempt(path: Path, *args: Any, **kwargs: Any) -> dict[str, Any]:

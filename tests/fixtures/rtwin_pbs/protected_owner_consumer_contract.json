@@ -1,0 +1,85 @@
+{
+  "schema": "auto-g16-protected-owner-consumer-contract-fixture/1",
+  "base_commit": "c06f74cf267f75428c13c760ce8a4de6c3420b28",
+  "scope": {
+    "single_owner_consumer": true,
+    "exact_runtime_state_capability_only": true,
+    "pre_call_canonical_cache_replacement_zero_change": true,
+    "post_check_direct_sys_modules_mutation_protected": false,
+    "sibling_upload_bundle": true,
+    "protected_and_legacy_reservations_distinct": true,
+    "uncertain_before_effect": true,
+    "legacy_effect_plan_created": false,
+    "raw_effect_owner_created": false,
+    "effects_performed": false,
+    "live_actions": false
+  },
+  "frozen_predecessors": {
+    "scripts/protected_submit_contract.py": "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a",
+    "scripts/local_state_binding.py": "6a23eb9307fdf930d4055589dd08baff8dea9275470db7ea9154f6ffa324b6b5",
+    "scripts/protected_invocation_contract.py": "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28",
+    "scripts/protected_lifecycle_contract.py": "166e8b398922682eb94c9705e8ee1ccf0ed13546a75c49010090f7d7182fbafb",
+    "scripts/protected_local_materialization.py": "e79a703c9f68a7d047210cf3b939caac06cef25f7d664ecece335ea5c444e2d7",
+    "scripts/protected_legacy_effect_handoff.py": "ceb4ff659070f077b095a76fdcac589bda9dd5d217a5d6680f4bdb31c738d479",
+    "scripts/protected_runtime_state_contract.py": "3c8a5b523c695b9ecba3345af5ab56a85fd4d578cfbd00832c07751e97d86d9f",
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
+    "contracts/execution/protected-runtime-state-contract.schema.json": "0741d5b7b37abc49b1bfc6b465b0698cce3d11da6af719b532bc73a774e645c3",
+    "contracts/execution/protected-runtime-state-receipt.schema.json": "dc39b4cdb659fd28f33824fd697a601f51d595c940acdf2fdad19d3edf94f8ee",
+    "contracts/execution/protected-read-only-reconciliation-handoff.schema.json": "688583c48c7c55ae2a9d2cecc04b466b170cc7682e9a02bd935a97edd3903625",
+    "tests/fixtures/rtwin_pbs/protected_runtime_state_contract.json": "ee8389c7c1002d9139ecd1b85eebb514e47c24fdf70faa8a3c57df28135bb62f"
+  },
+  "successor_files": {
+    ".github/workflows/offline-tests.yml": {
+      "before_sha256": "053b7890fe763e4f7924dd449d70f329dedcfc7df7787e0f9466df3cfb20c475",
+      "sha256": "0a3dc434c33d937b2bdb9b7bb2d5a8a3e1227624f6028da55af428c8b42589cf",
+      "change_class": "add_owner_consumer_schema_to_required_pinned_draft_ladder"
+    },
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "93c488a3158e7b44d6572252f3ff16a88895f4906ad42fb3d05f978a6c1fe39c",
+      "sha256": "0e61cb2135ef163dabb02d46c284267a9a580bbe296e6d533d23819b1a71e3bb",
+      "change_class": "freeze_owner_consumer_schema_test_command"
+    },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "before_sha256": "0e24fad6cb18ec2afe6cb7390a5699a69efd2febbc694411046a690a4215627a",
+      "sha256": "b1dc8cec35e9e62d5349aa3c5712fd4b803547e6b2855287b602b93c5aa54060",
+      "change_class": "add_owner_consumer_successor_navigation"
+    },
+    "skills/auto-g16-rtwin-pbs/deployment-package.json": {
+      "before_sha256": "fba46780848eb03a8b573eff6377af7dc19d874c3db694ff3e2330401d1c9928",
+      "sha256": "710c188aecdee0c44675e32b33680ca3181bd327f1bdf6d1414caedd3de014ea",
+      "change_class": "add_owner_consumer_contract_to_named_package"
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_sha256": "2673da0005f44e4ff71cd9ee77bc9c369999706d730ffd96b95db240a2927453",
+      "sha256": "191951ebe12209ed8caea16ebbe26f066bb2d70c439d59321e95fa3f8c1f7952",
+      "change_class": "append_owner_consumer_successor_freeze_chain"
+    },
+    "tests/test_protected_local_materialization.py": {
+      "before_sha256": "fd75c1e16b2c705953fe1095b5bf355f44f1e6d2262143caf2dbc68985fb7dfa",
+      "sha256": "1c231561e6b9531f91db718d4164f883a2893acc6675a8585e9d27f180a698eb",
+      "change_class": "append_owner_consumer_package_and_freeze_chain"
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "before_sha256": "a1dd1048ceb6f42a9c98e4c16a20db74b8cfa9760ae9383350fb0f3f4b3f3f10",
+      "sha256": "479eb1c0433eb5322c3e15a684ff55fed10013f5c85a1749c833f2f5344056c1",
+      "change_class": "append_owner_consumer_package_and_freeze_chain"
+    }
+  },
+  "new_files": [
+    "scripts/protected_owner_consumer_contract.py",
+    "contracts/execution/protected-owner-consumer-contract.schema.json",
+    "contracts/execution/protected-owner-submission-intent.schema.json",
+    "docs/v2.6-protected-owner-consumer-contract.md",
+    "skills/auto-g16-rtwin-pbs/references/protected-owner-consumer-contract.md",
+    "tests/test_protected_owner_consumer_contract.py",
+    "tests/test_protected_owner_consumer_schema_draft202012.py",
+    "tests/fixtures/rtwin_pbs/protected_owner_consumer_contract.json"
+  ],
+  "remaining_gates": {
+    "legacy_effect_plan_factory_connected": false,
+    "raw_effect_owner_connected": false,
+    "adapter_connected": false,
+    "remote_reconciliation_observation_acquired": false,
+    "live_validation_performed": false
+  }
+}

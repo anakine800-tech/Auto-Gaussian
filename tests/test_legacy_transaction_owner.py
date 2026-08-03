@@ -135,7 +135,7 @@ class LegacyTransactionOwnerTests(unittest.TestCase):
             and isinstance(node.func, ast.Name)
             and node.func.id == "_execute_legacy_transaction_once"
         ]
-        self.assertEqual(len(owner_calls), 1)
+        self.assertEqual(len(owner_calls), 2)
 
         with tempfile.TemporaryDirectory() as raw:
             args = submit_args(Path(raw) / "bundle")
@@ -232,6 +232,19 @@ class LegacyTransactionOwnerTests(unittest.TestCase):
             wrapper_output["local_dir"] = "<LOCAL_DIR>"
             owner_output["local_dir"] = "<LOCAL_DIR>"
             self.assertEqual(wrapper_output, owner_output)
+            self.assertIs(wrapper_output["effects"], False)
+            self.assertEqual(wrapper_output["fixed_remote_root"], "/home/user100/SDL")
+            self.assertEqual(wrapper_output["remote_dir"], "/home/user100/SDL/goldenjob")
+            self.assertEqual(wrapper_output["planned_files"], wrapper_output["files"])
+            self.assertEqual(
+                wrapper_output["resource"],
+                {
+                    "resource_tier": None,
+                    "cores": None,
+                    "memory_gb": None,
+                    "walltime_seconds": None,
+                },
+            )
             stable_files = (
                 "legacy_v2_5_4_input.gjf",
                 "goldenjob.pbs",

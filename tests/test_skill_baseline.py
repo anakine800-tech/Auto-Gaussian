@@ -269,8 +269,19 @@ class RepositoryBaselineTests(unittest.TestCase):
             PBS.command_cancel(cancel_args)
         cancel_run.assert_not_called()
 
-    def test_watch_fetch_defaults_to_automatic_zombie_cleanup(self) -> None:
+    def test_watch_and_fetch_default_to_no_automatic_zombie_cleanup(self) -> None:
         parser = PBS.build_parser()
+        skill = (ROOT / "skills/auto-g16-rtwin-pbs/SKILL.md").read_text()
+        failures = (
+            ROOT
+            / "skills/auto-g16-rtwin-pbs/references/environment-and-failures.md"
+        ).read_text()
+        self.assertRegex(
+            skill,
+            r"`watch` and `auto` never invoke\s+`qdel`",
+        )
+        self.assertIn("explicit separate `cleanup-zombie` command", skill)
+        self.assertIn("`watch` and `auto` never issue `qdel`", failures)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()
             local_dir = root / "bundle"
@@ -299,7 +310,15 @@ class RepositoryBaselineTests(unittest.TestCase):
                     "--fetch",
                 ]
             )
-            self.assertTrue(args.auto_cleanup_zombie)
+            self.assertFalse(args.auto_cleanup_zombie)
+            plain_watch = parser.parse_args(
+                [
+                    "watch", "--project", "safe_job", "--job-id", "123.master",
+                    "--input-stem", "safe_job", "--local-dir", str(local_dir),
+                    "--output-dir", str(output_dir),
+                ]
+            )
+            self.assertFalse(plain_watch.auto_cleanup_zombie)
             final = {
                 "schema": "gaussian-job-inspection/2", "project": "safe_job",
                 "job_id": "123.master", "state": "completed",
@@ -336,7 +355,7 @@ class RepositoryBaselineTests(unittest.TestCase):
                 ) as automatic_cleanup,
             ):
                 PBS.command_watch(args)
-            automatic_cleanup.assert_called_once()
+            automatic_cleanup.assert_not_called()
             completion_updates = [
                 call for call in update.call_args_list if "results_fetched" in call.kwargs
             ]
@@ -350,10 +369,6 @@ class RepositoryBaselineTests(unittest.TestCase):
                 completion_updates[0].kwargs["result_file"],
                 str(output_dir / "result.json"),
             )
-            called_args = automatic_cleanup.call_args.args[0]
-            self.assertEqual(called_args.stability_seconds, 10)
-            self.assertEqual(called_args.verify_seconds, 5)
-
             disabled = parser.parse_args(
                 [
                     "watch",

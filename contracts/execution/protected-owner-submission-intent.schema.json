@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:auto-g16:protected-owner-submission-intent:1",
+  "title": "Auto-G16 v2.6 protected owner submission intent",
+  "$comment": "Structural validity only. This artifact records the distinct protected reservation authority and does not issue an in-process seal or authorize an effect.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "owner", "intent_id", "project", "job_name",
+    "remote_workdir", "input_sha256", "scientific_task_id",
+    "attempt_id", "idempotency_key_sha256", "live_approval_id",
+    "live_approval_artifact_sha256", "protected_authority",
+    "reserved_at", "automatic_retry", "intent_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-protected-owner-submission-intent/1"},
+    "owner": {"const": "auto-g16-protected-owner-consumer-owner"},
+    "intent_id": {
+      "type": "string",
+      "pattern": "^protected-owner-intent-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "project": {"$ref": "#/$defs/project"},
+    "job_name": {"$ref": "#/$defs/project"},
+    "remote_workdir": {
+      "type": "string",
+      "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+    },
+    "input_sha256": {"$ref": "#/$defs/sha"},
+    "scientific_task_id": {"type": "string", "minLength": 1},
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^qsub-attempt-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "idempotency_key_sha256": {"$ref": "#/$defs/sha"},
+    "live_approval_id": {"type": "string", "minLength": 1},
+    "live_approval_artifact_sha256": {"$ref": "#/$defs/sha"},
+    "protected_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "bundle_id", "bundle_payload_sha256",
+        "consumption_sha256", "submission_state",
+        "legacy_execution_batch_reservation_present",
+        "legacy_ledger_is_authority"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-protected-submit-reservation/1"},
+        "bundle_id": {
+          "type": "string",
+          "pattern": "^protected-submit-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "bundle_payload_sha256": {"$ref": "#/$defs/sha"},
+        "consumption_sha256": {"$ref": "#/$defs/sha"},
+        "submission_state": {"const": "submission_uncertain"},
+        "legacy_execution_batch_reservation_present": {"const": false},
+        "legacy_ledger_is_authority": {"const": false}
+      }
+    },
+    "reserved_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$(?![\\s\\S])"
+    },
+    "automatic_retry": {"const": false},
+    "intent_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "project": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+    }
+  }
+}

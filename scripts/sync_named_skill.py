@@ -13,7 +13,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-from skill_package import PackageError, digest, inventory, package_files, require
+from skill_package import (
+    PackageError,
+    digest,
+    inventory,
+    package_files_with_supplements,
+    require,
+)
 
 
 def _safe_target(installed_root: Path, relative: Path) -> Path:
@@ -31,7 +37,7 @@ def _safe_target(installed_root: Path, relative: Path) -> Path:
 def plan(
     repo_root: Path, installed_root: Path, skill_name: str
 ) -> tuple[dict[Path, Path], dict[str, str], dict[str, str], list[str], list[str], list[str]]:
-    sources = package_files(repo_root, skill_name)
+    sources = package_files_with_supplements(repo_root, skill_name)
     desired = {path.as_posix(): digest(source) for path, source in sources.items()}
     installed = inventory(installed_root / skill_name)
     missing = sorted(set(desired) - set(installed))

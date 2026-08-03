@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-protected-owner-consumer-contract/1",
+  "title": "Auto-G16 v2.6 protected owner consumer contract",
+  "$comment": "Structural validity only. Semantic owner replay and the exact non-copyable in-process capability are required; this Schema neither issues a seal nor performs an effect.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "owner", "contract_id", "runtime_state", "identity",
+    "intent", "upload_bundle", "effect_plan_projection",
+    "reconciliation_inputs", "owner_bindings", "validation", "scope",
+    "policy", "contract_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-protected-owner-consumer-contract/1"},
+    "owner": {"const": "auto-g16-protected-owner-consumer-owner"},
+    "contract_id": {
+      "type": "string",
+      "pattern": "^protected-owner-consumer-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "runtime_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "contract_id", "contract_payload_sha256", "journal_id",
+        "uncertain_receipt_id", "uncertain_receipt_payload_sha256",
+        "uncertain_state"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-protected-runtime-state-contract/1"},
+        "contract_id": {
+          "type": "string",
+          "pattern": "^protected-runtime-state-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "contract_payload_sha256": {"$ref": "#/$defs/sha"},
+        "journal_id": {
+          "type": "string",
+          "pattern": "^protected-runtime-journal-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "uncertain_receipt_id": {
+          "type": "string",
+          "pattern": "^protected-runtime-receipt-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "uncertain_receipt_payload_sha256": {"$ref": "#/$defs/sha"},
+        "uncertain_state": {"const": "effect_started_outcome_uncertain"}
+      }
+    },
+    "identity": {"$ref": "#/$defs/identity"},
+    "intent": {
+      "$ref": "urn:auto-g16:protected-owner-submission-intent:1"
+    },
+    "upload_bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "container_basename", "directory_path_sha256", "artifacts",
+        "artifact_count", "total_size_bytes", "expected_bindings_sha256",
+        "checksum_semantics", "predecessor_checksum_uploaded",
+        "predecessor_state_uploaded", "predecessor_ledger_uploaded"
+      ],
+      "properties": {
+        "container_basename": {
+          "const": ".auto-g16-protected-owner-consumer-v1"
+        },
+        "directory_path_sha256": {"$ref": "#/$defs/sha"},
+        "artifacts": {
+          "type": "array",
+          "minItems": 3,
+          "items": {"$ref": "#/$defs/artifact"}
+        },
+        "artifact_count": {"type": "integer", "minimum": 3},
+        "total_size_bytes": {"type": "integer", "minimum": 1},
+        "expected_bindings_sha256": {"$ref": "#/$defs/sha"},
+        "checksum_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema", "basename", "line_format", "line_order",
+            "self_entry", "intent_entry"
+          ],
+          "properties": {
+            "schema": {
+              "const": "auto-g16-legacy-checksum-manifest-semantics/1"
+            },
+            "basename": {"const": "checksums.sha256"},
+            "line_format": {
+              "const": "<sha256><two-spaces><basename><LF>"
+            },
+            "line_order": {
+              "type": "array",
+              "minItems": 2,
+              "items": {"$ref": "#/$defs/basename"}
+            },
+            "self_entry": {"const": false},
+            "intent_entry": {"const": true}
+          }
+        },
+        "predecessor_checksum_uploaded": {"const": false},
+        "predecessor_state_uploaded": {"const": false},
+        "predecessor_ledger_uploaded": {"const": false}
+      }
+    },
+    "effect_plan_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "legacy_module", "legacy_plan_class", "required_fields",
+        "effect_steps", "windows_directory_sha256", "remote_directory",
+        "first_hop_config_path_sha256", "first_hop_alias_sha256",
+        "second_hop_config_sha256", "server_alias_sha256",
+        "upload_timeout_seconds", "upload_hash_timeout_seconds",
+        "effect_plan_created", "raw_effect_owner_created"
+      ],
+      "properties": {
+        "legacy_module": {"const": "legacy_rtwin_pbs"},
+        "legacy_plan_class": {"const": "_LegacyEffectPlan"},
+        "required_fields": {
+          "const": [
+            "project", "windows_dir", "remote_dir", "files",
+            "expected_bindings", "upload_timeout_seconds",
+            "upload_hash_timeout_seconds", "attempt_id", "input_sha256",
+            "mac_ssh_config", "rtwin_alias", "windows_server_config",
+            "server_alias"
+          ]
+        },
+        "effect_steps": {
+          "const": [
+            "windows_directory_claim", "mac_to_windows_copy",
+            "windows_sha256", "server_directory_claim",
+            "windows_to_server_copy", "qsub_once"
+          ]
+        },
+        "windows_directory_sha256": {"$ref": "#/$defs/sha"},
+        "remote_directory": {
+          "type": "string",
+          "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+        },
+        "first_hop_config_path_sha256": {"$ref": "#/$defs/sha"},
+        "first_hop_alias_sha256": {"$ref": "#/$defs/sha"},
+        "second_hop_config_sha256": {"$ref": "#/$defs/sha"},
+        "server_alias_sha256": {"$ref": "#/$defs/sha"},
+        "upload_timeout_seconds": {"type": "integer", "minimum": 1},
+        "upload_hash_timeout_seconds": {"type": "integer", "minimum": 1},
+        "effect_plan_created": {"const": false},
+        "raw_effect_owner_created": {"const": false}
+      }
+    },
+    "reconciliation_inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "project", "attempt_id", "input_sha256", "intent_id",
+        "intent_file_sha256", "uncertain_receipt_id",
+        "uncertain_receipt_payload_sha256", "required_remote_observations",
+        "observation_acquired", "remote_read_performed",
+        "automatic_effect_authorized", "automatic_retry"
+      ],
+      "properties": {
+        "schema": {
+          "const": "auto-g16-protected-owner-consumer-reconciliation-inputs/1"
+        },
+        "project": {"$ref": "#/$defs/project"},
+        "attempt_id": {"$ref": "#/$defs/attempt"},
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "intent_id": {
+          "type": "string",
+          "pattern": "^protected-owner-intent-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "intent_file_sha256": {"$ref": "#/$defs/sha"},
+        "uncertain_receipt_id": {
+          "type": "string",
+          "pattern": "^protected-runtime-receipt-[a-f0-9]{64}$(?![\\s\\S])"
+        },
+        "uncertain_receipt_payload_sha256": {"$ref": "#/$defs/sha"},
+        "required_remote_observations": {
+          "const": [
+            "project_directory", "submission_intent",
+            "submission_receipt", "qstat_exact_attempt"
+          ]
+        },
+        "observation_acquired": {"const": false},
+        "remote_read_performed": {"const": false},
+        "automatic_effect_authorized": {"const": false},
+        "automatic_retry": {"const": false}
+      }
+    },
+    "owner_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consumer_owner_source_sha256", "runtime_owner_source_sha256",
+        "legacy_owner_source_sha256"
+      ],
+      "properties": {
+        "consumer_owner_source_sha256": {"$ref": "#/$defs/sha"},
+        "runtime_owner_source_sha256": {"$ref": "#/$defs/sha"},
+        "legacy_owner_source_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "validation": {"$ref": "#/$defs/validation"},
+    "scope": {"$ref": "#/$defs/scope"},
+    "policy": {"$ref": "#/$defs/policy"},
+    "contract_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "project": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+    },
+    "attempt": {
+      "type": "string",
+      "pattern": "^qsub-attempt-[a-f0-9]{64}$(?![\\s\\S])"
+    },
+    "basename": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$(?![\\s\\S])"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "attempt_id", "input_sha256"],
+      "properties": {
+        "project": {"$ref": "#/$defs/project"},
+        "attempt_id": {"$ref": "#/$defs/attempt"},
+        "input_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "relative_name", "order", "sha256", "size_bytes"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "relative_name": {"$ref": "#/$defs/basename"},
+        "order": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft_schema_structural_only", "public_validator_semantic_projection",
+        "owner_replay_required", "in_process_seal_required",
+        "schema_issues_seal"
+      ],
+      "properties": {
+        "draft_schema_structural_only": {"const": true},
+        "public_validator_semantic_projection": {"const": true},
+        "owner_replay_required": {"const": true},
+        "in_process_seal_required": {"const": true},
+        "schema_issues_seal": {"const": false}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bind_exact_runtime_state_capability",
+        "materialize_additive_sibling_upload_bundle",
+        "publish_successor_submission_intent",
+        "publish_replacement_checksum_manifest",
+        "consume_runtime_state_once", "persist_uncertain_before_effect",
+        "issue_local_effect_plan_inputs", "create_legacy_transaction_plan",
+        "create_legacy_effect_plan", "create_raw_effect_owner",
+        "invoke_adapter", "invoke_runner", "transfer", "submit",
+        "remote_read", "retry", "cancel", "cleanup", "delete"
+      ],
+      "properties": {
+        "bind_exact_runtime_state_capability": {"const": true},
+        "materialize_additive_sibling_upload_bundle": {"const": true},
+        "publish_successor_submission_intent": {"const": true},
+        "publish_replacement_checksum_manifest": {"const": true},
+        "consume_runtime_state_once": {"const": true},
+        "persist_uncertain_before_effect": {"const": true},
+        "issue_local_effect_plan_inputs": {"const": true},
+        "create_legacy_transaction_plan": {"const": false},
+        "create_legacy_effect_plan": {"const": false},
+        "create_raw_effect_owner": {"const": false},
+        "invoke_adapter": {"const": false},
+        "invoke_runner": {"const": false},
+        "transfer": {"const": false},
+        "submit": {"const": false},
+        "remote_read": {"const": false},
+        "retry": {"const": false},
+        "cancel": {"const": false},
+        "cleanup": {"const": false},
+        "delete": {"const": false}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "single_owner_use", "single_plan_input_claim",
+        "pre_call_canonical_cache_replacement_rejected",
+        "post_check_direct_sys_modules_mutation_protected",
+        "predecessor_directories_unchanged", "authorities_remain_distinct",
+        "legacy_ledger_reservation_present",
+        "uncertain_receipt_durable_before_first_effect",
+        "read_only_reconciliation_only_after_uncertain",
+        "automatic_retry", "automatic_cancel", "automatic_cleanup",
+        "automatic_delete", "automatic_rollback", "historical_migration"
+      ],
+      "properties": {
+        "single_owner_use": {"const": true},
+        "single_plan_input_claim": {"const": true},
+        "pre_call_canonical_cache_replacement_rejected": {"const": true},
+        "post_check_direct_sys_modules_mutation_protected": {"const": false},
+        "predecessor_directories_unchanged": {"const": true},
+        "authorities_remain_distinct": {"const": true},
+        "legacy_ledger_reservation_present": {"const": false},
+        "uncertain_receipt_durable_before_first_effect": {"const": true},
+        "read_only_reconciliation_only_after_uncertain": {"const": true},
+        "automatic_retry": {"const": false},
+        "automatic_cancel": {"const": false},
+        "automatic_cleanup": {"const": false},
+        "automatic_delete": {"const": false},
+        "automatic_rollback": {"const": false},
+        "historical_migration": {"const": false}
+      }
+    }
+  }
+}

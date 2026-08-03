@@ -69,13 +69,13 @@
     },
     "skills/auto-g16-rtwin-pbs/scripts/gaussian_auto.py": {
       "before_sha256": "ccd4ef31684d5af89dd0c7e6301b7f677feb42ca51d0e3dad8fcb669f09de992",
-      "sha256": "a9b6f39238ea9af596266b9b91d71d4ff5bd5583eb60ecb5c94ecfa72fffd39a",
+      "sha256": "24bf69cecf0e8e39baab6c539edb4a2b77be7c8924f46e8fd9ac8510b8d370da",
       "change_class": "expose_fixed_constraint_live_contract_in_one_command_help",
       "legacy_semantics_changed": false
     },
     "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
       "before_sha256": "89bc25ab8df2234168f1e6b722ad80190868d2c8dc2398b567c338f66ae94e75",
-      "sha256": "f100182aed304cb35d57c8a000b8bbb2960534cd1a43ae6828a53bbd6f45410b",
+      "sha256": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
       "change_class": "additive_fixed_constraint_review_approval_audit_and_live_v12_owner",
       "legacy_semantics_changed": false
     },
@@ -88,7 +88,7 @@
     },
     "tests/test_legacy_v254_golden.py": {
       "before_sha256": "e7ca190d10ba0ccb9fc4e9f41bf6a23cca04265f342de8eb6bbf11ed89b197ad",
-      "sha256": "b0316ebd861b265e5b3b57b957bf6324f7c02c2279148f521309afbf72313c08",
+      "sha256": "3521d643ec51d2e45f3af850dd781762a63eff981fda3fe90b8285ad480bf265",
       "change_class": "preserve_exact_historical_cli_projection_and_declare_successor_additions",
       "legacy_semantics_changed": false
     },

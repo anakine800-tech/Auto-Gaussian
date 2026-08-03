@@ -712,7 +712,7 @@ class TransportAuthorityClosureTests(unittest.TestCase):
             spec.loader.exec_module(module)
             self.assertEqual(module.validate_execution_request_v2(self.request_v2), self.request_v2)
 
-    def test_pr4a_recognition_remains_offline_and_submit_stops_before_transport(self) -> None:
+    def test_pr4a_recognition_and_unique_b1_legacy_effect_chain_are_bound(self) -> None:
         source = (ROOT / "scripts/transport_authority_closure.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         imports: set[str] = set()
@@ -725,7 +725,71 @@ class TransportAuthorityClosureTests(unittest.TestCase):
         model_source = (ROOT / "skills/auto-g16-rtwin-pbs/scripts/execution_models.py").read_text(encoding="utf-8")
         backend_source = (ROOT / "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py").read_text(encoding="utf-8")
         self.assertIn("TransportAuthorityReplay", model_source)
-        self.assertIn("transport_integration_required", backend_source)
+        backend_tree = ast.parse(backend_source)
+
+        def method(class_name: str, method_name: str) -> ast.FunctionDef:
+            owner = next(
+                node
+                for node in backend_tree.body
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            )
+            return next(
+                node
+                for node in owner.body
+                if isinstance(node, ast.FunctionDef) and node.name == method_name
+            )
+
+        def function(function_name: str) -> ast.FunctionDef:
+            return next(
+                node
+                for node in backend_tree.body
+                if isinstance(node, ast.FunctionDef) and node.name == function_name
+            )
+
+        def call_name(call: ast.Call) -> str:
+            parts: list[str] = []
+            value = call.func
+            while isinstance(value, ast.Attribute):
+                parts.append(value.attr)
+                value = value.value
+            if isinstance(value, ast.Name):
+                parts.append(value.id)
+            return ".".join(reversed(parts))
+
+        def calls(node: ast.AST) -> list[str]:
+            return [
+                call_name(child)
+                for child in ast.walk(node)
+                if isinstance(child, ast.Call)
+            ]
+
+        cli_calls = calls(method("LegacyCLICompatibilityAdapter", "_submit_new"))
+        transport_calls = calls(method("LegacyTransportAdapter", "invoke_reserved_once"))
+        transaction_calls = calls(function("_execute_legacy_transaction_once"))
+        self.assertEqual(
+            cli_calls.count("_legacy_transaction_plan_from_cli_namespace"),
+            1,
+        )
+        self.assertEqual(
+            cli_calls.count("self.backend.transport.invoke_reserved_once"),
+            1,
+        )
+        self.assertEqual(
+            transport_calls.count("_execute_legacy_transaction_once"),
+            1,
+        )
+        self.assertEqual(
+            transaction_calls.count("_legacy_effect_plan_from_transaction"),
+            1,
+        )
+        self.assertEqual(
+            transaction_calls.count("_legacy_raw_effect_owner_from_plan"),
+            1,
+        )
+        self.assertEqual(
+            transaction_calls.count("effect_owner.submit_qsub_once"),
+            1,
+        )
         skill_scripts = ROOT / "skills/auto-g16-rtwin-pbs/scripts"
         sys.path.insert(0, str(skill_scripts))
         try:

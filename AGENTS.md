@@ -18,9 +18,26 @@ These rules apply to the entire repository.
 
 ## Server safety boundary
 
-- Permit Skill-managed server data and scratch only below `/home/user100/SDL`.
-- Resolve the allowed root and project paths with `realpath`; reject symlinks and any path outside the allowed root.
-- Never add a remote-root override.
+- Keep every legacy backend, including `legacy_rtwin_pbs`, permanently fixed
+  below `/home/user100/SDL`.
+- A new backend may use a different server root only when that root is a
+  mandatory field owned by the backend's closed profile contract, has received
+  repository-owner and server-safety review, and is covered by the profile
+  hash. A CLI flag, environment variable, local runtime setting, caller
+  argument, or other override must never select or replace it.
+- Before approval, resolve the allowed root policy and identity canonically into
+  backend-owner-issued stable evidence that excludes observation time and
+  expiry. The exact approval must bind both the profile hash and that stable
+  evidence hash.
+- Immediately before the first remote mutation, the same owner must issue a
+  fresh, time-bounded no-follow observation receipt that references the stable
+  evidence hash and must give the mutation owner a single-use descriptor- or
+  capability-bound handle to the same verified component identities. The
+  mutation must consume that handle atomically or by descriptor-relative
+  operations without reopening a path. Any symlink, reparse point, root escape,
+  identity drift, expired receipt, replacement, or capability failure stops
+  with zero remote effect and requires a new review or observation as
+  applicable.
 - Never upload into a non-empty server project directory or overwrite an existing job implicitly.
 - Never issue `rm`, `rmdir`, truncation, recursive replacement, or a server-data cleanup command.
 - Treat active-job cancellation and terminal scheduler-zombie cleanup as different `qdel` operations. Require explicit authorization for the exact PBS job ID before cancelling a queued or running job. Permit one automatic exact `qdel` only after results are fetched and repeated stable evidence proves a terminal scheduler zombie; never retry it automatically. Neither operation authorizes file deletion.

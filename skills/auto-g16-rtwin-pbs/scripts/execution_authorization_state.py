@@ -24,7 +24,6 @@ ATTEMPT_ID_RE = re.compile(r"^qsub-attempt-[a-f0-9]{64}$")
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 NONCE_RE = re.compile(r"^[a-f0-9]{32,128}$")
 STATE_SCHEMA = "auto-g16-trusted-execution-consumption/1"
-DEFAULT_STATE_ROOT = Path.home() / ".config" / "auto-g16" / "execution-authority-state"
 _TEST_OWNER_FACTORY_TOKEN = object()
 _TEST_CLOCK_FACTORY_TOKEN = object()
 
@@ -123,6 +122,10 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _default_state_root() -> Path:
+    return Path.home() / ".config" / "auto-g16" / "execution-authority-state"
+
+
 def _canonical_clock_value(clock: Callable[[], datetime]) -> tuple[datetime, str]:
     value = clock()
     if (
@@ -150,7 +153,7 @@ class TrustedAuthorizationStateOwner:
             raise AuthorizationStateError("production state root is fixed and has no caller override")
         if _clock is not None and _clock_token is not _TEST_CLOCK_FACTORY_TOKEN:
             raise AuthorizationStateError("production owner clock is fixed")
-        self._root = (root if root is not None else DEFAULT_STATE_ROOT).absolute()
+        self._root = (root if root is not None else _default_state_root()).absolute()
         self._clock = _clock if _clock is not None else _utc_now
 
     @classmethod

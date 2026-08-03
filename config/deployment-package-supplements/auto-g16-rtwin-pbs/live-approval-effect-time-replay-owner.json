@@ -1,0 +1,18 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/live_approval_effect_time_replay.py",
+      "target": "scripts/live_approval_effect_time_replay.py"
+    },
+    {
+      "source": "contracts/live-approval-replay/live-approval-effect-time-replay.schema.json",
+      "target": "contracts/execution/live-approval-effect-time-replay.schema.json"
+    },
+    {
+      "source": "docs/v2.6-live-approval-effect-time-replay.md",
+      "target": "references/live-approval-effect-time-replay.md"
+    }
+  ]
+}

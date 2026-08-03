@@ -1275,6 +1275,20 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 "protected_runtime_state_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        consumer_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_owner_consumer_contract.json"
+            ).read_text(encoding="utf-8")
+        )["successor_files"]
+        ingress_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_production_ingress_contract.json"
+            ).read_text(encoding="utf-8")
+        )["successor_files"]
         expected = {
             "scripts/protected_invocation_contract.py": (
                 "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28"
@@ -1331,6 +1345,18 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                         current_hash,
                     )
                     current_hash = runtime_successor[relative]["sha256"]
+                if relative in consumer_successor:
+                    self.assertEqual(
+                        consumer_successor[relative]["before_sha256"],
+                        current_hash,
+                    )
+                    current_hash = consumer_successor[relative]["sha256"]
+                if relative in ingress_successor:
+                    self.assertEqual(
+                        ingress_successor[relative]["before_sha256"],
+                        current_hash,
+                    )
+                    current_hash = ingress_successor[relative]["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_hash,
@@ -1373,9 +1399,43 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
             Path("references/protected-runtime-state-contract.md"),
         }
         self.assertTrue(runtime_targets <= set(package))
+        consumer_targets = {
+            Path("scripts/protected_owner_consumer_contract.py"),
+            Path(
+                "contracts/execution/"
+                "protected-owner-consumer-contract.schema.json"
+            ),
+            Path(
+                "contracts/execution/"
+                "protected-owner-submission-intent.schema.json"
+            ),
+            Path("references/protected-owner-consumer-contract.md"),
+        }
+        self.assertTrue(consumer_targets <= set(package))
+        ingress_targets = {
+            Path("scripts/protected_production_ingress_contract.py"),
+            Path(
+                "contracts/execution/"
+                "protected-production-ingress-contract.schema.json"
+            ),
+            Path("references/protected-production-ingress-contract.md"),
+        }
+        self.assertTrue(ingress_targets <= set(package))
+        coordinator_targets = {
+            Path(
+                "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
+            ),
+        }
+        self.assertTrue(coordinator_targets <= set(package))
         self.assertEqual(
             len(package),
-            81 + len(present_successor_targets) + len(runtime_targets),
+            81
+            + len(present_successor_targets)
+            + len(runtime_targets)
+            + len(consumer_targets)
+            + len(ingress_targets)
+            + len(coordinator_targets),
         )
         expected = {
             Path("scripts/protected_lifecycle_contract.py"): (
@@ -1393,6 +1453,14 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 ROOT
                 / "skills/auto-g16-rtwin-pbs/references/"
                 "protected-lifecycle-contract.md"
+            ),
+            Path(
+                "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
+            ): (
+                ROOT
+                / "contracts/execution/"
+                "protected-job-runtime-coordinator.schema.json"
             ),
         }
         for target, source in expected.items():
