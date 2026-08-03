@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.6.0
+# Auto-G16 — Auto-Gaussian 2.6.1
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -81,19 +81,27 @@ Historical endpoint review or path acceptance `/1` remains readable for
 display/replay only and cannot open maturity, thermochemistry, asymmetric
 comparison or any live gate.
 
-## 2.6.0 local release candidate
+## 2.6.1 local release candidate
 
-Auto-Gaussian 2.6.0 is the current local source candidate. It closes only the
-independently reviewed offline v2.6 foundation. It has not been tagged, pushed,
-opened as a pull request, merged, published as a GitHub Release, deployed, or
-exercised through a live smoke.
+Auto-Gaussian 2.6.1 is the current local source candidate. It preserves the
+independently reviewed v2.6 offline foundation and adds the minimum B1 legacy
+RTwin/PBS production path through the existing single transaction and effect
+owner. That path binds exact project, input hash, resource, walltime and
+one-shot approval evidence; fixes the server root at `/home/user100/SDL`;
+refuses existing project directories; permits at most one `qsub`; and keeps
+uncertain submission, monitoring, fetching and analysis read-only and
+non-retrying.
 
-PR4 real production adapter wiring and provider, PR6 direct SSH/PBS, and the
-runtime/onboarding claims that depend on them are deferred to 2.6.1. The 2.6.0
-candidate therefore does not claim an executable production provider, direct
-SSH/PBS support, or successful SSH, RTwin, PBS, Gaussian, upload, submission,
-retry, cancellation, cleanup, or scientific execution. Existing fail-closed
-boundaries remain in force.
+The exact B1 integration candidate passed practical independent L3 and one
+frozen offline full suite. A separately approved H2 smoke then completed one
+normal Gaussian run plus allowlist-bound fetch and local analysis with per-hop
+hashes verified. Its machine-local evidence does not authorize another live
+operation or a production research submission.
+
+The candidate has not been tagged, pushed, opened as a pull request, merged
+into `main`, published as a GitHub Release, or formally released. PR6 direct
+SSH/PBS, non-SDL roots, multi-backend support, interpreter-tamper hardening and
+unrelated architecture are deferred beyond 2.6.1.
 
 ## 2.5.4 latest published release
 
