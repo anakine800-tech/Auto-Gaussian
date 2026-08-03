@@ -5,6 +5,55 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-08-02
+
+### Added
+
+- Added the minimal B1 legacy RTwin/PBS production path through the existing
+  single legacy transaction and effect-owner chain. The path binds the exact
+  project, input SHA-256, resources, walltime and one-shot approval, retains
+  the fixed `/home/user100/SDL` root, refuses an existing project directory,
+  permits at most one `qsub`, and records uncertain submission for read-only
+  reconciliation without automatic retry.
+- Added the unique production entry and dry-run scope needed to submit,
+  monitor, fetch and analyze only the exact approved legacy job and its
+  allowlisted result artifacts.
+
+### Changed
+
+- Disabled automatic scheduler-zombie cleanup from ordinary watch,
+  watch-and-fetch and auto-watch flows. These read-only paths never issue
+  `qdel`; cancellation and cleanup remain separate, explicitly authorized
+  operations.
+- Deferred resolution of the fixed local authorization-state directory until
+  a production owner is constructed, so relocated package and source checks
+  can use explicit testing roots without a HOME directory. Production still
+  has no caller-selectable state-root override.
+
+### Validation
+
+- The exact B1 integration candidate `66afc5fd808993901a4a616d423fd185c35f8ffa`
+  (tree `4f6267255ebe9ff6130762901cd390bfb65795ff`) passed practical independent
+  L3 review with P0-P3 all zero and one frozen offline suite of 1228 tests with
+  81 skips and no failures or errors.
+- One separately approved H2 live smoke used that exact candidate and deployed
+  Skill source, made exactly one submission, reached one normal Gaussian
+  termination, and completed allowlist-bound fetch and local analysis with
+  per-hop hashes verified. The operational evidence remains machine-local and
+  is not release material or authority for another live action.
+
+### Scope
+
+- Version 2.6.1 closes only the minimum legacy B1 path. PR6 direct SSH/PBS,
+  non-SDL roots, multi-backend generalization, interpreter-tamper hardening and
+  unrelated architectural expansion are deferred beyond 2.6.1.
+
+### Safety
+
+- This metadata closure performs no push, pull request, tag, GitHub Release,
+  deployment, Skill synchronization, SSH, RTwin, PBS, Gaussian, upload,
+  submission, retry, cancellation, `qdel`, cleanup, deletion or live smoke.
+
 ## [2.6.0] - 2026-07-31
 
 ### Added
@@ -525,7 +574,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.6.1...HEAD
+[2.6.1]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.4...v2.6.0
 [2.5.4]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.2...v2.5.3

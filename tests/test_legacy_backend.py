@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -211,6 +213,34 @@ class LegacyBackendTests(unittest.TestCase):
             snapshot = owner.snapshot()
             self.assertEqual(snapshot["consumed_authorization_ids"], (request.authorization_id,))
             self.assertEqual(set(snapshot["known_attestation_nonces"]), set(request.attestation_nonces))
+
+    def test_testing_owner_import_does_not_require_home_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            state_root = Path(raw) / "state"
+            script = (
+                "from pathlib import Path\n"
+                "from execution_authorization_state import TrustedAuthorizationStateOwner\n"
+                f"owner=TrustedAuthorizationStateOwner.for_testing(Path({str(state_root)!r}))\n"
+                "snapshot=owner.snapshot()\n"
+                "assert snapshot['consumed_authorization_ids']==()\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-c", script],
+                cwd=Path(raw),
+                env={
+                    "PATH": os.environ.get("PATH", ""),
+                    "PYTHONPATH": str(SCRIPTS),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stdout + completed.stderr,
+            )
 
     def test_concurrent_consumption_has_one_winner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
