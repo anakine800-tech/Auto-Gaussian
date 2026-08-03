@@ -2,9 +2,9 @@
 
 Status: local metadata closure on 2026-08-02. The closure starts from exact B1
 integration commit `66afc5fd808993901a4a616d423fd185c35f8ffa`, tree
-`4f6267255ebe9ff6130762901cd390bfb65795ff`. This checklist does not claim a
-push, pull request, merge into `main`, tag, GitHub Release, formal publication,
-deployment, Skill synchronization or new live authority.
+`4f6267255ebe9ff6130762901cd390bfb65795ff`. This checklist reflects a release
+candidate whose target, `v2.6.1`, has now been published. It does not request
+additional live or deployment authority.
 
 ## Frozen scope
 
@@ -35,16 +35,16 @@ deployment, Skill synchronization or new live authority.
   per-hop SHA-256 verification. That machine-local evidence is not committed,
   is not scientific validation for another molecule, and grants no further
   live authority.
-- Auto-Gaussian 2.5.4 remains the latest published release. Version 2.6.1 is a
-  local source candidate until a separately authorized release process occurs.
+- Auto-Gaussian 2.6.1 is the latest published release. `2.5.4` is the
+  historical published release immediately before it.
 
 ## Metadata set
 
 - `pyproject.toml` declares `2.6.1`.
 - `CHANGELOG.md` places 2.6.1 after the empty Unreleased section, preserves the
   2.6.0 entry and all earlier public history, and advances compare links.
-- `README.md` and `docs/repository-status.md` distinguish the local 2.6.1
-  candidate from the latest published 2.5.4 release.
+- `README.md` and `docs/repository-status.md` distinguish 2.6.1's published state
+  from historical releases including 2.5.4.
 - `tests/test_release_hygiene.py` enforces those cross-file identities and the
   continued presence of the immutable 2.6.0 checklist.
 
