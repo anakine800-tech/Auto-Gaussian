@@ -92,8 +92,8 @@ class ReleaseHygieneTests(unittest.TestCase):
         )
         readme = (ROOT / "README.md").read_text()
         self.assertIn("# Auto-G16 — Auto-Gaussian 2.6.1", readme)
-        self.assertIn("Auto-Gaussian 2.6.1 is the current local source candidate", readme)
-        self.assertIn("Auto-Gaussian 2.5.4 is the latest published release", readme)
+        self.assertIn("Auto-Gaussian 2.6.1 is the latest published release", readme)
+        self.assertIn("Auto-Gaussian 2.5.4 is the immediately previous published release", readme)
         self.assertIn("annotated `v2.5.4`", readme)
         self.assertNotIn(
             "Auto-Gaussian 2.5.3 is the latest published release", readme
@@ -179,9 +179,9 @@ class ReleaseHygieneTests(unittest.TestCase):
     def test_repository_status_separates_current_and_historical_evidence(self) -> None:
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
         self.assertIn("## Current mainline state", status)
-        self.assertIn("Auto-Gaussian 2.5.4 is the latest published release", status)
-        self.assertIn("Auto-Gaussian 2.6.1 is the current local source candidate", status)
-        self.assertIn("annotated `v2.5.4`", status)
+        self.assertIn("Auto-Gaussian 2.6.1 is the latest published release", status)
+        self.assertIn("Auto-Gaussian 2.6.1 is the current mainline release state", status)
+        self.assertIn("annotated `v2.6.1`", status)
         self.assertNotIn(
             "Auto-Gaussian 2.5.3 is the latest published release", status
         )
@@ -230,11 +230,11 @@ class ReleaseHygieneTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
         self.assertTrue(readme.startswith(f"# Auto-G16 — Auto-Gaussian {version}\n"))
-        self.assertIn(f"## {version} local release candidate", readme)
-        self.assertIn(f"Auto-Gaussian {version} is the current local source candidate", readme)
-        self.assertIn(f"Auto-Gaussian {version} is the current local source candidate", status)
-        self.assertIn("Auto-Gaussian 2.5.4 is the latest published release", readme)
-        self.assertIn("Auto-Gaussian 2.5.4 is the latest published release", status)
+        self.assertIn(f"## {version} published release", readme)
+        self.assertIn(f"Auto-Gaussian {version} is the latest published release", readme)
+        self.assertIn(f"Auto-Gaussian {version} is the latest published release", status)
+        self.assertIn("Auto-Gaussian 2.5.4 is the immediately previous published release", readme)
+        self.assertIn("Auto-Gaussian 2.6.1 is the latest published release", status)
 
         checklist = ROOT / "docs" / f"release-{version}-checklist.md"
         self.assertTrue(checklist.is_file())
@@ -252,11 +252,8 @@ class ReleaseHygieneTests(unittest.TestCase):
         self.assertIn("Release-scope revision — 2026-07-31", rfc)
         self.assertIn("but it is superseded", rfc)
         self.assertIn("as a 2.6.0 release criterion by this revision", rfc)
-        self.assertIn("has not been tagged", readme)
-        self.assertIn(
-            "No\ntag, push, pull request, merge into `main`, GitHub Release",
-            status,
-        )
+        self.assertIn("has been tagged, pushed, merged into `main`, published as a", readme)
+        self.assertIn("Public GitHub metadata already records the tag, push", status)
 
     def test_machine_local_reports_are_ignored_and_not_release_material(self) -> None:
         ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")

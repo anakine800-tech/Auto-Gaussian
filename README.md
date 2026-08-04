@@ -81,9 +81,9 @@ Historical endpoint review or path acceptance `/1` remains readable for
 display/replay only and cannot open maturity, thermochemistry, asymmetric
 comparison or any live gate.
 
-## 2.6.1 local release candidate
+## 2.6.1 published release
 
-Auto-Gaussian 2.6.1 is the current local source candidate. It preserves the
+Auto-Gaussian 2.6.1 is the latest published release. It preserves the
 independently reviewed v2.6 offline foundation and adds the minimum B1 legacy
 RTwin/PBS production path through the existing single transaction and effect
 owner. That path binds exact project, input hash, resource, walltime and
@@ -98,14 +98,14 @@ normal Gaussian run plus allowlist-bound fetch and local analysis with per-hop
 hashes verified. Its machine-local evidence does not authorize another live
 operation or a production research submission.
 
-The candidate has not been tagged, pushed, opened as a pull request, merged
-into `main`, published as a GitHub Release, or formally released. PR6 direct
+The v2.6.1 release has been tagged, pushed, merged into `main`, published as a
+GitHub Release, and formally released. PR6 direct
 SSH/PBS, non-SDL roots, multi-backend support, interpreter-tamper hardening and
 unrelated architecture are deferred beyond 2.6.1.
 
-## 2.5.4 latest published release
+## 2.5.4 historical published release
 
-Auto-Gaussian 2.5.4 is the latest published release. Its annotated `v2.5.4`
+Auto-Gaussian 2.5.4 is the immediately previous published release. Its annotated `v2.5.4`
 tag identifies the exact reviewed, green post-merge `main` commit recorded by
 the GitHub Release. The release was published on 2026-07-22.
 

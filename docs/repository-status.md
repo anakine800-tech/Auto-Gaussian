@@ -4,9 +4,8 @@
 
 Status date: 2026-08-02
 
-Auto-Gaussian 2.6.1 is the current local source candidate. Local `main` remains
-at the 2.6.0 offline-foundation candidate; the 2.6.1 release-closure work is
-isolated from it and starts from exact B1 integration commit
+Auto-Gaussian 2.6.1 is the current mainline release state. Local `main` includes
+the 2.6.1 release-closure work and starts from exact B1 integration commit
 `66afc5fd808993901a4a616d423fd185c35f8ffa`, tree
 `4f6267255ebe9ff6130762901cd390bfb65795ff`.
 
@@ -24,15 +23,15 @@ machine-local and grants no authority for another live action.
 
 PR6 direct SSH/PBS, non-SDL roots, multi-backend generalization and unrelated
 architecture are deferred beyond 2.6.1. Interpreter-tamper hardening is also
-out of scope. No
-tag, push, pull request, merge into `main`, GitHub Release, formal publication,
-or further live authorization is claimed by this candidate.
+out of scope. Public GitHub metadata already records the tag, push, pull request
+merge into `main`, GitHub Release, and formal publication context for v2.6.1. This
+snapshot adds no further live authorization.
 
 ## Latest published release
 
-Auto-Gaussian 2.5.4 is the latest published release. Its annotated `v2.5.4`
+Auto-Gaussian 2.6.1 is the latest published release. Its annotated `v2.6.1`
 tag and GitHub Release bind the exact reviewed, green post-merge `main` commit;
-the release was published on 2026-07-22. Remote tag and Release metadata are
+the release was published on 2026-08-03. Remote tag and Release metadata are
 the authoritative commit identity. Earlier tags, checklists and changelog
 entries remain immutable historical records rather than pending work.
 
@@ -43,10 +42,10 @@ hygiene tests. The metadata merge advances all current-version surfaces to
 2.5.4 and adds a cross-file consistency assertion; it does not rewrite the
 2.5.3 checklist, tag, Release or changelog history.
 
-The five required contexts and post-merge `main` workflows must succeed for
-the exact 2.5.4 release commit before tag publication. Those observations are
-time-bound external evidence, not a promise about later GitHub state or an
-operational authorization. Historical schemas retain their replay meaning.
+The five required contexts and post-merge `main` workflows were the historical
+publication prerequisites for 2.6.1. Those observations are time-bound external
+evidence, not a promise about later GitHub state or an operational authorization.
+Historical schemas retain their replay meaning.
 
 Every planning/review artifact remains `calculation_ready: false`; calculation
 nodes remain `executable: false`; the integration overlay remains
