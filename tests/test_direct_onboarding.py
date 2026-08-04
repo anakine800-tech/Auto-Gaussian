@@ -14,6 +14,7 @@ import subprocess
 import sys
 import unittest
 import urllib.request
+from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 
@@ -67,6 +68,27 @@ class DirectOnboardingTests(unittest.TestCase):
                 stdout_bytes.getvalue().decode("utf-8"),
                 stderr_bytes.getvalue().decode("utf-8"),
             )
+
+    def assert_sanitized_support_snapshot_drift(self, **replacements: object) -> None:
+        with ExitStack() as stack:
+            for field, value in replacements.items():
+                stack.enter_context(mock.patch.object(ONBOARDING, field, value))
+            socket_call = stack.enter_context(mock.patch.object(socket, "socket"))
+            subprocess_call = stack.enter_context(mock.patch.object(subprocess, "run"))
+            network_call = stack.enter_context(
+                mock.patch.object(urllib.request, "urlopen")
+            )
+            status, stdout, stderr = self.run_cli(["doctor"], self.profile)
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertEqual(
+            stderr,
+            "ERROR pr6_support_snapshot_drift: "
+            "the offline direct-backend support snapshot changed\n",
+        )
+        socket_call.assert_not_called()
+        subprocess_call.assert_not_called()
+        network_call.assert_not_called()
 
     def test_init_validate_doctor_are_offline_under_hostile_patches(self) -> None:
         with (
@@ -324,14 +346,148 @@ class DirectOnboardingTests(unittest.TestCase):
         with mock.patch.object(ONBOARDING, "PRODUCTION_GAPS", reduced_gaps):
             with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
                 ONBOARDING._assert_pr6_non_authority()
-        self.assertEqual(raised.exception.code, "pr6_support_gap_drift")
+        self.assertEqual(raised.exception.code, "pr6_support_snapshot_drift")
 
-        changed_support = copy.deepcopy(ONBOARDING.SUPPORT_MATRIX)
-        changed_support["direct_ssh_pbs"]["backend_supported"] = True
-        with mock.patch.object(ONBOARDING, "SUPPORT_MATRIX", changed_support):
+        changed_tokens = copy.deepcopy(ONBOARDING.OWNER_GAP_SUPPORT_TOKENS)
+        changed_tokens[resource.port] = "real_no_follow_observer"
+        with mock.patch.object(
+            ONBOARDING,
+            "OWNER_GAP_SUPPORT_TOKENS",
+            changed_tokens,
+        ):
             with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
                 ONBOARDING._assert_pr6_non_authority()
         self.assertEqual(raised.exception.code, "pr6_support_gap_drift")
+
+    def test_complete_literal_support_snapshots_reject_reviewer_drifts(self) -> None:
+        ONBOARDING._assert_pr6_non_authority()
+        gaps = ONBOARDING.EXPECTED_PRODUCTION_GAPS
+        gap_candidates = (
+            ("added", (*gaps, "future_unreviewed_gap")),
+            ("deleted", gaps[1:]),
+            ("reordered", (gaps[1], gaps[0], *gaps[2:])),
+            ("wrong-type", list(gaps)),
+        )
+        for label, candidate in gap_candidates:
+            with self.subTest(gaps=label):
+                matrix = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+                matrix["direct_ssh_pbs"]["production_gaps"] = list(candidate)
+                self.assert_sanitized_support_snapshot_drift(
+                    PRODUCTION_GAPS=candidate,
+                    SUPPORT_MATRIX=matrix,
+                )
+
+        statuses = ONBOARDING.EXPECTED_DIRECT_STATUSES
+        status_candidates = (
+            ("added", (*statuses, "future_unreviewed_status")),
+            ("deleted", statuses[:-1]),
+            ("reordered", tuple(reversed(statuses))),
+            ("wrong-type", list(statuses)),
+        )
+        for label, candidate in status_candidates:
+            with self.subTest(statuses=label):
+                matrix = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+                matrix["direct_ssh_pbs"]["statuses"] = list(candidate)
+                self.assert_sanitized_support_snapshot_drift(
+                    DIRECT_STATUSES=candidate,
+                    SUPPORT_MATRIX=matrix,
+                )
+
+        matrix_candidates = []
+        for backend in (
+            "local_gaussian",
+            "slurm",
+            "mcp",
+            "multihop",
+            "arbitrary_shell",
+            "unknown",
+        ):
+            changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+            changed[backend]["status"] = "supported"
+            matrix_candidates.append((f"{backend}-supported", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["legacy_rtwin_pbs"]["direct_cli_allowed"] = True
+        matrix_candidates.append(("legacy-direct-cli", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["legacy_rtwin_pbs"]["direct_cli_allowed"] = 0
+        matrix_candidates.append(("legacy-bool-lookalike", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["future_backend"] = {"status": "unsupported"}
+        matrix_candidates.append(("additional-row", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed.pop("mcp")
+        matrix_candidates.append(("missing-row", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["unknown"]["unexpected"] = False
+        matrix_candidates.append(("additional-row-field", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["legacy_rtwin_pbs"].pop("root_policy")
+        matrix_candidates.append(("missing-legacy-field", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["direct_ssh_pbs"].pop("live_ready")
+        matrix_candidates.append(("missing-direct-field", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["direct_ssh_pbs"]["production_gaps"] = list(reversed(gaps))
+        matrix_candidates.append(("reordered-gap-list", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["direct_ssh_pbs"]["backend_supported"] = True
+        matrix_candidates.append(("direct-backend-supported", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["direct_ssh_pbs"]["backend_supported"] = 0
+        matrix_candidates.append(("direct-bool-lookalike", changed))
+        changed = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        changed["direct_ssh_pbs"]["statuses"] = list(
+            reversed(ONBOARDING.EXPECTED_DIRECT_STATUSES)
+        )
+        matrix_candidates.append(("reordered-status-list", changed))
+        for label, candidate in matrix_candidates:
+            with self.subTest(matrix=label):
+                self.assert_sanitized_support_snapshot_drift(
+                    SUPPORT_MATRIX=candidate,
+                )
+
+    def test_coherent_status_and_matrix_drift_fails_sanitized_before_output(self) -> None:
+        statuses = (*ONBOARDING.EXPECTED_DIRECT_STATUSES, "future_unreviewed_status")
+        matrix = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+        matrix["direct_ssh_pbs"]["statuses"] = list(statuses)
+        for argv, document in (
+            (["init", "direct-profile-001"], None),
+            (["validate"], self.profile),
+            (["doctor"], self.profile),
+        ):
+            with self.subTest(argv=argv):
+                with (
+                    mock.patch.object(ONBOARDING, "DIRECT_STATUSES", statuses),
+                    mock.patch.object(ONBOARDING, "SUPPORT_MATRIX", matrix),
+                    mock.patch.object(socket, "socket") as socket_call,
+                    mock.patch.object(subprocess, "run") as subprocess_call,
+                    mock.patch.object(urllib.request, "urlopen") as network_call,
+                ):
+                    status, stdout, stderr = self.run_cli(argv, document)
+                self.assertEqual(status, 2)
+                self.assertEqual(stdout, "")
+                self.assertEqual(
+                    stderr,
+                    "ERROR pr6_support_snapshot_drift: "
+                    "the offline direct-backend support snapshot changed\n",
+                )
+                socket_call.assert_not_called()
+                subprocess_call.assert_not_called()
+                network_call.assert_not_called()
+
+    def test_full_matrix_row_drifts_fail_sanitized_before_doctor_output(self) -> None:
+        cases = (
+            ("unknown", "status", "supported"),
+            ("local_gaussian", "status", "supported"),
+            ("legacy_rtwin_pbs", "direct_cli_allowed", True),
+        )
+        for backend, field, value in cases:
+            matrix = copy.deepcopy(ONBOARDING.EXPECTED_SUPPORT_MATRIX)
+            matrix[backend][field] = value
+            with self.subTest(backend=backend, field=field):
+                self.assert_sanitized_support_snapshot_drift(
+                    SUPPORT_MATRIX=matrix,
+                )
 
     def test_parser_and_api_have_no_root_path_env_command_or_callback_surface(self) -> None:
         parser = ONBOARDING.build_parser()

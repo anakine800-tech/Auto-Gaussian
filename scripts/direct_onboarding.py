@@ -28,6 +28,63 @@ DIRECT_STATUSES = (
 )
 HASH_PREFIX_LENGTH = 12
 
+# Independent literal compatibility snapshots.  Do not derive these from the
+# mutable reporting values that they verify.
+EXPECTED_DIRECT_STATUSES = (
+    "offline_synthetic",
+    "production_blocked",
+    "live_not_ready",
+)
+
+EXPECTED_PRODUCTION_GAPS = (
+    "real_no_follow_observer",
+    "physical_descriptor_relative_helper",
+    "durable_cross_process_consumption",
+    "direct_resource_effect_time_replay_ingress",
+    "direct_live_approval_effect_time_replay_ingress",
+    "direct_transport",
+    "real_qsub",
+    "real_inspect",
+    "real_fetch",
+    "separately_authorized_live_smoke_evidence",
+)
+
+EXPECTED_SUPPORT_MATRIX = {
+    "legacy_rtwin_pbs": {
+        "status": "existing_production_path_not_authorized_by_this_command",
+        "onboarding_owner": "platform_contracts",
+        "root_policy": "fixed_legacy_root",
+        "direct_cli_allowed": False,
+    },
+    "direct_ssh_pbs": {
+        "statuses": [
+            "offline_synthetic",
+            "production_blocked",
+            "live_not_ready",
+        ],
+        "backend_supported": False,
+        "live_ready": False,
+        "production_gaps": [
+            "real_no_follow_observer",
+            "physical_descriptor_relative_helper",
+            "durable_cross_process_consumption",
+            "direct_resource_effect_time_replay_ingress",
+            "direct_live_approval_effect_time_replay_ingress",
+            "direct_transport",
+            "real_qsub",
+            "real_inspect",
+            "real_fetch",
+            "separately_authorized_live_smoke_evidence",
+        ],
+    },
+    "local_gaussian": {"status": "unsupported"},
+    "slurm": {"status": "unsupported"},
+    "mcp": {"status": "unsupported"},
+    "multihop": {"status": "unsupported"},
+    "arbitrary_shell": {"status": "unsupported"},
+    "unknown": {"status": "fail_closed"},
+}
+
 EXPECTED_PR6_AUTHORITY = {
     "synthetic_only": True,
     "schema_valid_is_capability": False,
@@ -194,19 +251,37 @@ def _finalize(document: dict[str, Any], field: str) -> dict[str, Any]:
     return result
 
 
-def _is_exact_closed_mapping(value: Any, expected: dict[str, Any]) -> bool:
-    return (
-        type(value) is dict
-        and value.keys() == expected.keys()
-        and all(
-            type(value[field]) is type(expected_value)
-            and value[field] == expected_value
+def _is_exact_value(value: Any, expected: Any) -> bool:
+    if type(value) is not type(expected):
+        return False
+    if type(expected) is dict:
+        return value.keys() == expected.keys() and all(
+            _is_exact_value(value[field], expected_value)
             for field, expected_value in expected.items()
         )
-    )
+    if type(expected) in {list, tuple}:
+        return len(value) == len(expected) and all(
+            _is_exact_value(item, expected_item)
+            for item, expected_item in zip(value, expected, strict=True)
+        )
+    return value == expected
+
+
+def _is_exact_closed_mapping(value: Any, expected: dict[str, Any]) -> bool:
+    return _is_exact_value(value, expected)
 
 
 def _assert_pr6_non_authority() -> None:
+    if (
+        not _is_exact_value(DIRECT_STATUSES, EXPECTED_DIRECT_STATUSES)
+        or not _is_exact_value(PRODUCTION_GAPS, EXPECTED_PRODUCTION_GAPS)
+        or not _is_exact_closed_mapping(SUPPORT_MATRIX, EXPECTED_SUPPORT_MATRIX)
+    ):
+        raise DirectOnboardingError(
+            "pr6_support_snapshot_drift",
+            "the offline direct-backend support snapshot changed",
+        )
+
     authority = getattr(DIRECT_OFFLINE, "AUTHORITY", None)
     if not _is_exact_closed_mapping(authority, EXPECTED_PR6_AUTHORITY):
         raise DirectOnboardingError(
@@ -257,12 +332,6 @@ def _assert_pr6_non_authority() -> None:
             "pr6_support_gap_drift",
             "the offline direct-backend support summary changed",
         ) from exc
-    expected_direct_support = {
-        "statuses": list(DIRECT_STATUSES),
-        "backend_supported": False,
-        "live_ready": False,
-        "production_gaps": list(PRODUCTION_GAPS),
-    }
     if (
         owner_gap_tokens
         != (
@@ -270,7 +339,10 @@ def _assert_pr6_non_authority() -> None:
             "direct_live_approval_effect_time_replay_ingress",
         )
         or any(token not in PRODUCTION_GAPS for token in owner_gap_tokens)
-        or not _is_exact_closed_mapping(direct_support, expected_direct_support)
+        or not _is_exact_closed_mapping(
+            direct_support,
+            EXPECTED_SUPPORT_MATRIX["direct_ssh_pbs"],
+        )
     ):
         raise DirectOnboardingError(
             "pr6_support_gap_drift",
@@ -404,6 +476,7 @@ def _write_json(value: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        _assert_pr6_non_authority()
         if args.command == "init":
             _write_json(build_unreviewed_template(args.profile_id))
         else:
