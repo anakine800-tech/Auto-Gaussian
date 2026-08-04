@@ -28,6 +28,46 @@ DIRECT_STATUSES = (
 )
 HASH_PREFIX_LENGTH = 12
 
+EXPECTED_PR6_AUTHORITY = {
+    "synthetic_only": True,
+    "schema_valid_is_capability": False,
+    "backend_supported": False,
+    "live_ready": False,
+    "remote_effect_performed": False,
+    "transport_authorized": False,
+    "qsub_authorized": False,
+    "qsub_invoked": False,
+    "qdel_capability": False,
+    "qdel_requires_separate_exact_authorization": True,
+    "delete_capability": False,
+    "cleanup_capability": False,
+    "automatic_retry": False,
+}
+
+EXPECTED_PR6_OWNER_GAPS = (
+    {
+        "port": "resource_effect_time_replay",
+        "exact_owner": "resource_effect_time_replay_owner",
+        "expected_type": "ResourceEffectTimeReplayCapability",
+        "status": "required_exact_direct_ingress_unavailable",
+        "fallback_allowed": False,
+        "synthetic_substitute_allowed": False,
+    },
+    {
+        "port": "live_approval_effect_time_replay",
+        "exact_owner": "live_approval_effect_time_replay",
+        "expected_type": "PreQsubLiveApprovalReplayCapability",
+        "status": "required_exact_direct_ingress_unavailable",
+        "fallback_allowed": False,
+        "synthetic_substitute_allowed": False,
+    },
+)
+
+OWNER_GAP_SUPPORT_TOKENS = {
+    "resource_effect_time_replay": "direct_resource_effect_time_replay_ingress",
+    "live_approval_effect_time_replay": "direct_live_approval_effect_time_replay_ingress",
+}
+
 PRODUCTION_GAPS = (
     "real_no_follow_observer",
     "physical_descriptor_relative_helper",
@@ -120,7 +160,7 @@ def parse_stdin_document(raw: bytes) -> dict[str, Any]:
         )
     except DirectOnboardingError:
         raise
-    except (json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise DirectOnboardingError(
             "invalid_json",
             "direct onboarding input is not one valid JSON document",
@@ -154,23 +194,87 @@ def _finalize(document: dict[str, Any], field: str) -> dict[str, Any]:
     return result
 
 
-def _assert_pr6_non_authority() -> None:
-    authority = DIRECT_OFFLINE.AUTHORITY
-    required_false = (
-        "backend_supported",
-        "live_ready",
-        "remote_effect_performed",
-        "transport_authorized",
-        "qsub_authorized",
-        "qsub_invoked",
+def _is_exact_closed_mapping(value: Any, expected: dict[str, Any]) -> bool:
+    return (
+        type(value) is dict
+        and value.keys() == expected.keys()
+        and all(
+            type(value[field]) is type(expected_value)
+            and value[field] == expected_value
+            for field, expected_value in expected.items()
+        )
     )
-    if (
-        authority.get("synthetic_only") is not True
-        or any(authority.get(field) is not False for field in required_false)
-    ):
+
+
+def _assert_pr6_non_authority() -> None:
+    authority = getattr(DIRECT_OFFLINE, "AUTHORITY", None)
+    if not _is_exact_closed_mapping(authority, EXPECTED_PR6_AUTHORITY):
         raise DirectOnboardingError(
             "pr6_authority_drift",
             "the approved offline direct-backend non-authority markers changed",
+        )
+
+    owner_gaps = getattr(DIRECT_OFFLINE, "OWNER_GAPS", None)
+    owner_gap_type = getattr(DIRECT_OFFLINE, "OwnerGap", None)
+    if (
+        type(owner_gaps) is not tuple
+        or len(owner_gaps) != len(EXPECTED_PR6_OWNER_GAPS)
+        or owner_gap_type is None
+        or any(type(gap) is not owner_gap_type for gap in owner_gaps)
+    ):
+        raise DirectOnboardingError(
+            "pr6_owner_gap_drift",
+            "the approved offline direct-backend owner gaps changed",
+        )
+    try:
+        owner_gap_documents = tuple(gap.document() for gap in owner_gaps)
+    except (AttributeError, TypeError) as exc:
+        raise DirectOnboardingError(
+            "pr6_owner_gap_drift",
+            "the approved offline direct-backend owner gaps changed",
+        ) from exc
+    if any(
+        not _is_exact_closed_mapping(document, expected)
+        for document, expected in zip(
+            owner_gap_documents,
+            EXPECTED_PR6_OWNER_GAPS,
+            strict=True,
+        )
+    ):
+        raise DirectOnboardingError(
+            "pr6_owner_gap_drift",
+            "the approved offline direct-backend owner gaps changed",
+        )
+
+    try:
+        owner_gap_tokens = tuple(
+            OWNER_GAP_SUPPORT_TOKENS[document["port"]]
+            for document in owner_gap_documents
+        )
+        direct_support = SUPPORT_MATRIX["direct_ssh_pbs"]
+    except (KeyError, TypeError) as exc:
+        raise DirectOnboardingError(
+            "pr6_support_gap_drift",
+            "the offline direct-backend support summary changed",
+        ) from exc
+    expected_direct_support = {
+        "statuses": list(DIRECT_STATUSES),
+        "backend_supported": False,
+        "live_ready": False,
+        "production_gaps": list(PRODUCTION_GAPS),
+    }
+    if (
+        owner_gap_tokens
+        != (
+            "direct_resource_effect_time_replay_ingress",
+            "direct_live_approval_effect_time_replay_ingress",
+        )
+        or any(token not in PRODUCTION_GAPS for token in owner_gap_tokens)
+        or not _is_exact_closed_mapping(direct_support, expected_direct_support)
+    ):
+        raise DirectOnboardingError(
+            "pr6_support_gap_drift",
+            "the offline direct-backend support summary changed",
         )
 
 

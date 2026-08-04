@@ -105,6 +105,234 @@ class DirectOnboardingTests(unittest.TestCase):
         subprocess_call.assert_not_called()
         network_call.assert_not_called()
 
+    def test_integer_string_limit_is_sanitized_for_in_process_cli(self) -> None:
+        hostile = b'{"value":' + (b"7" * 5000) + b"}"
+        for command in ("validate", "doctor"):
+            with self.subTest(command=command):
+                status, stdout, stderr = self.run_cli([command], hostile)
+                self.assertEqual(status, 2)
+                self.assertEqual(stdout, "")
+                self.assertEqual(
+                    stderr,
+                    "ERROR invalid_json: direct onboarding input is not one valid JSON document\n",
+                )
+                self.assertNotIn("7777777777777777", stderr)
+                self.assertNotIn("Traceback", stderr)
+                self.assertNotIn(str(ROOT), stderr)
+
+    def test_integer_string_limit_is_sanitized_for_real_cli_process(self) -> None:
+        hostile = b'{"value":' + (b"7" * 5000) + b"}"
+        script = SCRIPTS / "direct_onboarding.py"
+        for command in ("validate", "doctor"):
+            with self.subTest(command=command):
+                result = subprocess.run(
+                    [sys.executable, str(script), command],
+                    cwd=ROOT,
+                    input=hostile,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, b"")
+                self.assertEqual(
+                    result.stderr,
+                    b"ERROR invalid_json: direct onboarding input is not one valid JSON document\n",
+                )
+                self.assertNotIn(b"7777777777777777", result.stderr)
+                self.assertNotIn(b"Traceback", result.stderr)
+                self.assertNotIn(str(ROOT).encode("utf-8"), result.stderr)
+                self.assertNotIn(str(script).encode("utf-8"), result.stderr)
+
+    def test_malformed_inputs_never_escape_sanitized_cli_errors(self) -> None:
+        cases = (
+            (["init", "INVALID PROFILE"], None, "invalid_profile_id"),
+            (["validate"], b'{"unterminated":', "invalid_json"),
+            (["doctor"], b'{"nested":' + (b"[" * 2000), "invalid_json"),
+        )
+        for argv, document, error_code in cases:
+            with self.subTest(argv=argv):
+                status, stdout, stderr = self.run_cli(argv, document)
+                self.assertEqual(status, 2)
+                self.assertEqual(stdout, "")
+                self.assertTrue(stderr.startswith(f"ERROR {error_code}:"))
+                self.assertNotIn("Traceback", stderr)
+                self.assertNotIn(str(ROOT), stderr)
+
+    def test_complete_pr6_authority_snapshot_fails_closed_on_any_drift(self) -> None:
+        ONBOARDING._assert_pr6_non_authority()
+        expected = ONBOARDING.EXPECTED_PR6_AUTHORITY
+        candidates = []
+        for field, value in expected.items():
+            changed = copy.deepcopy(expected)
+            changed[field] = not value
+            candidates.append((f"changed-{field}", changed))
+        for field in expected:
+            changed = copy.deepcopy(expected)
+            changed.pop(field)
+            candidates.append((f"missing-{field}", changed))
+        changed = copy.deepcopy(expected)
+        changed["unexpected_authority"] = False
+        candidates.append(("additional-field", changed))
+        changed = copy.deepcopy(expected)
+        changed["synthetic_only"] = 1
+        candidates.append(("non-boolean-lookalike", changed))
+
+        for label, candidate in candidates:
+            with self.subTest(label=label):
+                with mock.patch.object(DIRECT_OFFLINE, "AUTHORITY", candidate):
+                    with self.assertRaisesRegex(
+                        ONBOARDING.DirectOnboardingError,
+                        "non-authority markers changed",
+                    ) as raised:
+                        ONBOARDING._assert_pr6_non_authority()
+                self.assertEqual(raised.exception.code, "pr6_authority_drift")
+
+        with mock.patch.object(DIRECT_OFFLINE, "AUTHORITY", None):
+            with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
+                ONBOARDING._assert_pr6_non_authority()
+        self.assertEqual(raised.exception.code, "pr6_authority_drift")
+
+    def test_review_counterexamples_fail_closed_without_external_effect(self) -> None:
+        cases = (
+            ("init", "qdel_capability", True, ["init", "direct-profile-001"], None),
+            ("validate", "automatic_retry", True, ["validate"], self.profile),
+        )
+        for label, field, value, argv, document in cases:
+            authority = copy.deepcopy(ONBOARDING.EXPECTED_PR6_AUTHORITY)
+            authority[field] = value
+            with self.subTest(label=label):
+                with (
+                    mock.patch.object(DIRECT_OFFLINE, "AUTHORITY", authority),
+                    mock.patch.object(socket, "socket") as socket_call,
+                    mock.patch.object(subprocess, "run") as subprocess_call,
+                    mock.patch.object(urllib.request, "urlopen") as network_call,
+                ):
+                    status, stdout, stderr = self.run_cli(argv, document)
+                self.assertEqual(status, 2)
+                self.assertEqual(stdout, "")
+                self.assertIn("pr6_authority_drift", stderr)
+                socket_call.assert_not_called()
+                subprocess_call.assert_not_called()
+                network_call.assert_not_called()
+
+        with (
+            mock.patch.object(DIRECT_OFFLINE, "OWNER_GAPS", ()),
+            mock.patch.object(socket, "socket") as socket_call,
+            mock.patch.object(subprocess, "run") as subprocess_call,
+            mock.patch.object(urllib.request, "urlopen") as network_call,
+        ):
+            status, stdout, stderr = self.run_cli(["doctor"], self.profile)
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("pr6_owner_gap_drift", stderr)
+        socket_call.assert_not_called()
+        subprocess_call.assert_not_called()
+        network_call.assert_not_called()
+
+    def test_exact_typed_pr6_owner_gaps_and_support_cross_check(self) -> None:
+        ONBOARDING._assert_pr6_non_authority()
+        resource, live = DIRECT_OFFLINE.OWNER_GAPS
+        candidates = (
+            ("empty", ()),
+            ("reordered", (live, resource)),
+            (
+                "resource-port-replaced",
+                (
+                    DIRECT_OFFLINE.OwnerGap(
+                        "replacement_resource_port",
+                        resource.exact_owner,
+                        resource.expected_type,
+                    ),
+                    live,
+                ),
+            ),
+            (
+                "resource-owner-replaced",
+                (
+                    DIRECT_OFFLINE.OwnerGap(
+                        resource.port,
+                        "replacement_resource_owner",
+                        resource.expected_type,
+                    ),
+                    live,
+                ),
+            ),
+            (
+                "live-type-replaced",
+                (
+                    resource,
+                    DIRECT_OFFLINE.OwnerGap(
+                        live.port,
+                        live.exact_owner,
+                        "ReplacementLiveCapability",
+                    ),
+                ),
+            ),
+            ("additional", (*DIRECT_OFFLINE.OWNER_GAPS, resource)),
+            ("wrong-container-type", list(DIRECT_OFFLINE.OWNER_GAPS)),
+        )
+        for label, candidate in candidates:
+            with self.subTest(label=label):
+                with mock.patch.object(DIRECT_OFFLINE, "OWNER_GAPS", candidate):
+                    with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
+                        ONBOARDING._assert_pr6_non_authority()
+                self.assertEqual(raised.exception.code, "pr6_owner_gap_drift")
+
+        with mock.patch.object(DIRECT_OFFLINE, "OwnerGap", None):
+            with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
+                ONBOARDING._assert_pr6_non_authority()
+        self.assertEqual(raised.exception.code, "pr6_owner_gap_drift")
+
+        for field, replacement in (
+            ("status", "replacement_status"),
+            ("fallback_allowed", True),
+            ("synthetic_substitute_allowed", True),
+        ):
+            def changed_document(
+                gap: DIRECT_OFFLINE.OwnerGap,
+                *,
+                changed_field: str = field,
+                changed_value: object = replacement,
+            ) -> dict[str, object]:
+                document = {
+                    "port": gap.port,
+                    "exact_owner": gap.exact_owner,
+                    "expected_type": gap.expected_type,
+                    "status": "required_exact_direct_ingress_unavailable",
+                    "fallback_allowed": False,
+                    "synthetic_substitute_allowed": False,
+                }
+                document[changed_field] = changed_value
+                return document
+
+            with self.subTest(document_field=field):
+                with mock.patch.object(
+                    DIRECT_OFFLINE.OwnerGap,
+                    "document",
+                    changed_document,
+                ):
+                    with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
+                        ONBOARDING._assert_pr6_non_authority()
+                self.assertEqual(raised.exception.code, "pr6_owner_gap_drift")
+
+        resource_token = ONBOARDING.OWNER_GAP_SUPPORT_TOKENS[resource.port]
+        reduced_gaps = tuple(
+            gap for gap in ONBOARDING.PRODUCTION_GAPS if gap != resource_token
+        )
+        with mock.patch.object(ONBOARDING, "PRODUCTION_GAPS", reduced_gaps):
+            with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
+                ONBOARDING._assert_pr6_non_authority()
+        self.assertEqual(raised.exception.code, "pr6_support_gap_drift")
+
+        changed_support = copy.deepcopy(ONBOARDING.SUPPORT_MATRIX)
+        changed_support["direct_ssh_pbs"]["backend_supported"] = True
+        with mock.patch.object(ONBOARDING, "SUPPORT_MATRIX", changed_support):
+            with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
+                ONBOARDING._assert_pr6_non_authority()
+        self.assertEqual(raised.exception.code, "pr6_support_gap_drift")
+
     def test_parser_and_api_have_no_root_path_env_command_or_callback_surface(self) -> None:
         parser = ONBOARDING.build_parser()
         subparsers = next(
