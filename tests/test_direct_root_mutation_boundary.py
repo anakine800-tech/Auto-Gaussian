@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import inspect
 import json
 import os
@@ -150,6 +151,69 @@ class DirectRootMutationBoundaryTests(unittest.TestCase):
         helper = owner._synthetic_helper_for_testing(_test_token=BOUNDARY._TEST_TOKEN)
         with self.assertRaises(BOUNDARY.DirectRootMutationBoundaryError):
             owner.issue_synthetic_transaction_once(root_capability=document, helper=helper)
+
+    def test_result_fixed_booleans_reject_integer_lookalikes_after_rehash(self) -> None:
+        baseline = self.transaction().consume_and_apply_synthetic_once()
+        BOUNDARY.validate_synthetic_mutation_result(baseline)
+        for field, expected in BOUNDARY.RESULT_AUTHORITY.items():
+            with self.subTest(authority=field):
+                hostile = copy.deepcopy(baseline)
+                hostile["authority"][field] = int(expected)
+                hostile = BOUNDARY._finalize(hostile, "result_payload_sha256")
+                with self.assertRaisesRegex(
+                    BOUNDARY.DirectRootMutationBoundaryError,
+                    "authority differs",
+                ):
+                    BOUNDARY.validate_synthetic_mutation_result(hostile)
+
+        for index, operation in enumerate(baseline["operations"]):
+            for field, expected in operation.items():
+                if type(expected) is not bool:
+                    continue
+                with self.subTest(operation=index, field=field):
+                    hostile = copy.deepcopy(baseline)
+                    hostile["operations"][index][field] = int(expected)
+                    hostile = BOUNDARY._finalize(hostile, "result_payload_sha256")
+                    with self.assertRaisesRegex(
+                        BOUNDARY.DirectRootMutationBoundaryError,
+                        "fixed operations differ",
+                    ):
+                        BOUNDARY.validate_synthetic_mutation_result(hostile)
+
+    def test_result_closed_nested_container_types_and_order_are_exact(self) -> None:
+        baseline = self.transaction().consume_and_apply_synthetic_once()
+        candidates = []
+        hostile = copy.deepcopy(baseline)
+        hostile["authority"] = list(hostile["authority"].items())
+        candidates.append(("authority-list", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["authority"]["unexpected"] = False
+        candidates.append(("authority-extra", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["authority"].pop("live_ready")
+        candidates.append(("authority-missing", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["operations"] = tuple(hostile["operations"])
+        candidates.append(("operations-tuple", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["operations"] = list(reversed(hostile["operations"]))
+        candidates.append(("operations-reordered", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["operations"][0]["relative_components"] = tuple(
+            hostile["operations"][0]["relative_components"]
+        )
+        candidates.append(("components-tuple", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["operations"][0]["unexpected"] = False
+        candidates.append(("operation-extra", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["operations"][0].pop("create_mode")
+        candidates.append(("operation-missing", hostile))
+        for label, hostile in candidates:
+            with self.subTest(label=label):
+                hostile = BOUNDARY._finalize(hostile, "result_payload_sha256")
+                with self.assertRaises(BOUNDARY.DirectRootMutationBoundaryError):
+                    BOUNDARY.validate_synthetic_mutation_result(hostile)
 
     def test_old_unknown_missing_and_fallback_routes_reject(self) -> None:
         rejected = (

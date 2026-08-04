@@ -69,6 +69,33 @@ def _finalize(document: dict[str, Any], field: str) -> dict[str, Any]:
     return result
 
 
+def _is_exact_builtin_value(value: Any, expected: Any) -> bool:
+    """Compare one closed builtin structure without bool/int equivalence."""
+    if type(value) is not type(expected):
+        return False
+    if type(expected) is dict:
+        if len(value) != len(expected):
+            return False
+        for expected_key, expected_value in expected.items():
+            keys = [
+                key
+                for key in value
+                if type(key) is type(expected_key) and key == expected_key
+            ]
+            if len(keys) != 1 or not _is_exact_builtin_value(
+                value[keys[0]],
+                expected_value,
+            ):
+                return False
+        return True
+    if type(expected) in {list, tuple}:
+        return len(value) == len(expected) and all(
+            _is_exact_builtin_value(item, expected_item)
+            for item, expected_item in zip(value, expected, strict=True)
+        )
+    return value == expected
+
+
 @dataclass(frozen=True, slots=True)
 class FixedDirectRootOperation:
     kind: str
@@ -113,11 +140,11 @@ RESULT_AUTHORITY = {
 
 
 def _validate_fixed_operations(value: Any) -> list[dict[str, Any]]:
-    _require(type(value) is list and len(value) == 2, "fixed operations differ")
+    expected = [operation.document() for operation in FIXED_OPERATIONS]
+    _require(_is_exact_builtin_value(value, expected), "fixed operations differ")
     for index, operation in enumerate(value):
         _require(
-            type(operation) is dict
-            and canonical_bytes(operation) == _FIXED_OPERATION_BYTES[index],
+            canonical_bytes(operation) == _FIXED_OPERATION_BYTES[index],
             f"fixed operation {index} differs",
         )
     return copy.deepcopy(value)
@@ -138,13 +165,22 @@ def validate_synthetic_mutation_result(document: Any) -> dict[str, Any]:
     }
     _require(set(document) == required, "synthetic result fields differ")
     result = copy.deepcopy(document)
-    _require(result["schema"] == RESULT_SCHEMA, "synthetic result schema differs")
-    _require(result["owner"] == OWNER_ID, "synthetic result owner differs")
     _require(
-        result["boundary_version"] == BOUNDARY_VERSION,
+        _is_exact_builtin_value(result["schema"], RESULT_SCHEMA),
+        "synthetic result schema differs",
+    )
+    _require(
+        _is_exact_builtin_value(result["owner"], OWNER_ID),
+        "synthetic result owner differs",
+    )
+    _require(
+        _is_exact_builtin_value(result["boundary_version"], BOUNDARY_VERSION),
         "synthetic result version differs",
     )
-    _require(result["backend_kind"] == BACKEND_KIND, "synthetic backend differs")
+    _require(
+        _is_exact_builtin_value(result["backend_kind"], BACKEND_KIND),
+        "synthetic backend differs",
+    )
     for field in ("binding_payload_sha256", "result_payload_sha256"):
         value = result[field]
         _require(
@@ -155,9 +191,12 @@ def validate_synthetic_mutation_result(document: Any) -> dict[str, Any]:
             f"synthetic result {field} differs",
         )
     result["operations"] = _validate_fixed_operations(result["operations"])
-    _require(result["outcome"] == COMPLETED, "synthetic result outcome differs")
     _require(
-        result["authority"] == RESULT_AUTHORITY,
+        _is_exact_builtin_value(result["outcome"], COMPLETED),
+        "synthetic result outcome differs",
+    )
+    _require(
+        _is_exact_builtin_value(result["authority"], RESULT_AUTHORITY),
         "synthetic result authority differs",
     )
     projection = copy.deepcopy(result)

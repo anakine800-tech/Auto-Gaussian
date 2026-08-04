@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import dataclasses
 import hashlib
 import inspect
@@ -154,6 +155,72 @@ class DirectSSHPBSOfflineTests(unittest.TestCase):
             immutable.basename = "changed.gjf"  # type: ignore[misc]
         with self.assertRaises(OFFLINE.DirectOfflineError):
             OFFLINE.ImmutableInput("input.gjf", bytearray(self.payload))  # type: ignore[arg-type]
+
+    def test_result_fixed_booleans_reject_integer_lookalikes_after_rehash(self) -> None:
+        transaction, _transport = self.build()
+        baseline = transaction.run_once().document()
+        for field, expected in OFFLINE.AUTHORITY.items():
+            with self.subTest(authority=field):
+                hostile = copy.deepcopy(baseline)
+                hostile["authority"][field] = int(expected)
+                hostile = OFFLINE.finalized(hostile, "result_payload_sha256")
+                result = OFFLINE.SyntheticResult(OFFLINE.canonical_bytes(hostile))
+                with self.assertRaisesRegex(
+                    OFFLINE.DirectOfflineError,
+                    "closed synthetic result differs",
+                ):
+                    result.document()
+
+        for index, gap in enumerate(baseline["owner_gaps"]):
+            for field in ("fallback_allowed", "synthetic_substitute_allowed"):
+                with self.subTest(owner_gap=index, field=field):
+                    hostile = copy.deepcopy(baseline)
+                    hostile["owner_gaps"][index][field] = int(gap[field])
+                    hostile = OFFLINE.finalized(hostile, "result_payload_sha256")
+                    result = OFFLINE.SyntheticResult(OFFLINE.canonical_bytes(hostile))
+                    with self.assertRaisesRegex(
+                        OFFLINE.DirectOfflineError,
+                        "closed synthetic result differs",
+                    ):
+                        result.document()
+
+    def test_result_owner_gap_container_keys_types_and_order_are_exact(self) -> None:
+        transaction, _transport = self.build()
+        baseline = transaction.run_once().document()
+        candidates = []
+        hostile = copy.deepcopy(baseline)
+        hostile["authority"] = list(hostile["authority"].items())
+        candidates.append(("authority-list", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["authority"]["unexpected"] = False
+        candidates.append(("authority-extra", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["authority"].pop("live_ready")
+        candidates.append(("authority-missing", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["owner_gaps"] = list(reversed(hostile["owner_gaps"]))
+        candidates.append(("owner-gaps-reordered", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["owner_gaps"] = {"gap": hostile["owner_gaps"][0]}
+        candidates.append(("owner-gaps-dict", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["owner_gaps"][0]["unexpected"] = False
+        candidates.append(("owner-gap-extra", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["owner_gaps"][0].pop("status")
+        candidates.append(("owner-gap-missing", hostile))
+        hostile = copy.deepcopy(baseline)
+        hostile["owner_gaps"][0]["status"] = 0
+        candidates.append(("owner-gap-string-type", hostile))
+        for label, hostile in candidates:
+            with self.subTest(label=label):
+                hostile = OFFLINE.finalized(hostile, "result_payload_sha256")
+                result = OFFLINE.SyntheticResult(OFFLINE.canonical_bytes(hostile))
+                with self.assertRaisesRegex(
+                    OFFLINE.DirectOfflineError,
+                    "closed synthetic result differs",
+                ):
+                    result.document()
 
     def test_concurrent_single_winner_and_second_qsub_rejected(self) -> None:
         transaction, transport = self.build()

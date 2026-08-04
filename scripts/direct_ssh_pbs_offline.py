@@ -451,10 +451,22 @@ class SyntheticResult:
                 "authority",
                 "result_payload_sha256",
             }
-            and result["schema"] == "auto-g16-direct-ssh-pbs-offline-result/1"
-            and result["state"] == INTENT_RECORDED
-            and result["owner_gaps"] == [gap.document() for gap in OWNER_GAPS]
-            and result["authority"] == AUTHORITY,
+            and ROOT_BOUNDARY._is_exact_builtin_value(
+                result["schema"],
+                "auto-g16-direct-ssh-pbs-offline-result/1",
+            )
+            and ROOT_BOUNDARY._is_exact_builtin_value(
+                result["state"],
+                INTENT_RECORDED,
+            )
+            and ROOT_BOUNDARY._is_exact_builtin_value(
+                result["owner_gaps"],
+                [gap.document() for gap in OWNER_GAPS],
+            )
+            and ROOT_BOUNDARY._is_exact_builtin_value(
+                result["authority"],
+                AUTHORITY,
+            ),
             "closed synthetic result differs",
         )
         projection = copy.deepcopy(result)
