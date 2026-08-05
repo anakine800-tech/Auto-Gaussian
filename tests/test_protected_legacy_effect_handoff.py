@@ -763,15 +763,36 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             release_successor_document["schema"],
             "auto-g16-release-2.7-ci-contract-successor/1",
         )
-        self.assertFalse(
-            release_successor_document["scope"][
-                "historical_fixture_rewritten"
-            ]
+        self.assertEqual(
+            release_successor_document["base_commit"],
+            "93cdee22bec22c60bcce9acaa826be1a41e4a520",
         )
-        self.assertFalse(
-            release_successor_document["scope"][
-                "legacy_runtime_semantics_changed"
-            ]
+        self.assertEqual(
+            release_successor_document["base_tree"],
+            "a3a71f6d4462af168e2fd6aefd3f3e7637e01799",
+        )
+        self.assertEqual(
+            release_successor_document["scope"],
+            {
+                "release_ci_contract_only": True,
+                "complete_draft202012_inventory_bound": True,
+                "historical_fixture_rewritten": False,
+                "legacy_runtime_semantics_changed": False,
+                "runtime_owner_semantics_changed": False,
+                "scientific_semantics_changed": False,
+                "named_skill_package_changed": False,
+                "live_actions": False,
+            },
+        )
+        self.assertEqual(
+            set(release_successor),
+            {
+                ".github/workflows/offline-tests.yml",
+                "scripts/audit_python_contract.py",
+                "tests/test_protected_legacy_effect_handoff.py",
+                "tests/test_protected_production_ingress_contract.py",
+                "tests/test_resource_effect_time_replay_owner.py",
+            },
         )
         for relative, binding in release_successor.items():
             with self.subTest(release_successor_path=relative):

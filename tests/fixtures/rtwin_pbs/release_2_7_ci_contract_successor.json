@@ -1,9 +1,9 @@
 {
   "schema": "auto-g16-release-2.7-ci-contract-successor/1",
-  "base_commit": "9ef1a49ce5ec367983e5410c81ab44f3da2c5eaa",
-  "base_tree": "2649400d02758279d404afce8ce19fa515cfa89b",
+  "base_commit": "93cdee22bec22c60bcce9acaa826be1a41e4a520",
+  "base_tree": "a3a71f6d4462af168e2fd6aefd3f3e7637e01799",
   "scope": {
-    "release_metadata_only": true,
+    "release_ci_contract_only": true,
     "complete_draft202012_inventory_bound": true,
     "historical_fixture_rewritten": false,
     "legacy_runtime_semantics_changed": false,
@@ -27,7 +27,7 @@
     },
     "tests/test_protected_legacy_effect_handoff.py": {
       "before_sha256": "45d2938842568fea8c68b17c77b51306b5cee0b828e5526c4fd9f6e0e916b5e0",
-      "sha256": "2a44e0fca55ce355eda4a6d38abb963da617036f1e3097c76ec8064f8b77771e",
+      "sha256": "55d1bcd8f1274a34ed9f3e3e82fd46196984158bcb479c5ccdc5511a054f2e72",
       "change_class": "append_release_ci_successor_hash_chain",
       "legacy_semantics_changed": false
     },
