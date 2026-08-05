@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import array
 import fcntl
+import hashlib
 import json
 import os
 import socket
@@ -45,6 +46,8 @@ COMPLETED = {
         "create_scratch_directory_exclusive",
     ],
 }
+SESSION_HANDOFF_COMMAND = "continue_scratch_and_handoff"
+SESSION_COMPLETED_STATE = "completed_project_fd_handoff"
 
 
 class FixedHelperError(ValueError):
@@ -100,6 +103,26 @@ def _send_frame(control: socket.socket, value: dict[str, Any]) -> None:
     payload = _canonical_bytes(value)
     _require(len(payload) <= MAX_FRAME_BYTES, "helper response is oversized")
     control.sendall(struct.pack("!I", len(payload)) + payload)
+
+
+def _send_frame_with_descriptor(
+    control: socket.socket,
+    value: dict[str, Any],
+    descriptor: int,
+) -> None:
+    """Send one canonical frame and exactly one already-open directory FD."""
+    payload = _canonical_bytes(value)
+    _require(len(payload) <= MAX_FRAME_BYTES, "helper response is oversized")
+    header = struct.pack("!I", len(payload))
+    rights = array.array("i", [descriptor])
+    sent = control.sendmsg(
+        [header],
+        [(socket.SOL_SOCKET, socket.SCM_RIGHTS, rights.tobytes())],
+    )
+    _require(0 < sent <= len(header), "project descriptor frame header was not sent")
+    if sent < len(header):
+        control.sendall(header[sent:])
+    control.sendall(payload)
 
 
 def _recv_exact(control: socket.socket, size: int) -> bytes:
@@ -299,6 +322,18 @@ def _expect_command(control: socket.socket, command: str) -> None:
     )
 
 
+def _expect_scratch_command(control: socket.socket) -> bool:
+    value = _recv_frame(control, "continue_scratch")
+    _require(
+        type(value) is dict
+        and set(value) == {"protocol", "command"}
+        and value["protocol"] == PROTOCOL
+        and value["command"] in {"continue_scratch", SESSION_HANDOFF_COMMAND},
+        "continue_scratch command differs",
+    )
+    return value["command"] == SESSION_HANDOFF_COMMAND
+
+
 def _unrelated_fd_count(control_fd: int) -> int:
     count = 0
     for descriptor in range(3, 256):
@@ -360,7 +395,7 @@ def _run_child(control_fd: int) -> int:
             "created project identity or mode differs",
         )
         _send_frame(control, PROJECT_CREATED)
-        _expect_command(control, "continue_scratch")
+        handoff_project_fd = _expect_scratch_command(control)
         os.mkdir(SCRATCH_LABEL, mode=0o700, dir_fd=project_fd)
         scratch_before = os.stat(
             SCRATCH_LABEL,
@@ -382,7 +417,20 @@ def _run_child(control_fd: int) -> int:
             and stat.S_IMODE(scratch_opened.st_mode) == 0o700,
             "created scratch identity or mode differs",
         )
-        _send_frame(control, COMPLETED)
+        if handoff_project_fd:
+            _send_frame_with_descriptor(
+                control,
+                {
+                    "protocol": PROTOCOL,
+                    "state": SESSION_COMPLETED_STATE,
+                    "operations_completed": list(COMPLETED["operations_completed"]),
+                    "request_sha256": hashlib.sha256(_canonical_bytes(request)).hexdigest(),
+                    "project_identity": list(_directory_identity(project_opened)),
+                },
+                project_fd,
+            )
+        else:
+            _send_frame(control, COMPLETED)
         return 0
     except BaseException as exc:
         try:

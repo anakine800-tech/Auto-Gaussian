@@ -8,6 +8,10 @@ invoke qsub, or provide a portable-document fallback.
 
 from __future__ import annotations
 
+if globals().get("_AUTO_G16_DIRECT_EFFECT_TIME_REPLAY_INGRESS_EXECUTED", False):
+    raise ImportError("direct effect-time replay ingress module has already executed")
+_AUTO_G16_DIRECT_EFFECT_TIME_REPLAY_INGRESS_EXECUTED = True
+
 import copy
 import hashlib
 import json
@@ -26,6 +30,9 @@ import resource_effect_time_replay_owner as RESOURCE
 
 
 MODULE_NAME = "direct_effect_time_replay_ingress"
+REGISTRATION_ATTRIBUTE = (
+    "_auto_g16_direct_effect_time_replay_ingress_owner_registration_v1"
+)
 SCHEMA = "auto-g16-direct-effect-time-replay-ingress/1"
 RESULT_SCHEMA = "auto-g16-direct-effect-time-replay-ingress-result/1"
 OWNER = "auto-g16-direct-effect-time-replay-ingress-owner"
@@ -386,21 +393,28 @@ def validate_direct_effect_time_replay_ingress(value: Any) -> dict[str, Any]:
 
 def _direct_context(transaction: Any) -> tuple[Any, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     _require(
-        type(transaction) is DIRECT.SyntheticTransaction,
-        "direct replay ingress requires the exact direct transaction",
+        type(transaction) in {
+            DIRECT.SyntheticTransaction,
+            DIRECT.DirectServerSessionTransaction,
+        },
+        "direct replay ingress requires the exact direct transaction from a supported owner",
     )
     _require(transaction.state() == DIRECT.READY, "direct transaction is not at its effect-time entry")
-    root_transaction = transaction._root_transaction
-    root_capability = getattr(root_transaction, "_root_capability", None)
+    if type(transaction) is DIRECT.DirectServerSessionTransaction:
+        root_transaction = None
+        root_capability = transaction._root_capability
+    else:
+        root_transaction = transaction._root_transaction
+        root_capability = getattr(root_transaction, "_root_capability", None)
     _require(
         type(root_capability) is ROOT.SingleUseWorkspaceDescriptorCapability,
         "direct transaction root capability type differs",
     )
     root_capability.assert_current()
-    expected_binding = DIRECT.build_binding(
-        root_capability,
-        root_transaction,
-        transaction._input,
+    expected_binding = (
+        DIRECT.build_server_session_binding(root_capability, transaction._input)
+        if type(transaction) is DIRECT.DirectServerSessionTransaction
+        else DIRECT.build_binding(root_capability, root_transaction, transaction._input)
     )
     _require(
         type(transaction._binding) is DIRECT.Binding
@@ -824,6 +838,19 @@ def _source_snapshot(module: types.ModuleType, label: str) -> _SourceSnapshot:
 
 
 _THIS_MODULE = sys.modules.get(MODULE_NAME)
+_require(
+    type(_THIS_MODULE) is types.ModuleType,
+    "canonical direct replay ingress module is unavailable",
+)
+_registered_module = vars(DIRECT).setdefault(
+    REGISTRATION_ATTRIBUTE,
+    _THIS_MODULE,
+)
+_require(
+    _registered_module is _THIS_MODULE,
+    "canonical direct replay ingress owner is already registered",
+)
+del _registered_module
 _MODULES = {
     MODULE_NAME: _THIS_MODULE,
     ROOT.__name__: ROOT,
@@ -844,6 +871,7 @@ _ISSUED_TYPES = {
 _PREDECESSOR_TYPES = {
     (ROOT.__name__, "SingleUseWorkspaceDescriptorCapability"): ROOT.SingleUseWorkspaceDescriptorCapability,
     (DIRECT.__name__, "SyntheticTransaction"): DIRECT.SyntheticTransaction,
+    (DIRECT.__name__, "DirectServerSessionTransaction"): DIRECT.DirectServerSessionTransaction,
     (RESOURCE.__name__, "ResourceEffectTimeReplayCapability"): RESOURCE.ResourceEffectTimeReplayCapability,
     (RESOURCE.__name__, "ClaimedResourceEffectTimeReplay"): RESOURCE.ClaimedResourceEffectTimeReplay,
     (LIVE.__name__, "PreQsubLiveApprovalReplayCapability"): LIVE.PreQsubLiveApprovalReplayCapability,
@@ -863,6 +891,10 @@ def _assert_module_binding() -> None:
             f"module source identity or bytes differ: {name}",
         )
     _require(DIRECT.ROOT_OWNER is ROOT, "direct root owner module identity differs")
+    _require(
+        vars(DIRECT).get(REGISTRATION_ATTRIBUTE) is _THIS_MODULE,
+        "direct replay ingress owner registration differs",
+    )
     for name, expected in _ISSUED_TYPES.items():
         _require(getattr(_THIS_MODULE, name, None) is expected, f"ingress class identity differs: {name}")
     for (module_name, name), expected in _PREDECESSOR_TYPES.items():
@@ -1015,6 +1047,7 @@ def _install_owner_private_api() -> None:
         allow_nan=False,
     )
     installed_descriptors: dict[tuple[type, str], object] = {}
+    registration_attribute = REGISTRATION_ATTRIBUTE
 
     def assert_private_binding() -> None:
         require(type(module) is module_type, "canonical ingress module identity differs")
@@ -1096,6 +1129,10 @@ def _install_owner_private_api() -> None:
                 f"module source identity or bytes differ: {name}",
             )
         require(DIRECT.ROOT_OWNER is ROOT, "direct root owner module identity differs")
+        require(
+            vars(DIRECT).get(registration_attribute) is module,
+            "direct replay ingress owner registration differs",
+        )
         for name, expected in issued_items:
             require(
                 getattr(module, name, None) is expected,
@@ -1236,6 +1273,27 @@ def _install_owner_private_api() -> None:
                 raise
         return self
 
+    def capability_assert_server_session_pre_w2(
+        self: object,
+        direct_transaction: object,
+    ) -> object:
+        """Bind W2 started to this exact still-unconsumed server session."""
+        record = capability_record(self)
+        with record.lock:
+            require(
+                record.status.value == "issued"
+                and type(direct_transaction) is DIRECT.DirectServerSessionTransaction
+                and record.transaction is direct_transaction,
+                "pre-W2 server-session ingress binding differs or was already used",
+            )
+            try:
+                current_locked(self, record)
+                direct_transaction.assert_current()
+            except BaseException:
+                record.status.value = "failed"
+                raise
+        return self
+
     def capability_consume(self: object) -> object:
         record = capability_record(self)
         with record.lock:
@@ -1368,22 +1426,52 @@ def _install_owner_private_api() -> None:
                 record.status.value = "failed"
                 raise
 
+    def owner_seal_server_session(
+        self: object,
+        *,
+        direct_transaction: Any,
+        resource_replay: Any,
+        live_approval_replay: Any,
+    ) -> object:
+        require(
+            type(direct_transaction) is DIRECT.DirectServerSessionTransaction,
+            "server-session ingress requires the exact non-synthetic transaction",
+        )
+        return owner_seal(
+            self,
+            direct_transaction=direct_transaction,
+            resource_replay=resource_replay,
+            live_approval_replay=live_approval_replay,
+        )
+
     claim_type.document = claim_document
     claim_type.resource_replay = property(claim_resource)
     claim_type.live_approval_replay = property(claim_live)
     claim_type.assert_owner_sealed = claim_assert
     capability_type.document = capability_document
     capability_type.assert_current = capability_assert
+    capability_type.assert_server_session_pre_w2_current = (
+        capability_assert_server_session_pre_w2
+    )
     capability_type.consume_once = capability_consume
     owner_type.production = classmethod(owner_production)
     owner_type.seal_once = owner_seal
+    owner_type.seal_server_session_once = owner_seal_server_session
     for cls, names in (
         (
             claim_type,
             ("document", "resource_replay", "live_approval_replay", "assert_owner_sealed"),
         ),
-        (capability_type, ("document", "assert_current", "consume_once")),
-        (owner_type, ("production", "seal_once")),
+        (
+            capability_type,
+            (
+                "document",
+                "assert_current",
+                "assert_server_session_pre_w2_current",
+                "consume_once",
+            ),
+        ),
+        (owner_type, ("production", "seal_once", "seal_server_session_once")),
     ):
         for name in names:
             installed_descriptors[(cls, name)] = cls.__dict__[name]

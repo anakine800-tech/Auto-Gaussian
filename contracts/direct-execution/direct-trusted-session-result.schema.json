@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/direct-execution/direct-trusted-session-result.schema.json",
+  "title": "Auto-G16 direct trusted server-local session W5 readiness",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "session_id",
+    "binding_payload_sha256",
+    "journal_id",
+    "w3_ingress_id",
+    "w3_result_payload_sha256",
+    "w4_project_session_id",
+    "project_identity_sha256",
+    "status",
+    "durable_terminal_outcome",
+    "policy",
+    "authority",
+    "result_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-trusted-session-result/1"},
+    "owner": {"const": "auto-g16-direct-trusted-server-local-session"},
+    "session_id": {"type": "string", "pattern": "^direct-trusted-session-[a-f0-9]{64}$"},
+    "binding_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "journal_id": {"type": "string", "pattern": "^direct-durable-submission-journal-[a-f0-9]{64}$"},
+    "w3_ingress_id": {"type": "string", "pattern": "^direct-effect-time-replay-ingress-[a-f0-9]{64}$"},
+    "w3_result_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "w4_project_session_id": {"type": "string", "pattern": "^direct-project-session-[a-f0-9]{64}$"},
+    "project_identity_sha256": {"$ref": "#/$defs/sha256"},
+    "status": {"const": "ready_for_w5"},
+    "durable_terminal_outcome": {"const": "none"},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixed_clean_exec_required",
+        "trusted_server_local_session_required",
+        "untrusted_arbitrary_same_process_code_allowed",
+        "same_process_reflection_is_security_boundary",
+        "caller_module_override_allowed",
+        "caller_command_override_allowed",
+        "caller_path_override_allowed",
+        "caller_environment_override_allowed",
+        "portable_artifacts_are_authority",
+        "capability_serialization_allowed",
+        "path_reopen_allowed",
+        "automatic_retry",
+        "restart_effect_capability_recovery_allowed",
+        "restart_reconciliation_read_only_only",
+        "production_closure"
+      ],
+      "properties": {
+        "fixed_clean_exec_required": {"const": true},
+        "trusted_server_local_session_required": {"const": true},
+        "untrusted_arbitrary_same_process_code_allowed": {"const": false},
+        "same_process_reflection_is_security_boundary": {"const": false},
+        "caller_module_override_allowed": {"const": false},
+        "caller_command_override_allowed": {"const": false},
+        "caller_path_override_allowed": {"const": false},
+        "caller_environment_override_allowed": {"const": false},
+        "portable_artifacts_are_authority": {"const": false},
+        "capability_serialization_allowed": {"const": false},
+        "path_reopen_allowed": {"const": false},
+        "automatic_retry": {"const": false},
+        "restart_effect_capability_recovery_allowed": {"const": false},
+        "restart_reconciliation_read_only_only": {"const": true},
+        "production_closure": {"const": false}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authorizes_effect",
+        "transport_connected",
+        "backend_supported",
+        "live_ready",
+        "external_effects",
+        "qsub_calls",
+        "qsub_authorized",
+        "qdel_authorized",
+        "upload_authorized",
+        "delete_authorized",
+        "cleanup_authorized",
+        "production_closure"
+      ],
+      "properties": {
+        "authorizes_effect": {"const": false},
+        "transport_connected": {"const": false},
+        "backend_supported": {"const": false},
+        "live_ready": {"const": false},
+        "external_effects": {"const": 0},
+        "qsub_calls": {"const": 0},
+        "qsub_authorized": {"const": false},
+        "qdel_authorized": {"const": false},
+        "upload_authorized": {"const": false},
+        "delete_authorized": {"const": false},
+        "cleanup_authorized": {"const": false},
+        "production_closure": {"const": false}
+      }
+    },
+    "result_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}
+  }
+}

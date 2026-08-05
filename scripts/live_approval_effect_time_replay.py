@@ -26,6 +26,7 @@ from types import ModuleType
 from typing import Any, Callable
 
 import protected_production_ingress_contract as _INGRESS
+import direct_ssh_pbs_offline as _DIRECT
 
 
 MODULE_NAME = "live_approval_effect_time_replay"
@@ -55,6 +56,7 @@ _OWNER_TOKEN = object()
 _TEST_OWNER_TOKEN = object()
 _ZERO_SHA = "0" * 64
 _LIVE_OWNER_LOCK = threading.RLock()
+_DIRECT_PREDECESSOR_SCHEMA = "auto-g16-direct-server-session-live-source/1"
 
 
 class LiveApprovalEffectTimeReplayError(ValueError):
@@ -393,6 +395,7 @@ _LIVE_SCOPE_OWNER = _LEGACY.expected_live_approval_scope
 _OWNER_SOURCE = _capture_source(_THIS_MODULE, "effect-time replay owner")
 _INGRESS_SOURCE = _capture_source(_INGRESS, "production ingress owner")
 _LIVE_OWNER_SOURCE = _capture_source(_LEGACY, "live-approval owner")
+_DIRECT_OWNER_SOURCE = _capture_source(_DIRECT, "direct server-session owner")
 
 
 def _assert_bindings_current() -> None:
@@ -407,6 +410,9 @@ def _assert_bindings_current() -> None:
     _INGRESS._assert_bindings_current()
     _require(
         _INGRESS._LEGACY_BINDING.module is _LEGACY
+        and sys.modules.get(_DIRECT.__name__) is _DIRECT
+        and getattr(_DIRECT, "DirectServerSessionTransaction", None)
+        is _DIRECT.DirectServerSessionTransaction
         and _LEGACY.validate_live_approval_binding is _LIVE_VALIDATOR
         and _LEGACY.expected_live_approval_scope is _LIVE_SCOPE_OWNER,
         "existing live-approval owner identity was replaced",
@@ -425,6 +431,11 @@ def _assert_bindings_current() -> None:
         _LIVE_OWNER_SOURCE,
         _LEGACY,
         "live-approval owner",
+    )
+    _assert_source_current(
+        _DIRECT_OWNER_SOURCE,
+        _DIRECT,
+        "direct server-session owner",
     )
 
 
@@ -643,6 +654,150 @@ def _assert_scope_matches_predecessor(
     return protected_document, intent, scope
 
 
+class _DirectServerSessionIngress:
+    __slots__ = ("_binding_bytes", "_transaction")
+
+    def __init__(self, transaction: _DIRECT.DirectServerSessionTransaction) -> None:
+        _require(
+            type(transaction) is _DIRECT.DirectServerSessionTransaction,
+            "direct live source requires the exact server-session transaction",
+        )
+        self._transaction = transaction
+        self._binding_bytes = _DIRECT.canonical_bytes(transaction.binding())
+
+    def assert_current(self) -> None:
+        _require(
+            type(self._transaction) is _DIRECT.DirectServerSessionTransaction
+            and _DIRECT.canonical_bytes(self._transaction.binding()) == self._binding_bytes,
+            "direct server-session live source drifted",
+        )
+
+    def binding(self) -> dict[str, Any]:
+        self.assert_current()
+        return json.loads(self._binding_bytes)
+
+
+def _assert_scope_matches_direct(
+    ingress: _DirectServerSessionIngress,
+    approval: dict[str, Any],
+) -> dict[str, Any]:
+    ingress.assert_current()
+    binding = ingress.binding()
+    scope = approval["scope"]
+    execution = scope["execution"]
+    resources = execution["resource_binding"]
+    direct_resources = binding["resources"]
+    _require(
+        scope["operation"] == "submit"
+        and scope["project"] == binding["workspace"]["project"]
+        and scope["input_sha256"] == binding["input"]["sha256"]
+        and execution["scientific_task_id"] == binding["scope"]["scientific_task_id"]
+        and execution["attempt_id"] == binding["scope"]["attempt_id"]
+        and execution["idempotency_key"] == binding["scope"]["idempotency_key"]
+        and resources["resource_tier"] == direct_resources["tier"]
+        and resources["cores"] == int(direct_resources["cores"])
+        and resources["memory_gb"] == int(direct_resources["memory_gb"])
+        and resources["walltime_seconds"] == int(direct_resources["walltime_seconds"]),
+        "direct server-session live approval scope differs",
+    )
+    return scope
+
+
+def _build_direct_document(
+    ingress: _DirectServerSessionIngress,
+    approval: dict[str, Any],
+    snapshot: _FileSnapshot,
+    issued_at: datetime,
+) -> dict[str, Any]:
+    scope = _assert_scope_matches_direct(ingress, approval)
+    execution = scope["execution"]
+    resource = execution["resource_binding"]
+    binding = ingress.binding()
+    predecessor = {
+        "schema": _DIRECT_PREDECESSOR_SCHEMA,
+        "contract_id": "direct-server-session-live-" + binding["binding_payload_sha256"],
+        "contract_payload_sha256": binding["binding_payload_sha256"],
+        "owner_consumer_contract_id": "direct-session-owner-" + binding["authorization"]["authorization_payload_sha256"],
+        "protected_bundle_id": "direct-session-input-" + binding["input"]["sha256"],
+        "protected_bundle_payload_sha256": binding["input"]["sha256"],
+        "protected_consumption_sha256": binding["authorization"]["authorization_scope_sha256"],
+    }
+    artifact = {
+        "schema": approval["schema"],
+        "approval_id": approval["approval_id"],
+        "artifact_sha256": snapshot.sha256,
+        "size_bytes": len(snapshot.raw),
+        "resolved_path_sha256": digest(str(snapshot.path)),
+        "file_identity_sha256": snapshot.identity_sha256,
+        "scope_sha256": digest(scope),
+        "approver_identity": approval["approver_identity"],
+        "approved_at": approval["approved_at"],
+        "expires_at": approval["expires_at"],
+        "revocation": copy.deepcopy(approval["revocation"]),
+    }
+    document = {
+        "schema": SCHEMA,
+        "owner": OWNER,
+        "capability_id": "pre-qsub-live-approval-replay-" + _ZERO_SHA,
+        "predecessor": predecessor,
+        "approval_artifact": artifact,
+        "execution_scope": {
+            "operation": "submit",
+            "batch_id": execution["batch_id"],
+            "review_sha256": execution["review_sha256"],
+            "scientific_task_id": execution["scientific_task_id"],
+            "attempt_id": execution["attempt_id"],
+            "idempotency_key_sha256": hashlib.sha256(
+                execution["idempotency_key"].encode("utf-8")
+            ).hexdigest(),
+            "project": scope["project"],
+            "input_sha256": scope["input_sha256"],
+            "resources": copy.deepcopy(resource),
+        },
+        "replay": {
+            "phase": PHASE,
+            "issued_at": _format_utc(issued_at),
+            "single_use": True,
+            "replay_count": 0,
+            "owner_private_registry": True,
+            "owner_private_lock": True,
+            "trusted_wall_time": True,
+            "trusted_monotonic_lower_bound": True,
+            "clock_rollback_rejected": True,
+            "capability_authorizes_effect": False,
+        },
+        "source_bindings": {
+            "owner_source_sha256": _OWNER_SOURCE.sha256,
+            "production_ingress_source_sha256": _INGRESS_SOURCE.sha256,
+            "live_approval_owner_source_sha256": _LIVE_OWNER_SOURCE.sha256,
+        },
+        "effect_boundary": {
+            "production_submit_wired": False,
+            "factory_calls": 0,
+            "runner_calls": 0,
+            "qsub_calls": 0,
+            "transport_calls": 0,
+            "external_effects_performed": False,
+            "non_authorizing": True,
+        },
+        "contract_payload_sha256": "",
+    }
+    document["contract_payload_sha256"] = digest(
+        {**document, "capability_id": "", "contract_payload_sha256": ""}
+    )
+    document["capability_id"] = "pre-qsub-live-approval-replay-" + digest(
+        {
+            "schema": "auto-g16-pre-qsub-replay-capability-id/1",
+            "predecessor_contract_id": predecessor["contract_id"],
+            "approval_artifact_sha256": artifact["artifact_sha256"],
+            "file_identity_sha256": artifact["file_identity_sha256"],
+            "issued_at": document["replay"]["issued_at"],
+            "contract_payload_sha256": document["contract_payload_sha256"],
+        }
+    )
+    return validate_live_approval_effect_time_replay(document)
+
+
 def _build_document(
     ingress: object,
     approval: dict[str, Any],
@@ -818,21 +973,37 @@ def validate_live_approval_effect_time_replay(
         },
         "effect-time replay predecessor",
     )
-    _require(
-        predecessor["schema"]
-        == "auto-g16-protected-production-ingress-contract/1"
-        and _text(predecessor["contract_id"], "predecessor contract id")
-        .startswith("protected-production-ingress-")
-        and _text(
-            predecessor["owner_consumer_contract_id"],
-            "owner-consumer contract id",
-        ).startswith("protected-owner-consumer-")
-        and _text(
-            predecessor["protected_bundle_id"],
-            "protected bundle id",
-        ).startswith("protected-submit-"),
-        "effect-time replay predecessor identity differs",
-    )
+    if predecessor["schema"] == _DIRECT_PREDECESSOR_SCHEMA:
+        _require(
+            _text(predecessor["contract_id"], "predecessor contract id").startswith(
+                "direct-server-session-live-"
+            )
+            and _text(
+                predecessor["owner_consumer_contract_id"],
+                "owner-consumer contract id",
+            ).startswith("direct-session-owner-")
+            and _text(
+                predecessor["protected_bundle_id"],
+                "protected bundle id",
+            ).startswith("direct-session-input-"),
+            "direct effect-time replay predecessor identity differs",
+        )
+    else:
+        _require(
+            predecessor["schema"]
+            == "auto-g16-protected-production-ingress-contract/1"
+            and _text(predecessor["contract_id"], "predecessor contract id")
+            .startswith("protected-production-ingress-")
+            and _text(
+                predecessor["owner_consumer_contract_id"],
+                "owner-consumer contract id",
+            ).startswith("protected-owner-consumer-")
+            and _text(
+                predecessor["protected_bundle_id"],
+                "protected bundle id",
+            ).startswith("protected-submit-"),
+            "effect-time replay predecessor identity differs",
+        )
     for field in (
         "contract_payload_sha256",
         "protected_bundle_payload_sha256",
@@ -1418,6 +1589,100 @@ class LiveApprovalEffectTimeReplayOwner:
                         )
                 raise
 
+    def issue_direct_server_session_once(
+        self,
+        transaction: _DIRECT.DirectServerSessionTransaction,
+        approval_path: Path,
+    ) -> PreQsubLiveApprovalReplayCapability:
+        """Issue through the same live owner for one exact direct transaction."""
+        with self._lock:
+            _require(not self._used, "effect-time replay owner is single-use")
+            self._used = True
+            _assert_bindings_current()
+            _require(
+                type(transaction) is _DIRECT.DirectServerSessionTransaction,
+                "direct replay requires the exact server-session transaction",
+            )
+            ingress = _DirectServerSessionIngress(transaction)
+            ingress.assert_current()
+            issued_wall, issued_monotonic_ns = _read_clock(
+                self._wall_clock,
+                self._monotonic_clock,
+            )
+            snapshot = _capture_file(Path(approval_path), "direct live approval record")
+            issuance_key = id(ingress)
+            with _REGISTRY_LOCK:
+                _require(
+                    issuance_key not in _ISSUANCE_REGISTRY,
+                    "direct approval replay capability was already issued",
+                )
+                _ISSUANCE_REGISTRY[issuance_key] = (
+                    ingress,
+                    snapshot.sha256,
+                    "claiming",
+                )
+            try:
+                parsed = _parse_json_bytes(snapshot.raw, "direct live approval record")
+                validated, after = _replay_existing_owner(
+                    snapshot.path,
+                    snapshot,
+                    None,
+                    issued_wall,
+                )
+                _require(
+                    after == snapshot and validated == parsed,
+                    "direct live approval changed during capability issuance",
+                )
+                _assert_scope_matches_direct(ingress, validated)
+                document = _build_direct_document(
+                    ingress,
+                    validated,
+                    snapshot,
+                    issued_wall,
+                )
+                capability = PreQsubLiveApprovalReplayCapability._from_owner(
+                    document,
+                    token=_CAPABILITY_TOKEN,
+                )
+                with _REGISTRY_LOCK:
+                    _require(
+                        _ISSUANCE_REGISTRY.get(issuance_key)
+                        == (ingress, snapshot.sha256, "claiming")
+                        and capability not in _CAPABILITY_REGISTRY,
+                        "direct replay capability issuance registry differs",
+                    )
+                    _CAPABILITY_REGISTRY[capability] = _ReplayState(
+                        ingress=ingress,
+                        approval_path=snapshot.path,
+                        approval_snapshot=snapshot,
+                        approval_document=validated,
+                        issued_wall=issued_wall,
+                        issued_monotonic_ns=issued_monotonic_ns,
+                        wall_clock=self._wall_clock,
+                        monotonic_clock=self._monotonic_clock,
+                        document_bytes=canonical_bytes(document),
+                    )
+                    _ISSUANCE_REGISTRY[issuance_key] = (
+                        ingress,
+                        snapshot.sha256,
+                        "issued",
+                    )
+                capability.assert_current()
+                return capability
+            except BaseException:
+                with _REGISTRY_LOCK:
+                    if _ISSUANCE_REGISTRY.get(issuance_key) == (
+                        ingress,
+                        snapshot.sha256,
+                        "claiming",
+                    ):
+                        _ISSUANCE_REGISTRY[issuance_key] = (
+                            ingress,
+                            snapshot.sha256,
+                            "failed",
+                        )
+                raise
+
 
 def _consume_replay_capability(
     capability: PreQsubLiveApprovalReplayCapability,
@@ -1455,11 +1720,14 @@ def _consume_replay_capability(
                 state.approval_document,
                 trusted_now,
             )
-            _assert_scope_matches_predecessor(
-                state.ingress,
-                replayed,
-                snapshot.sha256,
-            )
+            if type(state.ingress) is _DirectServerSessionIngress:
+                _assert_scope_matches_direct(state.ingress, replayed)
+            else:
+                _assert_scope_matches_predecessor(
+                    state.ingress,
+                    replayed,
+                    snapshot.sha256,
+                )
             result_document = {
                 "schema": "auto-g16-live-approval-effect-time-replay-result/1",
                 "capability_id": document["capability_id"],

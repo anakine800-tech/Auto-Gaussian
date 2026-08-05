@@ -26,6 +26,7 @@ SCHEMA_DRAFT202012_TEST_MODULES = (
     "tests.test_direct_root_fixed_mutation_schema_draft202012",
     "tests.test_direct_root_mutation_boundary_schema_draft202012",
     "tests.test_direct_root_owner_schema_draft202012",
+    "tests.test_direct_trusted_session_schema_draft202012",
     "tests.test_execution_batch_reservation_capability_schema_draft202012",
     "tests.test_legacy_root_authority_schema_draft202012",
     "tests.test_live_approval_effect_time_replay_schema_draft202012",

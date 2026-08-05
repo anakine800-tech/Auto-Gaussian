@@ -72,22 +72,25 @@
       ],
       "properties": {
         "schema": {
-          "const": "auto-g16-protected-production-ingress-contract/1"
+          "enum": [
+            "auto-g16-protected-production-ingress-contract/1",
+            "auto-g16-direct-server-session-live-source/1"
+          ]
         },
         "contract_id": {
           "type": "string",
-          "pattern": "^protected-production-ingress-[a-f0-9]{64}$"
+          "pattern": "^(?:protected-production-ingress|direct-server-session-live)-[a-f0-9]{64}$"
         },
         "contract_payload_sha256": {
           "$ref": "#/$defs/sha256"
         },
         "owner_consumer_contract_id": {
           "type": "string",
-          "pattern": "^protected-owner-consumer-[a-f0-9]{64}$"
+          "pattern": "^(?:protected-owner-consumer|direct-session-owner)-[a-f0-9]{64}$"
         },
         "protected_bundle_id": {
           "type": "string",
-          "pattern": "^protected-submit-[a-f0-9]{64}$"
+          "pattern": "^(?:protected-submit|direct-session-input)-[a-f0-9]{64}$"
         },
         "protected_bundle_payload_sha256": {
           "$ref": "#/$defs/sha256"

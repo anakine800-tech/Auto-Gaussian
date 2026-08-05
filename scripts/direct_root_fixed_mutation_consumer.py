@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import array
 import copy
+import fcntl
 import hashlib
 import hmac
 import json
@@ -29,6 +30,7 @@ from typing import Any, TypedDict
 
 import direct_root_fixed_mutation_helper as HELPER
 import direct_root_owner_contract as ROOT
+import direct_durable_submission_journal as JOURNAL
 
 
 MODULE_NAME = "direct_root_fixed_mutation_consumer"
@@ -384,6 +386,49 @@ def _request_from_capability(
     return canonical_bytes(request), descriptor_set._opaque_handles, project
 
 
+def _seam_from_exact_journal_claim(
+    capability: ROOT.SingleUseWorkspaceDescriptorCapability,
+    claim: JOURNAL.DurableEffectClaim,
+    direct_binding: JOURNAL.DIRECT.Binding,
+) -> DurableJournalSeamDocument:
+    _require(
+        type(claim) is JOURNAL.DurableEffectClaim
+        and type(direct_binding) is JOURNAL.DIRECT.Binding,
+        "exact W2 durable claim and direct binding are required",
+    )
+    expected_journal = JOURNAL.journal_id_for_binding(direct_binding)
+    _require(
+        claim.journal_id == expected_journal
+        and claim.binding_payload_sha256 == direct_binding.sha256
+        and claim.outcome == "started"
+        and claim.authorizes_effect is False,
+        "W2 durable claim is not current for the exact direct binding",
+    )
+    receipt = ROOT.validate_fresh_root_observation_receipt(capability.portable_receipt())
+    authorization = ROOT.validate_direct_execution_authorization(
+        json.loads(capability._authorization_bytes)
+    )
+    return validate_durable_journal_seam(
+        {
+            "schema": "auto-g16-direct-durable-journal-claim-seam/1",
+            "journal_id": claim.journal_id,
+            "binding_payload_sha256": claim.binding_payload_sha256,
+            "receipt_payload_sha256": receipt["receipt_payload_sha256"],
+            "authorization_scope_sha256": authorization["scope"][
+                "authorization_scope_sha256"
+            ],
+            "workspace_binding_sha256": authorization["workspace"][
+                "workspace_binding_sha256"
+            ],
+            "descriptor_set_sha256": receipt["observed_root"][
+                "descriptor_set_sha256"
+            ],
+            "outcome": "started",
+            "authorizes_effect": False,
+        }
+    )
+
+
 def _recv_frame(control: socket.socket) -> dict[str, Any]:
     header = b""
     while len(header) < 4:
@@ -407,6 +452,113 @@ def _recv_frame(control: socket.socket) -> dict[str, Any]:
         raise DirectRootFixedMutationError("helper response is not strict JSON") from exc
     _require(type(value) is dict and canonical_bytes(value) == raw, "helper response is not canonical")
     return value
+
+
+def _directory_identity(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_uid,
+        info.st_gid,
+        stat.S_IFMT(info.st_mode),
+        stat.S_IMODE(info.st_mode),
+    )
+
+
+def _recv_project_descriptor(
+    control: socket.socket,
+    *,
+    request: bytes,
+    root_descriptor: int,
+    project: str,
+) -> tuple[dict[str, Any], int, tuple[int, ...]]:
+    """Receive one canonical completion frame and exactly one project FD."""
+    integers = array.array("i")
+    received: list[int] = []
+    header, ancillary, flags, _address = control.recvmsg(
+        4,
+        socket.CMSG_SPACE(2 * integers.itemsize),
+    )
+    try:
+        _require(
+            not (flags & (getattr(socket, "MSG_TRUNC", 0) | getattr(socket, "MSG_CTRUNC", 0))),
+            "project descriptor frame or rights were truncated",
+        )
+        _require(0 < len(header) <= 4, "project descriptor frame header differs")
+        if len(header) < 4:
+            while len(header) < 4:
+                chunk = control.recv(4 - len(header))
+                _require(bool(chunk), "project descriptor frame header closed")
+                header += chunk
+        foreign_or_malformed = False
+        for level, kind, data in ancillary:
+            if level != socket.SOL_SOCKET or kind != socket.SCM_RIGHTS:
+                foreign_or_malformed = True
+                continue
+            usable = len(data) - (len(data) % integers.itemsize)
+            integers.frombytes(data[:usable])
+            received.extend(integers.tolist())
+            integers = array.array("i")
+            if len(data) != integers.itemsize:
+                foreign_or_malformed = True
+        _require(
+            not foreign_or_malformed,
+            "project descriptor ancillary data must be exactly one native FD integer",
+        )
+        _require(
+            len(ancillary) == 1 and len(received) == 1,
+            "project descriptor frame must contain exactly one FD and one ancillary record",
+        )
+        descriptor = received[0]
+        descriptor_flags = fcntl.fcntl(descriptor, fcntl.F_GETFD)
+        fcntl.fcntl(descriptor, fcntl.F_SETFD, descriptor_flags | fcntl.FD_CLOEXEC)
+        size = struct.unpack("!I", header)[0]
+        _require(0 < size <= HELPER.MAX_FRAME_BYTES, "project descriptor frame size differs")
+        chunks: list[bytes] = []
+        remaining = size
+        while remaining:
+            chunk = control.recv(remaining)
+            _require(bool(chunk), "project descriptor frame body closed")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        value = json.loads(raw.decode("utf-8"))
+        _require(type(value) is dict and canonical_bytes(value) == raw, "project descriptor frame is not canonical")
+        _require(
+            set(value)
+            == {
+                "protocol",
+                "state",
+                "operations_completed",
+                "request_sha256",
+                "project_identity",
+            }
+            and value["protocol"] == HELPER.PROTOCOL
+            and value["state"] == HELPER.SESSION_COMPLETED_STATE
+            and value["operations_completed"] == list(OPERATIONS)
+            and value["request_sha256"] == hashlib.sha256(request).hexdigest(),
+            "project descriptor completion protocol or hash differs",
+        )
+        info = os.fstat(descriptor)
+        identity = _directory_identity(info)
+        named = os.stat(project, dir_fd=root_descriptor, follow_symlinks=False)
+        _require(
+            stat.S_ISDIR(info.st_mode)
+            and not stat.S_ISLNK(named.st_mode)
+            and identity == _directory_identity(named)
+            and value["project_identity"] == list(identity)
+            and stat.S_IMODE(info.st_mode) == 0o700
+            and fcntl.fcntl(descriptor, fcntl.F_GETFD) & fcntl.FD_CLOEXEC,
+            "project descriptor identity differs",
+        )
+        return value, descriptor, identity
+    except BaseException:
+        for descriptor in received:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        raise
 
 
 def _send_frame(control: socket.socket, value: dict[str, Any]) -> None:
@@ -478,11 +630,14 @@ def _result(
 class SingleUseDirectRootFixedMutation:
     __slots__ = (
         "_capability",
+        "_direct_binding",
+        "_journal_claim",
         "_journal_seam",
         "_lock",
         "_outcome",
         "_project",
         "_seal",
+        "_session_mode",
     )
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
@@ -506,6 +661,29 @@ class SingleUseDirectRootFixedMutation:
                 self._outcome = ZERO_EFFECT_TERMINAL
                 raise
             return _MODULE_BINDING.execute(self)
+
+    def apply_for_session_once(self) -> "DirectProjectSessionCapability":
+        with self._lock:
+            _require(
+                type(self) is SingleUseDirectRootFixedMutation
+                and self._seal is _TRANSACTION_TOKEN
+                and self._outcome == READY
+                and self._session_mode is True
+                and type(self._journal_claim) is JOURNAL.DurableEffectClaim
+                and type(self._direct_binding) is JOURNAL.DIRECT.Binding,
+                "fixed mutation session transaction is foreign, unavailable, or terminal",
+            )
+            try:
+                _assert_module_binding()
+            except BaseException:
+                self._outcome = ZERO_EFFECT_TERMINAL
+                raise
+            result = _MODULE_BINDING.execute(self)
+            _require(
+                type(result) is DirectProjectSessionCapability,
+                "project session descriptor handoff is uncertain",
+            )
+            return result
 
 
 class DirectRootFixedMutationOwner:
@@ -545,17 +723,277 @@ class DirectRootFixedMutationOwner:
             )
             transaction = object.__new__(SingleUseDirectRootFixedMutation)
             transaction._capability = root_capability
+            transaction._direct_binding = None
+            transaction._journal_claim = None
             transaction._journal_seam = seam
             transaction._lock = threading.Lock()
             transaction._outcome = READY
             transaction._project = project
             transaction._seal = _TRANSACTION_TOKEN
+            transaction._session_mode = False
+            self._issued = True
+            return transaction
+
+    def issue_session_once(
+        self,
+        *,
+        root_capability: ROOT.SingleUseWorkspaceDescriptorCapability,
+        durable_journal_claim: JOURNAL.DurableEffectClaim,
+        direct_binding: JOURNAL.DIRECT.Binding,
+    ) -> SingleUseDirectRootFixedMutation:
+        _assert_module_binding()
+        with self._lock:
+            _require(
+                type(self) is DirectRootFixedMutationOwner
+                and self._seal is _OWNER_TOKEN
+                and self._issued is False,
+                "fixed mutation owner is foreign or already used",
+            )
+            ROOT.SingleUseWorkspaceDescriptorCapability.assert_current(root_capability)
+            seam = _seam_from_exact_journal_claim(
+                root_capability,
+                durable_journal_claim,
+                direct_binding,
+            )
+            _request, _descriptors, project = _request_from_capability(
+                root_capability,
+                seam,
+            )
+            transaction = object.__new__(SingleUseDirectRootFixedMutation)
+            transaction._capability = root_capability
+            transaction._direct_binding = direct_binding
+            transaction._journal_claim = durable_journal_claim
+            transaction._journal_seam = seam
+            transaction._lock = threading.Lock()
+            transaction._outcome = READY
+            transaction._project = project
+            transaction._seal = _TRANSACTION_TOKEN
+            transaction._session_mode = True
             self._issued = True
             return transaction
 
 
 _OWNER_TOKEN = object()
 _TRANSACTION_TOKEN = object()
+_SESSION_CAP_TOKEN = object()
+_SESSION_LEASE_TOKEN = object()
+_SESSION_REGISTRY_LOCK = threading.RLock()
+_SESSION_REGISTRY: dict[object, dict[str, Any]] = {}
+
+
+class ConsumedDirectProjectSession:
+    """Owner-sealed nonportable FD lease for the trusted composition owner."""
+
+    __slots__ = ("_capability", "_seal")
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("project session leases are owner-issued only")
+
+    def assert_owner_sealed(self) -> None:
+        _require(
+            type(self) is ConsumedDirectProjectSession
+            and self._seal is _SESSION_LEASE_TOKEN
+            and type(self._capability) is DirectProjectSessionCapability,
+            "project session lease is foreign",
+        )
+        _assert_project_session_capability(self._capability, expected_status="consumed")
+
+    @property
+    def _project_descriptor(self) -> int:
+        self.assert_owner_sealed()
+        return _SESSION_REGISTRY[self._capability]["project_fd"]
+
+    @property
+    def _root_descriptor_lease(self) -> ROOT.ConsumedWorkspaceDescriptorLease:
+        self.assert_owner_sealed()
+        return _SESSION_REGISTRY[self._capability]["root_lease"]
+
+    @property
+    def _durable_claim(self) -> JOURNAL.DurableEffectClaim:
+        self.assert_owner_sealed()
+        return _SESSION_REGISTRY[self._capability]["journal_claim"]
+
+    @property
+    def _direct_binding(self) -> JOURNAL.DIRECT.Binding:
+        self.assert_owner_sealed()
+        return _SESSION_REGISTRY[self._capability]["direct_binding"]
+
+    def close_once(self) -> None:
+        self.assert_owner_sealed()
+        _close_project_session_capability(self._capability, expected_status="consumed")
+
+    def __copy__(self) -> Any:
+        raise TypeError("project session leases are not clonable")
+
+    def __deepcopy__(self, _memo: Any) -> Any:
+        raise TypeError("project session leases are not clonable")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("project session leases are not serializable")
+
+
+class DirectProjectSessionCapability:
+    """Single-use parent-owned project FD plus the exact retained W1/W2 state."""
+
+    __slots__ = ("session_id", "_seal")
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("project session capabilities are owner-issued only")
+
+    def assert_current(self) -> None:
+        _assert_project_session_capability(self, expected_status="issued")
+
+    def consume_once(self) -> ConsumedDirectProjectSession:
+        with _SESSION_REGISTRY_LOCK:
+            _assert_project_session_capability(self, expected_status="issued")
+            _SESSION_REGISTRY[self]["status"] = "consumed"
+            lease = object.__new__(ConsumedDirectProjectSession)
+            lease._capability = self
+            lease._seal = _SESSION_LEASE_TOKEN
+            lease.assert_owner_sealed()
+            return lease
+
+    def __copy__(self) -> Any:
+        raise TypeError("project session capabilities are not clonable")
+
+    def __deepcopy__(self, _memo: Any) -> Any:
+        raise TypeError("project session capabilities are not clonable")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("project session capabilities are not serializable")
+
+    def __del__(self) -> None:
+        try:
+            _close_project_session_capability(self, expected_status=None)
+        except BaseException:
+            pass
+
+
+def _assert_project_session_capability(
+    capability: DirectProjectSessionCapability,
+    *,
+    expected_status: str,
+) -> None:
+    _assert_module_binding()
+    with _SESSION_REGISTRY_LOCK:
+        record = _SESSION_REGISTRY.get(capability)
+        _require(
+            type(capability) is DirectProjectSessionCapability
+            and capability._seal is _SESSION_CAP_TOKEN
+            and type(record) is dict
+            and record.get("capability") is capability
+            and record.get("pid") == os.getpid()
+            and record.get("status") == expected_status
+            and capability.session_id == record.get("session_id"),
+            "project session capability is foreign, consumed, forked, or terminal",
+        )
+        descriptor = record["project_fd"]
+        info = os.fstat(descriptor)
+        root_descriptor = record["root_lease"]._descriptor_set._opaque_handles[-1]
+        named = os.stat(
+            record["project"],
+            dir_fd=root_descriptor,
+            follow_symlinks=False,
+        )
+        _require(
+            _directory_identity(info) == record["project_identity"]
+            and _directory_identity(named) == record["project_identity"]
+            and not stat.S_ISLNK(named.st_mode)
+            and stat.S_ISDIR(info.st_mode)
+            and fcntl.fcntl(descriptor, fcntl.F_GETFD) & fcntl.FD_CLOEXEC,
+            "project session descriptor closed, reused, duplicated, or drifted",
+        )
+        root_lease = record["root_lease"]
+        ROOT.ConsumedWorkspaceDescriptorLease.assert_owner_sealed(root_lease)
+        claim = record["journal_claim"]
+        binding = record["direct_binding"]
+        _require(
+            type(claim) is JOURNAL.DurableEffectClaim
+            and type(binding) is JOURNAL.DIRECT.Binding
+            and claim.journal_id == record["journal_id"]
+            and claim.binding_payload_sha256 == binding.sha256
+            and claim.outcome == "started"
+            and claim.authorizes_effect is False,
+            "project session W1/W2 binding drifted",
+        )
+
+
+def _issue_project_session_capability(
+    *,
+    project_fd: int,
+    project_identity: tuple[int, ...],
+    project: str,
+    root_lease: ROOT.ConsumedWorkspaceDescriptorLease,
+    journal_claim: JOURNAL.DurableEffectClaim,
+    direct_binding: JOURNAL.DIRECT.Binding,
+    result: dict[str, Any],
+) -> DirectProjectSessionCapability:
+    session_id = "direct-project-session-" + digest(
+        {
+            "journal_id": journal_claim.journal_id,
+            "binding_payload_sha256": direct_binding.sha256,
+            "project_identity": list(project_identity),
+            "result_payload_sha256": result["result_payload_sha256"],
+        }
+    )
+    capability = object.__new__(DirectProjectSessionCapability)
+    capability.session_id = session_id
+    capability._seal = _SESSION_CAP_TOKEN
+    with _SESSION_REGISTRY_LOCK:
+        _require(capability not in _SESSION_REGISTRY, "project session registry collision")
+        _SESSION_REGISTRY[capability] = {
+            "capability": capability,
+            "pid": os.getpid(),
+            "status": "issued",
+            "session_id": session_id,
+            "project_fd": project_fd,
+            "project_identity": project_identity,
+            "project": project,
+            "root_lease": root_lease,
+            "journal_claim": journal_claim,
+            "journal_id": journal_claim.journal_id,
+            "direct_binding": direct_binding,
+            "result": copy.deepcopy(result),
+        }
+    capability.assert_current()
+    return capability
+
+
+def _close_project_session_capability(
+    capability: DirectProjectSessionCapability,
+    *,
+    expected_status: str | None,
+) -> None:
+    with _SESSION_REGISTRY_LOCK:
+        record = _SESSION_REGISTRY.get(capability)
+        if type(record) is not dict:
+            return
+        if expected_status is not None:
+            _require(record["status"] == expected_status, "project session close state differs")
+        if record["pid"] == os.getpid():
+            try:
+                os.close(record["project_fd"])
+            except OSError:
+                pass
+            bundle = record["root_lease"]._descriptor_set._descriptor_bundle
+            if bundle is not None:
+                ROOT._close_descriptor_bundle_once(bundle, owner="capability")
+        record["status"] = "closed"
+        del _SESSION_REGISTRY[capability]
+
+
+def _after_fork_child() -> None:
+    with _SESSION_REGISTRY_LOCK:
+        for record in tuple(_SESSION_REGISTRY.values()):
+            try:
+                os.close(record["project_fd"])
+            except OSError:
+                pass
+        _SESSION_REGISTRY.clear()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_after_fork_child)
 
 
 def _build_executor() -> Any:
@@ -578,6 +1016,7 @@ def _build_executor() -> Any:
     seam_validator = validate_durable_journal_seam
     request_builder = _request_from_capability
     response_reader = _recv_frame
+    project_response_reader = _recv_project_descriptor
     command_sender = _send_frame
     request_sender = _send_request_with_descriptors
     child_terminator = _terminate_child
@@ -597,6 +1036,7 @@ def _build_executor() -> Any:
         process: subprocess.Popen[bytes] | None = None
         helper_source_fd = -1
         lease: ROOT.ConsumedWorkspaceDescriptorLease | None = None
+        project_fd = -1
         effect_boundary_crossed = False
         operations_completed: tuple[str, ...] = ()
         try:
@@ -654,23 +1094,52 @@ def _build_executor() -> Any:
             response = response_reader(control_parent)
             owner_require(response == helper_project_created, "fixed helper project outcome is uncertain")
             operations_completed = operations[:1]
-            command_sender(
-                control_parent,
-                {"protocol": helper_protocol, "command": "continue_scratch"},
-            )
-            response = response_reader(control_parent)
-            owner_require(response == helper_completed, "fixed helper scratch outcome is uncertain")
+            if transaction._session_mode:
+                command_sender(
+                    control_parent,
+                    {
+                        "protocol": helper_protocol,
+                        "command": HELPER.SESSION_HANDOFF_COMMAND,
+                    },
+                )
+                response, project_fd, project_identity = project_response_reader(
+                    control_parent,
+                    request=request,
+                    root_descriptor=descriptors[-1],
+                    project=project,
+                )
+            else:
+                command_sender(
+                    control_parent,
+                    {"protocol": helper_protocol, "command": "continue_scratch"},
+                )
+                response = response_reader(control_parent)
+                owner_require(response == helper_completed, "fixed helper scratch outcome is uncertain")
             operations_completed = operations
             exit_code = process.wait(timeout=timeout)
             owner_require(exit_code == 0, "fixed helper exit status differs")
             transaction._outcome = COMPLETED
-            return result_builder(
+            result = result_builder(
                 seam=seam,
                 project=project,
                 outcome=COMPLETED,
                 effect_boundary_crossed=True,
                 operations_completed=operations,
             )
+            if transaction._session_mode:
+                session = _issue_project_session_capability(
+                    project_fd=project_fd,
+                    project_identity=project_identity,
+                    project=project,
+                    root_lease=lease,
+                    journal_claim=transaction._journal_claim,
+                    direct_binding=transaction._direct_binding,
+                    result=result,
+                )
+                project_fd = -1
+                lease = None
+                return session
+            return result
         except BaseException:
             if effect_boundary_crossed:
                 transaction._outcome = OUTCOME_UNCERTAIN
@@ -698,6 +1167,8 @@ def _build_executor() -> Any:
                 control_parent.close()
             if helper_source_fd >= 0:
                 close_fd(helper_source_fd)
+            if project_fd >= 0:
+                close_fd(project_fd)
             if lease is not None:
                 bundle = lease._descriptor_set._descriptor_bundle
                 if bundle is not None:
@@ -710,6 +1181,7 @@ def _build_executor() -> Any:
         seam_validator,
         request_builder,
         response_reader,
+        project_response_reader,
         command_sender,
         request_sender,
         child_terminator,
@@ -731,6 +1203,7 @@ def _build_executor() -> Any:
     _FROZEN_SEAM_VALIDATOR,
     _FROZEN_REQUEST_BUILDER,
     _FROZEN_RESPONSE_READER,
+    _FROZEN_PROJECT_RESPONSE_READER,
     _FROZEN_COMMAND_SENDER,
     _FROZEN_REQUEST_SENDER,
     _FROZEN_CHILD_TERMINATOR,
@@ -760,6 +1233,7 @@ class _ModuleBinding:
     helper_project_created: dict[str, Any]
     helper_completed: dict[str, Any]
     root_module: types.ModuleType
+    journal_module: types.ModuleType
     python_executable: Path
     execute: Any
     popen: Any
@@ -768,6 +1242,7 @@ class _ModuleBinding:
     seam_validator: Any
     request_builder: Any
     response_reader: Any
+    project_response_reader: Any
     command_sender: Any
     request_sender: Any
     child_terminator: Any
@@ -782,8 +1257,12 @@ class _ModuleBinding:
     root_scratch_label: str
     transaction_type: type
     owner_type: type
+    project_capability_type: type
+    project_lease_type: type
     apply_descriptor: Any
+    apply_session_descriptor: Any
     issue_descriptor: Any
+    issue_session_descriptor: Any
 
 
 def _capture_module_binding() -> _ModuleBinding:
@@ -805,6 +1284,7 @@ def _capture_module_binding() -> _ModuleBinding:
         helper_project_created=copy.deepcopy(HELPER.PROJECT_CREATED),
         helper_completed=copy.deepcopy(HELPER.COMPLETED),
         root_module=ROOT,
+        journal_module=JOURNAL,
         python_executable=_FROZEN_PYTHON_EXECUTABLE,
         execute=_EXECUTE,
         popen=_FROZEN_POPEN,
@@ -813,6 +1293,7 @@ def _capture_module_binding() -> _ModuleBinding:
         seam_validator=_FROZEN_SEAM_VALIDATOR,
         request_builder=_FROZEN_REQUEST_BUILDER,
         response_reader=_FROZEN_RESPONSE_READER,
+        project_response_reader=_FROZEN_PROJECT_RESPONSE_READER,
         command_sender=_FROZEN_COMMAND_SENDER,
         request_sender=_FROZEN_REQUEST_SENDER,
         child_terminator=_FROZEN_CHILD_TERMINATOR,
@@ -827,8 +1308,12 @@ def _capture_module_binding() -> _ModuleBinding:
         root_scratch_label=ROOT.SCRATCH_COMPONENT,
         transaction_type=SingleUseDirectRootFixedMutation,
         owner_type=DirectRootFixedMutationOwner,
+        project_capability_type=DirectProjectSessionCapability,
+        project_lease_type=ConsumedDirectProjectSession,
         apply_descriptor=SingleUseDirectRootFixedMutation.__dict__["apply_once"],
+        apply_session_descriptor=SingleUseDirectRootFixedMutation.__dict__["apply_for_session_once"],
         issue_descriptor=DirectRootFixedMutationOwner.__dict__["issue_once"],
+        issue_session_descriptor=DirectRootFixedMutationOwner.__dict__["issue_session_once"],
     )
 
 
@@ -839,6 +1324,7 @@ def _assert_module_binding() -> None:
         and sys.modules.get(MODULE_NAME) is binding.module
         and sys.modules.get(HELPER.__name__) is binding.helper_module
         and sys.modules.get(ROOT.__name__) is binding.root_module
+        and sys.modules.get(JOURNAL.__name__) is binding.journal_module
         and _stable_source is binding.stable_source
         and _stable_source(binding.source.path) == binding.source
         and _stable_source(binding.helper_source.path) == binding.helper_source
@@ -854,6 +1340,7 @@ def _assert_module_binding() -> None:
         and validate_durable_journal_seam is binding.seam_validator
         and _request_from_capability is binding.request_builder
         and _recv_frame is binding.response_reader
+        and _recv_project_descriptor is binding.project_response_reader
         and _send_frame is binding.command_sender
         and _send_request_with_descriptors is binding.request_sender
         and _terminate_child is binding.child_terminator
@@ -868,8 +1355,12 @@ def _assert_module_binding() -> None:
         and ROOT.SCRATCH_COMPONENT == binding.root_scratch_label
         and SingleUseDirectRootFixedMutation is binding.transaction_type
         and DirectRootFixedMutationOwner is binding.owner_type
+        and DirectProjectSessionCapability is binding.project_capability_type
+        and ConsumedDirectProjectSession is binding.project_lease_type
         and SingleUseDirectRootFixedMutation.__dict__.get("apply_once") is binding.apply_descriptor
-        and DirectRootFixedMutationOwner.__dict__.get("issue_once") is binding.issue_descriptor,
+        and SingleUseDirectRootFixedMutation.__dict__.get("apply_for_session_once") is binding.apply_session_descriptor
+        and DirectRootFixedMutationOwner.__dict__.get("issue_once") is binding.issue_descriptor
+        and DirectRootFixedMutationOwner.__dict__.get("issue_session_once") is binding.issue_session_descriptor,
         "fixed mutation module, helper, function, or source binding differs",
     )
     ROOT._assert_owner_binding()
@@ -883,6 +1374,8 @@ __all__ = [
     "COMPLETED",
     "DirectRootFixedMutationError",
     "DirectRootFixedMutationOwner",
+    "DirectProjectSessionCapability",
+    "ConsumedDirectProjectSession",
     "DurableJournalSeamDocument",
     "OUTCOME_UNCERTAIN",
     "RESULT_SCHEMA",
