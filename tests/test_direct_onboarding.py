@@ -763,7 +763,7 @@ class DirectOnboardingTests(unittest.TestCase):
             "scripts/protected_production_ingress_contract.py": "0cb8d84271968dbc5641a2a2f625d3f3a950a793952104f773c73f71ff45e2df",
             "scripts/protected_production_factory_consumer.py": "5db1043a9107cc11843d2a7284ab802200b2502a77807ed8e8e9c38f1786ddf7",
             "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
-            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1",
         }
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):

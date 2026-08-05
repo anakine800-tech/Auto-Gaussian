@@ -686,7 +686,7 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             & forbidden_functions
         )
         frozen = {
-            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1",
             "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
             "skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py": "3a978dbfbf6d5111d50c087c3c2df775fd15d5cd3924ea063e5ae674bafc0cdb",
             "scripts/protected_owner_consumer_contract.py": "01fe0e30fdbd155e982962d8c4258d4d773d9d0de0b1323e119a6ab3573cd899",
@@ -730,6 +730,16 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         local_integration = local_integration_document["files"]
+        current_lineage = {
+            ".github/workflows/offline-tests.yml": {
+                "before_sha256": "7eb63bb5e7885b5e0e90e180987b017e984be61b4cd0d66895333a5f1b1ce3a9",
+                "sha256": "ae8aae6ab81b27e2a0a9c98341d434557bbae5bba3455d441ec251b6c334c69f",
+            },
+            "skills/auto-g16-rtwin-pbs/SKILL.md": {
+                "before_sha256": "d5107598c2a5dac5c6cf875cd474d502621996282b3116729b7546bed63e2280",
+                "sha256": "da8091a1d1a1f4531070964e5702f7bd9627ed991efc0fd039c9b7dde3537dcd",
+            },
+        }
 
         def apply_foundation_successor(relative: str, expected: str) -> str:
             if relative not in foundation_successor:
@@ -762,6 +772,10 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                     expected = successor_binding["sha256"]
                 expected = apply_foundation_successor(relative, expected)
                 expected = apply_local_integration(relative, expected)
+                if relative in current_lineage:
+                    current_binding = current_lineage[relative]
+                    self.assertEqual(current_binding["before_sha256"], expected)
+                    expected = current_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected,
