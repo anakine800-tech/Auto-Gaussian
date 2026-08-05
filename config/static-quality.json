@@ -6,6 +6,7 @@
     "scripts/dev_preflight.py",
     "scripts/python_environment.py",
     "scripts/private_study_migration.py",
+    "scripts/run_schema_validation.py",
     "scripts/run_tests.py",
     "scripts/runtime_config.py",
     "skills/auto-g16-reaction-workflow/scripts/calculation_dag.py"

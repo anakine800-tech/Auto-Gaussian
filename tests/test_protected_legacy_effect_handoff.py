@@ -68,6 +68,16 @@ DIRECT_REPLAY_CI_SUCCESSOR_PATH = (
     / "tests/fixtures/rtwin_pbs/"
     "direct_effect_time_replay_ingress_ci_successor.json"
 )
+LOCAL_DRAFT_SUCCESSOR_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "local_draft_validation_successor.json"
+)
+LOCAL_DRAFT_HARDENING_SUCCESSOR_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "local_draft_validation_hardening_successor.json"
+)
 
 
 class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
@@ -604,6 +614,14 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         foundation_successor = foundation_successor_document["files"]
+        local_integration_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_local_draft_integration_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        local_integration = local_integration_document["files"]
 
         def apply_foundation_successor(relative: str, current_sha256: str) -> str:
             if relative not in foundation_successor:
@@ -611,6 +629,21 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             binding = foundation_successor[relative]
             self.assertEqual(binding["before_sha256"], current_sha256)
             return binding["sha256"]
+
+        def apply_local_integration(relative: str, current_sha256: str) -> str:
+            if relative not in local_integration:
+                return current_sha256
+            binding = local_integration[relative]
+            self.assertEqual(binding["left_before_sha256"], current_sha256)
+            return binding["sha256"]
+        local_draft_document = json.loads(
+            LOCAL_DRAFT_SUCCESSOR_PATH.read_text(encoding="utf-8")
+        )
+        local_draft_successor = local_draft_document["files"]
+        hardening_document = json.loads(
+            LOCAL_DRAFT_HARDENING_SUCCESSOR_PATH.read_text(encoding="utf-8")
+        )
+        hardening_successor = hardening_document["files"]
         self.assertEqual(
             fixture["schema"],
             "auto-g16-protected-legacy-effect-handoff-fixture/1",
@@ -707,6 +740,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     )
                     current_sha256 = successor_binding["sha256"]
                 current_sha256 = apply_foundation_successor(relative, current_sha256)
+                current_sha256 = apply_local_integration(relative, current_sha256)
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -757,6 +791,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     )
                     current_sha256 = direct_replay_binding["sha256"]
                 current_sha256 = apply_foundation_successor(relative, current_sha256)
+                current_sha256 = apply_local_integration(relative, current_sha256)
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -802,6 +837,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     )
                     current_sha256 = direct_replay_binding["sha256"]
                 current_sha256 = apply_foundation_successor(relative, current_sha256)
+                current_sha256 = apply_local_integration(relative, current_sha256)
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -862,6 +898,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     )
                     current_sha256 = direct_replay_binding["sha256"]
                 current_sha256 = apply_foundation_successor(relative, current_sha256)
+                current_sha256 = apply_local_integration(relative, current_sha256)
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -904,6 +941,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     },
                 )
                 expected_sha256 = apply_foundation_successor(relative, binding["sha256"])
+                expected_sha256 = apply_local_integration(relative, expected_sha256)
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected_sha256,
@@ -926,6 +964,54 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         self.assertFalse(foundation_successor_document["scope"]["production_closure"])
         for relative, binding in foundation_successor.items():
             with self.subTest(foundation_successor_path=relative):
+                expected_sha256 = apply_local_integration(relative, binding["sha256"])
+                self.assertEqual(
+                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                    expected_sha256,
+                )
+                self.assertFalse(binding["legacy_semantics_changed"])
+        self.assertEqual(
+            local_draft_document["schema"],
+            "auto-g16-local-draft-validation-successor/1",
+        )
+        self.assertEqual(local_draft_document["base_commit"], "f337f65d030a9cfc686ec41777baf38476ddac84")
+        self.assertEqual(local_draft_document["successor_commit"], "0d28ee34be7a4d2fa42651e5c1a50417199e8491")
+        self.assertEqual(set(local_draft_successor), {"scripts/audit_python_contract.py"})
+        self.assertEqual(
+            hardening_document["schema"],
+            "auto-g16-local-draft-validation-hardening-successor/1",
+        )
+        self.assertEqual(hardening_document["base_commit"], "0d28ee34be7a4d2fa42651e5c1a50417199e8491")
+        self.assertEqual(
+            set(hardening_successor),
+            {
+                "tests/test_protected_legacy_effect_handoff.py",
+                "tests/test_protected_production_ingress_contract.py",
+                "tests/test_resource_effect_time_replay_owner.py",
+            },
+        )
+        self.assertEqual(
+            local_integration_document["schema"],
+            "auto-g16-v2.7-local-draft-integration-successor/1",
+        )
+        self.assertEqual(
+            local_integration_document["parents"],
+            [
+                "f3f6d5535e66c3a0e9f9eaa1921ae5fc8fd34929",
+                "c92b1e6eb92d169fd3173ea9633097ab5a6b0b06",
+            ],
+        )
+        self.assertEqual(
+            local_integration["scripts/audit_python_contract.py"]["right_before_sha256"],
+            local_draft_successor["scripts/audit_python_contract.py"]["sha256"],
+        )
+        for relative, binding in hardening_successor.items():
+            self.assertEqual(
+                local_integration[relative]["right_before_sha256"],
+                binding["sha256"],
+            )
+        for relative, binding in local_integration.items():
+            with self.subTest(local_integration_path=relative):
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     binding["sha256"],

@@ -784,6 +784,14 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         foundation_successor = foundation_successor_document["files"]
+        local_integration_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_local_draft_integration_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        local_integration = local_integration_document["files"]
 
         def apply_foundation_successor(relative: str, expected: str) -> str:
             if relative not in foundation_successor:
@@ -791,8 +799,16 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             binding = foundation_successor[relative]
             self.assertEqual(binding["before_sha256"], expected, relative)
             return binding["sha256"]
+
+        def apply_local_integration(relative: str, expected: str) -> str:
+            if relative not in local_integration:
+                return expected
+            binding = local_integration[relative]
+            self.assertEqual(binding["left_before_sha256"], expected, relative)
+            return binding["sha256"]
         for relative, expected in fixture["frozen_predecessors"].items():
             expected = apply_foundation_successor(relative, expected)
+            expected = apply_local_integration(relative, expected)
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
@@ -817,6 +833,7 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                 )
                 expected = successor_binding["sha256"]
             expected = apply_foundation_successor(relative, expected)
+            expected = apply_local_integration(relative, expected)
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
@@ -840,6 +857,7 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                 )
                 expected = successor_binding["sha256"]
             expected = apply_foundation_successor(relative, expected)
+            expected = apply_local_integration(relative, expected)
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
@@ -868,6 +886,11 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             "auto-g16-v2.7-production-foundation-integration-successor/1",
         )
         self.assertFalse(foundation_successor_document["scope"]["production_closure"])
+        self.assertEqual(
+            local_integration_document["schema"],
+            "auto-g16-v2.7-local-draft-integration-successor/1",
+        )
+        self.assertFalse(local_integration_document["scope"]["production_closure"])
         package = json.loads(
             (
                 ROOT / "skills/auto-g16-rtwin-pbs/deployment-package.json"

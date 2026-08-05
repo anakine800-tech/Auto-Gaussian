@@ -1,0 +1,51 @@
+{
+  "schema": "auto-g16-v2.7-local-draft-integration-successor/1",
+  "parents": [
+    "f3f6d5535e66c3a0e9f9eaa1921ae5fc8fd34929",
+    "c92b1e6eb92d169fd3173ea9633097ab5a6b0b06"
+  ],
+  "scope": {
+    "local_draft_validation_integration_only": true,
+    "historical_fixture_rewritten": false,
+    "runtime_dependencies_changed": false,
+    "production_closure": false,
+    "live_actions": false
+  },
+  "files": {
+    "scripts/audit_python_contract.py": {
+      "left_before_sha256": "9e45d4ebb50289177387fee9ea84a3f3d6efed34f43e7ff5220c779a09f2d5a1",
+      "right_before_sha256": "4ddfd5f91105a9a9afd907c6850ae8b7a6ebeeb35dc7bdee0e6147c961f430f1",
+      "sha256": "4ddfd5f91105a9a9afd907c6850ae8b7a6ebeeb35dc7bdee0e6147c961f430f1",
+      "change_class": "retain_dynamic_ci_owned_inventory_after_foundation_merge",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_audit_python_contract.py": {
+      "left_before_sha256": "86b6c45554ab19593b6a99eb3c6e0da1441b5a6594a6983c27300a7220cf4620",
+      "right_before_sha256": "682f70838bfa024c5003dc03426f7979ca24224e4dd33329bdddceb65627f0f5",
+      "sha256": "682f70838bfa024c5003dc03426f7979ca24224e4dd33329bdddceb65627f0f5",
+      "change_class": "retain_dynamic_inventory_tests_after_foundation_merge",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "left_before_sha256": "f00e4d62f8246e502ffc067b1514eeb74d068583e77acd2048f359fd8229c074",
+      "right_before_sha256": "28bedaf85ea87dadc8c70d11ec708ff9ff39aa947086a629b1a7b947f3cdfeec",
+      "sha256": "18e9eded61156d1186b44a417fc0433d3cb8bdd1b89d9a131d0cf92d4c8b6944",
+      "change_class": "merge_non_linear_foundation_and_local_draft_lineage",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_production_ingress_contract.py": {
+      "left_before_sha256": "3cf755d4493b467c1a5d00fe548fd04aa0e2abd6934d7cf8f57f51ff8f0d6d3a",
+      "right_before_sha256": "9ffb09a4cf43c584dc0985a0ad36147ee77292a6b5cf35fcc7d01f75ec9d4210",
+      "sha256": "17121a722713ae5f7d0f8a19bc77299c63ad5b2d14442687695da5f2f4895163",
+      "change_class": "retain_foundation_lineage_with_local_draft_parent_bound",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_resource_effect_time_replay_owner.py": {
+      "left_before_sha256": "c2d94b6b3f31814b1953c46a1e2146295d3bc3d9f1f13791faddbdccb9268acc",
+      "right_before_sha256": "29bfbb9b4cc63ef864cc0005508e79f8b8dfec0ae2d2ce62b63bb62fc0dfc8af",
+      "sha256": "2d3a5361fd0bd150281fee03844f48c5d3e87d28a1580302b2c942fe70ec4069",
+      "change_class": "retain_foundation_lineage_with_local_draft_parent_bound",
+      "legacy_semantics_changed": false
+    }
+  }
+}

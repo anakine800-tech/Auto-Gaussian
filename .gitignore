@@ -6,6 +6,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+/.venv-schema-validation/
 
 # Historical one-off Skill build directories; skills/ is the source of truth.
 /.skill-build/
