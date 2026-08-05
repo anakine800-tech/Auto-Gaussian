@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/direct_root_mutation_boundary.py",
+      "target": "scripts/direct_root_mutation_boundary.py"
+    },
+    {
+      "source": "docs/v2.7-direct-root-mutation-boundary.md",
+      "target": "references/direct-root-mutation-boundary.md"
+    }
+  ]
+}

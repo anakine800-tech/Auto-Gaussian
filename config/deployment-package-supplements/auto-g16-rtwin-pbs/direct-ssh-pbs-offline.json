@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/direct_ssh_pbs_offline.py",
+      "target": "scripts/direct_ssh_pbs_offline.py"
+    },
+    {
+      "source": "docs/v2.7-direct-ssh-pbs-offline-backend.md",
+      "target": "references/direct-ssh-pbs-offline-backend.md"
+    }
+  ]
+}
