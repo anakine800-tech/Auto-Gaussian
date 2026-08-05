@@ -1,0 +1,63 @@
+{
+  "schema": "auto-g16-direct-read-only-qstat-cases/1",
+  "job_id": "123.master",
+  "job_name": "fixturejob",
+  "cases": {
+    "queued": {
+      "returncode": 0,
+      "stdout": "Job Id: 123.master\n    Job_Name = fixturejob\n    job_state = Q\n",
+      "stderr": "",
+      "status": "present",
+      "lifecycle": "queued"
+    },
+    "running": {
+      "returncode": 0,
+      "stdout": "Job Id: 123.master\n    Job_Name = fixturejob\n    job_state = R\n    session_id = 31415\n",
+      "stderr": "",
+      "status": "present",
+      "lifecycle": "running"
+    },
+    "held": {
+      "returncode": 0,
+      "stdout": "Job Id: 123.master\n    Job_Name = fixturejob\n    job_state = H\n",
+      "stderr": "",
+      "status": "present",
+      "lifecycle": "held"
+    },
+    "exiting": {
+      "returncode": 0,
+      "stdout": "Job Id: 123.master\n    Job_Name = fixturejob\n    job_state = E\n    session_id = 31415\n",
+      "stderr": "",
+      "status": "present",
+      "lifecycle": "exiting"
+    },
+    "terminal_c": {
+      "returncode": 0,
+      "stdout": "Job Id: 123.master\n    Job_Name = fixturejob\n    job_state = C\n    exit_status = 0\n",
+      "stderr": "",
+      "status": "present",
+      "lifecycle": "terminal"
+    },
+    "terminal_f": {
+      "returncode": 0,
+      "stdout": "Job Id: 123.master\n    Job_Name = fixturejob\n    job_state = F\n    exit_status = 0\n",
+      "stderr": "",
+      "status": "present",
+      "lifecycle": "terminal"
+    },
+    "absent": {
+      "returncode": 153,
+      "stdout": "",
+      "stderr": "qstat: Unknown Job Id 123.master\n",
+      "status": "absent",
+      "lifecycle": "absent"
+    },
+    "unknown_returncode": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "qstat failed\n",
+      "status": "unknown",
+      "lifecycle": "unknown"
+    }
+  }
+}

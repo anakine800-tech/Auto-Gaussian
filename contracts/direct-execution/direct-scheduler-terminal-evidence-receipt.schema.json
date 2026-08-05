@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gaussian-scheduler-terminal-evidence-receipt/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "owner_version",
+    "topology",
+    "binding",
+    "terminal_state",
+    "pbs_state",
+    "collected_at",
+    "qstat_evidence_sha256",
+    "authority",
+    "receipt_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "gaussian-scheduler-terminal-evidence-receipt/1"},
+    "owner": {"const": "auto-g16-direct-read-only-evidence-owner"},
+    "owner_version": {"const": "direct-read-only-evidence-core/1"},
+    "topology": {"$ref": "#/$defs/topology"},
+    "binding": {"$ref": "#/$defs/binding"},
+    "terminal_state": {"const": "scheduler_terminal"},
+    "pbs_state": {"enum": ["C", "F"]},
+    "collected_at": {"$ref": "#/$defs/timestamp"},
+    "qstat_evidence_sha256": {"$ref": "#/$defs/nonempty_sha"},
+    "authority": {"$ref": "#/$defs/authority"},
+    "receipt_sha256": {"$ref": "#/$defs/nonempty_sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty_sha": {
+      "allOf": [
+        {"$ref": "#/$defs/sha"},
+        {"not": {"enum": ["0000000000000000000000000000000000000000000000000000000000000000", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]}}
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$",
+      "format": "date-time"
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topology", "hop_count", "backend_kind", "transport_kind", "scheduler_dialect"],
+      "properties": {
+        "topology": {"const": "direct_one_hop"},
+        "hop_count": {"const": "1"},
+        "backend_kind": {"const": "direct_ssh_pbs"},
+        "transport_kind": {"const": "direct_ssh"},
+        "scheduler_dialect": {"const": "pbs_legacy_v1"}
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "job_id", "attempt_id", "input_sha256", "direct_binding_sha256"],
+      "properties": {
+        "project": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$"},
+        "job_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}\\.[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"},
+        "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$"},
+        "input_sha256": {"$ref": "#/$defs/nonempty_sha"},
+        "direct_binding_sha256": {"$ref": "#/$defs/nonempty_sha"}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read_only", "portable_projection", "authorizes_effect", "scientific_acceptance", "production_supported", "transport_implemented", "remote_effect_performed", "automatic_retry"],
+      "properties": {
+        "read_only": {"const": true},
+        "portable_projection": {"const": true},
+        "authorizes_effect": {"const": false},
+        "scientific_acceptance": {"const": false},
+        "production_supported": {"const": false},
+        "transport_implemented": {"const": false},
+        "remote_effect_performed": {"const": false},
+        "automatic_retry": {"const": false}
+      }
+    }
+  }
+}
