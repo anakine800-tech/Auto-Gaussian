@@ -20,25 +20,9 @@ assert SPEC and SPEC.loader
 AUDIT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(AUDIT)
 
-SCHEMA_DRAFT202012_TEST_MODULES = (
-    "tests.test_direct_root_mutation_boundary_schema_draft202012",
-    "tests.test_direct_root_owner_schema_draft202012",
-    "tests.test_execution_batch_reservation_capability_schema_draft202012",
-    "tests.test_legacy_root_authority_schema_draft202012",
-    "tests.test_live_approval_effect_time_replay_schema_draft202012",
-    "tests.test_local_state_binding_schema_draft202012",
-    "tests.test_protected_invocation_schema_draft202012",
-    "tests.test_protected_job_runtime_coordinator_schema_draft202012",
-    "tests.test_protected_legacy_effect_handoff_schema_draft202012",
-    "tests.test_protected_lifecycle_schema_draft202012",
-    "tests.test_protected_local_materialization_schema_draft202012",
-    "tests.test_protected_owner_consumer_schema_draft202012",
-    "tests.test_protected_production_factory_consumer_schema_draft202012",
-    "tests.test_protected_production_ingress_schema_draft202012",
-    "tests.test_protected_runtime_state_schema_draft202012",
-    "tests.test_protected_submit_schema_draft202012",
-    "tests.test_resource_effect_time_replay_schema_draft202012",
-)
+SCHEMA_DRAFT202012_TEST_MODULES = AUDIT.load_local_schema_validation_contract(
+    ROOT
+)["modules"]
 
 FIXTURE_FILES = (
     "pyproject.toml",
@@ -52,6 +36,8 @@ FIXTURE_FILES = (
     "requirements/schema-validation.txt",
     "requirements/schema-validation.lock.txt",
     ".github/workflows/offline-tests.yml",
+    "config/static-quality.json",
+    "scripts/run_schema_validation.py",
 ) + tuple(
     f"{module.replace('.', '/')}.py"
     for module in SCHEMA_DRAFT202012_TEST_MODULES
@@ -118,13 +104,18 @@ class PythonContractAuditTests(unittest.TestCase):
         self.assertFalse(
             report["test_only_schema_validation"]["chemistry_runtime_dependency"]
         )
-        self.assertEqual(
-            AUDIT.SCHEMA_DRAFT202012_TEST_MODULES,
-            SCHEMA_DRAFT202012_TEST_MODULES,
-        )
+        self.assertFalse(hasattr(AUDIT, "SCHEMA_DRAFT202012_TEST_MODULES"))
         self.assertEqual(
             report["test_only_schema_validation"]["modules"],
             list(SCHEMA_DRAFT202012_TEST_MODULES),
+        )
+        self.assertEqual(
+            report["test_only_schema_validation"]["inventory_owner"],
+            ".github/workflows/offline-tests.yml",
+        )
+        self.assertEqual(
+            report["test_only_schema_validation"]["local_runner"],
+            "scripts/run_schema_validation.py",
         )
 
     def test_pyproject_range_expansion_outside_311_to_313_is_contract_drift(self) -> None:
@@ -412,7 +403,7 @@ class PythonContractAuditTests(unittest.TestCase):
     def test_schema_module_inventory_and_ci_command_drift_fail_closed(self) -> None:
         workflow = self.path(".github/workflows/offline-tests.yml")
         original = workflow.read_text(encoding="utf-8")
-        command = AUDIT.SCHEMA_VALIDATION_TEST_COMMAND
+        command = AUDIT.load_local_schema_validation_contract(self.root)["command"]
         self.assertIn(command, original)
         first, second, *rest = SCHEMA_DRAFT202012_TEST_MODULES
         mutations = (
@@ -430,7 +421,7 @@ class PythonContractAuditTests(unittest.TestCase):
                 report = AUDIT.audit(self.root)
                 self.assertEqual(report["status"], "fail")
                 self.assertTrue(
-                    any("chemistry job run commands" in item for item in report["errors"])
+                    any("test module inventory" in item for item in report["errors"])
                 )
         workflow.write_text(original, encoding="utf-8")
 
@@ -447,6 +438,22 @@ class PythonContractAuditTests(unittest.TestCase):
         report = AUDIT.audit(self.root)
         self.assertTrue(
             any("test module inventory" in item for item in report["errors"])
+        )
+
+    def test_local_schema_runner_and_static_selection_fail_closed(self) -> None:
+        runner = self.path("scripts/run_schema_validation.py")
+        runner.unlink()
+        with self.assertRaisesRegex(AUDIT.ContractError, "required repository path"):
+            AUDIT.audit(self.root)
+        shutil.copy2(ROOT / "scripts/run_schema_validation.py", runner)
+
+        static_config = self.path("config/static-quality.json")
+        value = json.loads(static_config.read_text(encoding="utf-8"))
+        value["paths"].remove("scripts/run_schema_validation.py")
+        static_config.write_text(json.dumps(value), encoding="utf-8")
+        report = AUDIT.audit(self.root)
+        self.assertTrue(
+            any("runner must remain selected" in item for item in report["errors"])
         )
 
     def test_schema_validator_cannot_enter_core_or_source_archive_jobs(self) -> None:

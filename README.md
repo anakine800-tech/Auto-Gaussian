@@ -395,6 +395,12 @@ and 3.13, then runs the complete pressure and source-archive replay once on
 Python 3.13. The chemistry job separately executes a real RDKit structure,
 3D-conformer, and 2D-depiction smoke.
 
+Real local Draft 2020-12 validation uses a separate existing test-only virtual
+environment; it is not part of either runtime profile. See
+[`docs/local-draft-validation.md`](docs/local-draft-validation.md) for the
+fail-closed local command. Missing `jsonschema` in `core` or `chem`, or a
+skipped Draft test in the ordinary suite, is not Schema-validation evidence.
+
 The Python-file shebangs remain portable compatibility metadata. Repository
 and deployed Skill commands must invoke scripts with the selected interpreter
 instead of executing those files directly.
