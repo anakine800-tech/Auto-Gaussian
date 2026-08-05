@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import py_compile
 import shlex
 import subprocess
 import sys
@@ -46,6 +47,12 @@ class LocalSchemaValidationTests(unittest.TestCase):
         RUNNER.close_validated(self.validated)
         self.temporary.cleanup()
 
+    def record_entry(self, path: Path) -> str:
+        content = path.read_bytes()
+        digest = base64.urlsafe_b64encode(hashlib.sha256(content).digest()).rstrip(b"=").decode("ascii")
+        relative = path.relative_to(self.site_packages).as_posix()
+        return f"{relative},sha256={digest},{len(content)}\n"
+
     def write_overlay(self, *, versions: dict[str, str] | None = None) -> None:
         selected = dict(self.pins)
         if versions:
@@ -70,11 +77,11 @@ class LocalSchemaValidationTests(unittest.TestCase):
                 f"Version: {selected[distribution_name]}\n",
                 encoding="utf-8",
             )
-            relative_module = module.relative_to(self.site_packages).as_posix()
-            relative_metadata = metadata.relative_to(self.site_packages).as_posix()
             relative_record = (info / "RECORD").relative_to(self.site_packages).as_posix()
             (info / "RECORD").write_text(
-                f"{relative_module},,\n{relative_metadata},,\n{relative_record},,\n",
+                self.record_entry(module)
+                + self.record_entry(metadata)
+                + f"{relative_record},,\n",
                 encoding="utf-8",
             )
 
@@ -113,7 +120,7 @@ class LocalSchemaValidationTests(unittest.TestCase):
         external = record_path or f"../../../bin/{name}"
         record.write_text(
             existing
-            + f"{relative_entry_points},,\n"
+            + self.record_entry(entry_points)
             + f"{external},sha256={digest},{len(content)}\n",
             encoding="utf-8",
         )
@@ -182,6 +189,90 @@ class LocalSchemaValidationTests(unittest.TestCase):
         self.assertTrue(all(count == 3 for count in item.payload["distribution_file_counts"].values()))
         self.assertEqual(item.payload["console_script_manifest"], {})
 
+    def test_source_tamper_with_unchanged_metadata_version_and_record_blocks(self) -> None:
+        self.write_overlay()
+        module = self.site_packages / "jsonschema" / "__init__.py"
+        module.write_text(
+            "PACKAGE_IDENTITY = 'pre-probe forged source'\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(RUNNER.BlockedError, "RECORD hash or size mismatch"):
+            self.validate()
+
+    def test_only_record_self_and_source_bound_pyc_may_be_unhashed(self) -> None:
+        self.write_overlay()
+        info = self.site_packages / f"jsonschema-{self.pins['jsonschema']}.dist-info"
+        record = info / "RECORD"
+        marker = self.root / "forged-pyc-executed"
+        malicious = self.root / "malicious.py"
+        malicious.write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('executed')\n"
+            "PACKAGE_IDENTITY = 'forged pyc'\n",
+            encoding="utf-8",
+        )
+        pyc = self.site_packages / "jsonschema" / "__pycache__" / (
+            "__init__." + sys.implementation.cache_tag + ".pyc"
+        )
+        pyc.parent.mkdir()
+        py_compile.compile(
+            str(malicious),
+            cfile=str(pyc),
+            doraise=True,
+            invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+        )
+        record.write_text(
+            record.read_text(encoding="utf-8")
+            + f"{pyc.relative_to(self.site_packages).as_posix()},,\n",
+            encoding="utf-8",
+        )
+        self.validate()
+        self.assertFalse(marker.exists(), "candidate pyc must never participate in import")
+
+        unsupported = info / "UNHASHED"
+        unsupported.write_text("untrusted\n", encoding="utf-8")
+        record.write_text(
+            record.read_text(encoding="utf-8")
+            + f"{unsupported.relative_to(self.site_packages).as_posix()},,\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(RUNNER.BlockedError, "unsupported unhashed RECORD"):
+            RUNNER.validate_candidate(
+                self.candidate(), self.pins, ["3.11", "3.12", "3.13"]
+            )
+
+    def test_hashed_record_self_and_orphan_unhashed_pyc_block(self) -> None:
+        self.write_overlay()
+        info = self.site_packages / f"jsonschema-{self.pins['jsonschema']}.dist-info"
+        record = info / "RECORD"
+        original = record.read_text(encoding="utf-8")
+        record_relative = record.relative_to(self.site_packages).as_posix()
+        record.write_text(
+            original.replace(
+                f"{record_relative},,\n",
+                f"{record_relative},sha256=AAAA,1\n",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(RUNNER.BlockedError, "self-entry must be unhashed"):
+            RUNNER.validate_candidate(
+                self.candidate(), self.pins, ["3.11", "3.12", "3.13"]
+            )
+
+        orphan = self.site_packages / "jsonschema" / "__pycache__" / (
+            "orphan." + sys.implementation.cache_tag + ".pyc"
+        )
+        orphan.parent.mkdir(exist_ok=True)
+        orphan.write_bytes(b"not importable")
+        record.write_text(
+            original + f"{orphan.relative_to(self.site_packages).as_posix()},,\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(RUNNER.BlockedError, "without one hashed source"):
+            RUNNER.validate_candidate(
+                self.candidate(), self.pins, ["3.11", "3.12", "3.13"]
+            )
+
     def test_exact_declared_console_script_is_verified_but_never_executed(self) -> None:
         self.write_overlay()
         state = self.root / "console-script-executed"
@@ -215,17 +306,20 @@ class LocalSchemaValidationTests(unittest.TestCase):
                 self.candidate(), self.pins, ["3.11", "3.12", "3.13"]
             )
 
-        _, record = self.add_console_script(
-            name="jsonschema",
-            record_path="../../../bin/../bin/jsonschema",
-        )
+        info = self.site_packages / f"jsonschema-{self.pins['jsonschema']}.dist-info"
+        record = info / "RECORD"
         record.write_text(
             "\n".join(
-                line for line in record.read_text(encoding="utf-8").splitlines()
-                if "../../../bin/evil" not in line
+                line
+                for line in record.read_text(encoding="utf-8").splitlines()
+                if "../../../bin/evil" not in line and "entry_points.txt" not in line
             )
             + "\n",
             encoding="utf-8",
+        )
+        _, record = self.add_console_script(
+            name="jsonschema",
+            record_path="../../../bin/../bin/jsonschema",
         )
         with self.assertRaisesRegex(RUNNER.BlockedError, "unsafe distribution-relative"):
             RUNNER.validate_candidate(

@@ -52,6 +52,12 @@ file_counts = {}
 file_manifest = {}
 console_script_manifest = {}
 
+null_device = os.lstat("/dev/null")
+if not stat.S_ISCHR(null_device.st_mode):
+    raise RuntimeError("trusted bytecode sink is unavailable")
+sys.dont_write_bytecode = True
+sys.pycache_prefix = "/dev/null/auto-g16-schema-validation-bytecode-disabled"
+
 def safe_parts(raw):
     value = str(raw).replace("\\", "/")
     path = PurePosixPath(value)
@@ -131,12 +137,23 @@ def console_script_parts(raw, declared_names):
         raise ValueError("undeclared console-script RECORD escape: " + value)
     return ("bin", name)
 
-def record_digest(item, details):
+def verify_record_digest(item, details, label):
     if item.hash is None or item.hash.mode != "sha256" or item.size is None:
-        raise ValueError("console-script RECORD requires sha256 and size")
+        raise ValueError(label + " RECORD requires sha256 and size")
     encoded = base64.urlsafe_b64encode(details[5]).rstrip(b"=").decode("ascii")
     if item.hash.value != encoded or item.size != details[4]:
-        raise ValueError("console-script RECORD hash or size mismatch")
+        raise ValueError(label + " RECORD hash or size mismatch")
+
+def controlled_pyc_source(parts):
+    if len(parts) < 2 or parts[-2] != "__pycache__":
+        return None
+    suffix = "." + sys.implementation.cache_tag + ".pyc"
+    if not parts[-1].endswith(suffix):
+        return None
+    stem = parts[-1][:-len(suffix)]
+    if not stem or "." in stem:
+        return None
+    return "/".join(parts[:-2] + (stem + ".py",))
 
 def relative_origin(raw):
     if not isinstance(raw, str) or not raw or raw in {"built-in", "frozen"}:
@@ -165,6 +182,14 @@ for distribution_name, import_name in imports.items():
             raise ValueError(distribution_name + " has no distribution file inventory")
         manifest = {}
         external = {}
+        internal = []
+        internal_paths = {}
+        controlled_pyc_sources = []
+        dist_info_parts = safe_parts(str(distribution._path))
+        if len(dist_info_parts) != 1 or not dist_info_parts[0].endswith(".dist-info"):
+            raise ValueError(distribution_name + " has an unsafe metadata directory")
+        record_relative = dist_info_parts[0] + "/RECORD"
+        record_entries = 0
         declared_names = {
             item.name
             for item in distribution.entry_points
@@ -179,7 +204,7 @@ for distribution_name, import_name in imports.items():
                     raise ValueError(distribution_name + " has more than one external file")
                 parts = console_script_parts(raw_item, declared_names)
                 details = open_regular_at(env_fd, parts, require_safe=True)
-                record_digest(item, details)
+                verify_record_digest(item, details, "console-script")
                 external = {
                     "env_relative": "/".join(parts),
                     "sha256": details[5].hex(),
@@ -187,7 +212,41 @@ for distribution_name, import_name in imports.items():
                     "identity": list(details[:4]),
                 }
                 continue
-            manifest[raw_item] = open_regular_at(site_fd, parts)[5].hex()
+            if raw_item in internal_paths:
+                raise ValueError(distribution_name + " has a duplicate RECORD path")
+            internal_paths[raw_item] = item
+            internal.append((item, raw_item, parts))
+        for item, raw_item, parts in internal:
+            details = open_regular_at(site_fd, parts)
+            if raw_item == record_relative:
+                record_entries += 1
+                if item.hash is not None or item.size is not None:
+                    raise ValueError(distribution_name + " RECORD self-entry must be unhashed")
+            elif item.hash is None or item.size is None:
+                if item.hash is not None or item.size is not None:
+                    raise ValueError(raw_item + " RECORD hash and size must appear together")
+                source = controlled_pyc_source(parts)
+                if source is None:
+                    raise ValueError(raw_item + " is an unsupported unhashed RECORD entry")
+                controlled_pyc_sources.append(source)
+            else:
+                verify_record_digest(item, details, raw_item)
+            manifest[raw_item] = details[5].hex()
+        if record_entries != 1:
+            raise ValueError(distribution_name + " must have one unhashed RECORD self-entry")
+        for source in controlled_pyc_sources:
+            source_item = internal_paths.get(source)
+            if (
+                source_item is None
+                or source_item.hash is None
+                or source_item.hash.mode != "sha256"
+                or source_item.size is None
+            ):
+                raise ValueError(
+                    distribution_name
+                    + " has an unhashed pyc without one hashed source entry: "
+                    + source
+                )
         file_counts[distribution_name] = len(files)
         file_manifest[distribution_name] = manifest
         if external:
@@ -211,7 +270,7 @@ for distribution_name, import_name in imports.items():
         errors.append(distribution_name + ": " + type(exc).__name__ + ": " + str(exc))
 
 print(json.dumps({
-    "schema": "auto-g16-schema-validation-probe/2",
+    "schema": "auto-g16-schema-validation-probe/3",
     "python_version": ".".join(str(item) for item in sys.version_info[:3]),
     "versions": versions,
     "origins": origins,
@@ -243,6 +302,12 @@ imports = json.loads(sys.argv[8])
 expected_versions = json.loads(sys.argv[9])
 expected_origins = json.loads(sys.argv[10])
 modules = sys.argv[11:]
+
+null_device = os.lstat("/dev/null")
+if not stat.S_ISCHR(null_device.st_mode):
+    raise RuntimeError("trusted bytecode sink is unavailable")
+sys.dont_write_bytecode = True
+sys.pycache_prefix = "/dev/null/auto-g16-schema-validation-bytecode-disabled"
 
 def safe_parts(raw):
     path = PurePosixPath(str(raw).replace("\\", "/"))
@@ -579,7 +644,7 @@ def _closed_probe(value: object, expected_names: set[str]) -> dict[str, Any]:
         "errors",
     }:
         raise BlockedError("trusted probe returned an unsupported document")
-    if value["schema"] != "auto-g16-schema-validation-probe/2":
+    if value["schema"] != "auto-g16-schema-validation-probe/3":
         raise BlockedError("trusted probe returned an unsupported schema")
     if value["python_version"] != TRUSTED_VERSION:
         raise BlockedError("trusted probe Python identity changed")
@@ -680,6 +745,7 @@ def validate_candidate(
         str(TRUSTED_PYTHON),
         "-I",
         "-S",
+        "-B",
         "-c",
         PROBE_SOURCE,
         str(environment_fd),
@@ -786,6 +852,7 @@ def run_inventory(
         str(TRUSTED_PYTHON),
         "-I",
         "-S",
+        "-B",
         "-c",
         TEST_SOURCE,
         str(validated.environment_fd),

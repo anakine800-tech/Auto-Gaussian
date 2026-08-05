@@ -57,7 +57,16 @@ Before tests, the runner:
 5. verifies that every locked distribution has a non-empty file inventory,
    every listed file is regular and descriptor-relative with no symlink or
    root escape, every primary import origin is one of those files, and every
-   file has a SHA-256 manifest replayed immediately before and after tests.
+   ordinary `site-packages` RECORD entry matches its declared SHA-256 and
+   size. Exactly one unhashed self-entry for that distribution's own RECORD is
+   required. The only other unhashed internal entry permitted is an exact
+   current-interpreter `__pycache__/<source>.<cache-tag>.pyc` whose matching
+   `.py` source is a hashed entry in the same RECORD. Candidate bytecode is
+   disabled as an import source through a trusted impossible bytecode-cache
+   prefix, and every listed file still has a current SHA-256 manifest replayed
+   immediately before and after tests. Partial hash/size declarations,
+   unsupported unhashed files, duplicate paths, RECORD hash drift, and source
+   tampering are `BLOCKED`.
    The only exception for a standard virtual environment is one non-import
    console script: its distribution must declare the exact `console_scripts`
    name, its RECORD path must normalize exactly to the same environment's
