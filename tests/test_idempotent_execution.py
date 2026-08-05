@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -610,7 +611,7 @@ class IdempotentExecutionTests(unittest.TestCase):
 
     def test_cancel_scope_mismatch_is_blocked_before_qstat_or_qdel(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             ledger_path, task_id = self.make_v2_ledger(root)
             attempt = self.reserve(ledger_path, task_id)
             attempt = BATCH.reconcile_submission_attempt(
@@ -670,6 +671,7 @@ class IdempotentExecutionTests(unittest.TestCase):
             run.assert_not_called()
 
     def make_cancel_transaction(self, root: Path):
+        root = root.resolve()
         ledger_path, task_id = self.make_v2_ledger(root)
         attempt = self.reserve(ledger_path, task_id)
         attempt = BATCH.reconcile_submission_attempt(
@@ -727,6 +729,256 @@ class IdempotentExecutionTests(unittest.TestCase):
             "--attempt-id", attempt["attempt_id"], "--mac-ssh-config", str(config),
         ]
         return argv, local_dir
+
+    @staticmethod
+    def qstat_result(
+        state: str,
+        *,
+        job_id: str = "123.master",
+        job_name: str = "safejob",
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                f"Job Id: {job_id}\n"
+                f"    Job_Name = {job_name}\n"
+                f"    job_state = {state}\n"
+            ),
+            stderr="",
+        )
+
+    def test_active_cancel_complete_state_matrix_qdel_only_for_exact_q_or_r(self) -> None:
+        for state in ("Q", "R", "H", "E", "C", "F", "S", "T", "W", "X", "q", "r", "Ｑ", "Ｒ"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temp:
+                argv, _ = self.make_cancel_transaction(Path(temp))
+                qdel_calls = []
+
+                def fake_run(command, *, input_bytes=None, check=True):
+                    if "qdel" in command:
+                        qdel_calls.append(command)
+                        return SimpleNamespace(returncode=0, stdout="", stderr="")
+                    return self.qstat_result(state)
+
+                args = PBS.build_parser().parse_args(argv)
+                with mock.patch.object(PBS, "run", side_effect=fake_run):
+                    if state in {"Q", "R"}:
+                        args.func(args)
+                    else:
+                        with self.assertRaises(SystemExit):
+                            args.func(args)
+                self.assertEqual(len(qdel_calls), 1 if state in {"Q", "R"} else 0)
+
+    def test_active_cancel_strict_record_shape_rejects_missing_duplicate_and_lookalike_fields(self) -> None:
+        exact = "Job Id: 123.master\n    Job_Name = safejob\n    job_state = Q\n"
+        hostile = {
+            "missing_state": "Job Id: 123.master\n    Job_Name = safejob\n",
+            "duplicate_state": exact + "    job_state = Q\n",
+            "duplicate_name": exact + "    Job_Name = safejob\n",
+            "duplicate_record": exact + exact,
+            "wrong_job_id": exact.replace("123.master", "124.master"),
+            "wrong_job_name_case": exact.replace("safejob", "SafeJob"),
+            "state_internal_whitespace": exact.replace("= Q", "= Q R"),
+            "field_case_lookalike": exact.replace("job_state", "Job_State"),
+            "unicode_state_lookalike": exact.replace("= Q", "= ℚ"),
+            "empty_success": "",
+        }
+        for label, stdout in hostile.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:
+                argv, _ = self.make_cancel_transaction(Path(temp))
+                qdel_calls = []
+
+                def fake_run(command, *, input_bytes=None, check=True):
+                    if "qdel" in command:
+                        qdel_calls.append(command)
+                        return SimpleNamespace(returncode=0, stdout="", stderr="")
+                    return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+                args = PBS.build_parser().parse_args(argv)
+                with mock.patch.object(PBS, "run", side_effect=fake_run), self.assertRaises(SystemExit):
+                    args.func(args)
+                self.assertEqual(qdel_calls, [])
+
+        whitespace = (
+            " \tJob Id: \t123.master \t\n"
+            " \tJob_Name \t= \tsafejob \t\n"
+            " \tjob_state \t= \tQ \t\n"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            argv, _ = self.make_cancel_transaction(Path(temp))
+            qdel_calls = []
+
+            def whitespace_run(command, *, input_bytes=None, check=True):
+                if "qdel" in command:
+                    qdel_calls.append(command)
+                    return SimpleNamespace(returncode=0, stdout="", stderr="")
+                return SimpleNamespace(returncode=0, stdout=whitespace, stderr="")
+
+            args = PBS.build_parser().parse_args(argv)
+            with mock.patch.object(PBS, "run", side_effect=whitespace_run):
+                args.func(args)
+            self.assertEqual(len(qdel_calls), 1)
+
+    def test_active_cancel_rechecks_state_and_never_qdel_on_drift_absence_or_transport_ambiguity(self) -> None:
+        cases = {
+            "state_drift": self.qstat_result("E"),
+            "unknown_job_id_race": SimpleNamespace(
+                returncode=153, stdout="", stderr="qstat: Unknown Job Id 123.master"
+            ),
+            "transport_ambiguity": SimpleNamespace(
+                returncode=255,
+                stdout="",
+                stderr="qstat: Unknown Job Id 123.master; ssh: connection reset",
+            ),
+            "identity_drift": self.qstat_result("R", job_id="124.master"),
+        }
+        for label, second_qstat in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:
+                argv, _ = self.make_cancel_transaction(Path(temp))
+                qstat_calls = []
+                qdel_calls = []
+
+                def fake_run(command, *, input_bytes=None, check=True):
+                    if "qdel" in command:
+                        qdel_calls.append(command)
+                        return SimpleNamespace(returncode=0, stdout="", stderr="")
+                    qstat_calls.append(command)
+                    return self.qstat_result("Q") if len(qstat_calls) == 1 else second_qstat
+
+                args = PBS.build_parser().parse_args(argv)
+                with mock.patch.object(PBS, "run", side_effect=fake_run), self.assertRaises(SystemExit):
+                    args.func(args)
+                self.assertEqual(len(qstat_calls), 2)
+                self.assertEqual(qdel_calls, [])
+                retry = PBS.build_parser().parse_args(argv)
+                with mock.patch.object(PBS, "run") as retry_run, self.assertRaises(SystemExit):
+                    retry.func(retry)
+                retry_run.assert_not_called()
+
+    def test_active_cancel_consumes_intent_before_two_explicit_prechecks_then_one_qdel(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            argv, local_dir = self.make_cancel_transaction(Path(temp))
+            calls = []
+
+            def fake_run(command, *, input_bytes=None, check=True):
+                calls.append(command)
+                state = PBS.read_job_state(local_dir)
+                self.assertTrue((local_dir / "cancellation-intent.json").is_file())
+                if "qstat" in command:
+                    self.assertFalse(state["qdel_invocation_started"])
+                    return self.qstat_result("R")
+                self.assertIn("qdel", command)
+                self.assertTrue(state["qdel_invocation_started"])
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            args = PBS.build_parser().parse_args(argv)
+            with (
+                mock.patch.object(PBS, "run", side_effect=fake_run),
+                mock.patch.object(PBS, "run_read_only") as automatic_retry_helper,
+            ):
+                args.func(args)
+            automatic_retry_helper.assert_not_called()
+            self.assertEqual(sum("qstat" in command for command in calls), 2)
+            self.assertEqual(sum("qdel" in command for command in calls), 1)
+            self.assertEqual([command[-3:-1] for command in calls[:2]], [["qstat", "-f"], ["qstat", "-f"]])
+
+    def test_active_cancel_consumes_intent_and_never_qdel_on_q_r_state_drift(self) -> None:
+        for first_state, second_state in (("Q", "R"), ("R", "Q")):
+            with self.subTest(first=first_state, second=second_state), tempfile.TemporaryDirectory() as temp:
+                argv, local_dir = self.make_cancel_transaction(Path(temp))
+                observations = iter(
+                    (self.qstat_result(first_state), self.qstat_result(second_state))
+                )
+                qdel_calls = []
+
+                def fake_run(command, *, input_bytes=None, check=True):
+                    if "qdel" in command:
+                        qdel_calls.append(command)
+                        return SimpleNamespace(returncode=0, stdout="", stderr="")
+                    return next(observations)
+
+                args = PBS.build_parser().parse_args(argv)
+                with mock.patch.object(PBS, "run", side_effect=fake_run), self.assertRaises(SystemExit):
+                    args.func(args)
+                self.assertEqual(qdel_calls, [])
+                self.assertTrue((local_dir / "cancellation-intent.json").is_file())
+                state = PBS.read_job_state(local_dir)
+                self.assertFalse(state["qdel_invocation_started"])
+                self.assertEqual(
+                    state["cancellation_precheck"]["classification"],
+                    "pre_effect_record_drift_no_qdel",
+                )
+                retry = PBS.build_parser().parse_args(argv)
+                with mock.patch.object(PBS, "run") as retry_run, self.assertRaises(SystemExit):
+                    retry.func(retry)
+                retry_run.assert_not_called()
+
+    def test_active_cancel_rejects_terminal_and_zombie_local_evidence_before_network(self) -> None:
+        cases = {
+            "completed": {"status": "completed"},
+            "failed": {"status": "failed"},
+            "interrupted": {"status": "interrupted"},
+            "stale": {"status": "stale"},
+            "zombie_candidate": {
+                "monitor_observation": {
+                    "state": "running",
+                    "scheduler_zombie_candidate": True,
+                }
+            },
+            "confirmed_zombie": {
+                "last_zombie_diagnosis": {
+                    "classification": "confirmed_scheduler_zombie",
+                    "cleanup_eligible": True,
+                }
+            },
+        }
+        for label, updates in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:
+                argv, local_dir = self.make_cancel_transaction(Path(temp))
+                PBS.update_job(local_dir, **updates)
+                args = PBS.build_parser().parse_args(argv)
+                with mock.patch.object(PBS, "run") as run, self.assertRaises(SystemExit):
+                    args.func(args)
+                run.assert_not_called()
+                self.assertFalse((local_dir / "cancellation-intent.json").exists())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks are unavailable")
+    def test_active_cancel_and_reconcile_reject_symlink_ancestor_before_network(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            real = root / "real"
+            real.mkdir()
+            argv, local_dir = self.make_cancel_transaction(real)
+            real_argv = list(argv)
+            alias = root / "alias"
+            alias.symlink_to(real, target_is_directory=True)
+            linked_local = alias / local_dir.relative_to(real)
+            argv[argv.index("--local-dir") + 1] = str(linked_local)
+            args = PBS.build_parser().parse_args(argv)
+            with mock.patch.object(PBS, "run") as run, self.assertRaises(SystemExit):
+                args.func(args)
+            run.assert_not_called()
+            self.assertFalse((local_dir / "cancellation-intent.json").exists())
+            reserve = PBS.build_parser().parse_args(real_argv)
+            with (
+                mock.patch.object(
+                    PBS,
+                    "run",
+                    return_value=SimpleNamespace(
+                        returncode=255, stdout="", stderr="transport lost"
+                    ),
+                ),
+                self.assertRaises(SystemExit),
+            ):
+                reserve.func(reserve)
+            reconcile = PBS.build_parser().parse_args([
+                "reconcile-cancellation",
+                "--job-id", "123.master",
+                "--local-dir", str(linked_local),
+                "--mac-ssh-config", real_argv[real_argv.index("--mac-ssh-config") + 1],
+            ])
+            with mock.patch.object(PBS, "run") as reconcile_run, self.assertRaises(SystemExit):
+                reconcile.func(reconcile)
+            reconcile_run.assert_not_called()
 
     def test_concurrent_cancel_intents_issue_at_most_one_qdel(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -847,6 +1099,69 @@ class IdempotentExecutionTests(unittest.TestCase):
                 reconcile.func(reconcile)
             self.assertEqual(len(observed), 1)
             self.assertNotIn("qdel", observed[0])
+
+    def test_cancellation_reconcile_reports_active_only_for_strict_q_or_r(self) -> None:
+        cases = {
+            "queued": (self.qstat_result("Q"), "active"),
+            "running": (self.qstat_result("R"), "active"),
+            "held": (self.qstat_result("H"), "unknown"),
+            "exiting": (self.qstat_result("E"), "unknown"),
+            "wrong_identity": (
+                self.qstat_result("R", job_id="124.master"), "unknown"
+            ),
+            "malformed": (
+                SimpleNamespace(
+                    returncode=0,
+                    stdout="Job Id: 123.master\n    Job_Name = safejob\n",
+                    stderr="",
+                ),
+                "unknown",
+            ),
+        }
+        for label, (qstat, expected) in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:
+                argv, local_dir = self.make_cancel_transaction(Path(temp))
+                reserve = PBS.build_parser().parse_args(argv)
+                with (
+                    mock.patch.object(
+                        PBS,
+                        "run",
+                        return_value=SimpleNamespace(
+                            returncode=255, stdout="", stderr="transport lost"
+                        ),
+                    ),
+                    self.assertRaises(SystemExit),
+                ):
+                    reserve.func(reserve)
+                reconcile = PBS.build_parser().parse_args([
+                    "reconcile-cancellation",
+                    "--job-id", "123.master",
+                    "--local-dir", str(local_dir),
+                    "--mac-ssh-config", argv[argv.index("--mac-ssh-config") + 1],
+                ])
+                observed = []
+
+                def fake_run(command, *, input_bytes=None, check=True):
+                    observed.append(command)
+                    return qstat
+
+                with (
+                    mock.patch.object(PBS, "run", side_effect=fake_run),
+                    mock.patch("builtins.print") as printed,
+                ):
+                    reconcile.func(reconcile)
+                report = json.loads(printed.call_args.args[0])
+                self.assertEqual(report["classification"], expected)
+                self.assertFalse(report["qdel_issued"])
+                self.assertEqual(
+                    set(report["pbs_evidence"]),
+                    {
+                        "status", "record_present", "pbs_state", "job_name",
+                        "session_id", "returncode", "error",
+                    },
+                )
+                self.assertEqual(len(observed), 1)
+                self.assertNotIn("qdel", observed[0])
 
 
 if __name__ == "__main__":

@@ -29,8 +29,13 @@ arbitrary same-process code.
 
 The existing `legacy_rtwin_pbs` production backend remains permanently fixed
 below `/home/user100/SDL`, with its existing-directory refusal, one-shot
-submission and no-automatic-`qdel` boundaries unchanged. The new direct
-contracts neither relocate nor generalize that legacy backend. No 2.7.0 tag,
+submission and no-automatic-`qdel` boundaries unchanged. Its active-cancel
+owner is additionally fail-closed to two exact `Q`/`R` qstat observations and
+rejects terminal/zombie evidence, state or identity drift, ambiguity and local
+job-directory symlink ancestry before qdel. This legacy maintenance patch is
+not direct W7: the direct effect owner and direct cancellation remain absent
+and production-blocked. The new direct contracts neither relocate nor
+generalize that legacy backend. No 2.7.0 tag,
 GitHub Release, deployment, Skill synchronization, or live action is claimed
 by this local candidate.
 
