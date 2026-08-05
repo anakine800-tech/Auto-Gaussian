@@ -1,0 +1,22 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/direct_trusted_session_composition.py",
+      "target": "scripts/direct_trusted_session_composition.py"
+    },
+    {
+      "source": "scripts/direct_trusted_session_clean_exec.py",
+      "target": "scripts/direct_trusted_session_clean_exec.py"
+    },
+    {
+      "source": "contracts/direct-execution/direct-trusted-session-result.schema.json",
+      "target": "contracts/rtwin-pbs/direct-trusted-session-result.schema.json"
+    },
+    {
+      "source": "docs/v2.7-direct-trusted-session-composition.md",
+      "target": "references/direct-trusted-session-composition.md"
+    }
+  ]
+}

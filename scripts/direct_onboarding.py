@@ -37,9 +37,6 @@ EXPECTED_DIRECT_STATUSES = (
 )
 
 EXPECTED_PRODUCTION_GAPS = (
-    "durable_cross_process_consumption",
-    "direct_resource_effect_time_replay_ingress",
-    "direct_live_approval_effect_time_replay_ingress",
     "direct_transport",
     "real_qsub",
     "real_inspect",
@@ -62,10 +59,15 @@ EXPECTED_SUPPORT_MATRIX = {
         ],
         "backend_supported": False,
         "live_ready": False,
-        "production_gaps": [
+        "trusted_server_local_session": "offline_fake_local_only",
+        "composition_closed_gaps": [
             "durable_cross_process_consumption",
             "direct_resource_effect_time_replay_ingress",
             "direct_live_approval_effect_time_replay_ingress",
+        ],
+        "arbitrary_same_process_reflection_isolated": False,
+        "production_closure": False,
+        "production_gaps": [
             "direct_transport",
             "real_qsub",
             "real_inspect",
@@ -121,10 +123,13 @@ OWNER_GAP_SUPPORT_TOKENS = {
     "live_approval_effect_time_replay": "direct_live_approval_effect_time_replay_ingress",
 }
 
-PRODUCTION_GAPS = (
+COMPOSITION_CLOSED_GAPS = (
     "durable_cross_process_consumption",
     "direct_resource_effect_time_replay_ingress",
     "direct_live_approval_effect_time_replay_ingress",
+)
+
+PRODUCTION_GAPS = (
     "direct_transport",
     "real_qsub",
     "real_inspect",
@@ -143,6 +148,10 @@ SUPPORT_MATRIX = {
         "statuses": list(DIRECT_STATUSES),
         "backend_supported": False,
         "live_ready": False,
+        "trusted_server_local_session": "offline_fake_local_only",
+        "composition_closed_gaps": list(COMPOSITION_CLOSED_GAPS),
+        "arbitrary_same_process_reflection_isolated": False,
+        "production_closure": False,
         "production_gaps": list(PRODUCTION_GAPS),
     },
     "local_gaussian": {"status": "unsupported"},
@@ -332,7 +341,9 @@ def _assert_pr6_non_authority() -> None:
             "direct_resource_effect_time_replay_ingress",
             "direct_live_approval_effect_time_replay_ingress",
         )
-        or any(token not in PRODUCTION_GAPS for token in owner_gap_tokens)
+        or tuple(direct_support["composition_closed_gaps"])
+        != COMPOSITION_CLOSED_GAPS
+        or any(token in PRODUCTION_GAPS for token in owner_gap_tokens)
         or not _is_exact_closed_mapping(
             direct_support,
             EXPECTED_SUPPORT_MATRIX["direct_ssh_pbs"],

@@ -341,12 +341,12 @@ class DirectOnboardingTests(unittest.TestCase):
 
         resource_token = ONBOARDING.OWNER_GAP_SUPPORT_TOKENS[resource.port]
         reduced_gaps = tuple(
-            gap for gap in ONBOARDING.PRODUCTION_GAPS if gap != resource_token
+            gap for gap in ONBOARDING.COMPOSITION_CLOSED_GAPS if gap != resource_token
         )
-        with mock.patch.object(ONBOARDING, "PRODUCTION_GAPS", reduced_gaps):
+        with mock.patch.object(ONBOARDING, "COMPOSITION_CLOSED_GAPS", reduced_gaps):
             with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
                 ONBOARDING._assert_pr6_non_authority()
-        self.assertEqual(raised.exception.code, "pr6_support_snapshot_drift")
+        self.assertEqual(raised.exception.code, "pr6_support_gap_drift")
 
         changed_tokens = copy.deepcopy(ONBOARDING.OWNER_GAP_SUPPORT_TOKENS)
         changed_tokens[resource.port] = "real_no_follow_observer"
@@ -635,6 +635,13 @@ class DirectOnboardingTests(unittest.TestCase):
         )
         self.assertFalse(direct["backend_supported"])
         self.assertFalse(direct["live_ready"])
+        self.assertEqual(direct["trusted_server_local_session"], "offline_fake_local_only")
+        self.assertEqual(
+            tuple(direct["composition_closed_gaps"]),
+            ONBOARDING.COMPOSITION_CLOSED_GAPS,
+        )
+        self.assertFalse(direct["arbitrary_same_process_reflection_isolated"])
+        self.assertFalse(direct["production_closure"])
         self.assertTrue(DIRECT_OFFLINE.AUTHORITY["synthetic_only"])
         self.assertFalse(DIRECT_OFFLINE.AUTHORITY["backend_supported"])
         self.assertFalse(DIRECT_OFFLINE.AUTHORITY["live_ready"])
@@ -657,7 +664,11 @@ class DirectOnboardingTests(unittest.TestCase):
         self.assertEqual(ONBOARDING.SUPPORT_MATRIX["unknown"]["status"], "fail_closed")
 
         text = DOC.read_text(encoding="utf-8")
-        for marker in (*ONBOARDING.DIRECT_STATUSES, *ONBOARDING.PRODUCTION_GAPS):
+        for marker in (
+            *ONBOARDING.DIRECT_STATUSES,
+            *ONBOARDING.COMPOSITION_CLOSED_GAPS,
+            *ONBOARDING.PRODUCTION_GAPS,
+        ):
             self.assertIn(marker, text)
         for marker in (
             "existing_production_path_not_authorized_by_this_command",

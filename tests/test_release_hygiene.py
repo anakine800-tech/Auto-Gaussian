@@ -302,13 +302,17 @@ class ReleaseHygieneTests(unittest.TestCase):
                 "W2 durable journal": r"\bW2\b[^.]*\bjournal\b",
                 "W3 replay ingress": r"\bW3\b[^.]*\breplay ingress\b",
                 "W4 isolated helper": r"\bW4\b[^.]*\bhelper\b",
+                "W4B trusted composition": r"\bW4B\b[^.]*\bcomposition\b[^.]*\bpresent\b",
             }
             for marker, pattern in integrated_markers.items():
                 with self.subTest(marker=marker):
                     self.assertRegex(normalized, pattern)
-            for blocked_slice in ("W4B", "W5", "W6", "W7"):
+            for blocked_slice in ("W5", "W6", "W7"):
                 with self.subTest(blocked_slice=blocked_slice):
-                    self.assertRegex(normalized, rf"\b{blocked_slice}\b")
+                    self.assertRegex(
+                        normalized,
+                        rf"\b{blocked_slice}\b[^.]*\bnot present\b",
+                    )
 
         for path in milestone_docs:
             text = path.read_text(encoding="utf-8")
@@ -329,7 +333,7 @@ class ReleaseHygieneTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, combined)
         for blocker in (
-            "w4b/w5/w6/w7 integration",
+            "w5, w6, and w7 are not present",
             "qsub",
             "inspect",
             "fetch",

@@ -371,6 +371,11 @@ class SkillPackagingTests(unittest.TestCase):
                 "scripts/direct_root_fixed_mutation_helper.py",
                 "references/direct-root-fixed-mutation-helper.md",
             ),
+            "W4B": (
+                "scripts/direct_trusted_session_composition.py",
+                "scripts/direct_trusted_session_clean_exec.py",
+                "references/direct-trusted-session-composition.md",
+            ),
             "direct-boundary": (
                 "scripts/direct_root_mutation_boundary.py",
                 "references/direct-root-mutation-boundary.md",

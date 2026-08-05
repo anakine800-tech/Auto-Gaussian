@@ -510,8 +510,9 @@ The named-Skill package maps repository-owned sources into one installed
 package; the paths below are an index, not copied owner implementations. The
 base `deployment-package.json` and its lexically ordered supplements remain the
 package authority. W1 through W4 are separately reviewed local/offline
-components in the current repository collection, not one composed direct
-production adapter:
+components in the current repository collection. W4B is the reviewed fixed
+trusted server-local composition seam; none of them is a direct production
+adapter:
 
 - W1 root observation: `scripts/direct_root_owner_contract.py` with
   `references/direct-root-owner-contract.md`.
@@ -525,6 +526,10 @@ production adapter:
   `scripts/direct_root_fixed_mutation_consumer.py` and
   `scripts/direct_root_fixed_mutation_helper.py` with
   `references/direct-root-fixed-mutation-helper.md`.
+- W4B fixed trusted server-local session composition:
+  `scripts/direct_trusted_session_composition.py` and
+  `scripts/direct_trusted_session_clean_exec.py` with
+  `references/direct-trusted-session-composition.md`.
 - The direct boundary, offline backend and onboarding/support surfaces are
   `scripts/direct_root_mutation_boundary.py` with
   `references/direct-root-mutation-boundary.md`,
@@ -533,9 +538,11 @@ production adapter:
   `scripts/direct_onboarding.py` with
   `references/direct-onboarding-support.md`.
 
-W4B/W5/W6/W7 integration is not present. The W1-W4 components therefore grant
-no direct transport, upload, `qsub`, inspect/fetch, reconciliation, deployment
-or live authority; the direct backend remains `offline_synthetic`,
+W4B fixed trusted server-local session composition is present in the local
+collection and joins W1-W4 in one clean-exec process, but it exposes only a
+non-authorizing child-local transition. W5, W6, and W7 are not present. No
+direct transport, upload, `qsub`, inspect/fetch, reconciliation, deployment or
+live authority is granted; the direct backend remains `offline_synthetic`,
 `production_blocked` and `live_not_ready`.
 
 - `scripts/platform_contracts.py`: standard-library-only strict canonical JSON,

@@ -101,10 +101,12 @@ legacy path. The direct profile's mandatory backend-owned root contract is an
 offline safety interface only and does not grant filesystem or server
 authority.
 
-W4B/W5/W6/W7 integration is not in the local collection. Composition of the
-W1-W4 owners into one durable direct effect path, direct transport, upload,
-`qsub`, inspect, fetch, reconciliation, and separately authorized live-smoke
-evidence therefore remain blocked. This candidate has not been
+W4B fixed trusted server-local session composition is present in the local
+collection. It joins the W1-W4 owners and descriptor identities in one
+clean-exec process and exposes only a non-authorizing child-local transition;
+it does not perform the W5 effect. W5, W6, and W7 are not present. Direct
+transport, upload, `qsub`, inspect, fetch, reconciliation, and separately
+authorized live-smoke evidence therefore remain blocked. This candidate has not been
 tagged or published as 2.7.0 and grants no deployment, SSH, RTwin, PBS, Gaussian,
 submission, retry, `qdel`, cleanup, deletion, live, or scientific authority.
 

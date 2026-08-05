@@ -457,6 +457,33 @@ class DirectRootFixedMutationConsumerTests(unittest.TestCase):
                 )
             self.assertFalse((root / PROJECT).exists())
 
+    def test_parent_control_eof_after_project_create_is_uncertain_and_never_cleans_up(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="auto-g16-fixed-parent-eof-", dir=TEMP_PARENT) as temporary:
+            root = Path(temporary).resolve() / "reviewed-root"
+            root.mkdir()
+            capability = self.capability(root)
+            seam = self.seam(capability)
+            process, control = self.spawn_child()
+            try:
+                self.send_request(control, capability, seam)
+                self.assertEqual(CONSUMER._recv_frame(control), HELPER.VALIDATED)
+                CONSUMER._send_frame(
+                    control,
+                    {"protocol": HELPER.PROTOCOL, "command": "begin_project"},
+                )
+                self.assertEqual(CONSUMER._recv_frame(control), HELPER.PROJECT_CREATED)
+                control.close()
+                self.assertNotEqual(process.wait(timeout=10), 0)
+            finally:
+                try:
+                    control.close()
+                except OSError:
+                    pass
+                CONSUMER._terminate_child(process)
+                self.close_capability(capability)
+            self.assertTrue((root / PROJECT).is_dir())
+            self.assertFalse((root / PROJECT / "scratch").exists())
+
     def test_malformed_oversize_bool_as_int_and_duplicate_frames_are_fail_closed(self) -> None:
         mutations = []
         with tempfile.TemporaryDirectory(prefix="auto-g16-fixed-helper-", dir=TEMP_PARENT) as temporary:

@@ -24,10 +24,12 @@ All notable public release changes are recorded here. The project follows
 
 ### Scope
 
-- Version 2.7.0 remains an offline-only source candidate. W1-W4 are separate
-  local/offline components, not a composed direct production adapter.
-  W4B/W5/W6/W7 integration is absent, so direct transport, upload, real `qsub`,
-  real inspect/fetch, reconciliation, and live-smoke evidence remain blocked.
+- Version 2.7.0 remains an offline-only source candidate. W4B fixed trusted
+  server-local session composition is present in the local collection and
+  joins the W1-W4 local/offline components in one clean-exec process, but it is
+  non-authorizing and not a direct production adapter. W5, W6, and W7 are not
+  present, so direct transport, upload, real `qsub`, real inspect/fetch,
+  reconciliation, and live-smoke evidence remain blocked.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed
   below `/home/user100/SDL`. The direct profile contract does not relocate or
   generalize that legacy backend.

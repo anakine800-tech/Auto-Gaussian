@@ -16,6 +16,7 @@ import copy
 import fcntl
 import hashlib
 import json
+import marshal
 import os
 import re
 import stat
@@ -25,6 +26,7 @@ import types
 import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib.machinery import BuiltinImporter, FrozenImporter, PathFinder
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -879,8 +881,11 @@ def _close_claim(
     )
 
 
-def consume_for_effect_once(local_state_dir: Path, binding: DIRECT.Binding) -> DurableEffectClaim:
-    """Atomically consume one binding and durably publish uncertainty.
+def _consume_binding_once(
+    local_state_dir: Path,
+    binding: DIRECT.Binding,
+) -> DurableEffectClaim:
+    """Atomically consume one validated binding and publish uncertainty.
 
     Existing or partial state is never repaired or resumed.  The caller gets
     a non-authorizing process-local claim only after directory, manifest, and
@@ -940,6 +945,14 @@ def consume_for_effect_once(local_state_dir: Path, binding: DIRECT.Binding) -> D
         if directory_fd >= 0:
             os.close(directory_fd)
         os.close(local_fd)
+
+
+def consume_for_effect_once(
+    local_state_dir: Path,
+    binding: DIRECT.Binding,
+) -> DurableEffectClaim:
+    """Compatibility owner entry for an exact direct binding."""
+    return _consume_binding_once(local_state_dir, binding)
 
 
 def record_outcome_once(claim: DurableEffectClaim, *, outcome: str, evidence_sha256: str) -> None:
@@ -1168,6 +1181,8 @@ class _ModuleBinding:
     issued_types: tuple[type, ...]
     direct_module: types.ModuleType
     direct_binding_type: type
+    w3_activation_entry: object
+    server_session_entry: object
 
 
 def _stable_source(path: Path) -> _SourceSnapshot:
@@ -1205,7 +1220,15 @@ def _capture_module_binding() -> _ModuleBinding:
     _require(registered is module, "canonical durable journal owner is already registered")
     for issued_type in _ISSUED_TYPES:
         _require(issued_type.__module__ == MODULE_NAME and getattr(module, issued_type.__name__, None) is issued_type, "durable journal issued type identity differs")
-    return _ModuleBinding(module, _stable_source(_SOURCE), _ISSUED_TYPES, DIRECT, DIRECT.Binding)
+    return _ModuleBinding(
+        module,
+        _stable_source(_SOURCE),
+        _ISSUED_TYPES,
+        DIRECT,
+        DIRECT.Binding,
+        _activate_canonical_w3_owner_once,
+        consume_for_server_session_replay_once,
+    )
 
 
 def _assert_module_binding() -> None:
@@ -1216,11 +1239,281 @@ def _assert_module_binding() -> None:
         and vars(binding.direct_module).get(REGISTRATION_ATTRIBUTE) is binding.module
         and sys.modules.get(binding.direct_module.__name__) is binding.direct_module
         and getattr(binding.direct_module, "Binding", None) is binding.direct_binding_type
+        and _activate_canonical_w3_owner_once is binding.w3_activation_entry
+        and vars(binding.module).get("_activate_canonical_w3_owner_once")
+        is binding.w3_activation_entry
+        and consume_for_server_session_replay_once is binding.server_session_entry
+        and vars(binding.module).get("consume_for_server_session_replay_once")
+        is binding.server_session_entry
         and _stable_source(_SOURCE) == binding.source,
         "durable journal owner module or source identity differs",
     )
     for issued_type in binding.issued_types:
         _require(getattr(binding.module, issued_type.__name__, None) is issued_type, "durable journal issued type identity differs")
+
+
+def _build_server_session_w3_owner_entries() -> tuple[object, object]:
+    """Build a no-argument active W3 bootstrap and private exact consumer."""
+    owner_assert = _assert_module_binding
+    owner_require = _require
+    consume_binding = _consume_binding_once
+    stable_source = _stable_source
+    sys_modules = sys.modules
+    module_type = types.ModuleType
+    marshal_dumps = marshal.dumps
+    sha256 = hashlib.sha256
+    builtin_compile = compile
+    builtin_exec = exec
+    w3_module_name = "direct_effect_time_replay_ingress"
+    w3_registration_attribute = (
+        "_auto_g16_direct_effect_time_replay_ingress_owner_registration_v1"
+    )
+    w3_source = stable_source(
+        _SOURCE.with_name("direct_effect_time_replay_ingress.py")
+    )
+    expected_w3_source_sha256 = (
+        "9c1f09fba92b36e667ea5584ac9cc7462a97101b5385dccc615e96455e9ccc63"
+    )
+    expected_descriptor_code_sha256 = (
+        "7482dd635263ca75901c508301dfa6e4feebdf3cb69d0ed66b673be62b373be5"
+    )
+    fixed_meta_path = tuple(sys.meta_path)
+    isolated_meta_path = (BuiltinImporter, FrozenImporter, PathFinder)
+    transaction_type = DIRECT.DirectServerSessionTransaction
+    activation_lock = threading.Lock()
+    activation_status = "uninitialized"
+    canonical_binding: tuple[types.ModuleType, type, object] | None = None
+
+    owner_require(
+        w3_source.sha256 == expected_w3_source_sha256,
+        "reviewed canonical W3 source bytes differ",
+    )
+
+    def assert_fixed_import_resolution() -> None:
+        owner_require(
+            type(sys.meta_path) is list
+            and len(sys.meta_path) == len(fixed_meta_path)
+            and all(
+                current is expected
+                for current, expected in zip(sys.meta_path, fixed_meta_path, strict=True)
+            ),
+            "canonical W3 fixed import resolution binding differs",
+        )
+
+    def load_reviewed_w3_source() -> types.ModuleType:
+        """Execute only the owner-bound reviewed W3 bytes, bypassing finders."""
+        owner_require(
+            sys_modules.get(w3_module_name) is None,
+            "canonical W3 module appeared before fixed source execution",
+        )
+        assert_fixed_import_resolution()
+        owner_require(
+            type(sys.meta_path) is list
+            and len(sys.meta_path) == len(isolated_meta_path)
+            and all(
+                current is expected
+                for current, expected in zip(
+                    sys.meta_path,
+                    isolated_meta_path,
+                    strict=True,
+                )
+            ),
+            "canonical W3 source execution requires isolated import resolution",
+        )
+        descriptor = os.open(
+            w3_source.path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+        )
+        try:
+            before = os.fstat(descriptor)
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(descriptor, 65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            after = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        source_bytes = b"".join(chunks)
+        identity = (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        )
+        owner_require(
+            stat.S_ISREG(before.st_mode)
+            and identity == w3_source.identity
+            and identity
+            == (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            and len(source_bytes) == before.st_size
+            and sha256(source_bytes).hexdigest() == expected_w3_source_sha256,
+            "reviewed canonical W3 source identity or bytes differ",
+        )
+        code = builtin_compile(
+            source_bytes,
+            str(w3_source.path),
+            "exec",
+            dont_inherit=True,
+            optimize=0,
+        )
+        module = module_type(w3_module_name)
+        module.__file__ = str(w3_source.path)
+        module.__package__ = ""
+        module.__loader__ = None
+        module.__spec__ = None
+        sys_modules[w3_module_name] = module
+        try:
+            builtin_exec(code, vars(module))
+        except BaseException:
+            if sys_modules.get(w3_module_name) is module:
+                del sys_modules[w3_module_name]
+            raise
+        return module
+
+    def descriptor_code_sha256(descriptor: object) -> str:
+        owner_require(
+            type(descriptor) is types.FunctionType,
+            "canonical W3 predecessor descriptor type differs",
+        )
+        code = descriptor.__code__.replace(
+            co_filename="",
+            co_firstlineno=1,
+            co_name="",
+            co_qualname="",
+        )
+        return sha256(marshal_dumps(code)).hexdigest()
+
+    def validate_w3_candidate(
+        w3_module: object,
+        w3_capability_type: object,
+        w3_descriptor: object,
+    ) -> None:
+        assert_fixed_import_resolution()
+        owner_require(
+            type(w3_module) is module_type
+            and sys_modules.get(w3_module_name) is w3_module
+            and vars(DIRECT).get(w3_registration_attribute) is w3_module
+            and stable_source(w3_source.path) == w3_source
+            and w3_source.sha256 == expected_w3_source_sha256
+            and type(w3_capability_type) is type
+            and vars(w3_module).get("DirectEffectTimeReplayIngressCapability")
+            is w3_capability_type
+            and vars(w3_capability_type).get(
+                "assert_server_session_pre_w2_current"
+            )
+            is w3_descriptor
+            and descriptor_code_sha256(w3_descriptor)
+            == expected_descriptor_code_sha256,
+            "canonical W3 module, type, exact descriptor code, or source binding differs",
+        )
+
+    def activate_w3_once() -> None:
+        nonlocal activation_status, canonical_binding
+        owner_assert()
+        with activation_lock:
+            if activation_status == "active":
+                current = canonical_binding
+            else:
+                owner_require(
+                    activation_status == "uninitialized",
+                    "canonical W3 active bootstrap is unavailable",
+                )
+                activation_status = "activating"
+                current = None
+        if current is not None:
+            validate_w3_candidate(*current)
+            return
+        try:
+            w3_module = sys_modules.get(w3_module_name)
+            if w3_module is None:
+                w3_module = load_reviewed_w3_source()
+            w3_capability_type = vars(w3_module).get(
+                "DirectEffectTimeReplayIngressCapability"
+            ) if type(w3_module) is module_type else None
+            w3_descriptor = vars(w3_capability_type).get(
+                "assert_server_session_pre_w2_current"
+            ) if type(w3_capability_type) is type else None
+            validate_w3_candidate(
+                w3_module,
+                w3_capability_type,
+                w3_descriptor,
+            )
+            with activation_lock:
+                owner_require(
+                    activation_status == "activating"
+                    and canonical_binding is None,
+                    "canonical W3 active bootstrap raced",
+                )
+                canonical_binding = (
+                    w3_module,
+                    w3_capability_type,
+                    w3_descriptor,
+                )
+                activation_status = "active"
+        except BaseException:
+            with activation_lock:
+                activation_status = "failed"
+            raise
+
+    def assert_w3_binding() -> None:
+        with activation_lock:
+            current = canonical_binding
+            status = activation_status
+        owner_require(
+            status == "active" and type(current) is tuple and len(current) == 3,
+            "canonical W3 owner was not actively bootstrapped",
+        )
+        validate_w3_candidate(*current)
+
+    def consume_server_session(
+        local_state_dir: Path,
+        direct_transaction: object,
+        w3_capability: object,
+    ) -> DurableEffectClaim:
+        """Publish started only from the canonical exact W3 predecessor."""
+        owner_assert()
+        assert_w3_binding()
+        with activation_lock:
+            current = canonical_binding
+        owner_require(type(current) is tuple, "canonical W3 binding is unavailable")
+        _w3_module, w3_capability_type, w3_descriptor = current
+        owner_require(
+            type(direct_transaction) is transaction_type
+            and type(w3_capability) is w3_capability_type,
+            "exact canonical server-session transaction and W3 capability are required",
+        )
+        direct_transaction.assert_current()
+        assert_w3_binding()
+        owner_require(
+            w3_descriptor(w3_capability, direct_transaction) is w3_capability,
+            "pre-W3 server-session capability binding differs",
+        )
+        assert_w3_binding()
+        direct_transaction.assert_current()
+        assert_w3_binding()
+        return consume_binding(local_state_dir, direct_transaction._binding)
+
+    consume_server_session.__name__ = "consume_for_server_session_replay_once"
+    consume_server_session.__qualname__ = "consume_for_server_session_replay_once"
+    activate_w3_once.__name__ = "_activate_canonical_w3_owner_once"
+    activate_w3_once.__qualname__ = "_activate_canonical_w3_owner_once"
+    return activate_w3_once, consume_server_session
+
+
+(
+    _activate_canonical_w3_owner_once,
+    consume_for_server_session_replay_once,
+) = _build_server_session_w3_owner_entries()
+del _build_server_session_w3_owner_entries
 
 
 _MODULE_BINDING: _ModuleBinding | None = None

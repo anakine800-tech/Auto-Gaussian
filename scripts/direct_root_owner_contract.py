@@ -2685,6 +2685,65 @@ class DirectRootOwnerContractOwner:
                 )
             raise
 
+    def issue_server_session_capability_from_exact_artifacts_once(
+        self,
+        *,
+        profile_policy_bytes: bytes,
+        stable_evidence_bytes: bytes,
+        profile_bytes: bytes,
+        authorization_bytes: bytes,
+    ) -> SingleUseWorkspaceDescriptorCapability:
+        """Revalidate exact portable bytes and issue one real POSIX capability.
+
+        The bytes are reviewed source artifacts only.  This owner re-observes
+        the policy-owned root, issues a new owner-sealed stable object, requires
+        byte equality with the reviewed stable artifact, and only then performs
+        the fresh no-follow issuance.  No portable document becomes authority.
+        """
+        _direct_root_owner_state(self)
+        _assert_owner_binding()
+
+        def exact(raw: bytes, label: str, validator: Callable[[Any], dict[str, Any]]) -> dict[str, Any]:
+            _require(type(raw) is bytes, f"{label} must be exact bytes")
+            document = _parse_exact_json(raw, label)
+            validated = validator(document)
+            _require(canonical_bytes(validated) == raw, f"{label} bytes are not canonical")
+            return validated
+
+        policy = exact(profile_policy_bytes, "direct profile policy", validate_profile_policy)
+        reviewed_stable = exact(
+            stable_evidence_bytes,
+            "direct stable evidence",
+            validate_stable_root_identity_evidence,
+        )
+        profile = exact(profile_bytes, "direct execution profile", validate_direct_execution_profile)
+        authorization = exact(
+            authorization_bytes,
+            "direct execution authorization",
+            validate_direct_execution_authorization,
+        )
+        _require(
+            profile["profile_policy"]["profile_payload_sha256"]
+            == policy["profile_payload_sha256"]
+            and profile["stable_root_identity_evidence_sha256"]
+            == reviewed_stable["evidence_payload_sha256"]
+            and authorization["profile"]["profile_payload_sha256"]
+            == profile["profile_payload_sha256"]
+            and authorization["root_evidence"]["evidence_payload_sha256"]
+            == reviewed_stable["evidence_payload_sha256"],
+            "server-session W1 artifact lineage differs",
+        )
+        observed_stable = self.issue_stable_evidence_from_reviewed_profile(policy)
+        _require(
+            canonical_bytes(observed_stable.document()) == stable_evidence_bytes,
+            "server-session reviewed stable evidence differs from current root",
+        )
+        return self.issue_fresh_capability_from_reviewed_profile_once(
+            profile=profile,
+            stable_evidence=observed_stable,
+            authorization=authorization,
+        )
+
 
 def _parse_exact_json(raw: bytes, label: str) -> dict[str, Any]:
     _require(raw and len(raw) <= MAX_DOCUMENT_BYTES, f"{label} size is outside the bound")

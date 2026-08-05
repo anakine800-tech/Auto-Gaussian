@@ -36,9 +36,11 @@ remote operation, live smoke, or scientific acceptance.
   durable journal, W3 resource/live replay ingress, and W4 process-isolated
   fixed descriptor-relative helper components. It also includes direct
   onboarding/support, mutation-boundary and offline-backend surfaces.
-- W1-W4 are not one composed production adapter. W4B/W5/W6/W7 integration,
-  direct transport/upload, `qsub`, inspect/fetch, reconciliation and separately
-  authorized live-smoke evidence remain blockers. The W3 ingress policy records
+- W4B fixed trusted server-local session composition is present in the local
+  collection and joins W1-W4 in one clean-exec process, but it is a
+  non-authorizing seam rather than a production adapter. W5, W6, and W7 are not
+  present; direct transport/upload, `qsub`, inspect/fetch, reconciliation and
+  separately authorized live-smoke evidence remain blockers. The W3 ingress policy records
   `production_closure=false` and
   `arbitrary_same_process_reflection_isolated=false`.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed

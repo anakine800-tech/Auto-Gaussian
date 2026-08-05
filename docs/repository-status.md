@@ -17,10 +17,12 @@ remains `offline_synthetic`, `production_blocked`, and `live_not_ready`, with
 `backend_supported=false` and `live_ready=false`. The current feature
 collection includes the W1 backend-owned POSIX no-follow observer, W2 durable
 journal owner, W4 process-isolated fixed descriptor-relative mutation helper,
-and W3 offline resource/live replay ingress. Their composition into one durable
-direct effect owner, plus transport, `qsub`, real inspect/fetch, and separately
-authorized live-smoke evidence, remain blocked. W4B/W5/W6/W7 integration is
-not present. The ingress policy explicitly records
+and W3 offline resource/live replay ingress. W4B fixed trusted server-local
+session composition is present in the local collection and joins those owners
+and descriptor identities in one clean-exec process, but it remains
+non-authorizing. W5, W6, and W7 are not present. A direct effect owner,
+transport, `qsub`, real inspect/fetch, and separately authorized live-smoke
+evidence remain blocked. The ingress policy explicitly records
 `arbitrary_same_process_reflection_isolated=false` and
 `production_closure=false`; normal production must not coexist with untrusted
 arbitrary same-process code.
@@ -82,10 +84,10 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   project/scratch mutation helper, but no transport ingress. It also exposes
   closed typed models, onboarding and support reporting while remaining
   `production_blocked`, `live_not_ready`, `backend_supported=false`, and
-  `live_ready=false`; the W3 code-level ingress is not production closure and
-  is not yet composed with the W2 claim and W4 process-isolated helper. It has
-  no W4B/W5/W6/W7 integration, transport, qsub, real inspect/fetch, or live
-  evidence.
+  `live_ready=false`. W4B fixed trusted server-local session composition is
+  present and composes the W2 claim, W3 replay and W4 process-isolated helper
+  only into a non-authorizing child-local seam. W5, W6, and W7 are not present;
+  transport, qsub, real inspect/fetch, and live evidence remain absent.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.
