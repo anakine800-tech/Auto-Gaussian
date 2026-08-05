@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-direct-root-fixed-mutation-result/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "owner_version",
+    "backend_kind",
+    "helper_protocol",
+    "journal_id",
+    "binding_payload_sha256",
+    "receipt_payload_sha256",
+    "authorization_scope_sha256",
+    "workspace_binding_sha256",
+    "descriptor_set_sha256",
+    "project_basename_sha256",
+    "outcome",
+    "effect_boundary_crossed",
+    "operations_completed",
+    "authority",
+    "result_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-root-fixed-mutation-result/1"},
+    "owner": {"const": "auto-g16-direct-root-fixed-mutation-consumer"},
+    "owner_version": {"const": "direct-root-fixed-mutation-consumer/1"},
+    "backend_kind": {"const": "direct_ssh_pbs"},
+    "helper_protocol": {"const": "auto-g16-direct-root-fixed-helper/1"},
+    "journal_id": {
+      "type": "string",
+      "pattern": "^direct-durable-submission-journal-[a-f0-9]{64}$"
+    },
+    "binding_payload_sha256": {"$ref": "#/$defs/sha"},
+    "receipt_payload_sha256": {"$ref": "#/$defs/sha"},
+    "authorization_scope_sha256": {"$ref": "#/$defs/sha"},
+    "workspace_binding_sha256": {"$ref": "#/$defs/sha"},
+    "descriptor_set_sha256": {"$ref": "#/$defs/sha"},
+    "project_basename_sha256": {"$ref": "#/$defs/sha"},
+    "outcome": {
+      "enum": ["zero_effect_terminal", "outcome_uncertain", "completed"]
+    },
+    "effect_boundary_crossed": {"type": "boolean"},
+    "operations_completed": {
+      "oneOf": [
+        {"const": []},
+        {"const": ["create_project_directory_exclusive"]},
+        {
+          "const": [
+            "create_project_directory_exclusive",
+            "create_scratch_directory_exclusive"
+          ]
+        }
+      ]
+    },
+    "authority": {"$ref": "#/$defs/authority"},
+    "result_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "zero_effect_terminal"}}},
+      "then": {
+        "properties": {
+          "effect_boundary_crossed": {"const": false},
+          "operations_completed": {"const": []},
+          "authority": {
+            "properties": {"filesystem_mutation_completion_confirmed": {"const": false}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "completed"}}},
+      "then": {
+        "properties": {
+          "effect_boundary_crossed": {"const": true},
+          "operations_completed": {
+            "const": [
+              "create_project_directory_exclusive",
+              "create_scratch_directory_exclusive"
+            ]
+          },
+          "authority": {
+            "properties": {"filesystem_mutation_completion_confirmed": {"const": true}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "outcome_uncertain"}}},
+      "then": {
+        "properties": {
+          "effect_boundary_crossed": {"const": true},
+          "authority": {
+            "properties": {"filesystem_mutation_completion_confirmed": {"const": false}}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_valid_is_capability",
+        "helper_process_isolation_required",
+        "descriptor_relative_required",
+        "fixed_operation_set",
+        "filesystem_mutation_completion_confirmed",
+        "durable_journal_owner_integrated",
+        "remote_effect_authorized",
+        "transport_authorized",
+        "shell_authorized",
+        "ssh_authorized",
+        "pbs_authorized",
+        "gaussian_authorized",
+        "qsub_authorized",
+        "qdel_authorized",
+        "delete_authorized",
+        "cleanup_authorized",
+        "rename_authorized",
+        "automatic_retry",
+        "path_reopen_allowed"
+      ],
+      "properties": {
+        "schema_valid_is_capability": {"const": false},
+        "helper_process_isolation_required": {"const": true},
+        "descriptor_relative_required": {"const": true},
+        "fixed_operation_set": {"const": true},
+        "filesystem_mutation_completion_confirmed": {"type": "boolean"},
+        "durable_journal_owner_integrated": {"const": false},
+        "remote_effect_authorized": {"const": false},
+        "transport_authorized": {"const": false},
+        "shell_authorized": {"const": false},
+        "ssh_authorized": {"const": false},
+        "pbs_authorized": {"const": false},
+        "gaussian_authorized": {"const": false},
+        "qsub_authorized": {"const": false},
+        "qdel_authorized": {"const": false},
+        "delete_authorized": {"const": false},
+        "cleanup_authorized": {"const": false},
+        "rename_authorized": {"const": false},
+        "automatic_retry": {"const": false},
+        "path_reopen_allowed": {"const": false}
+      }
+    }
+  }
+}

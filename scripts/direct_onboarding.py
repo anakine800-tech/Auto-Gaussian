@@ -37,7 +37,6 @@ EXPECTED_DIRECT_STATUSES = (
 )
 
 EXPECTED_PRODUCTION_GAPS = (
-    "physical_descriptor_relative_helper",
     "durable_cross_process_consumption",
     "direct_resource_effect_time_replay_ingress",
     "direct_live_approval_effect_time_replay_ingress",
@@ -64,7 +63,6 @@ EXPECTED_SUPPORT_MATRIX = {
         "backend_supported": False,
         "live_ready": False,
         "production_gaps": [
-            "physical_descriptor_relative_helper",
             "durable_cross_process_consumption",
             "direct_resource_effect_time_replay_ingress",
             "direct_live_approval_effect_time_replay_ingress",
@@ -124,7 +122,6 @@ OWNER_GAP_SUPPORT_TOKENS = {
 }
 
 PRODUCTION_GAPS = (
-    "physical_descriptor_relative_helper",
     "durable_cross_process_consumption",
     "direct_resource_effect_time_replay_ingress",
     "direct_live_approval_effect_time_replay_ingress",
