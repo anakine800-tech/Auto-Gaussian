@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-direct-root-synthetic-mutation-result/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "boundary_version",
+    "backend_kind",
+    "binding_payload_sha256",
+    "operations",
+    "outcome",
+    "authority",
+    "result_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-root-synthetic-mutation-result/1"},
+    "owner": {"const": "auto-g16-direct-root-mutation-boundary-owner"},
+    "boundary_version": {"const": "direct-root-mutation-boundary/1"},
+    "backend_kind": {"const": "direct_ssh_pbs"},
+    "binding_payload_sha256": {"$ref": "#/$defs/sha"},
+    "operations": {
+      "type": "array",
+      "prefixItems": [
+        {"$ref": "#/$defs/create_project"},
+        {"$ref": "#/$defs/create_scratch"}
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "outcome": {"const": "completed"},
+    "authority": {"$ref": "#/$defs/authority"},
+    "result_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
+    },
+    "base_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "relative_components",
+        "create_mode",
+        "no_follow",
+        "overwrite_allowed",
+        "delete_allowed"
+      ],
+      "properties": {
+        "kind": {"type": "string"},
+        "relative_components": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1,
+          "maxItems": 2
+        },
+        "create_mode": {"const": "exclusive"},
+        "no_follow": {"const": true},
+        "overwrite_allowed": {"const": false},
+        "delete_allowed": {"const": false}
+      }
+    },
+    "create_project": {
+      "allOf": [
+        {"$ref": "#/$defs/base_operation"},
+        {
+          "properties": {
+            "kind": {"const": "create_project_directory_exclusive"},
+            "relative_components": {"const": ["project"]}
+          }
+        }
+      ]
+    },
+    "create_scratch": {
+      "allOf": [
+        {"$ref": "#/$defs/base_operation"},
+        {
+          "properties": {
+            "kind": {"const": "create_scratch_directory_exclusive"},
+            "relative_components": {"const": ["project", "scratch"]}
+          }
+        }
+      ]
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "synthetic_only",
+        "schema_valid_is_capability",
+        "filesystem_authority",
+        "backend_supported",
+        "live_ready",
+        "remote_effect_performed",
+        "transport_authorized",
+        "shell_authorized",
+        "qsub_authorized",
+        "path_reopen_allowed",
+        "automatic_retry"
+      ],
+      "properties": {
+        "synthetic_only": {"const": true},
+        "schema_valid_is_capability": {"const": false},
+        "filesystem_authority": {"const": false},
+        "backend_supported": {"const": false},
+        "live_ready": {"const": false},
+        "remote_effect_performed": {"const": false},
+        "transport_authorized": {"const": false},
+        "shell_authorized": {"const": false},
+        "qsub_authorized": {"const": false},
+        "path_reopen_allowed": {"const": false},
+        "automatic_retry": {"const": false}
+      }
+    }
+  }
+}

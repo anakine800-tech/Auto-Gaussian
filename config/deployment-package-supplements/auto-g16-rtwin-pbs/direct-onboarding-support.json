@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/direct_onboarding.py",
+      "target": "scripts/direct_onboarding.py"
+    },
+    {
+      "source": "docs/v2.7-direct-onboarding-support.md",
+      "target": "references/direct-onboarding-support.md"
+    }
+  ]
+}
