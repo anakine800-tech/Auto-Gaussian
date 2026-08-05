@@ -56,6 +56,19 @@ class MutableClock:
             self.value += timedelta(seconds=seconds)
 
 
+class StepClock:
+    def __init__(self, values: list[datetime]) -> None:
+        self.values = list(values)
+        self.lock = threading.Lock()
+        self.calls = 0
+
+    def __call__(self) -> datetime:
+        with self.lock:
+            index = min(self.calls, len(self.values) - 1)
+            self.calls += 1
+            return self.values[index]
+
+
 class DirectRootFixture:
     def __init__(self) -> None:
         self.clock = MutableClock()
@@ -593,6 +606,8 @@ class DirectRootOwnerContractTests(unittest.TestCase):
         for forbidden in (
             "mkdir",
             "makedirs",
+            "fork",
+            "forkpty",
             "unlink",
             "remove",
             "rmdir",
@@ -769,7 +784,10 @@ class DirectRootRealObserverTests(unittest.TestCase):
                 b'"attempt_id"',
             ):
                 self.assertNotIn(forbidden, stable_raw)
-            DIRECT._close_directory_descriptors(descriptor_set._opaque_handles)
+            DIRECT._close_descriptor_bundle_once(
+                descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
 
     def test_backend_factory_and_observer_have_no_root_override_surface(self) -> None:
         backend_owner = DIRECT.DirectRootOwnerContractOwner.for_posix_backend()
@@ -941,9 +959,234 @@ class DirectRootRealObserverTests(unittest.TestCase):
                         "terminally invalidated",
                     ):
                         capability.consume_once()
-                    DIRECT._close_directory_descriptors(
-                        descriptor_set._opaque_handles
+                    DIRECT._close_descriptor_bundle_once(
+                        descriptor_set._descriptor_bundle,
+                        owner="capability",
                     )
+
+    def test_step_clock_issuance_failure_closes_descriptor_tuple_once(self) -> None:
+        start = datetime(2026, 7, 29, 0, 0, 0, tzinfo=timezone.utc)
+        self.clock = StepClock([start, start, start + timedelta(seconds=61)])
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            with (
+                mock.patch.object(
+                    DIRECT,
+                    "_close_directory_descriptors",
+                    wraps=DIRECT._close_directory_descriptors,
+                ) as close_descriptors,
+                self.assertRaisesRegex(
+                    DIRECT.DirectRootOwnerError,
+                    "fresh receipt is outside",
+                ),
+            ):
+                owner.issue_fresh_capability_from_reviewed_profile_once(
+                    profile=profile,
+                    stable_evidence=evidence,
+                    authorization=authorization,
+                )
+            self.assertEqual(self.clock.calls, 3)
+            self.assertEqual(close_descriptors.call_count, 1)
+            closed_handles = close_descriptors.call_args.args[0]
+            self.assertIs(type(closed_handles), tuple)
+            self.assertTrue(all(type(handle) is int for handle in closed_handles))
+
+    def test_pretransfer_step_clock_failure_closes_observer_bundle_once(self) -> None:
+        start = datetime(2026, 7, 29, 0, 0, 0, tzinfo=timezone.utc)
+        self.clock = StepClock([start, start + timedelta(seconds=3601)])
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            with (
+                mock.patch.object(
+                    DIRECT,
+                    "_close_directory_descriptors",
+                    wraps=DIRECT._close_directory_descriptors,
+                ) as close_descriptors,
+                self.assertRaisesRegex(
+                    DIRECT.DirectRootOwnerError,
+                    "trusted window",
+                ),
+            ):
+                owner.issue_fresh_capability_from_reviewed_profile_once(
+                    profile=profile,
+                    stable_evidence=evidence,
+                    authorization=authorization,
+                )
+            self.assertEqual(self.clock.calls, 2)
+            self.assertEqual(close_descriptors.call_count, 1)
+
+    def test_step_clock_close_reuse_never_closes_unrelated_fd(self) -> None:
+        start = datetime(2026, 7, 29, 0, 0, 0, tzinfo=timezone.utc)
+        self.clock = StepClock([start, start, start + timedelta(seconds=61)])
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            real_close = os.close
+            close_counts: dict[int, int] = {}
+            unrelated_fds: list[int] = []
+
+            def close_and_reuse_once(descriptor: int) -> None:
+                count = close_counts.get(descriptor, 0) + 1
+                close_counts[descriptor] = count
+                real_close(descriptor)
+                if count == 1:
+                    unrelated = os.open("/dev/null", os.O_RDONLY)
+                    if unrelated != descriptor:
+                        real_close(unrelated)
+                        raise AssertionError("hostile FD reuse was not exact")
+                    unrelated_fds.append(unrelated)
+
+            try:
+                with (
+                    mock.patch.object(os, "close", side_effect=close_and_reuse_once),
+                    self.assertRaisesRegex(
+                        DIRECT.DirectRootOwnerError,
+                        "fresh receipt is outside",
+                    ),
+                ):
+                    owner.issue_fresh_capability_from_reviewed_profile_once(
+                        profile=profile,
+                        stable_evidence=evidence,
+                        authorization=authorization,
+                    )
+                self.assertTrue(unrelated_fds)
+                self.assertTrue(all(count == 1 for count in close_counts.values()))
+                for descriptor in unrelated_fds:
+                    self.assertTrue(stat.S_ISCHR(os.fstat(descriptor).st_mode))
+            finally:
+                for descriptor in unrelated_fds:
+                    try:
+                        real_close(descriptor)
+                    except OSError:
+                        pass
+
+    def test_concurrent_expired_consumers_share_one_descriptor_close(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handle_count = len(capability._descriptor_handles)
+            self.clock.advance(61)
+
+            def consume() -> str:
+                try:
+                    capability.consume_once()
+                except DIRECT.DirectRootOwnerError as exc:
+                    return str(exc)
+                raise AssertionError("expired capability unexpectedly consumed")
+
+            with (
+                mock.patch.object(
+                    DIRECT,
+                    "_close_directory_descriptors",
+                    wraps=DIRECT._close_directory_descriptors,
+                ) as close_descriptors,
+                ThreadPoolExecutor(max_workers=2) as pool,
+            ):
+                messages = list(pool.map(lambda _index: consume(), range(2)))
+            self.assertEqual(close_descriptors.call_count, 1)
+            self.assertEqual(
+                len(close_descriptors.call_args.args[0]),
+                handle_count,
+            )
+            self.assertTrue(
+                any("fresh receipt is outside" in message for message in messages)
+            )
+            self.assertTrue(
+                any("terminally invalidated" in message for message in messages)
+            )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_forked_capability_fails_closed_without_closing_parent_fds(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            parent_handles = capability._descriptor_handles
+            read_fd, write_fd = os.pipe()
+            capability_state = DIRECT._capability_state(capability)
+            descriptor_bundle = capability._descriptor_set._descriptor_bundle
+            bundle_state = DIRECT._descriptor_bundle_state(descriptor_bundle)
+            capability_state.lock.acquire()
+            bundle_state.lock.acquire()
+            try:
+                child_pid = os.fork()
+            except BaseException:
+                bundle_state.lock.release()
+                capability_state.lock.release()
+                raise
+            if child_pid == 0:
+                os.close(read_fd)
+                try:
+                    capability.consume_once()
+                except DIRECT.DirectRootOwnerError as exc:
+                    message = str(exc).encode("utf-8")
+                else:
+                    message = b"unexpected child consumption"
+                os.write(write_fd, message)
+                os.close(write_fd)
+                os._exit(0)
+            bundle_state.lock.release()
+            capability_state.lock.release()
+            os.close(write_fd)
+            child_message = os.read(read_fd, 4096).decode("utf-8")
+            os.close(read_fd)
+            waited_pid, status = os.waitpid(child_pid, 0)
+            self.assertEqual(waited_pid, child_pid)
+            self.assertTrue(os.WIFEXITED(status))
+            self.assertEqual(os.WEXITSTATUS(status), 0)
+            self.assertIn("process or fork boundary", child_message)
+            for descriptor in parent_handles:
+                self.assertTrue(stat.S_ISDIR(os.fstat(descriptor).st_mode))
+            lease = capability.consume_once()
+            self.assertIs(lease._descriptor_set, capability._descriptor_set)
+            DIRECT._close_descriptor_bundle_once(
+                capability._descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
 
 
 if __name__ == "__main__":

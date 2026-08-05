@@ -1058,6 +1058,7 @@ _LEASE_TOKEN = object()
 _OWNER_TOKEN = object()
 _TEST_FACTORY_TOKEN = object()
 _BACKEND_FACTORY_TOKEN = object()
+_DESCRIPTOR_BUNDLE_TOKEN = object()
 
 
 def _system_utc_now() -> datetime:
@@ -1100,13 +1101,146 @@ def _close_directory_descriptors(descriptors: tuple[int, ...]) -> None:
             pass
 
 
+class _OwnedDescriptorBundle:
+    __slots__ = ()
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "_OwnedDescriptorBundle":
+        raise TypeError("descriptor bundles are owner-issued only")
+
+    @classmethod
+    def _from_owner(
+        cls,
+        descriptors: tuple[int, ...],
+        *,
+        token: object,
+    ) -> "_OwnedDescriptorBundle":
+        if cls is not _OwnedDescriptorBundle or token is not _DESCRIPTOR_BUNDLE_TOKEN:
+            raise DirectRootOwnerError("descriptor bundle seal differs")
+        _require(
+            type(descriptors) is tuple
+            and descriptors
+            and len(set(descriptors)) == len(descriptors)
+            and all(type(item) is int and item >= 0 for item in descriptors),
+            "descriptor bundle handles differ",
+        )
+        value = object.__new__(cls)
+        _register_descriptor_bundle(
+            value,
+            _DescriptorBundleState(
+                bundle=value,
+                descriptors=descriptors,
+                owner_pid=os.getpid(),
+                lock=threading.Lock(),
+            ),
+        )
+        return value
+
+
+@dataclass(slots=True)
+class _DescriptorBundleState:
+    bundle: object
+    descriptors: tuple[int, ...]
+    owner_pid: int
+    lock: threading.Lock
+    closed: bool = False
+    ownership_transferred: bool = False
+
+
+_DESCRIPTOR_BUNDLE_REGISTRY_LOCK = threading.Lock()
+_DESCRIPTOR_BUNDLE_REGISTRY: dict[int, _DescriptorBundleState] = {}
+
+
+def _register_descriptor_bundle(
+    bundle: object,
+    state: _DescriptorBundleState,
+) -> None:
+    _require(state.bundle is bundle, "descriptor bundle state identity differs")
+    with _DESCRIPTOR_BUNDLE_REGISTRY_LOCK:
+        _require(
+            id(bundle) not in _DESCRIPTOR_BUNDLE_REGISTRY,
+            "descriptor bundle state is already registered",
+        )
+        _DESCRIPTOR_BUNDLE_REGISTRY[id(bundle)] = state
+
+
+def _descriptor_bundle_state(bundle: object) -> _DescriptorBundleState:
+    with _DESCRIPTOR_BUNDLE_REGISTRY_LOCK:
+        state = _DESCRIPTOR_BUNDLE_REGISTRY.get(id(bundle))
+    _require(
+        type(bundle) is _OwnedDescriptorBundle
+        and type(state) is _DescriptorBundleState
+        and state.bundle is bundle,
+        "descriptor bundle state is unavailable",
+    )
+    return state
+
+
+def _descriptor_bundle_handles(bundle: _OwnedDescriptorBundle) -> tuple[int, ...]:
+    state = _descriptor_bundle_state(bundle)
+    with state.lock:
+        _require(
+            state.owner_pid == os.getpid(),
+            "descriptor bundle cannot cross a process or fork boundary",
+        )
+        _require(not state.closed, "descriptor bundle is closed")
+        return state.descriptors
+
+
+def _transfer_descriptor_bundle_to_capability_once(
+    bundle: _OwnedDescriptorBundle,
+) -> None:
+    state = _descriptor_bundle_state(bundle)
+    with state.lock:
+        _require(
+            state.owner_pid == os.getpid(),
+            "descriptor bundle cannot cross a process or fork boundary",
+        )
+        _require(not state.closed, "descriptor bundle is closed")
+        _require(
+            not state.ownership_transferred,
+            "descriptor bundle ownership is already transferred",
+        )
+        state.ownership_transferred = True
+
+
+def _close_descriptor_bundle_once(
+    bundle: _OwnedDescriptorBundle,
+    *,
+    owner: str,
+) -> bool:
+    _require(
+        owner in {"observer", "capability"},
+        "descriptor bundle close owner differs",
+    )
+    state = _descriptor_bundle_state(bundle)
+    with state.lock:
+        if state.closed:
+            return False
+        if owner == "observer" and state.ownership_transferred:
+            return False
+        _require(
+            owner == "observer" or state.ownership_transferred,
+            "descriptor bundle capability ownership is absent",
+        )
+        state.closed = True
+        _close_directory_descriptors(state.descriptors)
+        return True
+
+
 def _open_root_components_no_follow(
     canonical_root: str,
-) -> tuple[list[dict[str, Any]], tuple[str, ...], tuple[tuple[int, ...], ...], tuple[int, ...]]:
+) -> tuple[
+    list[dict[str, Any]],
+    tuple[str, ...],
+    tuple[tuple[int, ...], ...],
+    _OwnedDescriptorBundle,
+]:
     """Open one reviewed POSIX root component-by-component without following links."""
     root = _absolute_root(canonical_root, "backend observer root")
     _require(
-        hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY"),
+        hasattr(os, "O_NOFOLLOW")
+        and hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "register_at_fork"),
         "backend no-follow directory primitives are unavailable",
     )
     names = tuple(PurePosixPath(root).parts[1:])
@@ -1173,7 +1307,11 @@ def _open_root_components_no_follow(
         raise DirectRootOwnerError(
             f"backend no-follow root observation failed: {exc}"
         ) from exc
-    return components, names, tuple(identities), tuple(opened)
+    bundle = _OwnedDescriptorBundle._from_owner(
+        tuple(opened),
+        token=_DESCRIPTOR_BUNDLE_TOKEN,
+    )
+    return components, names, tuple(identities), bundle
 
 
 def _project_is_fresh_at_root(descriptor: int, project: str) -> bool:
@@ -1411,6 +1549,7 @@ class _DescriptorSet:
     _mode: str
     _component_names: tuple[str, ...]
     _component_identities: tuple[tuple[int, ...], ...]
+    _descriptor_bundle: _OwnedDescriptorBundle | None
     _seal: object
 
     def __new__(cls, *args: Any, **kwargs: Any) -> "_DescriptorSet":
@@ -1442,6 +1581,7 @@ class _DescriptorSet:
         object.__setattr__(value, "_mode", "offline_synthetic")
         object.__setattr__(value, "_component_names", ())
         object.__setattr__(value, "_component_identities", ())
+        object.__setattr__(value, "_descriptor_bundle", None)
         object.__setattr__(value, "_seal", _SNAPSHOT_TOKEN)
         return value
 
@@ -1453,7 +1593,7 @@ class _DescriptorSet:
         workspace_binding_sha256: str,
         component_names: tuple[str, ...],
         component_identities: tuple[tuple[int, ...], ...],
-        descriptors: tuple[int, ...],
+        descriptor_bundle: _OwnedDescriptorBundle,
         token: object,
     ) -> "_DescriptorSet":
         if cls is not _DescriptorSet or token is not _SNAPSHOT_TOKEN:
@@ -1481,10 +1621,12 @@ class _DescriptorSet:
             "backend descriptor component identities differ",
         )
         _require(
-            type(descriptors) is tuple
-            and len(descriptors) == len(component_names) + 1
-            and len(set(descriptors)) == len(descriptors)
-            and all(type(item) is int and item >= 0 for item in descriptors),
+            type(descriptor_bundle) is _OwnedDescriptorBundle,
+            "backend descriptor bundle differs",
+        )
+        descriptors = _descriptor_bundle_handles(descriptor_bundle)
+        _require(
+            len(descriptors) == len(component_names) + 1,
             "backend descriptor handles differ",
         )
         set_sha = digest({
@@ -1507,6 +1649,7 @@ class _DescriptorSet:
         object.__setattr__(value, "_mode", "posix_nofollow")
         object.__setattr__(value, "_component_names", component_names)
         object.__setattr__(value, "_component_identities", component_identities)
+        object.__setattr__(value, "_descriptor_bundle", descriptor_bundle)
         object.__setattr__(value, "_seal", _SNAPSHOT_TOKEN)
         value.assert_owner_sealed()
         return value
@@ -1519,7 +1662,8 @@ class _DescriptorSet:
                 and len(self._opaque_handles) == 2
                 and all(type(item) is object for item in self._opaque_handles)
                 and self._component_names == ()
-                and self._component_identities == (),
+                and self._component_identities == ()
+                and self._descriptor_bundle is None,
                 "descriptor-set handles differ",
             )
             expected = digest({
@@ -1541,6 +1685,12 @@ class _DescriptorSet:
                 )
                 and len(self._component_identities) == len(self._component_names),
                 "backend descriptor handles differ",
+            )
+            _require(
+                type(self._descriptor_bundle) is _OwnedDescriptorBundle
+                and _descriptor_bundle_handles(self._descriptor_bundle)
+                is self._opaque_handles,
+                "backend descriptor bundle differs",
             )
             try:
                 anchor = os.fstat(self._opaque_handles[0])
@@ -1601,10 +1751,11 @@ def _observe_workspace_no_follow(
     canonical_root: str,
     project: str,
 ) -> _OwnerRootIdentitySnapshot:
-    components, names, identities, descriptors = _open_root_components_no_follow(
+    components, names, identities, descriptor_bundle = _open_root_components_no_follow(
         canonical_root
     )
     try:
+        descriptors = _descriptor_bundle_handles(descriptor_bundle)
         project_name = _project(project, "backend observer project")
         fresh_project = _project_is_fresh_at_root(
             descriptors[-1],
@@ -1632,7 +1783,7 @@ def _observe_workspace_no_follow(
             workspace_binding_sha256=workspace_binding_sha256,
             component_names=names,
             component_identities=identities,
-            descriptors=descriptors,
+            descriptor_bundle=descriptor_bundle,
             token=_SNAPSHOT_TOKEN,
         )
         return _OwnerRootIdentitySnapshot._from_owner(
@@ -1646,7 +1797,10 @@ def _observe_workspace_no_follow(
             token=_SNAPSHOT_TOKEN,
         )
     except BaseException:
-        _close_directory_descriptors(descriptors)
+        _close_descriptor_bundle_once(
+            descriptor_bundle,
+            owner="observer",
+        )
         raise
 
 
@@ -1726,6 +1880,7 @@ class _CapabilityState:
     descriptor_component_names: tuple[str, ...]
     descriptor_component_identities: tuple[tuple[int, ...], ...]
     descriptor_set_sha256: str
+    descriptor_bundle: _OwnedDescriptorBundle | None
     clock: Callable[[], datetime]
     lock: threading.Lock
     consumed: bool = False
@@ -1808,7 +1963,8 @@ def _assert_capability_current(
         and state.descriptor_set._component_identities
         == state.descriptor_component_identities
         and state.descriptor_set.descriptor_set_sha256
-        == state.descriptor_set_sha256,
+        == state.descriptor_set_sha256
+        and state.descriptor_set._descriptor_bundle is state.descriptor_bundle,
         "capability descriptor set differs",
     )
     state.evidence.assert_owner_sealed()
@@ -1924,10 +2080,18 @@ class SingleUseWorkspaceDescriptorCapability:
                     descriptor_set._component_identities
                 ),
                 descriptor_set_sha256=descriptor_set.descriptor_set_sha256,
+                descriptor_bundle=descriptor_set._descriptor_bundle,
                 clock=clock,
                 lock=threading.Lock(),
             ),
         )
+        if descriptor_set._mode == "posix_nofollow":
+            bundle = descriptor_set._descriptor_bundle
+            _require(
+                type(bundle) is _OwnedDescriptorBundle,
+                "workspace capability descriptor bundle differs",
+            )
+            _transfer_descriptor_bundle_to_capability_once(bundle)
         return value
 
     def portable_receipt(self) -> dict[str, Any]:
@@ -1943,10 +2107,11 @@ class SingleUseWorkspaceDescriptorCapability:
             try:
                 _assert_capability_current(self, state)
             except BaseException:
-                if state.descriptor_set._mode == "posix_nofollow":
+                if state.descriptor_bundle is not None:
                     state.invalidated = True
-                    _close_directory_descriptors(
-                        state.descriptor_handles  # type: ignore[arg-type]
+                    _close_descriptor_bundle_once(
+                        state.descriptor_bundle,
+                        owner="capability",
                     )
                 raise
         return self
@@ -1964,10 +2129,11 @@ class SingleUseWorkspaceDescriptorCapability:
             try:
                 _assert_capability_current(self, state)
             except BaseException:
-                if state.descriptor_set._mode == "posix_nofollow":
+                if state.descriptor_bundle is not None:
                     state.invalidated = True
-                    _close_directory_descriptors(
-                        state.descriptor_handles  # type: ignore[arg-type]
+                    _close_descriptor_bundle_once(
+                        state.descriptor_bundle,
+                        owner="capability",
                     )
                 raise
             state.consumed = True
@@ -2031,6 +2197,26 @@ def _direct_root_owner_state(owner: object) -> _DirectRootOwnerState:
         "direct-root owner state is unavailable",
     )
     return state
+
+
+def _reset_owner_locks_after_fork_in_child() -> None:
+    global _CAPABILITY_REGISTRY_LOCK
+    global _DESCRIPTOR_BUNDLE_REGISTRY_LOCK
+    global _DIRECT_ROOT_OWNER_REGISTRY_LOCK
+
+    _DESCRIPTOR_BUNDLE_REGISTRY_LOCK = threading.Lock()
+    _CAPABILITY_REGISTRY_LOCK = threading.Lock()
+    _DIRECT_ROOT_OWNER_REGISTRY_LOCK = threading.Lock()
+    for state in _DESCRIPTOR_BUNDLE_REGISTRY.values():
+        state.lock = threading.Lock()
+    for state in _CAPABILITY_REGISTRY.values():
+        state.lock = threading.Lock()
+    for state in _DIRECT_ROOT_OWNER_REGISTRY.values():
+        state.lock = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_owner_locks_after_fork_in_child)
 
 
 class DirectRootOwnerContractOwner:
@@ -2210,7 +2396,7 @@ class DirectRootOwnerContractOwner:
         """Observe only the policy-owned root and publish its stable identity."""
         _direct_root_owner_state(self)
         policy = validate_profile_policy(profile_policy)
-        components, _names, _identities, descriptors = (
+        components, _names, _identities, descriptor_bundle = (
             _open_root_components_no_follow(policy["declared_allowed_root"])
         )
         try:
@@ -2228,7 +2414,10 @@ class DirectRootOwnerContractOwner:
                 identity_document=identity_document,
             )
         finally:
-            _close_directory_descriptors(descriptors)
+            _close_descriptor_bundle_once(
+                descriptor_bundle,
+                owner="observer",
+            )
 
     def issue_fresh_capability_once(
         self,
@@ -2409,8 +2598,14 @@ class DirectRootOwnerContractOwner:
                 type(descriptor_set) is _DescriptorSet
                 and descriptor_set._mode == "posix_nofollow"
             ):
-                _close_directory_descriptors(
-                    descriptor_set._opaque_handles  # type: ignore[arg-type]
+                bundle = descriptor_set._descriptor_bundle
+                _require(
+                    type(bundle) is _OwnedDescriptorBundle,
+                    "backend descriptor bundle differs",
+                )
+                _close_descriptor_bundle_once(
+                    bundle,
+                    owner="observer",
                 )
             raise
 
