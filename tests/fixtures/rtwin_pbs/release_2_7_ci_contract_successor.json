@@ -1,0 +1,47 @@
+{
+  "schema": "auto-g16-release-2.7-ci-contract-successor/1",
+  "base_commit": "9ef1a49ce5ec367983e5410c81ab44f3da2c5eaa",
+  "base_tree": "2649400d02758279d404afce8ce19fa515cfa89b",
+  "scope": {
+    "release_metadata_only": true,
+    "complete_draft202012_inventory_bound": true,
+    "historical_fixture_rewritten": false,
+    "legacy_runtime_semantics_changed": false,
+    "runtime_owner_semantics_changed": false,
+    "scientific_semantics_changed": false,
+    "named_skill_package_changed": false,
+    "live_actions": false
+  },
+  "files": {
+    ".github/workflows/offline-tests.yml": {
+      "before_sha256": "4c8b90301f82e6afae553ae8b6ce8e88dd8bcfa439467fbaf915a25f89db1886",
+      "sha256": "42a8c33cdc84e487884c60cfc947813398a1e895f2b5065d9d846f50111af6a7",
+      "change_class": "bind_complete_ordered_draft202012_ci_inventory",
+      "legacy_semantics_changed": false
+    },
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "4fc49831bd0edbed3ec3b4260d2cf2801b80a70153f046b9d1773c5c97611a1f",
+      "sha256": "41492bdeb925ef046a4c9a8b1e895eb59a24aca1e7c0318c262296e670b8f187",
+      "change_class": "audit_complete_ordered_draft202012_ci_inventory",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_sha256": "45d2938842568fea8c68b17c77b51306b5cee0b828e5526c4fd9f6e0e916b5e0",
+      "sha256": "2a44e0fca55ce355eda4a6d38abb963da617036f1e3097c76ec8064f8b77771e",
+      "change_class": "append_release_ci_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_production_ingress_contract.py": {
+      "before_sha256": "edc61c2950e90bd26b9d3f2110aec71c73b047b154b76c29a53279d9b04d0011",
+      "sha256": "0f78ea2a2ef20120fc65768e6953f40d2c7bc274c4e1dce594c74a90eb40123e",
+      "change_class": "append_release_ci_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_resource_effect_time_replay_owner.py": {
+      "before_sha256": "65226ce677bb386e8d7b9bae9c89a29f3f04cb5cc54c3c058b5c15b89f869250",
+      "sha256": "171a5970bac80ea3962bfbf8b4adebcbfe691a36ebeedf16e14860421370fa55",
+      "change_class": "append_release_ci_successor_hash_chain",
+      "legacy_semantics_changed": false
+    }
+  }
+}

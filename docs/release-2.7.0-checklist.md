@@ -16,7 +16,7 @@ live smoke, or scientific acceptance.
   metadata closure.
 - Preserve implementation, scientific logic, versioned Schemas, owner
   semantics, historical artifacts, and every fail-closed gate unchanged.
-- The exact base-to-final candidate scope contains these 12 paths and no
+- The exact base-to-final candidate scope contains these 16 paths and no
   others:
   - `.github/workflows/offline-tests.yml`
   - `CHANGELOG.md`
@@ -28,14 +28,24 @@ live smoke, or scientific acceptance.
   - `docs/v2.7-direct-ssh-pbs-offline-backend.md`
   - `pyproject.toml`
   - `scripts/audit_python_contract.py`
+  - `tests/fixtures/rtwin_pbs/release_2_7_ci_contract_successor.json`
   - `tests/test_audit_python_contract.py`
+  - `tests/test_protected_legacy_effect_handoff.py`
+  - `tests/test_protected_production_ingress_contract.py`
   - `tests/test_release_hygiene.py`
+  - `tests/test_resource_effect_time_replay_owner.py`
 - The original nine paths close release metadata, merged-state documentation,
   and release-hygiene tests. The three successor paths
   `.github/workflows/offline-tests.yml`, `scripts/audit_python_contract.py`,
   and `tests/test_audit_python_contract.py` close the related CI-contract gap:
   they bind the complete ordered 17-module Draft 2020-12 inventory and fail
   closed on missing, extra, reordered, or otherwise drifted coverage.
+- The four additive compatibility paths comprise one new release CI successor
+  fixture plus three protected-chain tests. They preserve every historical
+  fixture byte, bind the old-to-new workflow and audit hashes, and state
+  `legacy_runtime_semantics_changed=false`. They were required after the first
+  exact-head Python 3.13 CI run correctly rejected five stale current-byte
+  assertions; no legacy runtime or scientific source changed.
 
 ## Truthful capability boundary
 

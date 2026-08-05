@@ -760,6 +760,14 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                 "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )
+        release_successor_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "release_2_7_ci_contract_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        release_successor = release_successor_document["files"]
         for relative, expected in fixture["frozen_predecessors"].items():
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
@@ -767,17 +775,43 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                 relative,
             )
         for relative, binding in fixture["successor_files"].items():
-            self.assertEqual(
-                hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                binding["sha256"],
-                relative,
-            )
-        for relative, expected in fixture["new_files"].items():
+            expected = binding["sha256"]
+            if relative in release_successor:
+                successor_binding = release_successor[relative]
+                self.assertEqual(
+                    successor_binding["before_sha256"],
+                    expected,
+                    relative,
+                )
+                expected = successor_binding["sha256"]
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
                 relative,
             )
+        for relative, expected in fixture["new_files"].items():
+            if relative in release_successor:
+                successor_binding = release_successor[relative]
+                self.assertEqual(
+                    successor_binding["before_sha256"],
+                    expected,
+                    relative,
+                )
+                expected = successor_binding["sha256"]
+            self.assertEqual(
+                hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                expected,
+                relative,
+            )
+        self.assertEqual(
+            release_successor_document["schema"],
+            "auto-g16-release-2.7-ci-contract-successor/1",
+        )
+        self.assertFalse(
+            release_successor_document["scope"][
+                "legacy_runtime_semantics_changed"
+            ]
+        )
         package = json.loads(
             (
                 ROOT / "skills/auto-g16-rtwin-pbs/deployment-package.json"

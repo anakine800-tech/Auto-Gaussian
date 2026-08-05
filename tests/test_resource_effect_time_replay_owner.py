@@ -699,8 +699,22 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             "skills/auto-g16-rtwin-pbs/SKILL.md": "d5107598c2a5dac5c6cf875cd474d502621996282b3116729b7546bed63e2280",
             "skills/auto-g16-rtwin-pbs/scripts/resource_efficiency.py": "2cb86711a748cdd1d4929e5d8c52bf601b80221deab70b3eb5c80a3d4db9cb9b",
         }
+        release_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "release_2_7_ci_contract_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):
+                if relative in release_successor:
+                    successor_binding = release_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        expected,
+                    )
+                    expected = successor_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected,
