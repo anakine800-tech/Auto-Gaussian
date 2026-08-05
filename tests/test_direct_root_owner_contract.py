@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import ast
 import copy
+import inspect
 import json
 import os
 import pickle
+import stat
 import sys
 import tempfile
 import threading
 import unittest
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -52,6 +55,19 @@ class MutableClock:
     def advance(self, seconds: int) -> None:
         with self.lock:
             self.value += timedelta(seconds=seconds)
+
+
+class StepClock:
+    def __init__(self, values: list[datetime]) -> None:
+        self.values = list(values)
+        self.lock = threading.Lock()
+        self.calls = 0
+
+    def __call__(self) -> datetime:
+        with self.lock:
+            index = min(self.calls, len(self.values) - 1)
+            self.calls += 1
+            return self.values[index]
 
 
 class DirectRootFixture:
@@ -580,6 +596,28 @@ class DirectRootOwnerContractTests(unittest.TestCase):
             "run",
         ):
             self.assertNotIn(forbidden, public_methods)
+        called_attributes = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "os"
+        }
+        for forbidden in (
+            "mkdir",
+            "makedirs",
+            "fork",
+            "forkpty",
+            "unlink",
+            "remove",
+            "rmdir",
+            "rename",
+            "replace",
+            "symlink",
+            "link",
+        ):
+            self.assertNotIn(forbidden, called_attributes)
 
     def test_named_skill_package_maps_single_owner_and_all_schemas(self) -> None:
         package = SKILL_PACKAGE.package_files_with_supplements(
@@ -589,6 +627,10 @@ class DirectRootOwnerContractTests(unittest.TestCase):
         self.assertEqual(
             package[Path("scripts/direct_root_owner_contract.py")],
             ROOT / "scripts/direct_root_owner_contract.py",
+        )
+        self.assertEqual(
+            package[Path("references/direct-root-owner-contract.md")],
+            ROOT / "docs/v2.6-direct-root-owner-contract.md",
         )
         for name in (
             "direct-profile-policy.schema.json",
@@ -609,6 +651,871 @@ class DirectRootOwnerContractTests(unittest.TestCase):
                 / "skills/auto-g16-rtwin-pbs/scripts/direct_root_owner_contract.py"
             ).exists()
         )
+
+
+class DirectRootRealObserverTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.clock = MutableClock()
+
+    def owner(self) -> DIRECT.DirectRootOwnerContractOwner:
+        return DIRECT.DirectRootOwnerContractOwner._for_testing(
+            clock=self.clock,
+            nonce_source=lambda: NONCE,
+            _test_token=DIRECT._TEST_FACTORY_TOKEN,
+        )
+
+    @staticmethod
+    def fd_open_mask(descriptors: tuple[int, ...]) -> list[bool]:
+        mask: list[bool] = []
+        for descriptor in descriptors:
+            try:
+                os.fstat(descriptor)
+            except OSError:
+                mask.append(False)
+            else:
+                mask.append(True)
+        return mask
+
+    @staticmethod
+    def fd_identity_mask(
+        descriptors: tuple[int, ...],
+        identities: tuple[tuple[int, ...], ...],
+    ) -> list[bool]:
+        mask: list[bool] = []
+        for descriptor, identity in zip(descriptors, identities, strict=True):
+            try:
+                observed = DIRECT._directory_identity(os.fstat(descriptor))
+            except OSError:
+                mask.append(False)
+            else:
+                mask.append(observed == identity)
+        return mask
+
+    def fork_report(
+        self,
+        descriptors: tuple[int, ...],
+        child_action: Callable[[], dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        read_fd, write_fd = os.pipe()
+        child_pid = os.fork()
+        if child_pid == 0:
+            os.close(read_fd)
+            payload = child_action() if child_action is not None else {}
+            payload["open_mask"] = self.fd_open_mask(descriptors)
+            os.write(write_fd, json.dumps(payload, sort_keys=True).encode("utf-8"))
+            os.close(write_fd)
+            os._exit(0)
+        os.close(write_fd)
+        raw = os.read(read_fd, 16384)
+        os.close(read_fd)
+        waited_pid, status = os.waitpid(child_pid, 0)
+        self.assertEqual(waited_pid, child_pid)
+        self.assertTrue(os.WIFEXITED(status))
+        self.assertEqual(os.WEXITSTATUS(status), 0)
+        return json.loads(raw)
+
+    def chain(
+        self,
+        root: Path,
+    ) -> tuple[
+        DIRECT.DirectRootOwnerContractOwner,
+        dict[str, object],
+        DIRECT.StableRootIdentityEvidence,
+        dict[str, object],
+        dict[str, object],
+    ]:
+        owner = self.owner()
+        policy = DIRECT.build_profile_policy(
+            profile_id="direct-real-observer",
+            declared_allowed_root=str(root),
+            transport_identity_binding_sha256=SHA_A,
+            gaussian_runtime_binding_sha256=SHA_B,
+            resource_catalog_sha256=SHA_C,
+        )
+        evidence = owner.issue_stable_evidence_from_reviewed_profile(policy)
+        profile = DIRECT.build_direct_execution_profile(policy, evidence)
+        authorization = DIRECT.build_direct_execution_authorization(
+            authorization_id="direct-real-observer-authorization",
+            profile=profile,
+            stable_evidence=evidence,
+            project=PROJECT,
+            input_basename="input.gjf",
+            input_sha256=SHA_A,
+            input_size_bytes=1024,
+            tier="simple",
+            cores=8,
+            memory_gb=12,
+            walltime_seconds=3600,
+            scientific_task_id=TASK,
+            attempt_id=ATTEMPT,
+            idempotency_key="direct-real-observer-case",
+            approved_at="2026-07-28T23:59:00.000000Z",
+            not_before="2026-07-29T00:00:00.000000Z",
+            expires_at="2026-07-29T01:00:00.000000Z",
+            maximum_receipt_age_seconds=60,
+        )
+        return owner, policy, evidence, profile, authorization
+
+    def test_real_observer_retains_same_no_follow_descriptors_once(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            owner._clock = lambda: datetime(  # type: ignore[attr-defined]
+                2099, 1, 1, tzinfo=timezone.utc
+            )
+            owner._nonce_source = lambda: "0" * 32  # type: ignore[attr-defined]
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            descriptor_set = capability._descriptor_set
+            self.assertEqual(descriptor_set._mode, "posix_nofollow")
+            self.assertTrue(
+                all(type(handle) is int for handle in descriptor_set._opaque_handles)
+            )
+            self.assertEqual(
+                capability.portable_receipt()["observed_root"][
+                    "descriptor_set_sha256"
+                ],
+                descriptor_set.descriptor_set_sha256,
+            )
+            self.assertEqual(
+                capability.portable_receipt()["window"]["observed_at"],
+                "2026-07-29T00:00:00.000000Z",
+            )
+            self.assertEqual(
+                capability.portable_receipt()["operation"]["nonce"],
+                NONCE,
+            )
+            import direct_root_mutation_boundary as synthetic_boundary
+
+            synthetic_owner = (
+                synthetic_boundary.DirectRootMutationBoundaryOwner._for_testing(
+                    _test_token=synthetic_boundary._TEST_TOKEN
+                )
+            )
+            synthetic_helper = synthetic_owner._synthetic_helper_for_testing(
+                _test_token=synthetic_boundary._TEST_TOKEN
+            )
+            with self.assertRaisesRegex(
+                synthetic_boundary.DirectRootMutationBoundaryError,
+                "rejects production descriptor capabilities",
+            ):
+                synthetic_owner.issue_synthetic_transaction_once(
+                    root_capability=capability,
+                    helper=synthetic_helper,
+                )
+            lease = capability.consume_once()
+            self.assertIs(lease._descriptor_set, descriptor_set)
+            self.assertIs(
+                capability._descriptor_handles,
+                descriptor_set._opaque_handles,
+            )
+            self.assertFalse(lease.remote_effect_authorized)
+            self.assertFalse((observed_root / PROJECT).exists())
+            with self.assertRaisesRegex(
+                DIRECT.DirectRootOwnerError,
+                "already consumed",
+            ):
+                capability.consume_once()
+            stable_raw = DIRECT.canonical_bytes(evidence.document())
+            for forbidden in (
+                b'"observed_at"',
+                b'"expires_at"',
+                b'"nonce"',
+                b'"receipt_id"',
+                b'"operation"',
+                b'"attempt_id"',
+            ):
+                self.assertNotIn(forbidden, stable_raw)
+            DIRECT._close_descriptor_bundle_once(
+                descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
+
+    def test_backend_factory_and_observer_have_no_root_override_surface(self) -> None:
+        backend_owner = DIRECT.DirectRootOwnerContractOwner.for_posix_backend()
+        self.assertIs(type(backend_owner), DIRECT.DirectRootOwnerContractOwner)
+        self.assertEqual(
+            tuple(inspect.signature(
+                DIRECT.DirectRootOwnerContractOwner.for_posix_backend
+            ).parameters),
+            (),
+        )
+        stable_parameters = tuple(inspect.signature(
+            backend_owner.issue_stable_evidence_from_reviewed_profile
+        ).parameters)
+        fresh_parameters = tuple(inspect.signature(
+            backend_owner.issue_fresh_capability_from_reviewed_profile_once
+        ).parameters)
+        self.assertEqual(stable_parameters, ("profile_policy",))
+        self.assertEqual(
+            fresh_parameters,
+            ("profile", "stable_evidence", "authorization"),
+        )
+        for forbidden in ("root", "path", "config", "env", "runtime"):
+            self.assertNotIn(forbidden, stable_parameters)
+            self.assertNotIn(forbidden, fresh_parameters)
+        forged = object.__new__(DIRECT.DirectRootOwnerContractOwner)
+        with self.assertRaisesRegex(
+            DIRECT.DirectRootOwnerError,
+            "owner state is unavailable",
+        ):
+            forged.issue_stable_evidence_from_reviewed_profile(
+                DirectRootFixture().policy
+            )
+        oversized_root = "/" + "/".join(
+            "x" for _ in range(DIRECT.MAX_OBSERVED_ROOT_COMPONENTS + 1)
+        )
+        with (
+            mock.patch.object(os, "open") as open_call,
+            self.assertRaisesRegex(
+                DIRECT.DirectRootOwnerError,
+                "exceeds its component bound",
+            ),
+        ):
+            DIRECT._open_root_components_no_follow(oversized_root)
+        open_call.assert_not_called()
+
+    def test_symlink_component_and_existing_project_fail_with_zero_effect(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            parent = Path(temporary).resolve()
+            target = parent / "target"
+            target.mkdir()
+            linked = parent / "linked"
+            linked.symlink_to(target, target_is_directory=True)
+            owner = self.owner()
+            policy = DIRECT.build_profile_policy(
+                profile_id="direct-symlink-observer",
+                declared_allowed_root=str(linked),
+                transport_identity_binding_sha256=SHA_A,
+                gaussian_runtime_binding_sha256=SHA_B,
+                resource_catalog_sha256=SHA_C,
+            )
+            with self.assertRaises(DIRECT.DirectRootOwnerError):
+                owner.issue_stable_evidence_from_reviewed_profile(policy)
+            self.assertEqual(list(target.iterdir()), [])
+
+            reviewed_root = parent / "reviewed-root"
+            reviewed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                reviewed_root
+            )
+            (reviewed_root / PROJECT).mkdir()
+            with self.assertRaisesRegex(
+                DIRECT.DirectRootOwnerError,
+                "already exists or is not fresh",
+            ):
+                owner.issue_fresh_capability_from_reviewed_profile_once(
+                    profile=profile,
+                    stable_evidence=evidence,
+                    authorization=authorization,
+                )
+            self.assertEqual(list((reviewed_root / PROJECT).iterdir()), [])
+
+    def test_identity_drift_before_fresh_observation_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            original_mode = stat.S_IMODE(observed_root.stat().st_mode)
+            changed_mode = original_mode ^ stat.S_IWGRP
+            os.chmod(observed_root, changed_mode)
+            try:
+                with self.assertRaisesRegex(
+                    DIRECT.DirectRootOwnerError,
+                    "root identity drifted",
+                ):
+                    owner.issue_fresh_capability_from_reviewed_profile_once(
+                        profile=profile,
+                        stable_evidence=evidence,
+                        authorization=authorization,
+                    )
+                self.assertFalse((observed_root / PROJECT).exists())
+            finally:
+                os.chmod(observed_root, original_mode)
+
+    def test_descriptor_replacement_and_expiry_fail_before_any_effect(self) -> None:
+        for case in (
+            "identity_drift",
+            "replacement",
+            "descriptor_field_forgery",
+            "expiry",
+        ):
+            with self.subTest(case=case), tempfile.TemporaryDirectory(
+                prefix="auto-g16-real-root-",
+                dir=TEMP_PARENT,
+            ) as temporary:
+                observed_root = Path(temporary).resolve() / "reviewed-root"
+                observed_root.mkdir()
+                owner, _policy, evidence, profile, authorization = self.chain(
+                    observed_root
+                )
+                capability = (
+                    owner.issue_fresh_capability_from_reviewed_profile_once(
+                        profile=profile,
+                        stable_evidence=evidence,
+                        authorization=authorization,
+                    )
+                )
+                descriptor_set = capability._descriptor_set
+                original_mode = stat.S_IMODE(observed_root.stat().st_mode)
+                if case == "identity_drift":
+                    os.chmod(observed_root, original_mode ^ stat.S_IWGRP)
+                    pattern = "component identity drifted"
+                elif case == "replacement":
+                    retained_root = observed_root.with_name("retained-root")
+                    observed_root.rename(retained_root)
+                    observed_root.mkdir()
+                    pattern = "component identity drifted"
+                elif case == "descriptor_field_forgery":
+                    object.__setattr__(
+                        descriptor_set,
+                        "_component_names",
+                        tuple(reversed(descriptor_set._component_names)),
+                    )
+                    pattern = "capability descriptor set differs"
+                else:
+                    self.clock.advance(61)
+                    pattern = "fresh receipt is outside"
+                try:
+                    with self.assertRaisesRegex(
+                        DIRECT.DirectRootOwnerError,
+                        pattern,
+                    ):
+                        capability.consume_once()
+                    self.assertFalse((observed_root / PROJECT).exists())
+                    if case == "replacement":
+                        self.assertFalse((retained_root / PROJECT).exists())
+                finally:
+                    if case == "identity_drift":
+                        os.chmod(observed_root, original_mode)
+                    with self.assertRaisesRegex(
+                        DIRECT.DirectRootOwnerError,
+                        "terminally invalidated",
+                    ):
+                        capability.consume_once()
+                    DIRECT._close_descriptor_bundle_once(
+                        descriptor_set._descriptor_bundle,
+                        owner="capability",
+                    )
+
+    def test_step_clock_issuance_failure_closes_descriptor_tuple_once(self) -> None:
+        start = datetime(2026, 7, 29, 0, 0, 0, tzinfo=timezone.utc)
+        self.clock = StepClock([start, start, start + timedelta(seconds=61)])
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            with (
+                mock.patch.object(
+                    DIRECT,
+                    "_close_directory_descriptors",
+                    wraps=DIRECT._close_directory_descriptors,
+                ) as close_descriptors,
+                self.assertRaisesRegex(
+                    DIRECT.DirectRootOwnerError,
+                    "fresh receipt is outside",
+                ),
+            ):
+                owner.issue_fresh_capability_from_reviewed_profile_once(
+                    profile=profile,
+                    stable_evidence=evidence,
+                    authorization=authorization,
+                )
+            self.assertEqual(self.clock.calls, 3)
+            self.assertEqual(close_descriptors.call_count, 1)
+            closed_handles = close_descriptors.call_args.args[0]
+            self.assertIs(type(closed_handles), tuple)
+            self.assertTrue(all(type(handle) is int for handle in closed_handles))
+
+    def test_pretransfer_step_clock_failure_closes_observer_bundle_once(self) -> None:
+        start = datetime(2026, 7, 29, 0, 0, 0, tzinfo=timezone.utc)
+        self.clock = StepClock([start, start + timedelta(seconds=3601)])
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            with (
+                mock.patch.object(
+                    DIRECT,
+                    "_close_directory_descriptors",
+                    wraps=DIRECT._close_directory_descriptors,
+                ) as close_descriptors,
+                self.assertRaisesRegex(
+                    DIRECT.DirectRootOwnerError,
+                    "trusted window",
+                ),
+            ):
+                owner.issue_fresh_capability_from_reviewed_profile_once(
+                    profile=profile,
+                    stable_evidence=evidence,
+                    authorization=authorization,
+                )
+            self.assertEqual(self.clock.calls, 2)
+            self.assertEqual(close_descriptors.call_count, 1)
+
+    def test_step_clock_close_reuse_never_closes_unrelated_fd(self) -> None:
+        start = datetime(2026, 7, 29, 0, 0, 0, tzinfo=timezone.utc)
+        self.clock = StepClock([start, start, start + timedelta(seconds=61)])
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            real_close = os.close
+            close_counts: dict[int, int] = {}
+            unrelated_fds: list[int] = []
+
+            def close_and_reuse_once(descriptor: int) -> None:
+                count = close_counts.get(descriptor, 0) + 1
+                close_counts[descriptor] = count
+                real_close(descriptor)
+                if count == 1:
+                    unrelated = os.open("/dev/null", os.O_RDONLY)
+                    if unrelated != descriptor:
+                        real_close(unrelated)
+                        raise AssertionError("hostile FD reuse was not exact")
+                    unrelated_fds.append(unrelated)
+
+            try:
+                with (
+                    mock.patch.object(os, "close", side_effect=close_and_reuse_once),
+                    self.assertRaisesRegex(
+                        DIRECT.DirectRootOwnerError,
+                        "fresh receipt is outside",
+                    ),
+                ):
+                    owner.issue_fresh_capability_from_reviewed_profile_once(
+                        profile=profile,
+                        stable_evidence=evidence,
+                        authorization=authorization,
+                    )
+                self.assertTrue(unrelated_fds)
+                self.assertTrue(all(count == 1 for count in close_counts.values()))
+                for descriptor in unrelated_fds:
+                    self.assertTrue(stat.S_ISCHR(os.fstat(descriptor).st_mode))
+            finally:
+                for descriptor in unrelated_fds:
+                    try:
+                        real_close(descriptor)
+                    except OSError:
+                        pass
+
+    def test_concurrent_expired_consumers_share_one_descriptor_close(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handle_count = len(capability._descriptor_handles)
+            self.clock.advance(61)
+
+            def consume() -> str:
+                try:
+                    capability.consume_once()
+                except DIRECT.DirectRootOwnerError as exc:
+                    return str(exc)
+                raise AssertionError("expired capability unexpectedly consumed")
+
+            with (
+                mock.patch.object(
+                    DIRECT,
+                    "_close_directory_descriptors",
+                    wraps=DIRECT._close_directory_descriptors,
+                ) as close_descriptors,
+                ThreadPoolExecutor(max_workers=2) as pool,
+            ):
+                messages = list(pool.map(lambda _index: consume(), range(2)))
+            self.assertEqual(close_descriptors.call_count, 1)
+            self.assertEqual(
+                len(close_descriptors.call_args.args[0]),
+                handle_count,
+            )
+            self.assertTrue(
+                any("fresh receipt is outside" in message for message in messages)
+            )
+            self.assertTrue(
+                any("terminally invalidated" in message for message in messages)
+            )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_forked_capability_fails_closed_without_closing_parent_fds(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            parent_handles = capability._descriptor_handles
+
+            def child_action() -> dict[str, object]:
+                try:
+                    capability.consume_once()
+                except DIRECT.DirectRootOwnerError as exc:
+                    message = str(exc)
+                else:
+                    message = "unexpected child consumption"
+                return {"capability": message}
+
+            report = self.fork_report(parent_handles, child_action)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertIn("descriptor bundle", report["capability"])
+            for descriptor in parent_handles:
+                self.assertTrue(stat.S_ISDIR(os.fstat(descriptor).st_mode))
+            lease = capability.consume_once()
+            self.assertIs(lease._descriptor_set, capability._descriptor_set)
+            DIRECT._close_descriptor_bundle_once(
+                capability._descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_post_consume_fork_revokes_child_capability_and_lease(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            lease = capability.consume_once()
+            parent_handles = capability._descriptor_handles
+
+            def child_action() -> dict[str, object]:
+                messages: dict[str, str] = {}
+                for name, action in (
+                    ("capability", capability.consume_once),
+                    ("lease", lease.assert_owner_sealed),
+                ):
+                    try:
+                        action()
+                    except DIRECT.DirectRootOwnerError as exc:
+                        messages[name] = str(exc)
+                    else:
+                        messages[name] = "unexpected child authority"
+                return messages
+
+            report = self.fork_report(parent_handles, child_action)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertIn("already consumed", report["capability"])
+            self.assertIn("descriptor bundle", report["lease"])
+            self.assertTrue(all(self.fd_open_mask(parent_handles)))
+            self.assertIs(lease.assert_owner_sealed(), lease)
+            DIRECT._close_descriptor_bundle_once(
+                capability._descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_fork_revokes_every_active_bundle_child_only(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            parent = Path(temporary).resolve()
+            capabilities: list[DIRECT.SingleUseWorkspaceDescriptorCapability] = []
+            for name in ("reviewed-root-a", "reviewed-root-b"):
+                observed_root = parent / name
+                observed_root.mkdir()
+                owner, _policy, evidence, profile, authorization = self.chain(
+                    observed_root
+                )
+                capabilities.append(
+                    owner.issue_fresh_capability_from_reviewed_profile_once(
+                        profile=profile,
+                        stable_evidence=evidence,
+                        authorization=authorization,
+                    )
+                )
+            handles = tuple(
+                descriptor
+                for capability in capabilities
+                for descriptor in capability._descriptor_handles
+            )
+            self.assertEqual(len(handles), len(set(handles)))
+            report = self.fork_report(handles)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertTrue(all(self.fd_open_mask(handles)))
+            for capability in capabilities:
+                DIRECT._close_descriptor_bundle_once(
+                    capability._descriptor_set._descriptor_bundle,
+                    owner="capability",
+                )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_invalidated_fd_reuse_is_not_active_fork_authority(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handles = capability._descriptor_handles
+            self.clock.advance(61)
+            with self.assertRaisesRegex(
+                DIRECT.DirectRootOwnerError,
+                "fresh receipt is outside",
+            ):
+                capability.consume_once()
+            reused = tuple(os.open("/dev/null", os.O_RDONLY) for _ in handles)
+            self.assertEqual(set(reused), set(handles))
+            try:
+                report = self.fork_report(reused)
+                self.assertTrue(all(report["open_mask"]))
+                self.assertTrue(all(self.fd_open_mask(reused)))
+            finally:
+                for descriptor in reused:
+                    os.close(descriptor)
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_fork_waits_for_close_in_progress_then_child_has_no_fds(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handles = capability._descriptor_handles
+            self.clock.advance(61)
+            close_started = threading.Event()
+            allow_close = threading.Event()
+            original_close = DIRECT._close_directory_descriptors
+
+            def blocking_close(descriptors: tuple[int, ...]) -> None:
+                close_started.set()
+                if not allow_close.wait(5):
+                    raise AssertionError("close release timed out")
+                original_close(descriptors)
+
+            def consume() -> str:
+                try:
+                    capability.consume_once()
+                except DIRECT.DirectRootOwnerError as exc:
+                    return str(exc)
+                return "unexpected consumption"
+
+            with mock.patch.object(
+                DIRECT,
+                "_close_directory_descriptors",
+                side_effect=blocking_close,
+            ) as close_call:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(consume)
+                    self.assertTrue(close_started.wait(5))
+                    release_timer = threading.Timer(0.2, allow_close.set)
+                    release_timer.start()
+                    report = self.fork_report(handles)
+                    release_timer.join()
+                    message = future.result(timeout=5)
+            self.assertEqual(close_call.call_count, 1)
+            self.assertIn("fresh receipt is outside", message)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertFalse(any(self.fd_open_mask(handles)))
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_fork_waits_for_held_bundle_lock_and_revokes_child_only(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handles = capability._descriptor_handles
+            bundle_state = DIRECT._descriptor_bundle_state(
+                capability._descriptor_set._descriptor_bundle
+            )
+            lock_held = threading.Event()
+            release_lock = threading.Event()
+
+            def hold_lock() -> None:
+                with bundle_state.lock:
+                    lock_held.set()
+                    if not release_lock.wait(5):
+                        raise AssertionError("bundle lock release timed out")
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(hold_lock)
+                self.assertTrue(lock_held.wait(5))
+                release_timer = threading.Timer(0.2, release_lock.set)
+                release_timer.start()
+                report = self.fork_report(handles)
+                release_timer.join()
+                future.result(timeout=5)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertTrue(all(self.fd_open_mask(handles)))
+            DIRECT._close_descriptor_bundle_once(
+                capability._descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_child_close_same_fd_reuse_is_single_and_not_root_authority(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handles = capability._descriptor_handles
+            identities = tuple(
+                DIRECT._directory_identity(os.fstat(descriptor))
+                for descriptor in handles
+            )
+            real_close = os.close
+            close_counts: dict[int, int] = {}
+            read_fd, write_fd = os.pipe()
+
+            def close_and_reuse_once(descriptor: int) -> None:
+                count = close_counts.get(descriptor, 0) + 1
+                close_counts[descriptor] = count
+                real_close(descriptor)
+                if descriptor in handles and count == 1:
+                    unrelated = os.open("/dev/null", os.O_RDONLY)
+                    if unrelated != descriptor:
+                        real_close(unrelated)
+                        raise AssertionError("hostile FD reuse was not exact")
+
+            with mock.patch.object(os, "close", side_effect=close_and_reuse_once):
+                child_pid = os.fork()
+                if child_pid == 0:
+                    real_close(read_fd)
+                    payload = {
+                        "open_mask": self.fd_open_mask(handles),
+                        "root_mask": self.fd_identity_mask(handles, identities),
+                        "close_counts": [
+                            close_counts.get(descriptor, 0)
+                            for descriptor in handles
+                        ],
+                    }
+                    os.write(
+                        write_fd,
+                        json.dumps(payload, sort_keys=True).encode("utf-8"),
+                    )
+                    real_close(write_fd)
+                    os._exit(0)
+                real_close(write_fd)
+                raw = os.read(read_fd, 16384)
+                real_close(read_fd)
+                waited_pid, status = os.waitpid(child_pid, 0)
+            self.assertEqual(waited_pid, child_pid)
+            self.assertTrue(os.WIFEXITED(status))
+            self.assertEqual(os.WEXITSTATUS(status), 0)
+            report = json.loads(raw)
+            self.assertTrue(all(report["open_mask"]))
+            self.assertFalse(any(report["root_mask"]))
+            self.assertEqual(report["close_counts"], [1] * len(handles))
+            self.assertTrue(all(self.fd_identity_mask(handles, identities)))
+            DIRECT._close_descriptor_bundle_once(
+                capability._descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
 
 
 if __name__ == "__main__":
