@@ -150,6 +150,47 @@ class PortableSessionFixture:
 class DirectTrustedSessionCompositionTests(unittest.TestCase):
     maxDiff = None
 
+    def test_reviewed_legacy_dependency_hash_replacement_and_rebind_fail_closed(self) -> None:
+        legacy_index = next(
+            index
+            for index, (name, _layout, _sha256) in enumerate(SESSION._FIXED_DEPENDENCY_ORDER)
+            if name == "legacy_rtwin_pbs"
+        )
+        current_sha256 = "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1"
+        old_sha256 = "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e"
+        self.assertEqual(
+            SESSION._FIXED_DEPENDENCY_ORDER[legacy_index],
+            ("legacy_rtwin_pbs", "skill", current_sha256),
+        )
+        binding = SESSION._FIXED_DEPENDENCY_BINDINGS[legacy_index]
+        self.assertEqual(binding[4], current_sha256)
+
+        old_hash_bindings = list(SESSION._FIXED_DEPENDENCY_BINDINGS)
+        old_hash_bindings[legacy_index] = (*binding[:4], old_sha256)
+        with self.assertRaisesRegex(ImportError, "legacy_rtwin_pbs"):
+            SESSION._assert_fixed_dependency_chain(tuple(old_hash_bindings))
+
+        canonical_reader = SESSION._read_fixed_dependency_source
+
+        def replaced_legacy_reader(path: Path) -> tuple[tuple[int, ...], str]:
+            identity, source_sha256 = canonical_reader(path)
+            if path.name == "legacy_rtwin_pbs.py":
+                return identity, old_sha256
+            return identity, source_sha256
+
+        with mock.patch.object(
+            SESSION,
+            "_read_fixed_dependency_source",
+            side_effect=replaced_legacy_reader,
+        ):
+            with self.assertRaisesRegex(ImportError, "legacy_rtwin_pbs"):
+                SESSION._assert_fixed_dependency_chain(SESSION._FIXED_DEPENDENCY_BINDINGS)
+
+        replacement = types.ModuleType("legacy_rtwin_pbs")
+        with mock.patch.dict(sys.modules, {"legacy_rtwin_pbs": replacement}):
+            with self.assertRaisesRegex(ImportError, "legacy_rtwin_pbs"):
+                SESSION._assert_fixed_dependency_chain(SESSION._FIXED_DEPENDENCY_BINDINGS)
+
     def test_clean_caller_direct_imports_in_supported_and_isolated_interpreters(self) -> None:
         probe = r'''
 import pathlib, sys
@@ -173,6 +214,83 @@ print("DIRECT_IMPORT_READY_NO_EFFECT")
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, "DIRECT_IMPORT_READY_NO_EFFECT\n")
+
+    def test_exact_legacy_dependency_reload_invalidates_existing_binding_before_effect(self) -> None:
+        probe = r'''
+import importlib, pathlib, sys
+scripts = pathlib.Path(sys.argv[1]).resolve()
+state = pathlib.Path(sys.argv[2]).resolve()
+skill_scripts = scripts.parent / "skills" / "auto-g16-rtwin-pbs" / "scripts"
+sys.path.insert(0, str(scripts))
+import direct_trusted_session_composition as session
+legacy = sys.modules["legacy_rtwin_pbs"]
+session._assert_module_binding()
+legacy_path = (skill_scripts / "legacy_rtwin_pbs.py").resolve()
+if session._fixed_dependency_origin(legacy) != (legacy_path, legacy_path):
+    raise AssertionError("LEGACY_DEPENDENCY_ORIGIN_DIFFERS")
+legacy_sha256 = session._read_fixed_dependency_source(legacy_path)[1]
+if legacy_sha256 != (
+    "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1"
+):
+    raise AssertionError("LEGACY_DEPENDENCY_BYTES_DIFFER")
+old_plan_type = legacy._LegacyEffectPlan
+forbidden_codes = {
+    session.FixedTrustedServerLocalSessionOwner.compose_once.__code__,
+    session.W2.consume_for_server_session_replay_once.__code__,
+    session.W4.DirectRootFixedMutationOwner.issue_session_once.__code__,
+}
+observed = []
+def profile(frame, event, _arg):
+    if event == "call" and frame.f_code in forbidden_codes:
+        observed.append(frame.f_code)
+sys.path.insert(0, str(skill_scripts))
+try:
+    reloaded = importlib.reload(legacy)
+finally:
+    sys.path.remove(str(skill_scripts))
+if (
+    reloaded is not legacy
+    or session._fixed_dependency_origin(reloaded) != (legacy_path, legacy_path)
+    or legacy._LegacyEffectPlan is old_plan_type
+):
+    raise AssertionError("EXACT_LEGACY_RELOAD_DID_NOT_REPLACE_OWNER_TYPE")
+sys.setprofile(profile)
+try:
+    for operation in (
+        lambda: session._assert_fixed_dependency_chain(session._FIXED_DEPENDENCY_BINDINGS),
+        session._assert_module_binding,
+    ):
+        try:
+            operation()
+        except Exception as exc:
+            if "identity changed" not in str(exc):
+                raise
+        else:
+            raise AssertionError("RELOADED_LEGACY_DEPENDENCY_ACCEPTED")
+finally:
+    sys.setprofile(None)
+if observed:
+    raise AssertionError("EFFECT_OWNER_ENTERED_AFTER_LEGACY_RELOAD")
+if tuple(state.iterdir()):
+    raise AssertionError("STATE_EFFECT_AFTER_LEGACY_RELOAD")
+if session.AUTHORITY["external_effects"] != 0 or session.AUTHORITY["qsub_calls"] != 0:
+    raise AssertionError("EXTERNAL_EFFECT_REPORTED_AFTER_LEGACY_RELOAD")
+print("EXACT_LEGACY_RELOAD_REJECTED_BEFORE_EFFECT")
+'''
+        with tempfile.TemporaryDirectory(prefix="auto-g16-session-legacy-reload-") as raw:
+            result = subprocess.run(
+                [sys.executable, "-I", "-S", "-c", probe, str(SCRIPTS), raw],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout,
+                "EXACT_LEGACY_RELOAD_REJECTED_BEFORE_EFFECT\n",
+            )
+            self.assertEqual(tuple(Path(raw).iterdir()), ())
 
     def test_preloaded_wrong_order_and_fake_dependencies_fail_before_w2_or_effect(self) -> None:
         probe = r'''
@@ -206,6 +324,7 @@ print(target + "_REJECTED_BEFORE_W2")
 '''
         for target in (
             "execution_facade",
+            "legacy_rtwin_pbs",
             "protected_runtime_state_contract",
             "protected_owner_consumer_contract",
         ):
