@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -663,6 +664,56 @@ class DirectRootRealObserverTests(unittest.TestCase):
             _test_token=DIRECT._TEST_FACTORY_TOKEN,
         )
 
+    @staticmethod
+    def fd_open_mask(descriptors: tuple[int, ...]) -> list[bool]:
+        mask: list[bool] = []
+        for descriptor in descriptors:
+            try:
+                os.fstat(descriptor)
+            except OSError:
+                mask.append(False)
+            else:
+                mask.append(True)
+        return mask
+
+    @staticmethod
+    def fd_identity_mask(
+        descriptors: tuple[int, ...],
+        identities: tuple[tuple[int, ...], ...],
+    ) -> list[bool]:
+        mask: list[bool] = []
+        for descriptor, identity in zip(descriptors, identities, strict=True):
+            try:
+                observed = DIRECT._directory_identity(os.fstat(descriptor))
+            except OSError:
+                mask.append(False)
+            else:
+                mask.append(observed == identity)
+        return mask
+
+    def fork_report(
+        self,
+        descriptors: tuple[int, ...],
+        child_action: Callable[[], dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        read_fd, write_fd = os.pipe()
+        child_pid = os.fork()
+        if child_pid == 0:
+            os.close(read_fd)
+            payload = child_action() if child_action is not None else {}
+            payload["open_mask"] = self.fd_open_mask(descriptors)
+            os.write(write_fd, json.dumps(payload, sort_keys=True).encode("utf-8"))
+            os.close(write_fd)
+            os._exit(0)
+        os.close(write_fd)
+        raw = os.read(read_fd, 16384)
+        os.close(read_fd)
+        waited_pid, status = os.waitpid(child_pid, 0)
+        self.assertEqual(waited_pid, child_pid)
+        self.assertTrue(os.WIFEXITED(status))
+        self.assertEqual(os.WEXITSTATUS(status), 0)
+        return json.loads(raw)
+
     def chain(
         self,
         root: Path,
@@ -1146,43 +1197,321 @@ class DirectRootRealObserverTests(unittest.TestCase):
                 authorization=authorization,
             )
             parent_handles = capability._descriptor_handles
-            read_fd, write_fd = os.pipe()
-            capability_state = DIRECT._capability_state(capability)
-            descriptor_bundle = capability._descriptor_set._descriptor_bundle
-            bundle_state = DIRECT._descriptor_bundle_state(descriptor_bundle)
-            capability_state.lock.acquire()
-            bundle_state.lock.acquire()
-            try:
-                child_pid = os.fork()
-            except BaseException:
-                bundle_state.lock.release()
-                capability_state.lock.release()
-                raise
-            if child_pid == 0:
-                os.close(read_fd)
+
+            def child_action() -> dict[str, object]:
                 try:
                     capability.consume_once()
                 except DIRECT.DirectRootOwnerError as exc:
-                    message = str(exc).encode("utf-8")
+                    message = str(exc)
                 else:
-                    message = b"unexpected child consumption"
-                os.write(write_fd, message)
-                os.close(write_fd)
-                os._exit(0)
-            bundle_state.lock.release()
-            capability_state.lock.release()
-            os.close(write_fd)
-            child_message = os.read(read_fd, 4096).decode("utf-8")
-            os.close(read_fd)
-            waited_pid, status = os.waitpid(child_pid, 0)
-            self.assertEqual(waited_pid, child_pid)
-            self.assertTrue(os.WIFEXITED(status))
-            self.assertEqual(os.WEXITSTATUS(status), 0)
-            self.assertIn("process or fork boundary", child_message)
+                    message = "unexpected child consumption"
+                return {"capability": message}
+
+            report = self.fork_report(parent_handles, child_action)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertIn("descriptor bundle", report["capability"])
             for descriptor in parent_handles:
                 self.assertTrue(stat.S_ISDIR(os.fstat(descriptor).st_mode))
             lease = capability.consume_once()
             self.assertIs(lease._descriptor_set, capability._descriptor_set)
+            DIRECT._close_descriptor_bundle_once(
+                capability._descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_post_consume_fork_revokes_child_capability_and_lease(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            lease = capability.consume_once()
+            parent_handles = capability._descriptor_handles
+
+            def child_action() -> dict[str, object]:
+                messages: dict[str, str] = {}
+                for name, action in (
+                    ("capability", capability.consume_once),
+                    ("lease", lease.assert_owner_sealed),
+                ):
+                    try:
+                        action()
+                    except DIRECT.DirectRootOwnerError as exc:
+                        messages[name] = str(exc)
+                    else:
+                        messages[name] = "unexpected child authority"
+                return messages
+
+            report = self.fork_report(parent_handles, child_action)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertIn("already consumed", report["capability"])
+            self.assertIn("descriptor bundle", report["lease"])
+            self.assertTrue(all(self.fd_open_mask(parent_handles)))
+            self.assertIs(lease.assert_owner_sealed(), lease)
+            DIRECT._close_descriptor_bundle_once(
+                capability._descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_fork_revokes_every_active_bundle_child_only(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            parent = Path(temporary).resolve()
+            capabilities: list[DIRECT.SingleUseWorkspaceDescriptorCapability] = []
+            for name in ("reviewed-root-a", "reviewed-root-b"):
+                observed_root = parent / name
+                observed_root.mkdir()
+                owner, _policy, evidence, profile, authorization = self.chain(
+                    observed_root
+                )
+                capabilities.append(
+                    owner.issue_fresh_capability_from_reviewed_profile_once(
+                        profile=profile,
+                        stable_evidence=evidence,
+                        authorization=authorization,
+                    )
+                )
+            handles = tuple(
+                descriptor
+                for capability in capabilities
+                for descriptor in capability._descriptor_handles
+            )
+            self.assertEqual(len(handles), len(set(handles)))
+            report = self.fork_report(handles)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertTrue(all(self.fd_open_mask(handles)))
+            for capability in capabilities:
+                DIRECT._close_descriptor_bundle_once(
+                    capability._descriptor_set._descriptor_bundle,
+                    owner="capability",
+                )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_invalidated_fd_reuse_is_not_active_fork_authority(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handles = capability._descriptor_handles
+            self.clock.advance(61)
+            with self.assertRaisesRegex(
+                DIRECT.DirectRootOwnerError,
+                "fresh receipt is outside",
+            ):
+                capability.consume_once()
+            reused = tuple(os.open("/dev/null", os.O_RDONLY) for _ in handles)
+            self.assertEqual(set(reused), set(handles))
+            try:
+                report = self.fork_report(reused)
+                self.assertTrue(all(report["open_mask"]))
+                self.assertTrue(all(self.fd_open_mask(reused)))
+            finally:
+                for descriptor in reused:
+                    os.close(descriptor)
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_fork_waits_for_close_in_progress_then_child_has_no_fds(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handles = capability._descriptor_handles
+            self.clock.advance(61)
+            close_started = threading.Event()
+            allow_close = threading.Event()
+            original_close = DIRECT._close_directory_descriptors
+
+            def blocking_close(descriptors: tuple[int, ...]) -> None:
+                close_started.set()
+                if not allow_close.wait(5):
+                    raise AssertionError("close release timed out")
+                original_close(descriptors)
+
+            def consume() -> str:
+                try:
+                    capability.consume_once()
+                except DIRECT.DirectRootOwnerError as exc:
+                    return str(exc)
+                return "unexpected consumption"
+
+            with mock.patch.object(
+                DIRECT,
+                "_close_directory_descriptors",
+                side_effect=blocking_close,
+            ) as close_call:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(consume)
+                    self.assertTrue(close_started.wait(5))
+                    release_timer = threading.Timer(0.2, allow_close.set)
+                    release_timer.start()
+                    report = self.fork_report(handles)
+                    release_timer.join()
+                    message = future.result(timeout=5)
+            self.assertEqual(close_call.call_count, 1)
+            self.assertIn("fresh receipt is outside", message)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertFalse(any(self.fd_open_mask(handles)))
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_fork_waits_for_held_bundle_lock_and_revokes_child_only(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handles = capability._descriptor_handles
+            bundle_state = DIRECT._descriptor_bundle_state(
+                capability._descriptor_set._descriptor_bundle
+            )
+            lock_held = threading.Event()
+            release_lock = threading.Event()
+
+            def hold_lock() -> None:
+                with bundle_state.lock:
+                    lock_held.set()
+                    if not release_lock.wait(5):
+                        raise AssertionError("bundle lock release timed out")
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(hold_lock)
+                self.assertTrue(lock_held.wait(5))
+                release_timer = threading.Timer(0.2, release_lock.set)
+                release_timer.start()
+                report = self.fork_report(handles)
+                release_timer.join()
+                future.result(timeout=5)
+            self.assertFalse(any(report["open_mask"]))
+            self.assertTrue(all(self.fd_open_mask(handles)))
+            DIRECT._close_descriptor_bundle_once(
+                capability._descriptor_set._descriptor_bundle,
+                owner="capability",
+            )
+
+    @unittest.skipUnless(
+        hasattr(os, "fork") and hasattr(os, "register_at_fork"),
+        "requires reviewed POSIX fork semantics",
+    )
+    def test_child_close_same_fd_reuse_is_single_and_not_root_authority(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-real-root-",
+            dir=TEMP_PARENT,
+        ) as temporary:
+            observed_root = Path(temporary).resolve() / "reviewed-root"
+            observed_root.mkdir()
+            owner, _policy, evidence, profile, authorization = self.chain(
+                observed_root
+            )
+            capability = owner.issue_fresh_capability_from_reviewed_profile_once(
+                profile=profile,
+                stable_evidence=evidence,
+                authorization=authorization,
+            )
+            handles = capability._descriptor_handles
+            identities = tuple(
+                DIRECT._directory_identity(os.fstat(descriptor))
+                for descriptor in handles
+            )
+            real_close = os.close
+            close_counts: dict[int, int] = {}
+            read_fd, write_fd = os.pipe()
+
+            def close_and_reuse_once(descriptor: int) -> None:
+                count = close_counts.get(descriptor, 0) + 1
+                close_counts[descriptor] = count
+                real_close(descriptor)
+                if descriptor in handles and count == 1:
+                    unrelated = os.open("/dev/null", os.O_RDONLY)
+                    if unrelated != descriptor:
+                        real_close(unrelated)
+                        raise AssertionError("hostile FD reuse was not exact")
+
+            with mock.patch.object(os, "close", side_effect=close_and_reuse_once):
+                child_pid = os.fork()
+                if child_pid == 0:
+                    real_close(read_fd)
+                    payload = {
+                        "open_mask": self.fd_open_mask(handles),
+                        "root_mask": self.fd_identity_mask(handles, identities),
+                        "close_counts": [
+                            close_counts.get(descriptor, 0)
+                            for descriptor in handles
+                        ],
+                    }
+                    os.write(
+                        write_fd,
+                        json.dumps(payload, sort_keys=True).encode("utf-8"),
+                    )
+                    real_close(write_fd)
+                    os._exit(0)
+                real_close(write_fd)
+                raw = os.read(read_fd, 16384)
+                real_close(read_fd)
+                waited_pid, status = os.waitpid(child_pid, 0)
+            self.assertEqual(waited_pid, child_pid)
+            self.assertTrue(os.WIFEXITED(status))
+            self.assertEqual(os.WEXITSTATUS(status), 0)
+            report = json.loads(raw)
+            self.assertTrue(all(report["open_mask"]))
+            self.assertFalse(any(report["root_mask"]))
+            self.assertEqual(report["close_counts"], [1] * len(handles))
+            self.assertTrue(all(self.fd_identity_mask(handles, identities)))
             DIRECT._close_descriptor_bundle_once(
                 capability._descriptor_set._descriptor_bundle,
                 owner="capability",

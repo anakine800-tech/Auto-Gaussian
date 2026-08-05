@@ -1146,8 +1146,10 @@ class _DescriptorBundleState:
     ownership_transferred: bool = False
 
 
-_DESCRIPTOR_BUNDLE_REGISTRY_LOCK = threading.Lock()
+_DESCRIPTOR_BUNDLE_REGISTRY_LOCK = threading.RLock()
 _DESCRIPTOR_BUNDLE_REGISTRY: dict[int, _DescriptorBundleState] = {}
+_ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY: dict[int, _DescriptorBundleState] = {}
+_AT_FORK_ACTIVE_BUNDLE_STATES: tuple[_DescriptorBundleState, ...] = ()
 
 
 def _register_descriptor_bundle(
@@ -1161,11 +1163,11 @@ def _register_descriptor_bundle(
             "descriptor bundle state is already registered",
         )
         _DESCRIPTOR_BUNDLE_REGISTRY[id(bundle)] = state
+        _ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY[id(bundle)] = state
 
 
-def _descriptor_bundle_state(bundle: object) -> _DescriptorBundleState:
-    with _DESCRIPTOR_BUNDLE_REGISTRY_LOCK:
-        state = _DESCRIPTOR_BUNDLE_REGISTRY.get(id(bundle))
+def _descriptor_bundle_state_unlocked(bundle: object) -> _DescriptorBundleState:
+    state = _DESCRIPTOR_BUNDLE_REGISTRY.get(id(bundle))
     _require(
         type(bundle) is _OwnedDescriptorBundle
         and type(state) is _DescriptorBundleState
@@ -1175,32 +1177,47 @@ def _descriptor_bundle_state(bundle: object) -> _DescriptorBundleState:
     return state
 
 
+def _descriptor_bundle_state(bundle: object) -> _DescriptorBundleState:
+    with _DESCRIPTOR_BUNDLE_REGISTRY_LOCK:
+        return _descriptor_bundle_state_unlocked(bundle)
+
+
 def _descriptor_bundle_handles(bundle: _OwnedDescriptorBundle) -> tuple[int, ...]:
-    state = _descriptor_bundle_state(bundle)
-    with state.lock:
-        _require(
-            state.owner_pid == os.getpid(),
-            "descriptor bundle cannot cross a process or fork boundary",
-        )
-        _require(not state.closed, "descriptor bundle is closed")
-        return state.descriptors
+    with _DESCRIPTOR_BUNDLE_REGISTRY_LOCK:
+        state = _descriptor_bundle_state_unlocked(bundle)
+        with state.lock:
+            _require(
+                _ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY.get(id(bundle)) is state
+                and not state.closed,
+                "descriptor bundle is closed or inactive",
+            )
+            _require(
+                state.owner_pid == os.getpid(),
+                "descriptor bundle cannot cross a process or fork boundary",
+            )
+            return state.descriptors
 
 
 def _transfer_descriptor_bundle_to_capability_once(
     bundle: _OwnedDescriptorBundle,
 ) -> None:
-    state = _descriptor_bundle_state(bundle)
-    with state.lock:
-        _require(
-            state.owner_pid == os.getpid(),
-            "descriptor bundle cannot cross a process or fork boundary",
-        )
-        _require(not state.closed, "descriptor bundle is closed")
-        _require(
-            not state.ownership_transferred,
-            "descriptor bundle ownership is already transferred",
-        )
-        state.ownership_transferred = True
+    with _DESCRIPTOR_BUNDLE_REGISTRY_LOCK:
+        state = _descriptor_bundle_state_unlocked(bundle)
+        with state.lock:
+            _require(
+                _ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY.get(id(bundle)) is state
+                and not state.closed,
+                "descriptor bundle is closed or inactive",
+            )
+            _require(
+                state.owner_pid == os.getpid(),
+                "descriptor bundle cannot cross a process or fork boundary",
+            )
+            _require(
+                not state.ownership_transferred,
+                "descriptor bundle ownership is already transferred",
+            )
+            state.ownership_transferred = True
 
 
 def _close_descriptor_bundle_once(
@@ -1212,22 +1229,39 @@ def _close_descriptor_bundle_once(
         owner in {"observer", "capability"},
         "descriptor bundle close owner differs",
     )
-    state = _descriptor_bundle_state(bundle)
-    with state.lock:
-        if state.closed:
+    with _DESCRIPTOR_BUNDLE_REGISTRY_LOCK:
+        state = _descriptor_bundle_state_unlocked(bundle)
+        if _ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY.get(id(bundle)) is not state:
+            _require(state.closed, "inactive descriptor bundle is not closed")
             return False
-        if owner == "observer" and state.ownership_transferred:
-            return False
-        _require(
-            owner == "observer" or state.ownership_transferred,
-            "descriptor bundle capability ownership is absent",
-        )
-        state.closed = True
-        _close_directory_descriptors(state.descriptors)
-        return True
+        with state.lock:
+            if state.closed:
+                return False
+            if owner == "observer" and state.ownership_transferred:
+                return False
+            _require(
+                owner == "observer" or state.ownership_transferred,
+                "descriptor bundle capability ownership is absent",
+            )
+            state.closed = True
+            del _ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY[id(bundle)]
+            _close_directory_descriptors(state.descriptors)
+            return True
 
 
 def _open_root_components_no_follow(
+    canonical_root: str,
+) -> tuple[
+    list[dict[str, Any]],
+    tuple[str, ...],
+    tuple[tuple[int, ...], ...],
+    _OwnedDescriptorBundle,
+]:
+    with _DESCRIPTOR_BUNDLE_REGISTRY_LOCK:
+        return _open_root_components_no_follow_while_fork_blocked(canonical_root)
+
+
+def _open_root_components_no_follow_while_fork_blocked(
     canonical_root: str,
 ) -> tuple[
     list[dict[str, Any]],
@@ -2199,12 +2233,50 @@ def _direct_root_owner_state(owner: object) -> _DirectRootOwnerState:
     return state
 
 
-def _reset_owner_locks_after_fork_in_child() -> None:
+def _lock_active_descriptor_bundles_before_fork() -> None:
+    global _AT_FORK_ACTIVE_BUNDLE_STATES
+
+    _DESCRIPTOR_BUNDLE_REGISTRY_LOCK.acquire()
+    states = tuple(
+        sorted(
+            _ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY.values(),
+            key=lambda state: id(state.bundle),
+        )
+    )
+    for state in states:
+        state.lock.acquire()
+    _AT_FORK_ACTIVE_BUNDLE_STATES = states
+
+
+def _release_active_descriptor_bundles_after_fork_in_parent() -> None:
+    global _AT_FORK_ACTIVE_BUNDLE_STATES
+
+    for state in reversed(_AT_FORK_ACTIVE_BUNDLE_STATES):
+        state.lock.release()
+    _AT_FORK_ACTIVE_BUNDLE_STATES = ()
+    _DESCRIPTOR_BUNDLE_REGISTRY_LOCK.release()
+
+
+def _revoke_active_descriptor_bundles_after_fork_in_child() -> None:
     global _CAPABILITY_REGISTRY_LOCK
     global _DESCRIPTOR_BUNDLE_REGISTRY_LOCK
     global _DIRECT_ROOT_OWNER_REGISTRY_LOCK
+    global _AT_FORK_ACTIVE_BUNDLE_STATES
 
-    _DESCRIPTOR_BUNDLE_REGISTRY_LOCK = threading.Lock()
+    for state in _AT_FORK_ACTIVE_BUNDLE_STATES:
+        if (
+            _ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY.get(id(state.bundle)) is state
+            and not state.closed
+        ):
+            state.closed = True
+            _close_directory_descriptors(state.descriptors)
+    _ACTIVE_DESCRIPTOR_BUNDLE_REGISTRY.clear()
+    for state in reversed(_AT_FORK_ACTIVE_BUNDLE_STATES):
+        state.lock.release()
+    _AT_FORK_ACTIVE_BUNDLE_STATES = ()
+    _DESCRIPTOR_BUNDLE_REGISTRY_LOCK.release()
+
+    _DESCRIPTOR_BUNDLE_REGISTRY_LOCK = threading.RLock()
     _CAPABILITY_REGISTRY_LOCK = threading.Lock()
     _DIRECT_ROOT_OWNER_REGISTRY_LOCK = threading.Lock()
     for state in _DESCRIPTOR_BUNDLE_REGISTRY.values():
@@ -2216,7 +2288,11 @@ def _reset_owner_locks_after_fork_in_child() -> None:
 
 
 if hasattr(os, "register_at_fork"):
-    os.register_at_fork(after_in_child=_reset_owner_locks_after_fork_in_child)
+    os.register_at_fork(
+        before=_lock_active_descriptor_bundles_before_fork,
+        after_in_parent=_release_active_descriptor_bundles_after_fork_in_parent,
+        after_in_child=_revoke_active_descriptor_bundles_after_fork_in_child,
+    )
 
 
 class DirectRootOwnerContractOwner:
