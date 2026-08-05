@@ -38,9 +38,12 @@ remote operation, live smoke, or scientific acceptance.
   onboarding/support, mutation-boundary and offline-backend surfaces.
 - W4B fixed trusted server-local session composition is present in the local
   collection and joins W1-W4 in one clean-exec process, but it is a
-  non-authorizing seam rather than a production adapter. W5, W6, and W7 are not
-  present; direct transport/upload, `qsub`, inspect/fetch, reconciliation and
-  separately authorized live-smoke evidence remain blockers. The W3 ingress policy records
+  non-authorizing seam rather than a production adapter. W6C0 contributes only
+  the non-authorizing `pbs_legacy_v1` qstat parser/classifier and direct
+  provisional scheduler-evidence schemas/core; it does not own final
+  `gaussian-job-inspection/3`. Real W5/W6 transport, upload, `qsub`, inspect
+  acquisition/fetch, reconciliation, and W7 are not present; separately
+  authorized live-smoke evidence remains blocked. The W3 ingress policy records
   `production_closure=false` and
   `arbitrary_same_process_reflection_isolated=false`.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed

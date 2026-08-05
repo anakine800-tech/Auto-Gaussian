@@ -540,6 +540,12 @@ adapter:
   `scripts/direct_trusted_session_composition.py` and
   `scripts/direct_trusted_session_clean_exec.py` with
   `references/direct-trusted-session-composition.md`.
+- W6C0 direct read-only evidence core:
+  `scripts/direct_read_only_evidence.py` with
+  `references/direct-read-only-evidence-core.md`. It only parses pre-collected
+  qstat bytes and validates provisional non-authorizing scheduler evidence; it
+  does not own final `gaussian-job-inspection/3` and is not a transport,
+  inspect acquisition, fetch, or terminal-science owner.
 - The direct boundary, offline backend and onboarding/support surfaces are
   `scripts/direct_root_mutation_boundary.py` with
   `references/direct-root-mutation-boundary.md`,
@@ -550,9 +556,10 @@ adapter:
 
 W4B fixed trusted server-local session composition is present in the local
 collection and joins W1-W4 in one clean-exec process, but it exposes only a
-non-authorizing child-local transition. W5, W6, and W7 are not present. No
-direct transport, upload, `qsub`, inspect/fetch, reconciliation, deployment or
-live authority is granted; the direct backend remains `offline_synthetic`,
+non-authorizing child-local transition. W6C0 is a non-authorizing offline
+parser/evidence core. Real W5/W6 transport, upload, `qsub`, inspect acquisition,
+fetch, reconciliation, and W7 are not present. No deployment or live authority
+is granted; the direct backend remains `offline_synthetic`,
 `production_blocked` and `live_not_ready`.
 
 - `scripts/platform_contracts.py`: standard-library-only strict canonical JSON,
