@@ -33,20 +33,28 @@ SCHEMA_VALIDATION_PINS = {
     "rpds-py": "2026.6.3",
     "typing-extensions": "4.16.0",
 }
-PROTECTED_SCHEMA_DRAFT_TEST_MODULES = (
-    "tests.test_protected_submit_schema_draft202012",
+SCHEMA_DRAFT202012_TEST_MODULES = (
+    "tests.test_direct_root_mutation_boundary_schema_draft202012",
+    "tests.test_direct_root_owner_schema_draft202012",
+    "tests.test_execution_batch_reservation_capability_schema_draft202012",
+    "tests.test_legacy_root_authority_schema_draft202012",
+    "tests.test_live_approval_effect_time_replay_schema_draft202012",
     "tests.test_local_state_binding_schema_draft202012",
     "tests.test_protected_invocation_schema_draft202012",
+    "tests.test_protected_job_runtime_coordinator_schema_draft202012",
+    "tests.test_protected_legacy_effect_handoff_schema_draft202012",
     "tests.test_protected_lifecycle_schema_draft202012",
     "tests.test_protected_local_materialization_schema_draft202012",
-    "tests.test_protected_legacy_effect_handoff_schema_draft202012",
-    "tests.test_protected_runtime_state_schema_draft202012",
     "tests.test_protected_owner_consumer_schema_draft202012",
+    "tests.test_protected_production_factory_consumer_schema_draft202012",
     "tests.test_protected_production_ingress_schema_draft202012",
+    "tests.test_protected_runtime_state_schema_draft202012",
+    "tests.test_protected_submit_schema_draft202012",
+    "tests.test_resource_effect_time_replay_schema_draft202012",
 )
 SCHEMA_VALIDATION_TEST_COMMAND = (
     "python -m unittest "
-    + " ".join(PROTECTED_SCHEMA_DRAFT_TEST_MODULES)
+    + " ".join(SCHEMA_DRAFT202012_TEST_MODULES)
     + " -v"
 )
 EXACT_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[A-Za-z0-9._+-]*)")
@@ -357,6 +365,22 @@ def audit(root: Path) -> dict[str, Any]:
         SCHEMA_VALIDATION_PINS,
         "test-only Schema-validation lock",
     )
+    tests_directory = _repo_directory(root, "tests")
+    discovered_schema_paths = sorted(
+        tests_directory.glob("test_*schema_draft202012.py")
+    )
+    for path in discovered_schema_paths:
+        _repo_file(root, path.relative_to(root))
+    discovered_schema_modules = tuple(
+        f"tests.{path.stem}"
+        for path in discovered_schema_paths
+    )
+    _compare(
+        errors,
+        discovered_schema_modules,
+        SCHEMA_DRAFT202012_TEST_MODULES,
+        "Draft 2020-12 test module inventory",
+    )
     if core["requirements"] is not None or core["packages"] != {}:
         errors.append(
             "core profile must not contain third-party runtime requirements or packages"
@@ -454,7 +478,7 @@ def audit(root: Path) -> dict[str, Any]:
             "requirements/schema-validation" in command
             or any(
                 module in command
-                for module in PROTECTED_SCHEMA_DRAFT_TEST_MODULES
+                for module in SCHEMA_DRAFT202012_TEST_MODULES
             )
         )
     ]
@@ -472,7 +496,7 @@ def audit(root: Path) -> dict[str, Any]:
         "test-only Schema validation CI boundary",
     )
     required_schema_step = (
-        "      - name: Run required Draft 2020-12 protected contract Schemas\n"
+        "      - name: Run all required Draft 2020-12 contract Schemas\n"
         "        env:\n"
         '          AUTO_G16_REQUIRE_JSONSCHEMA: "1"\n'
         f"        run: {SCHEMA_VALIDATION_TEST_COMMAND}\n"
@@ -516,6 +540,7 @@ def audit(root: Path) -> dict[str, Any]:
             "entrypoint": SCHEMA_VALIDATION_ENTRYPOINT,
             "lock": paths["schema-validation-lock"],
             "pins": SCHEMA_VALIDATION_PINS,
+            "modules": list(SCHEMA_DRAFT202012_TEST_MODULES),
             "core_runtime_dependency": False,
             "chemistry_runtime_dependency": False,
         },

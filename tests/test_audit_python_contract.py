@@ -20,6 +20,26 @@ assert SPEC and SPEC.loader
 AUDIT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(AUDIT)
 
+SCHEMA_DRAFT202012_TEST_MODULES = (
+    "tests.test_direct_root_mutation_boundary_schema_draft202012",
+    "tests.test_direct_root_owner_schema_draft202012",
+    "tests.test_execution_batch_reservation_capability_schema_draft202012",
+    "tests.test_legacy_root_authority_schema_draft202012",
+    "tests.test_live_approval_effect_time_replay_schema_draft202012",
+    "tests.test_local_state_binding_schema_draft202012",
+    "tests.test_protected_invocation_schema_draft202012",
+    "tests.test_protected_job_runtime_coordinator_schema_draft202012",
+    "tests.test_protected_legacy_effect_handoff_schema_draft202012",
+    "tests.test_protected_lifecycle_schema_draft202012",
+    "tests.test_protected_local_materialization_schema_draft202012",
+    "tests.test_protected_owner_consumer_schema_draft202012",
+    "tests.test_protected_production_factory_consumer_schema_draft202012",
+    "tests.test_protected_production_ingress_schema_draft202012",
+    "tests.test_protected_runtime_state_schema_draft202012",
+    "tests.test_protected_submit_schema_draft202012",
+    "tests.test_resource_effect_time_replay_schema_draft202012",
+)
+
 FIXTURE_FILES = (
     "pyproject.toml",
     ".python-version",
@@ -32,6 +52,9 @@ FIXTURE_FILES = (
     "requirements/schema-validation.txt",
     "requirements/schema-validation.lock.txt",
     ".github/workflows/offline-tests.yml",
+) + tuple(
+    f"{module.replace('.', '/')}.py"
+    for module in SCHEMA_DRAFT202012_TEST_MODULES
 )
 
 
@@ -94,6 +117,14 @@ class PythonContractAuditTests(unittest.TestCase):
         )
         self.assertFalse(
             report["test_only_schema_validation"]["chemistry_runtime_dependency"]
+        )
+        self.assertEqual(
+            AUDIT.SCHEMA_DRAFT202012_TEST_MODULES,
+            SCHEMA_DRAFT202012_TEST_MODULES,
+        )
+        self.assertEqual(
+            report["test_only_schema_validation"]["modules"],
+            list(SCHEMA_DRAFT202012_TEST_MODULES),
         )
 
     def test_pyproject_range_expansion_outside_311_to_313_is_contract_drift(self) -> None:
@@ -376,6 +407,46 @@ class PythonContractAuditTests(unittest.TestCase):
         report = AUDIT.audit(self.root)
         self.assertTrue(
             any("fail-closed environment gate" in item for item in report["errors"])
+        )
+
+    def test_schema_module_inventory_and_ci_command_drift_fail_closed(self) -> None:
+        workflow = self.path(".github/workflows/offline-tests.yml")
+        original = workflow.read_text(encoding="utf-8")
+        command = AUDIT.SCHEMA_VALIDATION_TEST_COMMAND
+        self.assertIn(command, original)
+        first, second, *rest = SCHEMA_DRAFT202012_TEST_MODULES
+        mutations = (
+            command.replace(f" {first}", "", 1),
+            command.replace(" -v", " tests.test_unreviewed_schema_draft202012 -v", 1),
+            command.replace(f"{first} {second}", f"{second} {first}", 1),
+            command.replace(rest[0], "tests.test_replaced_schema_draft202012", 1),
+        )
+        for changed_command in mutations:
+            with self.subTest(changed_command=changed_command):
+                workflow.write_text(
+                    original.replace(command, changed_command, 1),
+                    encoding="utf-8",
+                )
+                report = AUDIT.audit(self.root)
+                self.assertEqual(report["status"], "fail")
+                self.assertTrue(
+                    any("chemistry job run commands" in item for item in report["errors"])
+                )
+        workflow.write_text(original, encoding="utf-8")
+
+        missing = self.path(f"{first.replace('.', '/')}.py")
+        missing.unlink()
+        report = AUDIT.audit(self.root)
+        self.assertTrue(
+            any("test module inventory" in item for item in report["errors"])
+        )
+        shutil.copy2(ROOT / f"{first.replace('.', '/')}.py", missing)
+
+        extra = self.path("tests/test_unreviewed_schema_draft202012.py")
+        extra.write_text("# unreviewed inventory entry\n", encoding="utf-8")
+        report = AUDIT.audit(self.root)
+        self.assertTrue(
+            any("test module inventory" in item for item in report["errors"])
         )
 
     def test_schema_validator_cannot_enter_core_or_source_archive_jobs(self) -> None:
