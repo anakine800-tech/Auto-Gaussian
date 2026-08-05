@@ -77,11 +77,12 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   separate release, deployment and live authority. Static contract audits
   validate local declarations only.
 - The `direct_ssh_pbs` source surface now includes a real server-local POSIX
-  no-follow root observer but no transport ingress or mutation operation. It
-  also exposes closed typed models, onboarding and support reporting while remaining
+  no-follow root observer and a process-isolated fixed descriptor-relative
+  project/scratch mutation helper, but no transport ingress. It also exposes
+  closed typed models, onboarding and support reporting while remaining
   `production_blocked`, `live_not_ready`, `backend_supported=false`, and
-  `live_ready=false`; it has no physical helper, transport, qsub,
-  inspect/fetch, durable cross-process state, or live evidence.
+  `live_ready=false`; it has no integrated durable W2 claim, transport, qsub,
+  inspect/fetch, resource/live replay ingress, or live evidence.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.

@@ -103,8 +103,9 @@ pass on that same recorded final commit:
 2. `chemistry-dependencies` must install the locked
    `requirements/schema-validation.txt` dependency set, including
    `jsonschema==4.26.0`, set `AUTO_G16_REQUIRE_JSONSCHEMA=1`, and successfully
-   execute the canonical ordered set of all 17 current Draft 2020-12 modules,
-   including `tests.test_direct_root_mutation_boundary_schema_draft202012`.
+   execute the canonical ordered Draft 2020-12 module inventory,
+   including `tests.test_direct_root_fixed_mutation_schema_draft202012` and
+   `tests.test_direct_root_mutation_boundary_schema_draft202012`.
 3. The other required contexts, `python-compatibility (3.11)`,
    `python-compatibility (3.12)`, and `python-compatibility (3.13)`, must also
    succeed on the same final commit.
