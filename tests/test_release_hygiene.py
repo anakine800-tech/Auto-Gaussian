@@ -46,13 +46,18 @@ class ReleaseHygieneTests(unittest.TestCase):
         self.assertIn("MIT License", (ROOT / "LICENSE").read_text())
         changelog = (ROOT / "CHANGELOG.md").read_text()
         pyproject = (ROOT / "pyproject.toml").read_text()
-        self.assertRegex(pyproject, r'(?m)^version = "2\.6\.1"$')
+        self.assertRegex(pyproject, r'(?m)^version = "2\.7\.0"$')
         unreleased = changelog.index("## [Unreleased]\n")
-        current_release = changelog.index("## [2.6.1] - 2026-08-02")
+        current_release = changelog.index("## [2.7.0] - 2026-08-05")
         self.assertLess(unreleased, current_release)
         self.assertIn(
             "[Unreleased]: https://github.com/anakine800-tech/"
-            "Auto-Gaussian/compare/v2.6.1...HEAD",
+            "Auto-Gaussian/compare/v2.7.0...HEAD",
+            changelog,
+        )
+        self.assertIn(
+            "[2.7.0]: https://github.com/anakine800-tech/"
+            "Auto-Gaussian/compare/v2.6.1...v2.7.0",
             changelog,
         )
         self.assertIn(
@@ -91,7 +96,11 @@ class ReleaseHygieneTests(unittest.TestCase):
             changelog,
         )
         readme = (ROOT / "README.md").read_text()
-        self.assertIn("# Auto-G16 — Auto-Gaussian 2.6.1", readme)
+        self.assertIn("# Auto-G16 — Auto-Gaussian 2.7.0", readme)
+        self.assertIn(
+            "Auto-Gaussian 2.7.0 is the current local offline-only source candidate",
+            readme,
+        )
         self.assertIn("Auto-Gaussian 2.6.1 is the latest published release", readme)
         self.assertIn("Auto-Gaussian 2.5.4 is the immediately previous published release", readme)
         self.assertIn("annotated `v2.5.4`", readme)
@@ -104,6 +113,7 @@ class ReleaseHygieneTests(unittest.TestCase):
         self.assertTrue((ROOT / "docs" / "release-2.5.4-checklist.md").is_file())
         self.assertTrue((ROOT / "docs" / "release-2.6.0-checklist.md").is_file())
         self.assertTrue((ROOT / "docs" / "release-2.6.1-checklist.md").is_file())
+        self.assertTrue((ROOT / "docs" / "release-2.7.0-checklist.md").is_file())
         self.assertTrue((ROOT / "docs" / "release-2.5.3-checklist.md").is_file())
 
         # Preserve the published 2.5.2 and all earlier public release history.
@@ -180,7 +190,10 @@ class ReleaseHygieneTests(unittest.TestCase):
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
         self.assertIn("## Current mainline state", status)
         self.assertIn("Auto-Gaussian 2.6.1 is the latest published release", status)
-        self.assertIn("Auto-Gaussian 2.6.1 is the current mainline release state", status)
+        self.assertIn(
+            "Auto-Gaussian 2.7.0 is the current local offline-only source candidate",
+            status,
+        )
         self.assertIn("annotated `v2.6.1`", status)
         self.assertNotIn(
             "Auto-Gaussian 2.5.3 is the latest published release", status
@@ -208,17 +221,17 @@ class ReleaseHygieneTests(unittest.TestCase):
         match = re.search(r'(?m)^version = "([0-9]+\.[0-9]+\.[0-9]+)"$', pyproject)
         self.assertIsNotNone(match)
         version = match.group(1)
-        self.assertEqual(version, "2.6.1")
+        self.assertEqual(version, "2.7.0")
 
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         releases = re.findall(r"(?m)^## \[([0-9]+\.[0-9]+\.[0-9]+)\]", changelog)
         self.assertGreaterEqual(len(releases), 2)
         self.assertEqual(releases[0], version)
-        self.assertEqual(releases[1], "2.6.0")
+        self.assertEqual(releases[1], "2.6.1")
         self.assertIn(f"compare/v{version}...HEAD", changelog)
         self.assertIn(
-            "[2.6.1]: https://github.com/anakine800-tech/"
-            f"Auto-Gaussian/compare/v2.6.0...v{version}",
+            "[2.7.0]: https://github.com/anakine800-tech/"
+            f"Auto-Gaussian/compare/v2.6.1...v{version}",
             changelog,
         )
         self.assertIn(
@@ -230,9 +243,15 @@ class ReleaseHygieneTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
         self.assertTrue(readme.startswith(f"# Auto-G16 — Auto-Gaussian {version}\n"))
-        self.assertIn(f"## {version} published release", readme)
-        self.assertIn(f"Auto-Gaussian {version} is the latest published release", readme)
-        self.assertIn(f"Auto-Gaussian {version} is the latest published release", status)
+        self.assertIn(f"## {version} offline-only release candidate", readme)
+        self.assertIn(
+            f"Auto-Gaussian {version} is the current local offline-only source candidate",
+            readme,
+        )
+        self.assertIn(
+            f"Auto-Gaussian {version} is the current local offline-only source candidate",
+            status,
+        )
         self.assertIn("Auto-Gaussian 2.5.4 is the immediately previous published release", readme)
         self.assertIn("Auto-Gaussian 2.6.1 is the latest published release", status)
 
@@ -248,12 +267,62 @@ class ReleaseHygieneTests(unittest.TestCase):
             encoding="utf-8"
         )
         for text in (readme, status, checklist_text):
-            self.assertIn("deferred beyond 2.6.1", text)
+            self.assertIn("offline_synthetic", text)
+            self.assertIn("production_blocked", text)
+            self.assertIn("live_not_ready", text)
+            self.assertIn("/home/user100/SDL", text)
         self.assertIn("Release-scope revision — 2026-07-31", rfc)
         self.assertIn("but it is superseded", rfc)
         self.assertIn("as a 2.6.0 release criterion by this revision", rfc)
-        self.assertIn("has been tagged, pushed, merged into `main`, published as a", readme)
-        self.assertIn("Public GitHub metadata already records the tag, push", status)
+        self.assertIn("candidate has not been\ntagged or published as 2.7.0", readme)
+        self.assertIn("No 2.7.0 tag,\nGitHub Release", status)
+
+    def test_v27_release_boundary_is_offline_only_and_merged_docs_are_current(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
+        checklist = (ROOT / "docs" / "release-2.7.0-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        milestone_docs = [
+            ROOT / "docs" / "v2.7-direct-root-mutation-boundary.md",
+            ROOT / "docs" / "v2.7-direct-ssh-pbs-offline-backend.md",
+            ROOT / "docs" / "v2.7-direct-onboarding-support.md",
+        ]
+
+        for text in (readme, status, checklist):
+            self.assertIn("legacy_rtwin_pbs", text)
+            self.assertRegex(text, r"permanently fixed\s+below `/home/user100/SDL`")
+            self.assertIn("offline_synthetic", text)
+            self.assertIn("production_blocked", text)
+            self.assertIn("live_not_ready", text)
+
+        for path in milestone_docs:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("merged `main`", text)
+            self.assertIn("production blocked", text.splitlines()[2])
+            self.assertNotRegex(text, r"(?m)^(?:Exact )?(?:PR6 )?[Bb]ase(?: tree)?:")
+            self.assertNotRegex(text, r"(?m)^Branch:")
+
+        combined = "\n".join(
+            [readme, status, checklist]
+            + [path.read_text(encoding="utf-8") for path in milestone_docs]
+        )
+        for forbidden in (
+            "backend_supported=true",
+            "live_ready=true",
+            "direct_ssh_pbs is production-ready",
+            "direct_ssh_pbs is live-ready",
+        ):
+            self.assertNotIn(forbidden, combined)
+        for blocker in (
+            "real no-follow",
+            "durable cross-process",
+            "qsub",
+            "inspect",
+            "fetch",
+            "live-smoke",
+        ):
+            self.assertIn(blocker, combined.lower())
 
     def test_machine_local_reports_are_ignored_and_not_release_material(self) -> None:
         ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")

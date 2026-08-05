@@ -2,30 +2,32 @@
 
 ## Current mainline state
 
-Status date: 2026-08-02
+Status date: 2026-08-05
 
-Auto-Gaussian 2.6.1 is the current mainline release state. Local `main` includes
-the 2.6.1 release-closure work and starts from exact B1 integration commit
-`66afc5fd808993901a4a616d423fd185c35f8ffa`, tree
-`4f6267255ebe9ff6130762901cd390bfb65795ff`.
+Auto-Gaussian 2.7.0 is the current local offline-only source candidate. Its
+release-preparation baseline is exact merged `main` commit
+`5b125a0b233b8815166c745e3654ba0053773333`, tree
+`53fb0d1ddbc9c7334fc3aa2db8d3b70379dec1f8`. That merge integrates the v2.7
+direct-root boundary, direct SSH/PBS synthetic transaction, and direct
+onboarding/support milestones. This metadata patch changes no runtime,
+scientific logic, Schema, or owner semantics.
 
-The B1 candidate supplies one legacy RTwin/PBS production path under the fixed
-`/home/user100/SDL` root, exact project/input/resource/approval binding,
-existing-directory refusal, at-most-once `qsub`, structured job state,
-read-only uncertainty reconciliation, and allowlist-bound monitoring, fetch
-and analysis. Ordinary watch and auto-watch never issue automatic `qdel`.
+For `direct_ssh_pbs`, the integrated source supplies offline interfaces,
+closed Schemas and state contracts, synthetic in-memory transaction models,
+offline onboarding, migration guidance, and a support matrix. Its exact status
+remains `offline_synthetic`, `production_blocked`, and `live_not_ready`, with
+`backend_supported=false` and `live_ready=false`. Real no-follow observation,
+a physical descriptor-relative helper, durable cross-process consumption and
+uncertain-outcome storage, direct resource/live replay ingress, transport,
+`qsub`, real inspect/fetch, and separately authorized live-smoke evidence are
+all still blocked.
 
-The exact B1 candidate passed practical independent L3 with P0-P3 all zero and
-one frozen offline full suite of 1228 tests with 81 skips. A separately
-approved H2 smoke completed one normal Gaussian execution and exact fetch and
-analysis with per-hop hashes verified. Raw operational evidence remains
-machine-local and grants no authority for another live action.
-
-PR6 direct SSH/PBS, non-SDL roots, multi-backend generalization and unrelated
-architecture are deferred beyond 2.6.1. Interpreter-tamper hardening is also
-out of scope. Public GitHub metadata already records the tag, push, pull request
-merge into `main`, GitHub Release, and formal publication context for v2.6.1. This
-snapshot adds no further live authorization.
+The existing `legacy_rtwin_pbs` production backend remains permanently fixed
+below `/home/user100/SDL`, with its existing-directory refusal, one-shot
+submission and no-automatic-`qdel` boundaries unchanged. The new direct
+contracts neither relocate nor generalize that legacy backend. No 2.7.0 tag,
+GitHub Release, deployment, Skill synchronization, or live action is claimed
+by this local candidate.
 
 ## Latest published release
 
@@ -72,6 +74,11 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   preflight, a proportional offline test ladder, exact CI-name auditing and
   separate release, deployment and live authority. Static contract audits
   validate local declarations only.
+- The `direct_ssh_pbs` source surface is offline synthetic only. It exposes
+  closed typed models, onboarding and support reporting while remaining
+  `production_blocked`, `live_not_ready`, `backend_supported=false`, and
+  `live_ready=false`; it has no real observer, helper, transport, qsub,
+  inspect/fetch, durable cross-process state, or live evidence.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.
@@ -112,9 +119,10 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - The `gaussian-v25-integration-review/1` overlay replays every owner validator
   and binds exact evidence, human decision, seed, priority, batch review, and
   ledger artifacts. It cannot weaken a blocker or replace an input/live gate.
-- The fixed `/home/user100/SDL` server boundary, non-empty-directory refusal,
-  no-deletion policy, exact job-ID cancellation gate, and scheduler-spool
-  prohibition are unchanged.
+- The legacy `legacy_rtwin_pbs` server boundary remains permanently fixed below
+  `/home/user100/SDL`; its non-empty-directory refusal, no-deletion policy,
+  exact job-ID cancellation gate, and scheduler-spool prohibition are
+  unchanged. Direct closed-profile root fields do not alter this legacy rule.
 - W2 still lacks authentication, signatures, durable audit logging, chemical
   search, and multi-user enforcement. Declared offline principals are not an
   operating-system security boundary.
