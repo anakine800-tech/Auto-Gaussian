@@ -1,0 +1,59 @@
+{
+  "schema": "auto-g16-direct-effect-time-replay-ingress-ci-successor/1",
+  "base_commit": "f337f65d030a9cfc686ec41777baf38476ddac84",
+  "base_tree": "d46fb2ce0929dbde289c86a79c430a47c6870121",
+  "scope": {
+    "direct_effect_time_replay_ingress_only": true,
+    "complete_draft202012_inventory_bound": true,
+    "historical_fixture_rewritten": false,
+    "legacy_runtime_semantics_changed": false,
+    "resource_selection_changed": false,
+    "live_approval_logic_changed": false,
+    "scientific_semantics_changed": false,
+    "live_actions": false
+  },
+  "files": {
+    ".github/workflows/offline-tests.yml": {
+      "before_sha256": "42a8c33cdc84e487884c60cfc947813398a1e895f2b5065d9d846f50111af6a7",
+      "sha256": "b66627a6e8d1390e60f2719a825988efcaf558739526ef0b48bf17f4fd62dcf4",
+      "change_class": "append_direct_replay_ingress_to_ordered_draft202012_ci_inventory",
+      "legacy_semantics_changed": false
+    },
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "41492bdeb925ef046a4c9a8b1e895eb59a24aca1e7c0318c262296e670b8f187",
+      "sha256": "319a348a12b01dab6c736ff3938fe9bc565b0d777fc2ca5bbe1b8273a11bf999",
+      "change_class": "audit_18_module_ordered_draft202012_inventory",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_audit_python_contract.py": {
+      "before_sha256": "82cb6f6c08cd6d6cebd9d0819eb57885b624cfa1278fba5622ac42db3b66a331",
+      "sha256": "36fadd9a202a1789a0234465add1749836fde03c1a3f44fdbeacea68105f4408",
+      "change_class": "test_18_module_ordered_draft202012_inventory",
+      "legacy_semantics_changed": false
+    },
+    "docs/release-2.7.0-checklist.md": {
+      "before_sha256": "1620e1f086812d97329a9f362a69f18d3df086af82737cb969e3aca8fd0391e6",
+      "sha256": "a0b64d1bea66eefb29fbf753e41d075f1fc85dd0a45e2e39c20fb302d98c3128",
+      "change_class": "document_18_module_pinned_draft202012_release_gate",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_sha256": "55d1bcd8f1274a34ed9f3e3e82fd46196984158bcb479c5ccdc5511a054f2e72",
+      "sha256": "bfb08480b29a73c660ff93b55ae26d7abe2f65cab1925e82ef4449b4921742d5",
+      "change_class": "append_direct_replay_ingress_ci_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_production_ingress_contract.py": {
+      "before_sha256": "0f78ea2a2ef20120fc65768e6953f40d2c7bc274c4e1dce594c74a90eb40123e",
+      "sha256": "e1d139d4a74e5f4ccc6981588cf9e9e971a154ca0fbac05d79ea12fb18d6f11f",
+      "change_class": "append_direct_replay_ingress_ci_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_resource_effect_time_replay_owner.py": {
+      "before_sha256": "171a5970bac80ea3962bfbf8b4adebcbfe691a36ebeedf16e14860421370fa55",
+      "sha256": "5a426aceef21f03d0c7438db323c62badd52ad6850291bc916f6979648118a53",
+      "change_class": "append_direct_replay_ingress_ci_successor_hash_chain",
+      "legacy_semantics_changed": false
+    }
+  }
+}

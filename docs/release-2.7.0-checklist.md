@@ -38,7 +38,7 @@ live smoke, or scientific acceptance.
   and release-hygiene tests. The three successor paths
   `.github/workflows/offline-tests.yml`, `scripts/audit_python_contract.py`,
   and `tests/test_audit_python_contract.py` close the related CI-contract gap:
-  they bind the complete ordered 17-module Draft 2020-12 inventory and fail
+  they bind the complete ordered 18-module Draft 2020-12 inventory and fail
   closed on missing, extra, reordered, or otherwise drifted coverage.
 - The four additive compatibility paths comprise one new release CI successor
   fixture plus three protected-chain tests. They preserve every historical
@@ -55,9 +55,11 @@ live smoke, or scientific acceptance.
 - Version 2.7.0 delivers offline interfaces, Schemas, states, synthetic
   transactions, onboarding, migration guidance, and support reporting only.
 - Real no-follow observer/helper behavior, durable cross-process consumption
-  and uncertain-outcome storage, direct resource/live replay ingress, real
-  transport, `qsub`, inspect, fetch, and separately authorized live-smoke
-  evidence remain blockers.
+  and uncertain-outcome storage, backend integration of the offline code-level
+  direct resource/live replay ingress, W4 process isolation, real transport,
+  `qsub`, inspect, fetch, and separately authorized live-smoke evidence remain
+  blockers. The ingress policy records `production_closure=false` and
+  `arbitrary_same_process_reflection_isolated=false`.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed
   below `/home/user100/SDL`. Direct profile/root contracts do not relocate,
   generalize, or authorize that legacy backend.
@@ -104,7 +106,8 @@ pass on that same recorded final commit:
    `requirements/schema-validation.txt` dependency set, including
    `jsonschema==4.26.0`, set `AUTO_G16_REQUIRE_JSONSCHEMA=1`, and successfully
    execute the canonical ordered Draft 2020-12 module inventory,
-   including `tests.test_direct_root_fixed_mutation_schema_draft202012` and
+   including `tests.test_direct_effect_time_replay_ingress_schema_draft202012`,
+   `tests.test_direct_root_fixed_mutation_schema_draft202012`, and
    `tests.test_direct_root_mutation_boundary_schema_draft202012`.
 3. The other required contexts, `python-compatibility (3.11)`,
    `python-compatibility (3.12)`, and `python-compatibility (3.13)`, must also

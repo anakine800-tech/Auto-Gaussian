@@ -706,6 +706,29 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                 "release_2_7_ci_contract_successor.json"
             ).read_text(encoding="utf-8")
         )["files"]
+        direct_replay_successor_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "direct_effect_time_replay_ingress_ci_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        direct_replay_successor = direct_replay_successor_document["files"]
+        foundation_successor_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_foundation_integration_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        foundation_successor = foundation_successor_document["files"]
+
+        def apply_foundation_successor(relative: str, expected: str) -> str:
+            if relative not in foundation_successor:
+                return expected
+            binding = foundation_successor[relative]
+            self.assertEqual(binding["before_sha256"], expected)
+            return binding["sha256"]
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):
                 if relative in release_successor:
@@ -715,10 +738,32 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                         expected,
                     )
                     expected = successor_binding["sha256"]
+                if relative in direct_replay_successor:
+                    successor_binding = direct_replay_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        expected,
+                    )
+                    expected = successor_binding["sha256"]
+                expected = apply_foundation_successor(relative, expected)
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected,
                 )
+        self.assertEqual(
+            direct_replay_successor_document["schema"],
+            "auto-g16-direct-effect-time-replay-ingress-ci-successor/1",
+        )
+        self.assertFalse(
+            direct_replay_successor_document["scope"][
+                "legacy_runtime_semantics_changed"
+            ]
+        )
+        self.assertEqual(
+            foundation_successor_document["schema"],
+            "auto-g16-v2.7-production-foundation-integration-successor/1",
+        )
+        self.assertFalse(foundation_successor_document["scope"]["production_closure"])
         from scripts import skill_package
 
         package = skill_package.package_files_with_supplements(

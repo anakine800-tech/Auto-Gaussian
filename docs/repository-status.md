@@ -16,13 +16,15 @@ For `direct_ssh_pbs`, the integrated source supplies offline interfaces,
 closed Schemas and state contracts, synthetic in-memory transaction models,
 offline onboarding, migration guidance, and a support matrix. Its exact status
 remains `offline_synthetic`, `production_blocked`, and `live_not_ready`, with
-`backend_supported=false` and `live_ready=false`. The current feature candidate
-adds backend-owned server-side POSIX no-follow root observation and retains the
-same descriptors in a non-authorizing single-use capability. A physical
-descriptor-relative helper, durable cross-process consumption and
-uncertain-outcome storage, direct resource/live replay ingress, transport,
-`qsub`, real inspect/fetch, and separately authorized live-smoke evidence are
-all still blocked.
+`backend_supported=false` and `live_ready=false`. The current feature
+collection includes the backend-owned POSIX no-follow observer, W2 durable
+journal owner, W4 process-isolated fixed descriptor-relative mutation helper,
+and W3 offline resource/live replay ingress. Their composition into one durable
+direct effect owner, plus transport, `qsub`, real inspect/fetch, and separately
+authorized live-smoke evidence, remain blocked. The ingress policy explicitly records
+`arbitrary_same_process_reflection_isolated=false` and
+`production_closure=false`; normal production must not coexist with untrusted
+arbitrary same-process code.
 
 The existing `legacy_rtwin_pbs` production backend remains permanently fixed
 below `/home/user100/SDL`, with its existing-directory refusal, one-shot
@@ -81,8 +83,9 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   project/scratch mutation helper, but no transport ingress. It also exposes
   closed typed models, onboarding and support reporting while remaining
   `production_blocked`, `live_not_ready`, `backend_supported=false`, and
-  `live_ready=false`; it has no integrated durable W2 claim, transport, qsub,
-  inspect/fetch, resource/live replay ingress, or live evidence.
+  `live_ready=false`; the W3 code-level ingress is not production closure and
+  is not yet composed with the W2 claim and W4 process-isolated helper. It has
+  no transport, qsub, real inspect/fetch, or live evidence.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.
