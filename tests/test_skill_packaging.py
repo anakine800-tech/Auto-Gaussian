@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,17 @@ def load_adapter():
 
 
 ADAPTER = load_adapter()
+SKILL_INDEX_TARGET = re.compile(
+    r"`(?P<code>(?:scripts|references)/[A-Za-z0-9_.\-/]+)`|"
+    r"\]\((?P<link>(?:scripts|references)/[A-Za-z0-9_.\-/]+)\)"
+)
+
+
+def skill_index_targets(text: str) -> set[Path]:
+    return {
+        Path(match.group("code") or match.group("link"))
+        for match in SKILL_INDEX_TARGET.finditer(text)
+    }
 
 
 class SkillPackagingTests(unittest.TestCase):
@@ -291,6 +303,91 @@ class SkillPackagingTests(unittest.TestCase):
             (ROOT / "skills/auto-g16-rtwin-pbs/contracts").exists(),
             "RTwin/PBS contracts must be mapped from the repository root, not duplicated",
         )
+
+    def test_rtwin_package_map_and_skill_owner_index_are_closed(self) -> None:
+        skill_name = "auto-g16-rtwin-pbs"
+        skill_root = ROOT / "skills" / skill_name
+        skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        front_matter_name = re.search(r"(?m)^name: (auto-g16-[a-z0-9-]+)$", skill_text)
+        self.assertIsNotNone(front_matter_name)
+        self.assertEqual(front_matter_name.group(1), skill_name)
+
+        manifest_paths = [skill_root / package.MANIFEST_NAME]
+        manifest_paths.extend(
+            sorted(
+                (
+                    ROOT
+                    / "config/deployment-package-supplements"
+                    / skill_name
+                ).glob("*.json")
+            )
+        )
+        for manifest_path in manifest_paths:
+            with self.subTest(manifest=manifest_path.name):
+                document = package.load_json(manifest_path)
+                self.assertEqual(document["schema"], package.MANIFEST_SCHEMA)
+                self.assertEqual(document["skill"], skill_name)
+
+        package_map = package.package_files_with_supplements(ROOT, skill_name)
+        self.assertEqual(package_map[Path("SKILL.md")], skill_root / "SKILL.md")
+        packaged_targets = {
+            target
+            for target in package_map
+            if target.parts[0] in {"scripts", "references"}
+        }
+        indexed_targets = skill_index_targets(skill_text)
+        self.assertSetEqual(packaged_targets, indexed_targets)
+
+        reviewed_target = min(packaged_targets)
+        counterexample = Path("scripts/temporary_package_index_counterexample.py")
+        self.assertNotIn(counterexample, packaged_targets)
+        self.assertNotIn(counterexample, indexed_targets)
+        counterexamples = {
+            "package-target-deleted": (packaged_targets - {reviewed_target}, indexed_targets),
+            "package-target-added": (packaged_targets | {counterexample}, indexed_targets),
+            "skill-index-target-deleted": (packaged_targets, indexed_targets - {reviewed_target}),
+            "skill-index-target-added": (packaged_targets, indexed_targets | {counterexample}),
+        }
+        for label, (candidate_package, candidate_index) in counterexamples.items():
+            with self.subTest(counterexample=label):
+                with self.assertRaises(AssertionError):
+                    self.assertSetEqual(candidate_package, candidate_index)
+
+        current_direct_index = {
+            "W1": (
+                "scripts/direct_root_owner_contract.py",
+                "references/direct-root-owner-contract.md",
+            ),
+            "W2": (
+                "scripts/direct_durable_submission_journal.py",
+                "references/direct-durable-submission-journal.md",
+            ),
+            "W3": (
+                "scripts/direct_effect_time_replay_ingress.py",
+                "references/direct-effect-time-replay-ingress.md",
+            ),
+            "W4": (
+                "scripts/direct_root_fixed_mutation_consumer.py",
+                "scripts/direct_root_fixed_mutation_helper.py",
+                "references/direct-root-fixed-mutation-helper.md",
+            ),
+            "direct-boundary": (
+                "scripts/direct_root_mutation_boundary.py",
+                "references/direct-root-mutation-boundary.md",
+            ),
+            "direct-offline-backend": (
+                "scripts/direct_ssh_pbs_offline.py",
+                "references/direct-ssh-pbs-offline-backend.md",
+            ),
+            "direct-onboarding": (
+                "scripts/direct_onboarding.py",
+                "references/direct-onboarding-support.md",
+            ),
+        }
+        for owner, targets in current_direct_index.items():
+            for target in targets:
+                with self.subTest(owner=owner, target=target):
+                    self.assertIn(Path(target), package_map)
 
     def test_dry_run_does_not_write_and_apply_refuses_installed_extras(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

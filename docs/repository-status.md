@@ -1,27 +1,26 @@
 # Auto-G16 Repository Status
 
-## Current mainline state
+## Current source-candidate state
 
-Status date: 2026-08-05
+Status date: 2026-08-06
 
 Auto-Gaussian 2.7.0 is the current local offline-only source candidate. Its
-release-preparation baseline is exact merged `main` commit
-`5b125a0b233b8815166c745e3654ba0053773333`, tree
-`53fb0d1ddbc9c7334fc3aa2db8d3b70379dec1f8`. That merge integrates the v2.7
-direct-root boundary, direct SSH/PBS synthetic transaction, and direct
-onboarding/support milestones. This metadata patch changes no runtime,
-scientific logic, Schema, or owner semantics.
+future tag target remains unresolved until post-merge `main` and is recorded in
+the release checklist only as `FINAL_POST_MERGE_MAIN_COMMIT` and
+`FINAL_POST_MERGE_MAIN_TREE`. The local source collection changes no runtime,
+scientific logic, Schema, or owner semantics in this release-package closure.
 
-For `direct_ssh_pbs`, the integrated source supplies offline interfaces,
+For `direct_ssh_pbs`, the collected source supplies offline interfaces,
 closed Schemas and state contracts, synthetic in-memory transaction models,
 offline onboarding, migration guidance, and a support matrix. Its exact status
 remains `offline_synthetic`, `production_blocked`, and `live_not_ready`, with
 `backend_supported=false` and `live_ready=false`. The current feature
-collection includes the backend-owned POSIX no-follow observer, W2 durable
+collection includes the W1 backend-owned POSIX no-follow observer, W2 durable
 journal owner, W4 process-isolated fixed descriptor-relative mutation helper,
 and W3 offline resource/live replay ingress. Their composition into one durable
 direct effect owner, plus transport, `qsub`, real inspect/fetch, and separately
-authorized live-smoke evidence, remain blocked. The ingress policy explicitly records
+authorized live-smoke evidence, remain blocked. W4B/W5/W6/W7 integration is
+not present. The ingress policy explicitly records
 `arbitrary_same_process_reflection_isolated=false` and
 `production_closure=false`; normal production must not coexist with untrusted
 arbitrary same-process code.
@@ -85,7 +84,8 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   `production_blocked`, `live_not_ready`, `backend_supported=false`, and
   `live_ready=false`; the W3 code-level ingress is not production closure and
   is not yet composed with the W2 claim and W4 process-isolated helper. It has
-  no transport, qsub, real inspect/fetch, or live evidence.
+  no W4B/W5/W6/W7 integration, transport, qsub, real inspect/fetch, or live
+  evidence.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.
