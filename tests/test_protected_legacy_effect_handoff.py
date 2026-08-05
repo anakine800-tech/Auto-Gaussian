@@ -63,6 +63,11 @@ RELEASE_2_7_CI_SUCCESSOR_PATH = (
     / "tests/fixtures/rtwin_pbs/"
     "release_2_7_ci_contract_successor.json"
 )
+DIRECT_REPLAY_CI_SUCCESSOR_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "direct_effect_time_replay_ingress_ci_successor.json"
+)
 
 
 class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
@@ -587,6 +592,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             RELEASE_2_7_CI_SUCCESSOR_PATH.read_text(encoding="utf-8")
         )
         release_successor = release_successor_document["files"]
+        direct_replay_successor_document = json.loads(
+            DIRECT_REPLAY_CI_SUCCESSOR_PATH.read_text(encoding="utf-8")
+        )
+        direct_replay_successor = direct_replay_successor_document["files"]
         self.assertEqual(
             fixture["schema"],
             "auto-g16-protected-legacy-effect-handoff-fixture/1",
@@ -675,6 +684,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = successor_binding["sha256"]
+                if relative in direct_replay_successor:
+                    successor_binding = direct_replay_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -717,6 +733,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = release_binding["sha256"]
+                if relative in direct_replay_successor:
+                    direct_replay_binding = direct_replay_successor[relative]
+                    self.assertEqual(
+                        direct_replay_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = direct_replay_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -754,6 +777,13 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = release_binding["sha256"]
+                if relative in direct_replay_successor:
+                    direct_replay_binding = direct_replay_successor[relative]
+                    self.assertEqual(
+                        direct_replay_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = direct_replay_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -796,6 +826,55 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         )
         for relative, binding in release_successor.items():
             with self.subTest(release_successor_path=relative):
+                self.assertEqual(
+                    set(binding),
+                    {
+                        "before_sha256",
+                        "sha256",
+                        "change_class",
+                        "legacy_semantics_changed",
+                    },
+                )
+                current_sha256 = binding["sha256"]
+                if relative in direct_replay_successor:
+                    direct_replay_binding = direct_replay_successor[relative]
+                    self.assertEqual(
+                        direct_replay_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = direct_replay_binding["sha256"]
+                self.assertEqual(
+                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                    current_sha256,
+                )
+                self.assertFalse(binding["legacy_semantics_changed"])
+        self.assertEqual(
+            direct_replay_successor_document["schema"],
+            "auto-g16-direct-effect-time-replay-ingress-ci-successor/1",
+        )
+        self.assertEqual(
+            direct_replay_successor_document["base_commit"],
+            "f337f65d030a9cfc686ec41777baf38476ddac84",
+        )
+        self.assertEqual(
+            direct_replay_successor_document["base_tree"],
+            "d46fb2ce0929dbde289c86a79c430a47c6870121",
+        )
+        self.assertEqual(
+            direct_replay_successor_document["scope"],
+            {
+                "direct_effect_time_replay_ingress_only": True,
+                "complete_draft202012_inventory_bound": True,
+                "historical_fixture_rewritten": False,
+                "legacy_runtime_semantics_changed": False,
+                "resource_selection_changed": False,
+                "live_approval_logic_changed": False,
+                "scientific_semantics_changed": False,
+                "live_actions": False,
+            },
+        )
+        for relative, binding in direct_replay_successor.items():
+            with self.subTest(direct_replay_successor_path=relative):
                 self.assertEqual(
                     set(binding),
                     {

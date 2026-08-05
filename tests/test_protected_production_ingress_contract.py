@@ -768,6 +768,14 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         release_successor = release_successor_document["files"]
+        direct_replay_successor_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "direct_effect_time_replay_ingress_ci_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        direct_replay_successor = direct_replay_successor_document["files"]
         for relative, expected in fixture["frozen_predecessors"].items():
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
@@ -778,6 +786,14 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             expected = binding["sha256"]
             if relative in release_successor:
                 successor_binding = release_successor[relative]
+                self.assertEqual(
+                    successor_binding["before_sha256"],
+                    expected,
+                    relative,
+                )
+                expected = successor_binding["sha256"]
+            if relative in direct_replay_successor:
+                successor_binding = direct_replay_successor[relative]
                 self.assertEqual(
                     successor_binding["before_sha256"],
                     expected,
@@ -798,6 +814,14 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                     relative,
                 )
                 expected = successor_binding["sha256"]
+            if relative in direct_replay_successor:
+                successor_binding = direct_replay_successor[relative]
+                self.assertEqual(
+                    successor_binding["before_sha256"],
+                    expected,
+                    relative,
+                )
+                expected = successor_binding["sha256"]
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
@@ -809,6 +833,15 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
         )
         self.assertFalse(
             release_successor_document["scope"][
+                "legacy_runtime_semantics_changed"
+            ]
+        )
+        self.assertEqual(
+            direct_replay_successor_document["schema"],
+            "auto-g16-direct-effect-time-replay-ingress-ci-successor/1",
+        )
+        self.assertFalse(
+            direct_replay_successor_document["scope"][
                 "legacy_runtime_semantics_changed"
             ]
         )

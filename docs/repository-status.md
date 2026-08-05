@@ -18,9 +18,13 @@ offline onboarding, migration guidance, and a support matrix. Its exact status
 remains `offline_synthetic`, `production_blocked`, and `live_not_ready`, with
 `backend_supported=false` and `live_ready=false`. Real no-follow observation,
 a physical descriptor-relative helper, durable cross-process consumption and
-uncertain-outcome storage, direct resource/live replay ingress, transport,
-`qsub`, real inspect/fetch, and separately authorized live-smoke evidence are
-all still blocked.
+uncertain-outcome storage, backend integration of the offline code-level direct
+resource/live replay ingress, W4 process isolation, transport, `qsub`, real
+inspect/fetch, and separately authorized live-smoke evidence are all still
+blocked. The ingress policy explicitly records
+`arbitrary_same_process_reflection_isolated=false` and
+`production_closure=false`; normal production must not coexist with untrusted
+arbitrary same-process code.
 
 The existing `legacy_rtwin_pbs` production backend remains permanently fixed
 below `/home/user100/SDL`, with its existing-directory refusal, one-shot
@@ -77,8 +81,10 @@ retained below, but it is neither a current sync gap nor authority to deploy.
 - The `direct_ssh_pbs` source surface is offline synthetic only. It exposes
   closed typed models, onboarding and support reporting while remaining
   `production_blocked`, `live_not_ready`, `backend_supported=false`, and
-  `live_ready=false`; it has no real observer, helper, transport, qsub,
-  inspect/fetch, durable cross-process state, or live evidence.
+  `live_ready=false`; the W3 code-level resource/live replay ingress is not
+  production closure and explicitly requires W4 process isolation. It has no
+  real observer, helper, transport, qsub, inspect/fetch, durable cross-process
+  state, or live evidence.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.
