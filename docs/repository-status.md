@@ -16,8 +16,10 @@ For `direct_ssh_pbs`, the integrated source supplies offline interfaces,
 closed Schemas and state contracts, synthetic in-memory transaction models,
 offline onboarding, migration guidance, and a support matrix. Its exact status
 remains `offline_synthetic`, `production_blocked`, and `live_not_ready`, with
-`backend_supported=false` and `live_ready=false`. Real no-follow observation,
-a physical descriptor-relative helper, durable cross-process consumption and
+`backend_supported=false` and `live_ready=false`. The current feature candidate
+adds backend-owned server-side POSIX no-follow root observation and retains the
+same descriptors in a non-authorizing single-use capability. A physical
+descriptor-relative helper, durable cross-process consumption and
 uncertain-outcome storage, direct resource/live replay ingress, transport,
 `qsub`, real inspect/fetch, and separately authorized live-smoke evidence are
 all still blocked.
@@ -74,10 +76,11 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   preflight, a proportional offline test ladder, exact CI-name auditing and
   separate release, deployment and live authority. Static contract audits
   validate local declarations only.
-- The `direct_ssh_pbs` source surface is offline synthetic only. It exposes
-  closed typed models, onboarding and support reporting while remaining
+- The `direct_ssh_pbs` source surface now includes a real server-local POSIX
+  no-follow root observer but no transport ingress or mutation operation. It
+  also exposes closed typed models, onboarding and support reporting while remaining
   `production_blocked`, `live_not_ready`, `backend_supported=false`, and
-  `live_ready=false`; it has no real observer, helper, transport, qsub,
+  `live_ready=false`; it has no physical helper, transport, qsub,
   inspect/fetch, durable cross-process state, or live evidence.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A

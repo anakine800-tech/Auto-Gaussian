@@ -217,6 +217,10 @@ def _assert_root_capability(
         "exact direct-root capability is required",
     )
     ROOT.SingleUseWorkspaceDescriptorCapability.assert_current(capability)
+    _require(
+        capability._descriptor_set._mode == "offline_synthetic",
+        "synthetic boundary rejects production descriptor capabilities",
+    )
 
 
 def _binding_from_capability(

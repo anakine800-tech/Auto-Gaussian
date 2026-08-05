@@ -642,6 +642,10 @@ class DirectOnboardingTests(unittest.TestCase):
             tuple(direct["production_gaps"]),
             ONBOARDING.PRODUCTION_GAPS,
         )
+        self.assertNotIn(
+            "real_no_follow_observer",
+            direct["production_gaps"],
+        )
         for backend in (
             "local_gaussian",
             "slurm",
@@ -667,6 +671,7 @@ class DirectOnboardingTests(unittest.TestCase):
         ):
             self.assertIn(marker, text)
         self.assertIn("`backend_supported=false`", text)
+        self.assertNotIn("`real_no_follow_observer`", text)
         self.assertNotIn("direct backend is production-ready", text.lower())
 
     def test_migration_guide_forbids_upgrade_rehash_backfill_and_root_override(self) -> None:

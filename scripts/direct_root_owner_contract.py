@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Own the Auto-G16 v2.6 direct-backend root contracts offline.
+"""Own direct-backend root contracts and POSIX no-follow observation.
 
-This module deliberately contains no SSH, PBS, transfer, submit, fetch,
-cancel, cleanup, or filesystem-mutation implementation.  It models the
-closed portable artifacts and the owner-issued single-use descriptor
-capability that a future separately reviewed mutation owner must consume.
+This module contains no SSH, PBS, transfer, submit, fetch, cancel, cleanup,
+or filesystem-mutation implementation.  The backend factory has no caller
+configuration: it observes only the root in an exact reviewed/hash-bound
+direct profile chain and retains those same descriptors for one consumption.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import stat
 import sys
 import threading
@@ -43,6 +44,9 @@ SCRATCH_COMPONENT = "scratch"
 SCHEDULER_DIALECT = "pbs_legacy_v1"
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_NESTING = 32
+MAX_OBSERVED_ROOT_BYTES = 4096
+MAX_OBSERVED_ROOT_COMPONENTS = 64
+MAX_OBSERVED_COMPONENT_BYTES = 255
 
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 ID_RE = re.compile(r"^[a-z][a-z0-9._-]{0,127}$")
@@ -1053,6 +1057,136 @@ _CAPABILITY_TOKEN = object()
 _LEASE_TOKEN = object()
 _OWNER_TOKEN = object()
 _TEST_FACTORY_TOKEN = object()
+_BACKEND_FACTORY_TOKEN = object()
+
+
+def _system_utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _system_nonce() -> str:
+    return secrets.token_hex(16)
+
+
+def _directory_identity(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_uid,
+        info.st_gid,
+        stat.S_IFMT(info.st_mode),
+        stat.S_IMODE(info.st_mode),
+    )
+
+
+def _directory_identity_sha256(info: os.stat_result) -> str:
+    identity = _directory_identity(info)
+    return digest({
+        "schema": "auto-g16-posix-directory-identity/1",
+        "device": str(identity[0]),
+        "inode": str(identity[1]),
+        "uid": str(identity[2]),
+        "gid": str(identity[3]),
+        "file_type": str(identity[4]),
+        "mode": str(identity[5]),
+    })
+
+
+def _close_directory_descriptors(descriptors: tuple[int, ...]) -> None:
+    for descriptor in reversed(descriptors):
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+
+
+def _open_root_components_no_follow(
+    canonical_root: str,
+) -> tuple[list[dict[str, Any]], tuple[str, ...], tuple[tuple[int, ...], ...], tuple[int, ...]]:
+    """Open one reviewed POSIX root component-by-component without following links."""
+    root = _absolute_root(canonical_root, "backend observer root")
+    _require(
+        hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY"),
+        "backend no-follow directory primitives are unavailable",
+    )
+    names = tuple(PurePosixPath(root).parts[1:])
+    _require(
+        len(root.encode("utf-8")) <= MAX_OBSERVED_ROOT_BYTES
+        and len(names) <= MAX_OBSERVED_ROOT_COMPONENTS
+        and all(
+            len(name.encode("utf-8")) <= MAX_OBSERVED_COMPONENT_BYTES
+            for name in names
+        ),
+        "backend observer root exceeds its component bound",
+    )
+    flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    opened: list[int] = []
+    components: list[dict[str, Any]] = []
+    identities: list[tuple[int, ...]] = []
+    try:
+        anchor = os.open("/", flags)
+        opened.append(anchor)
+        anchor_info = os.fstat(anchor)
+        _require(
+            stat.S_ISDIR(anchor_info.st_mode),
+            "backend root anchor is not a directory",
+        )
+        parent = anchor
+        path_parts: list[str] = []
+        for ordinal, name in enumerate(names):
+            path_parts.append(name)
+            before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            _require(
+                stat.S_ISDIR(before.st_mode) and not stat.S_ISLNK(before.st_mode),
+                "backend root component is not a no-follow directory",
+            )
+            descriptor = os.open(name, flags, dir_fd=parent)
+            opened.append(descriptor)
+            opened_info = os.fstat(descriptor)
+            after = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            identity = _directory_identity(opened_info)
+            _require(
+                identity == _directory_identity(before)
+                and identity == _directory_identity(after)
+                and stat.S_ISDIR(opened_info.st_mode),
+                "backend root component identity drifted while opening",
+            )
+            component_path = "/" + "/".join(path_parts)
+            components.append({
+                "ordinal": str(ordinal),
+                "component_path_sha256": hashlib.sha256(
+                    component_path.encode("utf-8")
+                ).hexdigest(),
+                "identity_sha256": _directory_identity_sha256(opened_info),
+            })
+            identities.append(identity)
+            parent = descriptor
+    except (OSError, DirectRootOwnerError) as exc:
+        _close_directory_descriptors(tuple(opened))
+        if isinstance(exc, DirectRootOwnerError):
+            raise
+        raise DirectRootOwnerError(
+            f"backend no-follow root observation failed: {exc}"
+        ) from exc
+    return components, names, tuple(identities), tuple(opened)
+
+
+def _project_is_fresh_at_root(descriptor: int, project: str) -> bool:
+    component = _project(project, "backend observer project")
+    try:
+        os.stat(component, dir_fd=descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        raise DirectRootOwnerError(
+            f"backend project freshness observation failed: {exc}"
+        ) from exc
+    return False
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1169,6 +1303,7 @@ class _OwnerRootIdentitySnapshot:
         fresh_project: bool,
         containment_verified: bool,
         no_symlink_verified: bool,
+        descriptor_set: "_DescriptorSet | None" = None,
         token: object,
     ) -> "_OwnerRootIdentitySnapshot":
         _assert_owner_binding()
@@ -1194,11 +1329,24 @@ class _OwnerRootIdentitySnapshot:
             "remote_workdir": remote,
             "scratch_workdir": scratch,
         })
-        descriptor_set = _DescriptorSet._from_owner(
-            identity_chain_sha256=chain["identity_chain_sha256"],
-            workspace_binding_sha256=workspace_sha,
-            token=_SNAPSHOT_TOKEN,
-        )
+        if descriptor_set is None:
+            descriptor_set = _DescriptorSet._from_owner(
+                identity_chain_sha256=chain["identity_chain_sha256"],
+                workspace_binding_sha256=workspace_sha,
+                token=_SNAPSHOT_TOKEN,
+            )
+        else:
+            _require(
+                type(descriptor_set) is _DescriptorSet,
+                "root snapshot requires the exact backend descriptor set",
+            )
+            descriptor_set.assert_owner_sealed()
+            _require(
+                descriptor_set.identity_chain_sha256
+                == chain["identity_chain_sha256"]
+                and descriptor_set.workspace_binding_sha256 == workspace_sha,
+                "root snapshot backend descriptor binding differs",
+            )
         value = object.__new__(cls)
         object.__setattr__(value, "canonical_root", canonical_root)
         object.__setattr__(
@@ -1259,7 +1407,10 @@ class _DescriptorSet:
     identity_chain_sha256: str
     workspace_binding_sha256: str
     descriptor_set_sha256: str
-    _opaque_handles: tuple[object, ...]
+    _opaque_handles: tuple[object, ...] | tuple[int, ...]
+    _mode: str
+    _component_names: tuple[str, ...]
+    _component_identities: tuple[tuple[int, ...], ...]
     _seal: object
 
     def __new__(cls, *args: Any, **kwargs: Any) -> "_DescriptorSet":
@@ -1288,26 +1439,215 @@ class _DescriptorSet:
         object.__setattr__(value, "workspace_binding_sha256", workspace_binding_sha256)
         object.__setattr__(value, "descriptor_set_sha256", set_sha)
         object.__setattr__(value, "_opaque_handles", handles)
+        object.__setattr__(value, "_mode", "offline_synthetic")
+        object.__setattr__(value, "_component_names", ())
+        object.__setattr__(value, "_component_identities", ())
         object.__setattr__(value, "_seal", _SNAPSHOT_TOKEN)
+        return value
+
+    @classmethod
+    def _from_posix_owner(
+        cls,
+        *,
+        identity_chain_sha256: str,
+        workspace_binding_sha256: str,
+        component_names: tuple[str, ...],
+        component_identities: tuple[tuple[int, ...], ...],
+        descriptors: tuple[int, ...],
+        token: object,
+    ) -> "_DescriptorSet":
+        if cls is not _DescriptorSet or token is not _SNAPSHOT_TOKEN:
+            raise DirectRootOwnerError("descriptor-set seal differs")
+        _require(
+            type(component_names) is tuple
+            and component_names
+            and all(
+                type(name) is str
+                and name not in {"", ".", ".."}
+                and "/" not in name
+                for name in component_names
+            ),
+            "backend descriptor component names differ",
+        )
+        _require(
+            type(component_identities) is tuple
+            and len(component_identities) == len(component_names)
+            and all(
+                type(identity) is tuple
+                and len(identity) == 6
+                and all(type(item) is int for item in identity)
+                for identity in component_identities
+            ),
+            "backend descriptor component identities differ",
+        )
+        _require(
+            type(descriptors) is tuple
+            and len(descriptors) == len(component_names) + 1
+            and len(set(descriptors)) == len(descriptors)
+            and all(type(item) is int and item >= 0 for item in descriptors),
+            "backend descriptor handles differ",
+        )
+        set_sha = digest({
+            "schema": "auto-g16-posix-nofollow-descriptor-set/1",
+            "identity_chain_sha256": identity_chain_sha256,
+            "workspace_binding_sha256": workspace_binding_sha256,
+            "handle_count": len(descriptors),
+            "component_count": len(component_names),
+            "component_names_sha256": digest({
+                "schema": "auto-g16-posix-root-component-names/1",
+                "components": list(component_names),
+            }),
+            "path_reopen_allowed": False,
+        })
+        value = object.__new__(cls)
+        object.__setattr__(value, "identity_chain_sha256", identity_chain_sha256)
+        object.__setattr__(value, "workspace_binding_sha256", workspace_binding_sha256)
+        object.__setattr__(value, "descriptor_set_sha256", set_sha)
+        object.__setattr__(value, "_opaque_handles", descriptors)
+        object.__setattr__(value, "_mode", "posix_nofollow")
+        object.__setattr__(value, "_component_names", component_names)
+        object.__setattr__(value, "_component_identities", component_identities)
+        object.__setattr__(value, "_seal", _SNAPSHOT_TOKEN)
+        value.assert_owner_sealed()
         return value
 
     def assert_owner_sealed(self) -> "_DescriptorSet":
         _require(type(self) is _DescriptorSet and self._seal is _SNAPSHOT_TOKEN, "descriptor-set seal differs")
-        _require(
-            type(self._opaque_handles) is tuple
-            and len(self._opaque_handles) == 2
-            and all(type(item) is object for item in self._opaque_handles),
-            "descriptor-set handles differ",
-        )
-        expected = digest({
-            "schema": "auto-g16-offline-descriptor-set-model/1",
-            "identity_chain_sha256": self.identity_chain_sha256,
-            "workspace_binding_sha256": self.workspace_binding_sha256,
-            "handle_count": 2,
-            "path_reopen_allowed": False,
-        })
+        if self._mode == "offline_synthetic":
+            _require(
+                type(self._opaque_handles) is tuple
+                and len(self._opaque_handles) == 2
+                and all(type(item) is object for item in self._opaque_handles)
+                and self._component_names == ()
+                and self._component_identities == (),
+                "descriptor-set handles differ",
+            )
+            expected = digest({
+                "schema": "auto-g16-offline-descriptor-set-model/1",
+                "identity_chain_sha256": self.identity_chain_sha256,
+                "workspace_binding_sha256": self.workspace_binding_sha256,
+                "handle_count": 2,
+                "path_reopen_allowed": False,
+            })
+        else:
+            _require(
+                self._mode == "posix_nofollow"
+                and type(self._opaque_handles) is tuple
+                and len(self._opaque_handles) == len(self._component_names) + 1
+                and len(set(self._opaque_handles)) == len(self._opaque_handles)
+                and all(
+                    type(item) is int and item >= 0
+                    for item in self._opaque_handles
+                )
+                and len(self._component_identities) == len(self._component_names),
+                "backend descriptor handles differ",
+            )
+            try:
+                anchor = os.fstat(self._opaque_handles[0])
+                _require(
+                    stat.S_ISDIR(anchor.st_mode),
+                    "backend descriptor anchor is not a directory",
+                )
+                for index, (name, expected_identity) in enumerate(
+                    zip(
+                        self._component_names,
+                        self._component_identities,
+                        strict=True,
+                    )
+                ):
+                    parent = self._opaque_handles[index]
+                    child = self._opaque_handles[index + 1]
+                    before = os.stat(
+                        name,
+                        dir_fd=parent,
+                        follow_symlinks=False,
+                    )
+                    opened = os.fstat(child)
+                    after = os.stat(
+                        name,
+                        dir_fd=parent,
+                        follow_symlinks=False,
+                    )
+                    _require(
+                        stat.S_ISDIR(before.st_mode)
+                        and not stat.S_ISLNK(before.st_mode)
+                        and _directory_identity(before) == expected_identity
+                        and _directory_identity(opened) == expected_identity
+                        and _directory_identity(after) == expected_identity,
+                        "backend descriptor component identity drifted",
+                    )
+            except OSError as exc:
+                raise DirectRootOwnerError(
+                    f"backend descriptor replay failed: {exc}"
+                ) from exc
+            expected = digest({
+                "schema": "auto-g16-posix-nofollow-descriptor-set/1",
+                "identity_chain_sha256": self.identity_chain_sha256,
+                "workspace_binding_sha256": self.workspace_binding_sha256,
+                "handle_count": len(self._opaque_handles),
+                "component_count": len(self._component_names),
+                "component_names_sha256": digest({
+                    "schema": "auto-g16-posix-root-component-names/1",
+                    "components": list(self._component_names),
+                }),
+                "path_reopen_allowed": False,
+            })
         _require(hmac.compare_digest(self.descriptor_set_sha256, expected), "descriptor-set digest differs")
         return self
+
+
+def _observe_workspace_no_follow(
+    *,
+    canonical_root: str,
+    project: str,
+) -> _OwnerRootIdentitySnapshot:
+    components, names, identities, descriptors = _open_root_components_no_follow(
+        canonical_root
+    )
+    try:
+        project_name = _project(project, "backend observer project")
+        fresh_project = _project_is_fresh_at_root(
+            descriptors[-1],
+            project_name,
+        )
+        _require(
+            fresh_project,
+            "backend project already exists or is not fresh",
+        )
+        identity_chain_sha256 = digest({
+            "schema": "auto-g16-root-component-identity-chain/1",
+            "canonical_root": canonical_root,
+            "components": components,
+        })
+        remote = f"{canonical_root}/{project_name}"
+        workspace_binding_sha256 = digest({
+            "schema": "auto-g16-direct-workspace-binding/1",
+            "project": project_name,
+            "allowed_root": canonical_root,
+            "remote_workdir": remote,
+            "scratch_workdir": f"{remote}/{SCRATCH_COMPONENT}",
+        })
+        descriptor_set = _DescriptorSet._from_posix_owner(
+            identity_chain_sha256=identity_chain_sha256,
+            workspace_binding_sha256=workspace_binding_sha256,
+            component_names=names,
+            component_identities=identities,
+            descriptors=descriptors,
+            token=_SNAPSHOT_TOKEN,
+        )
+        return _OwnerRootIdentitySnapshot._from_owner(
+            canonical_root=canonical_root,
+            components=components,
+            project=project_name,
+            fresh_project=True,
+            containment_verified=True,
+            no_symlink_verified=True,
+            descriptor_set=descriptor_set,
+            token=_SNAPSHOT_TOKEN,
+        )
+    except BaseException:
+        _close_directory_descriptors(descriptors)
+        raise
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1382,9 +1722,14 @@ class _CapabilityState:
     authorization_bytes: bytes
     descriptor_set: _DescriptorSet
     descriptor_handles: tuple[object, ...]
+    descriptor_mode: str
+    descriptor_component_names: tuple[str, ...]
+    descriptor_component_identities: tuple[tuple[int, ...], ...]
+    descriptor_set_sha256: str
     clock: Callable[[], datetime]
     lock: threading.Lock
     consumed: bool = False
+    invalidated: bool = False
     latest_now: datetime | None = None
 
 
@@ -1456,7 +1801,14 @@ def _assert_capability_current(
     )
     _require(
         capability._descriptor_set is state.descriptor_set
-        and capability._descriptor_handles is state.descriptor_handles,
+        and capability._descriptor_handles is state.descriptor_handles
+        and state.descriptor_set._mode == state.descriptor_mode
+        and state.descriptor_set._component_names
+        == state.descriptor_component_names
+        and state.descriptor_set._component_identities
+        == state.descriptor_component_identities
+        and state.descriptor_set.descriptor_set_sha256
+        == state.descriptor_set_sha256,
         "capability descriptor set differs",
     )
     state.evidence.assert_owner_sealed()
@@ -1566,6 +1918,12 @@ class SingleUseWorkspaceDescriptorCapability:
                 authorization_bytes=canonical_bytes(authorization),
                 descriptor_set=descriptor_set,
                 descriptor_handles=descriptor_set._opaque_handles,
+                descriptor_mode=descriptor_set._mode,
+                descriptor_component_names=descriptor_set._component_names,
+                descriptor_component_identities=(
+                    descriptor_set._component_identities
+                ),
+                descriptor_set_sha256=descriptor_set.descriptor_set_sha256,
                 clock=clock,
                 lock=threading.Lock(),
             ),
@@ -1578,7 +1936,19 @@ class SingleUseWorkspaceDescriptorCapability:
     def assert_current(self) -> "SingleUseWorkspaceDescriptorCapability":
         state = _capability_state(self)
         with state.lock:
-            _assert_capability_current(self, state)
+            if state.invalidated:
+                raise DirectRootOwnerError(
+                    "workspace descriptor capability is terminally invalidated"
+                )
+            try:
+                _assert_capability_current(self, state)
+            except BaseException:
+                if state.descriptor_set._mode == "posix_nofollow":
+                    state.invalidated = True
+                    _close_directory_descriptors(
+                        state.descriptor_handles  # type: ignore[arg-type]
+                    )
+                raise
         return self
 
     def consume_once(self) -> ConsumedWorkspaceDescriptorLease:
@@ -1587,7 +1957,19 @@ class SingleUseWorkspaceDescriptorCapability:
         with state.lock:
             if state.consumed:
                 raise DirectRootOwnerError("workspace descriptor capability is already consumed")
-            _assert_capability_current(self, state)
+            if state.invalidated:
+                raise DirectRootOwnerError(
+                    "workspace descriptor capability is terminally invalidated"
+                )
+            try:
+                _assert_capability_current(self, state)
+            except BaseException:
+                if state.descriptor_set._mode == "posix_nofollow":
+                    state.invalidated = True
+                    _close_directory_descriptors(
+                        state.descriptor_handles  # type: ignore[arg-type]
+                    )
+                raise
             state.consumed = True
             receipt = state.receipt.document()
             return ConsumedWorkspaceDescriptorLease._from_owner(
@@ -1612,8 +1994,47 @@ class SingleUseWorkspaceDescriptorCapability:
         raise TypeError("workspace descriptor capabilities are not serializable")
 
 
+@dataclass(slots=True)
+class _DirectRootOwnerState:
+    owner: object
+    clock: Callable[[], datetime]
+    nonce_source: Callable[[], str]
+    lock: threading.Lock
+    fresh_used: bool = False
+
+
+_DIRECT_ROOT_OWNER_REGISTRY_LOCK = threading.Lock()
+_DIRECT_ROOT_OWNER_REGISTRY: dict[int, _DirectRootOwnerState] = {}
+
+
+def _register_direct_root_owner(
+    owner: object,
+    state: _DirectRootOwnerState,
+) -> None:
+    _require(state.owner is owner, "direct-root owner state identity differs")
+    with _DIRECT_ROOT_OWNER_REGISTRY_LOCK:
+        _require(
+            id(owner) not in _DIRECT_ROOT_OWNER_REGISTRY,
+            "direct-root owner state is already registered",
+        )
+        _DIRECT_ROOT_OWNER_REGISTRY[id(owner)] = state
+
+
+def _direct_root_owner_state(owner: object) -> _DirectRootOwnerState:
+    _assert_owner_binding()
+    with _DIRECT_ROOT_OWNER_REGISTRY_LOCK:
+        state = _DIRECT_ROOT_OWNER_REGISTRY.get(id(owner))
+    _require(
+        type(owner) is DirectRootOwnerContractOwner
+        and type(state) is _DirectRootOwnerState
+        and state.owner is owner,
+        "direct-root owner state is unavailable",
+    )
+    return state
+
+
 class DirectRootOwnerContractOwner:
-    """Issue deterministic stable evidence and one fresh offline capability."""
+    """Sole owner for synthetic tests and production POSIX observations."""
 
     def __init__(
         self,
@@ -1625,15 +2046,33 @@ class DirectRootOwnerContractOwner:
         _assert_owner_binding()
         if (
             type(self) is not _owner_issued_type("DirectRootOwnerContractOwner")
-            or _factory_token is not _TEST_FACTORY_TOKEN
+            or _factory_token
+            not in {_TEST_FACTORY_TOKEN, _BACKEND_FACTORY_TOKEN}
             or not callable(clock)
             or not callable(nonce_source)
         ):
-            raise TypeError("direct-root owner requires its private offline-test factory")
-        self._clock = clock
-        self._nonce_source = nonce_source
-        self._lock = threading.Lock()
-        self._fresh_used = False
+            raise TypeError("direct-root owner requires its exact owner factory")
+        _register_direct_root_owner(
+            self,
+            _DirectRootOwnerState(
+                owner=self,
+                clock=clock,
+                nonce_source=nonce_source,
+                lock=threading.Lock(),
+            ),
+        )
+
+    @classmethod
+    def for_posix_backend(cls) -> "DirectRootOwnerContractOwner":
+        """Create the fixed backend observer owner with no caller configuration."""
+        _assert_owner_binding()
+        if cls is not _owner_issued_type("DirectRootOwnerContractOwner"):
+            raise TypeError("direct-root backend owner class differs")
+        return cls(
+            clock=_system_utc_now,
+            nonce_source=_system_nonce,
+            _factory_token=_BACKEND_FACTORY_TOKEN,
+        )
 
     @classmethod
     def _for_testing(
@@ -1662,6 +2101,7 @@ class DirectRootOwnerContractOwner:
         no_symlink_verified: bool = True,
         _test_token: object,
     ) -> _OwnerRootIdentitySnapshot:
+        _direct_root_owner_state(self)
         if _test_token is not _TEST_FACTORY_TOKEN:
             raise TypeError("direct-root snapshot test token differs")
         root = _absolute_root(canonical_root, "owner snapshot root")
@@ -1693,16 +2133,21 @@ class DirectRootOwnerContractOwner:
             token=_SNAPSHOT_TOKEN,
         )
 
-    def issue_stable_evidence(
+    def _seal_stable_evidence(
         self,
-        profile_policy: dict[str, Any],
-        expected_identity: _OwnerRootIdentitySnapshot,
+        *,
+        policy: dict[str, Any],
+        identity_document: dict[str, Any],
     ) -> StableRootIdentityEvidence:
-        _assert_owner_binding()
-        policy = validate_profile_policy(profile_policy)
-        _require(type(expected_identity) is _OwnerRootIdentitySnapshot, "stable evidence requires exact owner snapshot")
-        expected_identity.assert_owner_sealed()
-        _require(expected_identity.canonical_root == policy["declared_allowed_root"], "stable evidence expected root differs from profile policy")
+        _direct_root_owner_state(self)
+        chain = _component_chain(
+            identity_document,
+            "stable owner root identity",
+        )
+        _require(
+            chain["canonical_root"] == policy["declared_allowed_root"],
+            "stable evidence expected root differs from profile policy",
+        )
         document = {
             "schema": STABLE_EVIDENCE_SCHEMA,
             "backend_kind": BACKEND_KIND,
@@ -1718,7 +2163,7 @@ class DirectRootOwnerContractOwner:
                 "path_normalization_version": PATH_NORMALIZATION_VERSION,
                 "containment_version": CONTAINMENT_VERSION,
             },
-            "expected_root_identity": expected_identity.identity_document(),
+            "expected_root_identity": copy.deepcopy(chain),
             "derivation": {
                 "project_component_grammar": PROJECT_GRAMMAR,
                 "scratch_component": SCRATCH_COMPONENT,
@@ -1737,9 +2182,53 @@ class DirectRootOwnerContractOwner:
         validated = validate_stable_root_identity_evidence(
             _finalize(document, "evidence_payload_sha256")
         )
-        sealed = StableRootIdentityEvidence._from_owner(validated, token=_SEAL_TOKEN)
+        sealed = StableRootIdentityEvidence._from_owner(
+            validated,
+            token=_SEAL_TOKEN,
+        )
         sealed.assert_owner_sealed()
         return sealed
+
+    def issue_stable_evidence(
+        self,
+        profile_policy: dict[str, Any],
+        expected_identity: _OwnerRootIdentitySnapshot,
+    ) -> StableRootIdentityEvidence:
+        _direct_root_owner_state(self)
+        policy = validate_profile_policy(profile_policy)
+        _require(type(expected_identity) is _OwnerRootIdentitySnapshot, "stable evidence requires exact owner snapshot")
+        expected_identity.assert_owner_sealed()
+        return self._seal_stable_evidence(
+            policy=policy,
+            identity_document=expected_identity.identity_document(),
+        )
+
+    def issue_stable_evidence_from_reviewed_profile(
+        self,
+        profile_policy: dict[str, Any],
+    ) -> StableRootIdentityEvidence:
+        """Observe only the policy-owned root and publish its stable identity."""
+        _direct_root_owner_state(self)
+        policy = validate_profile_policy(profile_policy)
+        components, _names, _identities, descriptors = (
+            _open_root_components_no_follow(policy["declared_allowed_root"])
+        )
+        try:
+            identity_document = {
+                "canonical_root": policy["declared_allowed_root"],
+                "components": components,
+                "identity_chain_sha256": digest({
+                    "schema": "auto-g16-root-component-identity-chain/1",
+                    "canonical_root": policy["declared_allowed_root"],
+                    "components": components,
+                }),
+            }
+            return self._seal_stable_evidence(
+                policy=policy,
+                identity_document=identity_document,
+            )
+        finally:
+            _close_directory_descriptors(descriptors)
 
     def issue_fresh_capability_once(
         self,
@@ -1749,8 +2238,9 @@ class DirectRootOwnerContractOwner:
         authorization: dict[str, Any],
         observation: _OwnerRootIdentitySnapshot,
     ) -> SingleUseWorkspaceDescriptorCapability:
-        with self._lock:
-            if self._fresh_used:
+        state = _direct_root_owner_state(self)
+        with state.lock:
+            if state.fresh_used:
                 raise DirectRootOwnerError("direct-root owner fresh issuance is single-use")
             _assert_owner_binding()
             _require(type(stable_evidence) is StableRootIdentityEvidence, "fresh issuance requires exact stable evidence")
@@ -1758,7 +2248,7 @@ class DirectRootOwnerContractOwner:
             stable_evidence.assert_owner_sealed()
             observation.assert_owner_sealed()
             validated_profile = validate_direct_execution_profile(profile)
-            now = self._clock()
+            now = state.clock()
             validated_authorization = validate_direct_execution_authorization(
                 authorization,
                 now=now,
@@ -1777,7 +2267,7 @@ class DirectRootOwnerContractOwner:
                 and observation.no_symlink_verified,
                 "fresh observation safety checks failed",
             )
-            nonce = self._nonce_source()
+            nonce = state.nonce_source()
             _text(nonce, "owner nonce", NONCE_RE)
             age_text = validated_authorization["fresh_observation_rules"][
                 "maximum_receipt_age_seconds"
@@ -1861,12 +2351,68 @@ class DirectRootOwnerContractOwner:
                 profile=validated_profile,
                 authorization=validated_authorization,
                 descriptor_set=observation._descriptor_set,
-                clock=self._clock,
+                clock=state.clock,
                 token=_CAPABILITY_TOKEN,
             )
             capability.assert_current()
-            self._fresh_used = True
+            state.fresh_used = True
             return capability
+
+    def issue_fresh_capability_from_reviewed_profile_once(
+        self,
+        *,
+        profile: dict[str, Any],
+        stable_evidence: StableRootIdentityEvidence,
+        authorization: dict[str, Any],
+    ) -> SingleUseWorkspaceDescriptorCapability:
+        """Make one fresh no-follow observation and retain those descriptors."""
+        state = _direct_root_owner_state(self)
+        _require(
+            type(stable_evidence) is StableRootIdentityEvidence,
+            "backend fresh issuance requires exact stable evidence",
+        )
+        stable_evidence.assert_owner_sealed()
+        validated_profile = validate_direct_execution_profile(profile)
+        now = state.clock()
+        validated_authorization = validate_direct_execution_authorization(
+            authorization,
+            now=now,
+        )
+        evidence = stable_evidence.document()
+        _require(
+            validated_profile["stable_root_identity_evidence_sha256"]
+            == evidence["evidence_payload_sha256"]
+            == validated_authorization["root_evidence"][
+                "evidence_payload_sha256"
+            ],
+            "backend fresh issuance stable evidence differs",
+        )
+        _require(
+            validated_authorization["profile"]["profile_payload_sha256"]
+            == validated_profile["profile_payload_sha256"],
+            "backend fresh issuance profile differs",
+        )
+        observation = _observe_workspace_no_follow(
+            canonical_root=validated_profile["declared_allowed_root"],
+            project=validated_authorization["workspace"]["project"],
+        )
+        try:
+            return self.issue_fresh_capability_once(
+                profile=validated_profile,
+                stable_evidence=stable_evidence,
+                authorization=validated_authorization,
+                observation=observation,
+            )
+        except BaseException:
+            descriptor_set = observation._descriptor_set
+            if (
+                type(descriptor_set) is _DescriptorSet
+                and descriptor_set._mode == "posix_nofollow"
+            ):
+                _close_directory_descriptors(
+                    descriptor_set._opaque_handles  # type: ignore[arg-type]
+                )
+            raise
 
 
 def _parse_exact_json(raw: bytes, label: str) -> dict[str, Any]:
