@@ -1,4 +1,4 @@
-# Auto-G16 — Auto-Gaussian 2.6.1
+# Auto-G16 — Auto-Gaussian 2.7.0
 
 Auto-Gaussian is the repository and release brand for a guarded family of
 Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
@@ -80,6 +80,33 @@ IRC plan, AllCheck input, attempt, terminal receipt and fetch snapshot.
 Historical endpoint review or path acceptance `/1` remains readable for
 display/replay only and cannot open maturity, thermochemistry, asymmetric
 comparison or any live gate.
+
+## 2.7.0 offline-only release candidate
+
+Auto-Gaussian 2.7.0 is the current local offline-only source candidate. It
+starts from merged `main` commit
+`5b125a0b233b8815166c745e3654ba0053773333`, tree
+`53fb0d1ddbc9c7334fc3aa2db8d3b70379dec1f8`, and packages the integrated
+`direct_ssh_pbs` interfaces, closed Schema and state contracts, synthetic root
+and transaction models, offline onboarding, migration guidance, and support
+matrix. Its exact direct statuses are `offline_synthetic`,
+`production_blocked`, and `live_not_ready`; it does not claim
+`backend_supported`, production readiness, transport authority, or live
+readiness.
+
+The existing `legacy_rtwin_pbs` production backend remains permanently fixed
+below `/home/user100/SDL`. Version 2.7.0 does not relocate or generalize that
+legacy path. The direct profile's mandatory backend-owned root contract is an
+offline safety interface only and does not grant filesystem or server
+authority.
+
+Real no-follow observation, a physical descriptor-relative helper, durable
+cross-process consumption and uncertain-outcome storage, direct resource/live
+replay ingress, real transport, `qsub`, inspect, fetch, and separately
+authorized live-smoke evidence all remain blocked. This candidate has not been
+tagged or published as 2.7.0 and grants no deployment, SSH, RTwin, PBS,
+Gaussian, submission, retry, `qdel`, cleanup, deletion, live, or scientific
+authority.
 
 ## 2.6.1 published release
 

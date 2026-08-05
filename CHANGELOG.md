@@ -5,6 +5,36 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-08-05
+
+### Added
+
+- Added the merged v2.7 `direct_ssh_pbs` offline interface, closed profile and
+  authorization Schema lineage, synthetic root-mutation and direct-transaction
+  state models, offline onboarding command, migration guidance, and support
+  matrix.
+- Added exact machine-readable direct status and gap reporting. The only
+  current direct statuses are `offline_synthetic`, `production_blocked`, and
+  `live_not_ready`; `backend_supported` and `live_ready` remain false.
+
+### Scope
+
+- Version 2.7.0 delivers only offline interfaces, Schemas, state transitions,
+  synthetic transactions, onboarding, and support documentation for
+  `direct_ssh_pbs`. It does not deliver a real observer, physical mutation
+  helper, durable cross-process consumption, direct transport, real `qsub`,
+  real inspect/fetch, or live-smoke evidence.
+- The existing `legacy_rtwin_pbs` production backend remains permanently fixed
+  below `/home/user100/SDL`. The direct profile contract does not relocate or
+  generalize that legacy backend.
+
+### Safety
+
+- Offline tests, release metadata, a commit, CI, a tag, or publication cannot
+  make `direct_ssh_pbs` production- or live-ready. This release closure performs
+  no deployment, Skill synchronization, SSH, RTwin, PBS, Gaussian, upload,
+  submission, retry, cancellation, `qdel`, cleanup, deletion, or live smoke.
+
 ## [2.6.1] - 2026-08-02
 
 ### Added
@@ -574,7 +604,8 @@ All notable public release changes are recorded here. The project follows
 - Published the guarded RTwin/PBS, TS–Freq–IRC, structure, preview, and
   asymmetric-catalysis baseline.
 
-[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.6.1...HEAD
+[Unreleased]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.6.1...v2.7.0
 [2.6.1]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.4...v2.6.0
 [2.5.4]: https://github.com/anakine800-tech/Auto-Gaussian/compare/v2.5.3...v2.5.4
