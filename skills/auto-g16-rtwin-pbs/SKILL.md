@@ -504,11 +504,46 @@ Zombie cleanup changes only a PBS-owned record. It never deletes or modifies `/h
 Read [references/environment-and-failures.md](references/environment-and-failures.md) for connection, stale PBS, fetch, and restart decisions.
 Read [references/runtime-safety-compatibility.md](references/runtime-safety-compatibility.md) for additive inspection fields and the direct-fetch migration.
 
-## Bundled scripts
+## Bundled scripts, references and owner index
+
+The named-Skill package maps repository-owned sources into one installed
+package; the paths below are an index, not copied owner implementations. The
+base `deployment-package.json` and its lexically ordered supplements remain the
+package authority. W1 through W4 are separately reviewed local/offline
+components in the current repository collection, not one composed direct
+production adapter:
+
+- W1 root observation: `scripts/direct_root_owner_contract.py` with
+  `references/direct-root-owner-contract.md`.
+- W2 durable single-use and outcome state:
+  `scripts/direct_durable_submission_journal.py` with
+  `references/direct-durable-submission-journal.md`.
+- W3 exact resource/live replay ingress:
+  `scripts/direct_effect_time_replay_ingress.py` with
+  `references/direct-effect-time-replay-ingress.md`.
+- W4 process-isolated fixed descriptor-relative mutation:
+  `scripts/direct_root_fixed_mutation_consumer.py` and
+  `scripts/direct_root_fixed_mutation_helper.py` with
+  `references/direct-root-fixed-mutation-helper.md`.
+- The direct boundary, offline backend and onboarding/support surfaces are
+  `scripts/direct_root_mutation_boundary.py` with
+  `references/direct-root-mutation-boundary.md`,
+  `scripts/direct_ssh_pbs_offline.py` with
+  `references/direct-ssh-pbs-offline-backend.md`, and
+  `scripts/direct_onboarding.py` with
+  `references/direct-onboarding-support.md`.
+
+W4B/W5/W6/W7 integration is not present. The W1-W4 components therefore grant
+no direct transport, upload, `qsub`, inspect/fetch, reconciliation, deployment
+or live authority; the direct backend remains `offline_synthetic`,
+`production_blocked` and `live_not_ready`.
 
 - `scripts/platform_contracts.py`: standard-library-only strict canonical JSON,
   new closed platform-contract validation, sanitized legacy mapping and
   explicit private no-clobber profile init; it has no network or live operation.
+- `scripts/platform_runtime_config_owner.py` and `scripts/runtime_config.py`:
+  packaged runtime-configuration owner and compatibility loader; neither grants
+  a backend, transport or live capability.
 - `scripts/execution_authorization.py`: standard-library-only PR3 request,
   human-issued authorization and exact owner-replay gate; it returns only
   immutable offline closure evidence, uses ephemeral private validation copies,
@@ -527,6 +562,8 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/execution_facade.py` and `scripts/execution_models.py`: typed sealed
   execution boundary, fixed legacy backend dispatch, non-executable live
   attestation plan and narrow protected-submit seal/reserve entry points.
+- `scripts/transport_authority_closure.py`: packaged offline transport-authority
+  closure; it validates evidence but performs no transport.
 - `scripts/protected_submit_contract.py`: packaged copy of the repository
   owner that composes existing approvals and identity closures into a
   non-executable, single-use protected-submit bundle.
@@ -535,23 +572,47 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/protected_invocation_contract.py`: packaged additive PR4F owner
   that composes PR4D, PR4G and the unique legacy stage-byte plan into a
   replayable in-process seal with no reservation or effect surface.
+- `scripts/protected_lifecycle_contract.py`: packaged non-executable lifecycle
+  ordering owner; all adapter, effect and reconciliation states remain closed.
 - `scripts/protected_local_materialization.py`: packaged additive PR4L owner
   for reserve-first, no-clobber exact stage materialization and final sealed
   local-state publication; it provides no adapter or external-effect method.
 - `scripts/protected_legacy_effect_handoff.py`: packaged additive PR4N owner
   for the non-executable typed PR4L-to-PR4M handoff; every effect, adapter and
   runner status remains false.
+- `scripts/protected_runtime_state_contract.py` and
+  `scripts/protected_owner_consumer_contract.py`: packaged state-chain and
+  single-consumer owners; they do not create a second raw effect owner.
 - `scripts/protected_production_ingress_contract.py`: packaged additive
   effect-free owner for the exact owner-consumer to production/factory-port
   handoff; production and the legacy internal factory consumer remain
   deliberately unwired.
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
+- `scripts/legacy_root_authority_contract.py`: packaged sole legacy-root
+  authority contract; it does not generalize or relocate `/home/user100/SDL`.
+- `scripts/resource_efficiency.py`,
+  `scripts/resource_effect_time_replay_owner.py`, and
+  `scripts/live_approval_effect_time_replay.py`: packaged sole resource and
+  live effect-time replay owners. The W3 ingress composes their capabilities
+  without copying selection or approval logic.
+- `scripts/legacy_adapter_integration.py`: packaged compatibility integration
+  for the existing legacy backend; it is not a direct transport implementation.
 - `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for
   preflight, stage, submit, inspect, watch, fetch, analyze and exact scheduler
   operations.
 - `scripts/gaussian_log.py`: deterministic Gaussian result and geometry parser.
 - `scripts/gaussian_workflow.py`: build and analyze Opt-Freq-single-point workflows and aggregate conformer populations.
+
+Additional packaged owner/reference entry points are
+`references/execution-batch-v3-reservation-capability.md`,
+`references/legacy-root-authority-contract.md`,
+`references/live-approval-effect-time-replay.md`,
+`references/resource-effect-time-replay-owner.md`,
+`references/protected-invocation-contract.md`, and
+`references/resource-monitor-efficiency.md`. Every other packaged reference is
+linked at its owning workflow gate above; adding a packaged script or reference
+requires updating this index in the same repository change.
 
 Read [references/live-approval-record.md](references/live-approval-record.md)
 before creating an exact live approval or invoking a non-dry-run `auto` command.

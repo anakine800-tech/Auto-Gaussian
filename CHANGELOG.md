@@ -16,14 +16,18 @@ All notable public release changes are recorded here. The project follows
 - Added exact machine-readable direct status and gap reporting. The only
   current direct statuses are `offline_synthetic`, `production_blocked`, and
   `live_not_ready`; `backend_supported` and `live_ready` remain false.
+- The local package collection now includes the separately reviewed W1
+  backend-owned POSIX no-follow observer, W2 durable journal owner, W3 exact
+  resource/live replay ingress, and W4 process-isolated fixed descriptor-
+  relative mutation helper, plus direct boundary, offline-backend and
+  onboarding/support surfaces.
 
 ### Scope
 
-- Version 2.7.0 delivers only offline interfaces, Schemas, state transitions,
-  synthetic transactions, onboarding, and support documentation for
-  `direct_ssh_pbs`. It does not deliver a real observer, physical mutation
-  helper, durable cross-process consumption, direct transport, real `qsub`,
-  real inspect/fetch, or live-smoke evidence.
+- Version 2.7.0 remains an offline-only source candidate. W1-W4 are separate
+  local/offline components, not a composed direct production adapter.
+  W4B/W5/W6/W7 integration is absent, so direct transport, upload, real `qsub`,
+  real inspect/fetch, reconciliation, and live-smoke evidence remain blocked.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed
   below `/home/user100/SDL`. The direct profile contract does not relocate or
   generalize that legacy backend.
