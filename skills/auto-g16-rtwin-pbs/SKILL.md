@@ -453,7 +453,13 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 Active cancellation does not rely on `--confirmed`. It requires a fresh
 `auto-g16-exact-cancellation-approval/1` binding approver/time/project/job ID,
 current local job-state hash and exact attempt hash, then consumes it into one
-immutable receipt. Cancellation never authorizes retry, cleanup or deletion.
+immutable receipt. The consumed intent permits `qdel` only after two exact,
+strict qstat records (the second immediately before the effect) both bind the
+approved job ID/name and report the single-token PBS state `Q` or `R`. `H`,
+`E`, terminal/stale/zombie evidence, absence, malformed/duplicate records,
+identity conflict, drift and transport ambiguity all issue no `qdel` and grant
+no retry. Cancellation never authorizes retry, cleanup or deletion, and never
+uses the separate scheduler-zombie cleanup owner.
 
 ## PBS zombie records
 
@@ -513,6 +519,10 @@ package authority. W1 through W4 are separately reviewed local/offline
 components in the current repository collection. W4B is the reviewed fixed
 trusted server-local composition seam; none of them is a direct production
 adapter:
+
+- The legacy active-cancel Q/R-only pre-effect maintenance rule is documented
+  in `references/legacy-active-cancel-state-gate.md`; it is not direct W7 and
+  adds no direct cancellation capability.
 
 - W1 root observation: `scripts/direct_root_owner_contract.py` with
   `references/direct-root-owner-contract.md`.
