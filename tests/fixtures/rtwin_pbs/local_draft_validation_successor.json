@@ -1,0 +1,21 @@
+{
+  "schema": "auto-g16-local-draft-validation-successor/1",
+  "base_commit": "f337f65d030a9cfc686ec41777baf38476ddac84",
+  "base_tree": "d46fb2ce0929dbde289c86a79c430a47c6870121",
+  "successor_commit": "0d28ee34be7a4d2fa42651e5c1a50417199e8491",
+  "successor_tree": "9063d88e5444db5b898668ce62fc1a14968e6148",
+  "scope": {
+    "test_only_local_draft_validation": true,
+    "historical_fixture_rewritten": false,
+    "runtime_dependencies_changed": false,
+    "live_actions": false
+  },
+  "files": {
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "41492bdeb925ef046a4c9a8b1e895eb59a24aca1e7c0318c262296e670b8f187",
+      "sha256": "4ddfd5f91105a9a9afd907c6850ae8b7a6ebeeb35dc7bdee0e6147c961f430f1",
+      "change_class": "audit_local_test_only_draft_validation_entrypoint",
+      "runtime_semantics_changed": false
+    }
+  }
+}

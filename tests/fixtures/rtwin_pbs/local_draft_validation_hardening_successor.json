@@ -1,0 +1,31 @@
+{
+  "schema": "auto-g16-local-draft-validation-hardening-successor/1",
+  "base_commit": "0d28ee34be7a4d2fa42651e5c1a50417199e8491",
+  "base_tree": "9063d88e5444db5b898668ce62fc1a14968e6148",
+  "scope": {
+    "forged_environment_executable_blocked": true,
+    "historical_fixture_rewritten": false,
+    "runtime_dependencies_changed": false,
+    "live_actions": false
+  },
+  "files": {
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_sha256": "55d1bcd8f1274a34ed9f3e3e82fd46196984158bcb479c5ccdc5511a054f2e72",
+      "sha256": "28bedaf85ea87dadc8c70d11ec708ff9ff39aa947086a629b1a7b947f3cdfeec",
+      "change_class": "append_local_draft_validation_successor_hash_chain",
+      "runtime_semantics_changed": false
+    },
+    "tests/test_protected_production_ingress_contract.py": {
+      "before_sha256": "0f78ea2a2ef20120fc65768e6953f40d2c7bc274c4e1dce594c74a90eb40123e",
+      "sha256": "9ffb09a4cf43c584dc0985a0ad36147ee77292a6b5cf35fcc7d01f75ec9d4210",
+      "change_class": "append_local_draft_validation_successor_hash_chain",
+      "runtime_semantics_changed": false
+    },
+    "tests/test_resource_effect_time_replay_owner.py": {
+      "before_sha256": "171a5970bac80ea3962bfbf8b4adebcbfe691a36ebeedf16e14860421370fa55",
+      "sha256": "29bfbb9b4cc63ef864cc0005508e79f8b8dfec0ae2d2ce62b63bb62fc0dfc8af",
+      "change_class": "append_local_draft_validation_successor_hash_chain",
+      "runtime_semantics_changed": false
+    }
+  }
+}

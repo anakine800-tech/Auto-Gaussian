@@ -706,6 +706,13 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                 "release_2_7_ci_contract_successor.json"
             ).read_text(encoding="utf-8")
         )["files"]
+        local_draft_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "local_draft_validation_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):
                 if relative in release_successor:
@@ -714,6 +721,10 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                         successor_binding["before_sha256"],
                         expected,
                     )
+                    expected = successor_binding["sha256"]
+                if relative in local_draft_successor:
+                    successor_binding = local_draft_successor[relative]
+                    self.assertEqual(successor_binding["before_sha256"], expected)
                     expected = successor_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),

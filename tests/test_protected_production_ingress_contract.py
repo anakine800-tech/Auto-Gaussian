@@ -768,6 +768,20 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         release_successor = release_successor_document["files"]
+        local_draft_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "local_draft_validation_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
+        hardening_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "local_draft_validation_hardening_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, expected in fixture["frozen_predecessors"].items():
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
@@ -784,6 +798,14 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                     relative,
                 )
                 expected = successor_binding["sha256"]
+            if relative in local_draft_successor:
+                successor_binding = local_draft_successor[relative]
+                self.assertEqual(successor_binding["before_sha256"], expected, relative)
+                expected = successor_binding["sha256"]
+            if relative in hardening_successor:
+                successor_binding = hardening_successor[relative]
+                self.assertEqual(successor_binding["before_sha256"], expected, relative)
+                expected = successor_binding["sha256"]
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
@@ -797,6 +819,14 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                     expected,
                     relative,
                 )
+                expected = successor_binding["sha256"]
+            if relative in local_draft_successor:
+                successor_binding = local_draft_successor[relative]
+                self.assertEqual(successor_binding["before_sha256"], expected, relative)
+                expected = successor_binding["sha256"]
+            if relative in hardening_successor:
+                successor_binding = hardening_successor[relative]
+                self.assertEqual(successor_binding["before_sha256"], expected, relative)
                 expected = successor_binding["sha256"]
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
