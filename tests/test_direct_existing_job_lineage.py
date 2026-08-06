@@ -312,6 +312,16 @@ class DirectExistingJobLineageTests(unittest.TestCase):
                     fixture.close()
 
     def test_source_module_reload_and_predecessor_rebinding_fail_before_issuance(self) -> None:
+        fixed_clean_probe_environment = {
+            "AUTO_G16_RUNTIME_CONFIG": "/proc/auto-g16-disabled-runtime-config",
+            "HOME": "/proc/auto-g16-disabled-home",
+            "LANG": "C",
+            "LC_ALL": "C",
+        }
+        self.assertEqual(
+            fixed_clean_probe_environment,
+            SESSION.FIXED_CLEAN_EXEC_ENVIRONMENT,
+        )
         with self.assertRaisesRegex(
             LINEAGE.DirectExistingJobLineageError,
             "fixed -I -S server process",
@@ -351,7 +361,7 @@ else:
             check=False,
             capture_output=True,
             text=True,
-            env={"LANG": "C", "LC_ALL": "C"},
+            env=fixed_clean_probe_environment,
             cwd="/",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -372,7 +382,7 @@ print("FIXED_CLEAN_EXEC_OWNER_READY_NO_EFFECT")
             check=False,
             capture_output=True,
             text=True,
-            env={"LANG": "C", "LC_ALL": "C"},
+            env=fixed_clean_probe_environment,
             cwd="/",
         )
         self.assertEqual(clean.returncode, 0, clean.stderr)
