@@ -32,6 +32,10 @@ ARTIFACT_FIELDS = (
     "stable_evidence",
     "profile",
     "authorization",
+    "transport_profile",
+    "ssh_system_policy_evidence",
+    "pbs_script",
+    "pbs_review",
     "input_bytes",
     "resource_ledger",
     "resource_policy",
@@ -152,6 +156,8 @@ def _run_child(
     control_descriptor: int,
     helper_source_descriptor: int,
     session_source_descriptor: int,
+    w5_source_descriptor: int,
+    executable_descriptor: int,
     scripts_directory: str,
 ) -> int:
     control = socket.socket(fileno=control_descriptor)
@@ -159,10 +165,15 @@ def _run_child(
     try:
         helper_raw, helper_identity = _read_source(helper_source_descriptor, "helper")
         session_raw, session_identity = _read_source(session_source_descriptor, "session")
+        w5_raw, w5_identity = _read_source(w5_source_descriptor, "W5")
         os.close(helper_source_descriptor)
         helper_source_descriptor = -1
         os.close(session_source_descriptor)
         session_source_descriptor = -1
+        os.close(w5_source_descriptor)
+        w5_source_descriptor = -1
+        os.close(executable_descriptor)
+        executable_descriptor = -1
 
         scripts = Path(scripts_directory)
         _require(
@@ -179,6 +190,12 @@ def _run_child(
         module.__package__ = ""
         sys.modules[module.__name__] = module
         exec(compile(session_raw, module.__file__, "exec"), module.__dict__)
+        w5 = types.ModuleType("direct_one_hop_transport")
+        w5.__file__ = str(scripts / "direct_one_hop_transport.py")
+        w5.__package__ = ""
+        w5.__reviewed_source_sha256__ = hashlib.sha256(w5_raw).hexdigest()
+        sys.modules[w5.__name__] = w5
+        exec(compile(w5_raw, w5.__file__, "exec"), w5.__dict__)
 
         attestation = module._activate_fixed_clean_exec_child(
             control_descriptor=control_descriptor,
@@ -186,6 +203,8 @@ def _run_child(
             helper_source_identity=helper_identity,
             session_source_sha256=hashlib.sha256(session_raw).hexdigest(),
             session_source_identity=session_identity,
+            w5_source_sha256=hashlib.sha256(w5_raw).hexdigest(),
+            w5_source_identity=w5_identity,
             scripts_directory=scripts_directory,
             original_argv=tuple(sys.argv),
         )
@@ -239,7 +258,7 @@ def _run_child(
                 pass
             return 3
         try:
-            _recv_frame(control)
+            operation = _recv_frame(control)
         except FixedCleanExecError as exc:
             if str(exc) == "control socket closed during a frame":
                 module._retire_session_unknown_once(
@@ -252,11 +271,37 @@ def _run_child(
                 "fixed-clean-exec-malformed-frame-after-w5-lease",
             )
             return 3
-        module._retire_session_unknown_once(
-            capability,
-            "fixed-clean-exec-duplicate-frame-after-w5-lease",
-        )
-        return 3
+        seam = None
+        try:
+            expected_operation = {
+                "protocol": PROTOCOL,
+                "operation": "submit_once",
+                "session_id": readiness["session_id"],
+                "readiness_payload_sha256": readiness["result_payload_sha256"],
+            }
+            module._require(operation == expected_operation, "fixed W5 operation frame differs")
+            seam = module.consume_w5_operation_seam_once(w5_lease)
+            receipt = w5.consume_production_once(seam)
+            result = receipt.portable_projection()
+            _send_frame(
+                control,
+                {"protocol": PROTOCOL, "status": "completed", "result": result},
+            )
+            return 0
+        except BaseException:
+            if seam is None:
+                module._retire_session_unknown_once(
+                    capability,
+                    "fixed-clean-exec-w5-operation-unknown",
+                )
+            try:
+                _send_frame(
+                    control,
+                    {"protocol": PROTOCOL, "status": "submission_uncertain"},
+                )
+            except BaseException:
+                pass
+            return 3
     except BaseException as exc:
         try:
             _send_frame(
@@ -267,7 +312,7 @@ def _run_child(
             pass
         return 2
     finally:
-        for descriptor in (helper_source_descriptor, session_source_descriptor):
+        for descriptor in (helper_source_descriptor, session_source_descriptor, w5_source_descriptor, executable_descriptor):
             if descriptor >= 0:
                 try:
                     os.close(descriptor)
@@ -282,24 +327,26 @@ def main(argv: list[str] | None = None) -> int:
     values = sys.argv[1:] if argv is None else argv
     if (
         type(values) is not list
-        or len(values) != 5
+        or len(values) != 7
         or values[0] != CHILD_FLAG
-        or any(not item.isascii() or not item.isdigit() for item in values[1:4])
+        or any(not item.isascii() or not item.isdigit() for item in values[1:6])
     ):
         return 64
-    control_descriptor, helper_descriptor, session_descriptor = (
-        int(item, 10) for item in values[1:4]
+    control_descriptor, helper_descriptor, session_descriptor, w5_descriptor, executable_descriptor = (
+        int(item, 10) for item in values[1:6]
     )
     if (
-        min(control_descriptor, helper_descriptor, session_descriptor) < 3
-        or len({control_descriptor, helper_descriptor, session_descriptor}) != 3
+        min(control_descriptor, helper_descriptor, session_descriptor, w5_descriptor, executable_descriptor) < 3
+        or len({control_descriptor, helper_descriptor, session_descriptor, w5_descriptor, executable_descriptor}) != 5
     ):
         return 64
     return _run_child(
         control_descriptor,
         helper_descriptor,
         session_descriptor,
-        values[4],
+        w5_descriptor,
+        executable_descriptor,
+        values[6],
     )
 
 

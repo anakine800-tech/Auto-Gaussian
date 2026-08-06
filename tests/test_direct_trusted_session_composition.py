@@ -41,6 +41,7 @@ import direct_root_mutation_boundary as SYNTHETIC_ROOT  # noqa: E402
 import direct_root_owner_contract as W1  # noqa: E402
 import direct_ssh_pbs_offline as DIRECT  # noqa: E402
 import direct_trusted_session_composition as SESSION  # noqa: E402
+import direct_one_hop_transport as W5  # noqa: E402
 import live_approval_effect_time_replay as LIVE  # noqa: E402
 import resource_effect_time_replay_owner as RESOURCE_REPLAY  # noqa: E402
 import resource_efficiency as RESOURCE  # noqa: E402
@@ -73,18 +74,140 @@ class PortableSessionFixture:
         approval = json.loads(self.live.approval_path.read_text(encoding="utf-8"))
         execution = approval["scope"]["execution"]
         resource = execution["resource_binding"]
+        payload = protected.input_path.read_bytes()
+        pbs_script = (
+            "#!/bin/sh\nset -eu\n"
+            f"test \"${{AUTO_G16_ALLOWED_ROOT:-}}\" = \"{self.root}\"\n"
+            "test \"$PBS_O_WORKDIR\" = \"$(pwd -P)\"\n"
+            "test -d scratch && test ! -L scratch\n"
+            f"exec g16 {W5.INPUT_BASENAME}\n"
+        ).encode("utf-8")
+        pbs_review = {
+            "schema": W5.PBS_REVIEW_SCHEMA,
+            "review_id": "synthetic-reviewed-direct-pbs",
+            "script": {
+                "basename": W5.PBS_BASENAME,
+                "sha256": hashlib.sha256(pbs_script).hexdigest(),
+                "size_bytes": str(len(pbs_script)),
+            },
+            "workspace": {
+                "allowed_root": str(self.root),
+                "project": approval["scope"]["project"],
+                "working_directory_check": "pbs_o_workdir_equals_submission_directory",
+                "scratch_policy": "project_relative_scratch",
+                "scratch_basename": "scratch",
+            },
+            "input": {
+                "source_sha256": hashlib.sha256(payload).hexdigest(),
+                "uploaded_basename": W5.INPUT_BASENAME,
+                "route_bytes_unchanged": True,
+            },
+            "resources": {
+                "tier": resource["resource_tier"],
+                "cores": str(resource["cores"]),
+                "memory_gb": str(resource["memory_gb"]),
+                "walltime_seconds": str(resource["walltime_seconds"]),
+            },
+            "gaussian": {
+                "executable": "g16",
+                "invocation": "filename_argument",
+                "input_basename": W5.INPUT_BASENAME,
+                "scientific_route_owned_by_input": True,
+            },
+            "safety": {
+                "set_eu": True,
+                "allowed_root_checked": True,
+                "project_workdir_checked": True,
+                "scratch_identity_checked": True,
+                "nested_ssh": False,
+                "legacy_transport_called": False,
+            },
+            "review_payload_sha256": "",
+        }
+        pbs_review["review_payload_sha256"] = W5.digest(pbs_review)
+        pbs_review_raw = W5.canonical_bytes(pbs_review)
+        ssh_system_policy_evidence = W5.canonical_bytes(
+            {
+                "schema": "auto-g16-ssh-configuration-files-disabled-evidence/1",
+                "ssh_executable_sha256": "d" * 64,
+                "fixed_option": ["-F", "none"],
+                "configuration_files_read": False,
+                "global_known_hosts_file": "none",
+                "user_known_hosts_file": "/etc/auto-g16/direct_known_hosts",
+                "strict_host_key_checking": True,
+                "known_hosts_command": "none",
+                "verify_host_key_dns": False,
+                "update_host_keys": False,
+                "default_identity_files": "disabled_by_IdentityFile_none",
+                "identity_agent": "none",
+                "certificate_file": "none",
+                "pkcs11_provider": "none",
+                "security_key_provider": "none",
+                "portable_evidence_authorizes_effect": False,
+            }
+        )
+
+        transport_profile = {
+            "schema": W5.TRANSPORT_PROFILE_SCHEMA,
+            "profile_id": "direct-trusted-session-transport",
+            "backend_kind": W5.BACKEND_KIND,
+            "topology": W5.TOPOLOGY,
+            "scheduler_dialect": W5.SCHEDULER_DIALECT,
+            "ssh": {
+                "executable": W5.SSH_EXECUTABLE,
+                "executable_sha256": "d" * 64,
+                "configuration_files": "disabled_by_F_none",
+                "system_policy_evidence_sha256": hashlib.sha256(ssh_system_policy_evidence).hexdigest(),
+                "host": "pbs.example.invalid",
+                "user": "auto_g16",
+                "port": "22",
+                "identity_file": "/etc/auto-g16/direct_identity",
+                "known_hosts_file": "/etc/auto-g16/direct_known_hosts",
+                "batch_mode": True,
+                "identities_only": True,
+                "strict_host_key_checking": True,
+                "subsystem": W5.SSH_SUBSYSTEM,
+            },
+            "server": {
+                "python_executable": str(SESSION._FIXED_EXECUTABLE.path),
+                "python_executable_sha256": SESSION._FIXED_EXECUTABLE.sha256,
+                "isolated_flags": ["-I", "-S"],
+                "working_directory": "/",
+                "environment": copy.deepcopy(W5.FIXED_ENVIRONMENT),
+                "allowed_root": str(self.root),
+                "entrypoint_source_sha256": W5._EXECUTED_SOURCE_SHA256,
+            },
+            "qsub": {
+                "executable": W5.QSUB_EXECUTABLE,
+                "executable_sha256": "f" * 64,
+                "argv": list(W5.QSUB_ARGV),
+                "working_directory": "already_open_project_fd",
+                "stdout_grammar": "independent_pbs_job_id_v1",
+            },
+            "pbs_artifact": {
+                "basename": W5.PBS_BASENAME,
+                "sha256": hashlib.sha256(pbs_script).hexdigest(),
+                "size_bytes": str(len(pbs_script)),
+                "review_payload_sha256": pbs_review["review_payload_sha256"],
+                "owner": "reviewed_direct_pbs_artifact_owner",
+            },
+            "safety": copy.deepcopy(W5.POLICY),
+            "profile_payload_sha256": "",
+        }
+        transport_profile["profile_payload_sha256"] = W5.digest(transport_profile)
+        transport_profile = W5.validate_transport_profile(transport_profile)
+        transport_profile_raw = W5.canonical_bytes(transport_profile)
 
         review_owner = W1.DirectRootOwnerContractOwner.for_posix_backend()
         policy = W1.build_profile_policy(
             profile_id="direct-trusted-session-reviewed",
             declared_allowed_root=str(self.root),
-            transport_identity_binding_sha256="a" * 64,
+            transport_identity_binding_sha256=transport_profile["profile_payload_sha256"],
             gaussian_runtime_binding_sha256="b" * 64,
             resource_catalog_sha256="c" * 64,
         )
         evidence = review_owner.issue_stable_evidence_from_reviewed_profile(policy)
         profile = W1.build_direct_execution_profile(policy, evidence)
-        payload = protected.input_path.read_bytes()
         authorization = W1.build_direct_execution_authorization(
             authorization_id="direct-trusted-session-authorization",
             profile=profile,
@@ -114,6 +237,10 @@ class PortableSessionFixture:
             stable_evidence=W1.canonical_bytes(evidence.document()),
             profile=W1.canonical_bytes(profile),
             authorization=W1.canonical_bytes(authorization),
+            transport_profile=transport_profile_raw,
+            ssh_system_policy_evidence=ssh_system_policy_evidence,
+            pbs_script=pbs_script,
+            pbs_review=pbs_review_raw,
             input_bytes=payload,
             resource_ledger=protected.ledger_path.read_bytes(),
             resource_policy=artifact(protected.policy),
@@ -223,6 +350,28 @@ print(target + "_REJECTED_BEFORE_W2")
                 self.assertEqual(tuple(Path(raw).iterdir()), ())
 
     def test_named_skill_supplement_maps_only_session_source_schema_and_reference(self) -> None:
+        supplement_root = ROOT / "config/deployment-package-supplements/auto-g16-rtwin-pbs"
+        w4b = json.loads((supplement_root / "direct-trusted-session-composition.json").read_text(encoding="utf-8"))
+        w5 = json.loads((supplement_root / "direct-one-hop-transport.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            [item["source"] for item in w4b["include"]],
+            [
+                "scripts/direct_trusted_session_composition.py",
+                "scripts/direct_trusted_session_clean_exec.py",
+                "contracts/direct-execution/direct-trusted-session-result.schema.json",
+                "docs/v2.7-direct-trusted-session-composition.md",
+            ],
+        )
+        self.assertEqual(
+            [item["source"] for item in w5["include"]],
+            [
+                "scripts/direct_one_hop_transport.py",
+                "contracts/direct-execution/direct-one-hop-submission-result.schema.json",
+                "contracts/direct-execution/direct-one-hop-transport-profile.schema.json",
+                "contracts/direct-execution/reviewed-direct-pbs-script.schema.json",
+                "docs/v2.7-direct-one-hop-transport.md",
+            ],
+        )
         package = SKILL_PACKAGE.package_files_with_supplements(ROOT, "auto-g16-rtwin-pbs")
         expected = {
             Path("scripts/direct_trusted_session_composition.py"): (
@@ -231,11 +380,26 @@ print(target + "_REJECTED_BEFORE_W2")
             Path("scripts/direct_trusted_session_clean_exec.py"): (
                 ROOT / "scripts/direct_trusted_session_clean_exec.py"
             ),
+            Path("scripts/direct_one_hop_transport.py"): (
+                ROOT / "scripts/direct_one_hop_transport.py"
+            ),
             Path("contracts/rtwin-pbs/direct-trusted-session-result.schema.json"): (
                 ROOT / "contracts/direct-execution/direct-trusted-session-result.schema.json"
             ),
+            Path("contracts/rtwin-pbs/direct-one-hop-submission-result.schema.json"): (
+                ROOT / "contracts/direct-execution/direct-one-hop-submission-result.schema.json"
+            ),
+            Path("contracts/rtwin-pbs/direct-one-hop-transport-profile.schema.json"): (
+                ROOT / "contracts/direct-execution/direct-one-hop-transport-profile.schema.json"
+            ),
+            Path("contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json"): (
+                ROOT / "contracts/direct-execution/reviewed-direct-pbs-script.schema.json"
+            ),
             Path("references/direct-trusted-session-composition.md"): (
                 ROOT / "docs/v2.7-direct-trusted-session-composition.md"
+            ),
+            Path("references/direct-one-hop-transport.md"): (
+                ROOT / "docs/v2.7-direct-one-hop-transport.md"
             ),
         }
         for target, source in expected.items():
@@ -286,8 +450,10 @@ print(target + "_REJECTED_BEFORE_W2")
             ready["executable_identity"],
             list(SESSION._FIXED_EXECUTABLE.identity),
         )
+        self.assertEqual(ready["executable_sha256"], SESSION._FIXED_EXECUTABLE.sha256)
         self.assertEqual(ready["helper_source_sha256"], SESSION._FIXED_HELPER_SOURCE.sha256)
         self.assertEqual(ready["session_source_sha256"], SESSION._FIXED_SESSION_SOURCE.sha256)
+        self.assertEqual(ready["w5_source_sha256"], SESSION._FIXED_W5_SOURCE.sha256)
         self.assertEqual(ready["entrypoint"], ready["argv"][0])
         self.assertEqual(ready["argv"][1], SESSION.CLEAN_EXEC.CHILD_FLAG)
         self.assertEqual(ready["environment"], SESSION.FIXED_CLEAN_EXEC_ENVIRONMENT)
@@ -302,6 +468,7 @@ print(target + "_REJECTED_BEFORE_W2")
             ("FIXED_CLEAN_EXEC_CWD", "/tmp"),
             ("FIXED_CLEAN_EXEC_ENVIRONMENT", {"LANG": "hostile"}),
             ("_FIXED_HELPER_SOURCE", SESSION._FIXED_SESSION_SOURCE),
+            ("_FIXED_W5_SOURCE", SESSION._FIXED_SESSION_SOURCE),
             (
                 "_FIXED_EXECUTABLE",
                 SESSION._ExecutableSnapshot(Path("/hostile/python"), ()),
@@ -344,13 +511,15 @@ print(target + "_REJECTED_BEFORE_W2")
         parent, child = socket.socketpair()
         helper_fd = SESSION._open_bound_source(SESSION._FIXED_HELPER_SOURCE)
         session_fd = SESSION._open_bound_source(SESSION._FIXED_SESSION_SOURCE)
+        w5_fd = SESSION._open_bound_source(SESSION._FIXED_W5_SOURCE)
+        executable_fd = SESSION._open_bound_executable(SESSION._FIXED_EXECUTABLE)
         extra_fd = os.open("/dev/null", os.O_RDONLY)
         child_fd = child.fileno()
-        argv = SESSION._expected_child_argv(child_fd, helper_fd, session_fd)
+        argv = SESSION._expected_child_argv(child_fd, helper_fd, session_fd, w5_fd, executable_fd)
         process = subprocess.Popen(
             [str(SESSION._FIXED_EXECUTABLE.path), *argv],
             close_fds=True,
-            pass_fds=(child_fd, helper_fd, session_fd, extra_fd),
+            pass_fds=(child_fd, helper_fd, session_fd, w5_fd, executable_fd, extra_fd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -359,6 +528,8 @@ print(target + "_REJECTED_BEFORE_W2")
         )
         os.close(helper_fd)
         os.close(session_fd)
+        os.close(w5_fd)
+        os.close(executable_fd)
         os.close(extra_fd)
         child.close()
         try:
@@ -950,7 +1121,7 @@ raise SystemExit(3)
                         ).items()
                         if callable(value) and not name.startswith("__")
                     },
-                    {"readiness", "transition_to_w5_once"},
+            {"readiness", "transition_to_w5_once", "submit_once"},
                 )
                 self.assertIsNone(process.poll())
                 with self.assertRaisesRegex(

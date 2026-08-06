@@ -288,6 +288,7 @@ class _FileSnapshot:
 class _ExecutableSnapshot:
     path: Path
     identity: tuple[int, ...]
+    sha256: str = ""
 
 
 def _require(condition: bool, message: str) -> None:
@@ -377,10 +378,20 @@ def _open_bound_source(snapshot: _FileSnapshot) -> int:
         os.close(descriptor)
         raise
 
-
 def _executable_snapshot(path: Path) -> _ExecutableSnapshot:
     resolved = path.resolve(strict=True)
-    info = resolved.stat()
+    descriptor = os.open(resolved, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    try:
+        info = os.fstat(descriptor)
+        hasher = hashlib.sha256()
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            hasher.update(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
     identity = (
         info.st_dev,
         info.st_ino,
@@ -391,8 +402,48 @@ def _executable_snapshot(path: Path) -> _ExecutableSnapshot:
         info.st_mtime_ns,
         info.st_ctime_ns,
     )
-    _require(stat.S_ISREG(info.st_mode), "fixed clean-exec executable differs")
-    return _ExecutableSnapshot(resolved, identity)
+    _require(
+        stat.S_ISREG(info.st_mode)
+        and identity
+        == (
+            after.st_dev, after.st_ino, after.st_uid, after.st_gid,
+            stat.S_IFMT(after.st_mode), after.st_size, after.st_mtime_ns, after.st_ctime_ns,
+        ),
+        "fixed clean-exec executable differs",
+    )
+    return _ExecutableSnapshot(resolved, identity, hasher.hexdigest())
+
+
+def _open_bound_executable(snapshot: _ExecutableSnapshot) -> int:
+    descriptor = os.open(snapshot.path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    try:
+        before = os.fstat(descriptor)
+        hasher = hashlib.sha256()
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            hasher.update(chunk)
+        after = os.fstat(descriptor)
+        descriptor_identity = (
+            before.st_dev, before.st_ino, before.st_uid, before.st_gid,
+            stat.S_IFMT(before.st_mode), before.st_size, before.st_mtime_ns, before.st_ctime_ns,
+        )
+        after_identity = (
+            after.st_dev, after.st_ino, after.st_uid, after.st_gid,
+            stat.S_IFMT(after.st_mode), after.st_size, after.st_mtime_ns, after.st_ctime_ns,
+        )
+        current = _executable_snapshot(snapshot.path)
+        _require(
+            current == snapshot
+            and descriptor_identity == after_identity == snapshot.identity
+            and hasher.hexdigest() == snapshot.sha256,
+            "fixed clean-exec executable binding differs",
+        )
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
 def _open_descriptors() -> tuple[int, ...]:
@@ -604,6 +655,10 @@ class DirectServerSessionArtifacts:
     stable_evidence: bytes
     profile: bytes
     authorization: bytes
+    transport_profile: bytes
+    ssh_system_policy_evidence: bytes
+    pbs_script: bytes
+    pbs_review: bytes
     input_bytes: bytes
     resource_ledger: bytes
     resource_policy: bytes
@@ -626,6 +681,7 @@ def _assert_fixed_static_binding() -> None:
     _require(
         _file_snapshot(_FIXED_SESSION_SOURCE.path) == _FIXED_SESSION_SOURCE
         and _file_snapshot(_FIXED_HELPER_SOURCE.path) == _FIXED_HELPER_SOURCE
+        and _file_snapshot(_FIXED_W5_SOURCE.path) == _FIXED_W5_SOURCE
         and _executable_snapshot(_FIXED_EXECUTABLE.path) == _FIXED_EXECUTABLE
         and Path(__file__).resolve() == _FIXED_SESSION_SOURCE.path
         and Path(CLEAN_EXEC.__file__).resolve() == _FIXED_HELPER_SOURCE.path,
@@ -637,6 +693,8 @@ def _expected_child_argv(
     control_descriptor: int,
     helper_source_descriptor: int,
     session_source_descriptor: int,
+    w5_source_descriptor: int,
+    executable_descriptor: int,
 ) -> tuple[str, ...]:
     return (
         f"/dev/fd/{helper_source_descriptor}",
@@ -644,6 +702,8 @@ def _expected_child_argv(
         str(control_descriptor),
         str(helper_source_descriptor),
         str(session_source_descriptor),
+        str(w5_source_descriptor),
+        str(executable_descriptor),
         str(_FIXED_SCRIPTS_DIRECTORY),
     )
 
@@ -655,6 +715,8 @@ def _activate_fixed_clean_exec_child(
     helper_source_identity: tuple[int, ...],
     session_source_sha256: str,
     session_source_identity: tuple[int, ...],
+    w5_source_sha256: str,
+    w5_source_identity: tuple[int, ...],
     scripts_directory: str,
     original_argv: tuple[str, ...],
 ) -> dict[str, Any]:
@@ -662,8 +724,10 @@ def _activate_fixed_clean_exec_child(
     _assert_fixed_static_binding()
     expected_argv = _expected_child_argv(
         control_descriptor,
-        int(original_argv[3], 10) if len(original_argv) == 6 else -1,
-        int(original_argv[4], 10) if len(original_argv) == 6 else -1,
+        int(original_argv[3], 10) if len(original_argv) == 8 else -1,
+        int(original_argv[4], 10) if len(original_argv) == 8 else -1,
+        int(original_argv[5], 10) if len(original_argv) == 8 else -1,
+        int(original_argv[6], 10) if len(original_argv) == 8 else -1,
     )
     allowed_fds = (0, 1, 2, control_descriptor)
     _require(
@@ -677,6 +741,8 @@ def _activate_fixed_clean_exec_child(
         and tuple(helper_source_identity) == _FIXED_HELPER_SOURCE.identity
         and session_source_sha256 == _FIXED_SESSION_SOURCE.sha256
         and tuple(session_source_identity) == _FIXED_SESSION_SOURCE.identity
+        and w5_source_sha256 == _FIXED_W5_SOURCE.sha256
+        and tuple(w5_source_identity) == _FIXED_W5_SOURCE.identity
         and _executable_snapshot(Path(sys.executable)) == _FIXED_EXECUTABLE
         and sys.flags.isolated == 1
         and sys.flags.no_site == 1
@@ -703,8 +769,10 @@ def _activate_fixed_clean_exec_child(
         "status": "ready_no_artifacts_no_effect",
         "executable": str(_FIXED_EXECUTABLE.path),
         "executable_identity": list(_FIXED_EXECUTABLE.identity),
+        "executable_sha256": _FIXED_EXECUTABLE.sha256,
         "helper_source_sha256": _FIXED_HELPER_SOURCE.sha256,
         "session_source_sha256": _FIXED_SESSION_SOURCE.sha256,
+        "w5_source_sha256": _FIXED_W5_SOURCE.sha256,
         "entrypoint": expected_argv[0],
         "argv": list(expected_argv),
         "environment": dict(_FIXED_CLEAN_EXEC_ENVIRONMENT),
@@ -740,6 +808,8 @@ def _assert_fixed_clean_exec_child() -> None:
 
 def _spawn_fixed_clean_exec(
     artifacts: DirectServerSessionArtifacts | None,
+    *,
+    _offline_fixture_path_exec: bool = False,
 ) -> Any:
     _assert_fixed_static_binding()
     _require(
@@ -751,17 +821,30 @@ def _spawn_fixed_clean_exec(
     process: subprocess.Popen[bytes] | None = None
     helper_fd = -1
     session_fd = -1
+    w5_fd = -1
+    executable_fd = -1
     try:
         parent, child = _FROZEN_SOCKETPAIR(socket.AF_UNIX, socket.SOCK_STREAM)
         parent.settimeout(_FIXED_CLEAN_EXEC_TIMEOUT_SECONDS)
         child_fd = child.fileno()
         helper_fd = _FROZEN_SOURCE_OPENER(_FIXED_HELPER_SOURCE)
         session_fd = _FROZEN_SOURCE_OPENER(_FIXED_SESSION_SOURCE)
-        argv = _expected_child_argv(child_fd, helper_fd, session_fd)
+        w5_fd = _FROZEN_SOURCE_OPENER(_FIXED_W5_SOURCE)
+        executable_fd = _FROZEN_EXECUTABLE_OPENER(_FIXED_EXECUTABLE)
+        argv = _expected_child_argv(child_fd, helper_fd, session_fd, w5_fd, executable_fd)
+        descriptor_alias = f"/proc/self/fd/{executable_fd}"
+        if not Path("/proc/self/fd").is_dir():
+            descriptor_alias = f"/dev/fd/{executable_fd}"
+        if not _offline_fixture_path_exec:
+            _require(
+                os.execve in os.supports_fd and Path("/proc/self/fd").is_dir(),
+                "descriptor exec is unavailable; executable path fallback forbidden",
+            )
         process = _FROZEN_POPEN(
             [str(_FIXED_EXECUTABLE.path), "-I", "-S", *argv],
+            executable=(str(_FIXED_EXECUTABLE.path) if _offline_fixture_path_exec else descriptor_alias),
             close_fds=True,
-            pass_fds=(child_fd, helper_fd, session_fd),
+            pass_fds=(child_fd, helper_fd, session_fd, w5_fd, executable_fd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -772,6 +855,10 @@ def _spawn_fixed_clean_exec(
         helper_fd = -1
         os.close(session_fd)
         session_fd = -1
+        os.close(w5_fd)
+        w5_fd = -1
+        os.close(executable_fd)
+        executable_fd = -1
         child.close()
         child = None
         ready = _FROZEN_FRAME_READER(parent)
@@ -780,8 +867,10 @@ def _spawn_fixed_clean_exec(
             "status": "ready_no_artifacts_no_effect",
             "executable": str(_FIXED_EXECUTABLE.path),
             "executable_identity": list(_FIXED_EXECUTABLE.identity),
+            "executable_sha256": _FIXED_EXECUTABLE.sha256,
             "helper_source_sha256": _FIXED_HELPER_SOURCE.sha256,
             "session_source_sha256": _FIXED_SESSION_SOURCE.sha256,
+            "w5_source_sha256": _FIXED_W5_SOURCE.sha256,
             "entrypoint": argv[0],
             "argv": list(argv),
             "environment": dict(_FIXED_CLEAN_EXEC_ENVIRONMENT),
@@ -832,7 +921,7 @@ def _spawn_fixed_clean_exec(
                 process.wait(timeout=_FIXED_CLEAN_EXEC_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 pass
-        for descriptor in (helper_fd, session_fd):
+        for descriptor in (helper_fd, session_fd, w5_fd, executable_fd):
             if descriptor >= 0:
                 os.close(descriptor)
         if child is not None:
@@ -850,7 +939,7 @@ def compose_production_in_fixed_clean_exec_once(
 
 def _probe_fixed_clean_exec_for_testing(*, _test_token: object) -> dict[str, Any]:
     _require(_test_token is _TEST_TOKEN, "trusted session test token differs")
-    return _spawn_fixed_clean_exec(None)
+    return _spawn_fixed_clean_exec(None, _offline_fixture_path_exec=True)
 
 
 def _write_exact(directory: Path, name: str, raw: bytes) -> Path:
@@ -959,6 +1048,95 @@ class TrustedServerLocalW5Lease:
         raise TypeError("trusted W5 leases are not serializable")
 
 
+class TrustedW5OperationSeam:
+    """W4B-owned exact same-process handoff; never portable authority."""
+
+    __slots__ = ("_record", "_seal")
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("trusted W5 operation seams are owner-issued only")
+
+    def assert_owner_sealed(self) -> None:
+        _require(
+            type(self) is TrustedW5OperationSeam
+            and self._seal is _W5_OPERATION_SEAM_TOKEN
+            and type(self._record) is dict
+            and self._record.get("pid") == os.getpid()
+            and self._record.get("status") == "consumed_by_w5"
+            and type(self._record.get("project_lease")) is W4.ConsumedDirectProjectSession,
+            "trusted W5 operation seam is foreign, forked, or terminal",
+        )
+        self._record["transaction"].assert_current()
+        self._record["w3"].assert_owner_sealed()
+        self._record["project_lease"].assert_owner_sealed()
+        _require(
+            self._record["journal"].outcome == "started"
+            and self._record["journal"].binding_payload_sha256
+            == self._record["transaction"]._binding.sha256,
+            "trusted W5 operation seam durable binding differs",
+        )
+
+    @property
+    def project_session(self) -> W4.ConsumedDirectProjectSession:
+        self.assert_owner_sealed()
+        return self._record["project_lease"]
+
+    @property
+    def durable_claim(self) -> W2.DurableEffectClaim:
+        self.assert_owner_sealed()
+        return self._record["journal"]
+
+    @property
+    def direct_binding(self) -> DIRECT.Binding:
+        self.assert_owner_sealed()
+        return self._record["transaction"]._binding
+
+    @property
+    def input_bytes(self) -> bytes:
+        self.assert_owner_sealed()
+        return bytes(self._record["transaction"]._input.payload)
+
+    @property
+    def transport_profile_bytes(self) -> bytes:
+        self.assert_owner_sealed()
+        return bytes(self._record["transport_profile"])
+
+    @property
+    def pbs_script_bytes(self) -> bytes:
+        self.assert_owner_sealed()
+        return bytes(self._record["pbs_script"])
+
+    @property
+    def pbs_review_bytes(self) -> bytes:
+        self.assert_owner_sealed()
+        return bytes(self._record["pbs_review"])
+
+    @property
+    def transport_binding_sha256(self) -> str:
+        self.assert_owner_sealed()
+        profile = W1.validate_direct_execution_profile(
+            json.loads(self._record["transaction"]._root_capability._profile_bytes)
+        )
+        return profile["transport_identity_binding_sha256"]
+
+    @property
+    def allowed_root(self) -> str:
+        self.assert_owner_sealed()
+        profile = W1.validate_direct_execution_profile(
+            json.loads(self._record["transaction"]._root_capability._profile_bytes)
+        )
+        return profile["declared_allowed_root"]
+
+    def __copy__(self) -> Any:
+        raise TypeError("trusted W5 operation seams are not clonable")
+
+    def __deepcopy__(self, _memo: Any) -> Any:
+        raise TypeError("trusted W5 operation seams are not clonable")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("trusted W5 operation seams are not serializable")
+
+
 class FixedTrustedServerLocalChildSession:
     """Parent-side lifetime handle; it is evidence, never the W5 capability."""
 
@@ -976,6 +1154,10 @@ class FixedTrustedServerLocalChildSession:
 
     def transition_to_w5_once(self) -> dict[str, Any]:
         return _transition_child_session_to_w5_once(self)
+
+    def submit_once(self) -> dict[str, Any]:
+        """Request only the fixed W5 operation; accepts no override."""
+        return _submit_child_w5_once(self)
 
     def __copy__(self) -> Any:
         raise TypeError("fixed child sessions are not clonable")
@@ -1127,6 +1309,9 @@ class FixedTrustedServerLocalSessionOwner:
                     w3=w3_claim,
                     journal=journal,
                     project=project,
+                    transport_profile=bytes(artifacts.transport_profile),
+                    pbs_script=bytes(artifacts.pbs_script),
+                    pbs_review=bytes(artifacts.pbs_review),
                 )
                 self._status = "consumed"
                 return capability
@@ -1155,6 +1340,7 @@ _TEST_OWNER_TOKEN = object()
 _TEST_TOKEN = object()
 _SESSION_TOKEN = object()
 _W5_LEASE_TOKEN = object()
+_W5_OPERATION_SEAM_TOKEN = object()
 _CHILD_SESSION_TOKEN = object()
 _SESSION_LOCK = threading.RLock()
 _SESSION_REGISTRY: dict[object, dict[str, Any]] = {}
@@ -1164,6 +1350,7 @@ _FIXED_PRODUCTION_ROOT = FIXED_PRODUCTION_DURABLE_STATE_ROOT
 _FIXED_SCRIPTS_DIRECTORY = Path(__file__).resolve().parent
 _FIXED_SESSION_SOURCE = _file_snapshot(Path(__file__).resolve())
 _FIXED_HELPER_SOURCE = _file_snapshot(Path(CLEAN_EXEC.__file__).resolve())
+_FIXED_W5_SOURCE = _file_snapshot(_FIXED_SCRIPTS_DIRECTORY / "direct_one_hop_transport.py")
 _FIXED_EXECUTABLE = _executable_snapshot(Path(sys.executable))
 _FIXED_CLEAN_EXEC_CWD = FIXED_CLEAN_EXEC_CWD
 _FIXED_CLEAN_EXEC_ENVIRONMENT = copy.deepcopy(FIXED_CLEAN_EXEC_ENVIRONMENT)
@@ -1171,6 +1358,7 @@ _FIXED_CLEAN_EXEC_TIMEOUT_SECONDS = FIXED_CLEAN_EXEC_TIMEOUT_SECONDS
 _FROZEN_POPEN = subprocess.Popen
 _FROZEN_SOCKETPAIR = socket.socketpair
 _FROZEN_SOURCE_OPENER = _open_bound_source
+_FROZEN_EXECUTABLE_OPENER = _open_bound_executable
 _FROZEN_FRAME_READER = _recv_clean_exec_frame
 _FROZEN_FRAME_SENDER = _send_clean_exec_frame
 _CLEAN_EXEC_CHILD_STATE: dict[str, Any] = {}
@@ -1268,32 +1456,78 @@ def _transition_child_session_to_w5_once(
                 except BaseException:
                     pass
         raise
+
     with _SESSION_LOCK:
-        _require(
-            record["status"] == "ready_for_w5",
-            "fixed child W5 transition raced",
-        )
+        _require(record["status"] == "ready_for_w5", "fixed child W5 transition raced")
         record["status"] = "transitioning_to_w5"
     try:
         request = _fixed_w5_transition_request(record["readiness"])
         _FROZEN_FRAME_SENDER(record["control"], request)
         response = _FROZEN_FRAME_READER(record["control"])
         ack = _validate_w5_lease_ready_ack(response, record["readiness"])
-        _require(
-            record["process"].poll() is None,
-            "fixed child exited during W5 transition",
-        )
+        _require(record["process"].poll() is None, "fixed child exited during W5 transition")
         with _SESSION_LOCK:
-            _require(
-                record["status"] == "transitioning_to_w5",
-                "fixed child W5 transition state differs",
-            )
+            _require(record["status"] == "transitioning_to_w5", "fixed child W5 transition state differs")
             record["status"] = "w5_lease_ready"
             record["w5_ack"] = copy.deepcopy(ack)
         return ack
     except BaseException:
         with _SESSION_LOCK:
             record["status"] = "failed_w5_transition"
+        try:
+            record["control"].close()
+        except BaseException:
+            pass
+        raise
+
+
+def _submit_child_w5_once(
+    handle: FixedTrustedServerLocalChildSession,
+) -> dict[str, Any]:
+    record = _assert_child_session_handle(handle, {"w5_lease_ready"})
+    with _SESSION_LOCK:
+        _require(record["status"] == "w5_lease_ready", "fixed child W5 submit raced")
+        record["status"] = "submitting_once"
+    request = {
+        "protocol": CLEAN_EXEC.PROTOCOL,
+        "operation": "submit_once",
+        "session_id": record["readiness"]["session_id"],
+        "readiness_payload_sha256": record["readiness"]["result_payload_sha256"],
+    }
+    try:
+        _FROZEN_FRAME_SENDER(record["control"], request)
+        response = _FROZEN_FRAME_READER(record["control"])
+        _require(
+            type(response) is dict
+            and response.get("protocol") == CLEAN_EXEC.PROTOCOL
+            and response.get("status") == "completed"
+            and type(response.get("result")) is dict,
+            "fixed child W5 outcome is submission-uncertain",
+        )
+        result = response["result"]
+        _require(
+            result.get("schema") == "auto-g16-direct-one-hop-submission-result/1"
+            and result.get("binding_payload_sha256")
+            == record["readiness"]["binding_payload_sha256"]
+            and result.get("journal_id") == record["readiness"]["journal_id"]
+            and result.get("authority", {}).get("authorizes_effect") is False
+            and result.get("qsub", {}).get("calls") == "1"
+            and result.get("result_payload_sha256") == digest(
+                {**result, "result_payload_sha256": ""}
+            ),
+            "fixed child W5 result differs",
+        )
+        record["control"].close()
+        _require(
+            record["process"].wait(timeout=_FIXED_CLEAN_EXEC_TIMEOUT_SECONDS) == 0,
+            "fixed child W5 completion exit differs",
+        )
+        with _SESSION_LOCK:
+            record["status"] = "completed"
+        return copy.deepcopy(result)
+    except BaseException:
+        with _SESSION_LOCK:
+            record["status"] = "submission_uncertain"
         try:
             record["control"].close()
         except BaseException:
@@ -1328,6 +1562,9 @@ def _issue_session_capability(
     w3: W3.ClaimedDirectEffectTimeReplayIngress,
     journal: W2.DurableEffectClaim,
     project: W4.DirectProjectSessionCapability,
+    transport_profile: bytes,
+    pbs_script: bytes,
+    pbs_review: bytes,
 ) -> TrustedServerLocalSessionCapability:
     session_id = "direct-trusted-session-" + digest(
         {
@@ -1350,6 +1587,9 @@ def _issue_session_capability(
             "w3": w3,
             "journal": journal,
             "project": project,
+            "transport_profile": transport_profile,
+            "pbs_script": pbs_script,
+            "pbs_review": pbs_review,
         }
     value.assert_current()
     return value
@@ -1373,7 +1613,13 @@ def _assert_session_capability(
             and type(record["transaction"]) is DIRECT.DirectServerSessionTransaction
             and type(record["w3"]) is W3.ClaimedDirectEffectTimeReplayIngress
             and type(record["journal"]) is W2.DurableEffectClaim
-            and type(record["project"]) is W4.DirectProjectSessionCapability,
+            and type(record["project"]) is W4.DirectProjectSessionCapability
+            and type(record["transport_profile"]) is bytes
+            and bool(record["transport_profile"])
+            and type(record["pbs_script"]) is bytes
+            and bool(record["pbs_script"])
+            and type(record["pbs_review"]) is bytes
+            and bool(record["pbs_review"]),
             "trusted session capability is foreign, forked, consumed, or terminal",
         )
         record["transaction"].assert_current()
@@ -1411,7 +1657,13 @@ def _assert_w5_lease(lease: TrustedServerLocalW5Lease) -> dict[str, Any]:
             and type(session["transaction"]) is DIRECT.DirectServerSessionTransaction
             and type(session["w3"]) is W3.ClaimedDirectEffectTimeReplayIngress
             and type(session["journal"]) is W2.DurableEffectClaim
-            and type(session["project"]) is W4.DirectProjectSessionCapability,
+            and type(session["project"]) is W4.DirectProjectSessionCapability
+            and type(session["transport_profile"]) is bytes
+            and bool(session["transport_profile"])
+            and type(session["pbs_script"]) is bytes
+            and bool(session["pbs_script"])
+            and type(session["pbs_review"]) is bytes
+            and bool(session["pbs_review"]),
             "trusted W5 exact-object join differs",
         )
         session["transaction"].assert_current()
@@ -1425,6 +1677,46 @@ def _assert_w5_lease(lease: TrustedServerLocalW5Lease) -> dict[str, Any]:
             "trusted W5 durable started claim drifted",
         )
         return record
+
+
+def consume_w5_operation_seam_once(
+    lease: TrustedServerLocalW5Lease,
+) -> TrustedW5OperationSeam:
+    """Atomically consume the W4B lease and W4 project capability for W5."""
+    with _SESSION_LOCK:
+        record = _assert_w5_lease(lease)
+        record["status"] = "claiming_for_w5"
+        session = record["session_record"]
+    try:
+        project_lease = session["project"].consume_once()
+        project_lease.assert_owner_sealed()
+        operation_record = {
+            "pid": os.getpid(),
+            "status": "consumed_by_w5",
+            "transaction": session["transaction"],
+            "w3": session["w3"],
+            "journal": session["journal"],
+            "project_lease": project_lease,
+            "transport_profile": session["transport_profile"],
+            "pbs_script": session["pbs_script"],
+            "pbs_review": session["pbs_review"],
+        }
+        seam = object.__new__(TrustedW5OperationSeam)
+        seam._record = operation_record
+        seam._seal = _W5_OPERATION_SEAM_TOKEN
+        with _SESSION_LOCK:
+            _require(record["status"] == "claiming_for_w5", "trusted W5 operation seam raced")
+            record["status"] = "consumed_by_w5"
+            record["operation_record"] = operation_record
+            session["status"] = "consumed_by_w5"
+        seam.assert_owner_sealed()
+        return seam
+    except BaseException:
+        with _SESSION_LOCK:
+            record["status"] = "failed"
+            session["status"] = "failed"
+        _record_unknown_best_effort(session["journal"], lease.lease_id)
+        raise
 
 
 def _session_ready_document(
@@ -1528,6 +1820,7 @@ class _ModuleBinding:
     scripts_directory: Path
     session_source: _FileSnapshot
     helper_source: _FileSnapshot
+    w5_source: _FileSnapshot
     executable: _ExecutableSnapshot
     clean_exec_module: types.ModuleType
     clean_exec_protocol: str
@@ -1538,6 +1831,7 @@ class _ModuleBinding:
     popen: Any
     socketpair: Any
     source_opener: Any
+    executable_opener: Any
     frame_reader: Any
     frame_sender: Any
     expected_argv: Any
@@ -1586,17 +1880,22 @@ def _capture_module_binding() -> _ModuleBinding:
             FixedTrustedServerLocalSessionOwner.__dict__["compose_once"],
             TrustedServerLocalSessionCapability.__dict__["consume_for_w5_once"],
             TrustedServerLocalW5Lease.__dict__["assert_current"],
+            TrustedW5OperationSeam.__dict__["assert_owner_sealed"],
+            consume_w5_operation_seam_once,
             FixedTrustedServerLocalChildSession.__dict__["readiness"],
             FixedTrustedServerLocalChildSession.__dict__["transition_to_w5_once"],
+            FixedTrustedServerLocalChildSession.__dict__["submit_once"],
             _fixed_w5_transition_request,
             _validate_w5_lease_ready_ack,
             _consume_fixed_child_w5_transition_once,
             _transition_child_session_to_w5_once,
+            _submit_child_w5_once,
         ),
         production_root=_FIXED_PRODUCTION_ROOT,
         scripts_directory=_FIXED_SCRIPTS_DIRECTORY,
         session_source=_FIXED_SESSION_SOURCE,
         helper_source=_FIXED_HELPER_SOURCE,
+        w5_source=_FIXED_W5_SOURCE,
         executable=_FIXED_EXECUTABLE,
         clean_exec_module=CLEAN_EXEC,
         clean_exec_protocol=CLEAN_EXEC.PROTOCOL,
@@ -1607,6 +1906,7 @@ def _capture_module_binding() -> _ModuleBinding:
         popen=_FROZEN_POPEN,
         socketpair=_FROZEN_SOCKETPAIR,
         source_opener=_FROZEN_SOURCE_OPENER,
+        executable_opener=_FROZEN_EXECUTABLE_OPENER,
         frame_reader=_FROZEN_FRAME_READER,
         frame_sender=_FROZEN_FRAME_SENDER,
         expected_argv=_expected_child_argv,
@@ -1653,18 +1953,23 @@ def _assert_module_binding() -> None:
             FixedTrustedServerLocalSessionOwner.__dict__.get("compose_once"),
             TrustedServerLocalSessionCapability.__dict__.get("consume_for_w5_once"),
             TrustedServerLocalW5Lease.__dict__.get("assert_current"),
+            TrustedW5OperationSeam.__dict__.get("assert_owner_sealed"),
+            consume_w5_operation_seam_once,
             FixedTrustedServerLocalChildSession.__dict__.get("readiness"),
             FixedTrustedServerLocalChildSession.__dict__.get("transition_to_w5_once"),
+            FixedTrustedServerLocalChildSession.__dict__.get("submit_once"),
             _fixed_w5_transition_request,
             _validate_w5_lease_ready_ack,
             _consume_fixed_child_w5_transition_once,
             _transition_child_session_to_w5_once,
+            _submit_child_w5_once,
         )
         and FIXED_PRODUCTION_DURABLE_STATE_ROOT is binding.production_root
         and _FIXED_PRODUCTION_ROOT is binding.production_root
         and _FIXED_SCRIPTS_DIRECTORY is binding.scripts_directory
         and _FIXED_SESSION_SOURCE is binding.session_source
         and _FIXED_HELPER_SOURCE is binding.helper_source
+        and _FIXED_W5_SOURCE is binding.w5_source
         and _FIXED_EXECUTABLE is binding.executable
         and sys.modules.get(CLEAN_EXEC.__name__) is binding.clean_exec_module
         and CLEAN_EXEC.PROTOCOL == binding.clean_exec_protocol
@@ -1681,6 +1986,8 @@ def _assert_module_binding() -> None:
         and _FROZEN_SOCKETPAIR is binding.socketpair
         and _open_bound_source is binding.source_opener
         and _FROZEN_SOURCE_OPENER is binding.source_opener
+        and _open_bound_executable is binding.executable_opener
+        and _FROZEN_EXECUTABLE_OPENER is binding.executable_opener
         and _recv_clean_exec_frame is binding.frame_reader
         and _FROZEN_FRAME_READER is binding.frame_reader
         and _send_clean_exec_frame is binding.frame_sender
@@ -1723,6 +2030,8 @@ __all__ = [
     "RESULT_SCHEMA",
     "TrustedServerLocalSessionCapability",
     "TrustedServerLocalW5Lease",
+    "TrustedW5OperationSeam",
+    "consume_w5_operation_seam_once",
     "compose_production_in_fixed_clean_exec_once",
     "validate_trusted_session_result",
 ]
