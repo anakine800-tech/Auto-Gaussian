@@ -554,8 +554,19 @@ adapter:
   `contracts/rtwin-pbs/direct-submitted-job-read-lineage.schema.json`, and
   `references/direct-existing-job-lineage.md`. It revalidates exact completed
   W5/W2 lineage and retains no-follow descriptors; its portable projection is
-  non-authorizing and cannot itself perform query or fetch. Q1 alone consumes
-  its exact live lease for qstat acquisition.
+  non-authorizing and cannot itself perform query or fetch. Exact Q1 and F1
+  owner joins consume mutually exclusive single-use live-lease successors for
+  qstat acquisition or bounded terminal-minimum fetch acquisition.
+- W6F fixed terminal-minimum fetch acquisition and closed T4 stream seam:
+  `scripts/direct_fetch_acquisition.py` with
+  `references/direct-fetch-acquisition.md`. It consumes only the exact live
+  W6L lease, reads the T4-owned ordered five-file allowlist descriptor-
+  relatively, prebinds the complete bundle hash, and transfers one fixed
+  chunk-bounded sequential session into T4's manifest-last owner. Partial
+  transport leaves the unique local audit directory without a manifest and
+  never deletes or retries. Its current read authority
+  and T0 operation are private offline fakes; production integration remains
+  blocked on the Q1 backend-owned reviewed read-authority exact type.
 - W6C0 direct read-only evidence core:
   `scripts/direct_read_only_evidence.py` with
   `references/direct-read-only-evidence-core.md`. It only parses pre-collected
@@ -578,10 +589,11 @@ adapter:
   `contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json`,
   `contracts/rtwin-pbs/direct-fetch-manifest.schema.json`, and
   `references/direct-local-fetch-materializer.md`. It consumes only its exact
-  local target capability and exact sealed offline synthetic stream lease,
+  local target capability and exact sealed offline synthetic or closed fake
+  acquisition stream lease,
   creates the fixed five-file no-clobber snapshot descriptor-relatively, and
-  writes the manifest last. Production T3 shared-channel fetch-lease
-  integration and scientific acceptance remain blocked.
+  writes the manifest last. Production read authority, terminal fetch grant,
+  live fetch execution and scientific acceptance remain blocked.
 - The direct boundary, offline backend and onboarding/support surfaces are
   `scripts/direct_root_mutation_boundary.py` with
   `references/direct-root-mutation-boundary.md`,

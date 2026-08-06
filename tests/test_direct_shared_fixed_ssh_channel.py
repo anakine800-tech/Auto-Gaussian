@@ -35,6 +35,15 @@ import direct_one_hop_transport as W5  # noqa: E402
 import direct_shared_fixed_ssh_channel as CHANNEL  # noqa: E402
 
 
+def buffered_fetch_response(descriptor, operation, deadline):
+    return CHANNEL._read_fetch_response_buffered_for_tests_until(
+        descriptor,
+        operation,
+        deadline,
+        _test_token=CHANNEL._FETCH_BUFFER_TEST_TOKEN,
+    )
+
+
 class DirectSharedFixedSSHChannelTests(unittest.TestCase):
     maxDiff = None
 
@@ -139,6 +148,7 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
             "job_id": "123.master",
             "chunk_count": str(len(chunks)),
             "total_size_bytes": str(len(bundle)),
+            "bundle_sha256": hashlib.sha256(bundle).hexdigest(),
             "authority": {"authorizes_effect": False, "qsub_calls": "0"},
         }
         trailer: dict[str, object] = {
@@ -180,7 +190,8 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
             (("server_read", "qstat", "executable_owner_uid"), "501"),
             (("server_read", "qstat", "executable_mode"), "0555"),
             (("server_read", "qstat", "max_stdout_bytes"), "0"),
-            (("server_read", "fetch", "max_chunk_bytes"), "1048577"),
+            (("server_read", "fetch", "max_chunk_bytes"), "4194305"),
+            (("server_read", "fetch", "max_total_bytes"), "1092943960"),
             (("safety", "authorizes_effect"), True),
         ):
             with self.subTest(path=path):
@@ -377,7 +388,7 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
             os.close(fetch_write)
             fetch_write = -1
             with self.assertRaisesRegex(CHANNEL.SharedFixedSSHChannelError, "exact Fetch"):
-                CHANNEL.read_fetch_response_until(
+                buffered_fetch_response(
                     fetch_read,
                     query,  # type: ignore[arg-type]
                     time.monotonic() + 1.0,
@@ -745,11 +756,44 @@ raise SystemExit(9)
         stream = self.fetch_stream(operation, (b"alpha", b"beta"))
         header, bundle, trailer = self.through_pipe(
             stream,
-            lambda descriptor: CHANNEL.read_fetch_response_until(descriptor, operation, time.monotonic() + 1.0),
+            lambda descriptor: buffered_fetch_response(descriptor, operation, time.monotonic() + 1.0),
         )
         self.assertEqual(bundle, b"alphabeta")
         self.assertEqual(header["chunk_count"], "2")
         self.assertEqual(trailer["bundle_sha256"], hashlib.sha256(bundle).hexdigest())
+
+        direct_operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+            self.transport_raw, self.read_profile_raw, "123.master",
+        )
+        direct_bundle = b"alphabetagamma"
+        direct_stream = self.fetch_stream(
+            direct_operation, (b"alpha", b"beta", b"gamma"),
+        )
+
+        def consume_direct(descriptor):
+            session, direct_header = CHANNEL._FETCH_STREAM_BEGIN(
+                descriptor, direct_operation, time.monotonic() + 1.0,
+            )
+            self.assertIs(type(session), CHANNEL._FetchResponseStreamSession)
+            first = CHANNEL._FETCH_STREAM_READ_EXACT(session, 7)
+            second = CHANNEL._FETCH_STREAM_READ_EXACT(
+                session, len(direct_bundle) - len(first),
+            )
+            direct_trailer = CHANNEL._FETCH_STREAM_FINISH(session)
+            return direct_header, first + second, direct_trailer
+
+        direct_header, observed, direct_trailer = self.through_pipe(
+            direct_stream, consume_direct,
+        )
+        self.assertEqual(observed, direct_bundle)
+        self.assertEqual(
+            direct_header["bundle_sha256"],
+            hashlib.sha256(direct_bundle).hexdigest(),
+        )
+        self.assertEqual(
+            direct_trailer["bundle_sha256"],
+            direct_header["bundle_sha256"],
+        )
 
         duplicate_stream = self.fetch_stream(operation, (b"x",))
         duplicate_read, duplicate_write = os.pipe()
@@ -758,7 +802,7 @@ raise SystemExit(9)
             os.close(duplicate_write)
             duplicate_write = -1
             with self.assertRaisesRegex(CHANNEL.SharedFixedSSHChannelError, "terminal"):
-                CHANNEL.read_fetch_response_until(
+                buffered_fetch_response(
                     duplicate_read,
                     operation,
                     time.monotonic() + 1.0,
@@ -784,6 +828,7 @@ raise SystemExit(9)
                 "job_id": "123.master",
                 "chunk_count": "0",
                 "total_size_bytes": "0",
+                "bundle_sha256": hashlib.sha256(b"").hexdigest(),
                 "authority": {"authorizes_effect": False, "qsub_calls": "0"},
             }
             hostile = {
@@ -796,7 +841,7 @@ raise SystemExit(9)
                 with self.assertRaises((CHANNEL.SharedFixedSSHChannelError, CHANNEL.ControllerTransportUnknown)):
                     self.through_pipe(
                         hostile,
-                        lambda descriptor: CHANNEL.read_fetch_response_until(
+                        lambda descriptor: buffered_fetch_response(
                             descriptor,
                             hostile_operation,
                             time.monotonic() + 0.5,
@@ -813,7 +858,7 @@ raise SystemExit(9)
             os.close(retry_write)
             retry_write = -1
             with self.assertRaisesRegex(CHANNEL.SharedFixedSSHChannelError, "terminal"):
-                CHANNEL.read_fetch_response_until(
+                buffered_fetch_response(
                     retry_read,
                     failed_operation,
                     time.monotonic() + 1.0,
@@ -837,7 +882,7 @@ raise SystemExit(9)
         with self.assertRaises(CHANNEL.SharedFixedSSHChannelError):
             self.through_pipe(
                 oversize,
-                lambda descriptor: CHANNEL.read_fetch_response_until(
+                lambda descriptor: buffered_fetch_response(
                     descriptor,
                     oversize_operation,
                     time.monotonic() + 0.5,
@@ -870,7 +915,7 @@ raise SystemExit(9)
         started = time.monotonic()
         try:
             with self.assertRaises(CHANNEL.ControllerTransportUnknown):
-                CHANNEL.read_fetch_response_until(read_fd, partial_operation, started + 0.03)
+                buffered_fetch_response(read_fd, partial_operation, started + 0.03)
         finally:
             os.close(read_fd)
             thread.join(timeout=1)
@@ -882,7 +927,7 @@ raise SystemExit(9)
             os.close(partial_retry_write)
             partial_retry_write = -1
             with self.assertRaisesRegex(CHANNEL.SharedFixedSSHChannelError, "terminal"):
-                CHANNEL.read_fetch_response_until(
+                buffered_fetch_response(
                     partial_retry_read,
                     partial_operation,
                     time.monotonic() + 1.0,
@@ -910,7 +955,7 @@ raise SystemExit(9)
         with self.assertRaises(CHANNEL.SharedFixedSSHChannelError):
             self.through_pipe(
                 foreign_stream,
-                lambda descriptor: CHANNEL.read_fetch_response_until(
+                lambda descriptor: buffered_fetch_response(
                     descriptor,
                     spliced_operation,
                     time.monotonic() + 0.5,

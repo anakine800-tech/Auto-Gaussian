@@ -108,6 +108,23 @@ class DirectLocalFetchMaterializerSchemaDraft202012Tests(unittest.TestCase):
                 self.validators[name].validate(document)
                 self.assertEqual(self.owner_validate(name, document), document)
 
+    def test_real_draft_preserves_historical_mode_and_accepts_closed_fake_mode(self) -> None:
+        closed = copy.deepcopy(self.manifest)
+        closed["stream"]["stream_mode"] = MATERIALIZER.CLOSED_STREAM_MODE
+        closed["integration"]["required_production_successor"] = (
+            MATERIALIZER.CLOSED_PRODUCTION_SUCCESSOR
+        )
+        closed = self.rehash("manifest", closed)
+        self.validators["manifest"].validate(self.manifest)
+        self.validators["manifest"].validate(closed)
+        self.assertEqual(MATERIALIZER.validate_manifest(closed), closed)
+
+        crossed = copy.deepcopy(closed)
+        crossed["integration"]["required_production_successor"] = (
+            MATERIALIZER.PRODUCTION_SUCCESSOR
+        )
+        self.assert_both_reject("manifest", self.rehash("manifest", crossed))
+
     def test_top_level_and_all_material_object_definitions_are_closed(self) -> None:
         assert jsonschema is not None
         object_defs = {

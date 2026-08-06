@@ -889,6 +889,7 @@ class _CapabilityRecord(NamedTuple):
     lineage_id: str
     projection_bytes: bytes
     descriptors: _DescriptorRecord
+    transport_profile_raw: bytes
 
 
 class DirectSubmittedJobReadCapability:
@@ -919,7 +920,7 @@ class DirectSubmittedJobReadCapability:
 
 
 class DirectSubmittedJobReadLease:
-    """Descriptor-retaining lease; no query or fetch port exists in this slice."""
+    """Descriptor-retaining lease for one fixed reviewed read successor."""
 
     __slots__ = ("lineage_id", "_creator_pid", "_epoch", "_projection_bytes", "_seal")
 
@@ -945,7 +946,7 @@ class DirectSubmittedJobReadLease:
         raise TypeError("submitted-job read leases are not serializable")
 
 
-def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any]:
+def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any, Any]:
     lock = threading.RLock()
     registry: dict[int, tuple[str, _CapabilityRecord]] = {}
     issued_lineage: set[str] = set()
@@ -974,7 +975,11 @@ def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any]:
             descriptor_checker(record.descriptors)
             return record
 
-    def issue(projection: dict[str, Any], descriptors: _DescriptorRecord) -> DirectSubmittedJobReadCapability:
+    def issue(
+        projection: dict[str, Any],
+        descriptors: _DescriptorRecord,
+        transport_profile_raw: bytes,
+    ) -> DirectSubmittedJobReadCapability:
         nonlocal epoch
         projection = projection_validator(projection)
         lineage_id = projection["lineage_id"]
@@ -988,7 +993,16 @@ def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any]:
             capability._epoch = epoch
             capability._projection_bytes = raw
             capability._seal = seal
-            record = _CapabilityRecord(capability, os.getpid(), epoch, seal, lineage_id, raw, descriptors)
+            _require(
+                type(transport_profile_raw) is bytes
+                and hashlib.sha256(transport_profile_raw).hexdigest()
+                == projection["artifact_sha256"]["transport_profile"],
+                "existing-job transport-profile bytes differ",
+            )
+            record = _CapabilityRecord(
+                capability, os.getpid(), epoch, seal, lineage_id, raw,
+                descriptors, bytes(transport_profile_raw),
+            )
             registry[id(capability)] = ("capability", record)
             issued_lineage.add(lineage_id)
         exact_live(capability, "capability")
@@ -1014,10 +1028,54 @@ def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any]:
             lease._epoch = epoch
             lease._projection_bytes = record.projection_bytes
             lease._seal = seal
-            lease_record = _CapabilityRecord(lease, os.getpid(), epoch, seal, record.lineage_id, record.projection_bytes, record.descriptors)
+            lease_record = _CapabilityRecord(
+                lease, os.getpid(), epoch, seal, record.lineage_id,
+                record.projection_bytes, record.descriptors,
+                record.transport_profile_raw,
+            )
             registry[id(lease)] = ("lease", lease_record)
         exact_live(lease, "lease")
         return lease
+
+    def handoff_to_fetch_successor(
+        lease: DirectSubmittedJobReadLease,
+        successor_owner: object,
+        test_token: object,
+    ) -> object:
+        """Consume into the one canonical fetch successor without exposing FDs."""
+        record = exact_live(lease, "lease")
+        successor = sys.modules.get("direct_fetch_acquisition")
+        expected_path = Path(__file__).resolve().with_name("direct_fetch_acquisition.py")
+        accept = getattr(successor, "_accept_lineage_handoff_once", None)
+        owner_type = getattr(successor, "DirectFetchAcquisitionOwner", None)
+        expected_test_token = getattr(successor, "_TEST_TOKEN", None)
+        assert_binding = getattr(successor, "_assert_module_binding", None)
+        _require(
+            type(successor) is types.ModuleType
+            and Path(getattr(successor, "__file__", "")).resolve() == expected_path
+            and type(owner_type) is type
+            and type(successor_owner) is owner_type
+            and test_token is expected_test_token
+            and callable(accept)
+            and callable(assert_binding),
+            "canonical direct fetch successor binding differs",
+        )
+        assert_binding()
+        with lock:
+            current = registry.get(id(lease))
+            _require(current == ("lease", record), "submitted-job read successor handoff raced")
+            del registry[id(lease)]
+        try:
+            return accept(
+                successor_owner,
+                bytes(record.projection_bytes),
+                record.descriptors,
+                bytes(record.transport_profile_raw),
+                test_token,
+            )
+        except BaseException:
+            _close_record(record.descriptors)
+            raise
 
     def close(lease: DirectSubmittedJobReadLease) -> None:
         record = exact_live(lease, "lease")
@@ -1036,7 +1094,10 @@ def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any]:
         lock = threading.RLock()
         epoch = object()
 
-    return issue, assert_current, projection_bytes, consume, close, after_fork_child
+    return (
+        issue, assert_current, projection_bytes, consume, close,
+        handoff_to_fetch_successor, after_fork_child,
+    )
 
 
 (
@@ -1045,6 +1106,7 @@ def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any]:
     _CAPABILITY_PROJECT,
     _CAPABILITY_CONSUME,
     _CAPABILITY_CLOSE,
+    _CAPABILITY_HANDOFF_FETCH,
     _CAPABILITY_FORK_CHILD,
 ) = _build_capability_owner_entries()
 
@@ -1179,6 +1241,7 @@ def _capture_module_binding() -> _ModuleBinding:
             _CAPABILITY_PROJECT,
             _CAPABILITY_CONSUME,
             _CAPABILITY_CLOSE,
+            _CAPABILITY_HANDOFF_FETCH,
             _CAPABILITY_FORK_CHILD,
             _resolve_qstat_successor_owner,
             _consume_for_exact_qstat_once,
@@ -1221,6 +1284,7 @@ def _assert_module_binding() -> None:
             _CAPABILITY_PROJECT,
             _CAPABILITY_CONSUME,
             _CAPABILITY_CLOSE,
+            _CAPABILITY_HANDOFF_FETCH,
             _CAPABILITY_FORK_CHILD,
             _resolve_qstat_successor_owner,
             _consume_for_exact_qstat_once,
@@ -1330,7 +1394,9 @@ class DirectExistingJobLineageOwner:
                 snapshot,
                 merged,
             )
-            capability = _CAPABILITY_ISSUE(projection, merged)
+            capability = _CAPABILITY_ISSUE(
+                projection, merged, artifacts.transport_profile,
+            )
             merged = None
             return capability
         except ExistingJobReconciliationOnly:

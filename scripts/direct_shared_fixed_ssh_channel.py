@@ -40,6 +40,9 @@ TOPOLOGY = "mac_controller_direct_ssh_server_child"
 SCHEDULER_DIALECT = "pbs_legacy_v1"
 SUBMIT_SUBSYSTEM = "auto-g16-direct-one-hop-v1"
 READ_SUBSYSTEM = "auto-g16-direct-one-hop-read-v1"
+MAX_FETCH_TOTAL_BYTES = 1_092_943_959
+MAX_FETCH_CHUNK_BYTES = 4 * 1024 * 1024
+MAX_BUFFERED_FETCH_TEST_BYTES = 2 * 1024 * 1024
 SSH_EXECUTABLE = "/usr/bin/ssh"
 QSUB_EXECUTABLE = "/usr/bin/qsub"
 QSUB_ARGV = (QSUB_EXECUTABLE, "--", "auto-g16-job.pbs")
@@ -355,8 +358,16 @@ def validate_read_profile(document: Any, transport_profile_raw: bytes) -> dict[s
         {"max_total_bytes", "max_chunk_bytes", "max_chunks", "timeout_seconds"},
         "fetch limits",
     )
-    _positive_decimal(fetch["max_total_bytes"], "fetch total limit", maximum=1024 * 1024 * 1024)
-    _positive_decimal(fetch["max_chunk_bytes"], "fetch chunk limit", maximum=4 * 1024 * 1024)
+    _positive_decimal(
+        fetch["max_total_bytes"],
+        "fetch total limit",
+        maximum=MAX_FETCH_TOTAL_BYTES,
+    )
+    _positive_decimal(
+        fetch["max_chunk_bytes"],
+        "fetch chunk limit",
+        maximum=MAX_FETCH_CHUNK_BYTES,
+    )
     _positive_decimal(fetch["max_chunks"], "fetch chunk-count limit", maximum=1_000_000)
     _positive_decimal(fetch["timeout_seconds"], "fetch timeout", maximum=3600)
     _require(
@@ -1821,11 +1832,20 @@ def read_query_response_until(
         _finish_operation(operation)
 
 
-def read_fetch_response_until(
+_FETCH_BUFFER_TEST_TOKEN = object()
+
+
+def _read_fetch_response_buffered_for_tests_until(
     descriptor: int,
     operation: FetchTerminalMinimumBundleOperation,
     deadline: float,
-) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
+    *,
+    _test_token: object,
+) -> tuple[dict[str, Any], bytearray, dict[str, Any]]:
+    _require(
+        _test_token is _FETCH_BUFFER_TEST_TOKEN,
+        "buffered fetch response test token differs",
+    )
     _require(
         type(operation) is FetchTerminalMinimumBundleOperation,
         "exact FetchTerminalMinimumBundleOperation is required",
@@ -1846,7 +1866,7 @@ def read_fetch_response_until(
         header = _read_canonical_frame_until(descriptor, deadline, 65536, "fetch control header")
         header = _exact(
             header,
-            {"protocol", "status", "operation_id", "job_id", "chunk_count", "total_size_bytes", "authority"},
+            {"protocol", "status", "operation_id", "job_id", "chunk_count", "total_size_bytes", "bundle_sha256", "authority"},
             "fetch control header",
         )
         _require(
@@ -1854,6 +1874,7 @@ def read_fetch_response_until(
             and header["status"] == "streaming_terminal_minimum_bundle"
             and header["operation_id"] == snapshot.operation_id
             and header["job_id"] == snapshot.job_id
+            and _sha(header["bundle_sha256"], "fetch bundle hash")
             and header["authority"] == {"authorizes_effect": False, "qsub_calls": "0"},
             "fetch control header identity or authority differs",
         )
@@ -1865,7 +1886,11 @@ def read_fetch_response_until(
             _positive_decimal(header["total_size_bytes"], "fetch total size", maximum=max_total),
             10,
         )
-        chunks: list[bytes] = []
+        _require(
+            total_size <= MAX_BUFFERED_FETCH_TEST_BYTES,
+            "buffered fetch test exceeds its fixed small cap",
+        )
+        bundle_buffer = bytearray(total_size)
         observed = 0
         for _index in range(chunk_count):
             size = struct.unpack(
@@ -1877,7 +1902,7 @@ def read_fetch_response_until(
                 "fetch chunk size differs",
             )
             chunk = _read_exact_until(descriptor, size, deadline, "fetch chunk")
-            chunks.append(chunk)
+            bundle_buffer[observed:observed + size] = chunk
             observed += size
         _require(observed == total_size, "fetch stream total size differs")
         trailer = _read_canonical_frame_until(descriptor, deadline, 65536, "fetch trailer")
@@ -1886,7 +1911,7 @@ def read_fetch_response_until(
             {"protocol", "status", "operation_id", "job_id", "chunk_count", "total_size_bytes", "bundle_sha256", "authority", "trailer_payload_sha256"},
             "fetch trailer",
         )
-        bundle = b"".join(chunks)
+        bundle = bundle_buffer
         supplied = _sha(trailer["trailer_payload_sha256"], "fetch trailer hash")
         _require(
             trailer["protocol"] == READ_PROTOCOL
@@ -1896,6 +1921,7 @@ def read_fetch_response_until(
             and trailer["chunk_count"] == header["chunk_count"]
             and trailer["total_size_bytes"] == header["total_size_bytes"]
             and trailer["bundle_sha256"] == hashlib.sha256(bundle).hexdigest()
+            and trailer["bundle_sha256"] == header["bundle_sha256"]
             and trailer["authority"] == {"authorizes_effect": False, "qsub_calls": "0"}
             and supplied == digest({**trailer, "trailer_payload_sha256": ""}),
             "fetch trailer identity, digest, or authority differs",
@@ -1906,10 +1932,335 @@ def read_fetch_response_until(
         _finish_operation(operation)
 
 
+_FETCH_STREAM_TOKEN = object()
+
+
+class _FetchResponseStreamSession:
+    __slots__ = ("_key", "_seal")
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("fetch response stream sessions are module-issued only")
+
+    def __copy__(self) -> Any:
+        raise TypeError("fetch response stream sessions are not clonable")
+
+    def __deepcopy__(self, _memo: Any) -> Any:
+        raise TypeError("fetch response stream sessions are not clonable")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("fetch response stream sessions are not serializable")
+
+
+@dataclasses.dataclass(slots=True)
+class _FetchStreamRecord:
+    session: _FetchResponseStreamSession
+    descriptor: int
+    operation: FetchTerminalMinimumBundleOperation
+    snapshot: _OperationSnapshot
+    deadline: float
+    header: dict[str, Any]
+    max_chunk: int
+    chunk_count: int
+    total_size: int
+    chunks_seen: int
+    chunk_remaining: int
+    observed: int
+    hasher: Any
+    creator_pid: int
+    lock: Any
+
+
+def _make_fetch_stream_owner() -> tuple[object, ...]:
+    registry: dict[int, _FetchStreamRecord] = {}
+    registry_lock = threading.RLock()
+
+    def exact(session: Any) -> _FetchStreamRecord:
+        _require(
+            type(session) is _FetchResponseStreamSession
+            and session._seal is _FETCH_STREAM_TOKEN,
+            "exact fetch response stream session is required",
+        )
+        with registry_lock:
+            record = registry.get(session._key)
+        _require(
+            type(record) is _FetchStreamRecord
+            and record.session is session
+            and record.creator_pid == os.getpid(),
+            "fetch response stream session is absent, forked, or terminal",
+        )
+        return record
+
+    def terminalize(record: _FetchStreamRecord) -> None:
+        with registry_lock:
+            if registry.get(record.session._key) is record:
+                del registry[record.session._key]
+        try:
+            os.close(record.descriptor)
+        except OSError:
+            pass
+        _finish_operation(record.operation)
+
+    def begin(
+        descriptor: int,
+        operation: FetchTerminalMinimumBundleOperation,
+        deadline: float,
+    ) -> tuple[_FetchResponseStreamSession, dict[str, Any]]:
+        _assert_production_binding()
+        _require(
+            type(descriptor) is int and descriptor >= 0
+            and type(operation) is FetchTerminalMinimumBundleOperation
+            and type(deadline) is float,
+            "fetch response stream arguments differ",
+        )
+        snapshot = _claim_fetch_operation(operation)
+        owned_descriptor = -1
+        try:
+            _require(
+                type(snapshot.read_profile_raw) is bytes,
+                "fetch read profile differs",
+            )
+            profile = load_read_profile(
+                snapshot.read_profile_raw, snapshot.transport_profile_raw,
+            )
+            limits = profile["server_read"]["fetch"]
+            owned_descriptor = os.dup(descriptor)
+            fcntl.fcntl(
+                owned_descriptor,
+                fcntl.F_SETFD,
+                fcntl.fcntl(owned_descriptor, fcntl.F_GETFD)
+                | fcntl.FD_CLOEXEC,
+            )
+            _require(
+                bool(
+                    fcntl.fcntl(owned_descriptor, fcntl.F_GETFD)
+                    & fcntl.FD_CLOEXEC
+                ),
+                "fetch response stream descriptor is not close-on-exec",
+            )
+            header = _read_canonical_frame_until(
+                owned_descriptor,
+                deadline,
+                65536,
+                "fetch control header",
+            )
+            header = _exact(
+                header,
+                {
+                    "protocol", "status", "operation_id", "job_id",
+                    "chunk_count", "total_size_bytes", "bundle_sha256", "authority",
+                },
+                "fetch control header",
+            )
+            max_chunks = int(limits["max_chunks"], 10)
+            max_total = int(limits["max_total_bytes"], 10)
+            chunk_count = int(
+                _positive_decimal(
+                    header["chunk_count"],
+                    "fetch chunk count",
+                    maximum=max_chunks,
+                ),
+                10,
+            )
+            total_size = int(
+                _positive_decimal(
+                    header["total_size_bytes"],
+                    "fetch total size",
+                    maximum=max_total,
+                ),
+                10,
+            )
+            _require(
+                header["protocol"] == READ_PROTOCOL
+                and header["status"]
+                == "streaming_terminal_minimum_bundle"
+                and header["operation_id"] == snapshot.operation_id
+                and header["job_id"] == snapshot.job_id
+                and _sha(header["bundle_sha256"], "fetch bundle hash")
+                and header["authority"]
+                == {"authorizes_effect": False, "qsub_calls": "0"},
+                "fetch control header identity or authority differs",
+            )
+            session = object.__new__(_FetchResponseStreamSession)
+            session._key = id(session)
+            session._seal = _FETCH_STREAM_TOKEN
+            record = _FetchStreamRecord(
+                session=session,
+                descriptor=owned_descriptor,
+                operation=operation,
+                snapshot=snapshot,
+                deadline=deadline,
+                header=copy.deepcopy(header),
+                max_chunk=int(limits["max_chunk_bytes"], 10),
+                chunk_count=chunk_count,
+                total_size=total_size,
+                chunks_seen=0,
+                chunk_remaining=0,
+                observed=0,
+                hasher=hashlib.sha256(),
+                creator_pid=os.getpid(),
+                lock=threading.Lock(),
+            )
+            with registry_lock:
+                _require(
+                    session._key not in registry,
+                    "fetch response stream key collision",
+                )
+                registry[session._key] = record
+            owned_descriptor = -1
+            return session, copy.deepcopy(header)
+        except BaseException:
+            if owned_descriptor >= 0:
+                try:
+                    os.close(owned_descriptor)
+                except OSError:
+                    pass
+            _finish_operation(operation)
+            raise
+
+    def read_exact(session: Any, size: int) -> bytes:
+        record = exact(session)
+        _require(
+            type(size) is int and 0 < size <= MAX_FETCH_CHUNK_BYTES,
+            "fetch response stream read size differs",
+        )
+        try:
+            with record.lock:
+                output = bytearray()
+                while len(output) < size:
+                    if record.chunk_remaining == 0:
+                        _require(
+                            record.chunks_seen < record.chunk_count,
+                            "fetch response stream ended early",
+                        )
+                        next_size = struct.unpack(
+                            "!I",
+                            _read_exact_until(
+                                record.descriptor,
+                                4,
+                                record.deadline,
+                                "fetch chunk header",
+                            ),
+                        )[0]
+                        _require(
+                            0 < next_size <= record.max_chunk
+                            and record.observed + next_size
+                            <= record.total_size,
+                            "fetch chunk size differs",
+                        )
+                        record.chunk_remaining = next_size
+                        record.chunks_seen += 1
+                    take = min(
+                        size - len(output), record.chunk_remaining,
+                    )
+                    chunk = _read_exact_until(
+                        record.descriptor,
+                        take,
+                        record.deadline,
+                        "fetch chunk",
+                    )
+                    output.extend(chunk)
+                    record.hasher.update(chunk)
+                    record.chunk_remaining -= take
+                    record.observed += take
+                return bytes(output)
+        except BaseException:
+            terminalize(record)
+            raise
+
+    def assert_current(session: Any) -> None:
+        exact(session)
+
+    def finish(session: Any) -> dict[str, Any]:
+        record = exact(session)
+        try:
+            with record.lock:
+                _require(
+                    record.observed == record.total_size
+                    and record.chunk_remaining == 0
+                    and record.chunks_seen == record.chunk_count,
+                    "fetch response stream is incomplete",
+                )
+                trailer = _read_canonical_frame_until(
+                    record.descriptor,
+                    record.deadline,
+                    65536,
+                    "fetch trailer",
+                )
+                trailer = _exact(
+                    trailer,
+                    {
+                        "protocol", "status", "operation_id", "job_id",
+                        "chunk_count", "total_size_bytes", "bundle_sha256",
+                        "authority", "trailer_payload_sha256",
+                    },
+                    "fetch trailer",
+                )
+                supplied = _sha(
+                    trailer["trailer_payload_sha256"],
+                    "fetch trailer hash",
+                )
+                _require(
+                    trailer["protocol"] == READ_PROTOCOL
+                    and trailer["status"] == "completed"
+                    and trailer["operation_id"]
+                    == record.snapshot.operation_id
+                    and trailer["job_id"] == record.snapshot.job_id
+                    and trailer["chunk_count"]
+                    == record.header["chunk_count"]
+                    and trailer["total_size_bytes"]
+                    == record.header["total_size_bytes"]
+                    and trailer["bundle_sha256"]
+                    == record.hasher.hexdigest()
+                    and trailer["bundle_sha256"]
+                    == record.header["bundle_sha256"]
+                    and trailer["authority"]
+                    == {"authorizes_effect": False, "qsub_calls": "0"}
+                    and supplied
+                    == digest({**trailer, "trailer_payload_sha256": ""}),
+                    "fetch trailer identity, digest, or authority differs",
+                )
+                _require_eof_until(
+                    record.descriptor,
+                    record.deadline,
+                    "fetch response",
+                )
+            terminalize(record)
+            return copy.deepcopy(trailer)
+        except BaseException:
+            terminalize(record)
+            raise
+
+    def abandon(session: Any) -> None:
+        terminalize(exact(session))
+
+    def after_fork_child() -> None:
+        nonlocal registry_lock
+        for record in tuple(registry.values()):
+            try:
+                os.close(record.descriptor)
+            except OSError:
+                pass
+        registry.clear()
+        registry_lock = threading.RLock()
+
+    return begin, read_exact, assert_current, finish, abandon, after_fork_child
+
+
+(
+    _FETCH_STREAM_BEGIN,
+    _FETCH_STREAM_READ_EXACT,
+    _FETCH_STREAM_ASSERT,
+    _FETCH_STREAM_FINISH,
+    _FETCH_STREAM_ABANDON,
+    _FETCH_STREAM_FORK_CHILD,
+) = _make_fetch_stream_owner()
+
+
 def _after_fork_child() -> None:
     global _OPERATION_TOKEN, _W5_OWNER_BINDING, _W5_OWNER_BINDING_LOCK
     global _QSTAT_OWNER_BINDING, _QSTAT_OWNER_BINDING_LOCK
     global _QSTAT_ISSUANCE_BINDING, _QSTAT_ISSUANCE_BINDING_LOCK
+    _FETCH_STREAM_FORK_CHILD()
     _clear_operation_owner_after_fork()
     _clear_query_child_owner_after_fork()
     _OPERATION_TOKEN = object()
@@ -1968,7 +2319,14 @@ _FROZEN_SEALED_RECORD = _sealed_record
 _FROZEN_RECORD_SNAPSHOT = _record_snapshot
 _FROZEN_QUERY_RESPONSE_VALIDATOR = _validate_query_response_snapshot
 _FROZEN_QUERY_CODEC = read_query_response_until
-_FROZEN_FETCH_CODEC = read_fetch_response_until
+_FROZEN_FETCH_CODEC = _read_fetch_response_buffered_for_tests_until
+_FROZEN_FETCH_STREAM_BEGIN = _FETCH_STREAM_BEGIN
+_FROZEN_FETCH_STREAM_READ_EXACT = _FETCH_STREAM_READ_EXACT
+_FROZEN_FETCH_STREAM_ASSERT = _FETCH_STREAM_ASSERT
+_FROZEN_FETCH_STREAM_FINISH = _FETCH_STREAM_FINISH
+_FROZEN_FETCH_STREAM_ABANDON = _FETCH_STREAM_ABANDON
+_FROZEN_FETCH_STREAM_FORK_CHILD = _FETCH_STREAM_FORK_CHILD
+_FROZEN_FETCH_STREAM_TYPE = _FetchResponseStreamSession
 _FROZEN_OPERATION_OWNER_FACTORY = _make_operation_owner
 _FROZEN_OPERATION_SNAPSHOT = _operation_snapshot
 _FROZEN_OPERATION_PROJECTION = _operation_projection
@@ -1990,6 +2348,7 @@ _FROZEN_GETSIGNAL = signal.getsignal
 _FROZEN_OS_STAT = os.stat
 _FROZEN_OS_FSTAT = os.fstat
 _FROZEN_OS_DUP2 = os.dup2
+_FROZEN_OS_DUP = os.dup
 _FROZEN_MONOTONIC = time.monotonic
 _FROZEN_SIGTERM = signal.SIGTERM
 _FROZEN_SIGKILL = signal.SIGKILL
@@ -2013,6 +2372,9 @@ _FROZEN_CHILD_RETIRE_TIMEOUT_SECONDS = CHILD_RETIRE_TIMEOUT_SECONDS
 _FROZEN_SUBMIT_OPERATION_TIMEOUT_SECONDS = SUBMIT_OPERATION_TIMEOUT_SECONDS
 _FROZEN_MAX_TERMINAL_OPERATION_RECORDS = MAX_TERMINAL_OPERATION_RECORDS
 _FROZEN_MAX_QUERY_RESPONSE_FRAME_BYTES = MAX_QUERY_RESPONSE_FRAME_BYTES
+_FROZEN_MAX_FETCH_TOTAL_BYTES = MAX_FETCH_TOTAL_BYTES
+_FROZEN_MAX_FETCH_CHUNK_BYTES = MAX_FETCH_CHUNK_BYTES
+_FROZEN_MAX_BUFFERED_FETCH_TEST_BYTES = MAX_BUFFERED_FETCH_TEST_BYTES
 
 
 def _assert_production_binding() -> None:
@@ -2067,7 +2429,14 @@ def _assert_production_binding() -> None:
         and _record_snapshot is _FROZEN_RECORD_SNAPSHOT
         and _validate_query_response_snapshot is _FROZEN_QUERY_RESPONSE_VALIDATOR
         and read_query_response_until is _FROZEN_QUERY_CODEC
-        and read_fetch_response_until is _FROZEN_FETCH_CODEC
+        and _read_fetch_response_buffered_for_tests_until is _FROZEN_FETCH_CODEC
+        and _FETCH_STREAM_BEGIN is _FROZEN_FETCH_STREAM_BEGIN
+        and _FETCH_STREAM_READ_EXACT is _FROZEN_FETCH_STREAM_READ_EXACT
+        and _FETCH_STREAM_ASSERT is _FROZEN_FETCH_STREAM_ASSERT
+        and _FETCH_STREAM_FINISH is _FROZEN_FETCH_STREAM_FINISH
+        and _FETCH_STREAM_ABANDON is _FROZEN_FETCH_STREAM_ABANDON
+        and _FETCH_STREAM_FORK_CHILD is _FROZEN_FETCH_STREAM_FORK_CHILD
+        and _FetchResponseStreamSession is _FROZEN_FETCH_STREAM_TYPE
         and _make_operation_owner is _FROZEN_OPERATION_OWNER_FACTORY
         and _operation_snapshot is _FROZEN_OPERATION_SNAPSHOT
         and _operation_projection is _FROZEN_OPERATION_PROJECTION
@@ -2089,6 +2458,7 @@ def _assert_production_binding() -> None:
         and os.stat is _FROZEN_OS_STAT
         and os.fstat is _FROZEN_OS_FSTAT
         and os.dup2 is _FROZEN_OS_DUP2
+        and os.dup is _FROZEN_OS_DUP
         and time.monotonic is _FROZEN_MONOTONIC
         and signal.SIGTERM == _FROZEN_SIGTERM
         and signal.SIGKILL == _FROZEN_SIGKILL
@@ -2113,7 +2483,11 @@ def _assert_production_binding() -> None:
         and MAX_TERMINAL_OPERATION_RECORDS == _FROZEN_MAX_TERMINAL_OPERATION_RECORDS == 8
         and MAX_QUERY_RESPONSE_FRAME_BYTES
         == _FROZEN_MAX_QUERY_RESPONSE_FRAME_BYTES
-        == 512 * 1024,
+        == 512 * 1024
+        and MAX_FETCH_TOTAL_BYTES == _FROZEN_MAX_FETCH_TOTAL_BYTES == 1_092_943_959
+        and MAX_FETCH_CHUNK_BYTES == _FROZEN_MAX_FETCH_CHUNK_BYTES == 4 * 1024 * 1024
+        and MAX_BUFFERED_FETCH_TEST_BYTES
+        == _FROZEN_MAX_BUFFERED_FETCH_TEST_BYTES == 2 * 1024 * 1024,
         "shared fixed SSH production source, function, executable, or option binding differs",
     )
 
@@ -2135,7 +2509,6 @@ __all__ = [
     "project_submit_controller_argv_for_review",
     "project_fetch_request_frame_for_review",
     "project_query_request_frame_for_review",
-    "read_fetch_response_until",
     "read_query_response_until",
     "run_submit_channel_once",
     "validate_read_profile",

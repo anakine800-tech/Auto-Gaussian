@@ -32,6 +32,36 @@
     "integration": {"$ref": "#/$defs/integration"},
     "manifest_payload_sha256": {"$ref": "#/$defs/nonzero_sha"}
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "stream": {
+            "properties": {"stream_mode": {"const": "offline_synthetic"}},
+            "required": ["stream_mode"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "integration": {
+            "properties": {
+              "required_production_successor": {"const": "T3_shared_channel_owner_exact_type_not_frozen"}
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "integration": {
+            "properties": {
+              "required_production_successor": {"const": "Q1_backend_owned_reviewed_read_authority_exact_type"}
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "nonzero_sha": {
@@ -83,7 +113,7 @@
       "additionalProperties": false,
       "required": ["stream_mode", "stream_projection_sha256", "chunk_size_bytes"],
       "properties": {
-        "stream_mode": {"const": "offline_synthetic"},
+        "stream_mode": {"enum": ["offline_synthetic", "closed_fetch_acquisition_offline_fake"]},
         "stream_projection_sha256": {"$ref": "#/$defs/nonzero_sha"},
         "chunk_size_bytes": {"const": "1048576"}
       }
@@ -138,7 +168,7 @@
     "integration": {
       "type": "object", "additionalProperties": false,
       "required": ["production_integration", "required_production_successor", "required_production_target_predecessor", "portable_bytes_can_reconstruct_lease"],
-      "properties": {"production_integration": {"const": false}, "required_production_successor": {"const": "T3_shared_channel_owner_exact_type_not_frozen"}, "required_production_target_predecessor": {"const": "reviewed_local_policy_owner_exact_type_not_frozen"}, "portable_bytes_can_reconstruct_lease": {"const": false}}
+      "properties": {"production_integration": {"const": false}, "required_production_successor": {"enum": ["T3_shared_channel_owner_exact_type_not_frozen", "Q1_backend_owned_reviewed_read_authority_exact_type"]}, "required_production_target_predecessor": {"const": "reviewed_local_policy_owner_exact_type_not_frozen"}, "portable_bytes_can_reconstruct_lease": {"const": false}}
     }
   }
 }

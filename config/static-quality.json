@@ -5,6 +5,7 @@
     "scripts/audit_python_contract.py",
     "scripts/dev_preflight.py",
     "scripts/direct_existing_job_lineage.py",
+    "scripts/direct_fetch_acquisition.py",
     "scripts/direct_local_fetch_materializer.py",
     "scripts/direct_one_hop_transport.py",
     "scripts/direct_qstat_acquisition.py",

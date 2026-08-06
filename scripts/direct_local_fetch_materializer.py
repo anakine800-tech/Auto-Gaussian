@@ -26,6 +26,7 @@ import re
 import stat
 import sys
 import threading
+import types
 import weakref
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,7 +42,9 @@ MANIFEST_SCHEMA = "auto-g16-direct-fetch-manifest/1"
 BACKEND_KIND = "direct_ssh_pbs"
 MATERIALIZATION_MODE = "descriptor_relative_no_clobber"
 STREAM_MODE = "offline_synthetic"
+CLOSED_STREAM_MODE = "closed_fetch_acquisition_offline_fake"
 PRODUCTION_SUCCESSOR = "T3_shared_channel_owner_exact_type_not_frozen"
+CLOSED_PRODUCTION_SUCCESSOR = "Q1_backend_owned_reviewed_read_authority_exact_type"
 PRODUCTION_TARGET_PREDECESSOR = "reviewed_local_policy_owner_exact_type_not_frozen"
 MANIFEST_BASENAME = "direct-fetch-manifest.json"
 CHUNK_SIZE_BYTES = 1024 * 1024
@@ -628,6 +631,16 @@ class _SyntheticFileRecord:
     disconnect_after_chunks: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _ClosedFileRecord:
+    """Exact sequential reader binding; bytes are pulled lazily by sole owner."""
+
+    basename: str
+    reader: object
+    declared_size_bytes: str
+    declared_sha256: str
+
+
 @dataclass(slots=True)
 class _StreamRecord:
     registry_nonce: object
@@ -636,7 +649,7 @@ class _StreamRecord:
     process_epoch: object
     target_binding_sha256: str
     projection: dict[str, Any]
-    files: tuple[_SyntheticFileRecord, ...]
+    files: tuple[_SyntheticFileRecord | _ClosedFileRecord, ...]
     consumed: bool
     lock: Any
 
@@ -724,6 +737,24 @@ def _assert_stream_current(lease: DirectFetchStreamLease) -> None:
             and lease.production_integration is False,
             "stream lease fields drifted",
         )
+        closed = tuple(
+            item for item in record.files if type(item) is _ClosedFileRecord
+        )
+        if closed:
+            _require(
+                len(closed) == len(record.files)
+                and all(item.reader is closed[0].reader for item in closed),
+                "closed fetch reader binding differs",
+            )
+            module = sys.modules.get("direct_fetch_acquisition")
+            assert_reader = getattr(
+                module, "_assert_materializer_reader_current", None,
+            )
+            _require(
+                callable(assert_reader),
+                "canonical closed fetch reader assertion differs",
+            )
+            assert_reader(closed[0].reader)
 
 
 def _synthetic_record_for_tests(basename: str, raw: bytes, *, declared_size_bytes: str | None = None, declared_sha256: str | None = None, chunks: tuple[bytes, ...] | None = None, disconnect_after_chunks: int | None = None) -> _SyntheticFileRecord:
@@ -803,22 +834,182 @@ def _issue_synthetic_stream_records_for_tests_once(target_capability: LocalFetch
     return lease.assert_current()
 
 
+def issue_closed_fetch_stream_lease_once(
+    target_capability: LocalFetchTargetCapability,
+    acquisition_capability: object,
+) -> DirectFetchStreamLease:
+    """Consume the exact closed acquisition capability into the T4 lease.
+
+    The current acquisition predecessor is offline-fake-only.  This transition
+    is intentionally exact and single-use, but remains
+    ``production_integration=false`` until Q1 supplies its backend-owned
+    reviewed read authority.
+    """
+    _assert_target_current(target_capability)
+    module = sys.modules.get("direct_fetch_acquisition")
+    expected_path = Path(__file__).resolve().with_name("direct_fetch_acquisition.py")
+    capability_type = getattr(module, "ClosedDirectFetchStreamCapability", None)
+    reader_type = getattr(module, "ClosedDirectFetchReaderCapability", None)
+    consume = getattr(module, "_consume_for_materializer_once", None)
+    validate_source = getattr(module, "validate_closed_stream_projection", None)
+    assert_binding = getattr(module, "_assert_module_binding", None)
+    _require(
+        type(module) is types.ModuleType
+        and Path(getattr(module, "__file__", "")).resolve() == expected_path
+        and type(capability_type) is type and type(reader_type) is type
+        and type(acquisition_capability) is capability_type
+        and callable(consume) and callable(validate_source)
+        and callable(assert_binding),
+        "canonical closed fetch acquisition successor differs",
+    )
+    assert_binding()
+    target_binding = _target_binding_sha256(_target_record(target_capability).fields)
+    source_projection, reader = consume(acquisition_capability, target_binding)
+    source_projection = validate_source(source_projection)
+    _require(
+        type(source_projection) is dict
+        and source_projection.get("target_binding_sha256") == target_binding
+        and source_projection.get("production_integration") is None,
+        "closed fetch acquisition projection differs",
+    )
+    source_authority = source_projection.get("authority")
+    _require(source_authority == {
+        "authorizes_effect": False,
+        "portable_projection_authorizes_stream": False,
+        "remote_fetch_acquired": True,
+        "closed_stream_owner": True,
+        "production_integration": False,
+        "required_production_predecessor": CLOSED_PRODUCTION_SUCCESSOR,
+        "qsub_calls": "0",
+        "qdel_calls": "0",
+        "automatic_retry": False,
+        "single_use": True,
+    },
+        "closed fetch acquisition authority differs",
+    )
+    _require(
+        type(reader) is reader_type,
+        "exact closed fetch reader capability is required",
+    )
+    assert_reader = getattr(module, "_assert_materializer_reader_current", None)
+    _require(callable(assert_reader), "closed fetch reader assertion differs")
+    assert_reader(reader)
+    records: list[_ClosedFileRecord] = []
+    file_projection: list[dict[str, str]] = []
+    for index, ((name, cap), item) in enumerate(zip(
+        ARTIFACT_SPECS, source_projection["files"], strict=True,
+    ), 1):
+        _require(
+            item["basename"] == name
+            and item["order"] == str(index),
+            "closed fetch file order differs",
+        )
+        _decimal(
+            item["size_bytes"],
+            f"{name} closed fetch size",
+            maximum=cap,
+        )
+        _sha(item["sha256"], f"{name} closed fetch hash", allow_empty=True)
+        records.append(_ClosedFileRecord(
+            basename=name,
+            reader=reader,
+            declared_size_bytes=item["size_bytes"],
+            declared_sha256=item["sha256"],
+        ))
+        file_projection.append({
+            "basename": name,
+            "order": str(index),
+            "size_bytes": item["size_bytes"],
+            "sha256": item["sha256"],
+        })
+    projection = {
+        "schema": STREAM_SCHEMA,
+        "owner": OWNER,
+        "owner_version": OWNER_VERSION,
+        "backend_kind": BACKEND_KIND,
+        "stream_mode": CLOSED_STREAM_MODE,
+        "target_binding_sha256": target_binding,
+        "files": file_projection,
+        "file_count": "5",
+        "total_size_bytes": str(
+            sum(int(item.declared_size_bytes, 10) for item in records)
+        ),
+        "chunk_size_bytes": str(CHUNK_SIZE_BYTES),
+        "portable_projection": True,
+        "authorizes_effect": False,
+        "production_integration": False,
+        "required_production_successor": CLOSED_PRODUCTION_SUCCESSOR,
+        "source_stream_projection_sha256": source_projection["stream_projection_sha256"],
+        "source_acquisition_result_payload_sha256": source_projection["acquisition_result_payload_sha256"],
+        "source_bundle_sha256": source_projection["bundle_sha256"],
+        "source_lineage_id": source_projection["lineage_id"],
+        "stream_projection_sha256": "",
+    }
+    projection = _finalize(projection, "stream_projection_sha256")
+    nonce = os.urandom(32)
+    key = id(nonce)
+    fields = {
+        "target_binding_sha256": target_binding,
+        "stream_projection_sha256": projection["stream_projection_sha256"],
+        "creator_pid": str(os.getpid()),
+        "process_epoch_sha256": _PROCESS_EPOCH_SHA256,
+        "nonce_sha256": hashlib.sha256(nonce).hexdigest(),
+        "authorizes_effect": False,
+        "production_integration": False,
+    }
+    lease = DirectFetchStreamLease._from_owner(fields=fields, registry_key=key, token=_LEASE_TOKEN)
+    record = _StreamRecord(
+        registry_nonce=object(), lease_ref=weakref.ref(lease), creator_pid=os.getpid(),
+        process_epoch=_PROCESS_EPOCH, target_binding_sha256=target_binding,
+        projection=projection, files=tuple(records), consumed=False, lock=threading.Lock(),
+    )
+    with _REGISTRY_LOCK:
+        while key in _STREAM_REGISTRY:
+            key += 1
+            object.__setattr__(lease, "_registry_key", key)
+        _STREAM_REGISTRY[key] = record
+    return lease.assert_current()
+
+
 def _validate_stream_projection(projection: Any) -> dict[str, Any]:
-    value = copy.deepcopy(_exact(projection, {
+    _require(type(projection) is dict, "stream projection fields differ")
+    closed = projection.get("stream_mode") == CLOSED_STREAM_MODE
+    fields = {
         "schema", "owner", "owner_version", "backend_kind", "stream_mode",
         "target_binding_sha256", "files", "file_count", "total_size_bytes",
         "chunk_size_bytes", "portable_projection", "authorizes_effect",
         "production_integration", "required_production_successor",
         "stream_projection_sha256",
-    }, "stream projection"))
+    }
+    if closed:
+        fields |= {
+            "source_stream_projection_sha256",
+            "source_acquisition_result_payload_sha256",
+            "source_bundle_sha256", "source_lineage_id",
+        }
+    value = copy.deepcopy(_exact(projection, fields, "stream projection"))
     _require(
         value["schema"] == STREAM_SCHEMA and value["owner"] == OWNER
         and value["owner_version"] == OWNER_VERSION and value["backend_kind"] == BACKEND_KIND
-        and value["stream_mode"] == STREAM_MODE and value["portable_projection"] is True
+        and value["stream_mode"] in {STREAM_MODE, CLOSED_STREAM_MODE}
+        and value["portable_projection"] is True
         and value["authorizes_effect"] is False and value["production_integration"] is False
-        and value["required_production_successor"] == PRODUCTION_SUCCESSOR,
+        and value["required_production_successor"]
+        == (CLOSED_PRODUCTION_SUCCESSOR if closed else PRODUCTION_SUCCESSOR),
         "stream projection constants differ",
     )
+    if closed:
+        for field in (
+            "source_stream_projection_sha256",
+            "source_acquisition_result_payload_sha256",
+            "source_bundle_sha256",
+        ):
+            _sha(value[field], f"stream {field}")
+        _require(
+            type(value["source_lineage_id"]) is str
+            and re.fullmatch(r"direct-submitted-job-read-[a-f0-9]{64}", value["source_lineage_id"]) is not None,
+            "stream source lineage differs",
+        )
     _sha(value["target_binding_sha256"], "stream target binding")
     _require(value["chunk_size_bytes"] == str(CHUNK_SIZE_BYTES), "stream chunk cap differs")
     _require(value["file_count"] == "5" and type(value["files"]) is list and len(value["files"]) == 5, "stream exact-five topology differs")
@@ -853,19 +1044,36 @@ def _consume_target_once(capability: LocalFetchTargetCapability) -> _TargetAcces
         return _TargetAccess(record.root_identity, copy.deepcopy(record.fields), record.leaf_basename)
 
 
-def _consume_stream_once(lease: DirectFetchStreamLease) -> tuple[dict[str, Any], tuple[_SyntheticFileRecord, ...]]:
+def _consume_stream_once(
+    lease: DirectFetchStreamLease,
+) -> tuple[
+    dict[str, Any],
+    tuple[_SyntheticFileRecord | _ClosedFileRecord, ...],
+]:
     record = _stream_record(lease)
     with record.lock:
         _require(not record.consumed, "stream lease already consumed")
         record.consumed = True
         _require(os.getpid() == record.creator_pid and _PROCESS_EPOCH is record.process_epoch, "stream lease is fork-revoked")
         _require(lease.target_binding_sha256 == record.target_binding_sha256, "stream target binding drifted")
-        return copy.deepcopy(record.projection), record.files
+        projection = copy.deepcopy(record.projection)
+        files = record.files
+    with _REGISTRY_LOCK:
+        _require(
+            _STREAM_REGISTRY.get(lease._registry_key) is record,
+            "stream lease consume raced",
+        )
+        del _STREAM_REGISTRY[lease._registry_key]
+    return projection, files
 
 
-def _write_full(descriptor: int, chunk: bytes) -> None:
-    _require(type(chunk) is bytes and 0 < len(chunk) <= CHUNK_SIZE_BYTES, "stream chunk size differs")
-    view = memoryview(chunk)
+def _write_full(descriptor: int, chunk: bytes | memoryview) -> None:
+    _require(
+        type(chunk) in {bytes, memoryview}
+        and 0 < len(chunk) <= CHUNK_SIZE_BYTES,
+        "stream chunk size differs",
+    )
+    view = chunk if type(chunk) is memoryview else memoryview(chunk)
     offset = 0
     while offset < len(view):
         try:
@@ -909,7 +1117,11 @@ def _verify_file_identity(leaf_fd: int, basename: str, descriptor: int, initial:
     )
 
 
-def _materialize_file(leaf_fd: int, record: _SyntheticFileRecord, declared: dict[str, Any]) -> dict[str, str]:
+def _materialize_file(
+    leaf_fd: int,
+    record: _SyntheticFileRecord | _ClosedFileRecord,
+    declared: dict[str, Any],
+) -> dict[str, str]:
     flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     descriptor = -1
     try:
@@ -923,11 +1135,41 @@ def _materialize_file(leaf_fd: int, record: _SyntheticFileRecord, declared: dict
         )
         hasher = hashlib.sha256()
         size = 0
-        for index, chunk in enumerate(record.chunks):
-            if record.disconnect_after_chunks is not None and index == record.disconnect_after_chunks:
+        if type(record) is _ClosedFileRecord:
+            def closed_chunks():
+                remaining = int(record.declared_size_bytes, 10)
+                module = sys.modules.get("direct_fetch_acquisition")
+                read_once = getattr(module, "_read_for_materializer_once", None)
+                _require(
+                    callable(read_once),
+                    "canonical closed fetch reader differs",
+                )
+                while remaining:
+                    chunk = read_once(
+                        record.reader,
+                        record.basename,
+                        min(CHUNK_SIZE_BYTES, remaining),
+                    )
+                    _require(
+                        type(chunk) is bytes and bool(chunk)
+                        and len(chunk) <= remaining,
+                        "closed fetch reader chunk differs",
+                    )
+                    yield chunk
+                    remaining -= len(chunk)
+
+            chunks = closed_chunks()
+            disconnect_after_chunks = None
+        else:
+            chunks = iter(record.chunks)
+            disconnect_after_chunks = record.disconnect_after_chunks
+        chunk_count = 0
+        for index, chunk in enumerate(chunks):
+            if disconnect_after_chunks is not None and index == disconnect_after_chunks:
                 raise DirectLocalFetchMaterializerError("synthetic stream disconnected")
             _require(
-                type(chunk) is bytes and 0 < len(chunk) <= CHUNK_SIZE_BYTES,
+                type(chunk) in {bytes, memoryview}
+                and 0 < len(chunk) <= CHUNK_SIZE_BYTES,
                 "stream chunk size differs",
             )
             _require(
@@ -937,7 +1179,8 @@ def _materialize_file(leaf_fd: int, record: _SyntheticFileRecord, declared: dict
             _write_full(descriptor, chunk)
             hasher.update(chunk)
             size += len(chunk)
-        if record.disconnect_after_chunks is not None and record.disconnect_after_chunks == len(record.chunks):
+            chunk_count += 1
+        if disconnect_after_chunks is not None and disconnect_after_chunks == chunk_count:
             raise DirectLocalFetchMaterializerError("synthetic stream disconnected")
         expected_size = _decimal(declared["size_bytes"], f"{record.basename} declared size", maximum=ARTIFACT_CAPS[record.basename])
         _require(size == expected_size, "artifact stream size differs")
@@ -1033,7 +1276,7 @@ def _manifest_document(access: _TargetAccess, stream: dict[str, Any], files: lis
         },
         "integration": {
             "production_integration": False,
-            "required_production_successor": PRODUCTION_SUCCESSOR,
+            "required_production_successor": stream["required_production_successor"],
             "required_production_target_predecessor": PRODUCTION_TARGET_PREDECESSOR,
             "portable_bytes_can_reconstruct_lease": False,
         },
@@ -1083,7 +1326,11 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         "manifest target binding replay differs",
     )
     stream = _exact(result["stream"], {"stream_mode", "stream_projection_sha256", "chunk_size_bytes"}, "manifest stream")
-    _require(stream["stream_mode"] == STREAM_MODE and stream["chunk_size_bytes"] == str(CHUNK_SIZE_BYTES), "manifest stream constants differ")
+    _require(
+        stream["stream_mode"] in {STREAM_MODE, CLOSED_STREAM_MODE}
+        and stream["chunk_size_bytes"] == str(CHUNK_SIZE_BYTES),
+        "manifest stream constants differ",
+    )
     _sha(stream["stream_projection_sha256"], "manifest stream projection")
     _require(type(result["files"]) is list and len(result["files"]) == 5, "manifest exact-five files differ")
     total = 0
@@ -1105,8 +1352,13 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         "portable_manifest": True, "authorizes_effect": False, "scientific_acceptance": False,
         "remote_fetch_performed": False, "scheduler_inspection_performed": False,
     }, "manifest authority differs")
+    expected_successor = (
+        CLOSED_PRODUCTION_SUCCESSOR
+        if stream["stream_mode"] == CLOSED_STREAM_MODE
+        else PRODUCTION_SUCCESSOR
+    )
     _require(result["integration"] == {
-        "production_integration": False, "required_production_successor": PRODUCTION_SUCCESSOR,
+        "production_integration": False, "required_production_successor": expected_successor,
         "required_production_target_predecessor": PRODUCTION_TARGET_PREDECESSOR,
         "portable_bytes_can_reconstruct_lease": False,
     }, "manifest integration differs")
@@ -1128,6 +1380,8 @@ def materialize_direct_fetch_once(target_capability: LocalFetchTargetCapability,
     access = _consume_target_once(target_capability)
     root_identity = access.root_identity
     leaf_fd = -1
+    records: tuple[_SyntheticFileRecord | _ClosedFileRecord, ...] = ()
+    reader_finished = False
     try:
         stream_projection, records = _consume_stream_once(stream_lease)
         validated_stream = _validate_stream_projection(stream_projection)
@@ -1148,6 +1402,26 @@ def materialize_direct_fetch_once(target_capability: LocalFetchTargetCapability,
         files: list[dict[str, str]] = []
         for record, declared in zip(records, validated_stream["files"], strict=True):
             files.append(_materialize_file(leaf_fd, record, declared))
+        closed = tuple(
+            record for record in records if type(record) is _ClosedFileRecord
+        )
+        if closed:
+            _require(
+                len(closed) == len(records)
+                and all(record.reader is closed[0].reader for record in closed),
+                "closed fetch reader completion binding differs",
+            )
+            module = sys.modules.get("direct_fetch_acquisition")
+            finish_reader = getattr(
+                module, "_finish_for_materializer_once", None,
+            )
+            _require(
+                callable(finish_reader),
+                "canonical closed fetch reader finish differs",
+            )
+            terminal_bundle_sha256 = finish_reader(closed[0].reader)
+            _sha(terminal_bundle_sha256, "terminal bundle")
+            reader_finished = True
         try:
             os.fsync(leaf_fd)
         except OSError as exc:
@@ -1191,6 +1465,16 @@ def materialize_direct_fetch_once(target_capability: LocalFetchTargetCapability,
                 os.close(leaf_fd)
             except OSError:
                 pass
+        closed = tuple(
+            record for record in records if type(record) is _ClosedFileRecord
+        )
+        if closed and not reader_finished:
+            module = sys.modules.get("direct_fetch_acquisition")
+            abandon_reader = getattr(
+                module, "_abandon_materializer_reader_once", None,
+            )
+            if callable(abandon_reader):
+                abandon_reader(closed[0].reader)
         _close_if_same(root_identity)
 
 
@@ -1253,6 +1537,7 @@ class _ModuleBinding(NamedTuple):
     lease_type: type
     owner_type: type
     materializer: object
+    closed_stream_issuer: object
     source: _SourceSnapshot
 
 
@@ -1262,6 +1547,7 @@ _OWNER_BINDING = _ModuleBinding(
     lease_type=DirectFetchStreamLease,
     owner_type=LocalFetchTargetOwner,
     materializer=materialize_direct_fetch_once,
+    closed_stream_issuer=issue_closed_fetch_stream_lease_once,
     source=_source_snapshot(),
 )
 
@@ -1275,6 +1561,7 @@ def _assert_owner_binding() -> None:
         and DirectFetchStreamLease is binding.lease_type
         and LocalFetchTargetOwner is binding.owner_type
         and materialize_direct_fetch_once is binding.materializer
+        and issue_closed_fetch_stream_lease_once is binding.closed_stream_issuer
         and _source_snapshot() == binding.source,
         "local fetch owner module/source binding differs",
     )

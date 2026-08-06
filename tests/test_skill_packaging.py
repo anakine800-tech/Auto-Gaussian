@@ -401,6 +401,10 @@ class SkillPackagingTests(unittest.TestCase):
                 "tests/test_direct_qstat_acquisition_schema_draft202012.py",
                 "references/direct-qstat-acquisition.md",
             ),
+            "W6F": (
+                "scripts/direct_fetch_acquisition.py",
+                "references/direct-fetch-acquisition.md",
+            ),
             "T4": (
                 "scripts/direct_local_fetch_materializer.py",
                 "contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json",
