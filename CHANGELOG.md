@@ -26,10 +26,11 @@ All notable public release changes are recorded here. The project follows
 
 - Version 2.7.0 remains an offline-only source candidate. W4B fixed trusted
   server-local session composition is present in the local collection and
-  joins the W1-W4 local/offline components in one clean-exec process, but it is
-  non-authorizing and not a direct production adapter. W5, W6, and W7 are not
-  present, so direct transport, upload, real `qsub`, real inspect/fetch,
-  reconciliation, and live-smoke evidence remain blocked.
+  joins the W1-W4 local/offline components in one clean-exec process. W5 fixed
+  one-hop transport code consumes its typed child-local seam and implements
+  immutable upload and at-most-once `qsub` under offline-only validation.
+  W6C0 is a provisional non-authorizing qstat evidence core; real W6
+  inspect/fetch/reconciliation, W7 and live-smoke evidence remain blocked.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed
   below `/home/user100/SDL`. The direct profile contract does not relocate or
   generalize that legacy backend.

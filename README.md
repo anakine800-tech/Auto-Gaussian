@@ -103,10 +103,11 @@ authority.
 
 W4B fixed trusted server-local session composition is present in the local
 collection. It joins the W1-W4 owners and descriptor identities in one
-clean-exec process and exposes only a non-authorizing child-local transition;
-it does not perform the W5 effect. W5, W6, and W7 are not present. Direct
-transport, upload, `qsub`, inspect, fetch, reconciliation, and separately
-authorized live-smoke evidence therefore remain blocked. This candidate has not been
+clean-exec process. W5 fixed one-hop transport code consumes its typed
+child-local seam and implements immutable upload and at-most-once `qsub` under
+offline-only validation. W6C0 supplies only a provisional non-authorizing qstat
+evidence core; real W6 inspect/fetch/reconciliation and W7 are not present.
+Separately authorized live-smoke evidence therefore remains blocked. This candidate has not been
 tagged or published as 2.7.0 and grants no deployment, SSH, RTwin, PBS, Gaussian,
 submission, retry, `qdel`, cleanup, deletion, live, or scientific authority.
 

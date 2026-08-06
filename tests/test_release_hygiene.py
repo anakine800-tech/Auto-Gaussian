@@ -303,16 +303,20 @@ class ReleaseHygieneTests(unittest.TestCase):
                 "W3 replay ingress": r"\bW3\b[^.]*\breplay ingress\b",
                 "W4 isolated helper": r"\bW4\b[^.]*\bhelper\b",
                 "W4B trusted composition": r"\bW4B\b[^.]*\bcomposition\b[^.]*\bpresent\b",
+                "W5 fixed transport": r"\bW5\b[^.]*\bfixed one-hop\b",
+                "W6C0 provisional core": r"\bW6C0\b[^.]*\b(?:provisional|non-authorizing)\b",
             }
             for marker, pattern in integrated_markers.items():
                 with self.subTest(marker=marker):
                     self.assertRegex(normalized, pattern)
-            for blocked_slice in ("W5", "W6", "W7"):
-                with self.subTest(blocked_slice=blocked_slice):
-                    self.assertRegex(
-                        normalized,
-                        rf"\b{blocked_slice}\b[^.]*\bnot present\b",
-                    )
+            self.assertRegex(
+                normalized,
+                r"\b(?:real )?W6\b[^.]*\b(?:not present|remain blocked)\b",
+            )
+            self.assertRegex(
+                normalized,
+                r"\bW7\b[^.]*\b(?:not present|remain blocked)\b",
+            )
 
         for path in milestone_docs:
             text = path.read_text(encoding="utf-8")
@@ -333,7 +337,7 @@ class ReleaseHygieneTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, combined)
         for blocker in (
-            "w5, w6, and w7 are not present",
+            "real w6",
             "qsub",
             "inspect",
             "fetch",
