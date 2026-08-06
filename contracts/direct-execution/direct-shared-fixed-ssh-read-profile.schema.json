@@ -27,12 +27,14 @@
         "qstat": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["executable", "executable_sha256", "max_stdout_bytes", "timeout_seconds"],
+          "required": ["executable", "executable_sha256", "executable_owner_uid", "executable_mode", "max_stdout_bytes", "timeout_seconds"],
           "properties": {
             "executable": {"const": "/usr/bin/qstat"},
             "executable_sha256": {"$ref": "#/$defs/sha256"},
-            "max_stdout_bytes": {"$ref": "#/$defs/positiveDecimal"},
-            "timeout_seconds": {"$ref": "#/$defs/positiveDecimal"}
+            "executable_owner_uid": {"const": "0"},
+            "executable_mode": {"const": "0755"},
+            "max_stdout_bytes": {"const": "65536"},
+            "timeout_seconds": {"const": "30"}
           }
         },
         "fetch": {
@@ -71,6 +73,7 @@
       "pattern": "^[a-f0-9]{64}$(?![\\s\\S])",
       "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
     },
+    "decimal": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$(?![\\s\\S])"},
     "positiveDecimal": {"type": "string", "pattern": "^[1-9][0-9]*$(?![\\s\\S])"}
   }
 }

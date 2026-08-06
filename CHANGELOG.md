@@ -10,12 +10,17 @@ All notable public release changes are recorded here. The project follows
 - Added the offline T4 repository-external local fetch target owner and fixed
   descriptor-relative no-clobber five-file materializer. Its manifest proves
   only safe local bytes; scientific acceptance and effect authority are false.
+- Added production-shaped, offline-validated exact qstat acquisition and final
+  non-authorizing `gaussian-job-inspection/3` scheduler evidence. The exact
+  result consumes W5/L1 authority and cannot be constructed from caller bytes
+  or provisional evidence.
 
 ### Scope
 
-- Only the module-owned offline synthetic stream lease exists. Production T3
-  shared-channel lease integration, query/fetch acquisition, SSH/PBS/Gaussian,
-  retry, cancellation, cleanup, deployment and live work remain blocked.
+- Only offline synthetic validation exists. Live query, every fetch path,
+  production T3 shared-channel lease integration, SSH/PBS/Gaussian, retry,
+  cancellation, cleanup, deployment and live work remain blocked. Scheduler
+  evidence is not Gaussian completion or scientific acceptance.
 
 ## [2.7.0] - 2026-08-05
 

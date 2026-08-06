@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/direct-execution/gaussian-job-inspection-v3.schema.json",
+  "title": "Auto-G16 final direct scheduler evidence inspection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "owner", "owner_version", "inspection_id", "source", "binding", "scheduler", "transport", "authority", "evidence_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-job-inspection/3"},
+    "owner": {"const": "auto-g16-direct-final-scheduler-inspection-owner"},
+    "owner_version": {"const": "direct-final-scheduler-inspection-owner/1"},
+    "inspection_id": {"type": "string", "pattern": "^direct-scheduler-inspection-[a-f0-9]{64}$(?![\\s\\S])"},
+    "source": {"const": "exact_owner_issued_qstat_acquisition"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "job_id", "attempt_id", "input_sha256", "authorization_payload_sha256", "authorization_scope_sha256", "transport_profile_payload_sha256", "w5_result_payload_sha256", "w2_journal_payload_sha256", "lineage_id", "lineage_payload_sha256", "acquisition_id", "acquisition_payload_sha256"],
+      "properties": {
+        "project": {"type": "string", "minLength": 1},
+        "job_id": {"$ref": "#/$defs/jobId"},
+        "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$(?![\\s\\S])"},
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "authorization_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "authorization_scope_sha256": {"$ref": "#/$defs/sha256"},
+        "transport_profile_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "w5_result_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "w2_journal_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "lineage_id": {"type": "string", "pattern": "^direct-submitted-job-read-[a-f0-9]{64}$(?![\\s\\S])"},
+        "lineage_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "acquisition_id": {"type": "string", "pattern": "^direct-qstat-acquisition-[a-f0-9]{64}$(?![\\s\\S])"},
+        "acquisition_payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "scheduler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dialect", "status", "state", "record_present", "pbs_state", "lifecycle", "reason", "parser", "qstat_evidence_sha256", "freshness", "collected_at", "pbs_terminal_is_gaussian_completion", "pbs_terminal_is_scientific_acceptance"],
+      "properties": {
+        "dialect": {"const": "pbs_legacy_v1"},
+        "status": {"enum": ["present", "absent", "unknown"]},
+        "state": {"enum": ["queued", "running", "held", "exiting", "terminal", "absent", "unknown"]},
+        "record_present": {"type": ["boolean", "null"]},
+        "pbs_state": {"type": ["string", "null"]},
+        "lifecycle": {"enum": ["queued", "running", "held", "exiting", "terminal", "absent", "unknown"]},
+        "reason": {"type": ["string", "null"]},
+        "parser": {"const": "pbs_legacy_v1-qstat-single-job/1"},
+        "qstat_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "freshness": {"enum": ["fresh", "stale", "unknown"]},
+        "collected_at": {"$ref": "#/$defs/timestamp"},
+        "pbs_terminal_is_gaussian_completion": {"const": false},
+        "pbs_terminal_is_scientific_acceptance": {"const": false}
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_type", "operation_id", "request_id", "request_frame_sha256", "response_frame_sha256", "read_profile_payload_sha256", "qstat_executable_sha256", "qstat_executable_identity_sha256", "qstat_argv", "stdout_sha256", "stdout_size_bytes", "stderr_sha256", "stderr_size_bytes"],
+      "properties": {
+        "operation_type": {"const": "QueryExactJobOperation"},
+        "operation_id": {"type": "string", "pattern": "^fixed-ssh-operation-[a-f0-9]{64}$(?![\\s\\S])"},
+        "request_id": {"type": "string", "pattern": "^direct-qstat-request-[a-f0-9]{64}$(?![\\s\\S])"},
+        "request_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "response_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "read_profile_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "qstat_executable_sha256": {"$ref": "#/$defs/sha256"},
+        "qstat_executable_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "qstat_argv": {
+          "type": "array",
+          "prefixItems": [{"const": "/usr/bin/qstat"}, {"const": "-f"}, {"$ref": "#/$defs/jobId"}],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "stdout_sha256": {"$ref": "#/$defs/sha256"},
+        "stdout_size_bytes": {"$ref": "#/$defs/decimal"},
+        "stderr_sha256": {"$ref": "#/$defs/sha256"},
+        "stderr_size_bytes": {"$ref": "#/$defs/decimal"}
+      }
+    },
+    "authority": {
+      "const": {
+        "authorizes_effect": false,
+        "scientific_acceptance": false,
+        "gaussian_completion": false,
+        "qsub": false,
+        "qdel": false,
+        "delete": false,
+        "cleanup": false,
+        "retry": false,
+        "fetch": false,
+        "materialize": false,
+        "scheduler_evidence_only": true
+      }
+    },
+    "evidence_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$(?![\\s\\S])", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
+    "decimal": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$(?![\\s\\S])"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$(?![\\s\\S])"},
+    "jobId": {"type": "string", "pattern": "^[1-9][0-9]{0,19}\\.[A-Za-z0-9][A-Za-z0-9._-]{0,254}$(?![\\s\\S])"}
+  }
+}

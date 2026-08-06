@@ -23,10 +23,14 @@ and descriptor identities in one clean-exec process. W5 fixed one-hop
 production code is present: a reviewed OpenSSH subsystem profile, canonical
 framing, descriptor-relative exact upload, fixed at-most-once qsub and an
 owner-issued exact submission receipt. All validation is offline synthetic.
-W6L is present only as the server-local existing-job lineage observer and
-single-use read-capability foundation. W6C0 is present only as a provisional
-non-authorizing qstat parser/evidence core; transport/qsub live evidence, real
-W6 query/fetch/materialization/advanced inspection, W7 lifecycle
+W6L is present as the server-local existing-job lineage observer and
+single-use read-capability foundation. W6C0 remains the provisional
+non-authorizing qstat parser/evidence core. W6Q1 adds a production-shaped,
+offline-validated exact qstat acquisition and final non-authorizing
+`gaussian-job-inspection/3` scheduler-evidence owner. It does not authorize
+live SSH/PBS/qstat, and PBS evidence is not Gaussian completion or scientific
+acceptance. Real W6 live query, fetch, materialization and advanced inspection
+remain blocked; W7 lifecycle
 operations and a separately authorized live smoke remain absent. W3 retains its portable
 `arbitrary_same_process_reflection_isolated=false` disclosure, while W4B/W5
 composition excludes untrusted arbitrary same-process code. Overall
@@ -98,11 +102,15 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   present and composes the W2 claim, W3 replay and W4 process-isolated helper
   into the typed child-local W5 seam. W5 has no caller override, retry, qdel,
   cleanup, inspect or fetch surface; its receipt projection is non-authorizing.
-  W6L adds only exact completed-W5/W2 existing-job lineage and a process-local
-  single-use read-capability foundation. W6C0 is present only as a provisional
-  non-authorizing qstat evidence core; real W6 query/fetch/materialization and
-  advanced inspection remain blocked, W7 is not present, and
-  transport/qsub live evidence and live smoke remain absent.
+  W6L adds exact completed-W5/W2 existing-job lineage and a process-local
+  single-use read-capability foundation. W6C0 remains the provisional
+  non-authorizing qstat evidence core. W6Q1 is production-shaped but only
+  offline-validated: it binds the fixed query acquisition to exact lineage and
+  emits scheduler-only `gaussian-job-inspection/3`. It grants no live
+  SSH/PBS/qstat authority and cannot establish Gaussian completion or
+  scientific acceptance. Real W6 live query, fetch, materialization and
+  advanced inspection remain blocked, W7 is not present, and live smoke
+  remains absent.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.

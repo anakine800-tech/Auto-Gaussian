@@ -107,8 +107,12 @@ clean-exec process. W5 fixed one-hop transport code consumes its typed
 child-local seam and implements immutable upload and at-most-once `qsub` under
 offline-only validation. W6L supplies only the server-local existing-job
 lineage observer and single-use read-capability foundation. W6C0 supplies only
-a provisional non-authorizing qstat evidence core; real W6 query/fetch,
-materialization and advanced inspection remain blocked, and W7 is not present.
+a provisional non-authorizing qstat evidence core. W6Q1 adds a
+production-shaped, offline-validated exact qstat acquisition and final
+scheduler-only `gaussian-job-inspection/3`; it authorizes no live SSH/PBS/qstat
+and does not prove Gaussian completion or scientific acceptance. Real W6 live
+query, fetch, materialization and advanced inspection remain
+blocked, and W7 is not present.
 Separately authorized live-smoke evidence therefore remains blocked. This candidate has not been
 tagged or published as 2.7.0 and grants no deployment, SSH, RTwin, PBS, Gaussian,
 submission, retry, `qdel`, cleanup, deletion, live, or scientific authority.

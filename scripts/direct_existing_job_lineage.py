@@ -1051,6 +1051,88 @@ def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any]:
 os.register_at_fork(after_in_child=_CAPABILITY_FORK_CHILD)
 
 
+_QSTAT_SUCCESSOR_BINDING_LOCK = threading.RLock()
+_QSTAT_SUCCESSOR_BINDING: tuple[types.ModuleType, object, object, type, str] | None = None
+
+
+def _resolve_qstat_successor_owner() -> tuple[object, type]:
+    """Resolve the sole Q1 successor without importing or reconstructing it."""
+
+    global _QSTAT_SUCCESSOR_BINDING
+    module = sys.modules.get("direct_qstat_acquisition")
+    expected_path = os.path.realpath(
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "direct_qstat_acquisition.py")
+    )
+    module_path = os.path.realpath(getattr(module, "__file__", ""))
+    join_type = getattr(module, "_ExactLineageConsumerJoin", None)
+    join_assert = getattr(module, "_assert_exact_lineage_consumer_join", None)
+    module_assert = getattr(module, "_assert_module_binding", None)
+    executed_sha256 = getattr(module, "_EXECUTED_SOURCE_SHA256", None)
+    _require(
+        type(module) is types.ModuleType
+        and module_path == expected_path
+        and type(join_type) is type
+        and join_type.__module__ == "direct_qstat_acquisition"
+        and callable(join_assert)
+        and callable(module_assert)
+        and getattr(module_assert, "__module__", None) == "direct_qstat_acquisition"
+        and getattr(module_assert, "__name__", None) == "_assert_module_binding"
+        and type(executed_sha256) is str
+        and SHA_RE.fullmatch(executed_sha256) is not None,
+        "canonical qstat acquisition successor differs",
+    )
+    with open(expected_path, "rb") as source:
+        source_sha256 = hashlib.sha256(source.read()).hexdigest()
+    _require(source_sha256 == executed_sha256, "canonical qstat acquisition source differs")
+    module_assert()
+    candidate = (module, module_assert, join_assert, join_type, source_sha256)
+    with _QSTAT_SUCCESSOR_BINDING_LOCK:
+        if _QSTAT_SUCCESSOR_BINDING is None:
+            _QSTAT_SUCCESSOR_BINDING = candidate
+        _require(
+            _QSTAT_SUCCESSOR_BINDING == candidate,
+            "canonical qstat acquisition successor was reloaded or rebound",
+        )
+    return join_assert, join_type
+
+
+def _consume_for_exact_qstat_once(
+    capability: DirectSubmittedJobReadCapability,
+    consumer_join: object,
+) -> tuple[DirectSubmittedJobReadLease, bytes]:
+    """Consume L1 only for the exact Q1 owner and retain its live lease.
+
+    The returned projection bytes are evidence carried alongside the exact
+    owner-registered lease.  They are never sufficient without that lease.
+    """
+
+    _assert_module_binding()
+    join_assert, join_type = _resolve_qstat_successor_owner()
+    _require(type(consumer_join) is join_type, "exact qstat lineage consumer join is required")
+    join_assert(consumer_join, capability)
+    lease = capability.consume_once()
+    try:
+        lease.assert_current()
+        projection_raw = _CAPABILITY_PROJECT(lease, "lease")
+        _strict_json_bytes(projection_raw, "lineage projection")
+        return lease, projection_raw
+    except BaseException:
+        try:
+            lease.close_once()
+        except BaseException:
+            pass
+        raise
+
+
+def _clear_qstat_successor_after_fork() -> None:
+    global _QSTAT_SUCCESSOR_BINDING, _QSTAT_SUCCESSOR_BINDING_LOCK
+    _QSTAT_SUCCESSOR_BINDING = None
+    _QSTAT_SUCCESSOR_BINDING_LOCK = threading.RLock()
+
+
+os.register_at_fork(after_in_child=_clear_qstat_successor_after_fork)
+
+
 @dataclass(frozen=True, slots=True)
 class _ModuleBinding:
     module: types.ModuleType
@@ -1098,6 +1180,9 @@ def _capture_module_binding() -> _ModuleBinding:
             _CAPABILITY_CONSUME,
             _CAPABILITY_CLOSE,
             _CAPABILITY_FORK_CHILD,
+            _resolve_qstat_successor_owner,
+            _consume_for_exact_qstat_once,
+            _clear_qstat_successor_after_fork,
         ),
         validate_lineage_projection,
         issued,
@@ -1137,6 +1222,9 @@ def _assert_module_binding() -> None:
             _CAPABILITY_CONSUME,
             _CAPABILITY_CLOSE,
             _CAPABILITY_FORK_CHILD,
+            _resolve_qstat_successor_owner,
+            _consume_for_exact_qstat_once,
+            _clear_qstat_successor_after_fork,
         )
         and validate_lineage_projection is binding.validator
         and _stable_source(Path(__file__).resolve()) == binding.source,

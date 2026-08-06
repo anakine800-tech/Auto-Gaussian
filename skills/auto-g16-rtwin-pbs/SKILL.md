@@ -554,13 +554,25 @@ adapter:
   `contracts/rtwin-pbs/direct-submitted-job-read-lineage.schema.json`, and
   `references/direct-existing-job-lineage.md`. It revalidates exact completed
   W5/W2 lineage and retains no-follow descriptors; its portable projection is
-  non-authorizing, and query/fetch remain blocked.
+  non-authorizing and cannot itself perform query or fetch. Q1 alone consumes
+  its exact live lease for qstat acquisition.
 - W6C0 direct read-only evidence core:
   `scripts/direct_read_only_evidence.py` with
   `references/direct-read-only-evidence-core.md`. It only parses pre-collected
   qstat bytes and validates provisional non-authorizing scheduler evidence; it
   does not own final `gaussian-job-inspection/3` and is not a transport,
   inspect acquisition, fetch, or terminal-science owner.
+- W6Q1 exact qstat acquisition and final scheduler evidence:
+  `scripts/direct_reviewed_read_profile.py`,
+  `scripts/direct_qstat_acquisition.py`,
+  `contracts/rtwin-pbs/direct-reviewed-read-profile-capability.schema.json`,
+  `contracts/rtwin-pbs/direct-qstat-acquisition.schema.json`,
+  `contracts/rtwin-pbs/gaussian-job-inspection-v3.schema.json`, and
+  `references/direct-qstat-acquisition.md`. This production-shaped but only
+  offline-validated path consumes exact W5/L1 authority, runs the fixed qstat
+  query shape, and emits non-authorizing `gaussian-job-inspection/3` scheduler
+  evidence. It does not authorize live SSH/PBS/qstat, prove Gaussian
+  completion or scientific acceptance, or add fetch, retry, qdel or cleanup.
 - T4 repo-external local materializer:
   `scripts/direct_local_fetch_materializer.py`,
   `contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json`,
@@ -568,8 +580,8 @@ adapter:
   `references/direct-local-fetch-materializer.md`. It consumes only its exact
   local target capability and exact sealed offline synthetic stream lease,
   creates the fixed five-file no-clobber snapshot descriptor-relatively, and
-  writes the manifest last. Production T3 shared-channel lease integration,
-  query/fetch acquisition and scientific acceptance remain blocked.
+  writes the manifest last. Production T3 shared-channel fetch-lease
+  integration and scientific acceptance remain blocked.
 - The direct boundary, offline backend and onboarding/support surfaces are
   `scripts/direct_root_mutation_boundary.py` with
   `references/direct-root-mutation-boundary.md`,
@@ -589,11 +601,13 @@ descriptor-relative upload, reviewed PBS bytes, at-most-once qsub and exact
 submission receipt; its validation remains entirely offline with no live
 evidence. W6L adds only the server-local existing-job lineage observer and
 single-use read-capability foundation.
-Sealed query/fetch operations and their codecs do not execute qstat or fetch;
-both production paths remain blocked. W6C0 is a non-authorizing offline qstat
-parser/evidence core. T4 adds only an offline synthetic, repository-external
+Sealed query/fetch codecs alone do not execute qstat or fetch. Q1 is the sole
+production-shaped qstat query acquisition owner, but only offline synthetic
+validation exists and live query remains unauthorized; fetch stays blocked.
+W6C0 is a non-authorizing offline qstat parser/evidence core. T4 adds only an
+offline synthetic, repository-external
 local byte materializer and keeps `production_integration=false` until the
-exact T3 stream type is frozen. Real W6 query/fetch acquisition, local
+exact T3 stream type is frozen. Live query, fetch acquisition, local
 materializer integration, advanced inspection and W7 remain blocked. No qdel,
 cleanup,
 deployment or live authority is granted; the direct backend remains

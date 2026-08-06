@@ -52,7 +52,7 @@ class DirectSharedFixedSSHChannelDraft202012Tests(unittest.TestCase):
             },
             "server_read": {
                 "source_sha256": CHANNEL._EXECUTED_SOURCE_SHA256,
-                "qstat": {"executable": "/usr/bin/qstat", "executable_sha256": "a" * 64, "max_stdout_bytes": "4096", "timeout_seconds": "30"},
+                "qstat": {"executable": "/usr/bin/qstat", "executable_sha256": "a" * 64, "executable_owner_uid": "0", "executable_mode": "0755", "max_stdout_bytes": "65536", "timeout_seconds": "30"},
                 "fetch": {"max_total_bytes": "1048576", "max_chunk_bytes": "65536", "max_chunks": "64", "timeout_seconds": "30"},
             },
             "safety": copy.deepcopy(CHANNEL.READ_POLICY),
@@ -83,6 +83,8 @@ class DirectSharedFixedSSHChannelDraft202012Tests(unittest.TestCase):
             lambda value: value.__setitem__("host", "caller.invalid"),
             lambda value: value["transport_binding"].__setitem__("user", "caller"),
             lambda value: value["safety"].__setitem__("authorizes_effect", True),
+            lambda value: value["server_read"]["qstat"].__setitem__("executable_owner_uid", "501"),
+            lambda value: value["server_read"]["qstat"].__setitem__("executable_mode", "0555"),
             lambda value: value["server_read"]["qstat"].__setitem__("max_stdout_bytes", True),
             lambda value: value["server_read"]["fetch"].__setitem__("max_chunks", "01"),
         )

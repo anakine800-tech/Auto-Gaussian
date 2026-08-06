@@ -19,6 +19,7 @@ import json
 import os
 import re
 import select
+import signal
 import stat
 import struct
 import sys
@@ -26,7 +27,7 @@ import threading
 import time
 import types
 import weakref
-from typing import Any
+from typing import Any, NamedTuple
 
 
 TRANSPORT_PROFILE_SCHEMA = "auto-g16-direct-one-hop-transport-profile/1"
@@ -104,6 +105,7 @@ READ_POLICY = {
 }
 MAX_PROFILE_BYTES = 256 * 1024
 MAX_CONTROL_FRAME_BYTES = 32 * 1024 * 1024
+MAX_QUERY_RESPONSE_FRAME_BYTES = 512 * 1024
 MAX_TERMINAL_OPERATION_RECORDS = 8
 CHANNEL_TIMEOUT_SECONDS = 30.0
 RESPONSE_TIMEOUT_SECONDS = 30.0
@@ -326,13 +328,28 @@ def validate_read_profile(document: Any, transport_profile_raw: bytes) -> dict[s
     _require(server_read["source_sha256"] == _EXECUTED_SOURCE_SHA256, "server read source differs")
     qstat = _exact(
         server_read["qstat"],
-        {"executable", "executable_sha256", "max_stdout_bytes", "timeout_seconds"},
+        {
+            "executable", "executable_sha256", "executable_owner_uid",
+            "executable_mode", "max_stdout_bytes", "timeout_seconds",
+        },
         "qstat limits",
     )
     _require(qstat["executable"] == "/usr/bin/qstat", "qstat executable differs")
     _sha(qstat["executable_sha256"], "qstat executable")
-    _positive_decimal(qstat["max_stdout_bytes"], "qstat stdout limit", maximum=16 * 1024 * 1024)
-    _positive_decimal(qstat["timeout_seconds"], "qstat timeout", maximum=300)
+    _require(
+        type(qstat["executable_owner_uid"]) is str
+        and re.fullmatch(r"(?:0|[1-9][0-9]{0,9})", qstat["executable_owner_uid"]) is not None
+        and type(qstat["executable_mode"]) is str
+        and re.fullmatch(r"0[0-7]{3}", qstat["executable_mode"]) is not None,
+        "qstat reviewed owner or mode differs",
+    )
+    _require(
+        qstat["executable_owner_uid"] == "0"
+        and qstat["executable_mode"] == "0755",
+        "qstat executable must be root-owned mode 0755",
+    )
+    _require(qstat["max_stdout_bytes"] == "65536", "qstat stdout limit differs")
+    _require(qstat["timeout_seconds"] == "30", "qstat timeout differs")
     fetch = _exact(
         server_read["fetch"],
         {"max_total_bytes", "max_chunk_bytes", "max_chunks", "timeout_seconds"},
@@ -393,6 +410,11 @@ def build_controller_argv(profile_raw: bytes, operation: object) -> tuple[str, .
 _OPERATION_TOKEN = object()
 _W5_OWNER_BINDING_LOCK = threading.RLock()
 _W5_OWNER_BINDING: tuple[types.ModuleType, object, object, type, str] | None = None
+_QSTAT_OWNER_BINDING_LOCK = threading.RLock()
+_QSTAT_OWNER_BINDING: tuple[types.ModuleType, object, object, type, str] | None = None
+_QSTAT_ISSUANCE_BINDING_LOCK = threading.RLock()
+_QSTAT_ISSUANCE_BINDING: tuple[types.ModuleType, object, object, type, str] | None = None
+_QUERY_CODEC_TEST_TOKEN = object()
 
 
 class _SealedOperation:
@@ -555,6 +577,86 @@ def _resolve_w5_submit_authority_owner() -> tuple[object, object]:
     return production_assert, authority_assert
 
 
+def _resolve_qstat_query_authority_owner() -> tuple[object, type]:
+    """Resolve Q1's exact request join without importing or selecting a runner."""
+
+    global _QSTAT_OWNER_BINDING
+    module = sys.modules.get("direct_qstat_acquisition")
+    expected_path = os.path.realpath(
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "direct_qstat_acquisition.py")
+    )
+    module_path = os.path.realpath(getattr(module, "__file__", ""))
+    authority_assert = getattr(module, "_assert_shared_channel_query_authority", None)
+    module_assert = getattr(module, "_assert_module_binding", None)
+    authority_type = getattr(module, "_ControllerQueryJoin", None)
+    executed_sha256 = getattr(module, "_EXECUTED_SOURCE_SHA256", None)
+    _require(
+        type(module) is types.ModuleType
+        and module_path == expected_path
+        and callable(authority_assert)
+        and callable(module_assert)
+        and getattr(module_assert, "__module__", None) == "direct_qstat_acquisition"
+        and getattr(module_assert, "__name__", None) == "_assert_module_binding"
+        and type(authority_type) is type
+        and authority_type.__module__ == "direct_qstat_acquisition"
+        and type(executed_sha256) is str
+        and SHA_RE.fullmatch(executed_sha256) is not None,
+        "canonical qstat query authority owner differs",
+    )
+    with open(expected_path, "rb") as source:
+        source_sha256 = hashlib.sha256(source.read()).hexdigest()
+    _require(source_sha256 == executed_sha256, "canonical qstat query authority source differs")
+    module_assert()
+    candidate = (module, module_assert, authority_assert, authority_type, source_sha256)
+    with _QSTAT_OWNER_BINDING_LOCK:
+        if _QSTAT_OWNER_BINDING is None:
+            _QSTAT_OWNER_BINDING = candidate
+        _require(
+            _QSTAT_OWNER_BINDING == candidate,
+            "canonical qstat query authority owner was reloaded or rebound",
+        )
+    return authority_assert, authority_type
+
+
+def _resolve_qstat_query_issuance_owner() -> tuple[object, type]:
+    global _QSTAT_ISSUANCE_BINDING
+    module = sys.modules.get("direct_qstat_acquisition")
+    expected_path = os.path.realpath(
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "direct_qstat_acquisition.py")
+    )
+    module_path = os.path.realpath(getattr(module, "__file__", ""))
+    authority_assert = getattr(module, "_assert_shared_channel_query_issuance_authority", None)
+    module_assert = getattr(module, "_assert_module_binding", None)
+    authority_type = getattr(module, "_ExactQueryIssuanceJoin", None)
+    executed_sha256 = getattr(module, "_EXECUTED_SOURCE_SHA256", None)
+    _require(
+        type(module) is types.ModuleType
+        and module_path == expected_path
+        and callable(authority_assert)
+        and callable(module_assert)
+        and getattr(module_assert, "__module__", None) == "direct_qstat_acquisition"
+        and getattr(module_assert, "__name__", None) == "_assert_module_binding"
+        and type(authority_type) is type
+        and authority_type.__module__ == "direct_qstat_acquisition"
+        and type(executed_sha256) is str
+        and SHA_RE.fullmatch(executed_sha256) is not None,
+        "canonical qstat query issuance owner differs",
+    )
+    with open(expected_path, "rb") as source:
+        source_sha256 = hashlib.sha256(source.read()).hexdigest()
+    _require(source_sha256 == executed_sha256, "canonical qstat query issuance source differs")
+    module_assert()
+    candidate = (module, module_assert, authority_assert, authority_type, source_sha256)
+    with _QSTAT_ISSUANCE_BINDING_LOCK:
+        if _QSTAT_ISSUANCE_BINDING is None:
+            _QSTAT_ISSUANCE_BINDING = candidate
+        _require(
+            _QSTAT_ISSUANCE_BINDING == candidate,
+            "canonical qstat query issuance owner was reloaded or rebound",
+        )
+    return authority_assert, authority_type
+
+
 def _make_operation_owner() -> tuple[object, ...]:
     registry: weakref.WeakKeyDictionary[_SealedOperation, _OperationRecord] = weakref.WeakKeyDictionary()
     terminal_order: collections.deque[weakref.ReferenceType[_SealedOperation]] = collections.deque()
@@ -706,9 +808,42 @@ def _make_operation_owner() -> tuple[object, ...]:
     def issue_query(
         transport_profile_raw: bytes,
         read_profile_raw: bytes,
-        job_id: str,
+        query_issuance_authority: object,
     ) -> QueryExactJobOperation:
         _assert_production_binding()
+        authority_assert, authority_type = _resolve_qstat_query_issuance_owner()
+        _require(
+            type(query_issuance_authority) is authority_type,
+            "exact qstat query issuance authority is required",
+        )
+        job_id = authority_assert(
+            query_issuance_authority,
+            transport_profile_raw,
+            read_profile_raw,
+        )
+        _require(type(job_id) is str and JOB_ID_RE.fullmatch(job_id) is not None, "query job ID differs")
+        transport = load_transport_profile(transport_profile_raw)
+        read_profile = load_read_profile(read_profile_raw, transport_profile_raw)
+        return register(
+            QueryExactJobOperation,
+            "query_exact_job",
+            transport_profile_raw,
+            transport,
+            read_profile_raw=read_profile_raw,
+            read_profile=read_profile,
+            job_id=job_id,
+            submit_request_frame=None,
+            submit_request_id=None,
+        )  # type: ignore[return-value]
+
+    def issue_query_for_testing(
+        transport_profile_raw: bytes,
+        read_profile_raw: bytes,
+        job_id: str,
+        *,
+        _test_token: object,
+    ) -> QueryExactJobOperation:
+        _require(_test_token is _QUERY_CODEC_TEST_TOKEN, "query codec test token differs")
         _require(type(job_id) is str and JOB_ID_RE.fullmatch(job_id) is not None, "query job ID differs")
         transport = load_transport_profile(transport_profile_raw)
         read_profile = load_read_profile(read_profile_raw, transport_profile_raw)
@@ -847,6 +982,7 @@ def _make_operation_owner() -> tuple[object, ...]:
     return (
         issue_submit,
         issue_query,
+        issue_query_for_testing,
         issue_fetch,
         snapshot,
         projection,
@@ -861,6 +997,7 @@ def _make_operation_owner() -> tuple[object, ...]:
 (
     issue_submit_channel_operation,
     issue_query_exact_job_operation,
+    _issue_query_exact_job_operation_for_testing,
     issue_fetch_terminal_minimum_bundle_operation,
     _operation_snapshot,
     _operation_projection,
@@ -1160,6 +1297,257 @@ def _retire_child_bounded(pid: int) -> bool:
         return False
 
 
+class _QueryChildHandle:
+    __slots__ = ("pid", "nonce", "_seal", "__weakref__")
+
+    def __new__(cls, *_args: Any, **_kwargs: Any) -> "_QueryChildHandle":
+        raise TypeError("query child handles are owner-issued")
+
+    def __copy__(self) -> Any:
+        raise TypeError("query child handles are not clonable")
+
+    def __deepcopy__(self, _memo: Any) -> Any:
+        raise TypeError("query child handles are not clonable")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("query child handles are not serializable")
+
+
+class _QueryChildRecord(NamedTuple):
+    pid: int
+    operation_id: str
+    creator_pid: int
+    creator_thread: int
+    epoch: object
+    nonce: str
+    state: str
+    seal: object
+
+
+def _make_query_child_owner() -> tuple[Any, Any, Any, Any, Any]:
+    registry: weakref.WeakKeyDictionary[_QueryChildHandle, _QueryChildRecord] = weakref.WeakKeyDictionary()
+    forked_operations: weakref.WeakKeyDictionary[QueryExactJobOperation, str] = weakref.WeakKeyDictionary()
+    lock = threading.RLock()
+    epoch = object()
+    seal = object()
+    operation_snapshot = _operation_snapshot
+
+    def require_environment() -> None:
+        _assert_production_binding()
+        _require(
+            signal.getsignal(signal.SIGCHLD) is signal.SIG_DFL,
+            "query child requires default SIGCHLD and its exclusive reaper",
+        )
+
+    def exact(handle: object, state: str = "live") -> _QueryChildRecord:
+        with lock:
+            record = registry.get(handle) if type(handle) is _QueryChildHandle else None
+            _require(
+                type(record) is _QueryChildRecord
+                and record.pid == getattr(handle, "pid", None)
+                and OPERATION_ID_RE.fullmatch(record.operation_id) is not None
+                and record.creator_pid == os.getpid()
+                and record.creator_thread == threading.get_ident()
+                and record.epoch is epoch
+                and record.nonce == getattr(handle, "nonce", None)
+                and record.state == state
+                and record.seal is seal is getattr(handle, "_seal", None),
+                "query child handle is foreign, forged, forked, reused, or terminal",
+            )
+            require_environment()
+            return record
+
+    def retire_unregistered_child(pid: int) -> bool:
+        """Reap only the PID just returned by this closure's own fork."""
+
+        def probe() -> tuple[bool, bool]:
+            try:
+                waited, _status = os.waitpid(pid, os.WNOHANG)
+            except (ChildProcessError, OSError):
+                return False, False
+            if waited == pid:
+                return True, True
+            return waited == 0, False
+
+        def wait_reaped(deadline: float) -> bool:
+            while True:
+                valid, reaped = probe()
+                if not valid or reaped:
+                    return reaped
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                select.select([], [], [], min(0.01, remaining))
+
+        half_window = CHILD_RETIRE_TIMEOUT_SECONDS / 2.0
+        valid, reaped = probe()
+        if not valid or reaped:
+            return reaped
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            valid, reaped = probe()
+            return valid and reaped
+        except OSError:
+            return False
+        if wait_reaped(time.monotonic() + half_window):
+            return True
+        valid, reaped = probe()
+        if not valid or reaped:
+            return reaped
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            valid, reaped = probe()
+            return valid and reaped
+        except OSError:
+            return False
+        return wait_reaped(time.monotonic() + half_window)
+
+    def fork_for_query_operation(
+        operation: QueryExactJobOperation,
+    ) -> tuple[int, _QueryChildHandle | None]:
+        require_environment()
+        _require(
+            type(operation) is QueryExactJobOperation,
+            "exact running query operation is required for child fork",
+        )
+        snapshot = operation_snapshot(
+            operation, QueryExactJobOperation, {"running"}
+        )
+        operation_id = snapshot.operation_id
+        with lock:
+            _require(
+                operation not in forked_operations,
+                "query operation already forked its sole child",
+            )
+            forked_operations[operation] = operation_id
+        handle = object.__new__(_QueryChildHandle)
+        handle.nonce = os.urandom(16).hex()
+        handle._seal = seal
+        try:
+            pid = _FROZEN_FORK()
+        except BaseException:
+            with lock:
+                forked_operations.pop(operation, None)
+            raise
+        if pid == 0:  # at-fork clearing revokes the child's pending objects
+            return 0, None
+        _require(type(pid) is int and pid > 0, "query fork child PID differs")
+        try:
+            handle.pid = pid
+            record = _QueryChildRecord(
+                pid, operation_id, os.getpid(), threading.get_ident(), epoch,
+                handle.nonce, "live", seal,
+            )
+            with lock:
+                registry[handle] = record
+            return pid, handle
+        except BaseException:
+            retire_unregistered_child(pid)
+            raise
+
+    def terminal(handle: _QueryChildHandle, record: _QueryChildRecord) -> None:
+        with lock:
+            if registry.get(handle) is record:
+                del registry[handle]
+
+    def wait_until(handle: _QueryChildHandle, deadline: float) -> int:
+        record = exact(handle)
+        _require(type(deadline) is float, "query child deadline differs")
+        try:
+            while True:
+                waited, status = os.waitpid(record.pid, os.WNOHANG)
+                if waited == record.pid:
+                    terminal(handle, record)
+                    return os.waitstatus_to_exitcode(status)
+                _require(waited == 0, "query child identity differs")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ControllerTransportUnknown("query child exit timed out")
+                select.select([], [], [], min(0.01, remaining))
+        except BaseException:
+            raise
+
+    def retire(handle: _QueryChildHandle) -> bool:
+        try:
+            record = exact(handle)
+        except BaseException:
+            return False
+        with lock:
+            _require(registry.get(handle) is record, "query child retirement raced")
+            retiring = record._replace(state="retiring")
+            registry[handle] = retiring
+
+        def probe() -> tuple[bool, bool]:
+            try:
+                waited, _status = os.waitpid(retiring.pid, os.WNOHANG)
+            except (ChildProcessError, OSError):
+                return False, False
+            if waited == retiring.pid:
+                return True, True
+            return waited == 0, False
+
+        def wait_reaped(deadline: float) -> bool:
+            while True:
+                valid, reaped = probe()
+                if not valid or reaped:
+                    return reaped
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                select.select([], [], [], min(0.01, remaining))
+
+        def signal_exact(signum: int) -> tuple[bool, bool]:
+            valid, reaped = probe()
+            if not valid or reaped:
+                return False, reaped
+            try:
+                os.kill(retiring.pid, signum)
+            except ProcessLookupError:
+                valid, reaped = probe()
+                return False, valid and reaped
+            except OSError:
+                return False, False
+            return True, False
+
+        success = False
+        half_window = CHILD_RETIRE_TIMEOUT_SECONDS / 2.0
+        try:
+            sent, reaped = signal_exact(signal.SIGTERM)
+            if reaped:
+                success = True
+            elif sent and wait_reaped(time.monotonic() + half_window):
+                success = True
+            elif sent:
+                sent_kill, reaped = signal_exact(signal.SIGKILL)
+                success = reaped or (
+                    sent_kill and wait_reaped(time.monotonic() + half_window)
+                )
+            return success
+        finally:
+            terminal(handle, retiring)
+
+    def after_fork() -> None:
+        nonlocal lock, epoch, seal
+        registry.clear()
+        forked_operations.clear()
+        lock = threading.RLock()
+        epoch = object()
+        seal = object()
+
+    return require_environment, fork_for_query_operation, wait_until, retire, after_fork
+
+
+(
+    _assert_query_child_owner_environment,
+    _fork_query_child_for_operation,
+    _wait_query_child_until,
+    _retire_query_child_bounded,
+    _clear_query_child_owner_after_fork,
+) = _make_query_child_owner()
+
+
 def run_submit_channel_once(operation: SubmitChannelOperation, request_frame: bytes) -> dict[str, Any]:
     """Run the sole production fixed-SSH path for the typed W5 submit seam."""
     _require(type(operation) is SubmitChannelOperation, "exact SubmitChannelOperation is required")
@@ -1237,6 +1625,139 @@ def run_submit_channel_once(operation: SubmitChannelOperation, request_frame: by
         _close_quiet(read_in, write_in, read_out, write_out, ssh_fd)
         if forked and not child_reaped and not child_wait_attempted:
             _retire_child_bounded(pid)
+
+
+def _read_query_transport_until(
+    response_descriptor: int,
+    stderr_descriptor: int,
+    deadline: float,
+) -> dict[str, Any]:
+    """Read one canonical response and empty SSH stderr under one deadline."""
+
+    _require(
+        type(response_descriptor) is int
+        and response_descriptor >= 0
+        and type(stderr_descriptor) is int
+        and stderr_descriptor >= 0
+        and type(deadline) is float,
+        "query transport descriptors differ",
+    )
+    descriptors = {response_descriptor: bytearray(), stderr_descriptor: bytearray()}
+    limits = {
+        response_descriptor: MAX_QUERY_RESPONSE_FRAME_BYTES + 4,
+        stderr_descriptor: 64 * 1024,
+    }
+    for descriptor in descriptors:
+        flags = fcntl.fcntl(descriptor, fcntl.F_GETFL)
+        fcntl.fcntl(descriptor, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+    open_descriptors = set(descriptors)
+    while open_descriptors:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ControllerTransportUnknown("query response deadline expired")
+        readable, _, exceptional = select.select(
+            tuple(open_descriptors), (), tuple(open_descriptors), remaining
+        )
+        if exceptional:
+            raise ControllerTransportUnknown("query response descriptor failed")
+        if not readable:
+            raise ControllerTransportUnknown("query response deadline expired")
+        for descriptor in readable:
+            try:
+                chunk = os.read(descriptor, 65536)
+            except BlockingIOError:
+                continue
+            if not chunk:
+                open_descriptors.remove(descriptor)
+                continue
+            descriptors[descriptor].extend(chunk)
+            _require(
+                len(descriptors[descriptor]) <= limits[descriptor],
+                "query response or SSH stderr exceeds its bound",
+            )
+    stderr = bytes(descriptors[stderr_descriptor])
+    _require(stderr == b"", "fixed SSH query emitted stderr")
+    frame = bytes(descriptors[response_descriptor])
+    _validate_single_canonical_frame_bytes(frame)
+    return json.loads(frame[4:].decode("utf-8"))
+
+
+def run_query_channel_once(
+    operation: QueryExactJobOperation,
+    request_frame: bytes,
+    query_authority: object,
+) -> dict[str, Any]:
+    """Run Q1's sole fixed-SSH query path; no caller-selected job or argv exists."""
+
+    _require(type(operation) is QueryExactJobOperation, "exact QueryExactJobOperation is required")
+    _assert_production_binding()
+    snapshot = _claim_query_operation(operation)
+    operation_deadline = time.monotonic() + SUBMIT_OPERATION_TIMEOUT_SECONDS
+    ssh_fd = -1
+    read_in = write_in = read_out = write_out = read_err = write_err = -1
+    pid = -1
+    forked = False
+    child_reaped = False
+    child_handle = None
+    try:
+        authority_assert, authority_type = _resolve_qstat_query_authority_owner()
+        _require(type(query_authority) is authority_type, "exact qstat query authority is required")
+        authority_assert(query_authority, operation, request_frame)
+        _validate_single_canonical_frame_bytes(request_frame)
+        _require_descriptor_exec_available()
+        profile_raw = snapshot.transport_profile_raw
+        profile = load_transport_profile(profile_raw)
+        argv = build_controller_argv(profile_raw, operation)
+        ssh_fd = _open_reviewed_executable(SSH_EXECUTABLE, profile["ssh"]["executable_sha256"])
+        read_in, write_in = _pipe_cloexec()
+        read_out, write_out = _pipe_cloexec()
+        read_err, write_err = _pipe_cloexec()
+        try:
+            pid, child_handle = _fork_query_child_for_operation(operation)
+        except BaseException as exc:
+            raise ControllerTransportUnknown(
+                "query child fork/registration is unknown; no retry"
+            ) from exc
+        if pid == 0:  # pragma: no cover - real controller only
+            try:
+                os.dup2(read_in, 0)
+                os.dup2(write_out, 1)
+                os.dup2(write_err, 2)
+                _assert_reviewed_executable_descriptor(
+                    ssh_fd, SSH_EXECUTABLE, profile["ssh"]["executable_sha256"]
+                )
+                for descriptor in (
+                    read_in, write_in, read_out, write_out, read_err, write_err
+                ):
+                    if descriptor > 2:
+                        _close_quiet(descriptor)
+                _descriptor_execve(ssh_fd, argv, FIXED_ENVIRONMENT)
+            except BaseException:
+                os._exit(127)
+        forked = True
+        _require(
+            type(child_handle) is _QueryChildHandle,
+            "query fork did not return its exact child handle",
+        )
+        _close_quiet(read_in, write_out, write_err, ssh_fd)
+        read_in = write_out = write_err = ssh_fd = -1
+        try:
+            _send_frame_until(write_in, request_frame, operation_deadline)
+            write_in = -1
+            response = _read_query_transport_until(read_out, read_err, operation_deadline)
+            child_exit = _wait_query_child_until(child_handle, operation_deadline)
+            child_reaped = True
+            _require(child_exit == 0, "fixed SSH query child exit is uncertain")
+            return response
+        except BaseException as exc:
+            raise ControllerTransportUnknown(
+                "read-only query transport is unknown; no retry"
+            ) from exc
+    finally:
+        _finish_operation(operation)
+        _close_quiet(read_in, write_in, read_out, write_out, read_err, write_err, ssh_fd)
+        if forked and not child_reaped and child_handle is not None:
+            _retire_query_child_bounded(child_handle)
 
 
 def _validate_query_response_snapshot(
@@ -1387,10 +1908,17 @@ def read_fetch_response_until(
 
 def _after_fork_child() -> None:
     global _OPERATION_TOKEN, _W5_OWNER_BINDING, _W5_OWNER_BINDING_LOCK
+    global _QSTAT_OWNER_BINDING, _QSTAT_OWNER_BINDING_LOCK
+    global _QSTAT_ISSUANCE_BINDING, _QSTAT_ISSUANCE_BINDING_LOCK
     _clear_operation_owner_after_fork()
+    _clear_query_child_owner_after_fork()
     _OPERATION_TOKEN = object()
     _W5_OWNER_BINDING = None
     _W5_OWNER_BINDING_LOCK = threading.RLock()
+    _QSTAT_OWNER_BINDING = None
+    _QSTAT_OWNER_BINDING_LOCK = threading.RLock()
+    _QSTAT_ISSUANCE_BINDING = None
+    _QSTAT_ISSUANCE_BINDING_LOCK = threading.RLock()
 
 
 _FROZEN_FORK = os.fork
@@ -1405,16 +1933,31 @@ _FROZEN_EXECUTABLE_OPENER = _open_reviewed_executable
 _FROZEN_EXECUTABLE_ASSERT = _assert_reviewed_executable_descriptor
 _FROZEN_DESCRIPTOR_EXEC = _descriptor_execve
 _FROZEN_DESCRIPTOR_REQUIRE = _require_descriptor_exec_available
+_FROZEN_PIPE_CLOEXEC = _pipe_cloexec
+_FROZEN_CLOSE_QUIET = _close_quiet
 _FROZEN_FRAME_WRITER = _write_frame_until
 _FROZEN_FRAME_SENDER = _send_frame_until
 _FROZEN_FRAME_READER = read_single_response_until
 _FROZEN_CHILD_WAITER = _wait_child_until
 _FROZEN_CHILD_RETIRER = _retire_child_bounded
+_FROZEN_QUERY_CHILD_ENVIRONMENT = _assert_query_child_owner_environment
+_FROZEN_QUERY_CHILD_FORK = _fork_query_child_for_operation
+_FROZEN_QUERY_CHILD_WAITER = _wait_query_child_until
+_FROZEN_QUERY_CHILD_RETIRER = _retire_query_child_bounded
+_FROZEN_QUERY_CHILD_FORK_CLEAR = _clear_query_child_owner_after_fork
+_FROZEN_QUERY_CHILD_OWNER_FACTORY = _make_query_child_owner
+_FROZEN_QUERY_CHILD_HANDLE_TYPE = _QueryChildHandle
+_FROZEN_QUERY_CHILD_RECORD_TYPE = _QueryChildRecord
 _FROZEN_SUBMIT_ISSUER = issue_submit_channel_operation
 _FROZEN_SUBMIT_ARGV_PROJECTION = project_submit_controller_argv_for_review
 _FROZEN_W5_OWNER_RESOLVER = _resolve_w5_submit_authority_owner
 _FROZEN_SUBMIT_RUNNER = run_submit_channel_once
+_FROZEN_QSTAT_OWNER_RESOLVER = _resolve_qstat_query_authority_owner
+_FROZEN_QSTAT_ISSUANCE_RESOLVER = _resolve_qstat_query_issuance_owner
+_FROZEN_QUERY_TRANSPORT_READER = _read_query_transport_until
+_FROZEN_QUERY_RUNNER = run_query_channel_once
 _FROZEN_QUERY_ISSUER = issue_query_exact_job_operation
+_FROZEN_QUERY_TEST_ISSUER = _issue_query_exact_job_operation_for_testing
 _FROZEN_FETCH_ISSUER = issue_fetch_terminal_minimum_bundle_operation
 _FROZEN_QUERY_PROJECTION = project_query_request_frame_for_review
 _FROZEN_FETCH_PROJECTION = project_fetch_request_frame_for_review
@@ -1442,8 +1985,18 @@ _FROZEN_OS_READ = os.read
 _FROZEN_OS_WRITE = os.write
 _FROZEN_OS_CLOSE = os.close
 _FROZEN_OS_WAITPID = os.waitpid
+_FROZEN_OS_KILL = os.kill
+_FROZEN_GETSIGNAL = signal.getsignal
 _FROZEN_OS_STAT = os.stat
 _FROZEN_OS_FSTAT = os.fstat
+_FROZEN_OS_DUP2 = os.dup2
+_FROZEN_MONOTONIC = time.monotonic
+_FROZEN_SIGTERM = signal.SIGTERM
+_FROZEN_SIGKILL = signal.SIGKILL
+_FROZEN_SIGCHLD = signal.SIGCHLD
+_FROZEN_SIG_DFL = signal.SIG_DFL
+_FROZEN_GET_IDENT = threading.get_ident
+_FROZEN_WEAK_KEY_DICTIONARY = weakref.WeakKeyDictionary
 _FROZEN_SUBMIT_OPERATION_TYPE = SubmitChannelOperation
 _FROZEN_QUERY_OPERATION_TYPE = QueryExactJobOperation
 _FROZEN_FETCH_OPERATION_TYPE = FetchTerminalMinimumBundleOperation
@@ -1459,6 +2012,7 @@ _FROZEN_RESPONSE_TIMEOUT_SECONDS = RESPONSE_TIMEOUT_SECONDS
 _FROZEN_CHILD_RETIRE_TIMEOUT_SECONDS = CHILD_RETIRE_TIMEOUT_SECONDS
 _FROZEN_SUBMIT_OPERATION_TIMEOUT_SECONDS = SUBMIT_OPERATION_TIMEOUT_SECONDS
 _FROZEN_MAX_TERMINAL_OPERATION_RECORDS = MAX_TERMINAL_OPERATION_RECORDS
+_FROZEN_MAX_QUERY_RESPONSE_FRAME_BYTES = MAX_QUERY_RESPONSE_FRAME_BYTES
 
 
 def _assert_production_binding() -> None:
@@ -1478,16 +2032,31 @@ def _assert_production_binding() -> None:
         and _assert_reviewed_executable_descriptor is _FROZEN_EXECUTABLE_ASSERT
         and _descriptor_execve is _FROZEN_DESCRIPTOR_EXEC
         and _require_descriptor_exec_available is _FROZEN_DESCRIPTOR_REQUIRE
+        and _pipe_cloexec is _FROZEN_PIPE_CLOEXEC
+        and _close_quiet is _FROZEN_CLOSE_QUIET
         and _write_frame_until is _FROZEN_FRAME_WRITER
         and _send_frame_until is _FROZEN_FRAME_SENDER
         and read_single_response_until is _FROZEN_FRAME_READER
         and _wait_child_until is _FROZEN_CHILD_WAITER
         and _retire_child_bounded is _FROZEN_CHILD_RETIRER
+        and _assert_query_child_owner_environment is _FROZEN_QUERY_CHILD_ENVIRONMENT
+        and _fork_query_child_for_operation is _FROZEN_QUERY_CHILD_FORK
+        and _wait_query_child_until is _FROZEN_QUERY_CHILD_WAITER
+        and _retire_query_child_bounded is _FROZEN_QUERY_CHILD_RETIRER
+        and _clear_query_child_owner_after_fork is _FROZEN_QUERY_CHILD_FORK_CLEAR
+        and _make_query_child_owner is _FROZEN_QUERY_CHILD_OWNER_FACTORY
+        and _QueryChildHandle is _FROZEN_QUERY_CHILD_HANDLE_TYPE
+        and _QueryChildRecord is _FROZEN_QUERY_CHILD_RECORD_TYPE
         and issue_submit_channel_operation is _FROZEN_SUBMIT_ISSUER
         and project_submit_controller_argv_for_review is _FROZEN_SUBMIT_ARGV_PROJECTION
         and _resolve_w5_submit_authority_owner is _FROZEN_W5_OWNER_RESOLVER
         and run_submit_channel_once is _FROZEN_SUBMIT_RUNNER
+        and _resolve_qstat_query_authority_owner is _FROZEN_QSTAT_OWNER_RESOLVER
+        and _resolve_qstat_query_issuance_owner is _FROZEN_QSTAT_ISSUANCE_RESOLVER
+        and _read_query_transport_until is _FROZEN_QUERY_TRANSPORT_READER
+        and run_query_channel_once is _FROZEN_QUERY_RUNNER
         and issue_query_exact_job_operation is _FROZEN_QUERY_ISSUER
+        and _issue_query_exact_job_operation_for_testing is _FROZEN_QUERY_TEST_ISSUER
         and issue_fetch_terminal_minimum_bundle_operation is _FROZEN_FETCH_ISSUER
         and project_query_request_frame_for_review is _FROZEN_QUERY_PROJECTION
         and project_fetch_request_frame_for_review is _FROZEN_FETCH_PROJECTION
@@ -1515,8 +2084,18 @@ def _assert_production_binding() -> None:
         and os.write is _FROZEN_OS_WRITE
         and os.close is _FROZEN_OS_CLOSE
         and os.waitpid is _FROZEN_OS_WAITPID
+        and os.kill is _FROZEN_OS_KILL
+        and signal.getsignal is _FROZEN_GETSIGNAL
         and os.stat is _FROZEN_OS_STAT
         and os.fstat is _FROZEN_OS_FSTAT
+        and os.dup2 is _FROZEN_OS_DUP2
+        and time.monotonic is _FROZEN_MONOTONIC
+        and signal.SIGTERM == _FROZEN_SIGTERM
+        and signal.SIGKILL == _FROZEN_SIGKILL
+        and signal.SIGCHLD == _FROZEN_SIGCHLD
+        and signal.SIG_DFL is _FROZEN_SIG_DFL
+        and threading.get_ident is _FROZEN_GET_IDENT
+        and weakref.WeakKeyDictionary is _FROZEN_WEAK_KEY_DICTIONARY
         and SubmitChannelOperation is _FROZEN_SUBMIT_OPERATION_TYPE
         and QueryExactJobOperation is _FROZEN_QUERY_OPERATION_TYPE
         and FetchTerminalMinimumBundleOperation is _FROZEN_FETCH_OPERATION_TYPE
@@ -1531,7 +2110,10 @@ def _assert_production_binding() -> None:
         and RESPONSE_TIMEOUT_SECONDS == _FROZEN_RESPONSE_TIMEOUT_SECONDS == 30.0
         and CHILD_RETIRE_TIMEOUT_SECONDS == _FROZEN_CHILD_RETIRE_TIMEOUT_SECONDS == 5.0
         and SUBMIT_OPERATION_TIMEOUT_SECONDS == _FROZEN_SUBMIT_OPERATION_TIMEOUT_SECONDS == 65.0
-        and MAX_TERMINAL_OPERATION_RECORDS == _FROZEN_MAX_TERMINAL_OPERATION_RECORDS == 8,
+        and MAX_TERMINAL_OPERATION_RECORDS == _FROZEN_MAX_TERMINAL_OPERATION_RECORDS == 8
+        and MAX_QUERY_RESPONSE_FRAME_BYTES
+        == _FROZEN_MAX_QUERY_RESPONSE_FRAME_BYTES
+        == 512 * 1024,
         "shared fixed SSH production source, function, executable, or option binding differs",
     )
 
@@ -1547,7 +2129,6 @@ __all__ = [
     "SharedFixedSSHChannelError",
     "SubmitChannelOperation",
     "issue_fetch_terminal_minimum_bundle_operation",
-    "issue_query_exact_job_operation",
     "issue_submit_channel_operation",
     "load_read_profile",
     "load_transport_profile",

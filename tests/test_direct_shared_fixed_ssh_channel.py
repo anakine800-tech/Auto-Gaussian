@@ -56,7 +56,9 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
                 "qstat": {
                     "executable": "/usr/bin/qstat",
                     "executable_sha256": "a" * 64,
-                    "max_stdout_bytes": "4096",
+                    "executable_owner_uid": "0",
+                    "executable_mode": "0755",
+                    "max_stdout_bytes": "65536",
                     "timeout_seconds": "30",
                 },
                 "fetch": {
@@ -92,6 +94,14 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
             return CHANNEL.issue_submit_channel_operation(self.transport_raw, join, frame), frame
         finally:
             W5._retire_controller_request_join(join)
+
+    def query_operation(self, job_id: str = "123.master") -> CHANNEL.QueryExactJobOperation:
+        return CHANNEL._issue_query_exact_job_operation_for_testing(
+            self.transport_raw,
+            self.read_profile_raw,
+            job_id,
+            _test_token=CHANNEL._QUERY_CODEC_TEST_TOKEN,
+        )
 
     @staticmethod
     def through_pipe(payload: bytes, reader: object) -> object:
@@ -167,6 +177,8 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
 
         for path, value in (
             (("server_read", "source_sha256"), "b" * 64),
+            (("server_read", "qstat", "executable_owner_uid"), "501"),
+            (("server_read", "qstat", "executable_mode"), "0555"),
             (("server_read", "qstat", "max_stdout_bytes"), "0"),
             (("server_read", "fetch", "max_chunk_bytes"), "1048577"),
             (("safety", "authorizes_effect"), True),
@@ -184,7 +196,7 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
 
     def test_operations_are_exact_sealed_nonportable_and_cross_splice_closed(self) -> None:
         submit = self.submit_operation()
-        query = CHANNEL.issue_query_exact_job_operation(self.transport_raw, self.read_profile_raw, "123.master")
+        query = self.query_operation()
         fetch = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(self.transport_raw, self.read_profile_raw, "123.master")
         self.assertIs(type(submit), CHANNEL.SubmitChannelOperation)
         self.assertIs(type(query), CHANNEL.QueryExactJobOperation)
@@ -295,11 +307,7 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
             )
         self.assertEqual(driver.calls, 0)
 
-        query = CHANNEL.issue_query_exact_job_operation(
-            self.transport_raw,
-            self.read_profile_raw,
-            "123.master",
-        )
+        query = self.query_operation()
         original = query.portable_projection()
         hostile = query.portable_projection()
         hostile["submit_request_frame_sha256"] = "f" * 64
@@ -330,11 +338,7 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
         )
 
     def test_query_fetch_exact_type_gates_are_before_io_and_old_builders_are_absent(self) -> None:
-        query = CHANNEL.issue_query_exact_job_operation(
-            self.transport_raw,
-            self.read_profile_raw,
-            "123.master",
-        )
+        query = self.query_operation()
         fetch = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
             self.transport_raw,
             self.read_profile_raw,
@@ -473,7 +477,7 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(os, "fork"), "fork hostile check requires POSIX")
     def test_fork_and_reload_invalidate_existing_operation_identity(self) -> None:
-        operation = CHANNEL.issue_query_exact_job_operation(self.transport_raw, self.read_profile_raw, "123.master")
+        operation = self.query_operation()
         read_fd, write_fd = os.pipe()
         pid = os.fork()
         if pid == 0:  # pragma: no cover - assertion returned through pipe
@@ -498,7 +502,7 @@ import base64, importlib, pathlib, sys
 sys.path.insert(0, str(pathlib.Path.cwd()))
 sys.path.insert(0, str(pathlib.Path.cwd() / 'scripts'))
 import direct_shared_fixed_ssh_channel as channel
-operation = channel.issue_query_exact_job_operation(base64.b64decode('{encoded_transport}'), base64.b64decode('{encoded_read}'), '123.master')
+operation = channel._issue_query_exact_job_operation_for_testing(base64.b64decode('{encoded_transport}'), base64.b64decode('{encoded_read}'), '123.master', _test_token=channel._QUERY_CODEC_TEST_TOKEN)
 importlib.reload(channel)
 try:
     operation.assert_owner_sealed()
@@ -606,7 +610,7 @@ raise SystemExit(9)
         waiter.assert_called_once_with(999, 108.0)
 
     def test_query_is_one_canonical_response_and_all_malformed_boundaries_close(self) -> None:
-        operation = CHANNEL.issue_query_exact_job_operation(self.transport_raw, self.read_profile_raw, "123.master")
+        operation = self.query_operation()
         response = self.query_response(operation)
         frame = self.framed(response)
         parsed = self.through_pipe(
@@ -634,11 +638,7 @@ raise SystemExit(9)
 
         failed_operation: CHANNEL.QueryExactJobOperation | None = None
         for label in ("zero", "oversize", "truncated", "extra", "second"):
-            hostile_operation = CHANNEL.issue_query_exact_job_operation(
-                self.transport_raw,
-                self.read_profile_raw,
-                "123.master",
-            )
+            hostile_operation = self.query_operation()
             hostile_frame = self.framed(self.query_response(hostile_operation))
             hostile = {
                 "zero": struct.pack("!I", 0),
@@ -679,27 +679,24 @@ raise SystemExit(9)
             if retry_write >= 0:
                 os.close(retry_write)
 
-        oversized_operation = CHANNEL.issue_query_exact_job_operation(
-            self.transport_raw,
-            self.read_profile_raw,
-            "123.master",
+        oversized_operation = self.query_operation()
+        oversized = self.framed(
+            self.query_response(
+                oversized_operation,
+                b"x" * (int(self.read_profile["server_read"]["qstat"]["max_stdout_bytes"]) + 1),
+            )
         )
-        oversized = self.framed(self.query_response(oversized_operation, b"x" * 4097))
-        with self.assertRaises(CHANNEL.SharedFixedSSHChannelError):
-            self.through_pipe(
-                oversized,
-                lambda descriptor: CHANNEL.read_query_response_until(
-                    descriptor,
+        with tempfile.TemporaryFile() as oversized_stream:
+            oversized_stream.write(oversized)
+            oversized_stream.seek(0)
+            with self.assertRaises(CHANNEL.SharedFixedSSHChannelError):
+                CHANNEL.read_query_response_until(
+                    oversized_stream.fileno(),
                     oversized_operation,
                     time.monotonic() + 0.5,
-                ),
-            )
+                )
 
-        timeout_operation = CHANNEL.issue_query_exact_job_operation(
-            self.transport_raw,
-            self.read_profile_raw,
-            "123.master",
-        )
+        timeout_operation = self.query_operation()
         timeout_read, timeout_write = os.pipe()
         try:
             with self.assertRaises(CHANNEL.ControllerTransportUnknown):
@@ -729,16 +726,8 @@ raise SystemExit(9)
             if timeout_retry_write >= 0:
                 os.close(timeout_retry_write)
 
-        foreign_operation = CHANNEL.issue_query_exact_job_operation(
-            self.transport_raw,
-            self.read_profile_raw,
-            "123.master",
-        )
-        spliced_operation = CHANNEL.issue_query_exact_job_operation(
-            self.transport_raw,
-            self.read_profile_raw,
-            "123.master",
-        )
+        foreign_operation = self.query_operation()
+        spliced_operation = self.query_operation()
         foreign_frame = self.framed(self.query_response(foreign_operation))
         with self.assertRaises(CHANNEL.SharedFixedSSHChannelError):
             self.through_pipe(
@@ -932,11 +921,7 @@ raise SystemExit(9)
     def test_terminal_records_are_bounded_abandoned_records_are_weak_and_ids_do_not_reuse(self) -> None:
         operations: list[CHANNEL.QueryExactJobOperation] = []
         for _index in range(CHANNEL.MAX_TERMINAL_OPERATION_RECORDS + 2):
-            operation = CHANNEL.issue_query_exact_job_operation(
-                self.transport_raw,
-                self.read_profile_raw,
-                "123.master",
-            )
+            operation = self.query_operation()
             operations.append(operation)
             payload = self.framed(self.query_response(operation))
             self.through_pipe(
@@ -958,11 +943,7 @@ raise SystemExit(9)
         with self.assertRaisesRegex(CHANNEL.SharedFixedSSHChannelError, "terminal"):
             operations[-1].assert_owner_sealed()
 
-        abandoned = CHANNEL.issue_query_exact_job_operation(
-            self.transport_raw,
-            self.read_profile_raw,
-            "123.master",
-        )
+        abandoned = self.query_operation()
         abandoned_ref = weakref.ref(abandoned)
         del abandoned
         gc.collect()

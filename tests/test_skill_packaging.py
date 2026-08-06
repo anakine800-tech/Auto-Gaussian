@@ -391,6 +391,16 @@ class SkillPackagingTests(unittest.TestCase):
                 "contracts/rtwin-pbs/direct-submitted-job-read-lineage.schema.json",
                 "references/direct-existing-job-lineage.md",
             ),
+            "W6Q1": (
+                "scripts/direct_reviewed_read_profile.py",
+                "scripts/direct_qstat_acquisition.py",
+                "contracts/rtwin-pbs/direct-reviewed-read-profile-capability.schema.json",
+                "contracts/rtwin-pbs/direct-qstat-acquisition.schema.json",
+                "contracts/rtwin-pbs/gaussian-job-inspection-v3.schema.json",
+                "tests/test_direct_qstat_acquisition.py",
+                "tests/test_direct_qstat_acquisition_schema_draft202012.py",
+                "references/direct-qstat-acquisition.md",
+            ),
             "T4": (
                 "scripts/direct_local_fetch_materializer.py",
                 "contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json",

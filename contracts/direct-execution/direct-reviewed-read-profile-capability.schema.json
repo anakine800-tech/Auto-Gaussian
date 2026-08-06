@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/direct-execution/direct-reviewed-read-profile-capability.schema.json",
+  "title": "Auto-G16 reviewed direct qstat read-profile capability projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "owner", "owner_version", "capability_id", "profile_source",
+    "fixed_path", "source_identity_sha256", "issuance_nonce_sha256",
+    "profile_bytes_sha256", "profile_payload_sha256",
+    "transport_profile_bytes_sha256", "transport_profile_payload_sha256",
+    "qstat_executable", "qstat_executable_sha256", "qstat_executable_owner_uid",
+    "qstat_executable_mode", "qstat_timeout_seconds", "qstat_max_stdout_bytes",
+    "authority", "projection_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-reviewed-read-profile-capability/1"},
+    "owner": {"const": "auto-g16-direct-reviewed-read-profile-owner"},
+    "owner_version": {"const": "direct-reviewed-read-profile-owner/1"},
+    "capability_id": {"type": "string", "pattern": "^direct-reviewed-read-profile-[a-f0-9]{64}$(?![\\s\\S])"},
+    "profile_source": {"enum": ["fixed_backend_file", "offline_fake_reviewed_profile"]},
+    "fixed_path": {"const": "/etc/auto-g16/direct-qstat-read-profile.json"},
+    "source_identity_sha256": {"$ref": "#/$defs/sha256"},
+    "issuance_nonce_sha256": {"$ref": "#/$defs/sha256"},
+    "profile_bytes_sha256": {"$ref": "#/$defs/sha256"},
+    "profile_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "transport_profile_bytes_sha256": {"$ref": "#/$defs/sha256"},
+    "transport_profile_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "qstat_executable": {"const": "/usr/bin/qstat"},
+    "qstat_executable_sha256": {"$ref": "#/$defs/sha256"},
+    "qstat_executable_owner_uid": {"const": "0"},
+    "qstat_executable_mode": {"const": "0755"},
+    "qstat_timeout_seconds": {"const": "30"},
+    "qstat_max_stdout_bytes": {"const": "65536"},
+    "authority": {
+      "const": {
+        "portable_projection_is_authority": false,
+        "caller_profile_override": false,
+        "authorizes_effect": false,
+        "qsub": false,
+        "qdel": false,
+        "retry": false
+      }
+    },
+    "projection_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$(?![\\s\\S])",
+      "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
+    },
+    "decimal": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$(?![\\s\\S])"}
+  }
+}
