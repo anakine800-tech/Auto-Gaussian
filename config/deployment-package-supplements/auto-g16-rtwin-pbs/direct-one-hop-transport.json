@@ -3,8 +3,16 @@
   "skill": "auto-g16-rtwin-pbs",
   "include": [
     {
+      "source": "scripts/direct_shared_fixed_ssh_channel.py",
+      "target": "scripts/direct_shared_fixed_ssh_channel.py"
+    },
+    {
       "source": "scripts/direct_one_hop_transport.py",
       "target": "scripts/direct_one_hop_transport.py"
+    },
+    {
+      "source": "contracts/direct-execution/direct-shared-fixed-ssh-read-profile.schema.json",
+      "target": "contracts/rtwin-pbs/direct-shared-fixed-ssh-read-profile.schema.json"
     },
     {
       "source": "contracts/direct-execution/direct-one-hop-submission-result.schema.json",
@@ -21,6 +29,10 @@
     {
       "source": "docs/v2.7-direct-one-hop-transport.md",
       "target": "references/direct-one-hop-transport.md"
+    },
+    {
+      "source": "docs/v2.7-shared-fixed-ssh-channel.md",
+      "target": "references/shared-fixed-ssh-channel.md"
     }
   ]
 }

@@ -156,6 +156,7 @@ def _run_child(
     control_descriptor: int,
     helper_source_descriptor: int,
     session_source_descriptor: int,
+    channel_source_descriptor: int,
     w5_source_descriptor: int,
     executable_descriptor: int,
     scripts_directory: str,
@@ -165,11 +166,14 @@ def _run_child(
     try:
         helper_raw, helper_identity = _read_source(helper_source_descriptor, "helper")
         session_raw, session_identity = _read_source(session_source_descriptor, "session")
+        channel_raw, channel_identity = _read_source(channel_source_descriptor, "shared channel")
         w5_raw, w5_identity = _read_source(w5_source_descriptor, "W5")
         os.close(helper_source_descriptor)
         helper_source_descriptor = -1
         os.close(session_source_descriptor)
         session_source_descriptor = -1
+        os.close(channel_source_descriptor)
+        channel_source_descriptor = -1
         os.close(w5_source_descriptor)
         w5_source_descriptor = -1
         os.close(executable_descriptor)
@@ -190,6 +194,12 @@ def _run_child(
         module.__package__ = ""
         sys.modules[module.__name__] = module
         exec(compile(session_raw, module.__file__, "exec"), module.__dict__)
+        channel = types.ModuleType("direct_shared_fixed_ssh_channel")
+        channel.__file__ = str(scripts / "direct_shared_fixed_ssh_channel.py")
+        channel.__package__ = ""
+        channel.__reviewed_source_sha256__ = hashlib.sha256(channel_raw).hexdigest()
+        sys.modules[channel.__name__] = channel
+        exec(compile(channel_raw, channel.__file__, "exec"), channel.__dict__)
         w5 = types.ModuleType("direct_one_hop_transport")
         w5.__file__ = str(scripts / "direct_one_hop_transport.py")
         w5.__package__ = ""
@@ -203,6 +213,8 @@ def _run_child(
             helper_source_identity=helper_identity,
             session_source_sha256=hashlib.sha256(session_raw).hexdigest(),
             session_source_identity=session_identity,
+            channel_source_sha256=hashlib.sha256(channel_raw).hexdigest(),
+            channel_source_identity=channel_identity,
             w5_source_sha256=hashlib.sha256(w5_raw).hexdigest(),
             w5_source_identity=w5_identity,
             scripts_directory=scripts_directory,
@@ -312,7 +324,7 @@ def _run_child(
             pass
         return 2
     finally:
-        for descriptor in (helper_source_descriptor, session_source_descriptor, w5_source_descriptor, executable_descriptor):
+        for descriptor in (helper_source_descriptor, session_source_descriptor, channel_source_descriptor, w5_source_descriptor, executable_descriptor):
             if descriptor >= 0:
                 try:
                     os.close(descriptor)
@@ -327,26 +339,27 @@ def main(argv: list[str] | None = None) -> int:
     values = sys.argv[1:] if argv is None else argv
     if (
         type(values) is not list
-        or len(values) != 7
+        or len(values) != 8
         or values[0] != CHILD_FLAG
-        or any(not item.isascii() or not item.isdigit() for item in values[1:6])
+        or any(not item.isascii() or not item.isdigit() for item in values[1:7])
     ):
         return 64
-    control_descriptor, helper_descriptor, session_descriptor, w5_descriptor, executable_descriptor = (
-        int(item, 10) for item in values[1:6]
+    control_descriptor, helper_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor = (
+        int(item, 10) for item in values[1:7]
     )
     if (
-        min(control_descriptor, helper_descriptor, session_descriptor, w5_descriptor, executable_descriptor) < 3
-        or len({control_descriptor, helper_descriptor, session_descriptor, w5_descriptor, executable_descriptor}) != 5
+        min(control_descriptor, helper_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor) < 3
+        or len({control_descriptor, helper_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor}) != 6
     ):
         return 64
     return _run_child(
         control_descriptor,
         helper_descriptor,
         session_descriptor,
+        channel_descriptor,
         w5_descriptor,
         executable_descriptor,
-        values[6],
+        values[7],
     )
 
 

@@ -377,11 +377,25 @@ class SkillPackagingTests(unittest.TestCase):
                 "references/direct-trusted-session-composition.md",
             ),
             "W5": (
+                "scripts/direct_shared_fixed_ssh_channel.py",
                 "scripts/direct_one_hop_transport.py",
+                "contracts/rtwin-pbs/direct-shared-fixed-ssh-read-profile.schema.json",
                 "contracts/rtwin-pbs/direct-one-hop-submission-result.schema.json",
                 "contracts/rtwin-pbs/direct-one-hop-transport-profile.schema.json",
                 "contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json",
                 "references/direct-one-hop-transport.md",
+                "references/shared-fixed-ssh-channel.md",
+            ),
+            "W6L": (
+                "scripts/direct_existing_job_lineage.py",
+                "contracts/rtwin-pbs/direct-submitted-job-read-lineage.schema.json",
+                "references/direct-existing-job-lineage.md",
+            ),
+            "T4": (
+                "scripts/direct_local_fetch_materializer.py",
+                "contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json",
+                "contracts/rtwin-pbs/direct-fetch-manifest.schema.json",
+                "references/direct-local-fetch-materializer.md",
             ),
             "direct-boundary": (
                 "scripts/direct_root_mutation_boundary.py",

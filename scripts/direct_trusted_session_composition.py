@@ -681,6 +681,7 @@ def _assert_fixed_static_binding() -> None:
     _require(
         _file_snapshot(_FIXED_SESSION_SOURCE.path) == _FIXED_SESSION_SOURCE
         and _file_snapshot(_FIXED_HELPER_SOURCE.path) == _FIXED_HELPER_SOURCE
+        and _file_snapshot(_FIXED_CHANNEL_SOURCE.path) == _FIXED_CHANNEL_SOURCE
         and _file_snapshot(_FIXED_W5_SOURCE.path) == _FIXED_W5_SOURCE
         and _executable_snapshot(_FIXED_EXECUTABLE.path) == _FIXED_EXECUTABLE
         and Path(__file__).resolve() == _FIXED_SESSION_SOURCE.path
@@ -693,6 +694,7 @@ def _expected_child_argv(
     control_descriptor: int,
     helper_source_descriptor: int,
     session_source_descriptor: int,
+    channel_source_descriptor: int,
     w5_source_descriptor: int,
     executable_descriptor: int,
 ) -> tuple[str, ...]:
@@ -702,6 +704,7 @@ def _expected_child_argv(
         str(control_descriptor),
         str(helper_source_descriptor),
         str(session_source_descriptor),
+        str(channel_source_descriptor),
         str(w5_source_descriptor),
         str(executable_descriptor),
         str(_FIXED_SCRIPTS_DIRECTORY),
@@ -715,6 +718,8 @@ def _activate_fixed_clean_exec_child(
     helper_source_identity: tuple[int, ...],
     session_source_sha256: str,
     session_source_identity: tuple[int, ...],
+    channel_source_sha256: str,
+    channel_source_identity: tuple[int, ...],
     w5_source_sha256: str,
     w5_source_identity: tuple[int, ...],
     scripts_directory: str,
@@ -724,10 +729,11 @@ def _activate_fixed_clean_exec_child(
     _assert_fixed_static_binding()
     expected_argv = _expected_child_argv(
         control_descriptor,
-        int(original_argv[3], 10) if len(original_argv) == 8 else -1,
-        int(original_argv[4], 10) if len(original_argv) == 8 else -1,
-        int(original_argv[5], 10) if len(original_argv) == 8 else -1,
-        int(original_argv[6], 10) if len(original_argv) == 8 else -1,
+        int(original_argv[3], 10) if len(original_argv) == 9 else -1,
+        int(original_argv[4], 10) if len(original_argv) == 9 else -1,
+        int(original_argv[5], 10) if len(original_argv) == 9 else -1,
+        int(original_argv[6], 10) if len(original_argv) == 9 else -1,
+        int(original_argv[7], 10) if len(original_argv) == 9 else -1,
     )
     allowed_fds = (0, 1, 2, control_descriptor)
     _require(
@@ -741,6 +747,8 @@ def _activate_fixed_clean_exec_child(
         and tuple(helper_source_identity) == _FIXED_HELPER_SOURCE.identity
         and session_source_sha256 == _FIXED_SESSION_SOURCE.sha256
         and tuple(session_source_identity) == _FIXED_SESSION_SOURCE.identity
+        and channel_source_sha256 == _FIXED_CHANNEL_SOURCE.sha256
+        and tuple(channel_source_identity) == _FIXED_CHANNEL_SOURCE.identity
         and w5_source_sha256 == _FIXED_W5_SOURCE.sha256
         and tuple(w5_source_identity) == _FIXED_W5_SOURCE.identity
         and _executable_snapshot(Path(sys.executable)) == _FIXED_EXECUTABLE
@@ -772,6 +780,7 @@ def _activate_fixed_clean_exec_child(
         "executable_sha256": _FIXED_EXECUTABLE.sha256,
         "helper_source_sha256": _FIXED_HELPER_SOURCE.sha256,
         "session_source_sha256": _FIXED_SESSION_SOURCE.sha256,
+        "channel_source_sha256": _FIXED_CHANNEL_SOURCE.sha256,
         "w5_source_sha256": _FIXED_W5_SOURCE.sha256,
         "entrypoint": expected_argv[0],
         "argv": list(expected_argv),
@@ -821,6 +830,7 @@ def _spawn_fixed_clean_exec(
     process: subprocess.Popen[bytes] | None = None
     helper_fd = -1
     session_fd = -1
+    channel_fd = -1
     w5_fd = -1
     executable_fd = -1
     try:
@@ -829,9 +839,10 @@ def _spawn_fixed_clean_exec(
         child_fd = child.fileno()
         helper_fd = _FROZEN_SOURCE_OPENER(_FIXED_HELPER_SOURCE)
         session_fd = _FROZEN_SOURCE_OPENER(_FIXED_SESSION_SOURCE)
+        channel_fd = _FROZEN_SOURCE_OPENER(_FIXED_CHANNEL_SOURCE)
         w5_fd = _FROZEN_SOURCE_OPENER(_FIXED_W5_SOURCE)
         executable_fd = _FROZEN_EXECUTABLE_OPENER(_FIXED_EXECUTABLE)
-        argv = _expected_child_argv(child_fd, helper_fd, session_fd, w5_fd, executable_fd)
+        argv = _expected_child_argv(child_fd, helper_fd, session_fd, channel_fd, w5_fd, executable_fd)
         descriptor_alias = f"/proc/self/fd/{executable_fd}"
         if not Path("/proc/self/fd").is_dir():
             descriptor_alias = f"/dev/fd/{executable_fd}"
@@ -844,7 +855,7 @@ def _spawn_fixed_clean_exec(
             [str(_FIXED_EXECUTABLE.path), "-I", "-S", *argv],
             executable=(str(_FIXED_EXECUTABLE.path) if _offline_fixture_path_exec else descriptor_alias),
             close_fds=True,
-            pass_fds=(child_fd, helper_fd, session_fd, w5_fd, executable_fd),
+            pass_fds=(child_fd, helper_fd, session_fd, channel_fd, w5_fd, executable_fd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -855,6 +866,8 @@ def _spawn_fixed_clean_exec(
         helper_fd = -1
         os.close(session_fd)
         session_fd = -1
+        os.close(channel_fd)
+        channel_fd = -1
         os.close(w5_fd)
         w5_fd = -1
         os.close(executable_fd)
@@ -870,6 +883,7 @@ def _spawn_fixed_clean_exec(
             "executable_sha256": _FIXED_EXECUTABLE.sha256,
             "helper_source_sha256": _FIXED_HELPER_SOURCE.sha256,
             "session_source_sha256": _FIXED_SESSION_SOURCE.sha256,
+            "channel_source_sha256": _FIXED_CHANNEL_SOURCE.sha256,
             "w5_source_sha256": _FIXED_W5_SOURCE.sha256,
             "entrypoint": argv[0],
             "argv": list(argv),
@@ -921,7 +935,7 @@ def _spawn_fixed_clean_exec(
                 process.wait(timeout=_FIXED_CLEAN_EXEC_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 pass
-        for descriptor in (helper_fd, session_fd, w5_fd, executable_fd):
+        for descriptor in (helper_fd, session_fd, channel_fd, w5_fd, executable_fd):
             if descriptor >= 0:
                 os.close(descriptor)
         if child is not None:
@@ -1350,6 +1364,7 @@ _FIXED_PRODUCTION_ROOT = FIXED_PRODUCTION_DURABLE_STATE_ROOT
 _FIXED_SCRIPTS_DIRECTORY = Path(__file__).resolve().parent
 _FIXED_SESSION_SOURCE = _file_snapshot(Path(__file__).resolve())
 _FIXED_HELPER_SOURCE = _file_snapshot(Path(CLEAN_EXEC.__file__).resolve())
+_FIXED_CHANNEL_SOURCE = _file_snapshot(_FIXED_SCRIPTS_DIRECTORY / "direct_shared_fixed_ssh_channel.py")
 _FIXED_W5_SOURCE = _file_snapshot(_FIXED_SCRIPTS_DIRECTORY / "direct_one_hop_transport.py")
 _FIXED_EXECUTABLE = _executable_snapshot(Path(sys.executable))
 _FIXED_CLEAN_EXEC_CWD = FIXED_CLEAN_EXEC_CWD
@@ -1820,6 +1835,7 @@ class _ModuleBinding:
     scripts_directory: Path
     session_source: _FileSnapshot
     helper_source: _FileSnapshot
+    channel_source: _FileSnapshot
     w5_source: _FileSnapshot
     executable: _ExecutableSnapshot
     clean_exec_module: types.ModuleType
@@ -1895,6 +1911,7 @@ def _capture_module_binding() -> _ModuleBinding:
         scripts_directory=_FIXED_SCRIPTS_DIRECTORY,
         session_source=_FIXED_SESSION_SOURCE,
         helper_source=_FIXED_HELPER_SOURCE,
+        channel_source=_FIXED_CHANNEL_SOURCE,
         w5_source=_FIXED_W5_SOURCE,
         executable=_FIXED_EXECUTABLE,
         clean_exec_module=CLEAN_EXEC,
@@ -1969,6 +1986,7 @@ def _assert_module_binding() -> None:
         and _FIXED_SCRIPTS_DIRECTORY is binding.scripts_directory
         and _FIXED_SESSION_SOURCE is binding.session_source
         and _FIXED_HELPER_SOURCE is binding.helper_source
+        and _FIXED_CHANNEL_SOURCE is binding.channel_source
         and _FIXED_W5_SOURCE is binding.w5_source
         and _FIXED_EXECUTABLE is binding.executable
         and sys.modules.get(CLEAN_EXEC.__name__) is binding.clean_exec_module

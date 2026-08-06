@@ -484,11 +484,14 @@ print(target + "_REJECTED_BEFORE_W2")
         self.assertEqual(
             [item["source"] for item in w5["include"]],
             [
+                "scripts/direct_shared_fixed_ssh_channel.py",
                 "scripts/direct_one_hop_transport.py",
+                "contracts/direct-execution/direct-shared-fixed-ssh-read-profile.schema.json",
                 "contracts/direct-execution/direct-one-hop-submission-result.schema.json",
                 "contracts/direct-execution/direct-one-hop-transport-profile.schema.json",
                 "contracts/direct-execution/reviewed-direct-pbs-script.schema.json",
                 "docs/v2.7-direct-one-hop-transport.md",
+                "docs/v2.7-shared-fixed-ssh-channel.md",
             ],
         )
         package = SKILL_PACKAGE.package_files_with_supplements(ROOT, "auto-g16-rtwin-pbs")
@@ -502,6 +505,9 @@ print(target + "_REJECTED_BEFORE_W2")
             Path("scripts/direct_one_hop_transport.py"): (
                 ROOT / "scripts/direct_one_hop_transport.py"
             ),
+            Path("scripts/direct_shared_fixed_ssh_channel.py"): (
+                ROOT / "scripts/direct_shared_fixed_ssh_channel.py"
+            ),
             Path("contracts/rtwin-pbs/direct-trusted-session-result.schema.json"): (
                 ROOT / "contracts/direct-execution/direct-trusted-session-result.schema.json"
             ),
@@ -511,6 +517,9 @@ print(target + "_REJECTED_BEFORE_W2")
             Path("contracts/rtwin-pbs/direct-one-hop-transport-profile.schema.json"): (
                 ROOT / "contracts/direct-execution/direct-one-hop-transport-profile.schema.json"
             ),
+            Path("contracts/rtwin-pbs/direct-shared-fixed-ssh-read-profile.schema.json"): (
+                ROOT / "contracts/direct-execution/direct-shared-fixed-ssh-read-profile.schema.json"
+            ),
             Path("contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json"): (
                 ROOT / "contracts/direct-execution/reviewed-direct-pbs-script.schema.json"
             ),
@@ -519,6 +528,9 @@ print(target + "_REJECTED_BEFORE_W2")
             ),
             Path("references/direct-one-hop-transport.md"): (
                 ROOT / "docs/v2.7-direct-one-hop-transport.md"
+            ),
+            Path("references/shared-fixed-ssh-channel.md"): (
+                ROOT / "docs/v2.7-shared-fixed-ssh-channel.md"
             ),
         }
         for target, source in expected.items():
@@ -572,6 +584,7 @@ print(target + "_REJECTED_BEFORE_W2")
         self.assertEqual(ready["executable_sha256"], SESSION._FIXED_EXECUTABLE.sha256)
         self.assertEqual(ready["helper_source_sha256"], SESSION._FIXED_HELPER_SOURCE.sha256)
         self.assertEqual(ready["session_source_sha256"], SESSION._FIXED_SESSION_SOURCE.sha256)
+        self.assertEqual(ready["channel_source_sha256"], SESSION._FIXED_CHANNEL_SOURCE.sha256)
         self.assertEqual(ready["w5_source_sha256"], SESSION._FIXED_W5_SOURCE.sha256)
         self.assertEqual(ready["entrypoint"], ready["argv"][0])
         self.assertEqual(ready["argv"][1], SESSION.CLEAN_EXEC.CHILD_FLAG)
@@ -587,6 +600,7 @@ print(target + "_REJECTED_BEFORE_W2")
             ("FIXED_CLEAN_EXEC_CWD", "/tmp"),
             ("FIXED_CLEAN_EXEC_ENVIRONMENT", {"LANG": "hostile"}),
             ("_FIXED_HELPER_SOURCE", SESSION._FIXED_SESSION_SOURCE),
+            ("_FIXED_CHANNEL_SOURCE", SESSION._FIXED_SESSION_SOURCE),
             ("_FIXED_W5_SOURCE", SESSION._FIXED_SESSION_SOURCE),
             (
                 "_FIXED_EXECUTABLE",
@@ -630,15 +644,16 @@ print(target + "_REJECTED_BEFORE_W2")
         parent, child = socket.socketpair()
         helper_fd = SESSION._open_bound_source(SESSION._FIXED_HELPER_SOURCE)
         session_fd = SESSION._open_bound_source(SESSION._FIXED_SESSION_SOURCE)
+        channel_fd = SESSION._open_bound_source(SESSION._FIXED_CHANNEL_SOURCE)
         w5_fd = SESSION._open_bound_source(SESSION._FIXED_W5_SOURCE)
         executable_fd = SESSION._open_bound_executable(SESSION._FIXED_EXECUTABLE)
         extra_fd = os.open("/dev/null", os.O_RDONLY)
         child_fd = child.fileno()
-        argv = SESSION._expected_child_argv(child_fd, helper_fd, session_fd, w5_fd, executable_fd)
+        argv = SESSION._expected_child_argv(child_fd, helper_fd, session_fd, channel_fd, w5_fd, executable_fd)
         process = subprocess.Popen(
             [str(SESSION._FIXED_EXECUTABLE.path), *argv],
             close_fds=True,
-            pass_fds=(child_fd, helper_fd, session_fd, w5_fd, executable_fd, extra_fd),
+            pass_fds=(child_fd, helper_fd, session_fd, channel_fd, w5_fd, executable_fd, extra_fd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -647,6 +662,7 @@ print(target + "_REJECTED_BEFORE_W2")
         )
         os.close(helper_fd)
         os.close(session_fd)
+        os.close(channel_fd)
         os.close(w5_fd)
         os.close(executable_fd)
         os.close(extra_fd)

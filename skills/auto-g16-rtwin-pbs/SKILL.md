@@ -541,17 +541,35 @@ adapter:
   `scripts/direct_trusted_session_clean_exec.py` with
   `references/direct-trusted-session-composition.md`.
 - W5 fixed one-hop transport and at-most-once submission:
+  `scripts/direct_shared_fixed_ssh_channel.py`,
   `scripts/direct_one_hop_transport.py`,
+  `contracts/rtwin-pbs/direct-shared-fixed-ssh-read-profile.schema.json`,
   `contracts/rtwin-pbs/direct-one-hop-submission-result.schema.json`,
   `contracts/rtwin-pbs/direct-one-hop-transport-profile.schema.json`,
-  `contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json`, and
-  `references/direct-one-hop-transport.md`.
+  `contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json`,
+  `references/direct-one-hop-transport.md`, and
+  `references/shared-fixed-ssh-channel.md`.
+- W6L existing submitted-job lineage/read-capability owner:
+  `scripts/direct_existing_job_lineage.py`,
+  `contracts/rtwin-pbs/direct-submitted-job-read-lineage.schema.json`, and
+  `references/direct-existing-job-lineage.md`. It revalidates exact completed
+  W5/W2 lineage and retains no-follow descriptors; its portable projection is
+  non-authorizing, and query/fetch remain blocked.
 - W6C0 direct read-only evidence core:
   `scripts/direct_read_only_evidence.py` with
   `references/direct-read-only-evidence-core.md`. It only parses pre-collected
   qstat bytes and validates provisional non-authorizing scheduler evidence; it
   does not own final `gaussian-job-inspection/3` and is not a transport,
   inspect acquisition, fetch, or terminal-science owner.
+- T4 repo-external local materializer:
+  `scripts/direct_local_fetch_materializer.py`,
+  `contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json`,
+  `contracts/rtwin-pbs/direct-fetch-manifest.schema.json`, and
+  `references/direct-local-fetch-materializer.md`. It consumes only its exact
+  local target capability and exact sealed offline synthetic stream lease,
+  creates the fixed five-file no-clobber snapshot descriptor-relatively, and
+  writes the manifest last. Production T3 shared-channel lease integration,
+  query/fetch acquisition and scientific acceptance remain blocked.
 - The direct boundary, offline backend and onboarding/support surfaces are
   `scripts/direct_root_mutation_boundary.py` with
   `references/direct-root-mutation-boundary.md`,
@@ -561,11 +579,23 @@ adapter:
   `references/direct-onboarding-support.md`.
 
 W4B joins W1-W4 in one clean-exec process and W5 consumes only its typed
-child-local seam. W5 production code fixes the OpenSSH subsystem, immutable
+child-local seam. The shared fixed-SSH channel owner fixes the OpenSSH
+executable/options, subsystem mapping, descriptor execution, framing,
+absolute deadline and child retirement. W5 consumes its sealed submit
+operation through the exact private W5 join; no generic submit registrar or
+live mutable shared record exists. Every acquisition atomically consumes its
+operation and finishes terminal on success or failure. W5 retains immutable
 descriptor-relative upload, reviewed PBS bytes, at-most-once qsub and exact
 submission receipt; its validation remains entirely offline with no live
-evidence. W6C0 is a non-authorizing offline qstat parser/evidence core; real
-inspect acquisition, fetch, reconciliation and W7 are not present. No qdel, cleanup,
+evidence. W6L adds only the server-local existing-job lineage observer and
+single-use read-capability foundation.
+Sealed query/fetch operations and their codecs do not execute qstat or fetch;
+both production paths remain blocked. W6C0 is a non-authorizing offline qstat
+parser/evidence core. T4 adds only an offline synthetic, repository-external
+local byte materializer and keeps `production_integration=false` until the
+exact T3 stream type is frozen. Real W6 query/fetch acquisition, local
+materializer integration, advanced inspection and W7 remain blocked. No qdel,
+cleanup,
 deployment or live authority is granted; the direct backend remains
 `offline_synthetic`, `production_blocked` and `live_not_ready`.
 

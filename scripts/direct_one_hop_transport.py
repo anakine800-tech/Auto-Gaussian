@@ -21,6 +21,7 @@ import re
 import select
 import stat
 import struct
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -28,10 +29,11 @@ from typing import Any
 
 import direct_durable_submission_journal as W2
 import direct_root_fixed_mutation_consumer as W4
+import direct_shared_fixed_ssh_channel as CHANNEL
 import direct_trusted_session_composition as SESSION
 
 
-TRANSPORT_PROFILE_SCHEMA = "auto-g16-direct-one-hop-transport-profile/1"
+TRANSPORT_PROFILE_SCHEMA = CHANNEL.TRANSPORT_PROFILE_SCHEMA
 PBS_REVIEW_SCHEMA = "auto-g16-reviewed-direct-pbs-script/1"
 RESULT_SCHEMA = "auto-g16-direct-one-hop-submission-result/1"
 PROTOCOL = "auto-g16-direct-one-hop-transport/1"
@@ -45,39 +47,14 @@ SUBMISSION_RECEIPT_BASENAME = "submission-receipt.json"
 ALLOWLIST = (INPUT_BASENAME, PBS_BASENAME, CHECKSUMS_BASENAME, SUBMISSION_RECEIPT_BASENAME)
 QSUB_EXECUTABLE = "/usr/bin/qsub"
 QSUB_ARGV = (QSUB_EXECUTABLE, "--", PBS_BASENAME)
-SSH_EXECUTABLE = "/usr/bin/ssh"
-SSH_SUBSYSTEM = "auto-g16-direct-one-hop-v1"
-SSH_FIXED_OPTIONS = (
-    "-F", "none",
-    "-o", "BatchMode=yes",
-    "-o", "IdentitiesOnly=yes",
-    "-o", "IdentityFile=none",
-    "-o", "IdentityAgent=none",
-    "-o", "CertificateFile=none",
-    "-o", "PKCS11Provider=none",
-    "-o", "SecurityKeyProvider=none",
-    "-o", "StrictHostKeyChecking=yes",
-    "-o", "GlobalKnownHostsFile=none",
-    "-o", "KnownHostsCommand=none",
-    "-o", "VerifyHostKeyDNS=no",
-    "-o", "UpdateHostKeys=no",
-    "-o", "ProxyCommand=none",
-    "-o", "ProxyJump=none",
-    "-o", "PermitLocalCommand=no",
-    "-o", "LocalCommand=none",
-    "-o", "ControlMaster=no",
-    "-o", "ControlPath=none",
-    "-o", "ForwardAgent=no",
-    "-o", "ForwardX11=no",
-    "-o", "ClearAllForwardings=yes",
-    "-o", "ExitOnForwardFailure=yes",
-    "-o", "RequestTTY=no",
-)
-MAX_PROFILE_BYTES = 256 * 1024
+SSH_EXECUTABLE = CHANNEL.SSH_EXECUTABLE
+SSH_SUBSYSTEM = CHANNEL.SUBMIT_SUBSYSTEM
+SSH_FIXED_OPTIONS = CHANNEL.SSH_FIXED_OPTIONS
+MAX_PROFILE_BYTES = CHANNEL.MAX_PROFILE_BYTES
 MAX_STDOUT_BYTES = 4096
-MAX_FRAME_BYTES = 32 * 1024 * 1024
-CONTROLLER_WRITE_TIMEOUT_SECONDS = 30.0
-CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS = 5.0
+MAX_FRAME_BYTES = CHANNEL.MAX_CONTROL_FRAME_BYTES
+CONTROLLER_WRITE_TIMEOUT_SECONDS = CHANNEL.CHANNEL_TIMEOUT_SECONDS
+CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS = CHANNEL.CHILD_RETIRE_TIMEOUT_SECONDS
 ZERO_SHA = "0" * 64
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 POSITIVE_DECIMAL_RE = re.compile(r"^[1-9][0-9]*$")
@@ -88,42 +65,22 @@ JOURNAL_ID_RE = re.compile(r"^direct-durable-submission-journal-[a-f0-9]{64}$")
 ATTEMPT_ID_RE = re.compile(r"^qsub-attempt-[a-f0-9]{64}$")
 RECEIPT_ID_RE = re.compile(r"^direct-submission-receipt-[a-f0-9]{64}$")
 CONTROLLER_REQUEST_ID_RE = re.compile(r"^direct-controller-request-[a-f0-9]{64}$")
-FIXED_ENVIRONMENT = {"LANG": "C", "LC_ALL": "C"}
+FIXED_ENVIRONMENT = CHANNEL.FIXED_ENVIRONMENT
 _EXECUTED_SOURCE_SHA256 = globals().get("__reviewed_source_sha256__")
 if _EXECUTED_SOURCE_SHA256 is None:
     with open(__file__, "rb") as _source_handle:
         _EXECUTED_SOURCE_SHA256 = hashlib.sha256(_source_handle.read()).hexdigest()
-POLICY = {
-    "one_hop_only": True,
-    "arbitrary_shell": False,
-    "arbitrary_argv": False,
-    "caller_override": False,
-    "path_reopen": False,
-    "descriptor_relative_upload": True,
-    "immutable_no_overwrite": True,
-    "qsub_max_calls": "1",
-    "automatic_retry": False,
-    "reconciliation_only_after_unknown": True,
-    "qdel": False,
-    "cancel": False,
-    "inspect": False,
-    "fetch": False,
-    "cleanup": False,
-    "delete": False,
-    "portable_result_authorizes_effect": False,
-}
+POLICY = CHANNEL.TRANSPORT_POLICY
 
 
-class DirectOneHopTransportError(ValueError):
-    pass
+DirectOneHopTransportError = CHANNEL.SharedFixedSSHChannelError
 
 
 class SubmissionOutcomeUnknown(RuntimeError):
     pass
 
 
-class ControllerTransportUnknown(RuntimeError):
-    pass
+ControllerTransportUnknown = CHANNEL.ControllerTransportUnknown
 
 
 def _require(condition: bool, message: str) -> None:
@@ -191,202 +148,22 @@ def _absolute_file(value: Any, label: str) -> str:
     return path
 
 
-def validate_transport_profile(document: Any) -> dict[str, Any]:
-    profile = _exact(
-        copy.deepcopy(document),
-        {
-            "schema", "profile_id", "backend_kind", "topology",
-            "scheduler_dialect", "ssh", "server", "qsub", "pbs_artifact", "safety",
-            "profile_payload_sha256",
-        },
-        "transport profile",
-    )
-    _require(profile["schema"] == TRANSPORT_PROFILE_SCHEMA, "transport profile schema differs")
-    _text(profile["profile_id"], "transport profile id")
-    _require(
-        profile["backend_kind"] == BACKEND_KIND
-        and profile["topology"] == TOPOLOGY
-        and profile["scheduler_dialect"] == SCHEDULER_DIALECT,
-        "transport topology differs",
-    )
-    ssh = _exact(
-        profile["ssh"],
-        {
-            "executable", "executable_sha256", "configuration_files", "system_policy_evidence_sha256", "host", "user", "port", "identity_file",
-            "known_hosts_file", "batch_mode", "identities_only",
-            "strict_host_key_checking", "subsystem",
-        },
-        "SSH profile",
-    )
-    _require(ssh["executable"] == SSH_EXECUTABLE, "SSH executable differs")
-    _sha(ssh["executable_sha256"], "SSH executable")
-    _sha(ssh["system_policy_evidence_sha256"], "SSH system policy evidence")
-    _require(
-        ssh["configuration_files"] == "disabled_by_F_none",
-        "SSH configuration-file policy differs",
-    )
-    _require(type(ssh["host"]) is str and HOST_RE.fullmatch(ssh["host"]) is not None, "SSH host differs")
-    _require(type(ssh["user"]) is str and USER_RE.fullmatch(ssh["user"]) is not None, "SSH user differs")
-    _positive_decimal(ssh["port"], "SSH port", maximum=65535)
-    _absolute_file(ssh["identity_file"], "SSH identity file")
-    _absolute_file(ssh["known_hosts_file"], "SSH known-hosts file")
-    _require(
-        ssh["batch_mode"] is True
-        and ssh["identities_only"] is True
-        and ssh["strict_host_key_checking"] is True
-        and ssh["subsystem"] == SSH_SUBSYSTEM,
-        "SSH identity or subsystem policy differs",
-    )
-    server = _exact(
-        profile["server"],
-        {"python_executable", "python_executable_sha256", "isolated_flags", "working_directory", "environment", "allowed_root", "entrypoint_source_sha256"},
-        "server profile",
-    )
-    _absolute_file(server["python_executable"], "server Python executable")
-    _sha(server["python_executable_sha256"], "server Python executable")
-    _require(
-        server["isolated_flags"] == ["-I", "-S"]
-        and server["working_directory"] == "/"
-        and server["environment"] == FIXED_ENVIRONMENT,
-        "server clean-exec policy differs",
-    )
-    _absolute_file(server["allowed_root"], "server allowed root")
-    _sha(server["entrypoint_source_sha256"], "server entrypoint source")
-    qsub = _exact(profile["qsub"], {"executable", "executable_sha256", "argv", "working_directory", "stdout_grammar"}, "qsub profile")
-    _require(
-        qsub["executable"] == QSUB_EXECUTABLE
-        and SHA_RE.fullmatch(qsub["executable_sha256"]) is not None
-        and qsub["argv"] == list(QSUB_ARGV)
-        and qsub["working_directory"] == "already_open_project_fd"
-        and qsub["stdout_grammar"] == "independent_pbs_job_id_v1",
-        "qsub executable, argv, cwd, or grammar differs",
-    )
-    _sha(qsub["executable_sha256"], "qsub executable")
-    pbs_artifact = _exact(
-        profile["pbs_artifact"],
-        {"basename", "sha256", "size_bytes", "review_payload_sha256", "owner"},
-        "reviewed PBS artifact",
-    )
-    _require(
-        pbs_artifact["basename"] == PBS_BASENAME
-        and _positive_decimal(pbs_artifact["size_bytes"], "reviewed PBS artifact size")
-        and pbs_artifact["owner"] == "reviewed_direct_pbs_artifact_owner",
-        "reviewed PBS artifact identity differs",
-    )
-    _sha(pbs_artifact["sha256"], "reviewed PBS artifact")
-    _sha(pbs_artifact["review_payload_sha256"], "reviewed PBS artifact review")
-    _require(profile["safety"] == POLICY, "transport safety policy differs")
-    supplied = _sha(profile["profile_payload_sha256"], "transport profile hash")
-    check = copy.deepcopy(profile)
-    check["profile_payload_sha256"] = ""
-    _require(supplied == digest(check), "transport profile self-hash differs")
-    return profile
-
-
-def load_transport_profile(raw: bytes) -> dict[str, Any]:
-    _require(type(raw) is bytes and 0 < len(raw) <= MAX_PROFILE_BYTES, "transport profile bytes differ")
-    try:
-        value = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise DirectOneHopTransportError("transport profile is not exact JSON") from exc
-    profile = validate_transport_profile(value)
-    _require(raw == canonical_bytes(profile), "transport profile bytes are not canonical")
-    return profile
+validate_transport_profile = CHANNEL.validate_transport_profile
+load_transport_profile = CHANNEL.load_transport_profile
 
 
 def build_controller_argv(profile_raw: bytes) -> tuple[str, ...]:
-    """Build the only production SSH argv from the reviewed hash-bound profile."""
-    profile = load_transport_profile(profile_raw)
-    ssh = profile["ssh"]
-    return (
-        SSH_EXECUTABLE,
-        "-T",
-        *SSH_FIXED_OPTIONS,
-        "-o", f"UserKnownHostsFile={ssh['known_hosts_file']}",
-        "-i", ssh["identity_file"],
-        "-p", ssh["port"],
-        "-s",
-        f"{ssh['user']}@{ssh['host']}",
-        SSH_SUBSYSTEM,
-    )
+    """Compatibility projection of the shared owner's fixed submit argv."""
+    return CHANNEL.project_submit_controller_argv_for_review(profile_raw)
 
 
-def _pipe_cloexec() -> tuple[int, int]:
-    if hasattr(os, "pipe2"):
-        return os.pipe2(getattr(os, "O_CLOEXEC", 0))
-    left, right = os.pipe()
-    for descriptor in (left, right):
-        fcntl.fcntl(descriptor, fcntl.F_SETFD, fcntl.fcntl(descriptor, fcntl.F_GETFD) | fcntl.FD_CLOEXEC)
-    return left, right
-
-
-def _close_quiet(*descriptors: int) -> None:
-    for descriptor in descriptors:
-        if type(descriptor) is int and descriptor >= 0:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
-
-
-def _executable_identity(info: os.stat_result) -> tuple[int, ...]:
-    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
-
-
-def _assert_reviewed_executable_descriptor(descriptor: int, path: str, expected_sha256: str) -> None:
-    _sha(expected_sha256, "reviewed executable")
-    before = os.fstat(descriptor)
-    _require(stat.S_ISREG(before.st_mode) and before.st_mode & 0o111, "reviewed executable type or mode differs")
-    os.lseek(descriptor, 0, os.SEEK_SET)
-    hasher = hashlib.sha256()
-    while True:
-        chunk = os.read(descriptor, 1024 * 1024)
-        if not chunk:
-            break
-        hasher.update(chunk)
-    after = os.fstat(descriptor)
-    named = os.stat(path, follow_symlinks=False)
-    _require(
-        _executable_identity(before) == _executable_identity(after) == _executable_identity(named)
-        and hasher.hexdigest() == expected_sha256,
-        "reviewed executable identity or hash differs",
-    )
-
-
-def _open_reviewed_executable(path: str, expected_sha256: str) -> int:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
-    try:
-        _assert_reviewed_executable_descriptor(descriptor, path, expected_sha256)
-        return descriptor
-    except BaseException:
-        os.close(descriptor)
-        raise
-
-
-def _descriptor_execve(descriptor: int, argv: tuple[str, ...], environment: dict[str, str]) -> None:
-    """Exec only the already-verified FD; never fall back to its original path."""
-    _require(type(descriptor) is int and descriptor >= 0 and type(argv) is tuple, "descriptor exec differs")
-    if os.execve in os.supports_fd:  # pragma: no cover - platform production feature
-        _FROZEN_EXECVE(descriptor, list(argv), environment)
-        raise AssertionError("descriptor exec unexpectedly returned")
-    _require(os.path.isdir("/proc/self/fd"), "descriptor exec is unavailable; path fallback forbidden")
-    alias = f"/proc/self/fd/{descriptor}"
-    try:
-        _require(
-            _executable_identity(os.fstat(descriptor)) == _executable_identity(os.stat(alias)),
-            "descriptor exec alias identity differs",
-        )
-    except OSError as exc:
-        raise DirectOneHopTransportError("descriptor exec is unavailable; path fallback forbidden") from exc
-    _FROZEN_EXECVE(alias, list(argv), environment)
-    raise AssertionError("descriptor exec unexpectedly returned")
-
-
-def _require_descriptor_exec_available() -> None:
-    _require(
-        os.execve in os.supports_fd or os.path.isdir("/proc/self/fd"),
-        "descriptor exec is unavailable; path fallback forbidden",
-    )
+_pipe_cloexec = CHANNEL._pipe_cloexec
+_close_quiet = CHANNEL._close_quiet
+_executable_identity = CHANNEL._executable_identity
+_assert_reviewed_executable_descriptor = CHANNEL._assert_reviewed_executable_descriptor
+_open_reviewed_executable = CHANNEL._open_reviewed_executable
+_descriptor_execve = CHANNEL._descriptor_execve
+_require_descriptor_exec_available = CHANNEL._require_descriptor_exec_available
 
 
 _CONTROLLER_REQUEST_TOKEN = object()
@@ -468,8 +245,10 @@ def _issue_controller_request_join(
             "join": join,
             "pid": os.getpid(),
             "status": "issued",
+            "shared_channel_status": "available",
             "request_id": request_id,
             "request_nonce": nonce,
+            "artifacts": artifacts,
             "artifact_sha256": artifact_sha256,
         }
     join.assert_owner_sealed()
@@ -482,6 +261,40 @@ def _retire_controller_request_join(join: _ControllerRequestJoin) -> None:
         if type(record) is dict and record.get("join") is join and record.get("pid") == os.getpid():
             record["status"] = "retired"
             del _CONTROLLER_REQUEST_REGISTRY[join]
+
+
+def _assert_shared_channel_request_authority(
+    join: _ControllerRequestJoin,
+    transport_profile_raw: bytes,
+    request_frame: bytes,
+) -> str:
+    """Bind shared submit issuance to this exact W5 artifact request join."""
+    _require(type(join) is _ControllerRequestJoin, "exact W5 controller request authority is required")
+    join.assert_owner_sealed()
+    _require(type(transport_profile_raw) is bytes and bool(transport_profile_raw), "shared channel transport bytes differ")
+    with _CONTROLLER_REQUEST_LOCK:
+        record = _CONTROLLER_REQUEST_REGISTRY.get(join)
+        artifacts = None if type(record) is not dict else record.get("artifacts")
+        _require(
+            type(record) is dict
+            and record.get("join") is join
+            and record.get("pid") == os.getpid()
+            and record.get("status") == "issued"
+            and record.get("shared_channel_status") == "available"
+            and type(artifacts) is SESSION.DirectServerSessionArtifacts
+            and record.get("artifact_sha256") == _artifact_hashes(artifacts)
+            and artifacts.transport_profile == transport_profile_raw
+            and record["artifact_sha256"]["transport_profile"]
+            == hashlib.sha256(transport_profile_raw).hexdigest(),
+            "shared channel submit authority is stale, foreign, or cross-spliced",
+        )
+        _require(
+            type(request_frame) is bytes
+            and request_frame == _artifact_frame(artifacts, join),
+            "shared channel submit request frame is foreign or cross-spliced",
+        )
+        record["shared_channel_status"] = "consumed"
+        return record["request_id"]
 
 
 def _artifact_frame(
@@ -509,123 +322,23 @@ def _artifact_frame(
 
 
 def _read_framed_descriptor(descriptor: int, timeout_seconds: float) -> dict[str, Any]:
-    _require(type(descriptor) is int and type(timeout_seconds) is float and timeout_seconds > 0, "frame reader differs")
-    buffer = bytearray()
-    required = 4
-    deadline = time.monotonic() + timeout_seconds
-    while len(buffer) < required:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise ControllerTransportUnknown("fixed controller response timed out")
-        ready, _, _ = select.select([descriptor], [], [], remaining)
-        if not ready:
-            raise ControllerTransportUnknown("fixed controller response timed out")
-        chunk = os.read(descriptor, min(65536, required - len(buffer)))
-        if not chunk:
-            raise ControllerTransportUnknown("fixed controller response ended early")
-        buffer.extend(chunk)
-        if required == 4 and len(buffer) == 4:
-            size = struct.unpack("!I", buffer)[0]
-            _require(0 < size <= MAX_FRAME_BYTES, "controller response size differs")
-            required = 4 + size
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise ControllerTransportUnknown("fixed controller response EOF timed out")
-    ready, _, _ = select.select([descriptor], [], [], remaining)
-    if not ready:
-        raise ControllerTransportUnknown("fixed controller response EOF timed out")
-    _require(os.read(descriptor, 1) == b"", "controller response contains extra bytes or a second frame")
-    try:
-        value = json.loads(bytes(buffer[4:]).decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ControllerTransportUnknown("fixed controller response is malformed") from exc
-    _require(type(value) is dict and canonical_bytes(value) == bytes(buffer[4:]), "controller response is not canonical")
-    return value
+    return CHANNEL.read_single_response(descriptor, timeout_seconds)
 
 
 def _write_all(descriptor: int, payload: bytes) -> None:
-    _require(type(descriptor) is int and type(payload) is bytes and bool(payload), "fixed frame write differs")
-    offset = 0
-    while offset < len(payload):
-        written = os.write(descriptor, payload[offset:])
-        _require(type(written) is int and written > 0, "fixed controller write made no progress")
-        offset += written
+    CHANNEL._write_all(descriptor, payload)
 
 
-def _write_controller_frame_until(descriptor: int, payload: bytes, deadline: float) -> None:
-    """Write a controller frame through its dedicated nonblocking FD."""
-    _require(
-        type(descriptor) is int
-        and type(payload) is bytes
-        and bool(payload)
-        and type(deadline) is float,
-        "fixed controller frame write differs",
-    )
-    try:
-        flags = fcntl.fcntl(descriptor, fcntl.F_GETFL)
-        fcntl.fcntl(descriptor, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-        _require(
-            bool(fcntl.fcntl(descriptor, fcntl.F_GETFL) & os.O_NONBLOCK),
-            "fixed controller request FD is not nonblocking",
-        )
-    except BaseException as exc:
-        raise ControllerTransportUnknown("fixed controller request FD setup failed") from exc
-
-    offset = 0
-    while offset < len(payload):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise ControllerTransportUnknown("fixed controller request write timed out")
-        try:
-            _, writable, exceptional = select.select([], [descriptor], [descriptor], remaining)
-        except InterruptedError:
-            continue
-        except (OSError, ValueError) as exc:
-            raise ControllerTransportUnknown("fixed controller request write observation failed") from exc
-        if exceptional:
-            raise ControllerTransportUnknown("fixed controller request peer failed")
-        if not writable:
-            raise ControllerTransportUnknown("fixed controller request write timed out")
-        try:
-            written = os.write(descriptor, payload[offset:])
-        except (BlockingIOError, InterruptedError):
-            continue
-        except OSError as exc:
-            raise ControllerTransportUnknown("fixed controller request peer closed") from exc
-        if type(written) is not int or written <= 0:
-            raise ControllerTransportUnknown("fixed controller request write made no progress")
-        offset += written
-
-
-def _send_controller_request(descriptor: int, frame: bytes, deadline: float) -> None:
-    """Once entered, any write or close failure is transport-uncertain."""
-    try:
-        _write_controller_frame_until(descriptor, frame, deadline)
-        os.close(descriptor)
-    except BaseException as exc:
-        raise ControllerTransportUnknown("controller request may have been delivered") from exc
+_write_controller_frame_until = CHANNEL._write_frame_until
+_send_controller_request = CHANNEL._send_frame_until
 
 
 def _wait_child_bounded(pid: int, timeout_seconds: float) -> int:
-    deadline = time.monotonic() + timeout_seconds
-    while True:
-        waited, status = os.waitpid(pid, os.WNOHANG)
-        if waited == pid:
-            return os.waitstatus_to_exitcode(status)
-        _require(waited == 0, "fixed controller child identity differs")
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise ControllerTransportUnknown("fixed controller child exit timed out")
-        select.select([], [], [], min(0.01, remaining))
+    _require(type(timeout_seconds) is float and timeout_seconds > 0, "child timeout differs")
+    return CHANNEL._wait_child_until(pid, time.monotonic() + timeout_seconds)
 
 
-def _retire_controller_child_bounded(pid: int) -> bool:
-    """Observe local SSH-child retirement without a signal or unbounded wait."""
-    try:
-        _wait_child_bounded(pid, CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS)
-        return True
-    except BaseException:
-        return False
+_retire_controller_child_bounded = CHANNEL._retire_child_bounded
 
 
 def _validate_controller_artifact_join(
@@ -814,66 +527,18 @@ def run_controller_once(artifacts: SESSION.DirectServerSessionArtifacts) -> dict
     _assert_production_binding()
     _require(type(artifacts) is SESSION.DirectServerSessionArtifacts, "exact reviewed artifact bundle is required")
     profile = _validate_controller_artifact_join(artifacts)
-    _require_descriptor_exec_available()
-    argv = build_controller_argv(artifacts.transport_profile)
-    ssh_fd = _open_reviewed_executable(SSH_EXECUTABLE, profile["ssh"]["executable_sha256"])
-    read_in, write_in = _pipe_cloexec()
-    read_out, write_out = _pipe_cloexec()
-    try:
-        request_join = _issue_controller_request_join(artifacts)
-    except BaseException:
-        _close_quiet(read_in, write_in, read_out, write_out, ssh_fd)
-        raise
-    try:
-        pid = _FROZEN_FORK()
-    except BaseException:
-        _close_quiet(read_in, write_in, read_out, write_out, ssh_fd)
-        _retire_controller_request_join(request_join)
-        raise
-    if pid == 0:  # pragma: no cover - real controller only
-        try:
-            os.dup2(read_in, 0)
-            os.dup2(write_out, 1)
-            _assert_reviewed_executable_descriptor(ssh_fd, SSH_EXECUTABLE, profile["ssh"]["executable_sha256"])
-            for descriptor in (read_in, write_in, read_out, write_out):
-                if descriptor > 2:
-                    try:
-                        os.close(descriptor)
-                    except OSError:
-                        pass
-            _descriptor_execve(ssh_fd, argv, FIXED_ENVIRONMENT)
-        except BaseException:
-            os._exit(127)
-    _close_quiet(read_in, write_out, ssh_fd)
-    effect_possible = False
-    child_reaped = False
-    child_wait_attempted = False
+    request_join = _issue_controller_request_join(artifacts)
     try:
         frame = _artifact_frame(artifacts, request_join)
-        effect_possible = True
-        write_deadline = time.monotonic() + CONTROLLER_WRITE_TIMEOUT_SECONDS
-        _send_controller_request(write_in, frame, write_deadline)
-        write_in = -1
-        response = _read_framed_descriptor(read_out, 30.0)
-        child_wait_attempted = True
-        child_exit = _wait_child_bounded(pid, CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS)
-        child_reaped = True
-        _require(child_exit == 0, "fixed controller child exit is uncertain")
+        operation = CHANNEL.issue_submit_channel_operation(
+            artifacts.transport_profile,
+            request_join,
+            frame,
+        )
+        response = CHANNEL.run_submit_channel_once(operation, frame)
         return _validate_controller_response(response, artifacts, profile, request_join)
-    except BaseException as exc:
-        if effect_possible:
-            raise ControllerTransportUnknown("remote effect may have occurred; reconciliation only") from exc
-        raise
     finally:
         _retire_controller_request_join(request_join)
-        for descriptor in (write_in, read_out):
-            if descriptor >= 0:
-                try:
-                    os.close(descriptor)
-                except OSError:
-                    pass
-        if not child_reaped and not child_wait_attempted:
-            _retire_controller_child_bounded(pid)
 
 
 def server_subsystem_once() -> int:
@@ -1504,6 +1169,7 @@ _FROZEN_ARTIFACT_HASHES = _artifact_hashes
 _FROZEN_CONTROLLER_REQUEST_ID = _controller_request_id
 _FROZEN_CONTROLLER_REQUEST_ISSUER = _issue_controller_request_join
 _FROZEN_CONTROLLER_REQUEST_RETIRER = _retire_controller_request_join
+_FROZEN_SHARED_CHANNEL_REQUEST_AUTHORITY = _assert_shared_channel_request_authority
 _FROZEN_CONTROLLER_REQUEST_DECODER = _decode_controller_request
 _FROZEN_EXPECTED_CONTROLLER_RECEIPT = _expected_controller_receipt_fields
 _FROZEN_CONTROLLER_RESPONSE_BUILDER = _build_controller_completed_response
@@ -1520,6 +1186,11 @@ _FROZEN_SESSION_CONSUMER = SESSION.consume_w5_operation_seam_once
 _CANONICAL_SESSION_MODULE = SESSION
 _CANONICAL_W2_MODULE = W2
 _CANONICAL_W4_MODULE = W4
+_CANONICAL_CHANNEL_MODULE = CHANNEL
+_CANONICAL_W5_MODULE = sys.modules.get(__name__)
+_FROZEN_CHANNEL_ASSERT = CHANNEL._assert_production_binding
+_FROZEN_CHANNEL_SUBMIT_ISSUER = CHANNEL.issue_submit_channel_operation
+_FROZEN_CHANNEL_SUBMIT_RUNNER = CHANNEL.run_submit_channel_once
 _FROZEN_SSH_FIXED_OPTIONS = SSH_FIXED_OPTIONS
 _FROZEN_CONTROLLER_WRITE_TIMEOUT_SECONDS = CONTROLLER_WRITE_TIMEOUT_SECONDS
 _FROZEN_CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS = CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS
@@ -1528,6 +1199,7 @@ _FROZEN_POLICY = copy.deepcopy(POLICY)
 
 
 def _assert_production_binding() -> None:
+    CHANNEL._assert_production_binding()
     with open(__file__, "rb") as source:
         source_sha256 = hashlib.sha256(source.read()).hexdigest()
     _require(
@@ -1557,6 +1229,7 @@ def _assert_production_binding() -> None:
         and _controller_request_id is _FROZEN_CONTROLLER_REQUEST_ID
         and _issue_controller_request_join is _FROZEN_CONTROLLER_REQUEST_ISSUER
         and _retire_controller_request_join is _FROZEN_CONTROLLER_REQUEST_RETIRER
+        and _assert_shared_channel_request_authority is _FROZEN_SHARED_CHANNEL_REQUEST_AUTHORITY
         and _decode_controller_request is _FROZEN_CONTROLLER_REQUEST_DECODER
         and _expected_controller_receipt_fields is _FROZEN_EXPECTED_CONTROLLER_RECEIPT
         and _build_controller_completed_response is _FROZEN_CONTROLLER_RESPONSE_BUILDER
@@ -1572,6 +1245,11 @@ def _assert_production_binding() -> None:
         and SESSION is _CANONICAL_SESSION_MODULE
         and W2 is _CANONICAL_W2_MODULE
         and W4 is _CANONICAL_W4_MODULE
+        and CHANNEL is _CANONICAL_CHANNEL_MODULE
+        and sys.modules.get(__name__) is _CANONICAL_W5_MODULE
+        and CHANNEL._assert_production_binding is _FROZEN_CHANNEL_ASSERT
+        and CHANNEL.issue_submit_channel_operation is _FROZEN_CHANNEL_SUBMIT_ISSUER
+        and CHANNEL.run_submit_channel_once is _FROZEN_CHANNEL_SUBMIT_RUNNER
         and SESSION.consume_w5_operation_seam_once is _FROZEN_SESSION_CONSUMER
         and SSH_FIXED_OPTIONS == _FROZEN_SSH_FIXED_OPTIONS
         and CONTROLLER_WRITE_TIMEOUT_SECONDS == _FROZEN_CONTROLLER_WRITE_TIMEOUT_SECONDS

@@ -304,6 +304,7 @@ class ReleaseHygieneTests(unittest.TestCase):
                 "W4 isolated helper": r"\bW4\b[^.]*\bhelper\b",
                 "W4B trusted composition": r"\bW4B\b[^.]*\bcomposition\b[^.]*\bpresent\b",
                 "W5 fixed transport": r"\bW5\b[^.]*\bfixed one-hop\b",
+                "W6L lineage owner": r"\bW6L\b[^.]*\b(?:lineage|read-capability)\b",
                 "W6C0 provisional core": r"\bW6C0\b[^.]*\b(?:provisional|non-authorizing)\b",
             }
             for marker, pattern in integrated_markers.items():

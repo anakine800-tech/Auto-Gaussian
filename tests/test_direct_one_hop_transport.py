@@ -661,7 +661,7 @@ class DirectOneHopTransportTests(unittest.TestCase):
             thread.join(timeout=1)
         self.assertFalse(thread.is_alive())
 
-        with mock.patch.object(W5, "_write_controller_frame_until") as writer, \
+        with mock.patch.object(W5.CHANNEL, "_write_frame_until") as writer, \
                 mock.patch.object(W5.os, "close", side_effect=OSError("close after full frame")):
             with self.assertRaises(W5.ControllerTransportUnknown):
                 W5._send_controller_request(91, frame, 123.0)
@@ -759,63 +759,31 @@ class DirectOneHopTransportTests(unittest.TestCase):
         self.assertEqual(observed_timeouts, [2.5, 1.5, 0.5])
 
         with mock.patch.object(
-            W5,
-            "_wait_child_bounded",
+            W5.CHANNEL,
+            "_wait_child_until",
             side_effect=W5.ControllerTransportUnknown("still running"),
         ) as waiter, mock.patch.object(W5.os, "kill") as kill:
             self.assertFalse(W5._retire_controller_child_bounded(777))
-        waiter.assert_called_once_with(777, W5.CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS)
+        waiter.assert_called_once()
+        self.assertEqual(waiter.call_args.args[0], 777)
         kill.assert_not_called()
 
         artifacts = object.__new__(SESSION.DirectServerSessionArtifacts)
         object.__setattr__(artifacts, "transport_profile", b"fixture")
-        profile = {"ssh": {"executable_sha256": "a" * 64}}
+        profile = {"profile_payload_sha256": "a" * 64}
+        operation = object()
         with mock.patch.object(W5, "_assert_production_binding"), \
                 mock.patch.object(W5, "_validate_controller_artifact_join", return_value=profile), \
-                mock.patch.object(W5, "_require_descriptor_exec_available"), \
-                mock.patch.object(W5, "build_controller_argv", return_value=(W5.SSH_EXECUTABLE,)), \
-                mock.patch.object(W5, "_open_reviewed_executable", return_value=50), \
-                mock.patch.object(W5, "_pipe_cloexec", side_effect=[(10, 11), (12, 13)]), \
                 mock.patch.object(W5, "_issue_controller_request_join", return_value=object()), \
-                mock.patch.object(W5, "_FROZEN_FORK", return_value=999), \
-                mock.patch.object(W5, "_close_quiet"), \
                 mock.patch.object(W5, "_artifact_frame", return_value=b"frame"), \
-                mock.patch.object(
-                    W5,
-                    "_send_controller_request",
-                    side_effect=W5.ControllerTransportUnknown("no reader"),
-                ), \
-                mock.patch.object(W5, "_retire_controller_request_join"), \
-                mock.patch.object(W5.os, "close"), \
-                mock.patch.object(W5, "_retire_controller_child_bounded", return_value=False) as retire:
+                mock.patch.object(W5.CHANNEL, "issue_submit_channel_operation", return_value=operation) as issue, \
+                mock.patch.object(W5.CHANNEL, "run_submit_channel_once", side_effect=W5.ControllerTransportUnknown("reconciliation only")) as run, \
+                mock.patch.object(W5, "_retire_controller_request_join") as retire_join:
             with self.assertRaisesRegex(W5.ControllerTransportUnknown, "reconciliation only"):
                 W5.run_controller_once(artifacts)
-        retire.assert_called_once_with(999)
-
-        with mock.patch.object(W5, "_assert_production_binding"), \
-                mock.patch.object(W5, "_validate_controller_artifact_join", return_value=profile), \
-                mock.patch.object(W5, "_require_descriptor_exec_available"), \
-                mock.patch.object(W5, "build_controller_argv", return_value=(W5.SSH_EXECUTABLE,)), \
-                mock.patch.object(W5, "_open_reviewed_executable", return_value=50), \
-                mock.patch.object(W5, "_pipe_cloexec", side_effect=[(10, 11), (12, 13)]), \
-                mock.patch.object(W5, "_issue_controller_request_join", return_value=object()), \
-                mock.patch.object(W5, "_FROZEN_FORK", return_value=999), \
-                mock.patch.object(W5, "_close_quiet"), \
-                mock.patch.object(W5, "_artifact_frame", return_value=b"frame"), \
-                mock.patch.object(W5, "_send_controller_request"), \
-                mock.patch.object(W5, "_read_framed_descriptor", return_value={}), \
-                mock.patch.object(
-                    W5,
-                    "_wait_child_bounded",
-                    side_effect=W5.ControllerTransportUnknown("child timeout"),
-                ) as waiter, \
-                mock.patch.object(W5, "_retire_controller_request_join"), \
-                mock.patch.object(W5.os, "close"), \
-                mock.patch.object(W5, "_retire_controller_child_bounded", return_value=False) as retire:
-            with self.assertRaisesRegex(W5.ControllerTransportUnknown, "reconciliation only"):
-                W5.run_controller_once(artifacts)
-        waiter.assert_called_once_with(999, W5.CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS)
-        retire.assert_not_called()
+        issue.assert_called_once_with(b"fixture", mock.ANY, b"frame")
+        run.assert_called_once_with(operation, b"frame")
+        retire_join.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -37,13 +37,19 @@ remote operation, live smoke, or scientific acceptance.
   fixed descriptor-relative helper components. It also includes direct
   onboarding/support, mutation-boundary and offline-backend surfaces.
 - W4B fixed trusted server-local session composition is present in the local
-  collection and joins W1-W4 in one clean-exec process. W5 fixed one-hop
-  transport code consumes its typed child-local seam and implements immutable
-  upload and at-most-once `qsub` under offline-only validation. W6C0 contributes only
+  collection and joins W1-W4 in one clean-exec process. The shared fixed-SSH
+  owner provides sealed single-use submit/query/fetch operation types with no
+  generic submit registrar or live mutable record accessor. Query/fetch remain
+  codec-only and production blocked. W5 fixed one-hop transport code
+  consumes the owner's submit operation and its typed child-local seam and
+  implements immutable upload and at-most-once `qsub` under offline-only
+  validation. W6C0 contributes only
   the non-authorizing `pbs_legacy_v1` qstat parser/classifier and direct
   provisional scheduler-evidence schemas/core; it does not own final
-  `gaussian-job-inspection/3`. Real W6 inspect acquisition/fetch and
-  reconciliation, and W7 are not present; separately
+  `gaussian-job-inspection/3`. W6L contributes the server-local existing-job
+  lineage observer and single-use read-capability foundation only. Real W6
+  query/fetch acquisition, local materialization and advanced inspection
+  remain blocked, and W7 is not present; separately
   authorized live-smoke evidence remains blocked. The W3 ingress policy records
   `production_closure=false` and
   `arbitrary_same_process_reflection_isolated=false`.
