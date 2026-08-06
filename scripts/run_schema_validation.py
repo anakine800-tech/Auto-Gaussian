@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Mapping, NamedTuple, Sequence
 
 
@@ -27,6 +28,17 @@ DISTRIBUTION_IMPORTS = {
     "rpds-py": "rpds",
     "typing-extensions": "typing_extensions",
 }
+FIXED_TEST_ENVIRONMENT = MappingProxyType(
+    {
+        "AUTO_G16_REQUIRE_JSONSCHEMA": "1",
+        "AUTO_G16_RUNTIME_CONFIG": "/proc/auto-g16-disabled-runtime-config",
+        "HOME": "/proc/auto-g16-disabled-home",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+    }
+)
 PROBE_SOURCE = r"""
 import base64
 import importlib
@@ -883,11 +895,7 @@ def run_inventory(
                     repo_fd,
                     write_fd,
                 ),
-                env={
-                    "AUTO_G16_REQUIRE_JSONSCHEMA": "1",
-                    "PYTHONDONTWRITEBYTECODE": "1",
-                    "PYTHONNOUSERSITE": "1",
-                },
+                env=dict(FIXED_TEST_ENVIRONMENT),
             )
         except Exception:
             os.close(read_fd)

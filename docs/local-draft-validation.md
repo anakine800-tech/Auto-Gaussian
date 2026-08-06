@@ -76,8 +76,12 @@ Before tests, the runner:
    symlink, missing hash/size, or replacement is `BLOCKED`;
 6. runs the CI-owned ordered inventory with
    `AUTO_G16_REQUIRE_JSONSCHEMA=1`, user-site disabled, bytecode writes
-   disabled, and no global/user site, `.pth` processing, `HOME`, `PYTHONPATH`,
-   runtime-profile, transport, or private configuration variable forwarded.
+   disabled, and a closed exact child environment. `HOME` and
+   `AUTO_G16_RUNTIME_CONFIG` are fixed to reviewed nonexistent `/proc` deny
+   sentinels, while `LANG` and `LC_ALL` are fixed to `C`; caller values and all
+   other runtime-profile, transport, private-configuration, and Python path
+   variables are not forwarded. No global/user site or `.pth` processing is
+   enabled.
    Before repository tests load, the child changes directory to the retained
    `site-packages` descriptor, inserts only `.`, limits distribution discovery
    to that path, imports and origin-checks all six packages, then restores the

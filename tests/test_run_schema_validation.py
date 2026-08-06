@@ -520,6 +520,49 @@ class LocalSchemaValidationTests(unittest.TestCase):
         self.assertFalse(completion["successful"])
         self.assertEqual(completion["failures"], 1)
 
+    def test_canonical_child_environment_is_closed_and_caller_independent(self) -> None:
+        expected = {
+            "AUTO_G16_REQUIRE_JSONSCHEMA": "1",
+            "AUTO_G16_RUNTIME_CONFIG": "/proc/auto-g16-disabled-runtime-config",
+            "HOME": "/proc/auto-g16-disabled-home",
+            "LANG": "C",
+            "LC_ALL": "C",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+        }
+        self.assertEqual(dict(RUNNER.FIXED_TEST_ENVIRONMENT), expected)
+        self.assertFalse(os.path.lexists(expected["AUTO_G16_RUNTIME_CONFIG"]))
+        self.assertFalse(os.path.lexists(expected["HOME"]))
+
+        self.write_overlay()
+        item = self.validate()
+        passing = self.make_test_root(
+            "import os\n"
+            "import unittest\n"
+            "class Sample(unittest.TestCase):\n"
+            "    def test_environment(self):\n"
+            f"        self.assertEqual(dict(os.environ), {expected!r})\n"
+            "        self.assertFalse(os.path.lexists(os.environ['HOME']))\n"
+            "        self.assertFalse(os.path.lexists(os.environ['AUTO_G16_RUNTIME_CONFIG']))\n"
+            "        self.assertNotIn('AUTO_G16_CALLER_SENTINEL', os.environ)\n"
+        )
+        caller = {
+            "AUTO_G16_CALLER_SENTINEL": "must-not-cross",
+            "AUTO_G16_RUNTIME_CONFIG": str(self.root / "caller-runtime.json"),
+            "HOME": str(self.root / "caller-home"),
+            "LANG": "caller-language",
+            "LC_ALL": "caller-locale",
+        }
+        with mock.patch.dict(os.environ, caller, clear=False):
+            completion = RUNNER.run_inventory(
+                item,
+                passing,
+                ["tests.test_sample"],
+                runner=self.quiet_runner,
+            )
+        self.assertTrue(completion["successful"])
+        self.assertEqual(completion["tests_run"], 1)
+
     def test_missing_completion_evidence_is_blocked_not_pass(self) -> None:
         self.write_overlay()
         item = self.validate()
@@ -527,6 +570,7 @@ class LocalSchemaValidationTests(unittest.TestCase):
         def fake(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             self.assertEqual(Path(command[0]).resolve(), RUNNER.TRUSTED_PYTHON)
             self.assertNotIn(str(self.env / "bin" / "python"), command)
+            self.assertEqual(kwargs["env"], dict(RUNNER.FIXED_TEST_ENVIRONMENT))
             return subprocess.CompletedProcess(command, 0)
 
         with self.assertRaisesRegex(RUNNER.BlockedError, "no completion evidence"):
