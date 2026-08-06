@@ -24,6 +24,7 @@ from typing import Any
 
 
 _FIXED_DEPENDENCY_ORDER = (
+    ("runtime_config", "skill", "f2f4e4238742c0f6fff421f97f67cab88d3abb6f7995652827d09f488ce0d1eb"),
     ("execution_facade", "skill", "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3"),
     ("legacy_rtwin_pbs", "skill", "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1"),
     ("protected_lifecycle_contract", "root", "166e8b398922682eb94c9705e8ee1ccf0ed13546a75c49010090f7d7182fbafb"),
@@ -176,6 +177,11 @@ def _bootstrap_fixed_dependencies() -> tuple[
 
 
 _FIXED_DEPENDENCY_BINDINGS = _bootstrap_fixed_dependencies()
+_RUNTIME_CONFIG_BINDING = next(
+    binding for binding in _FIXED_DEPENDENCY_BINDINGS if binding[0] == "runtime_config"
+)
+_RUNTIME_CONFIG_MODULE = _RUNTIME_CONFIG_BINDING[1]
+_RUNTIME_CONFIG_SETTING = _RUNTIME_CONFIG_MODULE.setting
 
 import direct_root_fixed_mutation_consumer as W4
 import direct_root_owner_contract as W1
@@ -234,7 +240,12 @@ FIXED_PRODUCTION_DURABLE_STATE_ROOT = Path(
     "/var/lib/auto-g16/direct-session-journal"
 )
 FIXED_CLEAN_EXEC_CWD = "/"
-FIXED_CLEAN_EXEC_ENVIRONMENT = {"LANG": "C", "LC_ALL": "C"}
+FIXED_CLEAN_EXEC_ENVIRONMENT = {
+    "AUTO_G16_RUNTIME_CONFIG": "/proc/auto-g16-disabled-runtime-config",
+    "HOME": "/proc/auto-g16-disabled-home",
+    "LANG": "C",
+    "LC_ALL": "C",
+}
 FIXED_CLEAN_EXEC_TIMEOUT_SECONDS = 5.0
 W5_TRANSITION_OPERATION = "consume_for_w5_once"
 ZERO_SHA = "0" * 64
@@ -1829,6 +1840,8 @@ class _ModuleBinding:
     dependency_assert: Any
     dependency_reader: Any
     dependency_origin: Any
+    runtime_config_module: types.ModuleType
+    runtime_config_setting: Any
     w3_loader: Any
     production_methods: tuple[object, ...]
     production_root: Path
@@ -1873,6 +1886,8 @@ def _capture_module_binding() -> _ModuleBinding:
         dependency_assert=_assert_fixed_dependency_chain,
         dependency_reader=_read_fixed_dependency_source,
         dependency_origin=_fixed_dependency_origin,
+        runtime_config_module=_RUNTIME_CONFIG_MODULE,
+        runtime_config_setting=_RUNTIME_CONFIG_SETTING,
         w3_loader=_load_fixed_session_w3,
         production_methods=(
             _require,
@@ -1946,6 +1961,10 @@ def _assert_module_binding() -> None:
         and _assert_fixed_dependency_chain is binding.dependency_assert
         and _read_fixed_dependency_source is binding.dependency_reader
         and _fixed_dependency_origin is binding.dependency_origin
+        and _RUNTIME_CONFIG_MODULE is binding.runtime_config_module
+        and sys.modules.get("runtime_config") is binding.runtime_config_module
+        and _RUNTIME_CONFIG_SETTING is binding.runtime_config_setting
+        and binding.runtime_config_module.setting is binding.runtime_config_setting
         and _load_fixed_session_w3 is binding.w3_loader
         and binding.production_methods
         == (

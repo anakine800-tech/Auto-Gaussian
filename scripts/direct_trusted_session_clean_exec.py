@@ -25,7 +25,12 @@ from typing import Any
 PROTOCOL = "auto-g16-direct-trusted-session-clean-exec/1"
 CHILD_FLAG = "--auto-g16-direct-trusted-session-clean-exec-child"
 MAX_FRAME_BYTES = 32 * 1024 * 1024
-FIXED_ENVIRONMENT = {"LANG": "C", "LC_ALL": "C"}
+FIXED_ENVIRONMENT = {
+    "AUTO_G16_RUNTIME_CONFIG": "/proc/auto-g16-disabled-runtime-config",
+    "HOME": "/proc/auto-g16-disabled-home",
+    "LANG": "C",
+    "LC_ALL": "C",
+}
 FIXED_CWD = "/"
 ARTIFACT_FIELDS = (
     "profile_policy",
@@ -131,6 +136,19 @@ def _send_frame(control: socket.socket, value: dict[str, Any]) -> None:
     control.sendall(struct.pack("!I", len(payload)) + payload)
 
 
+def _require_disabled_runtime_config_path_absent() -> None:
+    path = FIXED_ENVIRONMENT["AUTO_G16_RUNTIME_CONFIG"]
+    _require(
+        path == "/proc/auto-g16-disabled-runtime-config",
+        "clean-exec runtime config deny path differs",
+    )
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        return
+    raise FixedCleanExecError("clean-exec runtime config deny path exists")
+
+
 def _decode_artifacts(value: dict[str, Any], session: types.ModuleType) -> Any:
     _require(
         set(value) == {"protocol", "artifacts"}
@@ -193,7 +211,20 @@ def _run_child(
         module.__file__ = str(scripts / "direct_trusted_session_composition.py")
         module.__package__ = ""
         sys.modules[module.__name__] = module
+        _require_disabled_runtime_config_path_absent()
         exec(compile(session_raw, module.__file__, "exec"), module.__dict__)
+        _require_disabled_runtime_config_path_absent()
+        module._assert_fixed_dependency_chain(module._FIXED_DEPENDENCY_BINDINGS)
+        runtime_config = sys.modules.get("runtime_config")
+        _require(
+            type(runtime_config) is types.ModuleType
+            and runtime_config is module._RUNTIME_CONFIG_MODULE
+            and runtime_config.setting is module._RUNTIME_CONFIG_SETTING
+            and getattr(runtime_config, "CONFIG_PATH", None)
+            == Path(FIXED_ENVIRONMENT["AUTO_G16_RUNTIME_CONFIG"])
+            and getattr(runtime_config, "VALUES", None) == {},
+            "clean-exec runtime config disable boundary differs",
+        )
         channel = types.ModuleType("direct_shared_fixed_ssh_channel")
         channel.__file__ = str(scripts / "direct_shared_fixed_ssh_channel.py")
         channel.__package__ = ""

@@ -277,6 +277,39 @@ class PortableSessionFixture:
 class DirectTrustedSessionCompositionTests(unittest.TestCase):
     maxDiff = None
 
+    def test_reviewed_runtime_config_dependency_is_exact_and_rebind_closed(self) -> None:
+        runtime_index = next(
+            index
+            for index, (name, _layout, _sha256) in enumerate(SESSION._FIXED_DEPENDENCY_ORDER)
+            if name == "runtime_config"
+        )
+        expected_sha256 = "f2f4e4238742c0f6fff421f97f67cab88d3abb6f7995652827d09f488ce0d1eb"
+        self.assertEqual(
+            SESSION._FIXED_DEPENDENCY_ORDER[runtime_index],
+            ("runtime_config", "skill", expected_sha256),
+        )
+        binding = SESSION._FIXED_DEPENDENCY_BINDINGS[runtime_index]
+        self.assertEqual(binding[4], expected_sha256)
+        self.assertIs(binding[1], SESSION._RUNTIME_CONFIG_MODULE)
+        self.assertIs(binding[1].setting, SESSION._RUNTIME_CONFIG_SETTING)
+
+        stale = list(SESSION._FIXED_DEPENDENCY_BINDINGS)
+        stale[runtime_index] = (*binding[:4], "0" * 64)
+        with self.assertRaisesRegex(ImportError, "runtime_config"):
+            SESSION._assert_fixed_dependency_chain(tuple(stale))
+
+        replacement = types.ModuleType("runtime_config")
+        with mock.patch.dict(sys.modules, {"runtime_config": replacement}):
+            with self.assertRaisesRegex(ImportError, "runtime_config"):
+                SESSION._assert_fixed_dependency_chain(SESSION._FIXED_DEPENDENCY_BINDINGS)
+
+        with mock.patch.object(binding[1], "setting", lambda *_args: "/hostile"):
+            with self.assertRaisesRegex(
+                SESSION.DirectTrustedSessionError,
+                "production owner binding differs",
+            ):
+                SESSION._assert_module_binding()
+
     def test_reviewed_legacy_dependency_hash_replacement_and_rebind_fail_closed(self) -> None:
         legacy_index = next(
             index
@@ -325,7 +358,7 @@ scripts = pathlib.Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(scripts))
 import direct_trusted_session_composition as session
 session._assert_module_binding()
-if len(session._FIXED_DEPENDENCY_BINDINGS) != 8:
+if len(session._FIXED_DEPENDENCY_BINDINGS) != 9:
     raise AssertionError("FIXED_DEPENDENCY_BINDING_COUNT_DIFFERS")
 if session.AUTHORITY["external_effects"] != 0 or session.AUTHORITY["qsub_calls"] != 0:
     raise AssertionError("DIRECT_IMPORT_EFFECT_REPORTED")
@@ -426,7 +459,7 @@ scripts = pathlib.Path(sys.argv[1]).resolve()
 state = pathlib.Path(sys.argv[2]).resolve()
 target = sys.argv[3]
 sys.path.insert(0, str(scripts))
-if target in {"execution_facade", "legacy_rtwin_pbs"}:
+if target in {"runtime_config", "execution_facade", "legacy_rtwin_pbs"}:
     source = scripts.parent / "skills" / "auto-g16-rtwin-pbs" / "scripts" / (target + ".py")
 else:
     source = scripts / (target + ".py")
@@ -450,6 +483,7 @@ if tuple(state.iterdir()):
 print(target + "_REJECTED_BEFORE_W2")
 '''
         for target in (
+            "runtime_config",
             "execution_facade",
             "legacy_rtwin_pbs",
             "protected_runtime_state_contract",
@@ -571,9 +605,22 @@ print(target + "_REJECTED_BEFORE_W2")
             self.assertEqual(tuple(hostile_root.iterdir()), ())
 
     def test_actual_fixed_clean_exec_attests_source_entrypoint_argv_env_cwd_and_fds(self) -> None:
-        ready = SESSION._probe_fixed_clean_exec_for_testing(
-            _test_token=SESSION._TEST_TOKEN,
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            hostile_runtime = Path(directory) / "runtime.json"
+            hostile_runtime.write_text(
+                '{"rtwin_ssh_config":"/caller-selected-ssh-config"}',
+                encoding="utf-8",
+            )
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "AUTO_G16_RUNTIME_CONFIG": str(hostile_runtime),
+                    "HOME": "/caller-selected-home",
+                },
+            ):
+                ready = SESSION._probe_fixed_clean_exec_for_testing(
+                    _test_token=SESSION._TEST_TOKEN,
+                )
         self.assertEqual(ready["protocol"], SESSION.CLEAN_EXEC.PROTOCOL)
         self.assertEqual(ready["status"], "ready_no_artifacts_no_effect")
         self.assertEqual(ready["executable"], str(SESSION._FIXED_EXECUTABLE.path))
@@ -589,6 +636,14 @@ print(target + "_REJECTED_BEFORE_W2")
         self.assertEqual(ready["entrypoint"], ready["argv"][0])
         self.assertEqual(ready["argv"][1], SESSION.CLEAN_EXEC.CHILD_FLAG)
         self.assertEqual(ready["environment"], SESSION.FIXED_CLEAN_EXEC_ENVIRONMENT)
+        self.assertEqual(
+            ready["environment"]["AUTO_G16_RUNTIME_CONFIG"],
+            "/proc/auto-g16-disabled-runtime-config",
+        )
+        self.assertEqual(
+            ready["environment"]["HOME"],
+            "/proc/auto-g16-disabled-home",
+        )
         self.assertEqual(ready["cwd"], SESSION.FIXED_CLEAN_EXEC_CWD)
         self.assertEqual(ready["open_fds"][:3], [0, 1, 2])
         self.assertEqual(len(ready["open_fds"]), 4)
