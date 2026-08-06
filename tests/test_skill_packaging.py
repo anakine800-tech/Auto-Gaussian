@@ -376,6 +376,13 @@ class SkillPackagingTests(unittest.TestCase):
                 "scripts/direct_trusted_session_clean_exec.py",
                 "references/direct-trusted-session-composition.md",
             ),
+            "W5": (
+                "scripts/direct_one_hop_transport.py",
+                "contracts/rtwin-pbs/direct-one-hop-submission-result.schema.json",
+                "contracts/rtwin-pbs/direct-one-hop-transport-profile.schema.json",
+                "contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json",
+                "references/direct-one-hop-transport.md",
+            ),
             "direct-boundary": (
                 "scripts/direct_root_mutation_boundary.py",
                 "references/direct-root-mutation-boundary.md",

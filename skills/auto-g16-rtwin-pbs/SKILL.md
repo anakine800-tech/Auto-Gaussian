@@ -540,6 +540,12 @@ adapter:
   `scripts/direct_trusted_session_composition.py` and
   `scripts/direct_trusted_session_clean_exec.py` with
   `references/direct-trusted-session-composition.md`.
+- W5 fixed one-hop transport and at-most-once submission:
+  `scripts/direct_one_hop_transport.py`,
+  `contracts/rtwin-pbs/direct-one-hop-submission-result.schema.json`,
+  `contracts/rtwin-pbs/direct-one-hop-transport-profile.schema.json`,
+  `contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json`, and
+  `references/direct-one-hop-transport.md`.
 - W6C0 direct read-only evidence core:
   `scripts/direct_read_only_evidence.py` with
   `references/direct-read-only-evidence-core.md`. It only parses pre-collected
@@ -554,13 +560,14 @@ adapter:
   `scripts/direct_onboarding.py` with
   `references/direct-onboarding-support.md`.
 
-W4B fixed trusted server-local session composition is present in the local
-collection and joins W1-W4 in one clean-exec process, but it exposes only a
-non-authorizing child-local transition. W6C0 is a non-authorizing offline
-parser/evidence core. Real W5/W6 transport, upload, `qsub`, inspect acquisition,
-fetch, reconciliation, and W7 are not present. No deployment or live authority
-is granted; the direct backend remains `offline_synthetic`,
-`production_blocked` and `live_not_ready`.
+W4B joins W1-W4 in one clean-exec process and W5 consumes only its typed
+child-local seam. W5 production code fixes the OpenSSH subsystem, immutable
+descriptor-relative upload, reviewed PBS bytes, at-most-once qsub and exact
+submission receipt; its validation remains entirely offline with no live
+evidence. W6C0 is a non-authorizing offline qstat parser/evidence core; real
+inspect acquisition, fetch, reconciliation and W7 are not present. No qdel, cleanup,
+deployment or live authority is granted; the direct backend remains
+`offline_synthetic`, `production_blocked` and `live_not_ready`.
 
 - `scripts/platform_contracts.py`: standard-library-only strict canonical JSON,
   new closed platform-contract validation, sanitized legacy mapping and

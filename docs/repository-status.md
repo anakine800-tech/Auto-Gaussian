@@ -19,13 +19,15 @@ collection includes the W1 backend-owned POSIX no-follow observer, W2 durable
 journal owner, W4 process-isolated fixed descriptor-relative mutation helper,
 and W3 offline resource/live replay ingress. W4B fixed trusted server-local
 session composition is present in the local collection and joins those owners
-and descriptor identities in one clean-exec process, but it remains
-non-authorizing. W5, W6, and W7 are not present. A direct effect owner,
-transport, `qsub`, real inspect/fetch, and separately authorized live-smoke
-evidence remain blocked. The ingress policy explicitly records
-`arbitrary_same_process_reflection_isolated=false` and
-`production_closure=false`; normal production must not coexist with untrusted
-arbitrary same-process code.
+and descriptor identities in one clean-exec process. W5 fixed one-hop
+production code is present: a reviewed OpenSSH subsystem profile, canonical
+framing, descriptor-relative exact upload, fixed at-most-once qsub and an
+owner-issued exact submission receipt. All validation is offline synthetic;
+transport/qsub live evidence, W6 inspect/fetch, W7 lifecycle operations and a
+separately authorized live smoke remain absent. W3 retains its portable
+`arbitrary_same_process_reflection_isolated=false` disclosure, while W4B/W5
+composition excludes untrusted arbitrary same-process code. Overall
+`production_closure=false` remains unchanged.
 
 The existing `legacy_rtwin_pbs` production backend remains permanently fixed
 below `/home/user100/SDL`, with its existing-directory refusal, one-shot
@@ -86,13 +88,15 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   validate local declarations only.
 - The `direct_ssh_pbs` source surface now includes a real server-local POSIX
   no-follow root observer and a process-isolated fixed descriptor-relative
-  project/scratch mutation helper, but no transport ingress. It also exposes
+  project/scratch mutation helper and the W5 fixed one-hop transport code. It also exposes
   closed typed models, onboarding and support reporting while remaining
   `production_blocked`, `live_not_ready`, `backend_supported=false`, and
   `live_ready=false`. W4B fixed trusted server-local session composition is
   present and composes the W2 claim, W3 replay and W4 process-isolated helper
-  only into a non-authorizing child-local seam. W5, W6, and W7 are not present;
-  transport, qsub, real inspect/fetch, and live evidence remain absent.
+  into the typed child-local W5 seam. W5 has no caller override, retry, qdel,
+  cleanup, inspect or fetch surface; its receipt projection is non-authorizing.
+  W6 and W7 are not present, and transport/qsub live evidence, real
+  inspect/fetch and live smoke remain absent.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.

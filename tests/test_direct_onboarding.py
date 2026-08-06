@@ -635,12 +635,13 @@ class DirectOnboardingTests(unittest.TestCase):
         )
         self.assertFalse(direct["backend_supported"])
         self.assertFalse(direct["live_ready"])
-        self.assertEqual(direct["trusted_server_local_session"], "offline_fake_local_only")
+        self.assertEqual(direct["trusted_server_local_session"], "fixed_clean_exec_w5_code_offline_validated")
         self.assertEqual(
             tuple(direct["composition_closed_gaps"]),
             ONBOARDING.COMPOSITION_CLOSED_GAPS,
         )
-        self.assertFalse(direct["arbitrary_same_process_reflection_isolated"])
+        self.assertTrue(direct["arbitrary_same_process_reflection_isolated"])
+        self.assertFalse(direct["w3_portable_disclosure_arbitrary_same_process_reflection_isolated"])
         self.assertFalse(direct["production_closure"])
         self.assertTrue(DIRECT_OFFLINE.AUTHORITY["synthetic_only"])
         self.assertFalse(DIRECT_OFFLINE.AUTHORITY["backend_supported"])

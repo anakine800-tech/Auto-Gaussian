@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/direct-execution/reviewed-direct-pbs-script.schema.json",
+  "title": "Auto-G16 reviewed direct PBS script binding",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "review_id", "script", "workspace", "input", "resources", "gaussian", "safety", "review_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-reviewed-direct-pbs-script/1"}, "review_id": {"type": "string", "minLength": 1},
+    "script": {"type": "object", "additionalProperties": false, "required": ["basename", "sha256", "size_bytes"], "properties": {"basename": {"const": "auto-g16-job.pbs"}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"$ref": "#/$defs/positiveDecimal"}}},
+    "workspace": {"type": "object", "additionalProperties": false, "required": ["allowed_root", "project", "working_directory_check", "scratch_policy", "scratch_basename"], "properties": {"allowed_root": {"type": "string", "pattern": "^/"}, "project": {"type": "string", "minLength": 1}, "working_directory_check": {"const": "pbs_o_workdir_equals_submission_directory"}, "scratch_policy": {"const": "project_relative_scratch"}, "scratch_basename": {"const": "scratch"}}},
+    "input": {"type": "object", "additionalProperties": false, "required": ["source_sha256", "uploaded_basename", "route_bytes_unchanged"], "properties": {"source_sha256": {"$ref": "#/$defs/sha256"}, "uploaded_basename": {"const": "approved-input.gjf"}, "route_bytes_unchanged": {"const": true}}},
+    "resources": {"type": "object", "additionalProperties": false, "required": ["tier", "cores", "memory_gb", "walltime_seconds"], "properties": {"tier": {"type": "string", "minLength": 1}, "cores": {"$ref": "#/$defs/positiveDecimal"}, "memory_gb": {"$ref": "#/$defs/positiveDecimal"}, "walltime_seconds": {"$ref": "#/$defs/positiveDecimal"}}},
+    "gaussian": {"const": {"executable": "g16", "invocation": "filename_argument", "input_basename": "approved-input.gjf", "scientific_route_owned_by_input": true}},
+    "safety": {"const": {"set_eu": true, "allowed_root_checked": true, "project_workdir_checked": true, "scratch_identity_checked": true, "nested_ssh": false, "legacy_transport_called": false}},
+    "review_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$(?![\\s\\S])", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
+    "positiveDecimal": {"type": "string", "pattern": "^[1-9][0-9]*$(?![\\s\\S])"}
+  }
+}
