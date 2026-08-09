@@ -595,7 +595,18 @@ class ProtectedOwnerConsumerContractTests(unittest.TestCase):
                 "protected_owner_consumer_contract.json"
             ).read_text(encoding="utf-8")
         )
+        current_lineage = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, expected in fixture["frozen_predecessors"].items():
+            if relative in current_lineage:
+                binding = current_lineage[relative]
+                self.assertEqual(binding["before_sha256"], expected)
+                expected = binding["sha256"]
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,

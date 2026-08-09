@@ -730,15 +730,19 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         local_integration = local_integration_document["files"]
+        current_lineage_files = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         current_lineage = {
-            ".github/workflows/offline-tests.yml": {
-                "before_sha256": "7eb63bb5e7885b5e0e90e180987b017e984be61b4cd0d66895333a5f1b1ce3a9",
-                "sha256": "ae8aae6ab81b27e2a0a9c98341d434557bbae5bba3455d441ec251b6c334c69f",
-            },
-            "skills/auto-g16-rtwin-pbs/SKILL.md": {
-                "before_sha256": "d5107598c2a5dac5c6cf875cd474d502621996282b3116729b7546bed63e2280",
-                "sha256": "da8091a1d1a1f4531070964e5702f7bd9627ed991efc0fd039c9b7dde3537dcd",
-            },
+            relative: current_lineage_files[relative]
+            for relative in (
+                ".github/workflows/offline-tests.yml",
+                "skills/auto-g16-rtwin-pbs/SKILL.md",
+            )
         }
 
         def apply_foundation_successor(relative: str, expected: str) -> str:

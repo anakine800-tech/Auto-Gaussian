@@ -792,6 +792,14 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         local_integration = local_integration_document["files"]
+        current_lineage_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        current_lineage = current_lineage_document["files"]
 
         def apply_foundation_successor(relative: str, expected: str) -> str:
             if relative not in foundation_successor:
@@ -806,9 +814,17 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             binding = local_integration[relative]
             self.assertEqual(binding["left_before_sha256"], expected, relative)
             return binding["sha256"]
+
+        def apply_current_lineage(relative: str, expected: str) -> str:
+            if relative not in current_lineage:
+                return expected
+            binding = current_lineage[relative]
+            self.assertEqual(binding["before_sha256"], expected, relative)
+            return binding["sha256"]
         for relative, expected in fixture["frozen_predecessors"].items():
             expected = apply_foundation_successor(relative, expected)
             expected = apply_local_integration(relative, expected)
+            expected = apply_current_lineage(relative, expected)
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
@@ -834,6 +850,7 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                 expected = successor_binding["sha256"]
             expected = apply_foundation_successor(relative, expected)
             expected = apply_local_integration(relative, expected)
+            expected = apply_current_lineage(relative, expected)
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
@@ -858,6 +875,7 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                 expected = successor_binding["sha256"]
             expected = apply_foundation_successor(relative, expected)
             expected = apply_local_integration(relative, expected)
+            expected = apply_current_lineage(relative, expected)
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,

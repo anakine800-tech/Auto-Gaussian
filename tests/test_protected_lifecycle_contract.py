@@ -1289,6 +1289,13 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                 "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        current_lineage = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         expected = {
             "scripts/protected_invocation_contract.py": (
                 "da1343fd0638183b171bd0404e52ed1a960530eb62f909abec5d9bed2a83de28"
@@ -1357,6 +1364,10 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                         current_hash,
                     )
                     current_hash = ingress_successor[relative]["sha256"]
+                if relative in current_lineage:
+                    binding = current_lineage[relative]
+                    self.assertEqual(binding["before_sha256"], current_hash)
+                    current_hash = binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_hash,

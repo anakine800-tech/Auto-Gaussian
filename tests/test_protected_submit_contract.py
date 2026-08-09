@@ -1111,6 +1111,13 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                 "legacy_rtwin_pbs_fixed_constraint_successor.json",
             )
         ]
+        current_lineage = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, expected in manifest["files"].items():
             with self.subTest(path=relative):
                 actual = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
@@ -1128,6 +1135,10 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                         if "after_sha256" in record
                         else record["sha256"]
                     )
+                if relative in current_lineage:
+                    binding = current_lineage[relative]
+                    self.assertEqual(binding["before_sha256"], current)
+                    current = binding["sha256"]
                 self.assertEqual(actual, current)
 
     def test_facade_exact_owner_survives_shadow_cache_and_both_relocation_orders(self) -> None:

@@ -732,6 +732,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
         )
 
     def test_predecessor_and_effect_owner_bytes_remain_frozen(self) -> None:
+        current_lineage = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         lifecycle_successor = json.loads(
             (
                 ROOT
@@ -839,6 +846,10 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = ingress_successor[relative]["sha256"]
+                if relative in current_lineage:
+                    binding = current_lineage[relative]
+                    self.assertEqual(binding["before_sha256"], current_sha256)
+                    current_sha256 = binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -871,6 +882,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
     def test_successor_fixture_binds_exact_base_and_candidate_files(
         self,
     ) -> None:
+        current_lineage = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         fixture_path = (
             ROOT
             / "tests/fixtures/rtwin_pbs/"
@@ -985,6 +1003,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                     current_sha256 = successor_binding["sha256"]
                 if relative in ingress_successor:
                     successor_binding = ingress_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        current_sha256,
+                    )
+                    current_sha256 = successor_binding["sha256"]
+                if relative in current_lineage:
+                    successor_binding = current_lineage[relative]
                     self.assertEqual(
                         successor_binding["before_sha256"],
                         current_sha256,
