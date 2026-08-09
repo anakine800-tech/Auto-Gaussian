@@ -405,6 +405,16 @@ class SkillPackagingTests(unittest.TestCase):
                 "scripts/direct_fetch_acquisition.py",
                 "references/direct-fetch-acquisition.md",
             ),
+            "W6M": (
+                "scripts/direct_minimum_production_closure.py",
+                "scripts/direct_read_subsystem_dispatcher.py",
+                "contracts/rtwin-pbs/direct-terminal-fetch-grant.schema.json",
+                "contracts/rtwin-pbs/direct-minimum-resume-result.schema.json",
+                "tests/test_direct_minimum_production_closure.py",
+                "tests/test_direct_minimum_production_closure_schema_draft202012.py",
+                "tests/test_direct_read_subsystem_dispatcher.py",
+                "references/direct-minimum-production-closure.md",
+            ),
             "T4": (
                 "scripts/direct_local_fetch_materializer.py",
                 "contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json",

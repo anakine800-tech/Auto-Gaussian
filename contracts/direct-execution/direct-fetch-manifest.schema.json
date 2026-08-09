@@ -60,6 +60,81 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "stream": {
+            "properties": {"stream_mode": {"const": "closed_fetch_acquisition_exact_owner"}},
+            "required": ["stream_mode"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "stream": {
+            "required": ["source_bundle_commitment_sha256", "terminal_bundle_sha256"]
+          },
+          "integration": {
+            "properties": {
+              "production_integration": {"const": true}
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "stream": {
+            "properties": {
+              "source_bundle_commitment_sha256": false,
+              "terminal_bundle_sha256": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "integration": {
+            "properties": {"production_integration": {"const": true}},
+            "required": ["production_integration"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "stream": {
+            "properties": {"stream_mode": {"const": "closed_fetch_acquisition_exact_owner"}}
+          },
+          "authority": {
+            "properties": {
+              "remote_fetch_performed": {"const": true},
+              "scheduler_inspection_performed": {"const": true}
+            }
+          },
+          "integration": {
+            "properties": {
+              "required_production_target_predecessor": {"const": "backend_owned_fixed_local_fetch_target_policy_exact_type"}
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "authority": {
+            "properties": {
+              "remote_fetch_performed": {"const": false},
+              "scheduler_inspection_performed": {"const": false}
+            }
+          },
+          "integration": {
+            "properties": {
+              "required_production_target_predecessor": {"const": "reviewed_local_policy_owner_exact_type_not_frozen"}
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -113,9 +188,11 @@
       "additionalProperties": false,
       "required": ["stream_mode", "stream_projection_sha256", "chunk_size_bytes"],
       "properties": {
-        "stream_mode": {"enum": ["offline_synthetic", "closed_fetch_acquisition_offline_fake"]},
+        "stream_mode": {"enum": ["offline_synthetic", "closed_fetch_acquisition_offline_fake", "closed_fetch_acquisition_exact_owner"]},
         "stream_projection_sha256": {"$ref": "#/$defs/nonzero_sha"},
-        "chunk_size_bytes": {"const": "1048576"}
+        "chunk_size_bytes": {"const": "1048576"},
+        "source_bundle_commitment_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "terminal_bundle_sha256": {"$ref": "#/$defs/nonzero_sha"}
       }
     },
     "input_file": {"$ref": "#/$defs/input_file_object"},
@@ -163,12 +240,12 @@
     "authority": {
       "type": "object", "additionalProperties": false,
       "required": ["portable_manifest", "authorizes_effect", "scientific_acceptance", "remote_fetch_performed", "scheduler_inspection_performed"],
-      "properties": {"portable_manifest": {"const": true}, "authorizes_effect": {"const": false}, "scientific_acceptance": {"const": false}, "remote_fetch_performed": {"const": false}, "scheduler_inspection_performed": {"const": false}}
+      "properties": {"portable_manifest": {"const": true}, "authorizes_effect": {"const": false}, "scientific_acceptance": {"const": false}, "remote_fetch_performed": {"type": "boolean"}, "scheduler_inspection_performed": {"type": "boolean"}}
     },
     "integration": {
       "type": "object", "additionalProperties": false,
       "required": ["production_integration", "required_production_successor", "required_production_target_predecessor", "portable_bytes_can_reconstruct_lease"],
-      "properties": {"production_integration": {"const": false}, "required_production_successor": {"enum": ["T3_shared_channel_owner_exact_type_not_frozen", "Q1_backend_owned_reviewed_read_authority_exact_type"]}, "required_production_target_predecessor": {"const": "reviewed_local_policy_owner_exact_type_not_frozen"}, "portable_bytes_can_reconstruct_lease": {"const": false}}
+      "properties": {"production_integration": {"type": "boolean"}, "required_production_successor": {"enum": ["T3_shared_channel_owner_exact_type_not_frozen", "Q1_backend_owned_reviewed_read_authority_exact_type"]}, "required_production_target_predecessor": {"enum": ["reviewed_local_policy_owner_exact_type_not_frozen", "backend_owned_fixed_local_fetch_target_policy_exact_type"]}, "portable_bytes_can_reconstruct_lease": {"const": false}}
     }
   }
 }

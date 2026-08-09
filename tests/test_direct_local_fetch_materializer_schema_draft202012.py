@@ -108,11 +108,68 @@ class DirectLocalFetchMaterializerSchemaDraft202012Tests(unittest.TestCase):
                 self.validators[name].validate(document)
                 self.assertEqual(self.owner_validate(name, document), document)
 
-    def test_real_draft_preserves_historical_mode_and_accepts_closed_fake_mode(self) -> None:
+    def test_real_draft_accepts_fixed_production_target_policy_shape(self) -> None:
+        production = copy.deepcopy(self.policy)
+        production["authority"] = {
+            "portable_policy": True,
+            "authorizes_effect": False,
+            "production_integration": True,
+            "caller_bytes_can_issue_owner": False,
+            "fixed_policy_path": str(
+                MATERIALIZER.FIXED_PRODUCTION_TARGET_POLICY_PATH
+            ),
+            "policy_file_is_authority": False,
+            "backend_owner_descriptor_issuance_required": True,
+        }
+        production = self.rehash("policy", production)
+        self.validators["policy"].validate(production)
+        self.assertEqual(MATERIALIZER.validate_target_policy(production), production)
+
+    def test_real_draft_preserves_historical_mode_and_accepts_closed_owner_mode(self) -> None:
+        historical_policy_raw = MATERIALIZER.canonical_bytes(self.policy)
+        historical_policy = json.loads(historical_policy_raw.decode("utf-8"))
+        self.assertEqual(
+            historical_policy["authority"]["required_production_predecessor"],
+            MATERIALIZER.LEGACY_PRODUCTION_TARGET_PREDECESSOR,
+        )
+        self.validators["policy"].validate(historical_policy)
+        self.assertEqual(
+            MATERIALIZER.validate_target_policy(historical_policy),
+            historical_policy,
+        )
+        self.assertEqual(
+            MATERIALIZER.canonical_bytes(historical_policy),
+            historical_policy_raw,
+        )
+
+        historical_closed = copy.deepcopy(self.manifest)
+        historical_closed["stream"]["stream_mode"] = (
+            MATERIALIZER.LEGACY_CLOSED_STREAM_MODE
+        )
+        historical_closed["integration"]["required_production_successor"] = (
+            MATERIALIZER.CLOSED_PRODUCTION_SUCCESSOR
+        )
+        historical_closed = self.rehash("manifest", historical_closed)
+        historical_closed_raw = MATERIALIZER.canonical_bytes(historical_closed)
+        replayed = json.loads(historical_closed_raw.decode("utf-8"))
+        self.validators["manifest"].validate(replayed)
+        self.assertEqual(MATERIALIZER.validate_manifest(replayed), replayed)
+        self.assertEqual(
+            MATERIALIZER.canonical_bytes(replayed), historical_closed_raw,
+        )
+
         closed = copy.deepcopy(self.manifest)
         closed["stream"]["stream_mode"] = MATERIALIZER.CLOSED_STREAM_MODE
+        closed["stream"]["source_bundle_commitment_sha256"] = "a" * 64
+        closed["stream"]["terminal_bundle_sha256"] = "b" * 64
+        closed["authority"]["remote_fetch_performed"] = True
+        closed["authority"]["scheduler_inspection_performed"] = True
+        closed["integration"]["production_integration"] = True
         closed["integration"]["required_production_successor"] = (
             MATERIALIZER.CLOSED_PRODUCTION_SUCCESSOR
+        )
+        closed["integration"]["required_production_target_predecessor"] = (
+            MATERIALIZER.PRODUCTION_TARGET_PREDECESSOR
         )
         closed = self.rehash("manifest", closed)
         self.validators["manifest"].validate(self.manifest)
@@ -128,7 +185,7 @@ class DirectLocalFetchMaterializerSchemaDraft202012Tests(unittest.TestCase):
     def test_top_level_and_all_material_object_definitions_are_closed(self) -> None:
         assert jsonschema is not None
         object_defs = {
-            "policy": ("policy", "authority"),
+            "policy": ("policy", "offline_authority", "production_authority"),
             "manifest": (
                 "materialization", "binding", "target", "stream",
                 "input_file_object", "pbs_file_object", "checksums_file_object",
@@ -144,7 +201,26 @@ class DirectLocalFetchMaterializerSchemaDraft202012Tests(unittest.TestCase):
                 value = schema["$defs"][definition]
                 self.assertEqual(value["type"], "object")
                 self.assertFalse(value["additionalProperties"])
-                self.assertEqual(set(value["required"]), set(value["properties"]))
+                conditional = set()
+                if name == "manifest" and definition == "stream":
+                    conditional = {
+                        "source_bundle_commitment_sha256",
+                        "terminal_bundle_sha256",
+                    }
+                self.assertEqual(
+                    set(value["required"]),
+                    set(value["properties"]) - conditional,
+                )
+        authority = self.schemas["policy"]["$defs"]["authority"]
+        self.assertEqual(
+            authority,
+            {
+                "oneOf": [
+                    {"$ref": "#/$defs/offline_authority"},
+                    {"$ref": "#/$defs/production_authority"},
+                ]
+            },
+        )
 
     def test_unknown_missing_const_and_boolean_mutations_reject_both(self) -> None:
         for name, source in (("policy", self.policy), ("manifest", self.manifest)):

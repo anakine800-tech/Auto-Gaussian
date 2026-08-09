@@ -946,6 +946,138 @@ print('q1-clean-exec-owner-ok')
                 finally:
                     setattr(Q1.weakref, name, original)
 
+    def test_server_qstat_exact_child_term_then_reap_and_already_exited(self) -> None:
+        def run(waitpid_effect: object) -> tuple[Q1._QstatObservation, list[tuple[int, int]]]:
+            signals: list[tuple[int, int]] = []
+            with mock.patch.object(Q1, "_assert_module_binding"), \
+                    mock.patch.object(
+                        Q1, "_open_reviewed_qstat",
+                        return_value=(50, "b" * 64, (1, 2, 0, 0, 0o100755, 1, 10, 11, 12)),
+                    ), \
+                    mock.patch.object(CHANNEL, "_pipe_cloexec", side_effect=[(10, 11), (12, 13)]), \
+                    mock.patch.object(CHANNEL, "_close_quiet"), \
+                    mock.patch.object(Q1.os, "fork", return_value=4242), \
+                    mock.patch.object(
+                        Q1, "_read_qstat_streams_until",
+                        return_value=(b"", b"", False, "timeout"),
+                    ), \
+                    mock.patch.object(Q1.os, "waitpid", side_effect=waitpid_effect), \
+                    mock.patch.object(
+                        Q1.os, "kill",
+                        side_effect=lambda pid, signum: signals.append((pid, signum)),
+                    ):
+                observation = Q1._production_qstat_once(
+                    "731.master", self.read_profile,
+                    _test_token=Q1._TEST_OWNER_TOKEN,
+                )
+            return observation, signals
+
+        observation, signals = run([(0, 0), (4242, 0)])
+        self.assertEqual(observation.failure_reason, "timeout")
+        self.assertEqual(signals, [(4242, signal.SIGTERM)])
+        exited, exited_signals = run([(4242, 0)])
+        self.assertEqual(exited.failure_reason, "timeout")
+        self.assertEqual(exited_signals, [])
+
+    def test_server_qstat_exact_child_escalates_only_after_second_live_probe(self) -> None:
+        signals: list[tuple[int, int]] = []
+        with mock.patch.object(Q1, "_assert_module_binding"), \
+                mock.patch.object(
+                    Q1, "_open_reviewed_qstat",
+                    return_value=(50, "b" * 64, (1, 2, 0, 0, 0o100755, 1, 10, 11, 12)),
+                ), \
+                mock.patch.object(CHANNEL, "_pipe_cloexec", side_effect=[(10, 11), (12, 13)]), \
+                mock.patch.object(CHANNEL, "_close_quiet"), \
+                mock.patch.object(Q1.os, "fork", return_value=4343), \
+                mock.patch.object(
+                    Q1, "_read_qstat_streams_until",
+                    return_value=(b"", b"", False, "output_too_large"),
+                ), \
+                mock.patch.object(
+                    Q1.os, "waitpid",
+                    side_effect=[(0, 0), (0, 0), (0, 0), (4343, 9)],
+                ), \
+                mock.patch.object(
+                    Q1.os, "kill",
+                    side_effect=lambda pid, signum: signals.append((pid, signum)),
+                ), \
+                mock.patch.object(Q1, "QSTAT_CHILD_RETIRE_GRACE_SECONDS", 0.0):
+            observation = Q1._production_qstat_once(
+                "731.master", self.read_profile,
+                _test_token=Q1._TEST_OWNER_TOKEN,
+            )
+        self.assertEqual(observation.failure_reason, "output_too_large")
+        self.assertEqual(
+            signals, [(4343, signal.SIGTERM), (4343, signal.SIGKILL)],
+        )
+
+    def test_server_qstat_foreign_or_echild_pid_receives_zero_signal(self) -> None:
+        for wait_effect in (
+            ChildProcessError("foreign"),
+            ProcessLookupError("esrch"),
+            [(9999, 0)],
+        ):
+            signals: list[tuple[int, int]] = []
+            with self.subTest(wait_effect=type(wait_effect).__name__), \
+                    mock.patch.object(Q1, "_assert_module_binding"), \
+                    mock.patch.object(
+                        Q1, "_open_reviewed_qstat",
+                        return_value=(50, "b" * 64, (1, 2, 0, 0, 0o100755, 1, 10, 11, 12)),
+                    ), \
+                    mock.patch.object(CHANNEL, "_pipe_cloexec", side_effect=[(10, 11), (12, 13)]), \
+                    mock.patch.object(CHANNEL, "_close_quiet"), \
+                    mock.patch.object(Q1.os, "fork", return_value=4545), \
+                    mock.patch.object(
+                        Q1, "_read_qstat_streams_until",
+                        return_value=(b"", b"", False, "timeout"),
+                    ), \
+                    mock.patch.object(Q1.os, "waitpid", side_effect=wait_effect), \
+                    mock.patch.object(
+                        Q1.os, "kill",
+                        side_effect=lambda pid, signum: signals.append((pid, signum)),
+                    ):
+                with self.assertRaisesRegex(
+                    Q1.DirectQstatAcquisitionError,
+                    "retirement is unknown; no retry",
+                ):
+                    Q1._production_qstat_once(
+                        "731.master", self.read_profile,
+                        _test_token=Q1._TEST_OWNER_TOKEN,
+                    )
+            self.assertEqual(signals, [])
+
+    def test_server_qstat_kill_without_exact_reap_is_explicit_unknown(self) -> None:
+        signals: list[tuple[int, int]] = []
+        with mock.patch.object(Q1, "_assert_module_binding"), \
+                mock.patch.object(
+                    Q1, "_open_reviewed_qstat",
+                    return_value=(50, "b" * 64, (1, 2, 0, 0, 0o100755, 1, 10, 11, 12)),
+                ), \
+                mock.patch.object(CHANNEL, "_pipe_cloexec", side_effect=[(10, 11), (12, 13)]), \
+                mock.patch.object(CHANNEL, "_close_quiet"), \
+                mock.patch.object(Q1.os, "fork", return_value=4646), \
+                mock.patch.object(
+                    Q1, "_read_qstat_streams_until",
+                    return_value=(b"", b"", False, "timeout"),
+                ), \
+                mock.patch.object(Q1.os, "waitpid", return_value=(0, 0)), \
+                mock.patch.object(
+                    Q1.os, "kill",
+                    side_effect=lambda pid, signum: signals.append((pid, signum)),
+                ), \
+                mock.patch.object(Q1, "QSTAT_CHILD_RETIRE_GRACE_SECONDS", 0.0):
+            with self.assertRaisesRegex(
+                Q1.DirectQstatAcquisitionError,
+                "retirement is unknown; no retry",
+            ):
+                Q1._production_qstat_once(
+                    "731.master", self.read_profile,
+                    _test_token=Q1._TEST_OWNER_TOKEN,
+                )
+        self.assertEqual(
+            signals, [(4646, signal.SIGTERM), (4646, signal.SIGKILL)],
+        )
+
     def test_controller_query_runner_uses_one_absolute_deadline(self) -> None:
         operation, _request, frame, join, profile_lease = self.prepare_controller()
         child_handle = object.__new__(CHANNEL._QueryChildHandle)

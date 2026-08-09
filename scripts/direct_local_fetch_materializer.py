@@ -42,10 +42,20 @@ MANIFEST_SCHEMA = "auto-g16-direct-fetch-manifest/1"
 BACKEND_KIND = "direct_ssh_pbs"
 MATERIALIZATION_MODE = "descriptor_relative_no_clobber"
 STREAM_MODE = "offline_synthetic"
-CLOSED_STREAM_MODE = "closed_fetch_acquisition_offline_fake"
+LEGACY_CLOSED_STREAM_MODE = "closed_fetch_acquisition_offline_fake"
+CLOSED_STREAM_MODE = "closed_fetch_acquisition_exact_owner"
 PRODUCTION_SUCCESSOR = "T3_shared_channel_owner_exact_type_not_frozen"
 CLOSED_PRODUCTION_SUCCESSOR = "Q1_backend_owned_reviewed_read_authority_exact_type"
-PRODUCTION_TARGET_PREDECESSOR = "reviewed_local_policy_owner_exact_type_not_frozen"
+LEGACY_PRODUCTION_TARGET_PREDECESSOR = (
+    "reviewed_local_policy_owner_exact_type_not_frozen"
+)
+PRODUCTION_TARGET_PREDECESSOR = (
+    "backend_owned_fixed_local_fetch_target_policy_exact_type"
+)
+FIXED_PRODUCTION_TARGET_POLICY_PATH = Path(
+    "/Library/Application Support/Auto-G16/direct-local-fetch-target-v1.json"
+)
+MAX_PRODUCTION_TARGET_POLICY_BYTES = 64 * 1024
 MANIFEST_BASENAME = "direct-fetch-manifest.json"
 CHUNK_SIZE_BYTES = 1024 * 1024
 ZERO_SHA = "0" * 64
@@ -265,6 +275,75 @@ def _open_directory_chain_no_follow(path: str) -> tuple[tuple[str, ...], tuple[t
                 pass
 
 
+def _open_fixed_production_policy_no_follow() -> int:
+    """Open the fixed root-owned policy without following any ancestor."""
+
+    _require(
+        all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")),
+        "descriptor-relative no-follow support is unavailable",
+    )
+    path = FIXED_PRODUCTION_TARGET_POLICY_PATH
+    _require(path.is_absolute(), "fixed production target policy path differs")
+    parts = path.parts[1:]
+    _require(
+        len(parts) >= 2 and all(part not in {"", ".", ".."} for part in parts),
+        "fixed production target policy components differ",
+    )
+    directory_flags = (
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    current = os.open("/", directory_flags)
+    opened = [current]
+    try:
+        for part in parts[:-1]:
+            before = os.stat(part, dir_fd=current, follow_symlinks=False)
+            _require(
+                stat.S_ISDIR(before.st_mode)
+                and not stat.S_ISLNK(before.st_mode)
+                and before.st_uid == 0
+                and not (stat.S_IMODE(before.st_mode) & 0o022),
+                "fixed production target policy ancestor differs",
+            )
+            following = os.open(part, directory_flags, dir_fd=current)
+            opened.append(following)
+            after = os.stat(part, dir_fd=current, follow_symlinks=False)
+            opened_info = os.fstat(following)
+            _require(
+                _directory_tuple(before)
+                == _directory_tuple(after)
+                == _directory_tuple(opened_info),
+                "fixed production target policy ancestor identity drifted",
+            )
+            current = following
+        leaf = parts[-1]
+        named_before = os.stat(leaf, dir_fd=current, follow_symlinks=False)
+        descriptor = os.open(
+            leaf,
+            os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=current,
+        )
+        try:
+            opened_info = os.fstat(descriptor)
+            named_after = os.stat(leaf, dir_fd=current, follow_symlinks=False)
+            _require(
+                _regular_tuple(named_before)
+                == _regular_tuple(opened_info)
+                == _regular_tuple(named_after),
+                "fixed production target policy leaf identity drifted",
+            )
+            return descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
+    finally:
+        for directory in reversed(opened):
+            try:
+                os.close(directory)
+            except OSError:
+                pass
+
+
 def _build_reviewed_target_policy_for_tests(*, target_root: str, review_id: str) -> dict[str, Any]:
     """Build an offline fixture; production must load separately reviewed bytes."""
     root = _canonical_absolute_directory(target_root, "target root")
@@ -297,7 +376,9 @@ def _build_reviewed_target_policy_for_tests(*, target_root: str, review_id: str)
             "authorizes_effect": False,
             "production_integration": False,
             "caller_bytes_can_issue_owner": False,
-            "required_production_predecessor": PRODUCTION_TARGET_PREDECESSOR,
+            "required_production_predecessor": (
+                LEGACY_PRODUCTION_TARGET_PREDECESSOR
+            ),
         },
         "policy_payload_sha256": "",
     }
@@ -336,13 +417,28 @@ def validate_target_policy(value: Any) -> dict[str, Any]:
         "cleanup_allowed": False,
     }
     _require(policy["policy"] == expected_rules, "target policy rules differ")
-    _require(policy["authority"] == {
+    offline_authority = {
         "portable_policy": True,
         "authorizes_effect": False,
         "production_integration": False,
         "caller_bytes_can_issue_owner": False,
-        "required_production_predecessor": PRODUCTION_TARGET_PREDECESSOR,
-    }, "target policy authority differs")
+        "required_production_predecessor": (
+            LEGACY_PRODUCTION_TARGET_PREDECESSOR
+        ),
+    }
+    production_authority = {
+        "portable_policy": True,
+        "authorizes_effect": False,
+        "production_integration": True,
+        "caller_bytes_can_issue_owner": False,
+        "fixed_policy_path": str(FIXED_PRODUCTION_TARGET_POLICY_PATH),
+        "policy_file_is_authority": False,
+        "backend_owner_descriptor_issuance_required": True,
+    }
+    _require(
+        policy["authority"] in (offline_authority, production_authority),
+        "target policy authority differs",
+    )
     _sha(policy["policy_payload_sha256"], "target policy payload", allow_empty=True)
     projection = copy.deepcopy(policy)
     projection["policy_payload_sha256"] = ""
@@ -394,6 +490,11 @@ class LocalFetchTargetCapability:
         _assert_target_current(self)
         record = _target_record(self)
         return _target_projection(record)
+
+    def abandon_once(self) -> None:
+        """Terminalize unused local authority without deleting any bytes."""
+
+        _abandon_target_once(self)
 
     def __copy__(self) -> "LocalFetchTargetCapability":
         raise TypeError("local fetch target capabilities are not clonable")
@@ -476,6 +577,51 @@ class LocalFetchTargetOwner:
         del cls, kwargs
         raise TypeError("local fetch target owners cannot be subclassed")
 
+    @classmethod
+    def production(cls) -> "LocalFetchTargetOwner":
+        """Load only the backend-owned fixed reviewed target policy."""
+
+        _assert_owner_binding()
+        descriptor = _open_fixed_production_policy_no_follow()
+        try:
+            before = os.fstat(descriptor)
+            _require(
+                stat.S_ISREG(before.st_mode)
+                and before.st_uid == 0
+                and not (stat.S_IMODE(before.st_mode) & 0o022)
+                and before.st_nlink == 1
+                and 0 < before.st_size <= MAX_PRODUCTION_TARGET_POLICY_BYTES,
+                "fixed production target policy identity or mode differs",
+            )
+            raw = os.read(descriptor, MAX_PRODUCTION_TARGET_POLICY_BYTES + 1)
+            _require(
+                0 < len(raw) <= MAX_PRODUCTION_TARGET_POLICY_BYTES
+                and os.read(descriptor, 1) == b"",
+                "fixed production target policy exceeds its byte cap",
+            )
+            after = os.fstat(descriptor)
+            _require(
+                _regular_tuple(before) == _regular_tuple(after)
+                and before.st_size == after.st_size == len(raw),
+                "fixed production target policy identity drifted",
+            )
+            try:
+                policy = validate_target_policy(json.loads(raw.decode("utf-8")))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise DirectLocalFetchMaterializerError(
+                    "fixed production target policy is malformed"
+                ) from exc
+            _require(
+                canonical_bytes(policy) == raw
+                and policy["authority"]["production_integration"] is True
+                and policy["authority"]["fixed_policy_path"]
+                == str(FIXED_PRODUCTION_TARGET_POLICY_PATH),
+                "fixed production target policy bytes or authority differ",
+            )
+            return _issue_target_owner_from_policy(policy, production=True)
+        finally:
+            os.close(descriptor)
+
     def issue_target_once(self, *, project: str, attempt_id: str, job_id: str, w5_receipt_sha256: str, read_profile_sha256: str) -> LocalFetchTargetCapability:
         _assert_owner_binding()
         state = _owner_state(self)
@@ -518,6 +664,7 @@ class LocalFetchTargetOwner:
                 registry_nonce=object(), capability_ref=weakref.ref(capability),
                 creator_pid=state.creator_pid, process_epoch=state.process_epoch,
                 root_identity=state.root_identity, fields=fields, leaf_basename=leaf,
+                production_integration=state.production_integration,
                 consumed=False, lock=threading.Lock(),
             )
             with _REGISTRY_LOCK:
@@ -554,6 +701,21 @@ def _issue_offline_target_owner_for_tests(
     )
     policy_bytes = canonical_bytes(policy)
     _require(canonical_bytes(validate_target_policy(json.loads(policy_bytes))) == policy_bytes, "offline target policy bytes differ")
+    return _issue_target_owner_from_policy(policy, production=False)
+
+
+def _issue_target_owner_from_policy(
+    policy: dict[str, Any], *, production: bool,
+) -> LocalFetchTargetOwner:
+    """Common descriptor owner; caller bytes can never enter production."""
+
+    policy = validate_target_policy(policy)
+    _require(
+        type(production) is bool
+        and policy["authority"]["production_integration"] is production,
+        "target policy production binding differs",
+    )
+    target_root = policy["target_root"]
     repository_root = str(Path(__file__).resolve(strict=True).parent.parent)
     common = os.path.commonpath((repository_root, target_root))
     _require(common not in {repository_root, target_root}, "target root must be repo-external and not a repository ancestor")
@@ -583,6 +745,7 @@ def _issue_offline_target_owner_for_tests(
         root_identity=root_identity,
         root_identity_sha256=digest(root_projection),
         repo_external_evidence_sha256=digest(external),
+        production_integration=production,
         issued=False,
         lock=threading.Lock(),
     )
@@ -605,6 +768,7 @@ class _OwnerState:
     root_identity: _DescriptorIdentity
     root_identity_sha256: str
     repo_external_evidence_sha256: str
+    production_integration: bool
     issued: bool
     lock: Any
 
@@ -618,6 +782,7 @@ class _TargetRecord:
     root_identity: _DescriptorIdentity
     fields: dict[str, str]
     leaf_basename: str
+    production_integration: bool
     consumed: bool
     lock: Any
 
@@ -700,7 +865,7 @@ def _target_projection(record: _TargetRecord) -> dict[str, Any]:
         "single_use": True,
         "portable_projection": True,
         "authorizes_effect": False,
-        "production_integration": False,
+        "production_integration": record.production_integration,
     }
 
 
@@ -712,6 +877,21 @@ def _assert_target_current(capability: LocalFetchTargetCapability) -> None:
         _require(os.getpid() == record.creator_pid and _PROCESS_EPOCH is record.process_epoch, "target capability is fork-revoked")
         _require(record.fields == {name: getattr(capability, name) for name in record.fields}, "target capability fields drifted")
         _require(_descriptor_identity(record.root_identity.descriptor, "target root") == record.root_identity, "target-root descriptor identity drifted")
+
+
+def _abandon_target_once(capability: LocalFetchTargetCapability) -> None:
+    _assert_owner_binding()
+    record = _target_record(capability)
+    with record.lock:
+        _require(not record.consumed, "target capability already consumed")
+        record.consumed = True
+    with _REGISTRY_LOCK:
+        _require(
+            _TARGET_REGISTRY.get(capability._registry_key) is record,
+            "target capability abandon raced",
+        )
+        del _TARGET_REGISTRY[capability._registry_key]
+    _close_if_same(record.root_identity)
 
 
 def _stream_record(lease: DirectFetchStreamLease) -> _StreamRecord:
@@ -734,7 +914,8 @@ def _assert_stream_current(lease: DirectFetchStreamLease) -> None:
             and lease.creator_pid == str(record.creator_pid)
             and lease.process_epoch_sha256 == _PROCESS_EPOCH_SHA256
             and lease.authorizes_effect is False
-            and lease.production_integration is False,
+            and lease.production_integration
+            is record.projection["production_integration"],
             "stream lease fields drifted",
         )
         closed = tuple(
@@ -838,13 +1019,7 @@ def issue_closed_fetch_stream_lease_once(
     target_capability: LocalFetchTargetCapability,
     acquisition_capability: object,
 ) -> DirectFetchStreamLease:
-    """Consume the exact closed acquisition capability into the T4 lease.
-
-    The current acquisition predecessor is offline-fake-only.  This transition
-    is intentionally exact and single-use, but remains
-    ``production_integration=false`` until Q1 supplies its backend-owned
-    reviewed read authority.
-    """
+    """Consume one exact offline or terminal-grant acquisition into T4."""
     _assert_target_current(target_capability)
     module = sys.modules.get("direct_fetch_acquisition")
     expected_path = Path(__file__).resolve().with_name("direct_fetch_acquisition.py")
@@ -863,8 +1038,47 @@ def issue_closed_fetch_stream_lease_once(
         "canonical closed fetch acquisition successor differs",
     )
     assert_binding()
-    target_binding = _target_binding_sha256(_target_record(target_capability).fields)
-    source_projection, reader = consume(acquisition_capability, target_binding)
+    target_record = _target_record(target_capability)
+    target_binding = _target_binding_sha256(target_record.fields)
+    try:
+        source_projection, reader = consume(
+            acquisition_capability, target_binding,
+        )
+    except BaseException:
+        try:
+            acquisition_capability.abandon_once()
+        except BaseException:
+            pass
+        raise
+    try:
+        return _issue_closed_fetch_stream_lease_from_reader_once(
+            target_record,
+            target_binding,
+            source_projection,
+            reader,
+            reader_type,
+            validate_source,
+            module,
+        )
+    except BaseException:
+        try:
+            reader.abandon_once()
+        except BaseException:
+            pass
+        raise
+
+
+def _issue_closed_fetch_stream_lease_from_reader_once(
+    target_record: _TargetRecord,
+    target_binding: str,
+    source_projection: object,
+    reader: object,
+    reader_type: type,
+    validate_source: Any,
+    module: types.ModuleType,
+) -> DirectFetchStreamLease:
+    """Validate and commit one already-transferred exact reader."""
+
     source_projection = validate_source(source_projection)
     _require(
         type(source_projection) is dict
@@ -873,7 +1087,7 @@ def issue_closed_fetch_stream_lease_once(
         "closed fetch acquisition projection differs",
     )
     source_authority = source_projection.get("authority")
-    _require(source_authority == {
+    offline_authority = {
         "authorizes_effect": False,
         "portable_projection_authorizes_stream": False,
         "remote_fetch_acquired": True,
@@ -884,7 +1098,18 @@ def issue_closed_fetch_stream_lease_once(
         "qdel_calls": "0",
         "automatic_retry": False,
         "single_use": True,
-    },
+    }
+    production_authority = {
+        **offline_authority,
+        "production_integration": True,
+        "required_production_predecessor": (
+            "terminal_fetch_grant_exact_controller_join"
+        ),
+    }
+    production = source_authority == production_authority
+    _require(
+        source_authority in (offline_authority, production_authority)
+        and target_record.production_integration is production,
         "closed fetch acquisition authority differs",
     )
     _require(
@@ -927,7 +1152,9 @@ def issue_closed_fetch_stream_lease_once(
         "owner": OWNER,
         "owner_version": OWNER_VERSION,
         "backend_kind": BACKEND_KIND,
-        "stream_mode": CLOSED_STREAM_MODE,
+        "stream_mode": (
+            CLOSED_STREAM_MODE if production else LEGACY_CLOSED_STREAM_MODE
+        ),
         "target_binding_sha256": target_binding,
         "files": file_projection,
         "file_count": "5",
@@ -937,11 +1164,13 @@ def issue_closed_fetch_stream_lease_once(
         "chunk_size_bytes": str(CHUNK_SIZE_BYTES),
         "portable_projection": True,
         "authorizes_effect": False,
-        "production_integration": False,
+        "production_integration": production,
         "required_production_successor": CLOSED_PRODUCTION_SUCCESSOR,
         "source_stream_projection_sha256": source_projection["stream_projection_sha256"],
         "source_acquisition_result_payload_sha256": source_projection["acquisition_result_payload_sha256"],
-        "source_bundle_sha256": source_projection["bundle_sha256"],
+        "source_bundle_commitment_sha256": source_projection[
+            "bundle_commitment_sha256"
+        ],
         "source_lineage_id": source_projection["lineage_id"],
         "stream_projection_sha256": "",
     }
@@ -955,7 +1184,7 @@ def issue_closed_fetch_stream_lease_once(
         "process_epoch_sha256": _PROCESS_EPOCH_SHA256,
         "nonce_sha256": hashlib.sha256(nonce).hexdigest(),
         "authorizes_effect": False,
-        "production_integration": False,
+        "production_integration": production,
     }
     lease = DirectFetchStreamLease._from_owner(fields=fields, registry_key=key, token=_LEASE_TOKEN)
     record = _StreamRecord(
@@ -973,7 +1202,9 @@ def issue_closed_fetch_stream_lease_once(
 
 def _validate_stream_projection(projection: Any) -> dict[str, Any]:
     _require(type(projection) is dict, "stream projection fields differ")
-    closed = projection.get("stream_mode") == CLOSED_STREAM_MODE
+    closed = projection.get("stream_mode") in {
+        LEGACY_CLOSED_STREAM_MODE, CLOSED_STREAM_MODE,
+    }
     fields = {
         "schema", "owner", "owner_version", "backend_kind", "stream_mode",
         "target_binding_sha256", "files", "file_count", "total_size_bytes",
@@ -985,15 +1216,20 @@ def _validate_stream_projection(projection: Any) -> dict[str, Any]:
         fields |= {
             "source_stream_projection_sha256",
             "source_acquisition_result_payload_sha256",
-            "source_bundle_sha256", "source_lineage_id",
+            "source_bundle_commitment_sha256", "source_lineage_id",
         }
     value = copy.deepcopy(_exact(projection, fields, "stream projection"))
     _require(
         value["schema"] == STREAM_SCHEMA and value["owner"] == OWNER
         and value["owner_version"] == OWNER_VERSION and value["backend_kind"] == BACKEND_KIND
-        and value["stream_mode"] in {STREAM_MODE, CLOSED_STREAM_MODE}
+        and value["stream_mode"] in {
+            STREAM_MODE, LEGACY_CLOSED_STREAM_MODE, CLOSED_STREAM_MODE,
+        }
         and value["portable_projection"] is True
-        and value["authorizes_effect"] is False and value["production_integration"] is False
+        and value["authorizes_effect"] is False
+        and type(value["production_integration"]) is bool
+        and value["production_integration"]
+        == (value["stream_mode"] == CLOSED_STREAM_MODE)
         and value["required_production_successor"]
         == (CLOSED_PRODUCTION_SUCCESSOR if closed else PRODUCTION_SUCCESSOR),
         "stream projection constants differ",
@@ -1002,7 +1238,7 @@ def _validate_stream_projection(projection: Any) -> dict[str, Any]:
         for field in (
             "source_stream_projection_sha256",
             "source_acquisition_result_payload_sha256",
-            "source_bundle_sha256",
+            "source_bundle_commitment_sha256",
         ):
             _sha(value[field], f"stream {field}")
         _require(
@@ -1031,6 +1267,7 @@ class _TargetAccess(NamedTuple):
     root_identity: _DescriptorIdentity
     fields: dict[str, str]
     leaf_basename: str
+    production_integration: bool
 
 
 def _consume_target_once(capability: LocalFetchTargetCapability) -> _TargetAccess:
@@ -1041,7 +1278,12 @@ def _consume_target_once(capability: LocalFetchTargetCapability) -> _TargetAcces
         _require(os.getpid() == record.creator_pid and _PROCESS_EPOCH is record.process_epoch, "target capability is fork-revoked")
         _require(record.fields == {name: getattr(capability, name) for name in record.fields}, "target capability fields drifted")
         _require(_descriptor_identity(record.root_identity.descriptor, "target root") == record.root_identity, "target-root descriptor identity drifted")
-        return _TargetAccess(record.root_identity, copy.deepcopy(record.fields), record.leaf_basename)
+        return _TargetAccess(
+            record.root_identity,
+            copy.deepcopy(record.fields),
+            record.leaf_basename,
+            record.production_integration,
+        )
 
 
 def _consume_stream_once(
@@ -1209,8 +1451,37 @@ def _materialize_file(
                 pass
 
 
-def _manifest_document(access: _TargetAccess, stream: dict[str, Any], files: list[dict[str, str]]) -> dict[str, Any]:
+def _manifest_document(
+    access: _TargetAccess,
+    stream: dict[str, Any],
+    files: list[dict[str, str]],
+    terminal_bundle_sha256: str | None,
+) -> dict[str, Any]:
     total = sum(int(item["size_bytes"]) for item in files)
+    production = (
+        access.production_integration is True
+        and stream["production_integration"] is True
+    )
+    stream_document = {
+        "stream_mode": stream["stream_mode"],
+        "stream_projection_sha256": stream["stream_projection_sha256"],
+        "chunk_size_bytes": str(CHUNK_SIZE_BYTES),
+    }
+    if stream["stream_mode"] == CLOSED_STREAM_MODE:
+        _sha(terminal_bundle_sha256, "terminal bundle")
+        stream_document.update({
+            "source_bundle_commitment_sha256": stream[
+                "source_bundle_commitment_sha256"
+            ],
+            "terminal_bundle_sha256": terminal_bundle_sha256,
+        })
+    elif stream["stream_mode"] == LEGACY_CLOSED_STREAM_MODE:
+        _sha(terminal_bundle_sha256, "legacy closed terminal bundle")
+    else:
+        _require(
+            terminal_bundle_sha256 is None,
+            "offline stream cannot claim a terminal remote bundle",
+        )
     document = {
         "schema": MANIFEST_SCHEMA,
         "owner": OWNER,
@@ -1238,11 +1509,7 @@ def _manifest_document(access: _TargetAccess, stream: dict[str, Any], files: lis
             "leaf_basename": access.leaf_basename,
             "leaf_basename_sha256": access.fields["leaf_basename_sha256"],
         },
-        "stream": {
-            "stream_mode": stream["stream_mode"],
-            "stream_projection_sha256": stream["stream_projection_sha256"],
-            "chunk_size_bytes": str(CHUNK_SIZE_BYTES),
-        },
+        "stream": stream_document,
         "files": [
             {**item, "order": str(index), "cap_bytes": str(ARTIFACT_CAPS[item["basename"]])}
             for index, item in enumerate(files, 1)
@@ -1271,13 +1538,17 @@ def _manifest_document(access: _TargetAccess, stream: dict[str, Any], files: lis
             "portable_manifest": True,
             "authorizes_effect": False,
             "scientific_acceptance": False,
-            "remote_fetch_performed": False,
-            "scheduler_inspection_performed": False,
+            "remote_fetch_performed": production,
+            "scheduler_inspection_performed": production,
         },
         "integration": {
-            "production_integration": False,
+            "production_integration": production,
             "required_production_successor": stream["required_production_successor"],
-            "required_production_target_predecessor": PRODUCTION_TARGET_PREDECESSOR,
+            "required_production_target_predecessor": (
+                PRODUCTION_TARGET_PREDECESSOR
+                if production
+                else LEGACY_PRODUCTION_TARGET_PREDECESSOR
+            ),
             "portable_bytes_can_reconstruct_lease": False,
         },
         "manifest_payload_sha256": "",
@@ -1325,13 +1596,28 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         ),
         "manifest target binding replay differs",
     )
-    stream = _exact(result["stream"], {"stream_mode", "stream_projection_sha256", "chunk_size_bytes"}, "manifest stream")
+    stream_fields = {
+        "stream_mode", "stream_projection_sha256", "chunk_size_bytes",
+    }
+    if result["stream"].get("stream_mode") == CLOSED_STREAM_MODE:
+        stream_fields |= {
+            "source_bundle_commitment_sha256", "terminal_bundle_sha256",
+        }
+    stream = _exact(result["stream"], stream_fields, "manifest stream")
     _require(
-        stream["stream_mode"] in {STREAM_MODE, CLOSED_STREAM_MODE}
+        stream["stream_mode"] in {
+            STREAM_MODE, LEGACY_CLOSED_STREAM_MODE, CLOSED_STREAM_MODE,
+        }
         and stream["chunk_size_bytes"] == str(CHUNK_SIZE_BYTES),
         "manifest stream constants differ",
     )
     _sha(stream["stream_projection_sha256"], "manifest stream projection")
+    if stream["stream_mode"] == CLOSED_STREAM_MODE:
+        _sha(
+            stream["source_bundle_commitment_sha256"],
+            "manifest source bundle commitment",
+        )
+        _sha(stream["terminal_bundle_sha256"], "manifest terminal bundle")
     _require(type(result["files"]) is list and len(result["files"]) == 5, "manifest exact-five files differ")
     total = 0
     for index, ((name, cap), item) in enumerate(zip(ARTIFACT_SPECS, result["files"], strict=True), 1):
@@ -1348,18 +1634,38 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         "overwrite_allowed": False, "delete_allowed": False, "cleanup_allowed": False,
         "rename_replace_allowed": False, "resume_allowed": False, "automatic_retry": False,
     }, "manifest safety differs")
-    _require(result["authority"] == {
+    offline_authority = {
         "portable_manifest": True, "authorizes_effect": False, "scientific_acceptance": False,
         "remote_fetch_performed": False, "scheduler_inspection_performed": False,
-    }, "manifest authority differs")
+    }
+    production_authority = {
+        **offline_authority,
+        "remote_fetch_performed": True,
+        "scheduler_inspection_performed": True,
+    }
+    _require(
+        result["authority"] in (offline_authority, production_authority),
+        "manifest authority differs",
+    )
     expected_successor = (
         CLOSED_PRODUCTION_SUCCESSOR
-        if stream["stream_mode"] == CLOSED_STREAM_MODE
+        if stream["stream_mode"] in {
+            LEGACY_CLOSED_STREAM_MODE, CLOSED_STREAM_MODE,
+        }
         else PRODUCTION_SUCCESSOR
     )
+    production = result["authority"] == production_authority
+    _require(
+        production == (stream["stream_mode"] == CLOSED_STREAM_MODE),
+        "manifest stream and production authority differ",
+    )
     _require(result["integration"] == {
-        "production_integration": False, "required_production_successor": expected_successor,
-        "required_production_target_predecessor": PRODUCTION_TARGET_PREDECESSOR,
+        "production_integration": production, "required_production_successor": expected_successor,
+        "required_production_target_predecessor": (
+            PRODUCTION_TARGET_PREDECESSOR
+            if production
+            else LEGACY_PRODUCTION_TARGET_PREDECESSOR
+        ),
         "portable_bytes_can_reconstruct_lease": False,
     }, "manifest integration differs")
     _sha(result["manifest_payload_sha256"], "manifest payload")
@@ -1376,12 +1682,18 @@ def materialize_direct_fetch_once(target_capability: LocalFetchTargetCapability,
     _require(type(stream_lease) is DirectFetchStreamLease, "exact direct fetch stream lease is required")
     target_capability.assert_current()
     stream_lease.assert_current()
+    _require(
+        stream_lease.production_integration
+        is _target_record(target_capability).production_integration,
+        "target and stream production integration differ",
+    )
     _require(stream_lease.target_binding_sha256 == _target_binding_sha256(_target_record(target_capability).fields), "target and stream binding differ")
     access = _consume_target_once(target_capability)
     root_identity = access.root_identity
     leaf_fd = -1
     records: tuple[_SyntheticFileRecord | _ClosedFileRecord, ...] = ()
     reader_finished = False
+    terminal_bundle_sha256: str | None = None
     try:
         stream_projection, records = _consume_stream_once(stream_lease)
         validated_stream = _validate_stream_projection(stream_projection)
@@ -1426,7 +1738,11 @@ def materialize_direct_fetch_once(target_capability: LocalFetchTargetCapability,
             os.fsync(leaf_fd)
         except OSError as exc:
             raise DirectLocalFetchMaterializerError(f"target directory fsync failed: {exc}") from exc
-        manifest = validate_manifest(_manifest_document(access, validated_stream, files))
+        manifest = validate_manifest(
+            _manifest_document(
+                access, validated_stream, files, terminal_bundle_sha256,
+            )
+        )
         raw = canonical_bytes(manifest)
         manifest_fd = -1
         try:

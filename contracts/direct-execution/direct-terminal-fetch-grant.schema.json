@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-direct-terminal-fetch-grant/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "owner", "owner_version", "grant_id", "classification", "binding", "qstat", "successor", "authority", "grant_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-terminal-fetch-grant/1"},
+    "owner": {"const": "auto-g16-direct-terminal-fetch-grant-owner"},
+    "owner_version": {"const": "direct-terminal-fetch-grant/1"},
+    "grant_id": {"type": "string", "pattern": "^direct-terminal-fetch-grant-[a-f0-9]{64}$"},
+    "classification": {"$ref": "#/$defs/classification"},
+    "binding": {"$ref": "#/$defs/binding"},
+    "qstat": {"$ref": "#/$defs/qstat"},
+    "successor": {"$ref": "#/$defs/successor"},
+    "authority": {"$ref": "#/$defs/authority"},
+    "grant_payload_sha256": {"$ref": "#/$defs/nonzero_sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonzero_sha": {"allOf": [{"$ref": "#/$defs/sha"}, {"not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}]},
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "state", "record_present", "pbs_state", "freshness", "terminal_fetch_allowed"],
+      "properties": {
+        "status": {"enum": ["present", "absent"]},
+        "state": {"enum": ["terminal", "absent"]},
+        "record_present": {"type": "boolean"},
+        "pbs_state": {"type": ["string", "null"], "enum": ["C", "F", null]},
+        "freshness": {"const": "fresh"},
+        "terminal_fetch_allowed": {"const": true}
+      },
+      "oneOf": [
+        {"properties": {"status": {"const": "present"}, "state": {"const": "terminal"}, "record_present": {"const": true}, "pbs_state": {"enum": ["C", "F"]}}},
+        {"properties": {"status": {"const": "absent"}, "state": {"const": "absent"}, "record_present": {"const": false}, "pbs_state": {"const": null}}}
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "job_id", "attempt_id", "input_sha256", "authorization_payload_sha256", "authorization_scope_sha256", "transport_profile_payload_sha256", "w5_result_payload_sha256", "w2_journal_payload_sha256", "lineage_id", "lineage_payload_sha256", "qstat_acquisition_id", "qstat_acquisition_payload_sha256", "final_inspection_id", "final_inspection_evidence_sha256", "final_inspection_bytes_sha256"],
+      "properties": {
+        "project": {"type": "string", "minLength": 1},
+        "job_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}\\.[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"},
+        "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$"},
+        "input_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "authorization_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "authorization_scope_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "transport_profile_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "w5_result_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "w2_journal_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "lineage_id": {"type": "string", "pattern": "^direct-submitted-job-read-[a-f0-9]{64}$"},
+        "lineage_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "qstat_acquisition_id": {"type": "string", "pattern": "^direct-qstat-acquisition-[a-f0-9]{64}$"},
+        "qstat_acquisition_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "final_inspection_id": {"type": "string", "pattern": "^direct-scheduler-inspection-[a-f0-9]{64}$"},
+        "final_inspection_evidence_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "final_inspection_bytes_sha256": {"$ref": "#/$defs/nonzero_sha"}
+      }
+    },
+    "qstat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["qstat_evidence_sha256", "operation_id", "request_id", "request_frame_sha256", "response_frame_sha256", "read_profile_payload_sha256", "qstat_executable_sha256", "qstat_executable_identity_sha256"],
+      "properties": {
+        "qstat_evidence_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "operation_id": {"type": "string", "pattern": "^fixed-ssh-operation-[a-f0-9]{64}$"},
+        "request_id": {"type": "string", "pattern": "^direct-qstat-request-[a-f0-9]{64}$"},
+        "request_frame_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "response_frame_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "read_profile_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "qstat_executable_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "qstat_executable_identity_sha256": {"$ref": "#/$defs/nonzero_sha"}
+      }
+    },
+    "successor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "f1_source_sha256", "channel_source_sha256", "materializer_source_sha256", "single_use"],
+      "properties": {
+        "operation": {"const": "fetch_terminal_minimum_bundle"},
+        "f1_source_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "channel_source_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "materializer_source_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "single_use": {"const": true}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portable_projection_is_authority", "authorizes_effect", "authorizes_fetch_transition", "authorizes_materialization", "scientific_acceptance", "gaussian_completion", "qsub", "qdel", "cancel", "retry", "delete", "cleanup", "single_use", "automatic_retry"],
+      "properties": {
+        "portable_projection_is_authority": {"const": false},
+        "authorizes_effect": {"const": false},
+        "authorizes_fetch_transition": {"const": false},
+        "authorizes_materialization": {"const": false},
+        "scientific_acceptance": {"const": false},
+        "gaussian_completion": {"const": false},
+        "qsub": {"const": false},
+        "qdel": {"const": false},
+        "cancel": {"const": false},
+        "retry": {"const": false},
+        "delete": {"const": false},
+        "cleanup": {"const": false},
+        "single_use": {"const": true},
+        "automatic_retry": {"const": false}
+      }
+    }
+  }
+}

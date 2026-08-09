@@ -1049,13 +1049,16 @@ def _build_capability_owner_entries() -> tuple[Any, Any, Any, Any, Any, Any, Any
         accept = getattr(successor, "_accept_lineage_handoff_once", None)
         owner_type = getattr(successor, "DirectFetchAcquisitionOwner", None)
         expected_test_token = getattr(successor, "_TEST_TOKEN", None)
+        expected_production_token = getattr(
+            successor, "_PRODUCTION_OWNER_TOKEN", None,
+        )
         assert_binding = getattr(successor, "_assert_module_binding", None)
         _require(
             type(successor) is types.ModuleType
             and Path(getattr(successor, "__file__", "")).resolve() == expected_path
             and type(owner_type) is type
             and type(successor_owner) is owner_type
-            and test_token is expected_test_token
+            and test_token in {expected_test_token, expected_production_token}
             and callable(accept)
             and callable(assert_binding),
             "canonical direct fetch successor binding differs",

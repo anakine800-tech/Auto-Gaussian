@@ -426,6 +426,9 @@ _QSTAT_OWNER_BINDING: tuple[types.ModuleType, object, object, type, str] | None 
 _QSTAT_ISSUANCE_BINDING_LOCK = threading.RLock()
 _QSTAT_ISSUANCE_BINDING: tuple[types.ModuleType, object, object, type, str] | None = None
 _QUERY_CODEC_TEST_TOKEN = object()
+_FETCH_ISSUANCE_BINDING_LOCK = threading.RLock()
+_FETCH_ISSUANCE_BINDING: tuple[types.ModuleType, object, object, type, str] | None = None
+_FETCH_OPERATION_TEST_TOKEN = object()
 
 
 class _SealedOperation:
@@ -668,6 +671,50 @@ def _resolve_qstat_query_issuance_owner() -> tuple[object, type]:
     return authority_assert, authority_type
 
 
+def _resolve_terminal_fetch_issuance_owner() -> tuple[object, type]:
+    """Resolve only the canonical terminal-grant successor authority."""
+
+    global _FETCH_ISSUANCE_BINDING
+    module = sys.modules.get("direct_minimum_production_closure")
+    expected_path = os.path.realpath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "direct_minimum_production_closure.py",
+        )
+    )
+    module_path = os.path.realpath(getattr(module, "__file__", ""))
+    authority_assert = getattr(
+        module, "_assert_shared_channel_fetch_issuance_authority", None,
+    )
+    module_assert = getattr(module, "_assert_module_binding", None)
+    authority_type = getattr(module, "_ExactFetchIssuanceAuthority", None)
+    _require(
+        type(module) is types.ModuleType
+        and module_path == expected_path
+        and callable(authority_assert)
+        and callable(module_assert)
+        and getattr(module_assert, "__module__", None)
+        == "direct_minimum_production_closure"
+        and type(authority_type) is type
+        and authority_type.__module__ == "direct_minimum_production_closure",
+        "canonical terminal fetch issuance owner differs",
+    )
+    module_assert()
+    with open(expected_path, "rb") as source:
+        source_sha256 = hashlib.sha256(source.read()).hexdigest()
+    candidate = (
+        module, module_assert, authority_assert, authority_type, source_sha256,
+    )
+    with _FETCH_ISSUANCE_BINDING_LOCK:
+        if _FETCH_ISSUANCE_BINDING is None:
+            _FETCH_ISSUANCE_BINDING = candidate
+        _require(
+            _FETCH_ISSUANCE_BINDING == candidate,
+            "canonical terminal fetch issuance owner was reloaded or rebound",
+        )
+    return authority_assert, authority_type
+
+
 def _make_operation_owner() -> tuple[object, ...]:
     registry: weakref.WeakKeyDictionary[_SealedOperation, _OperationRecord] = weakref.WeakKeyDictionary()
     terminal_order: collections.deque[weakref.ReferenceType[_SealedOperation]] = collections.deque()
@@ -852,7 +899,7 @@ def _make_operation_owner() -> tuple[object, ...]:
         read_profile_raw: bytes,
         job_id: str,
         *,
-        _test_token: object,
+        _test_token: object = _FETCH_OPERATION_TEST_TOKEN,
     ) -> QueryExactJobOperation:
         _require(_test_token is _QUERY_CODEC_TEST_TOKEN, "query codec test token differs")
         _require(type(job_id) is str and JOB_ID_RE.fullmatch(job_id) is not None, "query job ID differs")
@@ -873,9 +920,65 @@ def _make_operation_owner() -> tuple[object, ...]:
     def issue_fetch(
         transport_profile_raw: bytes,
         read_profile_raw: bytes,
-        job_id: str,
+        fetch_issuance_authority: object,
     ) -> FetchTerminalMinimumBundleOperation:
         _assert_production_binding()
+        authority_assert, authority_type = _resolve_terminal_fetch_issuance_owner()
+        _require(
+            type(fetch_issuance_authority) is authority_type,
+            "exact terminal fetch issuance authority is required",
+        )
+        issued = authority_assert(
+            fetch_issuance_authority,
+            transport_profile_raw,
+            read_profile_raw,
+        )
+        _require(
+            type(issued) is tuple and len(issued) == 2,
+            "terminal fetch issuance result differs",
+        )
+        job_id, evidence_raw = issued
+        _require(type(job_id) is str and JOB_ID_RE.fullmatch(job_id) is not None, "fetch job ID differs")
+        _require(
+            type(evidence_raw) is bytes
+            and 0 < len(evidence_raw) <= MAX_CONTROL_FRAME_BYTES,
+            "terminal fetch evidence bytes differ",
+        )
+        try:
+            evidence = json.loads(evidence_raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SharedFixedSSHChannelError(
+                "terminal fetch evidence is malformed"
+            ) from exc
+        _require(
+            type(evidence) is dict and canonical_bytes(evidence) == evidence_raw,
+            "terminal fetch evidence is not canonical",
+        )
+        transport = load_transport_profile(transport_profile_raw)
+        read_profile = load_read_profile(read_profile_raw, transport_profile_raw)
+        return register(
+            FetchTerminalMinimumBundleOperation,
+            "fetch_terminal_minimum_bundle",
+            transport_profile_raw,
+            transport,
+            read_profile_raw=read_profile_raw,
+            read_profile=read_profile,
+            job_id=job_id,
+            submit_request_frame=evidence_raw,
+            submit_request_id=None,
+        )  # type: ignore[return-value]
+
+    def issue_fetch_for_testing(
+        transport_profile_raw: bytes,
+        read_profile_raw: bytes,
+        job_id: str,
+        *,
+        _test_token: object = _FETCH_OPERATION_TEST_TOKEN,
+    ) -> FetchTerminalMinimumBundleOperation:
+        _require(
+            _test_token is _FETCH_OPERATION_TEST_TOKEN,
+            "fetch operation test token differs",
+        )
         _require(type(job_id) is str and JOB_ID_RE.fullmatch(job_id) is not None, "fetch job ID differs")
         transport = load_transport_profile(transport_profile_raw)
         read_profile = load_read_profile(read_profile_raw, transport_profile_raw)
@@ -995,6 +1098,7 @@ def _make_operation_owner() -> tuple[object, ...]:
         issue_query,
         issue_query_for_testing,
         issue_fetch,
+        issue_fetch_for_testing,
         snapshot,
         projection,
         claim_submit,
@@ -1010,6 +1114,7 @@ def _make_operation_owner() -> tuple[object, ...]:
     issue_query_exact_job_operation,
     _issue_query_exact_job_operation_for_testing,
     issue_fetch_terminal_minimum_bundle_operation,
+    _issue_fetch_terminal_minimum_bundle_operation_for_testing,
     _operation_snapshot,
     _operation_projection,
     _claim_submit_operation,
@@ -1078,6 +1183,26 @@ def project_fetch_request_frame_for_review(operation: FetchTerminalMinimumBundle
     )
     _assert_production_binding()
     snapshot = _operation_snapshot(operation, FetchTerminalMinimumBundleOperation, {"issued"})
+    if snapshot.submit_request_frame is None:
+        return _canonical_frame(
+            {
+                "protocol": READ_PROTOCOL,
+                "operation": "fetch_terminal_minimum_bundle",
+                "operation_id": snapshot.operation_id,
+                "job_id": snapshot.job_id,
+                "bundle": "terminal_minimum_v1",
+                "authority": {"authorizes_effect": False, "qsub_calls": "0"},
+            }
+        )
+    try:
+        evidence = json.loads(snapshot.submit_request_frame.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SharedFixedSSHChannelError("fetch operation evidence is malformed") from exc
+    _require(
+        type(evidence) is dict
+        and canonical_bytes(evidence) == snapshot.submit_request_frame,
+        "fetch operation evidence differs",
+    )
     return _canonical_frame(
         {
             "protocol": READ_PROTOCOL,
@@ -1085,6 +1210,7 @@ def project_fetch_request_frame_for_review(operation: FetchTerminalMinimumBundle
             "operation_id": snapshot.operation_id,
             "job_id": snapshot.job_id,
             "bundle": "terminal_minimum_v1",
+            "evidence": evidence,
             "authority": {"authorizes_effect": False, "qsub_calls": "0"},
         }
     )
@@ -1416,15 +1542,17 @@ def _make_query_child_owner() -> tuple[Any, Any, Any, Any, Any]:
         return wait_reaped(time.monotonic() + half_window)
 
     def fork_for_query_operation(
-        operation: QueryExactJobOperation,
+        operation: QueryExactJobOperation | FetchTerminalMinimumBundleOperation,
     ) -> tuple[int, _QueryChildHandle | None]:
         require_environment()
         _require(
-            type(operation) is QueryExactJobOperation,
-            "exact running query operation is required for child fork",
+            type(operation) in {
+                QueryExactJobOperation, FetchTerminalMinimumBundleOperation,
+            },
+            "exact running read operation is required for child fork",
         )
         snapshot = operation_snapshot(
-            operation, QueryExactJobOperation, {"running"}
+            operation, type(operation), {"running"}
         )
         operation_id = snapshot.operation_id
         with lock:
@@ -1771,6 +1899,103 @@ def run_query_channel_once(
             _retire_query_child_bounded(child_handle)
 
 
+def run_fetch_channel_once(
+    operation: FetchTerminalMinimumBundleOperation,
+    request_frame: bytes,
+) -> tuple[object, dict[str, Any]]:
+    """Start one fixed SSH fetch and return the owner-held stream session."""
+
+    _require(
+        type(operation) is FetchTerminalMinimumBundleOperation,
+        "exact FetchTerminalMinimumBundleOperation is required",
+    )
+    _assert_production_binding()
+    expected_frame = project_fetch_request_frame_for_review(operation)
+    _require(
+        type(request_frame) is bytes
+        and request_frame == expected_frame,
+        "fetch request differs from the exact operation",
+    )
+    snapshot = _claim_fetch_operation(operation)
+    profile = load_read_profile(
+        snapshot.read_profile_raw, snapshot.transport_profile_raw,
+    )
+    deadline = time.monotonic() + int(
+        profile["server_read"]["fetch"]["timeout_seconds"], 10,
+    )
+    ssh_fd = -1
+    read_in = write_in = read_out = write_out = read_err = write_err = -1
+    child_handle = None
+    stream_started = False
+    try:
+        _require_descriptor_exec_available()
+        transport = load_transport_profile(snapshot.transport_profile_raw)
+        argv = build_controller_argv(snapshot.transport_profile_raw, operation)
+        ssh_fd = _open_reviewed_executable(
+            SSH_EXECUTABLE, transport["ssh"]["executable_sha256"],
+        )
+        read_in, write_in = _pipe_cloexec()
+        read_out, write_out = _pipe_cloexec()
+        read_err, write_err = _pipe_cloexec()
+        try:
+            pid, child_handle = _fork_query_child_for_operation(operation)
+        except BaseException as exc:
+            raise ControllerTransportUnknown(
+                "fetch child fork/registration is unknown; no retry"
+            ) from exc
+        if pid == 0:  # pragma: no cover - real controller only
+            try:
+                os.dup2(read_in, 0)
+                os.dup2(write_out, 1)
+                os.dup2(write_err, 2)
+                _assert_reviewed_executable_descriptor(
+                    ssh_fd, SSH_EXECUTABLE,
+                    transport["ssh"]["executable_sha256"],
+                )
+                for descriptor in (
+                    read_in, write_in, read_out, write_out, read_err, write_err,
+                ):
+                    if descriptor > 2:
+                        _close_quiet(descriptor)
+                _descriptor_execve(ssh_fd, argv, FIXED_ENVIRONMENT)
+            except BaseException:
+                os._exit(127)
+        _require(
+            type(child_handle) is _QueryChildHandle,
+            "fetch child owner did not issue its exact handle",
+        )
+        _close_quiet(read_in, write_out, write_err, ssh_fd)
+        read_in = write_out = write_err = ssh_fd = -1
+        _send_frame_until(write_in, request_frame, deadline)
+        write_in = -1
+        session, header = _FETCH_STREAM_BEGIN(
+            read_out,
+            operation,
+            deadline,
+            already_claimed=True,
+            child_handle=child_handle,
+            stderr_descriptor=read_err,
+        )
+        stream_started = True
+        child_handle = None
+        read_err = -1
+        return session, header
+    except ControllerTransportUnknown:
+        raise
+    except BaseException as exc:
+        raise ControllerTransportUnknown(
+            "fixed fetch transport is unknown; no retry"
+        ) from exc
+    finally:
+        _close_quiet(
+            read_in, write_in, read_out, write_out, read_err, write_err, ssh_fd,
+        )
+        if child_handle is not None:
+            _retire_query_child_bounded(child_handle)
+        if not stream_started:
+            _finish_operation(operation)
+
+
 def _validate_query_response_snapshot(
     snapshot: _OperationSnapshot,
     response: Any,
@@ -1866,7 +2091,7 @@ def _read_fetch_response_buffered_for_tests_until(
         header = _read_canonical_frame_until(descriptor, deadline, 65536, "fetch control header")
         header = _exact(
             header,
-            {"protocol", "status", "operation_id", "job_id", "chunk_count", "total_size_bytes", "bundle_sha256", "authority"},
+            {"protocol", "status", "operation_id", "job_id", "chunk_count", "total_size_bytes", "bundle_commitment_sha256", "authority"},
             "fetch control header",
         )
         _require(
@@ -1874,7 +2099,10 @@ def _read_fetch_response_buffered_for_tests_until(
             and header["status"] == "streaming_terminal_minimum_bundle"
             and header["operation_id"] == snapshot.operation_id
             and header["job_id"] == snapshot.job_id
-            and _sha(header["bundle_sha256"], "fetch bundle hash")
+            and _sha(
+                header["bundle_commitment_sha256"],
+                "fetch bundle commitment",
+            )
             and header["authority"] == {"authorizes_effect": False, "qsub_calls": "0"},
             "fetch control header identity or authority differs",
         )
@@ -1908,7 +2136,7 @@ def _read_fetch_response_buffered_for_tests_until(
         trailer = _read_canonical_frame_until(descriptor, deadline, 65536, "fetch trailer")
         trailer = _exact(
             trailer,
-            {"protocol", "status", "operation_id", "job_id", "chunk_count", "total_size_bytes", "bundle_sha256", "authority", "trailer_payload_sha256"},
+            {"protocol", "status", "operation_id", "job_id", "chunk_count", "total_size_bytes", "bundle_commitment_sha256", "bundle_sha256", "authority", "trailer_payload_sha256"},
             "fetch trailer",
         )
         bundle = bundle_buffer
@@ -1921,7 +2149,8 @@ def _read_fetch_response_buffered_for_tests_until(
             and trailer["chunk_count"] == header["chunk_count"]
             and trailer["total_size_bytes"] == header["total_size_bytes"]
             and trailer["bundle_sha256"] == hashlib.sha256(bundle).hexdigest()
-            and trailer["bundle_sha256"] == header["bundle_sha256"]
+            and trailer["bundle_commitment_sha256"]
+            == header["bundle_commitment_sha256"]
             and trailer["authority"] == {"authorizes_effect": False, "qsub_calls": "0"}
             and supplied == digest({**trailer, "trailer_payload_sha256": ""}),
             "fetch trailer identity, digest, or authority differs",
@@ -1968,6 +2197,8 @@ class _FetchStreamRecord:
     hasher: Any
     creator_pid: int
     lock: Any
+    child_handle: _QueryChildHandle | None
+    stderr_descriptor: int
 
 
 def _make_fetch_stream_owner() -> tuple[object, ...]:
@@ -1990,7 +2221,7 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
         )
         return record
 
-    def terminalize(record: _FetchStreamRecord) -> None:
+    def terminalize(record: _FetchStreamRecord, *, completed: bool) -> None:
         with registry_lock:
             if registry.get(record.session._key) is record:
                 del registry[record.session._key]
@@ -1998,12 +2229,56 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
             os.close(record.descriptor)
         except OSError:
             pass
-        _finish_operation(record.operation)
+        try:
+            if record.child_handle is not None:
+                if completed:
+                    try:
+                        stderr = bytearray()
+                        while True:
+                            remaining = record.deadline - time.monotonic()
+                            _require(
+                                remaining > 0,
+                                "fetch child stderr deadline expired",
+                            )
+                            ready, _, exceptional = select.select(
+                                [record.stderr_descriptor], [],
+                                [record.stderr_descriptor], remaining,
+                            )
+                            _require(
+                                not exceptional and bool(ready),
+                                "fetch child stderr is unknown",
+                            )
+                            chunk = os.read(record.stderr_descriptor, 65536)
+                            if not chunk:
+                                break
+                            stderr.extend(chunk)
+                            _require(
+                                len(stderr) <= 64 * 1024,
+                                "fetch child stderr exceeds its fixed cap",
+                            )
+                        _require(stderr == b"", "fixed SSH fetch emitted stderr")
+                        child_exit = _wait_query_child_until(
+                            record.child_handle, record.deadline,
+                        )
+                        _require(child_exit == 0, "fixed fetch child exit differs")
+                    except BaseException:
+                        _retire_query_child_bounded(record.child_handle)
+                        raise
+                else:
+                    _retire_query_child_bounded(record.child_handle)
+        finally:
+            if record.child_handle is not None:
+                _close_quiet(record.stderr_descriptor)
+            _finish_operation(record.operation)
 
     def begin(
         descriptor: int,
         operation: FetchTerminalMinimumBundleOperation,
         deadline: float,
+        *,
+        already_claimed: bool = False,
+        child_handle: _QueryChildHandle | None = None,
+        stderr_descriptor: int = -1,
     ) -> tuple[_FetchResponseStreamSession, dict[str, Any]]:
         _assert_production_binding()
         _require(
@@ -2012,7 +2287,26 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
             and type(deadline) is float,
             "fetch response stream arguments differ",
         )
-        snapshot = _claim_fetch_operation(operation)
+        _require(
+            type(already_claimed) is bool
+            and (
+                (child_handle is None and stderr_descriptor == -1)
+                or (
+                    already_claimed
+                    and type(child_handle) is _QueryChildHandle
+                    and type(stderr_descriptor) is int
+                    and stderr_descriptor >= 0
+                )
+            ),
+            "fetch response child ownership differs",
+        )
+        snapshot = (
+            _operation_snapshot(
+                operation, FetchTerminalMinimumBundleOperation, {"running"},
+            )
+            if already_claimed
+            else _claim_fetch_operation(operation)
+        )
         owned_descriptor = -1
         try:
             _require(
@@ -2047,7 +2341,8 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
                 header,
                 {
                     "protocol", "status", "operation_id", "job_id",
-                    "chunk_count", "total_size_bytes", "bundle_sha256", "authority",
+                    "chunk_count", "total_size_bytes",
+                    "bundle_commitment_sha256", "authority",
                 },
                 "fetch control header",
             )
@@ -2075,7 +2370,10 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
                 == "streaming_terminal_minimum_bundle"
                 and header["operation_id"] == snapshot.operation_id
                 and header["job_id"] == snapshot.job_id
-                and _sha(header["bundle_sha256"], "fetch bundle hash")
+                and _sha(
+                    header["bundle_commitment_sha256"],
+                    "fetch bundle commitment",
+                )
                 and header["authority"]
                 == {"authorizes_effect": False, "qsub_calls": "0"},
                 "fetch control header identity or authority differs",
@@ -2099,6 +2397,8 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
                 hasher=hashlib.sha256(),
                 creator_pid=os.getpid(),
                 lock=threading.Lock(),
+                child_handle=child_handle,
+                stderr_descriptor=stderr_descriptor,
             )
             with registry_lock:
                 _require(
@@ -2114,6 +2414,9 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
                     os.close(owned_descriptor)
                 except OSError:
                     pass
+            if child_handle is not None:
+                _retire_query_child_bounded(child_handle)
+                _close_quiet(stderr_descriptor)
             _finish_operation(operation)
             raise
 
@@ -2164,11 +2467,32 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
                     record.observed += take
                 return bytes(output)
         except BaseException:
-            terminalize(record)
+            terminalize(record, completed=False)
             raise
 
     def assert_current(session: Any) -> None:
         exact(session)
+
+    def exact_operation_snapshot(
+        session: Any,
+        operation: FetchTerminalMinimumBundleOperation,
+    ) -> _OperationSnapshot:
+        """Join one live production stream to its exact running operation."""
+
+        record = exact(session)
+        _require(
+            type(operation) is FetchTerminalMinimumBundleOperation
+            and record.operation is operation,
+            "fetch response stream and operation are spliced",
+        )
+        snapshot = _operation_snapshot(
+            operation, FetchTerminalMinimumBundleOperation, {"running"},
+        )
+        _require(
+            snapshot == record.snapshot,
+            "fetch response stream operation snapshot differs",
+        )
+        return snapshot
 
     def finish(session: Any) -> dict[str, Any]:
         record = exact(session)
@@ -2190,7 +2514,8 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
                     trailer,
                     {
                         "protocol", "status", "operation_id", "job_id",
-                        "chunk_count", "total_size_bytes", "bundle_sha256",
+                        "chunk_count", "total_size_bytes",
+                        "bundle_commitment_sha256", "bundle_sha256",
                         "authority", "trailer_payload_sha256",
                     },
                     "fetch trailer",
@@ -2211,8 +2536,8 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
                     == record.header["total_size_bytes"]
                     and trailer["bundle_sha256"]
                     == record.hasher.hexdigest()
-                    and trailer["bundle_sha256"]
-                    == record.header["bundle_sha256"]
+                    and trailer["bundle_commitment_sha256"]
+                    == record.header["bundle_commitment_sha256"]
                     and trailer["authority"]
                     == {"authorizes_effect": False, "qsub_calls": "0"}
                     and supplied
@@ -2224,14 +2549,14 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
                     record.deadline,
                     "fetch response",
                 )
-            terminalize(record)
+            terminalize(record, completed=True)
             return copy.deepcopy(trailer)
         except BaseException:
-            terminalize(record)
+            terminalize(record, completed=False)
             raise
 
     def abandon(session: Any) -> None:
-        terminalize(exact(session))
+        terminalize(exact(session), completed=False)
 
     def after_fork_child() -> None:
         nonlocal registry_lock
@@ -2243,13 +2568,17 @@ def _make_fetch_stream_owner() -> tuple[object, ...]:
         registry.clear()
         registry_lock = threading.RLock()
 
-    return begin, read_exact, assert_current, finish, abandon, after_fork_child
+    return (
+        begin, read_exact, assert_current, exact_operation_snapshot,
+        finish, abandon, after_fork_child,
+    )
 
 
 (
     _FETCH_STREAM_BEGIN,
     _FETCH_STREAM_READ_EXACT,
     _FETCH_STREAM_ASSERT,
+    _FETCH_STREAM_OPERATION_SNAPSHOT,
     _FETCH_STREAM_FINISH,
     _FETCH_STREAM_ABANDON,
     _FETCH_STREAM_FORK_CHILD,
@@ -2310,8 +2639,11 @@ _FROZEN_QUERY_RUNNER = run_query_channel_once
 _FROZEN_QUERY_ISSUER = issue_query_exact_job_operation
 _FROZEN_QUERY_TEST_ISSUER = _issue_query_exact_job_operation_for_testing
 _FROZEN_FETCH_ISSUER = issue_fetch_terminal_minimum_bundle_operation
+_FROZEN_FETCH_TEST_ISSUER = _issue_fetch_terminal_minimum_bundle_operation_for_testing
+_FROZEN_FETCH_ISSUANCE_RESOLVER = _resolve_terminal_fetch_issuance_owner
 _FROZEN_QUERY_PROJECTION = project_query_request_frame_for_review
 _FROZEN_FETCH_PROJECTION = project_fetch_request_frame_for_review
+_FROZEN_FETCH_RUNNER = run_fetch_channel_once
 _FROZEN_CANONICAL_FRAME = _canonical_frame
 _FROZEN_CANONICAL_FRAME_VALIDATOR = _validate_single_canonical_frame_bytes
 _FROZEN_RECORD_COMMITMENT = _record_commitment
@@ -2323,6 +2655,7 @@ _FROZEN_FETCH_CODEC = _read_fetch_response_buffered_for_tests_until
 _FROZEN_FETCH_STREAM_BEGIN = _FETCH_STREAM_BEGIN
 _FROZEN_FETCH_STREAM_READ_EXACT = _FETCH_STREAM_READ_EXACT
 _FROZEN_FETCH_STREAM_ASSERT = _FETCH_STREAM_ASSERT
+_FROZEN_FETCH_STREAM_OPERATION_SNAPSHOT = _FETCH_STREAM_OPERATION_SNAPSHOT
 _FROZEN_FETCH_STREAM_FINISH = _FETCH_STREAM_FINISH
 _FROZEN_FETCH_STREAM_ABANDON = _FETCH_STREAM_ABANDON
 _FROZEN_FETCH_STREAM_FORK_CHILD = _FETCH_STREAM_FORK_CHILD
@@ -2420,8 +2753,13 @@ def _assert_production_binding() -> None:
         and issue_query_exact_job_operation is _FROZEN_QUERY_ISSUER
         and _issue_query_exact_job_operation_for_testing is _FROZEN_QUERY_TEST_ISSUER
         and issue_fetch_terminal_minimum_bundle_operation is _FROZEN_FETCH_ISSUER
+        and _issue_fetch_terminal_minimum_bundle_operation_for_testing
+        is _FROZEN_FETCH_TEST_ISSUER
+        and _resolve_terminal_fetch_issuance_owner
+        is _FROZEN_FETCH_ISSUANCE_RESOLVER
         and project_query_request_frame_for_review is _FROZEN_QUERY_PROJECTION
         and project_fetch_request_frame_for_review is _FROZEN_FETCH_PROJECTION
+        and run_fetch_channel_once is _FROZEN_FETCH_RUNNER
         and _canonical_frame is _FROZEN_CANONICAL_FRAME
         and _validate_single_canonical_frame_bytes is _FROZEN_CANONICAL_FRAME_VALIDATOR
         and _record_commitment is _FROZEN_RECORD_COMMITMENT
@@ -2433,6 +2771,8 @@ def _assert_production_binding() -> None:
         and _FETCH_STREAM_BEGIN is _FROZEN_FETCH_STREAM_BEGIN
         and _FETCH_STREAM_READ_EXACT is _FROZEN_FETCH_STREAM_READ_EXACT
         and _FETCH_STREAM_ASSERT is _FROZEN_FETCH_STREAM_ASSERT
+        and _FETCH_STREAM_OPERATION_SNAPSHOT
+        is _FROZEN_FETCH_STREAM_OPERATION_SNAPSHOT
         and _FETCH_STREAM_FINISH is _FROZEN_FETCH_STREAM_FINISH
         and _FETCH_STREAM_ABANDON is _FROZEN_FETCH_STREAM_ABANDON
         and _FETCH_STREAM_FORK_CHILD is _FROZEN_FETCH_STREAM_FORK_CHILD
@@ -2511,6 +2851,7 @@ __all__ = [
     "project_query_request_frame_for_review",
     "read_query_response_until",
     "run_submit_channel_once",
+    "run_fetch_channel_once",
     "validate_read_profile",
     "validate_transport_profile",
 ]

@@ -7,6 +7,7 @@ import ast
 import copy
 import gc
 import hashlib
+import inspect
 import importlib
 import json
 import os
@@ -35,6 +36,7 @@ sys.path.insert(0, str(SCRIPTS))
 import direct_existing_job_lineage as LINEAGE  # noqa: E402
 import direct_fetch_acquisition as FETCH  # noqa: E402
 import direct_local_fetch_materializer as MATERIALIZER  # noqa: E402
+import direct_qstat_acquisition as Q1  # noqa: E402
 import direct_shared_fixed_ssh_channel as CHANNEL  # noqa: E402
 import skill_package as SKILL_PACKAGE  # noqa: E402
 
@@ -149,7 +151,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
         )
 
     def streaming_closed_stream(self, server, projection, target):
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             self.read_profile_raw,
             self.receipt["qsub"]["job_id"],
@@ -187,7 +189,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
 
     def response(self):
         server, projection = self.server_capability()
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw, self.read_profile_raw, self.receipt["qsub"]["job_id"],
         )
         request = CHANNEL.project_fetch_request_frame_for_review(operation)
@@ -218,7 +220,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
             acquisition["authority"]["required_production_predecessor"],
             FETCH.REQUIRED_PRODUCTION_PREDECESSOR,
         )
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw, self.read_profile_raw, self.receipt["qsub"]["job_id"],
         )
         response = self.buffered_response(
@@ -236,14 +238,20 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
         self.assertTrue(stream_projection["authority"]["closed_stream_owner"])
         self.assertFalse(stream_projection["authority"]["production_integration"])
         lease = MATERIALIZER.issue_closed_fetch_stream_lease_once(target, stream)
-        self.assertEqual(lease.portable_projection()["stream_mode"], MATERIALIZER.CLOSED_STREAM_MODE)
+        self.assertEqual(
+            lease.portable_projection()["stream_mode"],
+            MATERIALIZER.LEGACY_CLOSED_STREAM_MODE,
+        )
         manifest = MATERIALIZER.materialize_direct_fetch_once(target, lease)
         leaf = self.local / manifest["target"]["leaf_basename"]
         for name, expected in zip(MATERIALIZER.ARTIFACT_BASENAMES, self.payloads, strict=True):
             self.assertEqual((leaf / name).read_bytes(), expected)
             self.assertEqual(stat.S_IMODE((leaf / name).stat().st_mode), 0o600)
         self.assertFalse(manifest["integration"]["production_integration"])
-        self.assertEqual(manifest["stream"]["stream_mode"], MATERIALIZER.CLOSED_STREAM_MODE)
+        self.assertEqual(
+            manifest["stream"]["stream_mode"],
+            MATERIALIZER.LEGACY_CLOSED_STREAM_MODE,
+        )
 
     def test_full_flow_streams_sixteen_mib_with_chunk_bounded_heap(self) -> None:
         large_size = 16 * 1024 * 1024
@@ -396,7 +404,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
         self.assertEqual(os.read(read_fd, 32), b"rejected")
         os.close(read_fd)
         os.waitpid(pid, 0)
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw, self.read_profile_raw, self.receipt["qsub"]["job_id"],
         )
         request = CHANNEL.project_fetch_request_frame_for_review(operation)
@@ -435,11 +443,17 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
             MATERIALIZER.issue_closed_fetch_stream_lease_once(target, stream)
         MATERIALIZER.materialize_direct_fetch_once(target, lease)
 
-    def test_no_public_raw_profile_or_generic_controller_acquisition_entrypoint_exists(self) -> None:
-        self.assertFalse(hasattr(FETCH, "issue_server_fetch_acquisition_once"))
-        self.assertFalse(hasattr(FETCH, "acquire_controller_fetch_stream_once"))
+    def test_public_production_joins_have_no_raw_profile_job_or_descriptor_surface(self) -> None:
         self.assertNotIn("issue_server_fetch_acquisition_once", FETCH.__all__)
-        self.assertNotIn("acquire_controller_fetch_stream_once", FETCH.__all__)
+        self.assertNotIn("serve_dispatched_fetch_request_once", FETCH.__all__)
+        self.assertFalse(hasattr(FETCH, "issue_server_fetch_acquisition_once"))
+        self.assertIn("acquire_controller_fetch_stream_once", FETCH.__all__)
+        self.assertEqual(
+            tuple(inspect.signature(
+                FETCH.acquire_controller_fetch_stream_once
+            ).parameters),
+            ("target_capability", "operation", "channel_result", "client_join"),
+        )
         lease, _projection = self.lineage_lease()
         with self.assertRaises(FETCH.DirectFetchAcquisitionError):
             FETCH._issue_server_fetch_acquisition_for_tests_once(
@@ -447,15 +461,89 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
             )
         lease.close_once()
 
+    def test_production_projection_requires_server_q1_terminal_evidence_and_grant_join(self) -> None:
+        server, lineage = self.server_capability()
+        projection = server.portable_projection()
+        server.abandon_once()
+        binding = lineage["binding"]
+        timestamp = "2026-08-06T01:00:00.000000Z"
+        stdout = (
+            f"Job Id: {binding['job_id']}\n"
+            f"    Job_Name = {binding['project']}\n"
+            "    job_state = C\n"
+        ).encode("ascii")
+        evidence = Q1.EVIDENCE.build_qstat_evidence(
+            Q1.EVIDENCE.DirectJobBinding(
+                project=binding["project"],
+                job_id=binding["job_id"],
+                attempt_id=binding["attempt_id"],
+                input_sha256=binding["input_sha256"],
+                direct_binding_sha256=lineage["result_payload_sha256"],
+            ),
+            Q1.EVIDENCE.QstatObservation(
+                returncode=0,
+                stdout=stdout,
+                stderr=b"",
+                timed_out=False,
+                eof_complete=True,
+                requested_at=timestamp,
+                collected_at=timestamp,
+                received_at=timestamp,
+            ),
+        ).document()
+        projection["controller_grant_payload_sha256"] = "a" * 64
+        projection["server_terminal_eligibility"] = evidence
+        projection["authority"]["production_stream_seam"] = True
+        projection["authority"]["required_production_predecessor"] = (
+            "terminal_fetch_grant_exact_controller_join"
+        )
+        projection["acquisition_id"] = "direct-fetch-acquisition-" + FETCH.digest({
+            "lineage_id": projection["lineage_id"],
+            "read_profile_payload_sha256": projection[
+                "read_profile_payload_sha256"
+            ],
+            "controller_grant_payload_sha256": projection[
+                "controller_grant_payload_sha256"
+            ],
+            "server_qstat_evidence_sha256": evidence[
+                "qstat_evidence_sha256"
+            ],
+            "files": projection["files"],
+        })
+        projection["result_payload_sha256"] = ""
+        projection["result_payload_sha256"] = FETCH.digest(projection)
+        self.assertEqual(
+            FETCH.validate_acquisition_projection(projection), projection,
+        )
+        for field in (
+            "controller_grant_payload_sha256",
+            "server_terminal_eligibility",
+        ):
+            hostile = copy.deepcopy(projection)
+            if field == "controller_grant_payload_sha256":
+                hostile[field] = "b" * 64
+            else:
+                hostile[field]["binding"]["job_id"] = "999.master"
+            hostile["result_payload_sha256"] = ""
+            hostile["result_payload_sha256"] = FETCH.digest(hostile)
+            with self.assertRaises(FETCH.DirectFetchAcquisitionError):
+                FETCH.validate_acquisition_projection(hostile)
+
+        source = inspect.getsource(FETCH._accept_lineage_handoff_once)
+        self.assertLess(
+            source.index("_acquire_terminal_fetch_eligibility_once"),
+            source.index("_observe_file"),
+        )
+
     def test_raw_fake_owner_and_l1_handoff_require_exact_private_test_token(self) -> None:
         with self.assertRaises(TypeError):
             FETCH._new_owner(self.read_profile_raw)
         with self.assertRaises(FETCH.DirectFetchAcquisitionError):
-            FETCH._new_owner(self.read_profile_raw, _test_token=object())
+            FETCH._new_owner(self.read_profile_raw, _owner_token=object())
         lease, _projection = self.lineage_lease()
         owner = FETCH._new_owner(
             self.read_profile_raw,
-            _test_token=FETCH._TEST_TOKEN,
+            _owner_token=FETCH._TEST_TOKEN,
         )
         with self.assertRaises(LINEAGE.DirectExistingJobLineageError):
             LINEAGE._CAPABILITY_HANDOFF_FETCH(lease, owner, object())
@@ -548,6 +636,40 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
         self.assertRegex(result, r"^[a-f0-9]{64}$")
         self.assertLess(peak, 2 * 1024 * 1024)
 
+    def test_production_stream_is_exactly_observe_then_single_payload_pass(self) -> None:
+        source = inspect.getsource(FETCH._build_server_owner_entries)
+        write_source = source[source.index("    def write_response("):]
+        self.assertEqual(write_source.count("yield from iter_current("), 1)
+        self.assertNotIn("for payload_chunk in iter_current(", write_source)
+        header_prefix = write_source[:write_source.index("write_until(")]
+        self.assertIn("bundle_commitment_sha256", header_prefix)
+        self.assertNotIn('"bundle_sha256"', header_prefix)
+        self.assertIn('"bundle_sha256": hasher.hexdigest()', write_source)
+        observe_source = inspect.getsource(FETCH._observe_file)
+        self.assertEqual(
+            observe_source.count("_iter_current_file_chunks("), 1,
+        )
+
+    def test_dispatch_budget_is_consumed_once_and_reused_through_stream(self) -> None:
+        handoff = inspect.getsource(FETCH._accept_lineage_handoff_once)
+        self.assertEqual(
+            handoff.count("_consume_dispatch_budget_once"), 1,
+        )
+        self.assertNotIn("time.monotonic() + timeout", handoff.split("else:")[0])
+        self.assertIn(
+            "descriptors.project_fd, project_info, basename, cap, deadline",
+            handoff,
+        )
+        self.assertIn(
+            "dispatch_budget if owner._production else deadline,",
+            handoff,
+        )
+        writer = inspect.getsource(FETCH._build_server_owner_entries)
+        self.assertIn(
+            "deadline_value(record, projection)",
+            writer[writer.index("    def write_response("):],
+        )
+
     def test_require_and_canonical_helper_rebinding_cannot_bypass_stale_file(self) -> None:
         server, _projection = self.server_capability()
         path = self.project / "approved-input.log"
@@ -578,6 +700,16 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
             server.assert_current()
         with self.assertRaises(FETCH.DirectFetchAcquisitionError):
             server.abandon_once()
+        self.tearDown()
+        self.setUp()
+        target, stream = self.closed_stream()
+        stream.abandon_once()
+        with self.assertRaises(FETCH.DirectFetchAcquisitionError):
+            stream.assert_current()
+        with self.assertRaises(FETCH.DirectFetchAcquisitionError):
+            stream.abandon_once()
+        target.assert_current()
+        target.abandon_once()
 
     def test_server_rejects_nonallowlisted_types_links_modes_and_missing_files(self) -> None:
         path = self.project / "approved-input.log"
@@ -645,7 +777,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
         os.replace(replacement, path)
         with self.assertRaises(FETCH.DirectFetchAcquisitionError):
             server.assert_current()
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             self.read_profile_raw,
             self.receipt["qsub"]["job_id"],
@@ -695,7 +827,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
 
     def test_request_rejects_job_operation_authority_extra_and_second_frame(self) -> None:
         variants = []
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw, self.read_profile_raw, self.receipt["qsub"]["job_id"],
         )
         valid = CHANNEL.project_fetch_request_frame_for_review(operation)
@@ -739,7 +871,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
             profile_raw,
             _test_token=FETCH._TEST_TOKEN,
         )
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             profile_raw,
             self.receipt["qsub"]["job_id"],
@@ -816,8 +948,11 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
                 for path in retained
             ))
             break  # operation is terminal after the first attempted read
-        query = CHANNEL.issue_query_exact_job_operation(
-            self.transport_raw, self.read_profile_raw, self.receipt["qsub"]["job_id"],
+        query = CHANNEL._issue_query_exact_job_operation_for_testing(
+            self.transport_raw,
+            self.read_profile_raw,
+            self.receipt["qsub"]["job_id"],
+            _test_token=CHANNEL._QUERY_CODEC_TEST_TOKEN,
         )
         with self.assertRaises(FETCH.DirectFetchAcquisitionError):
             FETCH._acquire_controller_fetch_stream_for_tests_once(
@@ -873,10 +1008,24 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
         with self.assertRaises((FETCH.DirectFetchAcquisitionError, MATERIALIZER.DirectLocalFetchMaterializerError)):
             MATERIALIZER.issue_closed_fetch_stream_lease_once(target_b, stream)
         target_a.assert_current()
-        lease = MATERIALIZER.issue_closed_fetch_stream_lease_once(target_a, stream)
         with self.assertRaises(FETCH.DirectFetchAcquisitionError):
-            MATERIALIZER.issue_closed_fetch_stream_lease_once(target_a, stream)
-        MATERIALIZER.materialize_direct_fetch_once(target_a, lease)
+            stream.assert_current()
+        target_a.abandon_once()
+        target_b.abandon_once()
+
+    def test_post_consume_t4_validation_failure_abandons_exact_reader(self) -> None:
+        target, stream = self.closed_stream()
+        target_record = MATERIALIZER._target_record(target)
+        target_record.production_integration = True
+        with self.assertRaisesRegex(
+            MATERIALIZER.DirectLocalFetchMaterializerError,
+            "authority differs",
+        ):
+            MATERIALIZER.issue_closed_fetch_stream_lease_once(target, stream)
+        with self.assertRaises(FETCH.DirectFetchAcquisitionError):
+            stream.assert_current()
+        target.assert_current()
+        target.abandon_once()
 
     def test_reload_rebind_and_source_drift_fail_before_transition(self) -> None:
         with self.assertRaises(ImportError):
@@ -894,7 +1043,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
         with mock.patch.object(FETCH.os, "read", lambda *_args: b""):
             with self.assertRaises(FETCH.DirectFetchAcquisitionError):
                 server.assert_current()
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw, self.read_profile_raw,
             self.receipt["qsub"]["job_id"],
         )
@@ -973,7 +1122,7 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
 
     def test_buffered_test_helpers_require_exact_token_before_consumption(self) -> None:
         server, _projection = self.server_capability()
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             self.read_profile_raw,
             self.receipt["qsub"]["job_id"],

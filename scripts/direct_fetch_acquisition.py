@@ -16,6 +16,8 @@ if globals().get("_AUTO_G16_DIRECT_FETCH_ACQUISITION_EXECUTED", False):
 _AUTO_G16_DIRECT_FETCH_ACQUISITION_EXECUTED = True
 
 import copy
+import base64
+import binascii
 import fcntl
 import hashlib
 import json
@@ -33,6 +35,8 @@ from typing import Any, NamedTuple
 
 import direct_existing_job_lineage as LINEAGE
 import direct_local_fetch_materializer as MATERIALIZER
+import direct_qstat_acquisition as Q1
+import direct_reviewed_read_profile as READ_PROFILE
 import direct_shared_fixed_ssh_channel as CHANNEL
 
 
@@ -50,6 +54,8 @@ MAX_HEADER_BYTES = 1024 * 1024
 MAX_BUFFERED_TEST_BUNDLE_BYTES = 2 * 1024 * 1024
 REQUIRED_PRODUCTION_PREDECESSOR = "Q1_backend_owned_reviewed_read_authority_exact_type"
 _TEST_TOKEN = object()
+_CLIENT_JOIN_BINDING_LOCK = threading.RLock()
+_CLIENT_JOIN_BINDING: tuple[types.ModuleType, object, object, type, str] | None = None
 
 
 class DirectFetchAcquisitionError(ValueError):
@@ -295,7 +301,7 @@ class _ServerRecord(NamedTuple):
     files: tuple[_ObservedFile, ...]
     read_profile_raw: bytes
     transport_profile_raw: bytes
-    deadline: float
+    deadline_authority: object
     commitment_sha256: str
 
 
@@ -318,7 +324,7 @@ class _ReaderRecord:
     projection_raw: bytes
     channel_session: object
     files: tuple[tuple[str, str, str], ...]
-    bundle_sha256: str
+    bundle_commitment_sha256: str
     file_index: int
     file_remaining: int | None
     file_hasher: Any
@@ -329,13 +335,20 @@ _SERVER_TOKEN = object()
 _CONTROLLER_TOKEN = object()
 _READER_TOKEN = object()
 _OWNER_TOKEN = object()
+_PRODUCTION_OWNER_TOKEN = object()
 _PROCESS_EPOCH = object()
 _LOCK = threading.RLock()
-_OWNER_REGISTRY: dict[int, tuple[object, bytes, int, object, bool]] = {}
+_OWNER_REGISTRY: dict[
+    int,
+    tuple[
+        object, bytes, int, object, bool, bool, object | None, bytes | None,
+        str | None,
+    ],
+] = {}
 
 
 class DirectFetchAcquisitionOwner:
-    __slots__ = ("_key", "_seal")
+    __slots__ = ("_key", "_seal", "_production")
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         raise TypeError("direct fetch acquisition owners are module-issued only")
@@ -388,6 +401,11 @@ class ClosedDirectFetchStreamCapability:
     def portable_projection(self) -> dict[str, Any]:
         return _CONTROLLER_PROJECT(self)
 
+    def abandon_once(self) -> None:
+        """Terminalize an unused controller stream and retire its channel."""
+
+        _CONTROLLER_ABANDON(self)
+
     def __copy__(self) -> Any:
         raise TypeError("closed fetch stream capabilities are not clonable")
 
@@ -404,6 +422,11 @@ class ClosedDirectFetchReaderCapability:
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         raise TypeError("closed fetch readers are owner-issued only")
 
+    def abandon_once(self) -> None:
+        """Terminalize an uncommitted materializer transfer."""
+
+        _READER_ABANDON(self)
+
     def __copy__(self) -> Any:
         raise TypeError("closed fetch readers are not clonable")
 
@@ -417,17 +440,43 @@ class ClosedDirectFetchReaderCapability:
 def _new_owner(
     read_profile_raw: bytes,
     *,
-    _test_token: object,
+    _owner_token: object,
+    _dispatch_budget: object | None = None,
+    _dispatch_frame: bytes | None = None,
+    _controller_grant_sha256: str | None = None,
 ) -> DirectFetchAcquisitionOwner:
     _assert_module_binding()
-    _require(_test_token is _TEST_TOKEN, "fetch acquisition owner test token differs")
+    _require(
+        _owner_token in {_TEST_TOKEN, _PRODUCTION_OWNER_TOKEN},
+        "fetch acquisition owner token differs",
+    )
     _require(type(read_profile_raw) is bytes and bool(read_profile_raw), "read profile bytes differ")
     owner = object.__new__(DirectFetchAcquisitionOwner)
     owner._key = id(owner)
     owner._seal = _OWNER_TOKEN
+    owner._production = _owner_token is _PRODUCTION_OWNER_TOKEN
+    _require(
+        (
+            not owner._production
+            and _dispatch_budget is None
+            and _dispatch_frame is None
+            and _controller_grant_sha256 is None
+        )
+        or (
+            owner._production
+            and _dispatch_budget is not None
+            and type(_dispatch_frame) is bytes
+            and bool(_dispatch_frame)
+            and type(_controller_grant_sha256) is str
+            and SHA_RE.fullmatch(_controller_grant_sha256) is not None
+        ),
+        "production fetch owner requires the exact dispatcher budget",
+    )
     with _LOCK:
         _OWNER_REGISTRY[owner._key] = (
             owner, bytes(read_profile_raw), os.getpid(), _PROCESS_EPOCH, False,
+            owner._production, _dispatch_budget, _dispatch_frame,
+            _controller_grant_sha256,
         )
     return owner
 
@@ -445,13 +494,179 @@ def _issue_server_fetch_acquisition_for_tests_once(
         type(lease) is LINEAGE.DirectSubmittedJobReadLease,
         "exact existing-job read lease is required",
     )
-    owner = _new_owner(read_profile_raw, _test_token=_test_token)
+    owner = _new_owner(read_profile_raw, _owner_token=_test_token)
     result = LINEAGE._CAPABILITY_HANDOFF_FETCH(lease, owner, _test_token)
     _require(
         type(result) is DirectServerFetchAcquisitionCapability,
         "existing-job successor returned a foreign capability",
     )
     return result
+
+
+def _issue_server_fetch_acquisition_from_dispatcher_once(
+    portable_receipt_bytes: bytes,
+    artifacts: object,
+    dispatch_budget: object,
+    dispatch_frame: bytes,
+    controller_grant_sha256: str,
+) -> DirectServerFetchAcquisitionCapability:
+    """Private fixed-dispatcher entry; reissue exact server-local owners."""
+
+    _assert_module_binding()
+    _require(
+        type(artifacts) is LINEAGE.SESSION.DirectServerSessionArtifacts,
+        "exact server session artifacts are required",
+    )
+    read_capability = READ_PROFILE.DirectReviewedReadProfileOwner.production().issue_once(
+        artifacts.transport_profile
+    )
+    read_lease, read_profile_raw, _projection = READ_PROFILE._consume_for_q1_once(
+        read_capability
+    )
+    lineage_lease = None
+    try:
+        lineage_lease = LINEAGE.DirectExistingJobLineageOwner.production().issue_once(
+            portable_receipt_bytes, artifacts,
+        ).consume_once()
+        owner = _new_owner(
+            read_profile_raw,
+            _owner_token=_PRODUCTION_OWNER_TOKEN,
+            _dispatch_budget=dispatch_budget,
+            _dispatch_frame=dispatch_frame,
+            _controller_grant_sha256=controller_grant_sha256,
+        )
+        result = LINEAGE._CAPABILITY_HANDOFF_FETCH(
+            lineage_lease, owner, _PRODUCTION_OWNER_TOKEN,
+        )
+        lineage_lease = None
+        _require(
+            type(result) is DirectServerFetchAcquisitionCapability
+            and result.portable_projection()["authority"]["production_stream_seam"]
+            is True,
+            "production existing-job successor returned a foreign capability",
+        )
+        return result
+    finally:
+        if lineage_lease is not None:
+            lineage_lease.close_once()
+        read_lease.close_once()
+
+
+def _decode_dispatched_fetch_request_once(
+    request_frame: bytes,
+) -> tuple[
+    bytes, LINEAGE.SESSION.DirectServerSessionArtifacts, bytes, str,
+]:
+    """Decode bounded evidence inputs for the fixed read dispatcher."""
+
+    try:
+        CHANNEL._validate_single_canonical_frame_bytes(request_frame)
+        request = json.loads(request_frame[4:].decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DirectFetchAcquisitionError(
+            "dispatched fetch request is malformed"
+        ) from exc
+    _exact(
+        request,
+        {
+            "protocol", "operation", "operation_id", "job_id", "bundle",
+            "evidence", "authority",
+        },
+        "dispatched fetch request",
+    )
+    _require(
+        request["protocol"] == CHANNEL.READ_PROTOCOL
+        and request["operation"] == "fetch_terminal_minimum_bundle"
+        and request["bundle"] == "terminal_minimum_v1"
+        and re.fullmatch(
+            r"fixed-ssh-operation-[a-f0-9]{64}",
+            request["operation_id"] or "",
+        ) is not None
+        and CHANNEL.JOB_ID_RE.fullmatch(request["job_id"] or "") is not None
+        and request["authority"] == {
+            "authorizes_effect": False, "qsub_calls": "0",
+        },
+        "dispatched fetch request identity differs",
+    )
+    evidence = _exact(
+        request["evidence"],
+        {
+            "schema", "portable_receipt", "artifacts",
+            "grant_payload_sha256", "authority",
+        },
+        "dispatched fetch evidence",
+    )
+    _require(
+        evidence["schema"] == "auto-g16-direct-fetch-server-evidence/1"
+        and SHA_RE.fullmatch(evidence["grant_payload_sha256"] or "")
+        is not None
+        and evidence["authority"] == {
+            "authorizes_effect": False,
+            "qsub_calls": "0",
+            "qdel_calls": "0",
+        }
+        and type(evidence["artifacts"]) is dict
+        and set(evidence["artifacts"])
+        == set(LINEAGE.SESSION.DirectServerSessionArtifacts.__dataclass_fields__),
+        "dispatched fetch evidence constants differ",
+    )
+    try:
+        receipt_raw = base64.b64decode(
+            evidence["portable_receipt"], validate=True,
+        )
+        decoded = {
+            name: base64.b64decode(evidence["artifacts"][name], validate=True)
+            for name in LINEAGE.SESSION.DirectServerSessionArtifacts.__dataclass_fields__
+        }
+    except (TypeError, ValueError, binascii.Error) as exc:
+        raise DirectFetchAcquisitionError(
+            "dispatched fetch evidence is not exact base64"
+        ) from exc
+    artifacts = LINEAGE.SESSION.DirectServerSessionArtifacts(**decoded)
+    receipt = LINEAGE.W5.validate_submission_receipt(
+        json.loads(receipt_raw.decode("utf-8"))
+    )
+    _require(
+        LINEAGE.W5.canonical_bytes(receipt) == receipt_raw
+        and receipt["qsub"]["job_id"] == request["job_id"]
+        and receipt["qsub"]["calls"] == "1",
+        "dispatched fetch receipt and job are spliced",
+    )
+    legacy_request = CHANNEL._canonical_frame({
+        "protocol": request["protocol"],
+        "operation": request["operation"],
+        "operation_id": request["operation_id"],
+        "job_id": request["job_id"],
+        "bundle": request["bundle"],
+        "authority": request["authority"],
+    })
+    return (
+        receipt_raw, artifacts, legacy_request,
+        evidence["grant_payload_sha256"],
+    )
+
+
+def serve_dispatched_fetch_request_once(
+    request_frame: bytes,
+    response_descriptor: int,
+    dispatch_budget: object,
+) -> None:
+    """Fixed production read-dispatcher successor; streams exactly once."""
+
+    _assert_module_binding()
+    _require(
+        type(response_descriptor) is int and response_descriptor >= 0
+        and dispatch_budget is not None,
+        "dispatched fetch response descriptor differs",
+    )
+    receipt_raw, artifacts, legacy_request, controller_grant_sha256 = (
+        _decode_dispatched_fetch_request_once(request_frame)
+    )
+    capability = _issue_server_fetch_acquisition_from_dispatcher_once(
+        receipt_raw, artifacts, dispatch_budget, request_frame,
+        controller_grant_sha256,
+    )
+    _SERVER_WRITE_RESPONSE(capability, legacy_request, response_descriptor)
 
 
 def _accept_lineage_handoff_once(
@@ -464,40 +679,87 @@ def _accept_lineage_handoff_once(
     """Fixed L1 callback; L1 invokes this only after terminalizing its lease."""
     _assert_module_binding()
     _require(
-        test_token is _TEST_TOKEN
+        test_token in {_TEST_TOKEN, _PRODUCTION_OWNER_TOKEN}
         and
         type(owner) is DirectFetchAcquisitionOwner and owner._seal is _OWNER_TOKEN
+        and owner._production is (test_token is _PRODUCTION_OWNER_TOKEN)
         and type(descriptors) is LINEAGE._DescriptorRecord,
         "direct fetch successor handoff differs",
     )
     with _LOCK:
         state = _OWNER_REGISTRY.get(owner._key)
         _require(
-            type(state) is tuple and len(state) == 5 and state[0] is owner
+            type(state) is tuple and len(state) == 9 and state[0] is owner
             and state[2] == os.getpid() and state[3] is _PROCESS_EPOCH
-            and state[4] is False,
+            and state[4] is False and state[5] is owner._production,
             "direct fetch successor owner is foreign, forked, or already used",
         )
         del _OWNER_REGISTRY[owner._key]
-    try:
-        lineage = LINEAGE.validate_lineage_projection(json.loads(lineage_projection_raw))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise DirectFetchAcquisitionError("lineage projection bytes are malformed") from exc
-    _require(
-        LINEAGE.canonical_bytes(lineage) == lineage_projection_raw,
-        "lineage projection bytes are not canonical",
-    )
-    read_profile = CHANNEL.load_read_profile(state[1], transport_profile_raw)
-    _require(
-        lineage["artifact_sha256"]["transport_profile"]
-        == hashlib.sha256(transport_profile_raw).hexdigest()
-        and lineage["binding"]["transport_profile_payload_sha256"]
-        == CHANNEL.load_transport_profile(transport_profile_raw)["profile_payload_sha256"],
-        "lineage and read transport profiles are spliced",
-    )
-    timeout = int(read_profile["server_read"]["fetch"]["timeout_seconds"], 10)
-    deadline = time.monotonic() + timeout
     files: list[_ObservedFile] = []
+    try:
+        try:
+            lineage = LINEAGE.validate_lineage_projection(
+                json.loads(lineage_projection_raw)
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DirectFetchAcquisitionError(
+                "lineage projection bytes are malformed"
+            ) from exc
+        _require(
+            LINEAGE.canonical_bytes(lineage) == lineage_projection_raw,
+            "lineage projection bytes are not canonical",
+        )
+        read_profile = CHANNEL.load_read_profile(
+            state[1], transport_profile_raw,
+        )
+        _require(
+            lineage["artifact_sha256"]["transport_profile"]
+            == hashlib.sha256(transport_profile_raw).hexdigest()
+            and lineage["binding"]["transport_profile_payload_sha256"]
+            == CHANNEL.load_transport_profile(transport_profile_raw)
+            ["profile_payload_sha256"],
+            "lineage and read transport profiles are spliced",
+        )
+        timeout = int(
+            read_profile["server_read"]["fetch"]["timeout_seconds"], 10,
+        )
+        if owner._production:
+            dispatcher = sys.modules.get("direct_read_subsystem_dispatcher")
+            consume_budget = getattr(
+                dispatcher, "_consume_dispatch_budget_once", None,
+            )
+            _require(
+                callable(consume_budget) and type(state[7]) is bytes,
+                "canonical read dispatcher budget consumer is unavailable",
+            )
+            dispatch_budget = consume_budget(
+                state[6], state[7], "fetch_terminal_minimum_bundle", timeout,
+            )
+            deadline_value = getattr(
+                dispatcher, "_dispatch_deadline_value", None,
+            )
+            _require(
+                callable(deadline_value),
+                "canonical dispatcher deadline accessor is unavailable",
+            )
+            deadline = deadline_value(dispatch_budget)
+        else:
+            dispatch_budget = None
+            deadline = time.monotonic() + timeout
+        terminal_eligibility = None
+        if owner._production:
+            terminal_eligibility = Q1._acquire_terminal_fetch_eligibility_once(
+                project=lineage["binding"]["project"],
+                job_id=lineage["binding"]["job_id"],
+                attempt_id=lineage["binding"]["attempt_id"],
+                input_sha256=lineage["binding"]["input_sha256"],
+                direct_binding_sha256=lineage["result_payload_sha256"],
+                read_profile=read_profile,
+                dispatch_budget=dispatch_budget,
+            )
+    except BaseException:
+        _close_descriptors(descriptors, tuple(files))
+        raise
     try:
         LINEAGE._assert_descriptor_record_current(descriptors)
         project_info = os.fstat(descriptors.project_fd)
@@ -535,6 +797,10 @@ def _accept_lineage_handoff_once(
             "descriptor_identity": copy.deepcopy(lineage["descriptor_identity"]),
             "read_profile_payload_sha256": read_profile["read_profile_payload_sha256"],
             "transport_profile_bytes_sha256": hashlib.sha256(transport_profile_raw).hexdigest(),
+            "controller_grant_payload_sha256": (
+                state[8] if owner._production else None
+            ),
+            "server_terminal_eligibility": terminal_eligibility,
             "files": file_projection,
             "file_count": "5",
             "total_size_bytes": str(total),
@@ -543,6 +809,7 @@ def _accept_lineage_handoff_once(
                 "lineage_source_sha256": _MODULE_BINDING.lineage_source.sha256,
                 "channel_source_sha256": _MODULE_BINDING.channel_source.sha256,
                 "materializer_source_sha256": _MODULE_BINDING.materializer_source.sha256,
+                "qstat_source_sha256": _MODULE_BINDING.qstat_source.sha256,
                 "acquisition_source_sha256": _MODULE_BINDING.source.sha256,
             },
             "authority": {
@@ -553,14 +820,25 @@ def _accept_lineage_handoff_once(
                 "qdel_calls": "0",
                 "automatic_retry": False,
                 "single_use": True,
-                "production_stream_seam": False,
-                "required_production_predecessor": REQUIRED_PRODUCTION_PREDECESSOR,
+                "production_stream_seam": owner._production,
+                "required_production_predecessor": (
+                    "terminal_fetch_grant_exact_controller_join"
+                    if owner._production else REQUIRED_PRODUCTION_PREDECESSOR
+                ),
             },
             "result_payload_sha256": "",
         }
         projection["acquisition_id"] = "direct-fetch-acquisition-" + digest({
             "lineage_id": projection["lineage_id"],
             "read_profile_payload_sha256": projection["read_profile_payload_sha256"],
+            "controller_grant_payload_sha256": projection[
+                "controller_grant_payload_sha256"
+            ],
+            "server_qstat_evidence_sha256": (
+                terminal_eligibility["qstat_evidence_sha256"]
+                if terminal_eligibility is not None
+                else hashlib.sha256(b"offline-test-no-qstat").hexdigest()
+            ),
             "files": file_projection,
         })
         projection["result_payload_sha256"] = digest(projection)
@@ -576,7 +854,7 @@ def _accept_lineage_handoff_once(
             tuple(files),
             bytes(state[1]),
             bytes(transport_profile_raw),
-            deadline,
+            dispatch_budget if owner._production else deadline,
         )
     except BaseException:
         _close_descriptors(descriptors, tuple(files))
@@ -588,7 +866,8 @@ def validate_acquisition_projection(value: Any) -> dict[str, Any]:
         "schema", "owner", "owner_version", "backend_kind", "acquisition_id",
         "lineage_id", "lineage_projection_sha256", "lineage_result_payload_sha256",
         "binding", "durable", "descriptor_identity", "read_profile_payload_sha256",
-        "transport_profile_bytes_sha256", "files", "file_count", "total_size_bytes",
+        "transport_profile_bytes_sha256", "controller_grant_payload_sha256",
+        "server_terminal_eligibility", "files", "file_count", "total_size_bytes",
         "allowlist_sha256", "source_binding", "authority", "result_payload_sha256",
     }, "fetch acquisition projection"))
     _require(
@@ -624,8 +903,7 @@ def validate_acquisition_projection(value: Any) -> dict[str, Any]:
         _decimal(document["total_size_bytes"], "fetch acquisition total", MATERIALIZER.TOTAL_CAP_BYTES) == total,
         "fetch acquisition total differs",
     )
-    _require(
-        document["authority"] == {
+    offline_authority = {
             "authorizes_effect": False,
             "portable_projection_authorizes_read": False,
             "read_only": True,
@@ -635,18 +913,79 @@ def validate_acquisition_projection(value: Any) -> dict[str, Any]:
             "single_use": True,
             "production_stream_seam": False,
             "required_production_predecessor": REQUIRED_PRODUCTION_PREDECESSOR,
-        },
+        }
+    production_authority = {
+            **offline_authority,
+            "production_stream_seam": True,
+            "required_production_predecessor": "terminal_fetch_grant_exact_controller_join",
+        }
+    _require(
+        document["authority"] in (offline_authority, production_authority),
         "fetch acquisition authority differs",
     )
+    if document["authority"] == production_authority:
+        _sha(
+            document["controller_grant_payload_sha256"],
+            "controller terminal grant payload",
+        )
+        try:
+            eligibility = Q1.EVIDENCE.validate_qstat_evidence(
+                copy.deepcopy(document["server_terminal_eligibility"])
+            )
+        except ValueError as exc:
+            raise DirectFetchAcquisitionError(
+                "server terminal eligibility evidence is malformed"
+            ) from exc
+        qstat = eligibility["qstat"]
+        binding = eligibility["binding"]
+        _require(
+            binding["project"] == document["binding"]["project"]
+            and binding["job_id"] == document["binding"]["job_id"]
+            and binding["attempt_id"] == document["binding"]["attempt_id"]
+            and binding["input_sha256"] == document["binding"]["input_sha256"]
+            and binding["direct_binding_sha256"]
+            == document["lineage_result_payload_sha256"]
+            and eligibility["collection"]["freshness"] == "fresh"
+            and (
+                (
+                    qstat["status"] == "present"
+                    and qstat["record_present"] is True
+                    and qstat["lifecycle"] == "terminal"
+                    and qstat["pbs_state"] in {"C", "F"}
+                )
+                or (
+                    qstat["status"] == "absent"
+                    and qstat["record_present"] is False
+                    and qstat["lifecycle"] == "absent"
+                    and qstat["pbs_state"] is None
+                )
+            ),
+            "server effect-time terminal eligibility differs",
+        )
+    else:
+        _require(
+            document["controller_grant_payload_sha256"] is None
+            and document["server_terminal_eligibility"] is None,
+            "offline acquisition cannot claim production terminal eligibility",
+        )
     _exact(document["source_binding"], {
         "lineage_source_sha256", "channel_source_sha256",
-        "materializer_source_sha256", "acquisition_source_sha256",
+        "materializer_source_sha256", "qstat_source_sha256",
+        "acquisition_source_sha256",
     }, "fetch acquisition source binding")
     for item in document["source_binding"].values():
         _sha(item, "fetch acquisition source")
     expected_id = "direct-fetch-acquisition-" + digest({
         "lineage_id": document["lineage_id"],
         "read_profile_payload_sha256": document["read_profile_payload_sha256"],
+        "controller_grant_payload_sha256": document[
+            "controller_grant_payload_sha256"
+        ],
+        "server_qstat_evidence_sha256": (
+            document["server_terminal_eligibility"]["qstat_evidence_sha256"]
+            if document["server_terminal_eligibility"] is not None
+            else hashlib.sha256(b"offline-test-no-qstat").hexdigest()
+        ),
         "files": document["files"],
     })
     _require(document["acquisition_id"] == expected_id, "fetch acquisition id differs")
@@ -708,6 +1047,21 @@ def _bundle_wire_size(projection: dict[str, Any]) -> int:
     raw_header = _bundle_header_raw(projection)
     payload_size = sum(int(item["size_bytes"], 10) for item in projection["files"])
     return len(BUNDLE_MAGIC) + 4 + len(raw_header) + 8 * 5 + payload_size
+
+
+def _bundle_commitment_sha256(projection: dict[str, Any]) -> str:
+    """Commit first-pass metadata without claiming a second-pass byte hash."""
+
+    raw_header = _bundle_header_raw(projection)
+    return digest({
+        "schema": "auto-g16-terminal-minimum-bundle-commitment/1",
+        "acquisition_id": projection["acquisition_id"],
+        "acquisition_result_payload_sha256": projection["result_payload_sha256"],
+        "header_sha256": hashlib.sha256(raw_header).hexdigest(),
+        "files": copy.deepcopy(projection["files"]),
+        "file_count": "5",
+        "bundle_wire_size_bytes": str(_bundle_wire_size(projection)),
+    })
 
 
 def _validate_fetch_request(request_frame: bytes, expected_job_id: str) -> dict[str, Any]:
@@ -797,7 +1151,14 @@ def _server_record_commitment(record: _ServerRecord) -> str:
         ("terminal_raw", descriptors.terminal_raw),
         ("read_profile", record.read_profile_raw),
         ("transport_profile", record.transport_profile_raw),
-        ("deadline", record.deadline.hex().encode("ascii")),
+        (
+            "deadline_authority",
+            (
+                record.deadline_authority.hex().encode("ascii")
+                if type(record.deadline_authority) is float
+                else str(id(record.deadline_authority)).encode("ascii")
+            ),
+        ),
     ):
         _commitment_update(hasher, label, raw)
     return hasher.hexdigest()
@@ -815,6 +1176,24 @@ def _build_server_owner_entries() -> tuple[object, ...]:
     validate_request = _validate_fetch_request
     write_until = CHANNEL._write_frame_until
     binding_guard: object | None = None
+
+    def deadline_value(record: _ServerRecord, projection: dict[str, Any]) -> float:
+        if projection["authority"]["production_stream_seam"] is True:
+            dispatcher = sys.modules.get("direct_read_subsystem_dispatcher")
+            assert_dispatcher = getattr(
+                dispatcher, "_assert_dispatcher_binding", None,
+            )
+            accessor = getattr(dispatcher, "_dispatch_deadline_value", None)
+            _require(
+                callable(assert_dispatcher) and callable(accessor),
+                "canonical dispatcher deadline owner is unavailable",
+            )
+            assert_dispatcher()
+            value = accessor(record.deadline_authority)
+        else:
+            value = record.deadline_authority
+        _require(type(value) is float, "server deadline authority differs")
+        return value
 
     def assert_binding() -> None:
         if not callable(binding_guard):
@@ -839,7 +1218,6 @@ def _build_server_owner_entries() -> tuple[object, ...]:
             and type(record.transport_profile_raw) is bytes
             and type(record.files) is tuple
             and type(record.lineage_descriptors) is LINEAGE._DescriptorRecord
-            and type(record.deadline) is float
             and record.commitment_sha256 == record_commitment(record._replace(commitment_sha256="")),
             "server acquisition immutable registry commitment differs",
         )
@@ -876,7 +1254,10 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                 and observed.size_bytes <= cap,
                 f"{basename} acquisition currentness differs",
             )
-        _require(time.monotonic() < record.deadline, "fetch acquisition deadline expired")
+        _require(
+            time.monotonic() < deadline_value(record, projection),
+            "fetch acquisition deadline expired",
+        )
         return projection
 
     def exact_live(capability: Any) -> tuple[_ServerRecord, dict[str, Any]]:
@@ -900,7 +1281,7 @@ def _build_server_owner_entries() -> tuple[object, ...]:
         files: tuple[_ObservedFile, ...],
         read_profile_raw: bytes,
         transport_profile_raw: bytes,
-        deadline: float,
+        deadline_authority: object,
     ) -> DirectServerFetchAcquisitionCapability:
         assert_binding()
         projection = validate_acquisition_projection(projection)
@@ -912,7 +1293,7 @@ def _build_server_owner_entries() -> tuple[object, ...]:
         provisional = _ServerRecord(
             capability, os.getpid(), _PROCESS_EPOCH, projection_raw,
             descriptors, tuple(files), bytes(read_profile_raw),
-            bytes(transport_profile_raw), float(deadline), "",
+            bytes(transport_profile_raw), deadline_authority, "",
         )
         record = provisional._replace(
             commitment_sha256=record_commitment(provisional),
@@ -964,7 +1345,7 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                     record.lineage_descriptors.project_fd,
                     observed,
                     cap,
-                    record.deadline,
+                    deadline_value(record, projection),
                 )
                 for (_basename, cap), observed in zip(
                     artifact_specs, record.files, strict=True,
@@ -998,7 +1379,7 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                 "job_id": request["job_id"],
                 "chunk_count": str(chunk_count),
                 "total_size_bytes": str(bundle_size),
-                "bundle_sha256": bundle_hasher.hexdigest(),
+                "bundle_commitment_sha256": _bundle_commitment_sha256(projection),
                 "authority": {"authorizes_effect": False, "qsub_calls": "0"},
             }
             trailer = {
@@ -1008,6 +1389,7 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                 "job_id": request["job_id"],
                 "chunk_count": str(chunk_count),
                 "total_size_bytes": str(bundle_size),
+                "bundle_commitment_sha256": header["bundle_commitment_sha256"],
                 "bundle_sha256": bundle_hasher.hexdigest(),
                 "authority": {"authorizes_effect": False, "qsub_calls": "0"},
                 "trailer_payload_sha256": "",
@@ -1078,30 +1460,6 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                 0 < chunk_count <= max_chunks,
                 "encoded terminal bundle chunk count exceeds read profile",
             )
-            bundle_hasher = hashlib.sha256()
-            bundle_hasher.update(BUNDLE_MAGIC)
-            bundle_hasher.update(struct.pack("!I", len(raw_header)))
-            bundle_hasher.update(raw_header)
-            for (basename, cap), observed, declared in zip(
-                artifact_specs,
-                record.files,
-                projection["files"],
-                strict=True,
-            ):
-                _require(
-                    observed.basename == basename
-                    and str(observed.size_bytes) == declared["size_bytes"]
-                    and observed.sha256 == declared["sha256"],
-                    f"{basename} acquisition metadata drifted",
-                )
-                bundle_hasher.update(struct.pack("!Q", observed.size_bytes))
-                for payload_chunk in iter_current(
-                    record.lineage_descriptors.project_fd,
-                    observed,
-                    cap,
-                    record.deadline,
-                ):
-                    bundle_hasher.update(payload_chunk)
             header = {
                 "protocol": CHANNEL.READ_PROTOCOL,
                 "status": "streaming_terminal_minimum_bundle",
@@ -1109,11 +1467,12 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                 "job_id": request["job_id"],
                 "chunk_count": str(chunk_count),
                 "total_size_bytes": str(bundle_size),
-                "bundle_sha256": bundle_hasher.hexdigest(),
+                "bundle_commitment_sha256": _bundle_commitment_sha256(projection),
                 "authority": {"authorizes_effect": False, "qsub_calls": "0"},
             }
             write_until(
-                descriptor, CHANNEL._canonical_frame(header), record.deadline,
+                descriptor, CHANNEL._canonical_frame(header),
+                deadline_value(record, projection),
             )
             response_started = True
 
@@ -1138,7 +1497,7 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                         record.lineage_descriptors.project_fd,
                         observed,
                         cap,
-                        record.deadline,
+                        deadline_value(record, projection),
                     )
 
             hasher = hashlib.sha256()
@@ -1159,24 +1518,29 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                         write_until(
                             descriptor,
                             struct.pack("!I", len(buffer)),
-                            record.deadline,
+                            deadline_value(record, projection),
                         )
-                        write_until(descriptor, bytes(buffer), record.deadline)
+                        write_until(
+                            descriptor, bytes(buffer),
+                            deadline_value(record, projection),
+                        )
                         buffer.clear()
                         emitted_chunks += 1
             if buffer:
                 write_until(
                     descriptor,
                     struct.pack("!I", len(buffer)),
-                    record.deadline,
+                    deadline_value(record, projection),
                 )
-                write_until(descriptor, bytes(buffer), record.deadline)
+                write_until(
+                    descriptor, bytes(buffer),
+                    deadline_value(record, projection),
+                )
                 buffer.clear()
                 emitted_chunks += 1
             _require(
                 observed_total == bundle_size
-                and emitted_chunks == chunk_count
-                and hasher.hexdigest() == header["bundle_sha256"],
+                and emitted_chunks == chunk_count,
                 "terminal bundle streamed size or chunk count differs",
             )
             trailer = {
@@ -1186,13 +1550,17 @@ def _build_server_owner_entries() -> tuple[object, ...]:
                 "job_id": request["job_id"],
                 "chunk_count": str(chunk_count),
                 "total_size_bytes": str(bundle_size),
+                "bundle_commitment_sha256": header[
+                    "bundle_commitment_sha256"
+                ],
                 "bundle_sha256": hasher.hexdigest(),
                 "authority": {"authorizes_effect": False, "qsub_calls": "0"},
                 "trailer_payload_sha256": "",
             }
             trailer["trailer_payload_sha256"] = CHANNEL.digest(trailer)
             write_until(
-                descriptor, CHANNEL._canonical_frame(trailer), record.deadline,
+                descriptor, CHANNEL._canonical_frame(trailer),
+                deadline_value(record, projection),
             )
         except CHANNEL.ControllerTransportUnknown as exc:
             raise DirectFetchTransportUnknown(
@@ -1321,7 +1689,7 @@ def validate_closed_stream_projection(value: Any) -> dict[str, Any]:
         "schema", "owner", "owner_version", "backend_kind", "stream_id",
         "target_binding_sha256", "acquisition_id",
         "acquisition_result_payload_sha256", "lineage_id", "operation_id",
-        "read_profile_payload_sha256", "bundle_sha256", "files",
+        "read_profile_payload_sha256", "bundle_commitment_sha256", "files",
         "file_count", "total_size_bytes", "authority",
         "stream_projection_sha256",
     }, "closed fetch stream projection"))
@@ -1353,7 +1721,7 @@ def validate_closed_stream_projection(value: Any) -> dict[str, Any]:
         "target_binding_sha256",
         "acquisition_result_payload_sha256",
         "read_profile_payload_sha256",
-        "bundle_sha256",
+        "bundle_commitment_sha256",
         "stream_projection_sha256",
     ):
         _sha(document[field], f"closed fetch stream {field}")
@@ -1385,7 +1753,7 @@ def validate_closed_stream_projection(value: Any) -> dict[str, Any]:
         ) == total,
         "closed fetch stream total differs",
     )
-    _require(document["authority"] == {
+    offline_authority = {
         "authorizes_effect": False,
         "portable_projection_authorizes_stream": False,
         "remote_fetch_acquired": True,
@@ -1396,14 +1764,25 @@ def validate_closed_stream_projection(value: Any) -> dict[str, Any]:
         "qdel_calls": "0",
         "automatic_retry": False,
         "single_use": True,
-    }, "closed fetch stream authority differs")
+    }
+    production_authority = {
+        **offline_authority,
+        "production_integration": True,
+        "required_production_predecessor": (
+            "terminal_fetch_grant_exact_controller_join"
+        ),
+    }
+    _require(
+        document["authority"] in (offline_authority, production_authority),
+        "closed fetch stream authority differs",
+    )
     expected_id = "direct-closed-fetch-stream-" + digest({
         "target_binding_sha256": document["target_binding_sha256"],
         "acquisition_result_payload_sha256": document[
             "acquisition_result_payload_sha256"
         ],
         "operation_id": document["operation_id"],
-        "bundle_sha256": document["bundle_sha256"],
+        "bundle_commitment_sha256": document["bundle_commitment_sha256"],
     })
     _require(document["stream_id"] == expected_id, "closed fetch stream id differs")
     projection = copy.deepcopy(document)
@@ -1572,6 +1951,19 @@ def _build_controller_owner_entries() -> tuple[object, ...]:
         _record, projection = exact_live(capability)
         return copy.deepcopy(projection)
 
+    def abandon(capability: Any) -> None:
+        record, _projection = exact_live(capability)
+        with lock:
+            _require(
+                registry.get(capability._key) is record,
+                "closed fetch stream abandon raced",
+            )
+            del registry[capability._key]
+        try:
+            CHANNEL._FETCH_STREAM_ABANDON(record.channel_session)
+        except (CHANNEL.SharedFixedSSHChannelError, OSError):
+            pass
+
     def consume(
         capability: Any,
         target_binding_sha256: str,
@@ -1601,7 +1993,9 @@ def _build_controller_owner_entries() -> tuple[object, ...]:
             projection_raw=record.projection_raw,
             channel_session=record.channel_session,
             files=record.files,
-            bundle_sha256=projection["bundle_sha256"],
+            bundle_commitment_sha256=projection[
+                "bundle_commitment_sha256"
+            ],
             file_index=0,
             file_remaining=None,
             file_hasher=None,
@@ -1706,8 +2100,9 @@ def _build_controller_owner_entries() -> tuple[object, ...]:
                 )
             trailer = CHANNEL._FETCH_STREAM_FINISH(record.channel_session)
             _require(
-                trailer["bundle_sha256"] == record.bundle_sha256,
-                "closed fetch reader terminal bundle hash differs",
+                trailer["bundle_commitment_sha256"]
+                == record.bundle_commitment_sha256,
+                "closed fetch reader terminal bundle commitment differs",
             )
             with lock:
                 _require(
@@ -1742,6 +2137,7 @@ def _build_controller_owner_entries() -> tuple[object, ...]:
         issue,
         assert_current,
         project,
+        abandon,
         consume,
         assert_reader,
         read_reader,
@@ -1756,6 +2152,7 @@ def _build_controller_owner_entries() -> tuple[object, ...]:
     _CONTROLLER_ISSUE,
     _CONTROLLER_ASSERT,
     _CONTROLLER_PROJECT,
+    _CONTROLLER_ABANDON,
     _CONTROLLER_CONSUME,
     _READER_ASSERT,
     _READER_READ,
@@ -1766,30 +2163,71 @@ def _build_controller_owner_entries() -> tuple[object, ...]:
 ) = _build_controller_owner_entries()
 
 
-def _acquire_controller_fetch_stream_for_tests_once(
+def _acquire_controller_fetch_stream_inner_once(
     target_capability: MATERIALIZER.LocalFetchTargetCapability,
     operation: CHANNEL.FetchTerminalMinimumBundleOperation,
-    response_descriptor: int,
-    expected_lineage_projection: dict[str, Any],
+    response_source: object,
+    expected_lineage_projection: dict[str, Any] | None,
     *,
-    _test_token: object,
+    production_integration: bool,
+    client_join: object | None = None,
 ) -> ClosedDirectFetchStreamCapability:
-    """Offline exact-codec seam pending the Q1 backend-owned authority."""
+    """Consume one already-authorized fixed response descriptor."""
     _assert_module_binding()
-    _require(_test_token is _TEST_TOKEN, "controller fetch acquisition test token differs")
+    _require(
+        type(production_integration) is bool,
+        "controller fetch integration mode differs",
+    )
     _require(type(target_capability) is MATERIALIZER.LocalFetchTargetCapability, "exact local target capability is required")
     _require(type(operation) is CHANNEL.FetchTerminalMinimumBundleOperation, "exact fetch operation is required")
-    _require(type(response_descriptor) is int and response_descriptor >= 0, "fixed response descriptor differs")
     target_capability.assert_current()
-    expected = LINEAGE.validate_lineage_projection(expected_lineage_projection)
-    snapshot = CHANNEL._operation_snapshot(operation, CHANNEL.FetchTerminalMinimumBundleOperation, {"issued"})
-    _require(type(snapshot.read_profile_raw) is bytes, "fetch operation read profile differs")
-    profile = CHANNEL.load_read_profile(snapshot.read_profile_raw, snapshot.transport_profile_raw)
-    deadline = time.monotonic() + int(profile["server_read"]["fetch"]["timeout_seconds"], 10)
+    expected = (
+        None
+        if production_integration
+        else LINEAGE.validate_lineage_projection(expected_lineage_projection)
+    )
     channel_session = None
     try:
-        channel_session, outer_header = CHANNEL._FETCH_STREAM_BEGIN(
-            response_descriptor, operation, deadline,
+        if production_integration:
+            _require(
+                type(response_source) is tuple and len(response_source) == 2,
+                "exact production fetch channel result is required",
+            )
+            channel_session, outer_header = response_source
+            snapshot = CHANNEL._FETCH_STREAM_OPERATION_SNAPSHOT(
+                channel_session, operation,
+            )
+            _require(type(outer_header) is dict, "fetch channel header differs")
+        else:
+            snapshot = CHANNEL._operation_snapshot(
+                operation,
+                CHANNEL.FetchTerminalMinimumBundleOperation,
+                {"issued"},
+            )
+            _require(
+                type(response_source) is int and response_source >= 0,
+                "fixed response descriptor differs",
+            )
+            _require(
+                type(snapshot.read_profile_raw) is bytes,
+                "fetch operation read profile differs",
+            )
+            offline_profile = CHANNEL.load_read_profile(
+                snapshot.read_profile_raw, snapshot.transport_profile_raw,
+            )
+            deadline = time.monotonic() + int(
+                offline_profile["server_read"]["fetch"]["timeout_seconds"],
+                10,
+            )
+            channel_session, outer_header = CHANNEL._FETCH_STREAM_BEGIN(
+                response_source, operation, deadline,
+            )
+        _require(
+            type(snapshot.read_profile_raw) is bytes,
+            "fetch operation read profile differs",
+        )
+        profile = CHANNEL.load_read_profile(
+            snapshot.read_profile_raw, snapshot.transport_profile_raw,
         )
         magic = CHANNEL._FETCH_STREAM_READ_EXACT(
             channel_session, len(BUNDLE_MAGIC),
@@ -1824,6 +2262,27 @@ def _acquire_controller_fetch_stream_for_tests_once(
             "terminal bundle header",
         )
         acquisition = validate_acquisition_projection(header["acquisition"])
+        if production_integration:
+            join_assert, join_type = _resolve_minimum_closure_client_join_owner()
+            _require(
+                type(client_join) is join_type,
+                "exact fetch client join is required",
+            )
+            join_assert(
+                client_join,
+                target_capability,
+                operation,
+                acquisition,
+            )
+            expected = {
+                "lineage_id": acquisition["lineage_id"],
+                "result_payload_sha256": acquisition[
+                    "lineage_result_payload_sha256"
+                ],
+                "binding": acquisition["binding"],
+                "durable": acquisition["durable"],
+                "descriptor_identity": acquisition["descriptor_identity"],
+            }
         _require(
             header["schema"] == BUNDLE_SCHEMA
             and header["files"] == acquisition["files"]
@@ -1853,8 +2312,13 @@ def _acquire_controller_fetch_stream_for_tests_once(
     try:
         _require(
             acquisition["lineage_id"] == expected["lineage_id"]
-            and acquisition["lineage_projection_sha256"]
-            == hashlib.sha256(LINEAGE.canonical_bytes(expected)).hexdigest()
+            and (
+                production_integration
+                or acquisition["lineage_projection_sha256"]
+                == hashlib.sha256(
+                    LINEAGE.canonical_bytes(expected)
+                ).hexdigest()
+            )
             and acquisition["lineage_result_payload_sha256"] == expected["result_payload_sha256"]
             and acquisition["binding"] == expected["binding"]
             and acquisition["durable"] == expected["durable"]
@@ -1886,7 +2350,9 @@ def _acquire_controller_fetch_stream_for_tests_once(
         "lineage_id": expected["lineage_id"],
         "operation_id": outer_header["operation_id"],
         "read_profile_payload_sha256": profile["read_profile_payload_sha256"],
-        "bundle_sha256": outer_header["bundle_sha256"],
+        "bundle_commitment_sha256": outer_header[
+            "bundle_commitment_sha256"
+        ],
         "files": copy.deepcopy(acquisition["files"]),
         "file_count": "5",
         "total_size_bytes": acquisition["total_size_bytes"],
@@ -1895,8 +2361,12 @@ def _acquire_controller_fetch_stream_for_tests_once(
             "portable_projection_authorizes_stream": False,
             "remote_fetch_acquired": True,
             "closed_stream_owner": True,
-            "production_integration": False,
-            "required_production_predecessor": REQUIRED_PRODUCTION_PREDECESSOR,
+            "production_integration": production_integration,
+            "required_production_predecessor": (
+                "terminal_fetch_grant_exact_controller_join"
+                if production_integration
+                else REQUIRED_PRODUCTION_PREDECESSOR
+            ),
             "qsub_calls": "0",
             "qdel_calls": "0",
             "automatic_retry": False,
@@ -1908,7 +2378,9 @@ def _acquire_controller_fetch_stream_for_tests_once(
         "target_binding_sha256": target_binding,
         "acquisition_result_payload_sha256": acquisition["result_payload_sha256"],
         "operation_id": outer_header["operation_id"],
-        "bundle_sha256": projection["bundle_sha256"],
+        "bundle_commitment_sha256": projection[
+            "bundle_commitment_sha256"
+        ],
         })
         projection["stream_projection_sha256"] = digest(projection)
         return _CONTROLLER_ISSUE(
@@ -1917,6 +2389,84 @@ def _acquire_controller_fetch_stream_for_tests_once(
     except BaseException:
         CHANNEL._FETCH_STREAM_ABANDON(channel_session)
         raise
+
+
+def _acquire_controller_fetch_stream_for_tests_once(
+    target_capability: MATERIALIZER.LocalFetchTargetCapability,
+    operation: CHANNEL.FetchTerminalMinimumBundleOperation,
+    response_descriptor: int,
+    expected_lineage_projection: dict[str, Any],
+    *,
+    _test_token: object,
+) -> ClosedDirectFetchStreamCapability:
+    """Offline exact-codec seam; never a production controller path."""
+    _require(
+        _test_token is _TEST_TOKEN,
+        "controller fetch acquisition test token differs",
+    )
+    return _acquire_controller_fetch_stream_inner_once(
+        target_capability,
+        operation,
+        response_descriptor,
+        expected_lineage_projection,
+        production_integration=False,
+        client_join=None,
+    )
+
+
+def _resolve_minimum_closure_client_join_owner() -> tuple[object, type]:
+    global _CLIENT_JOIN_BINDING
+    module = sys.modules.get("direct_minimum_production_closure")
+    expected_path = os.path.realpath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "direct_minimum_production_closure.py",
+        )
+    )
+    module_path = os.path.realpath(getattr(module, "__file__", ""))
+    join_assert = getattr(module, "_assert_f1_controller_join_once", None)
+    module_assert = getattr(module, "_assert_module_binding", None)
+    join_type = getattr(module, "_ExactFetchClientJoin", None)
+    _require(
+        type(module) is types.ModuleType
+        and module_path == expected_path
+        and callable(join_assert)
+        and callable(module_assert)
+        and type(join_type) is type
+        and join_type.__module__ == "direct_minimum_production_closure",
+        "canonical minimum-closure client join owner differs",
+    )
+    module_assert()
+    with open(expected_path, "rb") as source:
+        source_sha256 = hashlib.sha256(source.read()).hexdigest()
+    candidate = (module, module_assert, join_assert, join_type, source_sha256)
+    with _CLIENT_JOIN_BINDING_LOCK:
+        if _CLIENT_JOIN_BINDING is None:
+            _CLIENT_JOIN_BINDING = candidate
+        _require(
+            _CLIENT_JOIN_BINDING == candidate,
+            "minimum-closure client join owner was reloaded or rebound",
+        )
+    return join_assert, join_type
+
+
+def acquire_controller_fetch_stream_once(
+    target_capability: MATERIALIZER.LocalFetchTargetCapability,
+    operation: CHANNEL.FetchTerminalMinimumBundleOperation,
+    channel_result: object,
+    client_join: object,
+) -> ClosedDirectFetchStreamCapability:
+    """Production client join from the exact channel stream into T4."""
+
+    _assert_module_binding()
+    return _acquire_controller_fetch_stream_inner_once(
+        target_capability,
+        operation,
+        channel_result,
+        None,
+        production_integration=True,
+        client_join=client_join,
+    )
 
 
 def _consume_for_materializer_once(
@@ -1928,6 +2478,12 @@ def _consume_for_materializer_once(
 ]:
     """Fixed T4 transition to one sequential reader capability."""
     return _CONTROLLER_CONSUME(capability, target_binding_sha256)
+
+
+def _abandon_controller_fetch_stream_once(
+    capability: ClosedDirectFetchStreamCapability,
+) -> None:
+    _CONTROLLER_ABANDON(capability)
 
 
 def _assert_materializer_reader_current(
@@ -1986,9 +2542,13 @@ class _ModuleBinding:
     lineage_module: types.ModuleType
     channel_module: types.ModuleType
     materializer_module: types.ModuleType
+    read_profile_module: types.ModuleType
+    qstat_module: types.ModuleType
     lineage_source: _SourceSnapshot
     channel_source: _SourceSnapshot
     materializer_source: _SourceSnapshot
+    read_profile_source: _SourceSnapshot
+    qstat_source: _SourceSnapshot
     entries: tuple[object, ...]
     effect_helpers: tuple[object, ...]
     os_primitives: tuple[object, ...]
@@ -2011,18 +2571,29 @@ def _capture_module_binding() -> _ModuleBinding:
         LINEAGE,
         CHANNEL,
         MATERIALIZER,
+        READ_PROFILE,
+        Q1,
         _source_snapshot(Path(LINEAGE.__file__).resolve()),
         _source_snapshot(Path(CHANNEL.__file__).resolve()),
         _source_snapshot(Path(MATERIALIZER.__file__).resolve()),
+        _source_snapshot(Path(READ_PROFILE.__file__).resolve()),
+        _source_snapshot(Path(Q1.__file__).resolve()),
         (
             _assert_module_binding,
             _new_owner,
             _issue_server_fetch_acquisition_for_tests_once,
+            _issue_server_fetch_acquisition_from_dispatcher_once,
+            _decode_dispatched_fetch_request_once,
+            serve_dispatched_fetch_request_once,
             _accept_lineage_handoff_once,
             _build_terminal_minimum_response_for_tests_once,
             _write_terminal_minimum_response_for_tests_once,
+            _acquire_controller_fetch_stream_inner_once,
             _acquire_controller_fetch_stream_for_tests_once,
+            _resolve_minimum_closure_client_join_owner,
+            acquire_controller_fetch_stream_once,
             _consume_for_materializer_once,
+            _abandon_controller_fetch_stream_once,
             _assert_materializer_reader_current,
             _read_for_materializer_once,
             _finish_for_materializer_once,
@@ -2039,6 +2610,7 @@ def _capture_module_binding() -> _ModuleBinding:
             _CONTROLLER_ISSUE,
             _CONTROLLER_ASSERT,
             _CONTROLLER_PROJECT,
+            _CONTROLLER_ABANDON,
             _CONTROLLER_CONSUME,
             _READER_ASSERT,
             _READER_READ,
@@ -2065,6 +2637,7 @@ def _capture_module_binding() -> _ModuleBinding:
             _server_record_commitment,
             _bundle_header_raw,
             _bundle_wire_size,
+            _bundle_commitment_sha256,
             _bundle_components,
             _bundle_bytes,
             _validate_fetch_request,
@@ -2116,6 +2689,8 @@ def _assert_module_binding() -> None:
         and sys.modules.get(LINEAGE.__name__) is binding.lineage_module
         and sys.modules.get(CHANNEL.__name__) is binding.channel_module
         and sys.modules.get(MATERIALIZER.__name__) is binding.materializer_module
+        and sys.modules.get(READ_PROFILE.__name__) is binding.read_profile_module
+        and sys.modules.get(Q1.__name__) is binding.qstat_module
         and not hasattr(binding.module, "_SERVER_REGISTRY")
         and not hasattr(binding.module, "_server_record")
         and not hasattr(binding.module, "_CONTROLLER_REGISTRY")
@@ -2124,11 +2699,18 @@ def _assert_module_binding() -> None:
             _assert_module_binding,
             _new_owner,
             _issue_server_fetch_acquisition_for_tests_once,
+            _issue_server_fetch_acquisition_from_dispatcher_once,
+            _decode_dispatched_fetch_request_once,
+            serve_dispatched_fetch_request_once,
             _accept_lineage_handoff_once,
             _build_terminal_minimum_response_for_tests_once,
             _write_terminal_minimum_response_for_tests_once,
+            _acquire_controller_fetch_stream_inner_once,
             _acquire_controller_fetch_stream_for_tests_once,
+            _resolve_minimum_closure_client_join_owner,
+            acquire_controller_fetch_stream_once,
             _consume_for_materializer_once,
+            _abandon_controller_fetch_stream_once,
             _assert_materializer_reader_current,
             _read_for_materializer_once,
             _finish_for_materializer_once,
@@ -2145,6 +2727,7 @@ def _assert_module_binding() -> None:
             _CONTROLLER_ISSUE,
             _CONTROLLER_ASSERT,
             _CONTROLLER_PROJECT,
+            _CONTROLLER_ABANDON,
             _CONTROLLER_CONSUME,
             _READER_ASSERT,
             _READER_READ,
@@ -2171,6 +2754,7 @@ def _assert_module_binding() -> None:
             _server_record_commitment,
             _bundle_header_raw,
             _bundle_wire_size,
+            _bundle_commitment_sha256,
             _bundle_components,
             _bundle_bytes,
             _validate_fetch_request,
@@ -2211,6 +2795,8 @@ def _assert_module_binding() -> None:
         and _source_snapshot(Path(LINEAGE.__file__).resolve()) == binding.lineage_source
         and _source_snapshot(Path(CHANNEL.__file__).resolve()) == binding.channel_source
         and _source_snapshot(Path(MATERIALIZER.__file__).resolve()) == binding.materializer_source
+        and _source_snapshot(Path(READ_PROFILE.__file__).resolve()) == binding.read_profile_source
+        and _source_snapshot(Path(Q1.__file__).resolve()) == binding.qstat_source
     )
     if not exact:
         raise DirectFetchAcquisitionError(
@@ -2219,6 +2805,7 @@ def _assert_module_binding() -> None:
     LINEAGE._assert_module_binding()
     CHANNEL._assert_production_binding()
     MATERIALIZER._assert_owner_binding()
+    READ_PROFILE._assert_module_binding()
     for issued_type in binding.issued_types:
         if getattr(binding.module, issued_type.__name__, None) is not issued_type:
             raise DirectFetchAcquisitionError(
@@ -2237,5 +2824,6 @@ __all__ = [
     "DirectFetchAcquisitionOwner",
     "DirectServerFetchAcquisitionCapability",
     "ClosedDirectFetchStreamCapability",
+    "acquire_controller_fetch_stream_once",
     "validate_acquisition_projection",
 ]

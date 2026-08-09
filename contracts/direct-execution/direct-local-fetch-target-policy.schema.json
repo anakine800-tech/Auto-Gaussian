@@ -41,6 +41,12 @@
       }
     },
     "authority": {
+      "oneOf": [
+        {"$ref": "#/$defs/offline_authority"},
+        {"$ref": "#/$defs/production_authority"}
+      ]
+    },
+    "offline_authority": {
       "type": "object",
       "additionalProperties": false,
       "required": ["portable_policy", "authorizes_effect", "production_integration", "caller_bytes_can_issue_owner", "required_production_predecessor"],
@@ -50,6 +56,20 @@
         "production_integration": {"const": false},
         "caller_bytes_can_issue_owner": {"const": false},
         "required_production_predecessor": {"const": "reviewed_local_policy_owner_exact_type_not_frozen"}
+      }
+    },
+    "production_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portable_policy", "authorizes_effect", "production_integration", "caller_bytes_can_issue_owner", "fixed_policy_path", "policy_file_is_authority", "backend_owner_descriptor_issuance_required"],
+      "properties": {
+        "portable_policy": {"const": true},
+        "authorizes_effect": {"const": false},
+        "production_integration": {"const": true},
+        "caller_bytes_can_issue_owner": {"const": false},
+        "fixed_policy_path": {"const": "/Library/Application Support/Auto-G16/direct-local-fetch-target-v1.json"},
+        "policy_file_is_authority": {"const": false},
+        "backend_owner_descriptor_issuance_required": {"const": true}
       }
     }
   }

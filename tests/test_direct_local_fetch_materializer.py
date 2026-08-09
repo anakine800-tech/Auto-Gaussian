@@ -144,6 +144,44 @@ class DirectLocalFetchMaterializerTests(unittest.TestCase):
         with self.assertRaisesRegex(MATERIALIZER.DirectLocalFetchMaterializerError, "hash"):
             MATERIALIZER.validate_target_policy(changed)
 
+    def test_production_target_owner_has_one_fixed_policy_path_and_no_override(self) -> None:
+        signature = inspect.signature(MATERIALIZER.LocalFetchTargetOwner.production)
+        self.assertEqual(tuple(signature.parameters), ())
+        self.assertEqual(
+            MATERIALIZER.FIXED_PRODUCTION_TARGET_POLICY_PATH,
+            pathlib.Path(
+                "/Library/Application Support/Auto-G16/"
+                "direct-local-fetch-target-v1.json"
+            ),
+        )
+        policy = self.policy()
+        policy["authority"] = {
+            "portable_policy": True,
+            "authorizes_effect": False,
+            "production_integration": True,
+            "caller_bytes_can_issue_owner": False,
+            "fixed_policy_path": str(
+                MATERIALIZER.FIXED_PRODUCTION_TARGET_POLICY_PATH
+            ),
+            "policy_file_is_authority": False,
+            "backend_owner_descriptor_issuance_required": True,
+        }
+        policy["policy_payload_sha256"] = ""
+        policy["policy_payload_sha256"] = MATERIALIZER.digest(policy)
+        self.assertEqual(MATERIALIZER.validate_target_policy(policy), policy)
+        source = inspect.getsource(
+            MATERIALIZER._open_fixed_production_policy_no_follow
+        )
+        self.assertIn('os.open("/", directory_flags)', source)
+        self.assertIn("os.O_DIRECTORY", source)
+        self.assertIn("os.O_NOFOLLOW", source)
+        self.assertGreaterEqual(source.count("follow_symlinks=False"), 3)
+        self.assertIn("dir_fd=current", source)
+        production_source = inspect.getsource(
+            MATERIALIZER.LocalFetchTargetOwner.production
+        )
+        self.assertIn("MAX_PRODUCTION_TARGET_POLICY_BYTES", production_source)
+
     def test_ancestor_symlink_and_noncanonical_root_reject_before_capability(self) -> None:
         with tempfile.TemporaryDirectory() as outer:
             outer_path = pathlib.Path(outer).resolve()

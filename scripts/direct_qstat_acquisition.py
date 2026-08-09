@@ -26,6 +26,7 @@ import json
 import os
 import re
 import select
+import signal
 import stat
 import struct
 import sys
@@ -78,6 +79,7 @@ QSTAT_ARGV_PREFIX = (QSTAT_EXECUTABLE, "-f")
 QSTAT_ENVIRONMENT = {"LANG": "C", "LC_ALL": "C"}
 MAX_QSTAT_STREAM_BYTES = 64 * 1024
 MAX_QSTAT_COMBINED_BYTES = 64 * 1024
+QSTAT_CHILD_RETIRE_GRACE_SECONDS = 2.5
 MAX_REQUEST_BYTES = CHANNEL.MAX_CONTROL_FRAME_BYTES
 MAX_RESPONSE_BYTES = 512 * 1024
 MAX_FRESH_AGE_SECONDS = EVIDENCE.MAX_FRESH_AGE_SECONDS
@@ -858,6 +860,37 @@ class DirectQstatServerOwner:
         return value
 
     def handle_once(self, request_frame: bytes) -> bytes:
+        _require(
+            self._seal is _TEST_OWNER_TOKEN,
+            "production qstat requires the fixed dispatcher budget seam",
+        )
+        response, _deadline = self._handle_once(request_frame, None)
+        return response
+
+    def _handle_dispatched_once(
+        self,
+        request_frame: bytes,
+        dispatch_budget: object,
+    ) -> bytes:
+        _require(
+            self._seal is DirectQstatServerOwner
+            and dispatch_budget is not None,
+            "fixed dispatcher qstat budget differs",
+        )
+        response, deadline = self._handle_once(
+            request_frame, dispatch_budget,
+        )
+        _require(
+            deadline is dispatch_budget,
+            "fixed dispatcher qstat budget identity differs",
+        )
+        return response
+
+    def _handle_once(
+        self,
+        request_frame: bytes,
+        dispatch_budget: object | None,
+    ) -> tuple[bytes, object | None]:
         with self._lock:
             _require(
                 type(self) is DirectQstatServerOwner
@@ -901,8 +934,32 @@ class DirectQstatServerOwner:
                 job_id == request["expected_job_id"],
                 "controller expected job id differs from exact L1 capability",
             )
+            effective_budget = None
             if self._seal is DirectQstatServerOwner:
-                observation = _production_qstat_once(job_id, read_profile)
+                if dispatch_budget is not None:
+                    dispatcher = sys.modules.get(
+                        "direct_read_subsystem_dispatcher"
+                    )
+                    consume_budget = getattr(
+                        dispatcher, "_consume_dispatch_budget_once", None,
+                    )
+                    _require(
+                        callable(consume_budget),
+                        "canonical read dispatcher budget consumer is unavailable",
+                    )
+                    effective_budget = consume_budget(
+                        dispatch_budget,
+                        request_frame,
+                        "acquire_exact_qstat",
+                        int(
+                            read_profile["server_read"]["qstat"]
+                            ["timeout_seconds"],
+                            10,
+                        ),
+                    )
+                observation = _production_qstat_once(
+                    job_id, read_profile, effective_budget,
+                )
             else:
                 _require(type(self._driver) is _FakeQstatDriver, "fake qstat driver is unavailable")
                 observation = self._driver.acquire_once(job_id, read_profile)
@@ -921,7 +978,7 @@ class DirectQstatServerOwner:
                 profile_projection,
                 observation,
             )
-            return _canonical_frame(response, MAX_RESPONSE_BYTES)
+            return _canonical_frame(response, MAX_RESPONSE_BYTES), effective_budget
         finally:
             if lease is not None:
                 lease.close_once()
@@ -1065,7 +1122,13 @@ def _read_qstat_streams_until(
     return bytes(buffers[stdout_fd]), bytes(buffers[stderr_fd]), True, failure
 
 
-def _production_qstat_once(job_id: str, read_profile: dict[str, Any]) -> _QstatObservation:
+def _production_qstat_once(
+    job_id: str,
+    read_profile: dict[str, Any],
+    dispatch_budget: object | None = None,
+    *,
+    _test_token: object | None = None,
+) -> _QstatObservation:
     """Execute exact descriptor-bound qstat once; no shell, fallback or retry."""
 
     _assert_module_binding()
@@ -1075,7 +1138,33 @@ def _production_qstat_once(job_id: str, read_profile: dict[str, Any]) -> _QstatO
     stdout_r = stdout_w = stderr_r = stderr_w = -1
     pid = -1
     child_reaped = False
+    retire_exact_child: Any = None
     requested_at = _utc_now_text()
+    timeout = int(read_profile["server_read"]["qstat"]["timeout_seconds"], 10)
+    if dispatch_budget is None:
+        _require(
+            _test_token is _TEST_OWNER_TOKEN,
+            "production qstat requires exact dispatcher authority",
+        )
+        deadline = time.monotonic() + float(timeout)
+    else:
+        dispatcher = sys.modules.get("direct_read_subsystem_dispatcher")
+        assert_dispatcher = getattr(
+            dispatcher, "_assert_dispatcher_binding", None,
+        )
+        deadline_value = getattr(
+            dispatcher, "_dispatch_deadline_value", None,
+        )
+        _require(
+            callable(assert_dispatcher) and callable(deadline_value),
+            "canonical dispatcher deadline capability is unavailable",
+        )
+        assert_dispatcher()
+        deadline = deadline_value(dispatch_budget)
+        _require(
+            type(deadline) is float and time.monotonic() < deadline,
+            "dispatcher qstat deadline capability expired",
+        )
     try:
         qstat_fd, executable_identity_sha256, qstat_identity = _open_reviewed_qstat(
             read_profile
@@ -1083,8 +1172,92 @@ def _production_qstat_once(job_id: str, read_profile: dict[str, Any]) -> _QstatO
         stdout_r, stdout_w = CHANNEL._pipe_cloexec()
         stderr_r, stderr_w = CHANNEL._pipe_cloexec()
         argv = (*QSTAT_ARGV_PREFIX, job_id)
-        timeout = int(read_profile["server_read"]["qstat"]["timeout_seconds"], 10)
-        deadline = time.monotonic() + float(timeout)
+        _assert_module_binding()
+        creator_pid = os.getpid()
+        creator_thread = threading.get_ident()
+        ownership = (creator_pid, creator_thread, object())
+        ownership_seal = ownership[2]
+        _require(
+            signal.getsignal(signal.SIGCHLD) is signal.SIG_DFL,
+            "qstat child requires default SIGCHLD and its exclusive reaper",
+        )
+
+        def retire_exact_child() -> bool:
+            if (
+                type(pid) is not int
+                or pid <= 0
+                or os.getpid() != ownership[0]
+                or threading.get_ident() != ownership[1]
+                or ownership[2] is not ownership_seal
+            ):
+                return False
+            try:
+                _assert_module_binding()
+            except BaseException:
+                return False
+            if signal.getsignal(signal.SIGCHLD) is not signal.SIG_DFL:
+                return False
+
+            terminal = False
+
+            def probe() -> str:
+                nonlocal terminal
+                if terminal:
+                    return "terminal"
+                try:
+                    waited, _status = os.waitpid(pid, os.WNOHANG)
+                except (ChildProcessError, OSError):
+                    return "foreign"
+                if waited == pid:
+                    terminal = True
+                    return "reaped"
+                if waited == 0:
+                    return "live"
+                return "foreign"
+
+            def wait_reaped() -> bool:
+                retirement_deadline = min(
+                    deadline,
+                    time.monotonic() + QSTAT_CHILD_RETIRE_GRACE_SECONDS,
+                )
+                while True:
+                    state = probe()
+                    if state == "reaped":
+                        return True
+                    if state != "live":
+                        return False
+                    remaining = retirement_deadline - time.monotonic()
+                    if remaining <= 0:
+                        return False
+                    try:
+                        select.select([], [], [], min(0.01, remaining))
+                    except BaseException:
+                        return False
+
+            def signal_exact(signum: int) -> tuple[bool, bool]:
+                state = probe()
+                if state == "reaped":
+                    return False, True
+                if state != "live":
+                    return False, False
+                try:
+                    os.kill(pid, signum)
+                except ProcessLookupError:
+                    return False, probe() == "reaped"
+                except OSError:
+                    return False, False
+                return True, False
+
+            sent, reaped = signal_exact(signal.SIGTERM)
+            if reaped:
+                return True
+            if not sent:
+                return False
+            if wait_reaped():
+                return True
+            sent, reaped = signal_exact(signal.SIGKILL)
+            return reaped or (sent and wait_reaped())
+
         pid = os.fork()
         if pid == 0:  # pragma: no cover - production server only
             try:
@@ -1134,8 +1307,79 @@ def _production_qstat_once(job_id: str, read_profile: dict[str, Any]) -> _QstatO
         )
     finally:
         CHANNEL._close_quiet(qstat_fd, stdout_r, stdout_w, stderr_r, stderr_w)
-        if pid > 0 and not child_reaped:
-            CHANNEL._retire_child_bounded(pid)
+        if pid > 0 and not child_reaped and retire_exact_child is not None:
+            try:
+                child_reaped = bool(retire_exact_child())
+            except BaseException:
+                child_reaped = False
+            if not child_reaped:
+                raise DirectQstatAcquisitionError(
+                    "exact qstat child retirement is unknown; no retry"
+                )
+
+
+def _acquire_terminal_fetch_eligibility_once(
+    *,
+    project: str,
+    job_id: str,
+    attempt_id: str,
+    input_sha256: str,
+    direct_binding_sha256: str,
+    read_profile: dict[str, Any],
+    dispatch_budget: object,
+) -> dict[str, Any]:
+    """Sole Q1 effect-time owner for server-local terminal fetch eligibility."""
+
+    _assert_module_binding()
+    observation = _normalize_observation(
+        job_id,
+        project,
+        _production_qstat_once(job_id, read_profile, dispatch_budget),
+    )
+    binding = EVIDENCE.DirectJobBinding(
+        project=project,
+        job_id=job_id,
+        attempt_id=attempt_id,
+        input_sha256=input_sha256,
+        direct_binding_sha256=direct_binding_sha256,
+    )
+    evidence = EVIDENCE.build_qstat_evidence(
+        binding,
+        EVIDENCE.QstatObservation(
+            returncode=observation.returncode,
+            stdout=observation.stdout,
+            stderr=observation.stderr,
+            timed_out=observation.timed_out,
+            eof_complete=observation.eof_complete,
+            requested_at=observation.requested_at,
+            collected_at=observation.collected_at,
+            received_at=observation.collected_at,
+        ),
+    ).document()
+    qstat = evidence["qstat"]
+    allowed = (
+        evidence["collection"]["freshness"] == "fresh"
+        and (
+            (
+                qstat["status"] == "present"
+                and qstat["record_present"] is True
+                and qstat["lifecycle"] == "terminal"
+                and qstat["pbs_state"] in {"C", "F"}
+            )
+            or (
+                qstat["status"] == "absent"
+                and qstat["record_present"] is False
+                and qstat["lifecycle"] == "absent"
+                and qstat["pbs_state"] is None
+            )
+        )
+    )
+    _require(allowed, "server effect-time qstat is not terminal fetch eligible")
+    _require(
+        evidence["authority"]["authorizes_effect"] is False,
+        "server terminal eligibility evidence authority differs",
+    )
+    return evidence
 
 
 def _build_response(
@@ -2031,13 +2275,16 @@ def _acquire_with_fake_transport_once(
 
 
 class GaussianJobInspection3:
-    __slots__ = ("_bytes",)
+    __slots__ = ("_key", "_seal", "__weakref__")
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         raise TypeError("final scheduler inspections are owner-issued only")
 
     def document(self) -> dict[str, Any]:
-        return validate_final_inspection(json.loads(self._bytes.decode("utf-8")))
+        return json.loads(_INSPECTION_PROJECT(self).decode("utf-8"))
+
+    def assert_current(self) -> None:
+        _INSPECTION_ASSERT(self)
 
     def __copy__(self) -> Any:
         raise TypeError("final scheduler inspections are not clonable")
@@ -2047,6 +2294,81 @@ class GaussianJobInspection3:
 
     def __reduce__(self) -> Any:
         raise TypeError("final scheduler inspections are not serializable")
+
+
+class _InspectionRecord(NamedTuple):
+    value: GaussianJobInspection3
+    pid: int
+    epoch: object
+    seal: object
+    raw: bytes
+
+
+def _build_inspection_owner() -> tuple[Any, Any, Any, Any]:
+    registry: weakref.WeakKeyDictionary[GaussianJobInspection3, _InspectionRecord] = (
+        weakref.WeakKeyDictionary()
+    )
+    lock = threading.RLock()
+    epoch = object()
+
+    def exact(value: object) -> _InspectionRecord:
+        with lock:
+            record = registry.get(value) if type(value) is GaussianJobInspection3 else None
+            _require(
+                type(record) is _InspectionRecord
+                and record.value is value
+                and record.pid == os.getpid()
+                and record.epoch is epoch
+                and record.seal is value._seal
+                and record.raw == canonical_bytes(
+                    validate_final_inspection(json.loads(record.raw.decode("utf-8")))
+                ),
+                "final scheduler inspection is foreign, forged, forked, rebound, or terminal",
+            )
+            return record
+
+    def issue(document: dict[str, Any]) -> GaussianJobInspection3:
+        nonlocal epoch
+        raw = canonical_bytes(validate_final_inspection(document))
+        value = object.__new__(GaussianJobInspection3)
+        value._key = id(value)
+        value._seal = object()
+        record = _InspectionRecord(value, os.getpid(), epoch, value._seal, raw)
+        with lock:
+            registry[value] = record
+        exact(value)
+        return value
+
+    def assert_current(value: object) -> None:
+        exact(value)
+
+    def project(value: object) -> bytes:
+        return bytes(exact(value).raw)
+
+    def consume(value: object) -> tuple[dict[str, Any], str]:
+        record = exact(value)
+        with lock:
+            _require(registry.get(value) is record, "final scheduler inspection consume raced")
+            del registry[value]
+        document = validate_final_inspection(json.loads(record.raw.decode("utf-8")))
+        return document, hashlib.sha256(record.raw).hexdigest()
+
+    def after_fork() -> None:
+        nonlocal lock, epoch
+        registry.clear()
+        lock = threading.RLock()
+        epoch = object()
+
+    return issue, assert_current, project, consume, after_fork
+
+
+(
+    _INSPECTION_ISSUE,
+    _INSPECTION_ASSERT,
+    _INSPECTION_PROJECT,
+    _INSPECTION_CONSUME_FOR_TERMINAL_FETCH,
+    _CLEAR_INSPECTIONS_AFTER_FORK,
+) = _build_inspection_owner()
 
 
 def build_final_scheduler_inspection_once(
@@ -2166,9 +2488,7 @@ def build_final_scheduler_inspection_once(
     }
     document["evidence_sha256"] = digest(document)
     validated = validate_final_inspection(document)
-    result = object.__new__(GaussianJobInspection3)
-    result._bytes = canonical_bytes(validated)
-    return result
+    return _INSPECTION_ISSUE(validated)
 
 
 def validate_final_inspection(value: Any) -> dict[str, Any]:
@@ -2354,12 +2674,16 @@ def _capture_module_binding() -> _ModuleBinding:
             _ISSUE_CONTROLLER_JOIN, _ASSERT_CONTROLLER_JOIN, _ISSUE_LINEAGE_JOIN,
             _ASSERT_LINEAGE_JOIN, _CLEAR_JOINS_AFTER_FORK, _RESULT_ISSUE,
             _RESULT_ASSERT, _RESULT_PROJECT, _RESULT_CONSUME, _CLEAR_RESULTS_AFTER_FORK,
+            _INSPECTION_ISSUE, _INSPECTION_ASSERT, _INSPECTION_PROJECT,
+            _INSPECTION_CONSUME_FOR_TERMINAL_FETCH,
+            _CLEAR_INSPECTIONS_AFTER_FORK,
             _assert_shared_channel_query_issuance_authority,
             _assert_shared_channel_query_authority,
             _assert_exact_lineage_consumer_join,
             _request_id, build_request, validate_request, validate_response,
             _build_response,
-            _normalize_observation, _production_qstat_once, _open_reviewed_qstat,
+            _normalize_observation, _production_qstat_once,
+            _acquire_terminal_fetch_eligibility_once, _open_reviewed_qstat,
             _executable_identity, _identity_sha, _read_qstat_descriptor_sha256,
             _assert_qstat_descriptor_current, _exec_reviewed_qstat_child_once,
             _read_qstat_streams_until, _prepare_controller_request,
@@ -2393,7 +2717,6 @@ def _capture_module_binding() -> _ModuleBinding:
             CHANNEL._require_eof_until,
             CHANNEL._write_frame_until,
             CHANNEL._wait_child_until,
-            CHANNEL._retire_child_bounded,
             CHANNEL._QueryChildHandle,
             CHANNEL._make_query_child_owner,
             CHANNEL._assert_query_child_owner_environment,
@@ -2405,14 +2728,17 @@ def _capture_module_binding() -> _ModuleBinding:
         ),
         (
             os.open, os.read, os.close, os.fork, os.execve, os.fstat, os.stat,
-            os.waitpid, os.dup2, os._exit, os.getpid, os.lseek, select.select,
-            fcntl.fcntl, time.monotonic,
+            os.waitpid, os.kill, os.dup2, os._exit, os.getpid, os.lseek,
+            signal.getsignal, select.select, fcntl.fcntl, time.monotonic,
         ),
         (
             base64.b64encode, base64.b64decode, binascii.Error,
             hashlib.sha256, json.loads, json.dumps, struct.pack, struct.unpack,
-            stat.S_IFMT, stat.S_ISREG, stat.S_IMODE, copy.deepcopy,
+            stat.S_IFMT, stat.S_ISREG, stat.S_IMODE, signal.SIGTERM,
+            signal.SIGKILL, signal.SIGCHLD, signal.SIG_DFL, os.WNOHANG,
+            copy.deepcopy,
             dataclasses.replace, re.fullmatch, datetime, timedelta, timezone, Path,
+            threading.get_ident,
             SHA_RE, ACQUISITION_ID_RE, INSPECTION_ID_RE, DECIMAL_RE,
             SIGNED_DECIMAL_RE, TIMESTAMP_RE,
             weakref.finalize, weakref.WeakKeyDictionary,
@@ -2421,7 +2747,8 @@ def _capture_module_binding() -> _ModuleBinding:
             REQUEST_SCHEMA, RESPONSE_SCHEMA, ACQUISITION_SCHEMA, INSPECTION_SCHEMA,
             OWNER, OWNER_VERSION, FINAL_OWNER, FINAL_OWNER_VERSION,
             QSTAT_EXECUTABLE, QSTAT_ARGV_PREFIX, copy.deepcopy(QSTAT_ENVIRONMENT),
-            MAX_QSTAT_STREAM_BYTES, MAX_QSTAT_COMBINED_BYTES, MAX_REQUEST_BYTES,
+            MAX_QSTAT_STREAM_BYTES, MAX_QSTAT_COMBINED_BYTES,
+            QSTAT_CHILD_RETIRE_GRACE_SECONDS, MAX_REQUEST_BYTES,
             MAX_RESPONSE_BYTES, MAX_FRESH_AGE_SECONDS, ZERO_SHA,
             copy.deepcopy(AUTHORITY), copy.deepcopy(FINAL_AUTHORITY),
             READ_PROFILE.FIXED_PRODUCTION_READ_PROFILE_PATH,
@@ -2456,12 +2783,16 @@ def _assert_module_binding() -> None:
             _ISSUE_CONTROLLER_JOIN, _ASSERT_CONTROLLER_JOIN, _ISSUE_LINEAGE_JOIN,
             _ASSERT_LINEAGE_JOIN, _CLEAR_JOINS_AFTER_FORK, _RESULT_ISSUE,
             _RESULT_ASSERT, _RESULT_PROJECT, _RESULT_CONSUME, _CLEAR_RESULTS_AFTER_FORK,
+            _INSPECTION_ISSUE, _INSPECTION_ASSERT, _INSPECTION_PROJECT,
+            _INSPECTION_CONSUME_FOR_TERMINAL_FETCH,
+            _CLEAR_INSPECTIONS_AFTER_FORK,
             _assert_shared_channel_query_issuance_authority,
             _assert_shared_channel_query_authority,
             _assert_exact_lineage_consumer_join,
             _request_id, build_request, validate_request, validate_response,
             _build_response,
-            _normalize_observation, _production_qstat_once, _open_reviewed_qstat,
+            _normalize_observation, _production_qstat_once,
+            _acquire_terminal_fetch_eligibility_once, _open_reviewed_qstat,
             _executable_identity, _identity_sha, _read_qstat_descriptor_sha256,
             _assert_qstat_descriptor_current, _exec_reviewed_qstat_child_once,
             _read_qstat_streams_until, _prepare_controller_request,
@@ -2496,7 +2827,6 @@ def _assert_module_binding() -> None:
             CHANNEL._require_eof_until,
             CHANNEL._write_frame_until,
             CHANNEL._wait_child_until,
-            CHANNEL._retire_child_bounded,
             CHANNEL._QueryChildHandle,
             CHANNEL._make_query_child_owner,
             CHANNEL._assert_query_child_owner_environment,
@@ -2509,15 +2839,18 @@ def _assert_module_binding() -> None:
         and binding.os_entries
         == (
             os.open, os.read, os.close, os.fork, os.execve, os.fstat, os.stat,
-            os.waitpid, os.dup2, os._exit, os.getpid, os.lseek, select.select,
-            fcntl.fcntl, time.monotonic,
+            os.waitpid, os.kill, os.dup2, os._exit, os.getpid, os.lseek,
+            signal.getsignal, select.select, fcntl.fcntl, time.monotonic,
         )
         and binding.runtime_entries
         == (
             base64.b64encode, base64.b64decode, binascii.Error,
             hashlib.sha256, json.loads, json.dumps, struct.pack, struct.unpack,
-            stat.S_IFMT, stat.S_ISREG, stat.S_IMODE, copy.deepcopy,
+            stat.S_IFMT, stat.S_ISREG, stat.S_IMODE, signal.SIGTERM,
+            signal.SIGKILL, signal.SIGCHLD, signal.SIG_DFL, os.WNOHANG,
+            copy.deepcopy,
             dataclasses.replace, re.fullmatch, datetime, timedelta, timezone, Path,
+            threading.get_ident,
             SHA_RE, ACQUISITION_ID_RE, INSPECTION_ID_RE, DECIMAL_RE,
             SIGNED_DECIMAL_RE, TIMESTAMP_RE,
             weakref.finalize, weakref.WeakKeyDictionary,
@@ -2526,7 +2859,8 @@ def _assert_module_binding() -> None:
             REQUEST_SCHEMA, RESPONSE_SCHEMA, ACQUISITION_SCHEMA, INSPECTION_SCHEMA,
             OWNER, OWNER_VERSION, FINAL_OWNER, FINAL_OWNER_VERSION,
             QSTAT_EXECUTABLE, QSTAT_ARGV_PREFIX, copy.deepcopy(QSTAT_ENVIRONMENT),
-            MAX_QSTAT_STREAM_BYTES, MAX_QSTAT_COMBINED_BYTES, MAX_REQUEST_BYTES,
+            MAX_QSTAT_STREAM_BYTES, MAX_QSTAT_COMBINED_BYTES,
+            QSTAT_CHILD_RETIRE_GRACE_SECONDS, MAX_REQUEST_BYTES,
             MAX_RESPONSE_BYTES, MAX_FRESH_AGE_SECONDS, ZERO_SHA,
             copy.deepcopy(AUTHORITY), copy.deepcopy(FINAL_AUTHORITY),
             READ_PROFILE.FIXED_PRODUCTION_READ_PROFILE_PATH,
@@ -2542,7 +2876,7 @@ def _assert_module_binding() -> None:
             "auto-g16-direct-final-scheduler-inspection-owner",
             "direct-final-scheduler-inspection-owner/1",
             "/usr/bin/qstat", ("/usr/bin/qstat", "-f"), {"LANG": "C", "LC_ALL": "C"},
-            65536, 65536, 33554432, 524288, 120, "0" * 64,
+            65536, 65536, 2.5, 33554432, 524288, 120, "0" * 64,
             {
                 "authorizes_effect": False, "scientific_acceptance": False,
                 "gaussian_completion": False, "qsub": False, "qdel": False,
@@ -2571,6 +2905,7 @@ def _after_fork_child() -> None:
     global _MODULE_BINDING
     _CLEAR_JOINS_AFTER_FORK()
     _CLEAR_RESULTS_AFTER_FORK()
+    _CLEAR_INSPECTIONS_AFTER_FORK()
 
 
 def _read_stdin_frame_once(deadline: float) -> bytes:
@@ -2585,20 +2920,10 @@ def _read_stdin_frame_once(deadline: float) -> bytes:
 
 
 def _server_subsystem_main() -> int:
-    _require(
-        sys.flags.isolated == 1
-        and sys.flags.no_site == 1
-        and Path.cwd() == Path("/")
-        and os.environ.get("LANG") == "C"
-        and os.environ.get("LC_ALL") == "C",
-        "qstat read subsystem requires fixed -I -S clean exec",
-    )
     _assert_module_binding()
-    deadline = time.monotonic() + CHANNEL.SUBMIT_OPERATION_TIMEOUT_SECONDS
-    request_frame = _read_stdin_frame_once(deadline)
-    response_frame = DirectQstatServerOwner.production().handle_once(request_frame)
-    CHANNEL._write_frame_until(1, response_frame, deadline)
-    return 0
+    raise DirectQstatAcquisitionError(
+        "standalone qstat subsystem is disabled; fixed read dispatcher required"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

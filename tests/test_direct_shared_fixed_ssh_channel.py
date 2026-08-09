@@ -148,7 +148,9 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
             "job_id": "123.master",
             "chunk_count": str(len(chunks)),
             "total_size_bytes": str(len(bundle)),
-            "bundle_sha256": hashlib.sha256(bundle).hexdigest(),
+            "bundle_commitment_sha256": hashlib.sha256(
+                b"commitment:" + bundle
+            ).hexdigest(),
             "authority": {"authorizes_effect": False, "qsub_calls": "0"},
         }
         trailer: dict[str, object] = {
@@ -158,6 +160,9 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
             "job_id": "123.master",
             "chunk_count": str(len(chunks)),
             "total_size_bytes": str(len(bundle)),
+            "bundle_commitment_sha256": header[
+                "bundle_commitment_sha256"
+            ],
             "bundle_sha256": hashlib.sha256(bundle).hexdigest(),
             "authority": {"authorizes_effect": False, "qsub_calls": "0"},
             "trailer_payload_sha256": "",
@@ -208,7 +213,7 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
     def test_operations_are_exact_sealed_nonportable_and_cross_splice_closed(self) -> None:
         submit = self.submit_operation()
         query = self.query_operation()
-        fetch = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(self.transport_raw, self.read_profile_raw, "123.master")
+        fetch = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(self.transport_raw, self.read_profile_raw, "123.master")
         self.assertIs(type(submit), CHANNEL.SubmitChannelOperation)
         self.assertIs(type(query), CHANNEL.QueryExactJobOperation)
         self.assertIs(type(fetch), CHANNEL.FetchTerminalMinimumBundleOperation)
@@ -350,7 +355,7 @@ class DirectSharedFixedSSHChannelTests(unittest.TestCase):
 
     def test_query_fetch_exact_type_gates_are_before_io_and_old_builders_are_absent(self) -> None:
         query = self.query_operation()
-        fetch = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        fetch = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             self.read_profile_raw,
             "123.master",
@@ -752,7 +757,7 @@ raise SystemExit(9)
         foreign_operation.assert_owner_sealed()
 
     def test_fetch_state_machine_bounds_chunks_trailer_eof_and_single_deadline(self) -> None:
-        operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(self.transport_raw, self.read_profile_raw, "123.master")
+        operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(self.transport_raw, self.read_profile_raw, "123.master")
         stream = self.fetch_stream(operation, (b"alpha", b"beta"))
         header, bundle, trailer = self.through_pipe(
             stream,
@@ -762,7 +767,7 @@ raise SystemExit(9)
         self.assertEqual(header["chunk_count"], "2")
         self.assertEqual(trailer["bundle_sha256"], hashlib.sha256(bundle).hexdigest())
 
-        direct_operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        direct_operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw, self.read_profile_raw, "123.master",
         )
         direct_bundle = b"alphabetagamma"
@@ -787,12 +792,12 @@ raise SystemExit(9)
         )
         self.assertEqual(observed, direct_bundle)
         self.assertEqual(
-            direct_header["bundle_sha256"],
-            hashlib.sha256(direct_bundle).hexdigest(),
+            direct_header["bundle_commitment_sha256"],
+            hashlib.sha256(b"commitment:" + direct_bundle).hexdigest(),
         )
         self.assertEqual(
-            direct_trailer["bundle_sha256"],
-            direct_header["bundle_sha256"],
+            direct_trailer["bundle_commitment_sha256"],
+            direct_header["bundle_commitment_sha256"],
         )
 
         duplicate_stream = self.fetch_stream(operation, (b"x",))
@@ -815,7 +820,7 @@ raise SystemExit(9)
 
         failed_operation: CHANNEL.FetchTerminalMinimumBundleOperation | None = None
         for label in ("zero", "truncated", "extra", "second"):
-            hostile_operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+            hostile_operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
                 self.transport_raw,
                 self.read_profile_raw,
                 "123.master",
@@ -828,7 +833,9 @@ raise SystemExit(9)
                 "job_id": "123.master",
                 "chunk_count": "0",
                 "total_size_bytes": "0",
-                "bundle_sha256": hashlib.sha256(b"").hexdigest(),
+                "bundle_commitment_sha256": hashlib.sha256(
+                    b"commitment:"
+                ).hexdigest(),
                 "authority": {"authorizes_effect": False, "qsub_calls": "0"},
             }
             hostile = {
@@ -869,7 +876,7 @@ raise SystemExit(9)
             if retry_write >= 0:
                 os.close(retry_write)
 
-        oversize_operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        oversize_operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             self.read_profile_raw,
             "123.master",
@@ -890,7 +897,7 @@ raise SystemExit(9)
             )
 
         read_fd, write_fd = os.pipe()
-        partial_operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        partial_operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             self.read_profile_raw,
             "123.master",
@@ -941,12 +948,12 @@ raise SystemExit(9)
             if partial_retry_write >= 0:
                 os.close(partial_retry_write)
 
-        foreign_operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        foreign_operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             self.read_profile_raw,
             "123.master",
         )
-        spliced_operation = CHANNEL.issue_fetch_terminal_minimum_bundle_operation(
+        spliced_operation = CHANNEL._issue_fetch_terminal_minimum_bundle_operation_for_testing(
             self.transport_raw,
             self.read_profile_raw,
             "123.master",
