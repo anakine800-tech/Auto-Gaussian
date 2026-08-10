@@ -44,8 +44,6 @@ MAX_FETCH_TOTAL_BYTES = 1_092_943_959
 MAX_FETCH_CHUNK_BYTES = 4 * 1024 * 1024
 MAX_BUFFERED_FETCH_TEST_BYTES = 2 * 1024 * 1024
 SSH_EXECUTABLE = "/usr/bin/ssh"
-QSUB_EXECUTABLE = "/usr/bin/qsub"
-QSUB_ARGV = (QSUB_EXECUTABLE, "--", "auto-g16-job.pbs")
 PBS_BASENAME = "auto-g16-job.pbs"
 FIXED_ENVIRONMENT = {"LANG": "C", "LC_ALL": "C"}
 SSH_FIXED_OPTIONS = (
@@ -269,9 +267,9 @@ def validate_transport_profile(document: Any) -> dict[str, Any]:
         {"executable", "executable_sha256", "argv", "working_directory", "stdout_grammar"},
         "qsub profile",
     )
+    qsub_executable = _absolute_file(qsub["executable"], "qsub executable")
     _require(
-        qsub["executable"] == QSUB_EXECUTABLE
-        and qsub["argv"] == list(QSUB_ARGV)
+        qsub["argv"] == [qsub_executable, "--", PBS_BASENAME]
         and qsub["working_directory"] == "already_open_project_fd"
         and qsub["stdout_grammar"] == "independent_pbs_job_id_v1",
         "qsub executable, argv, cwd, or grammar differs",
@@ -1238,6 +1236,33 @@ def _executable_identity(info: os.stat_result) -> tuple[int, ...]:
     return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
+def _open_absolute_no_follow(path: str, *, final_flags: int) -> int:
+    canonical = _absolute_file(path, "reviewed executable path")
+    components = canonical.split("/")[1:]
+    directory = os.open(
+        "/",
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+    )
+    try:
+        for component in components[:-1]:
+            successor = os.open(
+                component,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=directory,
+            )
+            os.close(directory)
+            directory = successor
+        return os.open(
+            components[-1],
+            final_flags | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=directory,
+        )
+    finally:
+        os.close(directory)
+
+
 def _assert_reviewed_executable_descriptor(descriptor: int, path: str, expected_sha256: str) -> None:
     _sha(expected_sha256, "reviewed executable")
     before = os.fstat(descriptor)
@@ -1250,16 +1275,20 @@ def _assert_reviewed_executable_descriptor(descriptor: int, path: str, expected_
             break
         hasher.update(chunk)
     after = os.fstat(descriptor)
-    named = os.stat(path, follow_symlinks=False)
-    _require(
-        _executable_identity(before) == _executable_identity(after) == _executable_identity(named)
-        and hasher.hexdigest() == expected_sha256,
-        "reviewed executable identity or hash differs",
-    )
+    current = _open_absolute_no_follow(path, final_flags=os.O_RDONLY)
+    try:
+        _require(
+            _executable_identity(before) == _executable_identity(after)
+            == _executable_identity(os.fstat(current))
+            and hasher.hexdigest() == expected_sha256,
+            "reviewed executable identity or hash differs",
+        )
+    finally:
+        os.close(current)
 
 
 def _open_reviewed_executable(path: str, expected_sha256: str) -> int:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+    descriptor = _open_absolute_no_follow(path, final_flags=os.O_RDONLY)
     try:
         _assert_reviewed_executable_descriptor(descriptor, path, expected_sha256)
         return descriptor
@@ -2609,6 +2638,10 @@ _FROZEN_PROFILE_LOADER = load_transport_profile
 _FROZEN_READ_PROFILE_VALIDATOR = validate_read_profile
 _FROZEN_READ_PROFILE_LOADER = load_read_profile
 _FROZEN_ARGV_BUILDER = build_controller_argv
+_FROZEN_REQUIRE = _require
+_FROZEN_TEXT_VALIDATOR = _text
+_FROZEN_ABSOLUTE_FILE_VALIDATOR = _absolute_file
+_FROZEN_NO_FOLLOW_OPENER = _open_absolute_no_follow
 _FROZEN_EXECUTABLE_OPENER = _open_reviewed_executable
 _FROZEN_EXECUTABLE_ASSERT = _assert_reviewed_executable_descriptor
 _FROZEN_DESCRIPTOR_EXEC = _descriptor_execve
@@ -2708,12 +2741,13 @@ _FROZEN_MAX_QUERY_RESPONSE_FRAME_BYTES = MAX_QUERY_RESPONSE_FRAME_BYTES
 _FROZEN_MAX_FETCH_TOTAL_BYTES = MAX_FETCH_TOTAL_BYTES
 _FROZEN_MAX_FETCH_CHUNK_BYTES = MAX_FETCH_CHUNK_BYTES
 _FROZEN_MAX_BUFFERED_FETCH_TEST_BYTES = MAX_BUFFERED_FETCH_TEST_BYTES
+_FROZEN_PBS_BASENAME = PBS_BASENAME
 
 
 def _assert_production_binding() -> None:
     with open(__file__, "rb") as source:
         source_sha256 = hashlib.sha256(source.read()).hexdigest()
-    _require(
+    _FROZEN_REQUIRE(
         source_sha256 == _EXECUTED_SOURCE_SHA256
         and os.fork is _FROZEN_FORK
         and os.execve is _FROZEN_EXECVE
@@ -2723,6 +2757,10 @@ def _assert_production_binding() -> None:
         and validate_read_profile is _FROZEN_READ_PROFILE_VALIDATOR
         and load_read_profile is _FROZEN_READ_PROFILE_LOADER
         and build_controller_argv is _FROZEN_ARGV_BUILDER
+        and _require is _FROZEN_REQUIRE
+        and _text is _FROZEN_TEXT_VALIDATOR
+        and _absolute_file is _FROZEN_ABSOLUTE_FILE_VALIDATOR
+        and _open_absolute_no_follow is _FROZEN_NO_FOLLOW_OPENER
         and _open_reviewed_executable is _FROZEN_EXECUTABLE_OPENER
         and _assert_reviewed_executable_descriptor is _FROZEN_EXECUTABLE_ASSERT
         and _descriptor_execve is _FROZEN_DESCRIPTOR_EXEC
@@ -2827,7 +2865,8 @@ def _assert_production_binding() -> None:
         and MAX_FETCH_TOTAL_BYTES == _FROZEN_MAX_FETCH_TOTAL_BYTES == 1_092_943_959
         and MAX_FETCH_CHUNK_BYTES == _FROZEN_MAX_FETCH_CHUNK_BYTES == 4 * 1024 * 1024
         and MAX_BUFFERED_FETCH_TEST_BYTES
-        == _FROZEN_MAX_BUFFERED_FETCH_TEST_BYTES == 2 * 1024 * 1024,
+        == _FROZEN_MAX_BUFFERED_FETCH_TEST_BYTES == 2 * 1024 * 1024
+        and PBS_BASENAME == _FROZEN_PBS_BASENAME == "auto-g16-job.pbs",
         "shared fixed SSH production source, function, executable, or option binding differs",
     )
 

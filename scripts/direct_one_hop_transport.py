@@ -45,8 +45,6 @@ PBS_BASENAME = "auto-g16-job.pbs"
 CHECKSUMS_BASENAME = "checksums.sha256"
 SUBMISSION_RECEIPT_BASENAME = "submission-receipt.json"
 ALLOWLIST = (INPUT_BASENAME, PBS_BASENAME, CHECKSUMS_BASENAME, SUBMISSION_RECEIPT_BASENAME)
-QSUB_EXECUTABLE = "/usr/bin/qsub"
-QSUB_ARGV = (QSUB_EXECUTABLE, "--", PBS_BASENAME)
 SSH_EXECUTABLE = CHANNEL.SSH_EXECUTABLE
 SSH_SUBSYSTEM = CHANNEL.SUBMIT_SUBSYSTEM
 SSH_FIXED_OPTIONS = CHANNEL.SSH_FIXED_OPTIONS
@@ -146,6 +144,11 @@ def _absolute_file(value: Any, label: str) -> str:
         f"{label} differs",
     )
     return path
+
+
+def _qsub_argv(executable: str) -> tuple[str, str, str]:
+    path = _absolute_file(executable, "qsub executable")
+    return (path, "--", PBS_BASENAME)
 
 
 validate_transport_profile = CHANNEL.validate_transport_profile
@@ -480,6 +483,8 @@ def _validate_controller_response(
         and receipt["binding_payload_sha256"] == readiness["binding_payload_sha256"]
         and receipt["journal_id"] == readiness["journal_id"]
         and all(receipt[field] == value for field, value in expected.items())
+        and receipt["invocation"]["executable"] == profile["qsub"]["executable"]
+        and receipt["invocation"]["argv"] == profile["qsub"]["argv"]
         and receipt["authority"]["authorizes_effect"] is False
         and receipt["qsub"]["calls"] == "1",
         "fixed controller receipt is stale, foreign, or unbound",
@@ -735,11 +740,16 @@ def _test_driver(*, stdout: bytes, stderr: bytes = b"", returncode: int | None =
     return value
 
 
-def _production_qsub_once(project_fd: int, expected_executable_sha256: str) -> _EffectObservation:
+def _production_qsub_once(
+    project_fd: int,
+    executable: str,
+    expected_executable_sha256: str,
+) -> _EffectObservation:
     """Invoke the fixed qsub program once; never retries and never uses a shell."""
     _require(type(project_fd) is int and stat.S_ISDIR(os.fstat(project_fd).st_mode), "project FD differs")
+    argv = _qsub_argv(executable)
     _require_descriptor_exec_available()
-    qsub_fd = _open_reviewed_executable(QSUB_EXECUTABLE, expected_executable_sha256)
+    qsub_fd = _open_reviewed_executable(executable, expected_executable_sha256)
     read_out, write_out = _pipe_cloexec()
     read_err, write_err = _pipe_cloexec()
     try:
@@ -750,7 +760,7 @@ def _production_qsub_once(project_fd: int, expected_executable_sha256: str) -> _
     if pid == 0:  # pragma: no cover - live production only
         try:
             os.fchdir(project_fd)
-            _assert_reviewed_executable_descriptor(qsub_fd, QSUB_EXECUTABLE, expected_executable_sha256)
+            _assert_reviewed_executable_descriptor(qsub_fd, executable, expected_executable_sha256)
             os.dup2(write_out, 1)
             os.dup2(write_err, 2)
             for descriptor in (read_out, read_err, write_out, write_err, project_fd):
@@ -759,7 +769,7 @@ def _production_qsub_once(project_fd: int, expected_executable_sha256: str) -> _
                         os.close(descriptor)
                     except OSError:
                         pass
-            _descriptor_execve(qsub_fd, QSUB_ARGV, FIXED_ENVIRONMENT)
+            _descriptor_execve(qsub_fd, argv, FIXED_ENVIRONMENT)
         except BaseException:
             os._exit(127)
     _close_quiet(write_out, write_err, qsub_fd)
@@ -881,9 +891,12 @@ def _issue_receipt(
     job_id: str,
     files: dict[str, bytes],
 ) -> ExactSubmissionReceipt:
+    qsub_executable = profile["qsub"]["executable"]
+    qsub_argv = _qsub_argv(qsub_executable)
+    _require(profile["qsub"]["argv"] == list(qsub_argv), "reviewed qsub argv differs")
     invocation = {
-        "executable": QSUB_EXECUTABLE,
-        "argv": list(QSUB_ARGV),
+        "executable": qsub_executable,
+        "argv": list(qsub_argv),
         "working_directory": "already_open_project_fd",
         "call_count": "1",
     }
@@ -1001,9 +1014,9 @@ def validate_submission_receipt(document: Any) -> dict[str, Any]:
     )
     invocation = _exact(value["invocation"], {"executable", "argv", "working_directory", "call_count", "invocation_payload_sha256"}, "submission invocation")
     invocation_hash = invocation["invocation_payload_sha256"]
+    qsub_argv = _qsub_argv(invocation["executable"])
     _require(
-        invocation["executable"] == QSUB_EXECUTABLE
-        and invocation["argv"] == list(QSUB_ARGV)
+        invocation["argv"] == list(qsub_argv)
         and invocation["working_directory"] == "already_open_project_fd"
         and invocation["call_count"] == "1"
         and invocation_hash == digest({key: item for key, item in invocation.items() if key != "invocation_payload_sha256"}),
@@ -1098,6 +1111,7 @@ def _consume_once(seam: SESSION.TrustedW5OperationSeam, driver: _DeterministicTe
         effect_possible = True
         observation = driver.invoke_once(project_fd) if driver is not None else _production_qsub_once(
             project_fd,
+            profile["qsub"]["executable"],
             profile["qsub"]["executable_sha256"],
         )
         _require(observation.qsub_calls == 1, "qsub call count differs")
@@ -1147,6 +1161,10 @@ def _consume_with_test_driver_once(
 _FROZEN_FORK = os.fork
 _FROZEN_EXECVE = os.execve
 _FROZEN_URANDOM = os.urandom
+_FROZEN_REQUIRE = _require
+_FROZEN_TEXT_VALIDATOR = _text
+_FROZEN_ABSOLUTE_FILE_VALIDATOR = _absolute_file
+_FROZEN_QSUB_ARGV_BUILDER = _qsub_argv
 _FROZEN_PRODUCTION_QSUB = _production_qsub_once
 _FROZEN_CONSUME = _consume_once
 _FROZEN_WRITE_NEW_FILE = _write_new_file
@@ -1196,17 +1214,22 @@ _FROZEN_CONTROLLER_WRITE_TIMEOUT_SECONDS = CONTROLLER_WRITE_TIMEOUT_SECONDS
 _FROZEN_CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS = CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS
 _FROZEN_ENVIRONMENT = copy.deepcopy(FIXED_ENVIRONMENT)
 _FROZEN_POLICY = copy.deepcopy(POLICY)
+_FROZEN_PBS_BASENAME = PBS_BASENAME
 
 
 def _assert_production_binding() -> None:
     CHANNEL._assert_production_binding()
     with open(__file__, "rb") as source:
         source_sha256 = hashlib.sha256(source.read()).hexdigest()
-    _require(
+    _FROZEN_REQUIRE(
         source_sha256 == _EXECUTED_SOURCE_SHA256
         and os.fork is _FROZEN_FORK
         and os.execve is _FROZEN_EXECVE
         and os.urandom is _FROZEN_URANDOM
+        and _require is _FROZEN_REQUIRE
+        and _text is _FROZEN_TEXT_VALIDATOR
+        and _absolute_file is _FROZEN_ABSOLUTE_FILE_VALIDATOR
+        and _qsub_argv is _FROZEN_QSUB_ARGV_BUILDER
         and _production_qsub_once is _FROZEN_PRODUCTION_QSUB
         and _consume_once is _FROZEN_CONSUME
         and _write_new_file is _FROZEN_WRITE_NEW_FILE
@@ -1256,7 +1279,7 @@ def _assert_production_binding() -> None:
         and CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS == _FROZEN_CONTROLLER_CHILD_RETIRE_TIMEOUT_SECONDS
         and FIXED_ENVIRONMENT == _FROZEN_ENVIRONMENT
         and POLICY == _FROZEN_POLICY
-        and QSUB_ARGV == ("/usr/bin/qsub", "--", "auto-g16-job.pbs")
+        and PBS_BASENAME == _FROZEN_PBS_BASENAME == "auto-g16-job.pbs"
         and SSH_SUBSYSTEM == "auto-g16-direct-one-hop-v1",
         "production transport source, module, function, executable, or argv binding differs",
     )

@@ -63,7 +63,7 @@ def _fork_assert(capability: object, queue: object) -> None:
 
 
 class PortableSessionFixture:
-    def __init__(self, temporary: Path) -> None:
+    def __init__(self, temporary: Path, *, qsub_executable: str = "/usr/bin/qsub") -> None:
         self.live = LIVE_SUPPORT.LiveApprovalEffectTimeReplayTests("runTest")
         self.live.setUp()
         self.root = temporary / "reviewed-root"
@@ -179,9 +179,9 @@ class PortableSessionFixture:
                 "entrypoint_source_sha256": W5._EXECUTED_SOURCE_SHA256,
             },
             "qsub": {
-                "executable": W5.QSUB_EXECUTABLE,
+                "executable": qsub_executable,
                 "executable_sha256": "f" * 64,
-                "argv": list(W5.QSUB_ARGV),
+                "argv": [qsub_executable, "--", W5.PBS_BASENAME],
                 "working_directory": "already_open_project_fd",
                 "stdout_grammar": "independent_pbs_job_id_v1",
             },

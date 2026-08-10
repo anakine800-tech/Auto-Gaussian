@@ -102,6 +102,105 @@ class DirectOneHopTransportTests(unittest.TestCase):
             finally:
                 fixture.close()
 
+    def test_profile_owned_qsub_path_is_hash_bound_and_controller_joined(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="auto-g16-w5-profile-qsub-") as raw:
+            fixture = PortableSessionFixture(
+                Path(raw).resolve(),
+                qsub_executable="/usr/local/bin/qsub",
+            )
+            request_join = None
+            try:
+                capability = fixture.compose()
+                readiness = SESSION._session_ready_document(capability)
+                lease = capability.consume_for_w5_once()
+                seam = SESSION.consume_w5_operation_seam_once(lease)
+                receipt = W5._consume_with_test_driver_once(
+                    seam,
+                    W5._test_driver(stdout=b"4321.master\n"),
+                    _test_token=W5._TEST_DRIVER_TOKEN,
+                ).portable_projection()
+                profile = W5._validate_controller_artifact_join(fixture.artifacts)
+                self.assertEqual(receipt["invocation"]["executable"], "/usr/local/bin/qsub")
+                self.assertEqual(
+                    receipt["invocation"]["argv"],
+                    ["/usr/local/bin/qsub", "--", W5.PBS_BASENAME],
+                )
+
+                request_join = W5._issue_controller_request_join(fixture.artifacts)
+                response = W5._build_controller_completed_response(
+                    request_join.request_id,
+                    readiness,
+                    receipt,
+                )
+                self.assertEqual(
+                    W5._validate_controller_response(
+                        response,
+                        fixture.artifacts,
+                        profile,
+                        request_join,
+                    ),
+                    receipt,
+                )
+
+                hostile = copy.deepcopy(receipt)
+                hostile["invocation"]["executable"] = "/usr/bin/qsub"
+                hostile["invocation"]["argv"] = ["/usr/bin/qsub", "--", W5.PBS_BASENAME]
+                hostile["invocation"]["invocation_payload_sha256"] = W5.digest(
+                    {
+                        key: item
+                        for key, item in hostile["invocation"].items()
+                        if key != "invocation_payload_sha256"
+                    }
+                )
+                hostile["qsub"]["invocation_payload_sha256"] = hostile["invocation"][
+                    "invocation_payload_sha256"
+                ]
+                hostile = self.rederive_receipt(hostile)
+                hostile_response = copy.deepcopy(response)
+                hostile_response["receipt"] = hostile
+                hostile_response["response_payload_sha256"] = W5.digest(
+                    {**hostile_response, "response_payload_sha256": ""}
+                )
+                with self.assertRaisesRegex(
+                    W5.DirectOneHopTransportError,
+                    "stale, foreign, or unbound",
+                ):
+                    W5._validate_controller_response(
+                        hostile_response,
+                        fixture.artifacts,
+                        profile,
+                        request_join,
+                    )
+
+                for invalid in (
+                    "usr/local/bin/qsub",
+                    "/usr//local/bin/qsub",
+                    "/usr/local/./bin/qsub",
+                    "/usr/local/../bin/qsub",
+                    "/usr/local/bin/qsub/",
+                ):
+                    with self.subTest(invalid=invalid):
+                        invalid_profile = copy.deepcopy(profile)
+                        invalid_profile["qsub"]["executable"] = invalid
+                        invalid_profile["qsub"]["argv"] = [invalid, "--", W5.PBS_BASENAME]
+                        invalid_profile["profile_payload_sha256"] = W5.digest(
+                            {**invalid_profile, "profile_payload_sha256": ""}
+                        )
+                        with self.assertRaises(W5.DirectOneHopTransportError):
+                            W5.validate_transport_profile(invalid_profile)
+
+                mismatched = copy.deepcopy(profile)
+                mismatched["qsub"]["argv"] = ["/usr/bin/qsub", "--", W5.PBS_BASENAME]
+                mismatched["profile_payload_sha256"] = W5.digest(
+                    {**mismatched, "profile_payload_sha256": ""}
+                )
+                with self.assertRaisesRegex(W5.DirectOneHopTransportError, "qsub executable"):
+                    W5.validate_transport_profile(mismatched)
+            finally:
+                if request_join is not None:
+                    W5._retire_controller_request_join(request_join)
+                fixture.close()
+
     def test_receipt_id_and_controller_reject_rederived_stale_or_foreign_results(self) -> None:
         with tempfile.TemporaryDirectory(prefix="auto-g16-w5-receipt-join-") as raw:
             fixture = PortableSessionFixture(Path(raw).resolve())
@@ -522,6 +621,15 @@ class DirectOneHopTransportTests(unittest.TestCase):
         with mock.patch.object(W5, "_write_controller_frame_until", return_value=None):
             with self.assertRaisesRegex(W5.DirectOneHopTransportError, "production transport source"):
                 W5.run_controller_once(object())  # type: ignore[arg-type]
+        for attribute, hostile in (
+            ("_require", lambda *_args: None),
+            ("_text", lambda *_args: "/usr/bin/true"),
+            ("_absolute_file", lambda *_args: "/usr/bin/true"),
+            ("PBS_BASENAME", "hostile-job.pbs"),
+        ):
+            with self.subTest(attribute=attribute), mock.patch.object(W5, attribute, hostile):
+                with self.assertRaisesRegex(W5.DirectOneHopTransportError, "production transport source"):
+                    W5.consume_production_once(object())  # type: ignore[arg-type]
         with mock.patch.object(W5, "CONTROLLER_WRITE_TIMEOUT_SECONDS", 0.01):
             with self.assertRaisesRegex(W5.DirectOneHopTransportError, "production transport source"):
                 W5.run_controller_once(object())  # type: ignore[arg-type]
@@ -570,7 +678,7 @@ class DirectOneHopTransportTests(unittest.TestCase):
 
     def test_reviewed_executable_fd_hash_identity_replacement_and_no_path_exec_fallback(self) -> None:
         with tempfile.TemporaryDirectory(prefix="auto-g16-w5-executable-") as raw:
-            path = Path(raw) / "fake-ssh"
+            path = Path(os.path.realpath(raw)) / "fake-ssh"
             path.write_bytes(b"#!/bin/false\nreviewed\n")
             path.chmod(0o700)
             expected = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
@@ -586,6 +694,19 @@ class DirectOneHopTransportTests(unittest.TestCase):
                     W5._assert_reviewed_executable_descriptor(descriptor, str(path), expected)
             finally:
                 os.close(descriptor)
+        with tempfile.TemporaryDirectory(prefix="auto-g16-w5-executable-symlink-") as raw:
+            root = Path(os.path.realpath(raw))
+            executable = root / "real" / "bin" / "qsub"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"#!/bin/false\n")
+            executable.chmod(0o700)
+            expected = __import__("hashlib").sha256(executable.read_bytes()).hexdigest()
+            (root / "linked").symlink_to(root / "real", target_is_directory=True)
+            with self.assertRaises(OSError):
+                W5._open_reviewed_executable(str(root / "linked" / "bin" / "qsub"), expected)
+            (root / "final-link").symlink_to(executable)
+            with self.assertRaises(OSError):
+                W5._open_reviewed_executable(str(root / "final-link"), expected)
         source = (SCRIPTS / "direct_one_hop_transport.py").read_text(encoding="utf-8")
         self.assertNotIn("_FROZEN_EXECVE(SSH_EXECUTABLE", source)
         self.assertNotIn("_FROZEN_EXECVE(QSUB_EXECUTABLE", source)
@@ -611,7 +732,11 @@ class DirectOneHopTransportTests(unittest.TestCase):
                         mock.patch.object(W5.select, "select", side_effect=OSError("parent read failed")), \
                         mock.patch.object(W5.os, "waitpid", return_value=(0, 0)) as waitpid, \
                         mock.patch.object(W5.os, "kill") as kill:
-                    observation = W5._production_qsub_once(descriptor, "a" * 64)
+                    observation = W5._production_qsub_once(
+                        descriptor,
+                        "/usr/local/bin/qsub",
+                        "a" * 64,
+                    )
                 self.assertTrue(observation.uncertain)
                 self.assertIsNone(observation.returncode)
                 waitpid.assert_called_once_with(424242, os.WNOHANG)

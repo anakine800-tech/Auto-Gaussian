@@ -604,7 +604,11 @@ raise SystemExit(9)
             self.assertNotIn(moved, definitions)
         self.assertIn("CHANNEL.issue_submit_channel_operation", source)
         self.assertIn("CHANNEL.run_submit_channel_once", source)
-        self.assertEqual(W5.QSUB_ARGV, ("/usr/bin/qsub", "--", "auto-g16-job.pbs"))
+        profile = W5.load_transport_profile(self.fixture.artifacts.transport_profile)
+        self.assertEqual(
+            profile["qsub"]["argv"],
+            [profile["qsub"]["executable"], "--", "auto-g16-job.pbs"],
+        )
         self.assertIs(W5.validate_transport_profile, CHANNEL.validate_transport_profile)
 
         operation, request_frame = self.submit_operation_with_frame()
@@ -1009,6 +1013,10 @@ raise SystemExit(9)
             ("FIXED_ENVIRONMENT", {"LANG": "hostile"}),
             ("READ_SUBSYSTEM", "caller-selected"),
             ("run_submit_channel_once", lambda *_args: {}),
+            ("_require", lambda *_args: None),
+            ("_text", lambda *_args: "/usr/bin/true"),
+            ("_absolute_file", lambda *_args: "/usr/bin/true"),
+            ("PBS_BASENAME", "hostile-job.pbs"),
             ("_open_reviewed_executable", lambda *_args: -1),
             ("_descriptor_execve", lambda *_args: None),
             ("_operation_snapshot", lambda *_args: None),

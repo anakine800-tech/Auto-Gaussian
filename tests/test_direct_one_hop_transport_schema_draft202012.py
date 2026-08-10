@@ -108,6 +108,45 @@ class DirectOneHopTransportDraft202012Tests(unittest.TestCase):
         self.review_validator.validate(self.review)
         self.assertEqual(self.profile, W5.validate_transport_profile(self.profile))
 
+        local_qsub = copy.deepcopy(self.profile)
+        local_qsub["qsub"]["executable"] = "/usr/local/bin/qsub"
+        local_qsub["qsub"]["argv"] = ["/usr/local/bin/qsub", "--", W5.PBS_BASENAME]
+        local_qsub["profile_payload_sha256"] = W5.digest(
+            {**local_qsub, "profile_payload_sha256": ""}
+        )
+        self.profile_validator.validate(local_qsub)
+        self.assertEqual(local_qsub, W5.validate_transport_profile(local_qsub))
+
+        local_receipt = copy.deepcopy(self.result)
+        local_receipt["invocation"]["executable"] = "/usr/local/bin/qsub"
+        local_receipt["invocation"]["argv"] = [
+            "/usr/local/bin/qsub",
+            "--",
+            W5.PBS_BASENAME,
+        ]
+        local_receipt["invocation"]["invocation_payload_sha256"] = W5.digest(
+            {
+                key: item
+                for key, item in local_receipt["invocation"].items()
+                if key != "invocation_payload_sha256"
+            }
+        )
+        local_receipt["qsub"]["invocation_payload_sha256"] = local_receipt["invocation"][
+            "invocation_payload_sha256"
+        ]
+        local_receipt["receipt_id"] = "direct-submission-receipt-" + W5.digest(
+            {
+                key: item
+                for key, item in local_receipt.items()
+                if key not in {"receipt_id", "result_payload_sha256"}
+            }
+        )
+        local_receipt["result_payload_sha256"] = W5.digest(
+            {**local_receipt, "result_payload_sha256": ""}
+        )
+        self.validator.validate(local_receipt)
+        self.assertEqual(local_receipt, W5.validate_submission_receipt(local_receipt))
+
     def test_profile_safety_and_review_semantics_are_closed(self) -> None:
         hostile_profile = copy.deepcopy(self.profile)
         hostile_profile["safety"]["inspect"] = True

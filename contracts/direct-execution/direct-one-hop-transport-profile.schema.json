@@ -31,7 +31,21 @@
     "qsub": {
       "type": "object", "additionalProperties": false,
       "required": ["executable", "executable_sha256", "argv", "working_directory", "stdout_grammar"],
-      "properties": {"executable": {"const": "/usr/bin/qsub"}, "executable_sha256": {"$ref": "#/$defs/sha256"}, "argv": {"const": ["/usr/bin/qsub", "--", "auto-g16-job.pbs"]}, "working_directory": {"const": "already_open_project_fd"}, "stdout_grammar": {"const": "independent_pbs_job_id_v1"}}
+      "properties": {
+        "executable": {"$ref": "#/$defs/absoluteFile"},
+        "executable_sha256": {"$ref": "#/$defs/sha256"},
+        "argv": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "prefixItems": [
+            {"$ref": "#/$defs/absoluteFile"},
+            {"const": "--"},
+            {"const": "auto-g16-job.pbs"}
+          ],
+          "items": false
+        },
+        "working_directory": {"const": "already_open_project_fd"},
+        "stdout_grammar": {"const": "independent_pbs_job_id_v1"}
+      }
     },
     "pbs_artifact": {
       "type": "object", "additionalProperties": false,
@@ -62,6 +76,11 @@
     "profile_payload_sha256": {"$ref": "#/$defs/sha256"}
   },
   "$defs": {
+    "absoluteFile": {
+      "type": "string",
+      "pattern": "^/(?!/)(?:[^/\\x00-\\x20]+/)*[^/\\x00-\\x20]+$(?![\\s\\S])",
+      "not": {"pattern": "(?:^|/)\\.\\.?(?:/|$)"}
+    },
     "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$(?![\\s\\S])", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
     "positiveDecimal": {"type": "string", "pattern": "^[1-9][0-9]*$(?![\\s\\S])"}
   }
