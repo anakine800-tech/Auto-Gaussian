@@ -69,14 +69,21 @@ class DirectMinimumProductionClosureSchemaDraft202012Tests(unittest.TestCase):
         self.q1.tearDown()
 
     def grant(self) -> dict[str, object]:
-        stdout = (
-            f"Job Id: {self.q1.receipt['qsub']['job_id']}\n"
-            f"    Job_Name = {self.q1.receipt['project']}\n"
-            "    job_state = C\n"
-        ).encode("ascii")
-        acquisition, _, _ = self.q1.acquire(self.q1.observation(stdout=stdout))
-        inspection = Q1.build_final_scheduler_inspection_once(acquisition)
-        return CLOSURE.issue_terminal_fetch_grant_once(inspection).portable_projection()
+        q1 = Q1_TESTS.DirectQstatAcquisitionTests(methodName="runTest")
+        q1.setUp()
+        try:
+            stdout = (
+                f"Job Id: {q1.receipt['qsub']['job_id']}\n"
+                f"    Job_Name = {q1.receipt['project']}\n"
+                "    job_state = C\n"
+            ).encode("ascii")
+            acquisition, _, _ = q1.acquire(q1.observation(stdout=stdout))
+            inspection = Q1.build_final_scheduler_inspection_once(acquisition)
+            return CLOSURE.issue_terminal_fetch_grant_once(
+                inspection
+            ).portable_projection()
+        finally:
+            q1.tearDown()
 
     def test_real_draft_accepts_exact_owner_projection(self) -> None:
         document = self.grant()
