@@ -1,0 +1,34 @@
+{
+    "schema": "auto-g16-v2.7-legacy-effect-owner-test-lineage-successor/1",
+    "base_commit": "e8b9200662cd78490ddff7fa12637968273dd0ae",
+    "base_tree": "0e5c0b8f47f1121e9e22485a9adf54500bbd9994",
+    "base_parent": "9008102357c91a11c01d6f774ad77b80de7e45aa",
+    "scope": {
+        "additive_test_lineage_successor_only": true,
+        "historical_fixture_rewritten": false,
+        "production_code_changed": false,
+        "release_file_changed": false,
+        "cancel_or_advanced_inspect_changed": false,
+        "fixture_sha256_bound": false,
+        "content_hash_dependencies_acyclic": true,
+        "live_actions": false
+    },
+    "files": {
+        "tests/test_legacy_effect_owner.py": {
+            "before_sha256": "5dfe89f68439a799fc5cdea4129f5181aba160552dce9718459a45141a8743f9",
+            "base_sha256": "a0fe2f98df8a3f172038c97925e57cf41db23b3df13a8c5b3433971e3e3111b4",
+            "sha256": "a0fe2f98df8a3f172038c97925e57cf41db23b3df13a8c5b3433971e3e3111b4",
+            "change_class": "bind_exact_legacy_effect_owner_test_successor_after_existing_lineage",
+            "source_commits": [
+                "e8b9200662cd78490ddff7fa12637968273dd0ae"
+            ]
+        },
+        "tests/test_protected_legacy_effect_handoff.py": {
+            "before_sha256": "dc02d0cdbeacc3a85a439e933b74b077834103bb298315d32bb7c013ea794f30",
+            "base_sha256": "dc02d0cdbeacc3a85a439e933b74b077834103bb298315d32bb7c013ea794f30",
+            "sha256": "61ee00b02849d1a7826d51cf88f41c327ba4f215c2655856defe06add3c3a7cd",
+            "change_class": "apply_additive_test_lineage_successor_after_existing_lineage",
+            "source_commits": []
+        }
+    }
+}

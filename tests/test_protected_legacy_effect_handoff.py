@@ -78,6 +78,11 @@ LOCAL_DRAFT_HARDENING_SUCCESSOR_PATH = (
     / "tests/fixtures/rtwin_pbs/"
     "local_draft_validation_hardening_successor.json"
 )
+LEGACY_EFFECT_OWNER_TEST_LINEAGE_SUCCESSOR_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "v2_7_legacy_effect_owner_test_lineage_successor.json"
+)
 
 
 class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
@@ -630,6 +635,14 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         current_lineage = current_lineage_document["files"]
+        legacy_effect_owner_test_lineage_document = json.loads(
+            LEGACY_EFFECT_OWNER_TEST_LINEAGE_SUCCESSOR_PATH.read_text(
+                encoding="utf-8"
+            )
+        )
+        legacy_effect_owner_test_lineage = (
+            legacy_effect_owner_test_lineage_document["files"]
+        )
 
         def apply_foundation_successor(relative: str, current_sha256: str) -> str:
             if relative not in foundation_successor:
@@ -649,6 +662,16 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             if relative not in current_lineage:
                 return current_sha256
             binding = current_lineage[relative]
+            self.assertEqual(binding["before_sha256"], current_sha256)
+            return binding["sha256"]
+
+        def apply_legacy_effect_owner_test_lineage(
+            relative: str,
+            current_sha256: str,
+        ) -> str:
+            if relative not in legacy_effect_owner_test_lineage:
+                return current_sha256
+            binding = legacy_effect_owner_test_lineage[relative]
             self.assertEqual(binding["before_sha256"], current_sha256)
             return binding["sha256"]
         local_draft_document = json.loads(
@@ -757,6 +780,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 current_sha256 = apply_foundation_successor(relative, current_sha256)
                 current_sha256 = apply_local_integration(relative, current_sha256)
                 current_sha256 = apply_current_lineage(relative, current_sha256)
+                current_sha256 = apply_legacy_effect_owner_test_lineage(
+                    relative,
+                    current_sha256,
+                )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -809,6 +836,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 current_sha256 = apply_foundation_successor(relative, current_sha256)
                 current_sha256 = apply_local_integration(relative, current_sha256)
                 current_sha256 = apply_current_lineage(relative, current_sha256)
+                current_sha256 = apply_legacy_effect_owner_test_lineage(
+                    relative,
+                    current_sha256,
+                )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -856,6 +887,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 current_sha256 = apply_foundation_successor(relative, current_sha256)
                 current_sha256 = apply_local_integration(relative, current_sha256)
                 current_sha256 = apply_current_lineage(relative, current_sha256)
+                current_sha256 = apply_legacy_effect_owner_test_lineage(
+                    relative,
+                    current_sha256,
+                )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -918,6 +953,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 current_sha256 = apply_foundation_successor(relative, current_sha256)
                 current_sha256 = apply_local_integration(relative, current_sha256)
                 current_sha256 = apply_current_lineage(relative, current_sha256)
+                current_sha256 = apply_legacy_effect_owner_test_lineage(
+                    relative,
+                    current_sha256,
+                )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     current_sha256,
@@ -962,6 +1001,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 expected_sha256 = apply_foundation_successor(relative, binding["sha256"])
                 expected_sha256 = apply_local_integration(relative, expected_sha256)
                 expected_sha256 = apply_current_lineage(relative, expected_sha256)
+                expected_sha256 = apply_legacy_effect_owner_test_lineage(
+                    relative,
+                    expected_sha256,
+                )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected_sha256,
@@ -986,6 +1029,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             with self.subTest(foundation_successor_path=relative):
                 expected_sha256 = apply_local_integration(relative, binding["sha256"])
                 expected_sha256 = apply_current_lineage(relative, expected_sha256)
+                expected_sha256 = apply_legacy_effect_owner_test_lineage(
+                    relative,
+                    expected_sha256,
+                )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected_sha256,
@@ -1036,6 +1083,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 expected_sha256 = apply_current_lineage(
                     relative,
                     binding["sha256"],
+                )
+                expected_sha256 = apply_legacy_effect_owner_test_lineage(
+                    relative,
+                    expected_sha256,
                 )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
@@ -1106,7 +1157,97 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                    apply_legacy_effect_owner_test_lineage(
+                        relative,
+                        binding["sha256"],
+                    ),
+                )
+        self.assertEqual(
+            legacy_effect_owner_test_lineage_document["schema"],
+            "auto-g16-v2.7-legacy-effect-owner-test-lineage-successor/1",
+        )
+        self.assertEqual(
+            legacy_effect_owner_test_lineage_document["base_commit"],
+            "e8b9200662cd78490ddff7fa12637968273dd0ae",
+        )
+        self.assertEqual(
+            legacy_effect_owner_test_lineage_document["base_tree"],
+            "0e5c0b8f47f1121e9e22485a9adf54500bbd9994",
+        )
+        self.assertEqual(
+            legacy_effect_owner_test_lineage_document["base_parent"],
+            "9008102357c91a11c01d6f774ad77b80de7e45aa",
+        )
+        self.assertEqual(
+            legacy_effect_owner_test_lineage_document["scope"],
+            {
+                "additive_test_lineage_successor_only": True,
+                "historical_fixture_rewritten": False,
+                "production_code_changed": False,
+                "release_file_changed": False,
+                "cancel_or_advanced_inspect_changed": False,
+                "fixture_sha256_bound": False,
+                "content_hash_dependencies_acyclic": True,
+                "live_actions": False,
+            },
+        )
+        successor_fixture_relative = (
+            "tests/fixtures/rtwin_pbs/"
+            "v2_7_legacy_effect_owner_test_lineage_successor.json"
+        )
+        expected_test_lineage_paths = {
+            "tests/test_legacy_effect_owner.py",
+            "tests/test_protected_legacy_effect_handoff.py",
+        }
+        self.assertEqual(
+            set(legacy_effect_owner_test_lineage),
+            expected_test_lineage_paths,
+        )
+        self.assertNotIn(
+            successor_fixture_relative,
+            legacy_effect_owner_test_lineage,
+        )
+        successor_fixture_bytes = (
+            LEGACY_EFFECT_OWNER_TEST_LINEAGE_SUCCESSOR_PATH.read_bytes()
+        )
+        successor_fixture_sha256 = hashlib.sha256(
+            successor_fixture_bytes
+        ).hexdigest()
+        self.assertNotIn(
+            successor_fixture_sha256.encode("ascii"),
+            successor_fixture_bytes,
+        )
+        content_hash_dependencies = {
+            successor_fixture_relative: expected_test_lineage_paths,
+            **{relative: set() for relative in expected_test_lineage_paths},
+        }
+        self.assertFalse(
+            any(
+                successor_fixture_relative in dependencies
+                for node, dependencies in content_hash_dependencies.items()
+                if node != successor_fixture_relative
+            )
+        )
+        for relative, binding in legacy_effect_owner_test_lineage.items():
+            with self.subTest(test_lineage_successor_path=relative):
+                self.assertEqual(
+                    set(binding),
+                    {
+                        "before_sha256",
+                        "base_sha256",
+                        "sha256",
+                        "change_class",
+                        "source_commits",
+                    },
+                )
+                self.assertEqual(
+                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     binding["sha256"],
+                )
+                self.assertNotEqual(binding["sha256"], successor_fixture_sha256)
+                self.assertNotIn(
+                    successor_fixture_sha256.encode("ascii"),
+                    (ROOT / relative).read_bytes(),
                 )
         self.assertFalse(fixture["remaining_gates"]["adapter_connected"])
         self.assertFalse(
