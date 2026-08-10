@@ -83,6 +83,11 @@ LEGACY_EFFECT_OWNER_TEST_LINEAGE_SUCCESSOR_PATH = (
     / "tests/fixtures/rtwin_pbs/"
     "v2_7_legacy_effect_owner_test_lineage_successor.json"
 )
+LINEAGE_VERIFIER_TERMINAL_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "v2_7_lineage_verifier_terminal.json"
+)
 
 
 class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
@@ -643,6 +648,15 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         legacy_effect_owner_test_lineage = (
             legacy_effect_owner_test_lineage_document["files"]
         )
+        lineage_verifier_terminal = json.loads(
+            LINEAGE_VERIFIER_TERMINAL_PATH.read_text(encoding="utf-8")
+        )
+        historical_transition = lineage_verifier_terminal[
+            "historical_transition"
+        ]
+        immutable_verifier_objects = lineage_verifier_terminal[
+            "immutable_verifier_objects"
+        ]
 
         def apply_foundation_successor(relative: str, current_sha256: str) -> str:
             if relative not in foundation_successor:
@@ -674,6 +688,21 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             binding = legacy_effect_owner_test_lineage[relative]
             self.assertEqual(binding["before_sha256"], current_sha256)
             return binding["sha256"]
+
+        def assert_current_or_terminal(
+            relative: str,
+            expected_sha256: str,
+        ) -> None:
+            if relative in immutable_verifier_objects:
+                self.assertEqual(
+                    expected_sha256,
+                    immutable_verifier_objects[relative]["content_sha256"],
+                )
+                return
+            self.assertEqual(
+                hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                expected_sha256,
+            )
         local_draft_document = json.loads(
             LOCAL_DRAFT_SUCCESSOR_PATH.read_text(encoding="utf-8")
         )
@@ -784,10 +813,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     relative,
                     current_sha256,
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    current_sha256,
-                )
+                assert_current_or_terminal(relative, current_sha256)
         for relative, binding in successor["files"].items():
             with self.subTest(successor_path=relative):
                 current_sha256 = binding["sha256"]
@@ -840,10 +866,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     relative,
                     current_sha256,
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    current_sha256,
-                )
+                assert_current_or_terminal(relative, current_sha256)
         for relative, binding in ci_successor.items():
             with self.subTest(ci_successor_path=relative):
                 self.assertEqual(
@@ -891,10 +914,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     relative,
                     current_sha256,
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    current_sha256,
-                )
+                assert_current_or_terminal(relative, current_sha256)
                 self.assertFalse(binding["legacy_semantics_changed"])
         self.assertEqual(
             release_successor_document["schema"],
@@ -957,10 +977,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     relative,
                     current_sha256,
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    current_sha256,
-                )
+                assert_current_or_terminal(relative, current_sha256)
                 self.assertFalse(binding["legacy_semantics_changed"])
         self.assertEqual(
             direct_replay_successor_document["schema"],
@@ -1005,10 +1022,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     relative,
                     expected_sha256,
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    expected_sha256,
-                )
+                assert_current_or_terminal(relative, expected_sha256)
                 self.assertFalse(binding["legacy_semantics_changed"])
         self.assertEqual(
             foundation_successor_document["schema"],
@@ -1033,10 +1047,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     relative,
                     expected_sha256,
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    expected_sha256,
-                )
+                assert_current_or_terminal(relative, expected_sha256)
                 self.assertFalse(binding["legacy_semantics_changed"])
         self.assertEqual(
             local_draft_document["schema"],
@@ -1088,10 +1099,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                     relative,
                     expected_sha256,
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    expected_sha256,
-                )
+                assert_current_or_terminal(relative, expected_sha256)
                 self.assertFalse(binding["legacy_semantics_changed"])
         self.assertEqual(
             current_lineage_document["schema"],
@@ -1155,11 +1163,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         "source_commits",
                     },
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                assert_current_or_terminal(
+                    relative,
                     apply_legacy_effect_owner_test_lineage(
-                        relative,
-                        binding["sha256"],
+                        relative, binding["sha256"]
                     ),
                 )
         self.assertEqual(
@@ -1191,6 +1198,60 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 "live_actions": False,
             },
         )
+        self.assertEqual(
+            lineage_verifier_terminal["schema"],
+            "auto-g16-v2.7-lineage-verifier-terminal/1",
+        )
+        self.assertEqual(
+            lineage_verifier_terminal["terminal_commit"],
+            "7744c47d70bfd58a2f87d20881810a39425e85f2",
+        )
+        self.assertEqual(
+            lineage_verifier_terminal["terminal_tree"],
+            "33fe4c9f6a83ccebe6d06a0731ab0d3e6df46e59",
+        )
+        self.assertEqual(
+            lineage_verifier_terminal["terminal_parent"],
+            "c1a149e5907d019a9d9a1fcec5080ebbe1815db1",
+        )
+        self.assertEqual(
+            lineage_verifier_terminal["scope"],
+            {
+                "additive_test_lineage_terminal_only": True,
+                "historical_fixture_rewritten": False,
+                "production_code_changed": False,
+                "release_file_changed": False,
+                "cancel_or_advanced_inspect_changed": False,
+                "mutable_verifier_current_sha256_bound": False,
+                "terminal_fixture_sha256_bound": False,
+                "live_actions": False,
+            },
+        )
+        self.assertEqual(
+            immutable_verifier_objects,
+            {
+                "tests/test_protected_legacy_effect_handoff.py": {
+                    "mode": "100644",
+                    "blob_oid": (
+                        "f89c80539e5756ba447a08cc1fa2d65b2834f0ab"
+                    ),
+                    "content_sha256": (
+                        "61ee00b02849d1a7826d51cf88f41c327"
+                        "ba4f215c2655856defe06add3c3a7cd"
+                    ),
+                },
+                "tests/test_protected_production_ingress_contract.py": {
+                    "mode": "100644",
+                    "blob_oid": (
+                        "b9e3e834403e6f6f83ea508b5197cca465680846"
+                    ),
+                    "content_sha256": (
+                        "72ed31064088baf7c5085c18129e1e963"
+                        "e188327ef609d097b39f4bec3434dde"
+                    ),
+                },
+            },
+        )
         successor_fixture_relative = (
             "tests/fixtures/rtwin_pbs/"
             "v2_7_legacy_effect_owner_test_lineage_successor.json"
@@ -1217,16 +1278,127 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             successor_fixture_sha256.encode("ascii"),
             successor_fixture_bytes,
         )
-        content_hash_dependencies = {
-            successor_fixture_relative: expected_test_lineage_paths,
-            **{relative: set() for relative in expected_test_lineage_paths},
-        }
-        self.assertFalse(
-            any(
-                successor_fixture_relative in dependencies
-                for node, dependencies in content_hash_dependencies.items()
-                if node != successor_fixture_relative
+        self.assertEqual(
+            historical_transition,
+            {
+                "source_fixture_path": successor_fixture_relative,
+                "source_fixture_mode": "100644",
+                "source_fixture_blob_oid": (
+                    "88db46d8c843f4567385eaf320c03fb4743defec"
+                ),
+                "source_fixture_sha256": successor_fixture_sha256,
+                "verifier_path": (
+                    "tests/test_protected_legacy_effect_handoff.py"
+                ),
+                "before_sha256": (
+                    "dc02d0cdbeacc3a85a439e933b74b077"
+                    "834103bb298315d32bb7c013ea794f30"
+                ),
+                "terminal_mode": "100644",
+                "terminal_blob_oid": (
+                    "f89c80539e5756ba447a08cc1fa2d65b2834f0ab"
+                ),
+                "terminal_content_sha256": (
+                    "61ee00b02849d1a7826d51cf88f41c327"
+                    "ba4f215c2655856defe06add3c3a7cd"
+                ),
+            },
+        )
+        historical_verifier_binding = legacy_effect_owner_test_lineage[
+            historical_transition["verifier_path"]
+        ]
+        self.assertEqual(
+            historical_verifier_binding["before_sha256"],
+            historical_transition["before_sha256"],
+        )
+        self.assertEqual(
+            historical_verifier_binding["sha256"],
+            historical_transition["terminal_content_sha256"],
+        )
+        for relative, immutable_object in immutable_verifier_objects.items():
+            current_verifier_bytes = (ROOT / relative).read_bytes()
+            self.assertNotEqual(
+                hashlib.sha256(current_verifier_bytes).hexdigest(),
+                immutable_object["content_sha256"],
             )
+        terminal_fixture_relative = (
+            "tests/fixtures/rtwin_pbs/v2_7_lineage_verifier_terminal.json"
+        )
+        immutable_commit_node = (
+            "git-commit:"
+            + lineage_verifier_terminal["terminal_commit"]
+        )
+        immutable_tree_node = (
+            "git-tree:" + lineage_verifier_terminal["terminal_tree"]
+        )
+        immutable_fixture_blob_node = (
+            "git-blob:" + historical_transition["source_fixture_blob_oid"]
+        )
+        immutable_verifier_blob_node = (
+            "git-blob:" + historical_transition["terminal_blob_oid"]
+        )
+        immutable_ingress_blob_node = (
+            "git-blob:"
+            + immutable_verifier_objects[
+                "tests/test_protected_production_ingress_contract.py"
+            ]["blob_oid"]
+        )
+        mutable_verifier_node = "worktree:" + historical_transition[
+            "verifier_path"
+        ]
+        mutable_ingress_node = (
+            "worktree:tests/test_protected_production_ingress_contract.py"
+        )
+        content_hash_dependencies = {
+            mutable_verifier_node: {terminal_fixture_relative},
+            mutable_ingress_node: {terminal_fixture_relative},
+            terminal_fixture_relative: {
+                immutable_commit_node,
+                immutable_tree_node,
+                immutable_fixture_blob_node,
+                immutable_verifier_blob_node,
+                immutable_ingress_blob_node,
+            },
+            immutable_commit_node: {immutable_tree_node},
+            immutable_tree_node: {
+                immutable_fixture_blob_node,
+                immutable_verifier_blob_node,
+                immutable_ingress_blob_node,
+            },
+            immutable_fixture_blob_node: {immutable_verifier_blob_node},
+            immutable_verifier_blob_node: set(),
+            immutable_ingress_blob_node: set(),
+        }
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit_dependency(node: str) -> None:
+            self.assertNotIn(node, visiting)
+            if node in visited:
+                return
+            visiting.add(node)
+            for dependency in content_hash_dependencies.get(node, set()):
+                visit_dependency(dependency)
+            visiting.remove(node)
+            visited.add(node)
+
+        for dependency_node in content_hash_dependencies:
+            visit_dependency(dependency_node)
+        self.assertNotIn(
+            mutable_verifier_node,
+            {
+                dependency
+                for dependencies in content_hash_dependencies.values()
+                for dependency in dependencies
+            },
+        )
+        self.assertNotIn(
+            mutable_ingress_node,
+            {
+                dependency
+                for dependencies in content_hash_dependencies.values()
+                for dependency in dependencies
+            },
         )
         for relative, binding in legacy_effect_owner_test_lineage.items():
             with self.subTest(test_lineage_successor_path=relative):
@@ -1240,10 +1412,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         "source_commits",
                     },
                 )
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    binding["sha256"],
-                )
+                assert_current_or_terminal(relative, binding["sha256"])
                 self.assertNotEqual(binding["sha256"], successor_fixture_sha256)
                 self.assertNotIn(
                     successor_fixture_sha256.encode("ascii"),

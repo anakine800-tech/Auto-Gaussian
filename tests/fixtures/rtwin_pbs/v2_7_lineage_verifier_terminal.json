@@ -1,0 +1,39 @@
+{
+  "schema": "auto-g16-v2.7-lineage-verifier-terminal/1",
+  "terminal_commit": "7744c47d70bfd58a2f87d20881810a39425e85f2",
+  "terminal_tree": "33fe4c9f6a83ccebe6d06a0731ab0d3e6df46e59",
+  "terminal_parent": "c1a149e5907d019a9d9a1fcec5080ebbe1815db1",
+  "scope": {
+    "additive_test_lineage_terminal_only": true,
+    "historical_fixture_rewritten": false,
+    "production_code_changed": false,
+    "release_file_changed": false,
+    "cancel_or_advanced_inspect_changed": false,
+    "mutable_verifier_current_sha256_bound": false,
+    "terminal_fixture_sha256_bound": false,
+    "live_actions": false
+  },
+  "immutable_verifier_objects": {
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "mode": "100644",
+      "blob_oid": "f89c80539e5756ba447a08cc1fa2d65b2834f0ab",
+      "content_sha256": "61ee00b02849d1a7826d51cf88f41c327ba4f215c2655856defe06add3c3a7cd"
+    },
+    "tests/test_protected_production_ingress_contract.py": {
+      "mode": "100644",
+      "blob_oid": "b9e3e834403e6f6f83ea508b5197cca465680846",
+      "content_sha256": "72ed31064088baf7c5085c18129e1e963e188327ef609d097b39f4bec3434dde"
+    }
+  },
+  "historical_transition": {
+    "source_fixture_path": "tests/fixtures/rtwin_pbs/v2_7_legacy_effect_owner_test_lineage_successor.json",
+    "source_fixture_mode": "100644",
+    "source_fixture_blob_oid": "88db46d8c843f4567385eaf320c03fb4743defec",
+    "source_fixture_sha256": "e48147fdcaf506385f18bfe22fde89538718460ef7a45dfe5474544a3410231b",
+    "verifier_path": "tests/test_protected_legacy_effect_handoff.py",
+    "before_sha256": "dc02d0cdbeacc3a85a439e933b74b077834103bb298315d32bb7c013ea794f30",
+    "terminal_mode": "100644",
+    "terminal_blob_oid": "f89c80539e5756ba447a08cc1fa2d65b2834f0ab",
+    "terminal_content_sha256": "61ee00b02849d1a7826d51cf88f41c327ba4f215c2655856defe06add3c3a7cd"
+  }
+}
