@@ -357,9 +357,10 @@ class LocalSchemaValidationTests(unittest.TestCase):
         content = b"#!/bin/sh\nexit 97\n"
         script, _ = self.add_console_script(content=content)
         item = self.validate()
-        script.unlink()
-        script.write_bytes(content)
-        script.chmod(0o755)
+        replacement = script.with_name("jsonschema-replacement")
+        replacement.write_bytes(content)
+        replacement.chmod(0o755)
+        replacement.replace(script)
         with self.assertRaisesRegex(RUNNER.BlockedError, "no completion evidence"):
             RUNNER.run_inventory(
                 item,

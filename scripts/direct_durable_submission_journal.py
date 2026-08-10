@@ -16,7 +16,6 @@ import copy
 import fcntl
 import hashlib
 import json
-import marshal
 import os
 import re
 import stat
@@ -1260,7 +1259,6 @@ def _build_server_session_w3_owner_entries() -> tuple[object, object]:
     stable_source = _stable_source
     sys_modules = sys.modules
     module_type = types.ModuleType
-    marshal_dumps = marshal.dumps
     sha256 = hashlib.sha256
     builtin_compile = compile
     builtin_exec = exec
@@ -1273,9 +1271,6 @@ def _build_server_session_w3_owner_entries() -> tuple[object, object]:
     )
     expected_w3_source_sha256 = (
         "9c1f09fba92b36e667ea5584ac9cc7462a97101b5385dccc615e96455e9ccc63"
-    )
-    expected_descriptor_code_sha256 = (
-        "7482dd635263ca75901c508301dfa6e4feebdf3cb69d0ed66b673be62b373be5"
     )
     fixed_meta_path = tuple(sys.meta_path)
     isolated_meta_path = (BuiltinImporter, FrozenImporter, PathFinder)
@@ -1300,26 +1295,7 @@ def _build_server_session_w3_owner_entries() -> tuple[object, object]:
             "canonical W3 fixed import resolution binding differs",
         )
 
-    def load_reviewed_w3_source() -> types.ModuleType:
-        """Execute only the owner-bound reviewed W3 bytes, bypassing finders."""
-        owner_require(
-            sys_modules.get(w3_module_name) is None,
-            "canonical W3 module appeared before fixed source execution",
-        )
-        assert_fixed_import_resolution()
-        owner_require(
-            type(sys.meta_path) is list
-            and len(sys.meta_path) == len(isolated_meta_path)
-            and all(
-                current is expected
-                for current, expected in zip(
-                    sys.meta_path,
-                    isolated_meta_path,
-                    strict=True,
-                )
-            ),
-            "canonical W3 source execution requires isolated import resolution",
-        )
+    def read_reviewed_w3_source() -> bytes:
         descriptor = os.open(
             w3_source.path,
             os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
@@ -1358,6 +1334,29 @@ def _build_server_session_w3_owner_entries() -> tuple[object, object]:
             and sha256(source_bytes).hexdigest() == expected_w3_source_sha256,
             "reviewed canonical W3 source identity or bytes differ",
         )
+        return source_bytes
+
+    def load_reviewed_w3_source() -> types.ModuleType:
+        """Execute only the owner-bound reviewed W3 bytes, bypassing finders."""
+        owner_require(
+            sys_modules.get(w3_module_name) is None,
+            "canonical W3 module appeared before fixed source execution",
+        )
+        assert_fixed_import_resolution()
+        owner_require(
+            type(sys.meta_path) is list
+            and len(sys.meta_path) == len(isolated_meta_path)
+            and all(
+                current is expected
+                for current, expected in zip(
+                    sys.meta_path,
+                    isolated_meta_path,
+                    strict=True,
+                )
+            ),
+            "canonical W3 source execution requires isolated import resolution",
+        )
+        source_bytes = read_reviewed_w3_source()
         code = builtin_compile(
             source_bytes,
             str(w3_source.path),
@@ -1379,18 +1378,69 @@ def _build_server_session_w3_owner_entries() -> tuple[object, object]:
             raise
         return module
 
-    def descriptor_code_sha256(descriptor: object) -> str:
+    def code_projection(code: types.CodeType) -> tuple[object, ...]:
+        constants = tuple(
+            code_projection(value) if type(value) is types.CodeType else value
+            for value in code.co_consts
+        )
+        return (
+            code.co_argcount,
+            code.co_posonlyargcount,
+            code.co_kwonlyargcount,
+            code.co_nlocals,
+            code.co_stacksize,
+            code.co_flags,
+            code.co_code,
+            constants,
+            code.co_names,
+            code.co_varnames,
+            code.co_filename,
+            code.co_name,
+            code.co_qualname,
+            code.co_firstlineno,
+            code.co_linetable,
+            code.co_freevars,
+            code.co_cellvars,
+            code.co_exceptiontable,
+        )
+
+    def descriptor_matches_reviewed_code(
+        descriptor: object,
+        reviewed_code: types.CodeType,
+    ) -> bool:
         owner_require(
             type(descriptor) is types.FunctionType,
             "canonical W3 predecessor descriptor type differs",
         )
-        code = descriptor.__code__.replace(
-            co_filename="",
-            co_firstlineno=1,
-            co_name="",
-            co_qualname="",
+        return code_projection(descriptor.__code__) == code_projection(reviewed_code)
+
+    def exact_nested_code(parent: types.CodeType, name: str) -> types.CodeType:
+        matches = tuple(
+            value
+            for value in parent.co_consts
+            if type(value) is types.CodeType and value.co_name == name
         )
-        return sha256(marshal_dumps(code)).hexdigest()
+        owner_require(
+            len(matches) == 1,
+            "reviewed canonical W3 descriptor source layout differs",
+        )
+        return matches[0]
+
+    reviewed_module_code = builtin_compile(
+        read_reviewed_w3_source(),
+        str(w3_source.path),
+        "exec",
+        dont_inherit=True,
+        optimize=0,
+    )
+    reviewed_owner_code = exact_nested_code(
+        reviewed_module_code,
+        "_install_owner_private_api",
+    )
+    reviewed_descriptor_code = exact_nested_code(
+        reviewed_owner_code,
+        "capability_assert_server_session_pre_w2",
+    )
 
     def validate_w3_candidate(
         w3_module: object,
@@ -1411,8 +1461,10 @@ def _build_server_session_w3_owner_entries() -> tuple[object, object]:
                 "assert_server_session_pre_w2_current"
             )
             is w3_descriptor
-            and descriptor_code_sha256(w3_descriptor)
-            == expected_descriptor_code_sha256,
+            and descriptor_matches_reviewed_code(
+                w3_descriptor,
+                reviewed_descriptor_code,
+            ),
             "canonical W3 module, type, exact descriptor code, or source binding differs",
         )
 
