@@ -35,6 +35,97 @@ _FIXED_DEPENDENCY_ORDER = (
     ("protected_production_ingress_contract", "root", "0cb8d84271968dbc5641a2a2f625d3f3a950a793952104f773c73f71ff45e2df"),
 )
 
+_REPOSITORY_LAYOUT = "repository"
+_NAMED_SKILL_LAYOUT = "named-skill"
+_NAMED_SKILL_DIRECTORY = "auto-g16-rtwin-pbs"
+
+
+def _plain_file(path: Path) -> bool:
+    return os.path.lexists(path) and not path.is_symlink() and path.is_file()
+
+
+def _plain_directory(path: Path) -> bool:
+    return os.path.lexists(path) and not path.is_symlink() and path.is_dir()
+
+
+def _select_fixed_dependency_layout() -> tuple[str, tuple[Path, ...], tuple[Path, ...]]:
+    session_source = Path(os.path.abspath(__file__))
+    scripts = session_source.parent
+    repository = scripts.parent
+    repository_skill = repository / "skills" / _NAMED_SKILL_DIRECTORY
+    repository_skill_scripts = repository_skill / "scripts"
+    named_skill = scripts.parent
+
+    candidate_directories = (
+        scripts,
+        repository,
+        repository / "skills",
+        repository_skill,
+        repository_skill_scripts,
+    )
+    for directory in candidate_directories:
+        if os.path.lexists(directory) and directory.is_symlink():
+            raise ImportError("trusted session fixed dependency layout contains a symlink")
+    if not _plain_file(session_source) or scripts.name != "scripts":
+        raise ImportError("trusted session fixed dependency roots differ")
+
+    repository_paths = tuple(
+        (
+            repository_skill_scripts if declared_layout == "skill" else scripts
+        )
+        / f"{name}.py"
+        for name, declared_layout, _expected_sha256 in _FIXED_DEPENDENCY_ORDER
+    )
+    named_skill_paths = tuple(
+        scripts / f"{name}.py"
+        for name, _declared_layout, _expected_sha256 in _FIXED_DEPENDENCY_ORDER
+    )
+    for path in set(repository_paths + named_skill_paths):
+        if os.path.lexists(path) and path.is_symlink():
+            raise ImportError("trusted session fixed dependency layout contains a symlink")
+
+    repository_complete = (
+        all(_plain_directory(path) for path in candidate_directories)
+        and _plain_file(repository_skill / "SKILL.md")
+        and all(_plain_file(path) for path in repository_paths)
+    )
+    repository_shape_present = any(
+        os.path.lexists(path)
+        for path in (
+            repository / "skills",
+            repository_skill,
+            repository_skill_scripts,
+        )
+    )
+    named_skill_shape_present = (
+        named_skill.name == _NAMED_SKILL_DIRECTORY
+        and (
+            os.path.lexists(named_skill / "SKILL.md")
+            or os.path.lexists(scripts)
+        )
+    )
+    named_skill_complete = (
+        named_skill_shape_present
+        and _plain_directory(named_skill)
+        and _plain_directory(scripts)
+        and _plain_file(named_skill / "SKILL.md")
+        and all(_plain_file(path) for path in named_skill_paths)
+    )
+    if (
+        (repository_shape_present and not repository_complete)
+        or (named_skill_shape_present and not named_skill_complete)
+    ):
+        raise ImportError("trusted session fixed dependency layout is partial")
+    if repository_complete == named_skill_complete:
+        raise ImportError("trusted session requires exactly one fixed dependency layout")
+    if repository_complete:
+        return (
+            _REPOSITORY_LAYOUT,
+            repository_paths,
+            (repository_skill_scripts, scripts),
+        )
+    return _NAMED_SKILL_LAYOUT, named_skill_paths, (scripts,)
+
 
 def _read_fixed_dependency_source(path: Path) -> tuple[tuple[int, ...], str]:
     descriptor = os.open(
@@ -94,13 +185,26 @@ def _assert_fixed_dependency_chain(
 ) -> None:
     if len(bindings) != len(_FIXED_DEPENDENCY_ORDER):
         raise ImportError("trusted session dependency binding count differs")
+    current_layout, current_paths, current_directories = _select_fixed_dependency_layout()
+    if (
+        current_layout != _FIXED_DEPENDENCY_LAYOUT
+        or current_paths != _FIXED_DEPENDENCY_PATHS
+        or current_directories != _FIXED_DEPENDENCY_DIRECTORIES
+    ):
+        raise ImportError("trusted session fixed dependency layout differs")
     modules: dict[str, types.ModuleType] = {}
-    for binding, expected in zip(bindings, _FIXED_DEPENDENCY_ORDER, strict=True):
+    for binding, expected, expected_path in zip(
+        bindings,
+        _FIXED_DEPENDENCY_ORDER,
+        _FIXED_DEPENDENCY_PATHS,
+        strict=True,
+    ):
         name, module, path, identity, source_sha256 = binding
         expected_name, _layout, expected_sha256 = expected
         current_identity, current_sha256 = _read_fixed_dependency_source(path)
         if (
             name != expected_name
+            or path != expected_path
             or type(module) is not types.ModuleType
             or sys.modules.get(name) is not module
             or _fixed_dependency_origin(module) != (path, path)
@@ -134,26 +238,18 @@ def _assert_fixed_dependency_chain(
 def _bootstrap_fixed_dependencies() -> tuple[
     tuple[str, types.ModuleType, Path, tuple[int, ...], str], ...
 ]:
-    session_source = Path(__file__).resolve(strict=True)
-    scripts = session_source.parent
-    repository = scripts.parent
-    skill_scripts = repository / "skills" / "auto-g16-rtwin-pbs" / "scripts"
-    if (
-        session_source.is_symlink()
-        or scripts.is_symlink()
-        or skill_scripts.is_symlink()
-        or not skill_scripts.is_dir()
-    ):
-        raise ImportError("trusted session fixed dependency roots differ")
-    inserted = (str(skill_scripts), str(scripts))
+    inserted = tuple(str(path) for path in _FIXED_DEPENDENCY_DIRECTORIES)
     for value in reversed(inserted):
         sys.path.insert(0, value)
     bindings: list[tuple[str, types.ModuleType, Path, tuple[int, ...], str]] = []
     try:
-        for name, layout, expected_sha256 in _FIXED_DEPENDENCY_ORDER:
-            parent = skill_scripts if layout == "skill" else scripts
-            path = (parent / f"{name}.py").resolve(strict=True)
-            if path.parent != parent.resolve() or path.is_symlink() or not path.is_file():
+        for dependency, path in zip(
+            _FIXED_DEPENDENCY_ORDER,
+            _FIXED_DEPENDENCY_PATHS,
+            strict=True,
+        ):
+            name, _declared_layout, expected_sha256 = dependency
+            if not _plain_file(path):
                 raise ImportError(f"trusted session dependency path differs: {name}")
             identity, source_sha256 = _read_fixed_dependency_source(path)
             if source_sha256 != expected_sha256:
@@ -176,6 +272,11 @@ def _bootstrap_fixed_dependencies() -> tuple[
     return result
 
 
+(
+    _FIXED_DEPENDENCY_LAYOUT,
+    _FIXED_DEPENDENCY_PATHS,
+    _FIXED_DEPENDENCY_DIRECTORIES,
+) = _select_fixed_dependency_layout()
 _FIXED_DEPENDENCY_BINDINGS = _bootstrap_fixed_dependencies()
 _RUNTIME_CONFIG_BINDING = next(
     binding for binding in _FIXED_DEPENDENCY_BINDINGS if binding[0] == "runtime_config"
@@ -1840,6 +1941,10 @@ class _ModuleBinding:
     dependency_assert: Any
     dependency_reader: Any
     dependency_origin: Any
+    dependency_layout: str
+    dependency_paths: tuple[Path, ...]
+    dependency_directories: tuple[Path, ...]
+    dependency_layout_selector: Any
     runtime_config_module: types.ModuleType
     runtime_config_setting: Any
     w3_loader: Any
@@ -1886,6 +1991,10 @@ def _capture_module_binding() -> _ModuleBinding:
         dependency_assert=_assert_fixed_dependency_chain,
         dependency_reader=_read_fixed_dependency_source,
         dependency_origin=_fixed_dependency_origin,
+        dependency_layout=_FIXED_DEPENDENCY_LAYOUT,
+        dependency_paths=_FIXED_DEPENDENCY_PATHS,
+        dependency_directories=_FIXED_DEPENDENCY_DIRECTORIES,
+        dependency_layout_selector=_select_fixed_dependency_layout,
         runtime_config_module=_RUNTIME_CONFIG_MODULE,
         runtime_config_setting=_RUNTIME_CONFIG_SETTING,
         w3_loader=_load_fixed_session_w3,
@@ -1961,6 +2070,10 @@ def _assert_module_binding() -> None:
         and _assert_fixed_dependency_chain is binding.dependency_assert
         and _read_fixed_dependency_source is binding.dependency_reader
         and _fixed_dependency_origin is binding.dependency_origin
+        and _FIXED_DEPENDENCY_LAYOUT == binding.dependency_layout
+        and _FIXED_DEPENDENCY_PATHS is binding.dependency_paths
+        and _FIXED_DEPENDENCY_DIRECTORIES is binding.dependency_directories
+        and _select_fixed_dependency_layout is binding.dependency_layout_selector
         and _RUNTIME_CONFIG_MODULE is binding.runtime_config_module
         and sys.modules.get("runtime_config") is binding.runtime_config_module
         and _RUNTIME_CONFIG_SETTING is binding.runtime_config_setting

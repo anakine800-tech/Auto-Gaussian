@@ -16,6 +16,7 @@ import socket
 import stat
 import struct
 import subprocess
+import shutil
 import sys
 import tempfile
 import types
@@ -501,6 +502,114 @@ print(target + "_REJECTED_BEFORE_W2")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, target + "_REJECTED_BEFORE_W2\n")
                 self.assertEqual(tuple(Path(raw).iterdir()), ())
+
+    def test_named_skill_hostile_layouts_fail_before_w2_or_effect(self) -> None:
+        probe = r'''
+import importlib.util, pathlib, sys
+scripts = pathlib.Path(sys.argv[1]).resolve()
+effects = pathlib.Path(sys.argv[2]).resolve()
+case = sys.argv[3]
+sys.path.insert(0, str(scripts))
+if case == "preloaded":
+    source = scripts / "runtime_config.py"
+    spec = importlib.util.spec_from_file_location("runtime_config", source)
+    if spec is None:
+        raise AssertionError("PRELOADED_SPEC_UNAVAILABLE")
+    sys.modules["runtime_config"] = importlib.util.module_from_spec(spec)
+try:
+    import direct_trusted_session_composition
+except (ImportError, AttributeError, TypeError):
+    pass
+else:
+    raise AssertionError("HOSTILE_NAMED_SKILL_LAYOUT_ACCEPTED:" + case)
+if "direct_durable_submission_journal" in sys.modules:
+    raise AssertionError("W2_LOADED_BEFORE_LAYOUT_REJECTION:" + case)
+if "direct_trusted_session_composition" in sys.modules:
+    raise AssertionError("PARTIAL_SESSION_MODULE_RETAINED:" + case)
+if tuple(effects.iterdir()):
+    raise AssertionError("EXTERNAL_EFFECT_BEFORE_LAYOUT_REJECTION:" + case)
+print(case + "_REJECTED_BEFORE_W2_OR_EFFECT")
+'''
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-session-named-layouts-"
+        ) as raw:
+            temporary = Path(raw).resolve()
+            base = temporary / "base" / "auto-g16-rtwin-pbs"
+            package_map = SKILL_PACKAGE.package_files_with_supplements(
+                ROOT, "auto-g16-rtwin-pbs"
+            )
+            for relative, source in package_map.items():
+                target = base / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+
+            for case in (
+                "simultaneous",
+                "partial",
+                "partial-secondary",
+                "wrong-sha",
+                "symlink",
+                "preloaded",
+            ):
+                with self.subTest(case=case):
+                    case_root = temporary / case
+                    staged = case_root / "auto-g16-rtwin-pbs"
+                    shutil.copytree(base, staged)
+                    scripts = staged / "scripts"
+                    if case == "simultaneous":
+                        nested = staged / "skills/auto-g16-rtwin-pbs"
+                        nested_scripts = nested / "scripts"
+                        nested_scripts.mkdir(parents=True)
+                        shutil.copy2(staged / "SKILL.md", nested / "SKILL.md")
+                        for name, layout, _sha256 in SESSION._FIXED_DEPENDENCY_ORDER:
+                            if layout == "skill":
+                                shutil.copy2(
+                                    scripts / f"{name}.py",
+                                    nested_scripts / f"{name}.py",
+                                )
+                    elif case == "partial":
+                        (scripts / "execution_facade.py").unlink()
+                    elif case == "partial-secondary":
+                        nested = staged / "skills/auto-g16-rtwin-pbs/scripts"
+                        nested.mkdir(parents=True)
+                        shutil.copy2(
+                            scripts / "execution_facade.py",
+                            nested / "execution_facade.py",
+                        )
+                    elif case == "wrong-sha":
+                        with (scripts / "execution_facade.py").open("ab") as handle:
+                            handle.write(b"# hostile byte drift\n")
+                    elif case == "symlink":
+                        target = scripts / "execution_facade.py"
+                        target.unlink()
+                        try:
+                            target.symlink_to(base / "scripts/execution_facade.py")
+                        except OSError:
+                            self.skipTest("symlinks unavailable")
+                    effects = case_root / "effects"
+                    isolated_home = case_root / "home"
+                    empty_path = case_root / "empty-bin"
+                    effects.mkdir()
+                    isolated_home.mkdir()
+                    empty_path.mkdir()
+                    result = subprocess.run(
+                        [sys.executable, "-I", "-S", "-B", "-c", probe,
+                         str(scripts), str(effects), case],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        env={
+                            "HOME": str(isolated_home),
+                            "PATH": str(empty_path),
+                            "PYTHONDONTWRITEBYTECODE": "1",
+                        },
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        result.stdout,
+                        case + "_REJECTED_BEFORE_W2_OR_EFFECT\n",
+                    )
+                    self.assertEqual(tuple(effects.iterdir()), ())
 
     def test_named_skill_supplement_maps_only_session_source_schema_and_reference(self) -> None:
         supplement_root = ROOT / "config/deployment-package-supplements/auto-g16-rtwin-pbs"

@@ -474,6 +474,93 @@ class SkillPackagingTests(unittest.TestCase):
                 )
             self.assertEqual(extra.read_text(encoding="utf-8"), "do not delete implicitly\n")
 
+    def test_synced_rtwin_named_skill_imports_minimum_closure_in_isolation(self) -> None:
+        probe = r'''
+import pathlib, sys
+scripts = pathlib.Path(sys.argv[1]).resolve(strict=True)
+effects = pathlib.Path(sys.argv[2]).resolve(strict=True)
+sys.path.insert(0, str(scripts))
+import direct_trusted_session_composition as session
+import direct_minimum_production_closure as closure
+session._assert_module_binding()
+if session._FIXED_DEPENDENCY_LAYOUT != "named-skill":
+    raise AssertionError("NAMED_SKILL_LAYOUT_NOT_SELECTED")
+if session.AUTHORITY["external_effects"] != 0:
+    raise AssertionError("EXTERNAL_EFFECT_REPORTED")
+if session.AUTHORITY["qsub_calls"] != 0:
+    raise AssertionError("QSUB_REPORTED")
+owners = {item[0] for item in session._FIXED_DEPENDENCY_ORDER} | {
+    "direct_trusted_session_composition",
+    "direct_minimum_production_closure",
+}
+resolved = []
+for name, module in sorted(sys.modules.items()):
+    raw = getattr(module, "__file__", None)
+    if name in owners and isinstance(raw, str):
+        path = pathlib.Path(raw).resolve(strict=True)
+        if path.parent != scripts:
+            raise AssertionError("OWNER_OUTSIDE_STAGING:" + name + ":" + str(path))
+        resolved.append(name)
+if len(resolved) != 11:
+    raise AssertionError("OWNER_IMPORT_COUNT_DIFFERS:" + str(resolved))
+if any("/.codex/skills/auto-g16-rtwin-pbs/" in value for value in sys.path):
+    raise AssertionError("REAL_INSTALLED_SKILL_ON_SYS_PATH")
+if tuple(effects.iterdir()):
+    raise AssertionError("IMPORT_EFFECT_RECORDED")
+print("PURE_NAMED_SKILL_IMPORT_READY external_effects=0 qsub=0")
+'''
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-packaged-import-"
+        ) as temporary:
+            root = Path(temporary).resolve()
+            installed = root / "skills"
+            installed.mkdir()
+            dry = sync.sync_skill(
+                ROOT, installed, "auto-g16-rtwin-pbs", apply=False, confirmed=False
+            )
+            applied = sync.sync_skill(
+                ROOT,
+                installed,
+                "auto-g16-rtwin-pbs",
+                apply=True,
+                confirmed=True,
+                plan_sha256=dry["plan_sha256"],
+            )
+            self.assertTrue(applied["applied"])
+            settled = sync.sync_skill(
+                ROOT, installed, "auto-g16-rtwin-pbs", apply=False, confirmed=False
+            )
+            self.assertEqual(settled["missing"], [])
+            self.assertEqual(settled["changed"], [])
+            self.assertEqual(settled["extra"], [])
+
+            scripts = installed / "auto-g16-rtwin-pbs/scripts"
+            isolated_home = root / "isolated-home"
+            empty_path = root / "empty-bin"
+            effects = root / "effects"
+            isolated_home.mkdir()
+            empty_path.mkdir()
+            effects.mkdir()
+            result = subprocess.run(
+                [sys.executable, "-I", "-S", "-B", "-c", probe,
+                 str(scripts), str(effects)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+                env={
+                    "HOME": str(isolated_home),
+                    "PATH": str(empty_path),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                result.stdout,
+                "PURE_NAMED_SKILL_IMPORT_READY external_effects=0 qsub=0\n",
+            )
+            self.assertEqual(tuple(effects.iterdir()), ())
+
     def test_apply_refuses_symlink_install_root_and_invalid_skill_name(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
