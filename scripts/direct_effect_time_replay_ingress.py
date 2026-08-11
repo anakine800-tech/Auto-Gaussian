@@ -202,7 +202,10 @@ def _validate_direct_section(value: Any) -> dict[str, Any]:
         },
         "direct profile binding",
     )
-    _fixed(profile["schema"], ROOT.DIRECT_PROFILE_SCHEMA, "direct profile schema")
+    _require(profile["schema"] in {ROOT.DIRECT_PROFILE_SCHEMA,
+                                    ROOT.SUCCESSOR_DIRECT_PROFILE_SCHEMA},
+             "direct profile schema differs")
+    successor = profile["schema"] == ROOT.SUCCESSOR_DIRECT_PROFILE_SCHEMA
     _text(profile["profile_id"], "direct profile id")
     _sha(profile["profile_payload_sha256"], "direct profile hash")
     _sha(profile["resource_catalog_sha256"], "direct resource catalog hash")
@@ -216,11 +219,11 @@ def _validate_direct_section(value: Any) -> dict[str, Any]:
         },
         "direct authorization binding",
     )
-    _fixed(
-        authorization["schema"],
-        ROOT.DIRECT_AUTHORIZATION_SCHEMA,
-        "direct authorization schema",
-    )
+    _require(authorization["schema"] in {ROOT.DIRECT_AUTHORIZATION_SCHEMA,
+                                          ROOT.SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA}
+             and successor
+             == (authorization["schema"] == ROOT.SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA),
+             "direct authorization schema differs")
     _text(authorization["authorization_id"], "direct authorization id")
     _sha(authorization["authorization_payload_sha256"], "direct authorization hash")
     _sha(authorization["authorization_scope_sha256"], "direct authorization scope hash")
@@ -234,7 +237,11 @@ def _validate_direct_section(value: Any) -> dict[str, Any]:
         },
         "direct stable-root binding",
     )
-    _fixed(stable["schema"], ROOT.STABLE_EVIDENCE_SCHEMA, "stable evidence schema")
+    _require(stable["schema"] in {ROOT.STABLE_EVIDENCE_SCHEMA,
+                                   ROOT.SUCCESSOR_STABLE_EVIDENCE_SCHEMA}
+             and successor
+             == (stable["schema"] == ROOT.SUCCESSOR_STABLE_EVIDENCE_SCHEMA),
+             "stable evidence schema differs")
     for field in (
         "evidence_payload_sha256",
         "receipt_payload_sha256",
@@ -466,6 +473,13 @@ def _capability_documents(resource: Any, live: Any) -> tuple[dict[str, Any], dic
 
 def _build_document(transaction: Any, resource: Any, live: Any) -> tuple[dict[str, Any], Any]:
     root, binding, profile, authorization, receipt = _direct_context(transaction)
+    stable_schema = root.evidence.document()["schema"]
+    _require(
+        profile["schema"] == ROOT.SUCCESSOR_DIRECT_PROFILE_SCHEMA
+        and authorization["schema"] == ROOT.SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA
+        and stable_schema == ROOT.SUCCESSOR_STABLE_EVIDENCE_SCHEMA,
+        "historical direct profile chain is replay-only before W3 seal",
+    )
     resource_document, live_document = _capability_documents(resource, live)
     direct_scope = binding["scope"]
     direct_workspace = binding["workspace"]

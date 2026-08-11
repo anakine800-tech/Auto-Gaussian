@@ -369,13 +369,13 @@ def build_unreviewed_template(profile_id: str) -> dict[str, Any]:
         {
             "schema": TEMPLATE_SCHEMA,
             "profile_id": profile_id,
-            "target_profile_schema": ROOT_OWNER.DIRECT_PROFILE_SCHEMA,
+            "target_profile_schema": ROOT_OWNER.SUCCESSOR_DIRECT_PROFILE_SCHEMA,
             "backend_kind": ROOT_OWNER.BACKEND_KIND,
             "status": "unreviewed_non_authorizing_template",
             "support_statuses": list(DIRECT_STATUSES),
             "required_owner_inputs": [
-                ROOT_OWNER.PROFILE_POLICY_SCHEMA,
-                ROOT_OWNER.STABLE_EVIDENCE_SCHEMA,
+                ROOT_OWNER.SUCCESSOR_PROFILE_POLICY_SCHEMA,
+                ROOT_OWNER.SUCCESSOR_STABLE_EVIDENCE_SCHEMA,
             ],
             "required_human_review": True,
             "root_must_be_backend_owned_profile_field": True,
@@ -391,7 +391,7 @@ def build_unreviewed_template(profile_id: str) -> dict[str, Any]:
 
 
 def validate_direct_profile(document: Any) -> dict[str, Any]:
-    """Validate only the exact direct execution-profile/3 owner contract."""
+    """Validate only the exact direct execution-profile/4 successor contract."""
     _assert_pr6_non_authority()
     if type(document) is not dict:
         raise DirectOnboardingError(
@@ -402,22 +402,23 @@ def validate_direct_profile(document: Any) -> dict[str, Any]:
     if schema in {
         "auto-g16-execution-profile/1",
         "auto-g16-execution-profile/2",
+        ROOT_OWNER.DIRECT_PROFILE_SCHEMA,
     }:
         raise DirectOnboardingError(
             "legacy_profile_requires_legacy_owner",
             "legacy profiles must use their existing legacy command or owner; no direct fallback exists",
         )
-    if schema != ROOT_OWNER.DIRECT_PROFILE_SCHEMA:
+    if schema != ROOT_OWNER.SUCCESSOR_DIRECT_PROFILE_SCHEMA:
         raise DirectOnboardingError(
             "unsupported_profile_schema",
-            "direct onboarding accepts only auto-g16-execution-profile/3",
+            "direct onboarding accepts only auto-g16-execution-profile/4",
         )
     try:
         profile = ROOT_OWNER.validate_direct_execution_profile(document)
     except (ROOT_OWNER.DirectRootOwnerError, TypeError, ValueError) as exc:
         raise DirectOnboardingError(
             "invalid_direct_profile",
-            "direct execution-profile/3 failed its sole owner validator",
+            "direct execution-profile/4 failed its sole owner validator",
         ) from exc
     return profile
 
@@ -427,7 +428,7 @@ def validate_summary(document: Any) -> dict[str, Any]:
     return {
         "schema": RESULT_SCHEMA,
         "command": "validate",
-        "profile_schema": ROOT_OWNER.DIRECT_PROFILE_SCHEMA,
+        "profile_schema": ROOT_OWNER.SUCCESSOR_DIRECT_PROFILE_SCHEMA,
         "profile_id": profile["profile_id"],
         "profile_payload_sha256": profile["profile_payload_sha256"],
         "statuses": list(DIRECT_STATUSES),

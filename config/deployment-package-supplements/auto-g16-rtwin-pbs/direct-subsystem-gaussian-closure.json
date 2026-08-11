@@ -1,0 +1,19 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {"source": "scripts/direct_gaussian_runtime_identity.py", "target": "scripts/direct_gaussian_runtime_identity.py"},
+    {"source": "scripts/direct_subsystem_bootstrap.py", "target": "scripts/direct_subsystem_bootstrap.py"},
+    {"source": "scripts/direct_submit_subsystem_entrypoint.py", "target": "scripts/direct_submit_subsystem_entrypoint.py"},
+    {"source": "scripts/direct_read_subsystem_entrypoint.py", "target": "scripts/direct_read_subsystem_entrypoint.py"},
+    {"source": "contracts/direct-execution/direct-gaussian-runtime-binding.schema.json", "target": "contracts/rtwin-pbs/direct-gaussian-runtime-binding.schema.json"},
+    {"source": "contracts/direct-execution/direct-one-hop-transport-profile-v2.schema.json", "target": "contracts/rtwin-pbs/direct-one-hop-transport-profile-v2.schema.json"},
+    {"source": "contracts/direct-execution/reviewed-direct-pbs-script-v2.schema.json", "target": "contracts/rtwin-pbs/reviewed-direct-pbs-script-v2.schema.json"},
+    {"source": "contracts/direct-execution/direct-profile-policy-v2.schema.json", "target": "contracts/rtwin-pbs/direct-profile-policy-v2.schema.json"},
+    {"source": "contracts/direct-execution/stable-root-identity-evidence-v2.schema.json", "target": "contracts/rtwin-pbs/stable-root-identity-evidence-v2.schema.json"},
+    {"source": "contracts/direct-execution/execution-profile-v4.schema.json", "target": "contracts/rtwin-pbs/execution-profile-v4.schema.json"},
+    {"source": "contracts/direct-execution/execution-authorization-v4.schema.json", "target": "contracts/rtwin-pbs/execution-authorization-v4.schema.json"},
+    {"source": "docs/v2.7-direct-subsystem-gaussian-closure.md", "target": "references/direct-subsystem-gaussian-closure.md"},
+    {"source": "config/examples/auto-g16-direct-subsystems.conf.template", "target": "references/auto-g16-direct-subsystems.conf.template"}
+  ]
+}

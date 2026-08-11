@@ -1,0 +1,5 @@
+# Auto-G16 sanitized OpenSSH Subsystem fragment template
+# authorizes_apply=false authorizes_effect=false live_ready=false
+# Tokens are intentionally unresolved. Never install these bytes.
+Subsystem auto-g16-direct-one-hop-v1 __REVIEWED_PYTHON_ABSOLUTE_PATH__ -I -S -B __IMMUTABLE_PACKAGE_ROOT__/scripts/direct_submit_subsystem_entrypoint.py
+Subsystem auto-g16-direct-one-hop-read-v1 __REVIEWED_PYTHON_ABSOLUTE_PATH__ -I -S -B __IMMUTABLE_PACKAGE_ROOT__/scripts/direct_read_subsystem_entrypoint.py

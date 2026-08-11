@@ -901,8 +901,38 @@ class DirectQstatServerOwner:
             )
             self._used = True
         _assert_module_binding()
-        request = validate_request(_decode_canonical_frame(request_frame, MAX_REQUEST_BYTES, "qstat request"))
+        decoded_request = _decode_canonical_frame(
+            request_frame, MAX_REQUEST_BYTES, "qstat request"
+        )
+        if (type(decoded_request) is dict
+                and type(decoded_request.get("artifacts")) is dict):
+            candidate_artifacts = _artifacts_from_document(
+                decoded_request["artifacts"]
+            )
+            try:
+                transport_document = json.loads(
+                    candidate_artifacts.transport_profile.decode("utf-8")
+                )
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise DirectQstatAcquisitionError(
+                    "reviewed transport profile is not exact JSON"
+                ) from exc
+            if (type(transport_document) is dict
+                    and transport_document.get("schema")
+                    == CHANNEL.LEGACY_TRANSPORT_PROFILE_SCHEMA):
+                CHANNEL.validate_legacy_transport_profile_for_replay(
+                    transport_document
+                )
+                raise DirectQstatAcquisitionError(
+                    "historical transport profile is replay-only before qstat"
+                )
+        request = validate_request(decoded_request)
         artifacts = _artifacts_from_document(request["artifacts"])
+        _require(
+            W5._validate_controller_artifact_join(artifacts)["schema"]
+            == CHANNEL.TRANSPORT_PROFILE_SCHEMA,
+            "historical transport profile is replay-only before qstat",
+        )
         receipt_raw = _unb64(request["portable_receipt_base64"], "portable W5 receipt", W5.MAX_FRAME_BYTES)
         requested_read_profile_raw = _unb64(
             request["read_profile_base64"], "read profile", CHANNEL.MAX_PROFILE_BYTES

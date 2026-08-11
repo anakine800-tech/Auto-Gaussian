@@ -28,10 +28,13 @@ import skill_package as SKILL_PACKAGE  # noqa: E402
 
 class DirectRootMutationBoundaryTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.fixture = DirectRootFixture()
+        self.fixture = DirectRootFixture(successor=True)
         self.owner = BOUNDARY.DirectRootMutationBoundaryOwner._for_testing(
             _test_token=BOUNDARY._TEST_TOKEN
         )
+
+    def tearDown(self) -> None:
+        self.fixture.close()
 
     def helper(self, failure_after: str | None = None) -> object:
         return self.owner._synthetic_helper_for_testing(
@@ -45,16 +48,16 @@ class DirectRootMutationBoundaryTests(unittest.TestCase):
             helper=helper or self.helper(),
         )
 
-    def test_exact_v3_chain_runs_only_two_fixed_synthetic_operations(self) -> None:
+    def test_exact_successor_chain_runs_only_two_fixed_synthetic_operations(self) -> None:
         capability = self.fixture.capability()
         helper = self.helper()
         transaction = self.transaction(capability=capability, helper=helper)
         binding = transaction.portable_binding()
         authorization = json.loads(capability._authorization_bytes)
-        self.assertEqual(binding["profile_schema"], "auto-g16-execution-profile/3")
+        self.assertEqual(binding["profile_schema"], "auto-g16-execution-profile/4")
         self.assertEqual(
             binding["authorization_schema"],
-            "auto-g16-execution-authorization/3",
+            "auto-g16-execution-authorization/4",
         )
         self.assertFalse(binding["live_ready"])
         self.assertFalse(authorization["live_ready"])
@@ -237,6 +240,17 @@ class DirectRootMutationBoundaryTests(unittest.TestCase):
         source = (SCRIPTS / "direct_root_mutation_boundary.py").read_text(encoding="utf-8")
         for forbidden in ("backfill", "rehash", "migrate_execution", "build_execution_profile"):
             self.assertNotIn(forbidden, source)
+
+    def test_valid_historical_chain_is_replay_only_before_w4(self) -> None:
+        legacy = DirectRootFixture()
+        helper = self.helper()
+        with self.assertRaisesRegex(
+            BOUNDARY.DirectRootMutationBoundaryError, "closed successor"
+        ):
+            self.owner.issue_synthetic_transaction_once(
+                root_capability=legacy.capability(), helper=helper,
+            )
+        self.assertEqual(helper.trace(), ())
 
     def test_cli_environment_and_root_override_have_no_route(self) -> None:
         signature = inspect.signature(

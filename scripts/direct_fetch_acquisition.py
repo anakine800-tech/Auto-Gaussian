@@ -623,6 +623,24 @@ def _decode_dispatched_fetch_request_once(
             "dispatched fetch evidence is not exact base64"
         ) from exc
     artifacts = LINEAGE.SESSION.DirectServerSessionArtifacts(**decoded)
+    try:
+        transport_document = json.loads(artifacts.transport_profile.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DirectFetchAcquisitionError(
+            "reviewed transport profile is not exact JSON"
+        ) from exc
+    if (type(transport_document) is dict
+            and transport_document.get("schema")
+            == CHANNEL.LEGACY_TRANSPORT_PROFILE_SCHEMA):
+        CHANNEL.validate_legacy_transport_profile_for_replay(transport_document)
+        raise DirectFetchAcquisitionError(
+            "historical transport profile is replay-only before fetch"
+        )
+    _require(
+        LINEAGE.W5._validate_controller_artifact_join(artifacts)["schema"]
+        == CHANNEL.TRANSPORT_PROFILE_SCHEMA,
+        "historical transport profile is replay-only before fetch",
+    )
     receipt = LINEAGE.W5.validate_submission_receipt(
         json.loads(receipt_raw.decode("utf-8"))
     )

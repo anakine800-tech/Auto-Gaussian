@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-direct-profile-policy/2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile_id",
+    "backend_kind",
+    "root_policy_owner",
+    "transport_identity_binding_sha256",
+    "scheduler_dialect",
+    "gaussian_runtime_binding",
+    "gaussian_runtime_binding_sha256",
+    "resource_catalog_sha256",
+    "declared_allowed_root",
+    "root_policy",
+    "path_normalization_version",
+    "containment_version",
+    "safety",
+    "profile_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-profile-policy/2"},
+    "profile_id": {"$ref": "#/$defs/id"},
+    "backend_kind": {"const": "direct_ssh_pbs"},
+    "root_policy_owner": {"$ref": "#/$defs/owner"},
+    "transport_identity_binding_sha256": {"$ref": "#/$defs/sha"},
+    "scheduler_dialect": {"const": "pbs_legacy_v1"},
+    "gaussian_runtime_binding": {"$ref": "direct-gaussian-runtime-binding.schema.json"},
+    "gaussian_runtime_binding_sha256": {"$ref": "#/$defs/sha"},
+    "resource_catalog_sha256": {"$ref": "#/$defs/sha"},
+    "declared_allowed_root": {"$ref": "#/$defs/root"},
+    "root_policy": {"const": "backend_owned_reviewed_root_v1"},
+    "path_normalization_version": {"const": "posix-realpath-nofollow/1"},
+    "containment_version": {"const": "descriptor-relative-containment/1"},
+    "safety": {"$ref": "#/$defs/safety"},
+    "profile_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,127}$", "not": {"pattern": "[\\r\\n]"}},
+    "root": {
+      "type": "string",
+      "pattern": "^/(?:[^/\\\\\\u0000]+/)*[^/\\\\\\u0000]+$",
+      "allOf": [
+        {"not": {"pattern": "(?:^|/)\\.\\.?(/|$)"}},
+        {"not": {"pattern": "[\\r\\n]"}}
+      ]
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_id", "owner_version", "owner_source_sha256"],
+      "properties": {
+        "owner_id": {"const": "auto-g16-direct-workspace-policy-owner"},
+        "owner_version": {"const": "direct-root-owner-contract/1"},
+        "owner_source_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fresh_project_required", "no_overwrite", "no_symlink", "no_delete"],
+      "properties": {
+        "fresh_project_required": {"const": true},
+        "no_overwrite": {"const": true},
+        "no_symlink": {"const": true},
+        "no_delete": {"const": true}
+      }
+    }
+  }
+}

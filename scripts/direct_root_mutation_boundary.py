@@ -221,6 +221,19 @@ def _assert_root_capability(
         capability._descriptor_set._mode == "offline_synthetic",
         "synthetic boundary rejects production descriptor capabilities",
     )
+    profile = ROOT.validate_direct_execution_profile(
+        json.loads(capability._profile_bytes)
+    )
+    authorization = ROOT.validate_direct_execution_authorization(
+        json.loads(capability._authorization_bytes)
+    )
+    _require(
+        profile["schema"] == ROOT.SUCCESSOR_DIRECT_PROFILE_SCHEMA
+        and authorization["schema"] == ROOT.SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA
+        and profile["gaussian_runtime_binding"]["binding_payload_sha256"]
+        == profile["gaussian_runtime_binding_sha256"],
+        "synthetic boundary requires the closed successor capability chain",
+    )
 
 
 def _binding_from_capability(
@@ -251,8 +264,8 @@ def _binding_from_capability(
         "boundary_version": BOUNDARY_VERSION,
         "backend_kind": BACKEND_KIND,
         "root_owner_version": ROOT.OWNER_VERSION,
-        "profile_schema": ROOT.DIRECT_PROFILE_SCHEMA,
-        "authorization_schema": ROOT.DIRECT_AUTHORIZATION_SCHEMA,
+        "profile_schema": ROOT.SUCCESSOR_DIRECT_PROFILE_SCHEMA,
+        "authorization_schema": ROOT.SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA,
         "live_ready": False,
         "profile_payload_sha256": receipt["profile"]["profile_payload_sha256"],
         "stable_root_evidence_sha256": receipt["stable_root_evidence"][

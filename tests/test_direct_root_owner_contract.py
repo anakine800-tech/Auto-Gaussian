@@ -30,6 +30,7 @@ if TEMP_PARENT == ROOT or ROOT in TEMP_PARENT.parents:
 sys.path.insert(0, str(SCRIPTS))
 
 import direct_root_owner_contract as DIRECT  # noqa: E402
+import direct_gaussian_runtime_identity as GAUSSIAN  # noqa: E402
 import skill_package as SKILL_PACKAGE  # noqa: E402
 
 
@@ -71,17 +72,38 @@ class StepClock:
 
 
 class DirectRootFixture:
-    def __init__(self) -> None:
+    def __init__(self, *, successor: bool = False) -> None:
         self.clock = MutableClock()
         self.owner = self.new_owner()
         self.expected = self.snapshot(self.owner)
-        self.policy = DIRECT.build_profile_policy(
-            profile_id="direct-primary",
-            declared_allowed_root=ROOT_PATH,
-            transport_identity_binding_sha256=SHA_A,
-            gaussian_runtime_binding_sha256=SHA_B,
-            resource_catalog_sha256=SHA_C,
-        )
+        self._gaussian_directory = None
+        if successor:
+            self._gaussian_directory = tempfile.TemporaryDirectory(
+                prefix="auto-g16-direct-root-successor-"
+            )
+            executable = Path(self._gaussian_directory.name).resolve() / "g16"
+            executable.write_bytes(b"synthetic Gaussian executable\n")
+            executable.chmod(0o755)
+            info = executable.stat()
+            gaussian = GAUSSIAN.observe_reviewed_gaussian_executable(
+                str(executable), expected_uid=info.st_uid,
+                expected_gid=info.st_gid, expected_mode=0o755,
+            )
+            self.policy = DIRECT.build_profile_policy_with_gaussian_runtime(
+                profile_id="direct-primary",
+                declared_allowed_root=ROOT_PATH,
+                transport_identity_binding_sha256=SHA_A,
+                gaussian_runtime_binding=gaussian,
+                resource_catalog_sha256=SHA_C,
+            )
+        else:
+            self.policy = DIRECT.build_profile_policy(
+                profile_id="direct-primary",
+                declared_allowed_root=ROOT_PATH,
+                transport_identity_binding_sha256=SHA_A,
+                gaussian_runtime_binding_sha256=SHA_B,
+                resource_catalog_sha256=SHA_C,
+            )
         self.evidence = self.owner.issue_stable_evidence(
             self.policy,
             self.expected,
@@ -148,6 +170,11 @@ class DirectRootFixture:
             authorization=self.authorization,
             observation=observation,
         )
+
+    def close(self) -> None:
+        if self._gaussian_directory is not None:
+            self._gaussian_directory.cleanup()
+            self._gaussian_directory = None
 
 
 class DirectRootOwnerContractTests(unittest.TestCase):

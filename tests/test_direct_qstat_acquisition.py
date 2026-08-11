@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import base64
 import gc
 import hashlib
 import json
@@ -178,6 +179,7 @@ class DirectQstatAcquisitionTests(unittest.TestCase):
         result.assert_current()
         projection = result.portable_projection()
         self.assertEqual(projection, Q1.validate_acquisition_projection(projection))
+
         self.assertEqual(projection["lineage"]["job_id"], self.receipt["qsub"]["job_id"])
         self.assertEqual(
             projection["qstat"]["argv"],
@@ -202,6 +204,50 @@ class DirectQstatAcquisitionTests(unittest.TestCase):
             result.assert_current()
         with self.assertRaises(Q1.DirectQstatAcquisitionError):
             Q1.build_final_scheduler_inspection_once(result)
+
+    def test_valid_legacy_transport_rejects_in_server_before_qstat_driver(self) -> None:
+        operation, request, _frame, _join, profile_lease = self.prepare_controller()
+        try:
+            successor = json.loads(self.fixture.artifacts.transport_profile)
+            legacy = copy.deepcopy(successor)
+            legacy["schema"] = CHANNEL.LEGACY_TRANSPORT_PROFILE_SCHEMA
+            legacy["server"]["isolated_flags"] = ["-I", "-S"]
+            del legacy["gaussian_runtime_binding"]
+            legacy["profile_payload_sha256"] = ""
+            legacy["profile_payload_sha256"] = CHANNEL.digest(legacy)
+            legacy_raw = CHANNEL.canonical_bytes(legacy)
+            CHANNEL.validate_legacy_transport_profile_for_replay(legacy)
+            request["artifacts"]["transport_profile"] = base64.b64encode(
+                legacy_raw
+            ).decode("ascii")
+            request["artifact_sha256"]["transport_profile"] = hashlib.sha256(
+                legacy_raw
+            ).hexdigest()
+            request["request_id"] = Q1._request_id(
+                request["artifact_sha256"], self.receipt_raw,
+                self.read_profile_raw, request["operation_id"],
+                request["expected_job_id"],
+            )
+            request["request_payload_sha256"] = ""
+            request["request_payload_sha256"] = Q1.digest(request)
+            hostile_frame = Q1._canonical_frame(request, Q1.MAX_REQUEST_BYTES)
+            driver = Q1._FakeQstatDriver(self.observation(stdout=self.present()))
+            profile_owner = READ_PROFILE.DirectReviewedReadProfileOwner._for_fake_local_testing(
+                profile_raw=self.read_profile_raw,
+                _test_token=READ_PROFILE._TEST_OWNER_TOKEN,
+            )
+            server = Q1.DirectQstatServerOwner._for_fake_local_testing(
+                durable_state_root=self.fixture.state, driver=driver,
+                read_profile_owner=profile_owner, _test_token=Q1._TEST_OWNER_TOKEN,
+            )
+            with self.assertRaisesRegex(
+                Q1.DirectQstatAcquisitionError, "replay-only before qstat"
+            ):
+                server.handle_once(hostile_frame)
+            self.assertEqual(driver.calls, 0)
+        finally:
+            CHANNEL._finish_operation(operation)
+            profile_lease.close_once()
 
     def test_only_exact_unknown_job_line_is_absent(self) -> None:
         exact = self.observation(
