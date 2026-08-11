@@ -49,7 +49,7 @@ class DirectReplayIngressFixture:
         self.approval = json.loads(self.live_case.approval_path.read_text(encoding="utf-8"))
         self.execution = self.approval["scope"]["execution"]
         self.resource = self._resource_capability()
-        self.direct_fixture = DirectRootFixture()
+        self.direct_fixture = DirectRootFixture(successor=True)
         self.direct_fixture.clock.value = LIVE_SUPPORT.ISSUED
         input_path = self.protected.input_path
         self.payload = input_path.read_bytes()
@@ -192,6 +192,7 @@ class DirectReplayIngressFixture:
         return resource_claim, self.live.replay_once()
 
     def close(self) -> None:
+        self.direct_fixture.close()
         self.live_case.tearDown()
 
 
@@ -217,10 +218,10 @@ class DirectEffectTimeReplayIngressTests(unittest.TestCase):
         claim = self.fixture.consume(capability)
         result = claim.document()
 
-        self.assertEqual(document["direct"]["profile"]["schema"], "auto-g16-execution-profile/3")
+        self.assertEqual(document["direct"]["profile"]["schema"], "auto-g16-execution-profile/4")
         self.assertEqual(
             document["direct"]["authorization"]["schema"],
-            "auto-g16-execution-authorization/3",
+            "auto-g16-execution-authorization/4",
         )
         self.assertEqual(document["direct"]["workspace"]["project"], "safejob")
         self.assertEqual(document["direct"]["input"]["sha256"], hashlib.sha256(self.fixture.payload).hexdigest())

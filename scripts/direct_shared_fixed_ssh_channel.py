@@ -29,8 +29,11 @@ import types
 import weakref
 from typing import Any, NamedTuple
 
+import direct_gaussian_runtime_identity as GAUSSIAN
 
-TRANSPORT_PROFILE_SCHEMA = "auto-g16-direct-one-hop-transport-profile/1"
+
+LEGACY_TRANSPORT_PROFILE_SCHEMA = "auto-g16-direct-one-hop-transport-profile/1"
+TRANSPORT_PROFILE_SCHEMA = "auto-g16-direct-one-hop-transport-profile/2"
 READ_PROFILE_SCHEMA = "auto-g16-direct-shared-fixed-ssh-read-profile/1"
 OPERATION_PROJECTION_SCHEMA = "auto-g16-direct-shared-fixed-ssh-operation/1"
 SUBMIT_PROTOCOL = "auto-g16-direct-one-hop-transport/1"
@@ -201,11 +204,14 @@ def _absolute_file(value: Any, label: str) -> str:
 
 
 def validate_transport_profile(document: Any) -> dict[str, Any]:
+    if type(document) is dict and document.get("schema") == LEGACY_TRANSPORT_PROFILE_SCHEMA:
+        return validate_legacy_transport_profile_for_replay(document)
     profile = _exact(
         copy.deepcopy(document),
         {
             "schema", "profile_id", "backend_kind", "topology",
-            "scheduler_dialect", "ssh", "server", "qsub", "pbs_artifact", "safety",
+            "scheduler_dialect", "ssh", "server", "qsub", "gaussian_runtime_binding",
+            "pbs_artifact", "safety",
             "profile_payload_sha256",
         },
         "transport profile",
@@ -255,7 +261,7 @@ def validate_transport_profile(document: Any) -> dict[str, Any]:
     _absolute_file(server["python_executable"], "server Python executable")
     _sha(server["python_executable_sha256"], "server Python executable")
     _require(
-        server["isolated_flags"] == ["-I", "-S"]
+        server["isolated_flags"] == ["-I", "-S", "-B"]
         and server["working_directory"] == "/"
         and server["environment"] == FIXED_ENVIRONMENT,
         "server clean-exec policy differs",
@@ -275,6 +281,9 @@ def validate_transport_profile(document: Any) -> dict[str, Any]:
         "qsub executable, argv, cwd, or grammar differs",
     )
     _sha(qsub["executable_sha256"], "qsub executable")
+    gaussian = GAUSSIAN.validate_gaussian_runtime_binding(
+        profile["gaussian_runtime_binding"]
+    )
     pbs_artifact = _exact(
         profile["pbs_artifact"],
         {"basename", "sha256", "size_bytes", "review_payload_sha256", "owner"},
@@ -291,6 +300,63 @@ def validate_transport_profile(document: Any) -> dict[str, Any]:
     _require(profile["safety"] == TRANSPORT_POLICY, "transport safety policy differs")
     supplied = _sha(profile["profile_payload_sha256"], "transport profile hash")
     _require(supplied == digest({**profile, "profile_payload_sha256": ""}), "transport profile self-hash differs")
+    return profile
+
+
+def validate_legacy_transport_profile_for_replay(document: Any) -> dict[str, Any]:
+    """Exact historical /1 parser.  Its result is never production authority."""
+    profile = _exact(
+        copy.deepcopy(document),
+        {"schema", "profile_id", "backend_kind", "topology", "scheduler_dialect",
+         "ssh", "server", "qsub", "pbs_artifact", "safety", "profile_payload_sha256"},
+        "historical transport profile",
+    )
+    _require(profile["schema"] == LEGACY_TRANSPORT_PROFILE_SCHEMA,
+             "historical transport profile schema differs")
+    # Reuse every unchanged closed predecessor field without accepting the new field.
+    _text(profile["profile_id"], "transport profile id")
+    _require(profile["backend_kind"] == BACKEND_KIND and profile["topology"] == TOPOLOGY
+             and profile["scheduler_dialect"] == SCHEDULER_DIALECT,
+             "transport topology differs")
+    ssh = _exact(profile["ssh"], {"executable", "executable_sha256", "configuration_files",
+        "system_policy_evidence_sha256", "host", "user", "port", "identity_file",
+        "known_hosts_file", "batch_mode", "identities_only", "strict_host_key_checking",
+        "subsystem"}, "SSH profile")
+    _require(ssh["executable"] == SSH_EXECUTABLE and ssh["configuration_files"] == "disabled_by_F_none"
+             and ssh["batch_mode"] is True and ssh["identities_only"] is True
+             and ssh["strict_host_key_checking"] is True and ssh["subsystem"] == SUBMIT_SUBSYSTEM,
+             "SSH identity or subsystem policy differs")
+    _sha(ssh["executable_sha256"], "SSH executable"); _sha(ssh["system_policy_evidence_sha256"], "SSH policy")
+    _require(type(ssh["host"]) is str and HOST_RE.fullmatch(ssh["host"]) is not None
+             and type(ssh["user"]) is str and USER_RE.fullmatch(ssh["user"]) is not None,
+             "SSH host or user differs")
+    _positive_decimal(ssh["port"], "SSH port", maximum=65535)
+    _absolute_file(ssh["identity_file"], "SSH identity file"); _absolute_file(ssh["known_hosts_file"], "SSH known-hosts file")
+    server = _exact(profile["server"], {"python_executable", "python_executable_sha256",
+        "isolated_flags", "working_directory", "environment", "allowed_root",
+        "entrypoint_source_sha256"}, "server profile")
+    _absolute_file(server["python_executable"], "server Python executable")
+    _sha(server["python_executable_sha256"], "server Python executable")
+    _absolute_file(server["allowed_root"], "server allowed root"); _sha(server["entrypoint_source_sha256"], "server entrypoint")
+    _require(server["isolated_flags"] == ["-I", "-S"] and server["working_directory"] == "/"
+             and server["environment"] == FIXED_ENVIRONMENT, "server clean-exec policy differs")
+    qsub = _exact(profile["qsub"], {"executable", "executable_sha256", "argv",
+        "working_directory", "stdout_grammar"}, "qsub profile")
+    qsub_path = _absolute_file(qsub["executable"], "qsub executable")
+    _sha(qsub["executable_sha256"], "qsub executable")
+    _require(qsub["argv"] == [qsub_path, "--", PBS_BASENAME]
+             and qsub["working_directory"] == "already_open_project_fd"
+             and qsub["stdout_grammar"] == "independent_pbs_job_id_v1", "qsub profile differs")
+    pbs = _exact(profile["pbs_artifact"], {"basename", "sha256", "size_bytes",
+        "review_payload_sha256", "owner"}, "reviewed PBS artifact")
+    _require(pbs["basename"] == PBS_BASENAME and pbs["owner"] == "reviewed_direct_pbs_artifact_owner",
+             "reviewed PBS artifact differs")
+    _sha(pbs["sha256"], "PBS artifact"); _sha(pbs["review_payload_sha256"], "PBS review")
+    _positive_decimal(pbs["size_bytes"], "PBS size")
+    _require(profile["safety"] == TRANSPORT_POLICY, "transport safety policy differs")
+    supplied = _sha(profile["profile_payload_sha256"], "transport profile hash")
+    _require(supplied == digest({**profile, "profile_payload_sha256": ""}),
+             "transport profile self-hash differs")
     return profile
 
 
@@ -849,6 +915,8 @@ def _make_operation_owner() -> tuple[object, ...]:
         )
         _validate_single_canonical_frame_bytes(request_frame)
         transport = load_transport_profile(transport_profile_raw)
+        _require(transport["schema"] == TRANSPORT_PROFILE_SCHEMA,
+                 "historical transport profile is replay-only")
         return register(
             SubmitChannelOperation,
             "submit_channel",
@@ -879,6 +947,8 @@ def _make_operation_owner() -> tuple[object, ...]:
         )
         _require(type(job_id) is str and JOB_ID_RE.fullmatch(job_id) is not None, "query job ID differs")
         transport = load_transport_profile(transport_profile_raw)
+        _require(transport["schema"] == TRANSPORT_PROFILE_SCHEMA,
+                 "historical transport profile is replay-only")
         read_profile = load_read_profile(read_profile_raw, transport_profile_raw)
         return register(
             QueryExactJobOperation,
@@ -902,6 +972,8 @@ def _make_operation_owner() -> tuple[object, ...]:
         _require(_test_token is _QUERY_CODEC_TEST_TOKEN, "query codec test token differs")
         _require(type(job_id) is str and JOB_ID_RE.fullmatch(job_id) is not None, "query job ID differs")
         transport = load_transport_profile(transport_profile_raw)
+        _require(transport["schema"] == TRANSPORT_PROFILE_SCHEMA,
+                 "historical transport profile is replay-only")
         read_profile = load_read_profile(read_profile_raw, transport_profile_raw)
         return register(
             QueryExactJobOperation,
@@ -953,6 +1025,8 @@ def _make_operation_owner() -> tuple[object, ...]:
             "terminal fetch evidence is not canonical",
         )
         transport = load_transport_profile(transport_profile_raw)
+        _require(transport["schema"] == TRANSPORT_PROFILE_SCHEMA,
+                 "historical transport profile is replay-only")
         read_profile = load_read_profile(read_profile_raw, transport_profile_raw)
         return register(
             FetchTerminalMinimumBundleOperation,
@@ -979,6 +1053,8 @@ def _make_operation_owner() -> tuple[object, ...]:
         )
         _require(type(job_id) is str and JOB_ID_RE.fullmatch(job_id) is not None, "fetch job ID differs")
         transport = load_transport_profile(transport_profile_raw)
+        _require(transport["schema"] == TRANSPORT_PROFILE_SCHEMA,
+                 "historical transport profile is replay-only")
         read_profile = load_read_profile(read_profile_raw, transport_profile_raw)
         return register(
             FetchTerminalMinimumBundleOperation,
@@ -2634,6 +2710,9 @@ _FROZEN_FORK = os.fork
 _FROZEN_EXECVE = os.execve
 _FROZEN_URANDOM = os.urandom
 _FROZEN_PROFILE_VALIDATOR = validate_transport_profile
+_FROZEN_LEGACY_PROFILE_VALIDATOR = validate_legacy_transport_profile_for_replay
+_FROZEN_GAUSSIAN_VALIDATOR = GAUSSIAN.validate_gaussian_runtime_binding
+_FROZEN_GAUSSIAN_MODULE = GAUSSIAN
 _FROZEN_PROFILE_LOADER = load_transport_profile
 _FROZEN_READ_PROFILE_VALIDATOR = validate_read_profile
 _FROZEN_READ_PROFILE_LOADER = load_read_profile
@@ -2753,6 +2832,9 @@ def _assert_production_binding() -> None:
         and os.execve is _FROZEN_EXECVE
         and os.urandom is _FROZEN_URANDOM
         and validate_transport_profile is _FROZEN_PROFILE_VALIDATOR
+        and validate_legacy_transport_profile_for_replay is _FROZEN_LEGACY_PROFILE_VALIDATOR
+        and GAUSSIAN.validate_gaussian_runtime_binding is _FROZEN_GAUSSIAN_VALIDATOR
+        and GAUSSIAN is _FROZEN_GAUSSIAN_MODULE
         and load_transport_profile is _FROZEN_PROFILE_LOADER
         and validate_read_profile is _FROZEN_READ_PROFILE_VALIDATOR
         and load_read_profile is _FROZEN_READ_PROFILE_LOADER

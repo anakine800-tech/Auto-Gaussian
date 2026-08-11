@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-direct-gaussian-runtime-binding/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "owner", "executable", "component_identity_chain", "invocation", "pbs_boundary", "authority", "binding_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-gaussian-runtime-binding/1"},
+    "owner": {"const": {"owner_id": "auto-g16-direct-gaussian-runtime-identity-owner", "owner_version": "direct-gaussian-runtime-identity/1"}},
+    "executable": {
+      "type": "object", "additionalProperties": false,
+      "required": ["canonical_absolute_path", "sha256", "uid", "gid", "mode", "link_count"],
+      "properties": {
+        "canonical_absolute_path": {"$ref": "#/$defs/gaussianPath"},
+        "sha256": {"$ref": "#/$defs/sha"}, "uid": {"type": "integer", "minimum": 0},
+        "gid": {"type": "integer", "minimum": 0}, "mode": {"type": "string", "pattern": "^0(?:[1357][0-7]{2}|[0-7][1357][0-7]|[0-7]{2}[1357])$"},
+        "link_count": {"const": 1}
+      }
+    },
+    "component_identity_chain": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/component"}},
+    "invocation": {"type": "object", "additionalProperties": false, "required": ["argv", "shell", "path_lookup", "caller_override"], "properties": {"argv": {"type": "array", "prefixItems": [{"$ref": "#/$defs/gaussianPath"}, {"const": "approved-input.gjf"}], "items": false}, "shell": {"const": false}, "path_lookup": {"const": false}, "caller_override": {"const": false}}},
+    "pbs_boundary": {"const": {"descriptor_survives_qsub": false, "absolute_path_contract_required": true, "administrator_execution_time_reobservation_required": true, "post_install_reobservation_required": true}},
+    "authority": {"const": {"authorizes_apply": false, "authorizes_effect": false, "authorizes_live": false, "portable_projection_is_authority": false}},
+    "binding_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "gaussianPath": {"type": "string", "pattern": "^/[A-Za-z0-9._+@%/-]+$", "not": {"anyOf": [{"pattern": "//"}, {"pattern": "(?:^|/)\\.\\.?(?:/|$)"}, {"pattern": "/$"}]}},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
+    "component": {"type": "object", "additionalProperties": false, "required": ["ordinal", "path", "device", "inode", "uid", "gid", "mode", "type"], "properties": {"ordinal": {"type": "integer", "minimum": 0}, "path": {"$ref": "#/$defs/gaussianPath"}, "device": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$"}, "inode": {"type": "string", "pattern": "^[1-9][0-9]*$"}, "uid": {"type": "integer", "minimum": 0}, "gid": {"type": "integer", "minimum": 0}, "mode": {"type": "string", "pattern": "^0[0-7]{3}$"}, "type": {"enum": ["directory", "regular_executable"]}}}
+  }
+}

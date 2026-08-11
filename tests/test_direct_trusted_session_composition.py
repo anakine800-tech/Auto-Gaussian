@@ -12,6 +12,7 @@ import json
 import multiprocessing
 import os
 import pickle
+import py_compile
 import socket
 import stat
 import struct
@@ -35,6 +36,7 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts"))
 
 import direct_durable_submission_journal as W2  # noqa: E402
+import direct_gaussian_runtime_identity as GAUSSIAN  # noqa: E402
 import direct_effect_time_replay_ingress as W3  # noqa: E402
 import direct_root_fixed_mutation_consumer as W4  # noqa: E402
 import direct_root_fixed_mutation_helper as HELPER  # noqa: E402
@@ -76,12 +78,24 @@ class PortableSessionFixture:
         execution = approval["scope"]["execution"]
         resource = execution["resource_binding"]
         payload = protected.input_path.read_bytes()
+        gaussian = temporary / "reviewed-gaussian" / "g16"
+        gaussian.parent.mkdir()
+        gaussian.write_bytes(b"synthetic gaussian executable\n")
+        gaussian.chmod(0o755)
+        gaussian_info = gaussian.stat()
+        gaussian_binding = GAUSSIAN.observe_reviewed_gaussian_executable(
+            str(gaussian), expected_uid=gaussian_info.st_uid,
+            expected_gid=gaussian_info.st_gid, expected_mode=0o755,
+        )
+        workdir = f"{self.root}/{approval['scope']['project']}"
+        quoted_workdir = W5._shell_single_quote(workdir).decode("utf-8")
         pbs_script = (
             "#!/bin/sh\nset -eu\n"
-            f"test \"${{AUTO_G16_ALLOWED_ROOT:-}}\" = \"{self.root}\"\n"
-            "test \"$PBS_O_WORKDIR\" = \"$(pwd -P)\"\n"
-            "test -d scratch && test ! -L scratch\n"
-            f"exec g16 {W5.INPUT_BASENAME}\n"
+            f"test \"$(pwd -P)\" = {quoted_workdir}\n"
+            f"test \"${{PBS_O_WORKDIR:-}}\" = {quoted_workdir}\n"
+            "test -d scratch\n"
+            "test ! -L scratch\n"
+            f"exec {gaussian} {W5.INPUT_BASENAME}\n"
         ).encode("utf-8")
         pbs_review = {
             "schema": W5.PBS_REVIEW_SCHEMA,
@@ -109,12 +123,7 @@ class PortableSessionFixture:
                 "memory_gb": str(resource["memory_gb"]),
                 "walltime_seconds": str(resource["walltime_seconds"]),
             },
-            "gaussian": {
-                "executable": "g16",
-                "invocation": "filename_argument",
-                "input_basename": W5.INPUT_BASENAME,
-                "scientific_route_owned_by_input": True,
-            },
+            "gaussian": gaussian_binding,
             "safety": {
                 "set_eu": True,
                 "allowed_root_checked": True,
@@ -172,7 +181,7 @@ class PortableSessionFixture:
             "server": {
                 "python_executable": str(SESSION._FIXED_EXECUTABLE.path),
                 "python_executable_sha256": SESSION._FIXED_EXECUTABLE.sha256,
-                "isolated_flags": ["-I", "-S"],
+                "isolated_flags": ["-I", "-S", "-B"],
                 "working_directory": "/",
                 "environment": copy.deepcopy(W5.FIXED_ENVIRONMENT),
                 "allowed_root": str(self.root),
@@ -185,6 +194,7 @@ class PortableSessionFixture:
                 "working_directory": "already_open_project_fd",
                 "stdout_grammar": "independent_pbs_job_id_v1",
             },
+            "gaussian_runtime_binding": gaussian_binding,
             "pbs_artifact": {
                 "basename": W5.PBS_BASENAME,
                 "sha256": hashlib.sha256(pbs_script).hexdigest(),
@@ -200,11 +210,11 @@ class PortableSessionFixture:
         transport_profile_raw = W5.canonical_bytes(transport_profile)
 
         review_owner = W1.DirectRootOwnerContractOwner.for_posix_backend()
-        policy = W1.build_profile_policy(
+        policy = W1.build_profile_policy_with_gaussian_runtime(
             profile_id="direct-trusted-session-reviewed",
             declared_allowed_root=str(self.root),
             transport_identity_binding_sha256=transport_profile["profile_payload_sha256"],
-            gaussian_runtime_binding_sha256="b" * 64,
+            gaussian_runtime_binding=gaussian_binding,
             resource_catalog_sha256="c" * 64,
         )
         evidence = review_owner.issue_stable_evidence_from_reviewed_profile(policy)
@@ -714,22 +724,73 @@ print(case + "_REJECTED_BEFORE_W2_OR_EFFECT")
             self.assertEqual(tuple(hostile_root.iterdir()), ())
 
     def test_actual_fixed_clean_exec_attests_source_entrypoint_argv_env_cwd_and_fds(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            hostile_runtime = Path(directory) / "runtime.json"
-            hostile_runtime.write_text(
-                '{"rtwin_ssh_config":"/caller-selected-ssh-config"}',
-                encoding="utf-8",
+        with tempfile.TemporaryDirectory(prefix="auto-g16-clean-child-normal-") as raw:
+            parent_path = Path(raw).resolve()
+            installed = parent_path / "auto-g16-rtwin-pbs"
+            for target, source in SKILL_PACKAGE.package_files_with_supplements(
+                    ROOT, "auto-g16-rtwin-pbs").items():
+                destination = installed / target
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            scripts = installed / "scripts"
+            bootstrap_path = scripts / "direct_subsystem_bootstrap.py"
+            bootstrap = types.ModuleType("staged_normal_bootstrap")
+            bootstrap.__file__ = str(bootstrap_path)
+            exec(
+                compile(bootstrap_path.read_bytes(), str(bootstrap_path), "exec"),
+                bootstrap.__dict__,
             )
-            with mock.patch.dict(
-                os.environ,
-                {
-                    "AUTO_G16_RUNTIME_CONFIG": str(hostile_runtime),
-                    "HOME": "/caller-selected-home",
-                },
-            ):
-                ready = SESSION._probe_fixed_clean_exec_for_testing(
-                    _test_token=SESSION._TEST_TOKEN,
-                )
+            expected_attestation = bootstrap.review_inventory_attestation()
+            paths = [
+                scripts / "direct_trusted_session_clean_exec.py",
+                bootstrap_path,
+                scripts / "direct_trusted_session_composition.py",
+                scripts / "direct_shared_fixed_ssh_channel.py",
+                scripts / "direct_one_hop_transport.py",
+            ]
+            descriptors = [
+                os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+                for path in paths
+            ]
+            package_root_fd = os.open(
+                installed,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                | getattr(os, "O_CLOEXEC", 0),
+            )
+            descriptors.insert(2, package_root_fd)
+            executable_fd = os.open(
+                SESSION._FIXED_EXECUTABLE.path,
+                os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            )
+            descriptors.append(executable_fd)
+            control_parent, control_child = socket.socketpair()
+            child_fd = control_child.fileno()
+            helper_fd, bootstrap_fd, root_fd, session_fd, channel_fd, w5_fd, python_fd = descriptors
+            argv = (
+                f"/dev/fd/{helper_fd}", SESSION.CLEAN_EXEC.CHILD_FLAG,
+                str(child_fd), str(helper_fd), str(bootstrap_fd), str(root_fd),
+                str(session_fd), str(channel_fd), str(w5_fd), str(python_fd),
+                expected_attestation, str(scripts),
+            )
+            process = subprocess.Popen(
+                [str(SESSION._FIXED_EXECUTABLE.path), "-I", "-S", "-B", *argv],
+                close_fds=True, pass_fds=(child_fd, *descriptors),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=dict(SESSION._FIXED_CLEAN_EXEC_ENVIRONMENT),
+                cwd=SESSION._FIXED_CLEAN_EXEC_CWD,
+            )
+            for descriptor in descriptors:
+                os.close(descriptor)
+            control_child.close()
+            try:
+                ready = SESSION._recv_clean_exec_frame(control_parent)
+                control_parent.close()
+                self.assertEqual(process.wait(timeout=10), 0)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=10)
         self.assertEqual(ready["protocol"], SESSION.CLEAN_EXEC.PROTOCOL)
         self.assertEqual(ready["status"], "ready_no_artifacts_no_effect")
         self.assertEqual(ready["executable"], str(SESSION._FIXED_EXECUTABLE.path))
@@ -739,6 +800,11 @@ print(case + "_REJECTED_BEFORE_W2_OR_EFFECT")
         )
         self.assertEqual(ready["executable_sha256"], SESSION._FIXED_EXECUTABLE.sha256)
         self.assertEqual(ready["helper_source_sha256"], SESSION._FIXED_HELPER_SOURCE.sha256)
+        self.assertEqual(ready["bootstrap_source_sha256"], SESSION._FIXED_BOOTSTRAP_SOURCE.sha256)
+        self.assertEqual(
+            ready["inventory_attestation_sha256"],
+            expected_attestation,
+        )
         self.assertEqual(ready["session_source_sha256"], SESSION._FIXED_SESSION_SOURCE.sha256)
         self.assertEqual(ready["channel_source_sha256"], SESSION._FIXED_CHANNEL_SOURCE.sha256)
         self.assertEqual(ready["w5_source_sha256"], SESSION._FIXED_W5_SOURCE.sha256)
@@ -756,7 +822,7 @@ print(case + "_REJECTED_BEFORE_W2_OR_EFFECT")
         self.assertEqual(ready["cwd"], SESSION.FIXED_CLEAN_EXEC_CWD)
         self.assertEqual(ready["open_fds"][:3], [0, 1, 2])
         self.assertEqual(len(ready["open_fds"]), 4)
-        self.assertEqual(ready["interpreter_flags"], ["-I", "-S"])
+        self.assertEqual(ready["interpreter_flags"], ["-I", "-S", "-B"])
         self.assertFalse(ready["artifacts_received"])
         self.assertEqual(ready["external_effects"], 0)
 
@@ -764,6 +830,7 @@ print(case + "_REJECTED_BEFORE_W2_OR_EFFECT")
             ("FIXED_CLEAN_EXEC_CWD", "/tmp"),
             ("FIXED_CLEAN_EXEC_ENVIRONMENT", {"LANG": "hostile"}),
             ("_FIXED_HELPER_SOURCE", SESSION._FIXED_SESSION_SOURCE),
+            ("_FIXED_BOOTSTRAP_SOURCE", SESSION._FIXED_SESSION_SOURCE),
             ("_FIXED_CHANNEL_SOURCE", SESSION._FIXED_SESSION_SOURCE),
             ("_FIXED_W5_SOURCE", SESSION._FIXED_SESSION_SOURCE),
             (
@@ -807,17 +874,23 @@ print(case + "_REJECTED_BEFORE_W2_OR_EFFECT")
 
         parent, child = socket.socketpair()
         helper_fd = SESSION._open_bound_source(SESSION._FIXED_HELPER_SOURCE)
+        bootstrap_fd = SESSION._open_bound_source(SESSION._FIXED_BOOTSTRAP_SOURCE)
+        package_root_fd = SESSION._open_bound_package_root()
         session_fd = SESSION._open_bound_source(SESSION._FIXED_SESSION_SOURCE)
         channel_fd = SESSION._open_bound_source(SESSION._FIXED_CHANNEL_SOURCE)
         w5_fd = SESSION._open_bound_source(SESSION._FIXED_W5_SOURCE)
         executable_fd = SESSION._open_bound_executable(SESSION._FIXED_EXECUTABLE)
         extra_fd = os.open("/dev/null", os.O_RDONLY)
         child_fd = child.fileno()
-        argv = SESSION._expected_child_argv(child_fd, helper_fd, session_fd, channel_fd, w5_fd, executable_fd)
+        argv = SESSION._expected_child_argv(
+            child_fd, helper_fd, bootstrap_fd, package_root_fd,
+            session_fd, channel_fd, w5_fd, executable_fd
+        )
         process = subprocess.Popen(
             [str(SESSION._FIXED_EXECUTABLE.path), *argv],
             close_fds=True,
-            pass_fds=(child_fd, helper_fd, session_fd, channel_fd, w5_fd, executable_fd, extra_fd),
+            pass_fds=(child_fd, helper_fd, bootstrap_fd, package_root_fd,
+                      session_fd, channel_fd, w5_fd, executable_fd, extra_fd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -825,6 +898,8 @@ print(case + "_REJECTED_BEFORE_W2_OR_EFFECT")
             cwd=SESSION._FIXED_CLEAN_EXEC_CWD,
         )
         os.close(helper_fd)
+        os.close(bootstrap_fd)
+        os.close(package_root_fd)
         os.close(session_fd)
         os.close(channel_fd)
         os.close(w5_fd)
@@ -840,6 +915,229 @@ print(case + "_REJECTED_BEFORE_W2_OR_EFFECT")
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=10)
+
+    def test_actual_clean_child_rejects_forged_inventory_attestation_before_effect(self) -> None:
+        parent, child = socket.socketpair()
+        descriptors = [
+            SESSION._open_bound_source(SESSION._FIXED_HELPER_SOURCE),
+            SESSION._open_bound_source(SESSION._FIXED_BOOTSTRAP_SOURCE),
+            SESSION._open_bound_package_root(),
+            SESSION._open_bound_source(SESSION._FIXED_SESSION_SOURCE),
+            SESSION._open_bound_source(SESSION._FIXED_CHANNEL_SOURCE),
+            SESSION._open_bound_source(SESSION._FIXED_W5_SOURCE),
+            SESSION._open_bound_executable(SESSION._FIXED_EXECUTABLE),
+        ]
+        child_fd = child.fileno()
+        argv = list(SESSION._expected_child_argv(child_fd, *descriptors))
+        argv[-2] = "f" * 64 if argv[-2] != "f" * 64 else "e" * 64
+        process = subprocess.Popen(
+            [str(SESSION._FIXED_EXECUTABLE.path), "-I", "-S", "-B", *argv],
+            close_fds=True,
+            pass_fds=(child_fd, *descriptors),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=dict(SESSION._FIXED_CLEAN_EXEC_ENVIRONMENT),
+            cwd=SESSION._FIXED_CLEAN_EXEC_CWD,
+        )
+        for descriptor in descriptors:
+            os.close(descriptor)
+        child.close()
+        try:
+            response = SESSION._recv_clean_exec_frame(parent)
+            self.assertEqual(response["status"], "rejected")
+            self.assertEqual(process.wait(timeout=10), 2)
+            self.assertFalse(SESSION._CLEAN_EXEC_CHILD_STATE)
+        finally:
+            parent.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+
+    def test_actual_clean_child_rejects_pyc_source_ancestor_partial_dual_and_inventory_drift(self) -> None:
+        package_files = SKILL_PACKAGE.package_files_with_supplements(
+            ROOT, "auto-g16-rtwin-pbs"
+        )
+
+        def run_variant(raw: str, variant: str) -> None:
+            installed = Path(raw).resolve() / "auto-g16-rtwin-pbs"
+            for target, source in package_files.items():
+                destination = installed / target
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            scripts = installed / "scripts"
+            bootstrap_path = scripts / "direct_subsystem_bootstrap.py"
+            bootstrap = types.ModuleType("staged_reviewed_bootstrap")
+            bootstrap.__file__ = str(bootstrap_path)
+            exec(compile(bootstrap_path.read_bytes(), str(bootstrap_path), "exec"), bootstrap.__dict__)
+            expected_attestation = bootstrap.review_inventory_attestation()
+            paths = [
+                scripts / "direct_trusted_session_clean_exec.py",
+                bootstrap_path,
+                scripts / "direct_trusted_session_composition.py",
+                scripts / "direct_shared_fixed_ssh_channel.py",
+                scripts / "direct_one_hop_transport.py",
+            ]
+            descriptors = [
+                os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+                for path in paths
+            ]
+            package_root_fd = os.open(
+                installed,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            )
+            descriptors.insert(2, package_root_fd)
+            executable_fd = os.open(
+                SESSION._FIXED_EXECUTABLE.path,
+                os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            )
+            descriptors.append(executable_fd)
+            writes = installed.parent / f"{variant}-write-sentinel"
+            qsub = installed.parent / f"{variant}-qsub-sentinel"
+            hostile = f"from pathlib import Path\nPath({str(writes)!r}).write_text('executed')\nPath({str(qsub)!r}).write_text('executed')\n"
+            if variant == "preload":
+                (scripts / "sitecustomize.py").write_text(hostile, encoding="utf-8")
+            elif variant == "pyc":
+                source = installed.parent / "forged.py"
+                source.write_text(hostile, encoding="utf-8")
+                cache = scripts / "__pycache__" / (
+                    "direct_gaussian_runtime_identity." + sys.implementation.cache_tag + ".pyc"
+                )
+                cache.parent.mkdir()
+                py_compile.compile(str(source), cfile=str(cache), doraise=True)
+            elif variant == "source":
+                (scripts / "direct_gaussian_runtime_identity.py").write_text(
+                    hostile, encoding="utf-8"
+                )
+            elif variant == "ancestor":
+                original = installed.parent / "original-scripts"
+                scripts.rename(original)
+                shutil.copytree(original, scripts)
+            elif variant == "partial":
+                (installed / "skills").mkdir()
+            elif variant == "dual":
+                nested = installed / "skills" / "auto-g16-rtwin-pbs" / "scripts"
+                nested.mkdir(parents=True)
+                shutil.copyfile(installed / "SKILL.md", nested.parent / "SKILL.md")
+            elif variant == "inventory":
+                inventory_path = (
+                    installed / "contracts/direct-execution/direct-subsystem-source-inventory.json"
+                )
+                inventory = json.loads(inventory_path.read_text())
+                inventory["files"][0]["sha256"] = "f" * 64
+                inventory["inventory_payload_sha256"] = ""
+                inventory["inventory_payload_sha256"] = hashlib.sha256(
+                    json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest()
+                inventory_path.write_text(
+                    json.dumps(inventory, sort_keys=True, separators=(",", ":")) + "\n"
+                )
+            parent, child = socket.socketpair()
+            child_fd = child.fileno()
+            helper_fd, bootstrap_fd, root_fd, session_fd, channel_fd, w5_fd, python_fd = descriptors
+            argv = (
+                f"/dev/fd/{helper_fd}",
+                SESSION.CLEAN_EXEC.CHILD_FLAG,
+                str(child_fd), str(helper_fd), str(bootstrap_fd), str(root_fd),
+                str(session_fd), str(channel_fd), str(w5_fd), str(python_fd),
+                expected_attestation, str(scripts),
+            )
+            process = subprocess.Popen(
+                [str(SESSION._FIXED_EXECUTABLE.path), "-I", "-S", "-B", *argv],
+                close_fds=True,
+                pass_fds=(child_fd, *descriptors),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=dict(SESSION._FIXED_CLEAN_EXEC_ENVIRONMENT),
+                cwd=SESSION._FIXED_CLEAN_EXEC_CWD,
+            )
+            for descriptor in descriptors:
+                os.close(descriptor)
+            child.close()
+            try:
+                response = SESSION._recv_clean_exec_frame(parent)
+                self.assertEqual(response["status"], "rejected", variant)
+                self.assertEqual(process.wait(timeout=10), 2, variant)
+            finally:
+                parent.close()
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=10)
+            self.assertFalse(writes.exists(), variant)
+            self.assertFalse(qsub.exists(), variant)
+            self.assertEqual(list(installed.rglob("submission-receipt.json")), [], variant)
+
+        for variant in (
+            "preload", "pyc", "source", "ancestor", "partial", "dual", "inventory"
+        ):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory(
+                prefix=f"auto-g16-child-{variant}-"
+            ) as raw:
+                run_variant(raw, variant)
+
+    def test_fresh_process_forged_gaussian_first_import_fails_w1_and_w5_before_effect(self) -> None:
+        probe = r'''
+import os,sys,types
+from pathlib import Path
+scripts=Path(sys.argv[1]); skill=Path(sys.argv[2]); writes=Path(sys.argv[3]); qsub=Path(sys.argv[4])
+sys.path[:0]=[str(scripts),str(skill)]
+import direct_gaussian_runtime_identity as real
+def forged():
+    fake=types.ModuleType("direct_gaussian_runtime_identity")
+    fake.__file__=real.__file__; fake.__spec__=real.__spec__
+    fake.__reviewed_source_sha256__=real._EXECUTED_SOURCE_SHA256
+    fake._EXECUTED_SOURCE_SHA256=real._EXECUTED_SOURCE_SHA256
+    fake.assert_reviewed_module_binding=real.assert_reviewed_module_binding
+    fake.validate_gaussian_runtime_binding=real.validate_gaussian_runtime_binding
+    def replay(_value):
+        writes.write_text("forged replay executed")
+        qsub.write_text("forged qsub executed")
+        return os.open("/dev/null",os.O_RDONLY)
+    fake.replay_gaussian_executable_identity=replay
+    return fake
+sys.modules["direct_gaussian_runtime_identity"]=forged()
+try:
+    import direct_root_owner_contract
+except BaseException:
+    print("W1_FORGED_FIRST_IMPORT_REJECTED")
+else:
+    raise AssertionError("W1 forged Gaussian first import accepted")
+sys.modules["direct_gaussian_runtime_identity"]=real
+for name in ("direct_root_owner_contract","direct_trusted_session_composition","direct_one_hop_transport"):
+    sys.modules.pop(name,None)
+import direct_trusted_session_composition
+sys.modules["direct_gaussian_runtime_identity"]=forged()
+import direct_one_hop_transport as w5
+try:
+    w5._assert_production_binding()
+except BaseException:
+    print("W5_FORGED_FIRST_IMPORT_REJECTED")
+else:
+    raise AssertionError("W5 forged Gaussian first import accepted")
+assert not writes.exists() and not qsub.exists()
+'''
+        with tempfile.TemporaryDirectory(prefix="auto-g16-forged-gaussian-") as raw:
+            root = Path(raw).resolve()
+            writes = root / "write-sentinel"
+            qsub = root / "qsub-sentinel"
+            result = subprocess.run(
+                [sys.executable, "-I", "-S", "-B", "-c", probe, str(SCRIPTS),
+                 str(ROOT / "skills/auto-g16-rtwin-pbs/scripts"), str(writes), str(qsub)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={"LANG": "C", "LC_ALL": "C"},
+                cwd="/",
+                timeout=20,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(
+                result.stdout.decode(),
+                "W1_FORGED_FIRST_IMPORT_REJECTED\nW5_FORGED_FIRST_IMPORT_REJECTED\n",
+            )
+            self.assertFalse(writes.exists())
+            self.assertFalse(qsub.exists())
 
     def test_clean_exec_production_call_chain_contains_no_test_or_synthetic_factory(self) -> None:
         session_source = (SCRIPTS / "direct_trusted_session_composition.py").read_text(

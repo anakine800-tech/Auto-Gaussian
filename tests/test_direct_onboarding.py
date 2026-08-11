@@ -36,8 +36,11 @@ class DirectOnboardingTests(unittest.TestCase):
     maxDiff = None
 
     def setUp(self) -> None:
-        self.fixture = DirectRootFixture()
+        self.fixture = DirectRootFixture(successor=True)
         self.profile = self.fixture.profile
+
+    def tearDown(self) -> None:
+        self.fixture.close()
 
     def run_cli(
         self,
@@ -550,7 +553,7 @@ class DirectOnboardingTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, imports)
 
-    def test_declared_root_is_part_of_profile_v3_hash(self) -> None:
+    def test_declared_root_is_part_of_profile_v4_hash(self) -> None:
         changed = copy.deepcopy(self.profile)
         changed["declared_allowed_root"] = "/reviewed/different-root"
         changed = ROOT_OWNER._finalize(changed, "profile_payload_sha256")
@@ -579,10 +582,15 @@ class DirectOnboardingTests(unittest.TestCase):
                 self.assertIn("legacy_profile_requires_legacy_owner", stderr)
                 self.assertIn("no direct fallback", stderr)
 
+        status, stdout, stderr = self.run_cli(
+            ["validate"], {"schema": "auto-g16-execution-profile/4"}
+        )
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("invalid_direct_profile", stderr)
+
         for document in (
-            {"schema": "auto-g16-execution-profile/4"},
-            {"schema": "unknown"},
-            {"backend_kind": "direct_ssh_pbs"},
+            {"schema": "unknown"}, {"backend_kind": "direct_ssh_pbs"},
         ):
             with self.subTest(document=document):
                 status, stdout, stderr = self.run_cli(["validate"], document)

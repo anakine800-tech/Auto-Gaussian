@@ -25,14 +25,20 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
+import direct_gaussian_runtime_identity as GAUSSIAN_RUNTIME
+
 
 MODULE_NAME = "direct_root_owner_contract"
 OWNER_ID = "auto-g16-direct-workspace-policy-owner"
 OWNER_VERSION = "direct-root-owner-contract/1"
 PROFILE_POLICY_SCHEMA = "auto-g16-direct-profile-policy/1"
+SUCCESSOR_PROFILE_POLICY_SCHEMA = "auto-g16-direct-profile-policy/2"
 STABLE_EVIDENCE_SCHEMA = "auto-g16-stable-root-identity-evidence/1"
+SUCCESSOR_STABLE_EVIDENCE_SCHEMA = "auto-g16-stable-root-identity-evidence/2"
 DIRECT_PROFILE_SCHEMA = "auto-g16-execution-profile/3"
+SUCCESSOR_DIRECT_PROFILE_SCHEMA = "auto-g16-execution-profile/4"
 DIRECT_AUTHORIZATION_SCHEMA = "auto-g16-execution-authorization/3"
+SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA = "auto-g16-execution-authorization/4"
 FRESH_RECEIPT_SCHEMA = "auto-g16-fresh-root-observation-receipt/1"
 FRESH_OPERATION_VERSION = "direct-root-fresh-observation/1"
 BACKEND_KIND = "direct_ssh_pbs"
@@ -325,32 +331,47 @@ def _profile_policy_ref(value: Any) -> dict[str, str]:
         {"schema", "profile_id", "profile_payload_sha256"},
         "profile-policy reference",
     )
-    _require(ref["schema"] == PROFILE_POLICY_SCHEMA, "profile-policy reference schema differs")
+    _require(ref["schema"] in {PROFILE_POLICY_SCHEMA, SUCCESSOR_PROFILE_POLICY_SCHEMA},
+             "profile-policy reference schema differs")
     _text(ref["profile_id"], "profile-policy reference id")
     _sha(ref["profile_payload_sha256"], "profile-policy reference hash")
     return ref
 
 
 def validate_profile_policy(document: Any) -> dict[str, Any]:
+    rebuilt = _rebuild_public_json(document)
+    successor = (type(rebuilt) is dict
+                 and rebuilt.get("schema") == SUCCESSOR_PROFILE_POLICY_SCHEMA)
+    fields = {
+        "schema", "profile_id", "backend_kind", "root_policy_owner",
+        "transport_identity_binding_sha256", "scheduler_dialect",
+        "gaussian_runtime_binding_sha256", "resource_catalog_sha256",
+        "declared_allowed_root", "root_policy",
+        "path_normalization_version", "containment_version", "safety",
+        "profile_payload_sha256",
+    }
+    if successor:
+        fields.add("gaussian_runtime_binding")
     policy = _exact(
-        _rebuild_public_json(document),
-        {
-            "schema", "profile_id", "backend_kind", "root_policy_owner",
-            "transport_identity_binding_sha256", "scheduler_dialect",
-            "gaussian_runtime_binding_sha256", "resource_catalog_sha256",
-            "declared_allowed_root", "root_policy",
-            "path_normalization_version", "containment_version", "safety",
-            "profile_payload_sha256",
-        },
+        rebuilt,
+        fields,
         "direct profile policy",
     )
-    _require(policy["schema"] == PROFILE_POLICY_SCHEMA, "direct profile policy schema differs")
+    _require(policy["schema"] in {PROFILE_POLICY_SCHEMA, SUCCESSOR_PROFILE_POLICY_SCHEMA},
+             "direct profile policy schema differs")
     _text(policy["profile_id"], "direct profile policy id")
     _require(policy["backend_kind"] == BACKEND_KIND, "direct profile policy backend differs")
     _owner_binding(policy["root_policy_owner"])
     _sha(policy["transport_identity_binding_sha256"], "transport identity binding")
     _require(policy["scheduler_dialect"] == SCHEDULER_DIALECT, "scheduler dialect differs")
     _sha(policy["gaussian_runtime_binding_sha256"], "Gaussian runtime binding")
+    if successor:
+        runtime = GAUSSIAN_RUNTIME.validate_gaussian_runtime_binding(
+            policy["gaussian_runtime_binding"]
+        )
+        _require(runtime["binding_payload_sha256"]
+                 == policy["gaussian_runtime_binding_sha256"],
+                 "successor policy Gaussian owner join differs")
     _sha(policy["resource_catalog_sha256"], "resource catalog")
     _absolute_root(policy["declared_allowed_root"], "declared allowed root")
     _require(policy["root_policy"] == ROOT_POLICY, "root policy differs")
@@ -371,10 +392,17 @@ def validate_stable_root_identity_evidence(document: Any) -> dict[str, Any]:
         },
         "stable root identity evidence",
     )
-    _require(evidence["schema"] == STABLE_EVIDENCE_SCHEMA, "stable evidence schema differs")
+    _require(evidence["schema"] in {STABLE_EVIDENCE_SCHEMA,
+                                    SUCCESSOR_STABLE_EVIDENCE_SCHEMA},
+             "stable evidence schema differs")
     _require(evidence["backend_kind"] == BACKEND_KIND, "stable evidence backend differs")
     _owner_binding(evidence["root_policy_owner"])
-    _profile_policy_ref(evidence["profile_policy"])
+    policy_ref = _profile_policy_ref(evidence["profile_policy"])
+    _require(
+        (evidence["schema"] == SUCCESSOR_STABLE_EVIDENCE_SCHEMA)
+        == (policy_ref["schema"] == SUCCESSOR_PROFILE_POLICY_SCHEMA),
+        "stable evidence/profile-policy generation differs",
+    )
     root_policy = _exact(
         evidence["reviewed_root_policy"],
         {"policy", "declared_allowed_root", "path_normalization_version", "containment_version"},
@@ -413,22 +441,31 @@ def validate_stable_root_identity_evidence(document: Any) -> dict[str, Any]:
 
 
 def validate_direct_execution_profile(document: Any) -> dict[str, Any]:
+    rebuilt = _rebuild_public_json(document)
+    successor = (type(rebuilt) is dict
+                 and rebuilt.get("schema") == SUCCESSOR_DIRECT_PROFILE_SCHEMA)
+    fields = {
+        "schema", "profile_id", "backend_kind", "profile_policy",
+        "root_policy_owner_version", "stable_root_identity_evidence_sha256",
+        "transport_identity_binding_sha256", "scheduler_dialect",
+        "gaussian_runtime_binding_sha256", "resource_catalog_sha256",
+        "declared_allowed_root", "declared_capabilities",
+        "profile_payload_sha256",
+    }
+    if successor:
+        fields.add("gaussian_runtime_binding")
     profile = _exact(
-        _rebuild_public_json(document),
-        {
-            "schema", "profile_id", "backend_kind", "profile_policy",
-            "root_policy_owner_version", "stable_root_identity_evidence_sha256",
-            "transport_identity_binding_sha256", "scheduler_dialect",
-            "gaussian_runtime_binding_sha256", "resource_catalog_sha256",
-            "declared_allowed_root", "declared_capabilities",
-            "profile_payload_sha256",
-        },
+        rebuilt,
+        fields,
         "direct execution profile",
     )
-    _require(profile["schema"] == DIRECT_PROFILE_SCHEMA, "direct execution profile schema differs")
+    _require(profile["schema"] in {DIRECT_PROFILE_SCHEMA, SUCCESSOR_DIRECT_PROFILE_SCHEMA},
+             "direct execution profile schema differs")
     _text(profile["profile_id"], "direct execution profile id")
     _require(profile["backend_kind"] == BACKEND_KIND, "direct execution profile backend differs")
     ref = _profile_policy_ref(profile["profile_policy"])
+    _require(successor == (ref["schema"] == SUCCESSOR_PROFILE_POLICY_SCHEMA),
+             "direct profile/profile-policy generation differs")
     _require(ref["profile_id"] == profile["profile_id"], "direct profile policy id mismatch")
     _require(profile["root_policy_owner_version"] == OWNER_VERSION, "direct profile owner version differs")
     for field, label in (
@@ -439,6 +476,13 @@ def validate_direct_execution_profile(document: Any) -> dict[str, Any]:
     ):
         _sha(profile[field], label)
     _require(profile["scheduler_dialect"] == SCHEDULER_DIALECT, "direct profile scheduler differs")
+    if successor:
+        runtime = GAUSSIAN_RUNTIME.validate_gaussian_runtime_binding(
+            profile["gaussian_runtime_binding"]
+        )
+        _require(runtime["binding_payload_sha256"]
+                 == profile["gaussian_runtime_binding_sha256"],
+                 "successor direct profile Gaussian join differs")
     _absolute_root(profile["declared_allowed_root"], "direct profile declared root")
     _require(
         type(profile["declared_capabilities"]) is list
@@ -547,7 +591,10 @@ def validate_direct_execution_authorization(
         },
         "direct execution authorization",
     )
-    _require(authorization["schema"] == DIRECT_AUTHORIZATION_SCHEMA, "direct authorization schema differs")
+    _require(authorization["schema"] in {DIRECT_AUTHORIZATION_SCHEMA,
+                                          SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA},
+             "direct authorization schema differs")
+    successor = authorization["schema"] == SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA
     _text(authorization["authorization_id"], "direct authorization id")
     _require(authorization["decision"] == "approved", "direct authorization decision differs")
     _require(authorization["explicit_human_approval"] is True, "direct authorization requires explicit human approval")
@@ -560,7 +607,9 @@ def validate_direct_execution_authorization(
         {"schema", "profile_id", "profile_payload_sha256"},
         "authorization profile",
     )
-    _require(profile["schema"] == DIRECT_PROFILE_SCHEMA, "authorization profile schema differs")
+    _require(profile["schema"] in {DIRECT_PROFILE_SCHEMA, SUCCESSOR_DIRECT_PROFILE_SCHEMA}
+             and successor == (profile["schema"] == SUCCESSOR_DIRECT_PROFILE_SCHEMA),
+             "authorization profile schema differs")
     _text(profile["profile_id"], "authorization profile id")
     _sha(profile["profile_payload_sha256"], "authorization profile hash")
     root = _exact(
@@ -571,7 +620,9 @@ def validate_direct_execution_authorization(
         },
         "authorization root evidence",
     )
-    _require(root["schema"] == STABLE_EVIDENCE_SCHEMA, "authorization root evidence schema differs")
+    _require(root["schema"] in {STABLE_EVIDENCE_SCHEMA, SUCCESSOR_STABLE_EVIDENCE_SCHEMA}
+             and successor == (root["schema"] == SUCCESSOR_STABLE_EVIDENCE_SCHEMA),
+             "authorization root evidence schema differs")
     _sha(root["evidence_payload_sha256"], "authorization stable evidence hash")
     _require(root["owner_version"] == OWNER_VERSION, "authorization root owner version differs")
     _absolute_root(root["declared_allowed_root"], "authorization root")
@@ -787,6 +838,43 @@ def build_profile_policy(
     return validate_profile_policy(_finalize(document, "profile_payload_sha256"))
 
 
+def build_profile_policy_with_gaussian_runtime(
+    *,
+    profile_id: str,
+    declared_allowed_root: str,
+    transport_identity_binding_sha256: str,
+    gaussian_runtime_binding: dict[str, Any],
+    resource_catalog_sha256: str,
+) -> dict[str, Any]:
+    """Derive the profile Gaussian hash from the exact closed owner document."""
+    _assert_owner_binding()
+    runtime = GAUSSIAN_RUNTIME.validate_gaussian_runtime_binding(
+        gaussian_runtime_binding
+    )
+    document = {
+        "schema": SUCCESSOR_PROFILE_POLICY_SCHEMA,
+        "profile_id": profile_id,
+        "backend_kind": BACKEND_KIND,
+        "root_policy_owner": {
+            "owner_id": OWNER_ID,
+            "owner_version": OWNER_VERSION,
+            "owner_source_sha256": _OWNER_MODULE_BINDING.source.sha256,
+        },
+        "transport_identity_binding_sha256": transport_identity_binding_sha256,
+        "scheduler_dialect": SCHEDULER_DIALECT,
+        "gaussian_runtime_binding": runtime,
+        "gaussian_runtime_binding_sha256": runtime["binding_payload_sha256"],
+        "resource_catalog_sha256": resource_catalog_sha256,
+        "declared_allowed_root": declared_allowed_root,
+        "root_policy": ROOT_POLICY,
+        "path_normalization_version": PATH_NORMALIZATION_VERSION,
+        "containment_version": CONTAINMENT_VERSION,
+        "safety": copy.deepcopy(SAFETY),
+        "profile_payload_sha256": "",
+    }
+    return validate_profile_policy(_finalize(document, "profile_payload_sha256"))
+
+
 def build_direct_execution_profile(
     profile_policy: dict[str, Any],
     stable_evidence: dict[str, Any] | "StableRootIdentityEvidence",
@@ -809,8 +897,13 @@ def build_direct_execution_profile(
         == policy["declared_allowed_root"],
         "stable evidence/profile root mismatch",
     )
+    successor = policy["schema"] == SUCCESSOR_PROFILE_POLICY_SCHEMA
+    _require(
+        successor == (evidence["schema"] == SUCCESSOR_STABLE_EVIDENCE_SCHEMA),
+        "stable evidence/profile policy generation mismatch",
+    )
     document = {
-        "schema": DIRECT_PROFILE_SCHEMA,
+        "schema": SUCCESSOR_DIRECT_PROFILE_SCHEMA if successor else DIRECT_PROFILE_SCHEMA,
         "profile_id": policy["profile_id"],
         "backend_kind": BACKEND_KIND,
         "profile_policy": {
@@ -828,6 +921,10 @@ def build_direct_execution_profile(
         "declared_capabilities": list(DECLARED_CAPABILITIES),
         "profile_payload_sha256": "",
     }
+    if successor:
+        document["gaussian_runtime_binding"] = copy.deepcopy(
+            policy["gaussian_runtime_binding"]
+        )
     return validate_direct_execution_profile(_finalize(document, "profile_payload_sha256"))
 
 
@@ -882,6 +979,11 @@ def build_direct_execution_authorization(
         == evidence["evidence_payload_sha256"],
         "authorization profile/stable evidence mismatch",
     )
+    successor = validated_profile["schema"] == SUCCESSOR_DIRECT_PROFILE_SCHEMA
+    _require(
+        successor == (evidence["schema"] == SUCCESSOR_STABLE_EVIDENCE_SCHEMA),
+        "authorization profile/stable generation mismatch",
+    )
     root = validated_profile["declared_allowed_root"]
     remote_workdir = f"{root}/{project}"
     workspace = {
@@ -913,7 +1015,8 @@ def build_direct_execution_authorization(
         "walltime_seconds": walltime_text,
     })
     document = {
-        "schema": DIRECT_AUTHORIZATION_SCHEMA,
+        "schema": (SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA
+                   if successor else DIRECT_AUTHORIZATION_SCHEMA),
         "authorization_id": authorization_id,
         "decision": "approved",
         "explicit_human_approval": True,
@@ -921,12 +1024,12 @@ def build_direct_execution_authorization(
         "not_before": not_before,
         "expires_at": expires_at,
         "profile": {
-            "schema": DIRECT_PROFILE_SCHEMA,
+            "schema": validated_profile["schema"],
             "profile_id": validated_profile["profile_id"],
             "profile_payload_sha256": validated_profile["profile_payload_sha256"],
         },
         "root_evidence": {
-            "schema": STABLE_EVIDENCE_SCHEMA,
+            "schema": evidence["schema"],
             "evidence_payload_sha256": evidence["evidence_payload_sha256"],
             "owner_version": OWNER_VERSION,
             "declared_allowed_root": root,
@@ -975,7 +1078,12 @@ class _FileSnapshot:
 class _OwnerModuleBinding:
     module: types.ModuleType
     issued_types: tuple[tuple[str, type], ...]
+    issued_functions: tuple[tuple[str, Callable[..., Any]], ...]
     source: _FileSnapshot
+    gaussian_module: types.ModuleType
+    gaussian_source: _FileSnapshot
+    gaussian_assert: Callable[[], None]
+    gaussian_validator: Callable[[Any], dict[str, Any]]
 
 
 def _stat_identity(info: os.stat_result) -> tuple[int, ...]:
@@ -2411,7 +2519,9 @@ class DirectRootOwnerContractOwner:
             "stable evidence expected root differs from profile policy",
         )
         document = {
-            "schema": STABLE_EVIDENCE_SCHEMA,
+            "schema": (SUCCESSOR_STABLE_EVIDENCE_SCHEMA
+                       if policy["schema"] == SUCCESSOR_PROFILE_POLICY_SCHEMA
+                       else STABLE_EVIDENCE_SCHEMA),
             "backend_kind": BACKEND_KIND,
             "root_policy_owner": copy.deepcopy(policy["root_policy_owner"]),
             "profile_policy": {
@@ -2723,6 +2833,13 @@ class DirectRootOwnerContractOwner:
             validate_direct_execution_authorization,
         )
         _require(
+            policy["schema"] == SUCCESSOR_PROFILE_POLICY_SCHEMA
+            and reviewed_stable["schema"] == SUCCESSOR_STABLE_EVIDENCE_SCHEMA
+            and profile["schema"] == SUCCESSOR_DIRECT_PROFILE_SCHEMA
+            and authorization["schema"] == SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA,
+            "historical direct profile chain is replay-only before W4B/effect",
+        )
+        _require(
             profile["profile_policy"]["profile_payload_sha256"]
             == policy["profile_payload_sha256"]
             and profile["stable_root_identity_evidence_sha256"]
@@ -2732,6 +2849,12 @@ class DirectRootOwnerContractOwner:
             and authorization["root_evidence"]["evidence_payload_sha256"]
             == reviewed_stable["evidence_payload_sha256"],
             "server-session W1 artifact lineage differs",
+        )
+        _require(
+            policy["gaussian_runtime_binding"] == profile["gaussian_runtime_binding"]
+            and policy["gaussian_runtime_binding_sha256"]
+            == profile["gaussian_runtime_binding_sha256"],
+            "server-session successor Gaussian owner lineage differs",
         )
         observed_stable = self.issue_stable_evidence_from_reviewed_profile(policy)
         _require(
@@ -2796,6 +2919,10 @@ _OWNER_ISSUED_TYPE_NAMES = (
     "SingleUseWorkspaceDescriptorCapability",
     "DirectRootOwnerContractOwner",
 )
+_OWNER_ISSUED_FUNCTION_NAMES = (
+    "build_profile_policy",
+    "build_profile_policy_with_gaussian_runtime",
+)
 
 
 def _capture_owner_binding() -> _OwnerModuleBinding:
@@ -2817,7 +2944,39 @@ def _capture_owner_binding() -> _OwnerModuleBinding:
         ):
             raise ImportError(f"canonical direct-root owner class identity differs: {name}")
         issued.append((name, value))
-    return _OwnerModuleBinding(module=module, issued_types=tuple(issued), source=_OWNER_SOURCE)
+    functions: list[tuple[str, Callable[..., Any]]] = []
+    for name in _OWNER_ISSUED_FUNCTION_NAMES:
+        value = getattr(module, name, None)
+        if not callable(value) or getattr(value, "__module__", None) != MODULE_NAME:
+            raise ImportError(f"canonical direct-root owner function identity differs: {name}")
+        functions.append((name, value))
+    gaussian_path = path.with_name("direct_gaussian_runtime_identity.py")
+    gaussian_source = _stable_file(gaussian_path)
+    if gaussian_source.sha256 != "78665a4caf9ce5704549ffe3bc7a0d3497c113f02645b24105d3618bc2ea655e":
+        raise ImportError("reviewed Gaussian owner source SHA differs")
+    gaussian_assert = getattr(GAUSSIAN_RUNTIME, "assert_reviewed_module_binding", None)
+    gaussian_validator = getattr(GAUSSIAN_RUNTIME, "validate_gaussian_runtime_binding", None)
+    if (
+        type(GAUSSIAN_RUNTIME) is not types.ModuleType
+        or sys.modules.get("direct_gaussian_runtime_identity") is not GAUSSIAN_RUNTIME
+        or _module_origin(GAUSSIAN_RUNTIME) != (gaussian_path, gaussian_path)
+        or not callable(gaussian_assert)
+        or not callable(gaussian_validator)
+        or getattr(gaussian_assert, "__globals__", None) is not GAUSSIAN_RUNTIME.__dict__
+        or getattr(gaussian_validator, "__globals__", None) is not GAUSSIAN_RUNTIME.__dict__
+    ):
+        raise ImportError("reviewed Gaussian owner module or validator differs")
+    gaussian_assert()
+    return _OwnerModuleBinding(
+        module=module,
+        issued_types=tuple(issued),
+        issued_functions=tuple(functions),
+        source=_OWNER_SOURCE,
+        gaussian_module=GAUSSIAN_RUNTIME,
+        gaussian_source=gaussian_source,
+        gaussian_assert=gaussian_assert,
+        gaussian_validator=gaussian_validator,
+    )
 
 
 def _assert_owner_binding() -> None:
@@ -2830,8 +2989,26 @@ def _assert_owner_binding() -> None:
         and _stable_file(path) == binding.source,
         "direct-root owner module/source identity differs",
     )
+    gaussian_path = path.with_name("direct_gaussian_runtime_identity.py")
+    _require(
+        GAUSSIAN_RUNTIME is binding.gaussian_module
+        and sys.modules.get("direct_gaussian_runtime_identity") is binding.gaussian_module
+        and _module_origin(binding.gaussian_module) == (gaussian_path, gaussian_path)
+        and _stable_file(gaussian_path) == binding.gaussian_source
+        and binding.gaussian_source.sha256
+        == "78665a4caf9ce5704549ffe3bc7a0d3497c113f02645b24105d3618bc2ea655e"
+        and GAUSSIAN_RUNTIME.assert_reviewed_module_binding is binding.gaussian_assert
+        and GAUSSIAN_RUNTIME.validate_gaussian_runtime_binding is binding.gaussian_validator,
+        "direct-root Gaussian owner module/source identity differs",
+    )
+    binding.gaussian_assert()
     for name, expected in binding.issued_types:
         _require(getattr(binding.module, name, None) is expected, f"direct-root owner class identity differs: {name}")
+    for name, expected in binding.issued_functions:
+        _require(
+            getattr(binding.module, name, None) is expected,
+            f"direct-root owner function identity differs: {name}",
+        )
 
 
 def _owner_issued_type(name: str) -> type:

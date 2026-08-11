@@ -286,6 +286,7 @@ _RUNTIME_CONFIG_SETTING = _RUNTIME_CONFIG_MODULE.setting
 
 import direct_root_fixed_mutation_consumer as W4
 import direct_root_owner_contract as W1
+import direct_subsystem_bootstrap as SUBSYSTEM_BOOTSTRAP
 import direct_ssh_pbs_offline as DIRECT
 import live_approval_effect_time_replay as LIVE
 import resource_effect_time_replay_owner as RESOURCE_REPLAY
@@ -295,7 +296,7 @@ import direct_trusted_session_clean_exec as CLEAN_EXEC
 
 def _load_fixed_session_w3() -> types.ModuleType:
     name = "direct_effect_time_replay_ingress"
-    expected_sha256 = "9c1f09fba92b36e667ea5584ac9cc7462a97101b5385dccc615e96455e9ccc63"
+    expected_sha256 = "00d5bdf1c5825d947011f90e8fd88515b417ba715270eb61ab630c464dffb64f"
     path = Path(__file__).resolve(strict=True).with_name(f"{name}.py")
     identity, source_sha256 = _read_fixed_dependency_source(path)
     if source_sha256 != expected_sha256:
@@ -484,6 +485,35 @@ def _open_bound_source(snapshot: _FileSnapshot) -> int:
         _require(
             current == snapshot and identity == snapshot.identity,
             "fixed clean-exec source binding differs",
+        )
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _package_root_snapshot(path: Path) -> tuple[int, ...]:
+    descriptor, chain = SUBSYSTEM_BOOTSTRAP._open_absolute_directory_chain(path)
+    try:
+        identity = SUBSYSTEM_BOOTSTRAP._directory_identity(os.fstat(descriptor))
+        SUBSYSTEM_BOOTSTRAP._replay_absolute_directory_chain(path, chain)
+        return identity
+    finally:
+        os.close(descriptor)
+
+
+def _open_bound_package_root() -> int:
+    descriptor, chain = SUBSYSTEM_BOOTSTRAP._open_absolute_directory_chain(
+        _FIXED_PACKAGE_ROOT
+    )
+    try:
+        _require(
+            SUBSYSTEM_BOOTSTRAP._directory_identity(os.fstat(descriptor))
+            == _FIXED_PACKAGE_ROOT_IDENTITY,
+            "fixed clean-exec package-root binding differs",
+        )
+        SUBSYSTEM_BOOTSTRAP._replay_absolute_directory_chain(
+            _FIXED_PACKAGE_ROOT, chain
         )
         return descriptor
     except BaseException:
@@ -793,6 +823,10 @@ def _assert_fixed_static_binding() -> None:
     _require(
         _file_snapshot(_FIXED_SESSION_SOURCE.path) == _FIXED_SESSION_SOURCE
         and _file_snapshot(_FIXED_HELPER_SOURCE.path) == _FIXED_HELPER_SOURCE
+        and _file_snapshot(_FIXED_BOOTSTRAP_SOURCE.path) == _FIXED_BOOTSTRAP_SOURCE
+        and _package_root_snapshot(_FIXED_PACKAGE_ROOT) == _FIXED_PACKAGE_ROOT_IDENTITY
+        and SUBSYSTEM_BOOTSTRAP.review_inventory_attestation()
+        == _FIXED_CHILD_INVENTORY_ATTESTATION
         and _file_snapshot(_FIXED_CHANNEL_SOURCE.path) == _FIXED_CHANNEL_SOURCE
         and _file_snapshot(_FIXED_W5_SOURCE.path) == _FIXED_W5_SOURCE
         and _executable_snapshot(_FIXED_EXECUTABLE.path) == _FIXED_EXECUTABLE
@@ -805,6 +839,8 @@ def _assert_fixed_static_binding() -> None:
 def _expected_child_argv(
     control_descriptor: int,
     helper_source_descriptor: int,
+    bootstrap_source_descriptor: int,
+    package_root_descriptor: int,
     session_source_descriptor: int,
     channel_source_descriptor: int,
     w5_source_descriptor: int,
@@ -815,10 +851,13 @@ def _expected_child_argv(
         CLEAN_EXEC.CHILD_FLAG,
         str(control_descriptor),
         str(helper_source_descriptor),
+        str(bootstrap_source_descriptor),
+        str(package_root_descriptor),
         str(session_source_descriptor),
         str(channel_source_descriptor),
         str(w5_source_descriptor),
         str(executable_descriptor),
+        _FIXED_CHILD_INVENTORY_ATTESTATION,
         str(_FIXED_SCRIPTS_DIRECTORY),
     )
 
@@ -828,6 +867,9 @@ def _activate_fixed_clean_exec_child(
     control_descriptor: int,
     helper_source_sha256: str,
     helper_source_identity: tuple[int, ...],
+    bootstrap_source_sha256: str,
+    bootstrap_source_identity: tuple[int, ...],
+    package_root_identity: tuple[int, ...],
     session_source_sha256: str,
     session_source_identity: tuple[int, ...],
     channel_source_sha256: str,
@@ -841,11 +883,13 @@ def _activate_fixed_clean_exec_child(
     _assert_fixed_static_binding()
     expected_argv = _expected_child_argv(
         control_descriptor,
-        int(original_argv[3], 10) if len(original_argv) == 9 else -1,
-        int(original_argv[4], 10) if len(original_argv) == 9 else -1,
-        int(original_argv[5], 10) if len(original_argv) == 9 else -1,
-        int(original_argv[6], 10) if len(original_argv) == 9 else -1,
-        int(original_argv[7], 10) if len(original_argv) == 9 else -1,
+        int(original_argv[3], 10) if len(original_argv) == 12 else -1,
+        int(original_argv[4], 10) if len(original_argv) == 12 else -1,
+        int(original_argv[5], 10) if len(original_argv) == 12 else -1,
+        int(original_argv[6], 10) if len(original_argv) == 12 else -1,
+        int(original_argv[7], 10) if len(original_argv) == 12 else -1,
+        int(original_argv[8], 10) if len(original_argv) == 12 else -1,
+        int(original_argv[9], 10) if len(original_argv) == 12 else -1,
     )
     allowed_fds = (0, 1, 2, control_descriptor)
     _require(
@@ -857,6 +901,10 @@ def _activate_fixed_clean_exec_child(
         and scripts_directory == str(_FIXED_SCRIPTS_DIRECTORY)
         and helper_source_sha256 == _FIXED_HELPER_SOURCE.sha256
         and tuple(helper_source_identity) == _FIXED_HELPER_SOURCE.identity
+        and bootstrap_source_sha256 == _FIXED_BOOTSTRAP_SOURCE.sha256
+        and tuple(bootstrap_source_identity) == _FIXED_BOOTSTRAP_SOURCE.identity
+        and tuple(package_root_identity) == _FIXED_PACKAGE_ROOT_IDENTITY
+        and original_argv[10] == _FIXED_CHILD_INVENTORY_ATTESTATION
         and session_source_sha256 == _FIXED_SESSION_SOURCE.sha256
         and tuple(session_source_identity) == _FIXED_SESSION_SOURCE.identity
         and channel_source_sha256 == _FIXED_CHANNEL_SOURCE.sha256
@@ -869,6 +917,7 @@ def _activate_fixed_clean_exec_child(
         and sys.flags.ignore_environment == 1
         and sys.flags.no_user_site == 1
         and sys.flags.safe_path is True
+        and sys.dont_write_bytecode
         and os.getcwd() == _FIXED_CLEAN_EXEC_CWD
         and dict(os.environ) == dict(_FIXED_CLEAN_EXEC_ENVIRONMENT)
         and _open_descriptors() == allowed_fds
@@ -881,7 +930,7 @@ def _activate_fixed_clean_exec_child(
             "control_descriptor": control_descriptor,
             "argv": expected_argv,
             "allowed_fds": allowed_fds,
-            "interpreter_flags": ("-I", "-S"),
+            "interpreter_flags": ("-I", "-S", "-B"),
         }
     )
     return {
@@ -891,6 +940,9 @@ def _activate_fixed_clean_exec_child(
         "executable_identity": list(_FIXED_EXECUTABLE.identity),
         "executable_sha256": _FIXED_EXECUTABLE.sha256,
         "helper_source_sha256": _FIXED_HELPER_SOURCE.sha256,
+        "bootstrap_source_sha256": _FIXED_BOOTSTRAP_SOURCE.sha256,
+        "package_root_identity": list(_FIXED_PACKAGE_ROOT_IDENTITY),
+        "inventory_attestation_sha256": _FIXED_CHILD_INVENTORY_ATTESTATION,
         "session_source_sha256": _FIXED_SESSION_SOURCE.sha256,
         "channel_source_sha256": _FIXED_CHANNEL_SOURCE.sha256,
         "w5_source_sha256": _FIXED_W5_SOURCE.sha256,
@@ -899,7 +951,7 @@ def _activate_fixed_clean_exec_child(
         "environment": dict(_FIXED_CLEAN_EXEC_ENVIRONMENT),
         "cwd": _FIXED_CLEAN_EXEC_CWD,
         "open_fds": list(allowed_fds),
-        "interpreter_flags": ["-I", "-S"],
+        "interpreter_flags": ["-I", "-S", "-B"],
         "artifacts_received": False,
         "external_effects": 0,
     }
@@ -913,7 +965,7 @@ def _assert_fixed_clean_exec_child() -> None:
         and set(state)
         == {"pid", "control_descriptor", "argv", "allowed_fds", "interpreter_flags"}
         and state["pid"] == os.getpid()
-        and state["interpreter_flags"] == ("-I", "-S")
+        and state["interpreter_flags"] == ("-I", "-S", "-B")
         and sys.flags.isolated == 1
         and sys.flags.no_site == 1
         and sys.flags.ignore_environment == 1
@@ -941,6 +993,8 @@ def _spawn_fixed_clean_exec(
     child: socket.socket | None = None
     process: subprocess.Popen[bytes] | None = None
     helper_fd = -1
+    bootstrap_fd = -1
+    package_root_fd = -1
     session_fd = -1
     channel_fd = -1
     w5_fd = -1
@@ -950,11 +1004,16 @@ def _spawn_fixed_clean_exec(
         parent.settimeout(_FIXED_CLEAN_EXEC_TIMEOUT_SECONDS)
         child_fd = child.fileno()
         helper_fd = _FROZEN_SOURCE_OPENER(_FIXED_HELPER_SOURCE)
+        bootstrap_fd = _FROZEN_SOURCE_OPENER(_FIXED_BOOTSTRAP_SOURCE)
+        package_root_fd = _FROZEN_PACKAGE_ROOT_OPENER()
         session_fd = _FROZEN_SOURCE_OPENER(_FIXED_SESSION_SOURCE)
         channel_fd = _FROZEN_SOURCE_OPENER(_FIXED_CHANNEL_SOURCE)
         w5_fd = _FROZEN_SOURCE_OPENER(_FIXED_W5_SOURCE)
         executable_fd = _FROZEN_EXECUTABLE_OPENER(_FIXED_EXECUTABLE)
-        argv = _expected_child_argv(child_fd, helper_fd, session_fd, channel_fd, w5_fd, executable_fd)
+        argv = _expected_child_argv(
+            child_fd, helper_fd, bootstrap_fd, package_root_fd,
+            session_fd, channel_fd, w5_fd, executable_fd
+        )
         descriptor_alias = f"/proc/self/fd/{executable_fd}"
         if not Path("/proc/self/fd").is_dir():
             descriptor_alias = f"/dev/fd/{executable_fd}"
@@ -964,10 +1023,11 @@ def _spawn_fixed_clean_exec(
                 "descriptor exec is unavailable; executable path fallback forbidden",
             )
         process = _FROZEN_POPEN(
-            [str(_FIXED_EXECUTABLE.path), "-I", "-S", *argv],
+            [str(_FIXED_EXECUTABLE.path), "-I", "-S", "-B", *argv],
             executable=(str(_FIXED_EXECUTABLE.path) if _offline_fixture_path_exec else descriptor_alias),
             close_fds=True,
-            pass_fds=(child_fd, helper_fd, session_fd, channel_fd, w5_fd, executable_fd),
+            pass_fds=(child_fd, helper_fd, bootstrap_fd, package_root_fd,
+                      session_fd, channel_fd, w5_fd, executable_fd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -976,6 +1036,10 @@ def _spawn_fixed_clean_exec(
         )
         os.close(helper_fd)
         helper_fd = -1
+        os.close(bootstrap_fd)
+        bootstrap_fd = -1
+        os.close(package_root_fd)
+        package_root_fd = -1
         os.close(session_fd)
         session_fd = -1
         os.close(channel_fd)
@@ -994,6 +1058,9 @@ def _spawn_fixed_clean_exec(
             "executable_identity": list(_FIXED_EXECUTABLE.identity),
             "executable_sha256": _FIXED_EXECUTABLE.sha256,
             "helper_source_sha256": _FIXED_HELPER_SOURCE.sha256,
+            "bootstrap_source_sha256": _FIXED_BOOTSTRAP_SOURCE.sha256,
+            "package_root_identity": list(_FIXED_PACKAGE_ROOT_IDENTITY),
+            "inventory_attestation_sha256": _FIXED_CHILD_INVENTORY_ATTESTATION,
             "session_source_sha256": _FIXED_SESSION_SOURCE.sha256,
             "channel_source_sha256": _FIXED_CHANNEL_SOURCE.sha256,
             "w5_source_sha256": _FIXED_W5_SOURCE.sha256,
@@ -1002,7 +1069,7 @@ def _spawn_fixed_clean_exec(
             "environment": dict(_FIXED_CLEAN_EXEC_ENVIRONMENT),
             "cwd": _FIXED_CLEAN_EXEC_CWD,
             "open_fds": [0, 1, 2, child_fd],
-            "interpreter_flags": ["-I", "-S"],
+            "interpreter_flags": ["-I", "-S", "-B"],
             "artifacts_received": False,
             "external_effects": 0,
         }
@@ -1047,7 +1114,7 @@ def _spawn_fixed_clean_exec(
                 process.wait(timeout=_FIXED_CLEAN_EXEC_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 pass
-        for descriptor in (helper_fd, session_fd, channel_fd, w5_fd, executable_fd):
+        for descriptor in (helper_fd, bootstrap_fd, package_root_fd, session_fd, channel_fd, w5_fd, executable_fd):
             if descriptor >= 0:
                 os.close(descriptor)
         if child is not None:
@@ -1102,6 +1169,43 @@ def _load_exact_json(raw: bytes, label: str) -> dict[str, Any]:
         raise DirectTrustedSessionError(f"{label} is not exact JSON") from exc
     _require(type(value) is dict, f"{label} must be an exact object")
     return value
+
+
+def _assert_successor_artifact_chain_before_w4b(
+    artifacts: DirectServerSessionArtifacts,
+) -> None:
+    policy = W1.validate_profile_policy(_load_exact_json(artifacts.profile_policy, "profile policy"))
+    stable = W1.validate_stable_root_identity_evidence(
+        _load_exact_json(artifacts.stable_evidence, "stable evidence")
+    )
+    profile = W1.validate_direct_execution_profile(_load_exact_json(artifacts.profile, "profile"))
+    authorization = W1.validate_direct_execution_authorization(
+        _load_exact_json(artifacts.authorization, "authorization")
+    )
+    for raw, document, label in (
+        (artifacts.profile_policy, policy, "profile policy"),
+        (artifacts.stable_evidence, stable, "stable evidence"),
+        (artifacts.profile, profile, "profile"),
+        (artifacts.authorization, authorization, "authorization"),
+    ):
+        _require(W1.canonical_bytes(document) == raw, f"{label} bytes are not canonical")
+    _require(
+        policy["schema"] == W1.SUCCESSOR_PROFILE_POLICY_SCHEMA
+        and stable["schema"] == W1.SUCCESSOR_STABLE_EVIDENCE_SCHEMA
+        and profile["schema"] == W1.SUCCESSOR_DIRECT_PROFILE_SCHEMA
+        and authorization["schema"] == W1.SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA,
+        "historical direct profile chain is replay-only before W4B",
+    )
+    _require(
+        profile["profile_policy"]["profile_payload_sha256"]
+        == policy["profile_payload_sha256"]
+        and stable["profile_policy"]["profile_payload_sha256"]
+        == policy["profile_payload_sha256"]
+        and authorization["profile"]["profile_payload_sha256"]
+        == profile["profile_payload_sha256"]
+        and policy["gaussian_runtime_binding"] == profile["gaussian_runtime_binding"],
+        "W4B successor artifact owner lineage differs",
+    )
 
 
 class TrustedServerLocalSessionCapability:
@@ -1335,6 +1439,7 @@ class FixedTrustedServerLocalSessionOwner:
             root_capability: W1.SingleUseWorkspaceDescriptorCapability | None = None
             try:
                 _assert_module_binding()
+                _assert_successor_artifact_chain_before_w4b(artifacts)
                 if self._seal is _PRODUCTION_OWNER_TOKEN:
                     _assert_fixed_clean_exec_child()
                 with tempfile.TemporaryDirectory(
@@ -1476,6 +1581,12 @@ _FIXED_PRODUCTION_ROOT = FIXED_PRODUCTION_DURABLE_STATE_ROOT
 _FIXED_SCRIPTS_DIRECTORY = Path(__file__).resolve().parent
 _FIXED_SESSION_SOURCE = _file_snapshot(Path(__file__).resolve())
 _FIXED_HELPER_SOURCE = _file_snapshot(Path(CLEAN_EXEC.__file__).resolve())
+_FIXED_BOOTSTRAP_SOURCE = _file_snapshot(
+    _FIXED_SCRIPTS_DIRECTORY / "direct_subsystem_bootstrap.py"
+)
+_FIXED_PACKAGE_ROOT = _FIXED_SCRIPTS_DIRECTORY.parent
+_FIXED_PACKAGE_ROOT_IDENTITY = _package_root_snapshot(_FIXED_PACKAGE_ROOT)
+_FIXED_CHILD_INVENTORY_ATTESTATION = SUBSYSTEM_BOOTSTRAP.review_inventory_attestation()
 _FIXED_CHANNEL_SOURCE = _file_snapshot(_FIXED_SCRIPTS_DIRECTORY / "direct_shared_fixed_ssh_channel.py")
 _FIXED_W5_SOURCE = _file_snapshot(_FIXED_SCRIPTS_DIRECTORY / "direct_one_hop_transport.py")
 _FIXED_EXECUTABLE = _executable_snapshot(Path(sys.executable))
@@ -1485,6 +1596,7 @@ _FIXED_CLEAN_EXEC_TIMEOUT_SECONDS = FIXED_CLEAN_EXEC_TIMEOUT_SECONDS
 _FROZEN_POPEN = subprocess.Popen
 _FROZEN_SOCKETPAIR = socket.socketpair
 _FROZEN_SOURCE_OPENER = _open_bound_source
+_FROZEN_PACKAGE_ROOT_OPENER = _open_bound_package_root
 _FROZEN_EXECUTABLE_OPENER = _open_bound_executable
 _FROZEN_FRAME_READER = _recv_clean_exec_frame
 _FROZEN_FRAME_SENDER = _send_clean_exec_frame
@@ -1953,6 +2065,10 @@ class _ModuleBinding:
     scripts_directory: Path
     session_source: _FileSnapshot
     helper_source: _FileSnapshot
+    bootstrap_source: _FileSnapshot
+    package_root: Path
+    package_root_identity: tuple[int, ...]
+    child_inventory_attestation: str
     channel_source: _FileSnapshot
     w5_source: _FileSnapshot
     executable: _ExecutableSnapshot
@@ -1965,6 +2081,7 @@ class _ModuleBinding:
     popen: Any
     socketpair: Any
     source_opener: Any
+    package_root_opener: Any
     executable_opener: Any
     frame_reader: Any
     frame_sender: Any
@@ -1980,7 +2097,8 @@ def _capture_module_binding() -> _ModuleBinding:
     _require(__name__ == MODULE_NAME and isinstance(module, types.ModuleType), "canonical session module differs")
     modules = tuple(
         (item.__name__, item)
-        for item in (W1, W2, W3, W4, DIRECT, LIVE, RESOURCE_REPLAY, RESOURCE, CLEAN_EXEC)
+        for item in (W1, W2, W3, W4, DIRECT, LIVE, RESOURCE_REPLAY, RESOURCE,
+                     SUBSYSTEM_BOOTSTRAP, CLEAN_EXEC)
     )
     return _ModuleBinding(
         module=module,
@@ -2003,6 +2121,7 @@ def _capture_module_binding() -> _ModuleBinding:
             _same_exact,
             _strict_prefixed_sha,
             validate_trusted_session_result,
+            _assert_successor_artifact_chain_before_w4b,
             W1.DirectRootOwnerContractOwner.__dict__["for_posix_backend"],
             W1.DirectRootOwnerContractOwner.__dict__["issue_server_session_capability_from_exact_artifacts_once"],
             DIRECT.DirectServerSessionTransactionOwner.__dict__["production"],
@@ -2035,6 +2154,10 @@ def _capture_module_binding() -> _ModuleBinding:
         scripts_directory=_FIXED_SCRIPTS_DIRECTORY,
         session_source=_FIXED_SESSION_SOURCE,
         helper_source=_FIXED_HELPER_SOURCE,
+        bootstrap_source=_FIXED_BOOTSTRAP_SOURCE,
+        package_root=_FIXED_PACKAGE_ROOT,
+        package_root_identity=_FIXED_PACKAGE_ROOT_IDENTITY,
+        child_inventory_attestation=_FIXED_CHILD_INVENTORY_ATTESTATION,
         channel_source=_FIXED_CHANNEL_SOURCE,
         w5_source=_FIXED_W5_SOURCE,
         executable=_FIXED_EXECUTABLE,
@@ -2047,6 +2170,7 @@ def _capture_module_binding() -> _ModuleBinding:
         popen=_FROZEN_POPEN,
         socketpair=_FROZEN_SOCKETPAIR,
         source_opener=_FROZEN_SOURCE_OPENER,
+        package_root_opener=_FROZEN_PACKAGE_ROOT_OPENER,
         executable_opener=_FROZEN_EXECUTABLE_OPENER,
         frame_reader=_FROZEN_FRAME_READER,
         frame_sender=_FROZEN_FRAME_SENDER,
@@ -2085,6 +2209,7 @@ def _assert_module_binding() -> None:
             _same_exact,
             _strict_prefixed_sha,
             validate_trusted_session_result,
+            _assert_successor_artifact_chain_before_w4b,
             W1.DirectRootOwnerContractOwner.__dict__.get("for_posix_backend"),
             W1.DirectRootOwnerContractOwner.__dict__.get("issue_server_session_capability_from_exact_artifacts_once"),
             DIRECT.DirectServerSessionTransactionOwner.__dict__.get("production"),
@@ -2118,6 +2243,11 @@ def _assert_module_binding() -> None:
         and _FIXED_SCRIPTS_DIRECTORY is binding.scripts_directory
         and _FIXED_SESSION_SOURCE is binding.session_source
         and _FIXED_HELPER_SOURCE is binding.helper_source
+        and _FIXED_BOOTSTRAP_SOURCE is binding.bootstrap_source
+        and _FIXED_PACKAGE_ROOT is binding.package_root
+        and _FIXED_PACKAGE_ROOT_IDENTITY is binding.package_root_identity
+        and _FIXED_CHILD_INVENTORY_ATTESTATION
+        == binding.child_inventory_attestation
         and _FIXED_CHANNEL_SOURCE is binding.channel_source
         and _FIXED_W5_SOURCE is binding.w5_source
         and _FIXED_EXECUTABLE is binding.executable
@@ -2136,6 +2266,8 @@ def _assert_module_binding() -> None:
         and _FROZEN_SOCKETPAIR is binding.socketpair
         and _open_bound_source is binding.source_opener
         and _FROZEN_SOURCE_OPENER is binding.source_opener
+        and _open_bound_package_root is binding.package_root_opener
+        and _FROZEN_PACKAGE_ROOT_OPENER is binding.package_root_opener
         and _open_bound_executable is binding.executable_opener
         and _FROZEN_EXECUTABLE_OPENER is binding.executable_opener
         and _recv_clean_exec_frame is binding.frame_reader

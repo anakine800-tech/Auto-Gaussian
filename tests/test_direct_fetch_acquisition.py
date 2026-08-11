@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import base64
 import copy
 import gc
 import hashlib
@@ -247,11 +248,52 @@ class DirectFetchAcquisitionTests(unittest.TestCase):
         for name, expected in zip(MATERIALIZER.ARTIFACT_BASENAMES, self.payloads, strict=True):
             self.assertEqual((leaf / name).read_bytes(), expected)
             self.assertEqual(stat.S_IMODE((leaf / name).stat().st_mode), 0o600)
+
         self.assertFalse(manifest["integration"]["production_integration"])
         self.assertEqual(
             manifest["stream"]["stream_mode"],
             MATERIALIZER.LEGACY_CLOSED_STREAM_MODE,
         )
+
+    def test_valid_legacy_transport_rejects_before_fetch_capability_issuance(self) -> None:
+        successor = json.loads(self.fixture.artifacts.transport_profile)
+        legacy = copy.deepcopy(successor)
+        legacy["schema"] = CHANNEL.LEGACY_TRANSPORT_PROFILE_SCHEMA
+        legacy["server"]["isolated_flags"] = ["-I", "-S"]
+        del legacy["gaussian_runtime_binding"]
+        legacy["profile_payload_sha256"] = ""
+        legacy["profile_payload_sha256"] = CHANNEL.digest(legacy)
+        CHANNEL.validate_legacy_transport_profile_for_replay(legacy)
+        artifacts = {
+            name: base64.b64encode(
+                CHANNEL.canonical_bytes(legacy)
+                if name == "transport_profile" else getattr(self.fixture.artifacts, name)
+            ).decode("ascii")
+            for name in self.fixture.artifacts.__dataclass_fields__
+        }
+        request = {
+            "protocol": CHANNEL.READ_PROTOCOL,
+            "operation": "fetch_terminal_minimum_bundle",
+            "operation_id": "fixed-ssh-operation-" + "a" * 64,
+            "job_id": self.receipt["qsub"]["job_id"],
+            "bundle": "terminal_minimum_v1",
+            "evidence": {
+                "schema": "auto-g16-direct-fetch-server-evidence/1",
+                "portable_receipt": base64.b64encode(self.receipt_raw).decode("ascii"),
+                "artifacts": artifacts,
+                "grant_payload_sha256": "b" * 64,
+                "authority": {
+                    "authorizes_effect": False, "qsub_calls": "0", "qdel_calls": "0",
+                },
+            },
+            "authority": {"authorizes_effect": False, "qsub_calls": "0"},
+        }
+        with self.assertRaisesRegex(
+            FETCH.DirectFetchAcquisitionError, "replay-only before fetch"
+        ):
+            FETCH._decode_dispatched_fetch_request_once(
+                CHANNEL._canonical_frame(request)
+            )
 
     def test_full_flow_streams_sixteen_mib_with_chunk_bounded_heap(self) -> None:
         large_size = 16 * 1024 * 1024

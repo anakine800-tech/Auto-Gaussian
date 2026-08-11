@@ -173,21 +173,29 @@ def _decode_artifacts(value: dict[str, Any], session: types.ModuleType) -> Any:
 def _run_child(
     control_descriptor: int,
     helper_source_descriptor: int,
+    bootstrap_source_descriptor: int,
+    package_root_descriptor: int,
     session_source_descriptor: int,
     channel_source_descriptor: int,
     w5_source_descriptor: int,
     executable_descriptor: int,
+    expected_inventory_attestation_sha256: str,
     scripts_directory: str,
 ) -> int:
     control = socket.socket(fileno=control_descriptor)
     control.settimeout(5.0)
     try:
         helper_raw, helper_identity = _read_source(helper_source_descriptor, "helper")
+        bootstrap_raw, bootstrap_identity = _read_source(
+            bootstrap_source_descriptor, "subsystem bootstrap"
+        )
         session_raw, session_identity = _read_source(session_source_descriptor, "session")
         channel_raw, channel_identity = _read_source(channel_source_descriptor, "shared channel")
         w5_raw, w5_identity = _read_source(w5_source_descriptor, "W5")
         os.close(helper_source_descriptor)
         helper_source_descriptor = -1
+        os.close(bootstrap_source_descriptor)
+        bootstrap_source_descriptor = -1
         os.close(session_source_descriptor)
         session_source_descriptor = -1
         os.close(channel_source_descriptor)
@@ -206,13 +214,37 @@ def _run_child(
             and dict(os.environ) == FIXED_ENVIRONMENT,
             "clean-exec cwd or environment differs",
         )
-        sys.path.insert(0, str(scripts))
-        module = types.ModuleType("direct_trusted_session_composition")
-        module.__file__ = str(scripts / "direct_trusted_session_composition.py")
-        module.__package__ = ""
-        sys.modules[module.__name__] = module
         _require_disabled_runtime_config_path_absent()
-        exec(compile(session_raw, module.__file__, "exec"), module.__dict__)
+        bootstrap = types.ModuleType("direct_subsystem_bootstrap")
+        bootstrap.__file__ = str(scripts / "direct_subsystem_bootstrap.py")
+        bootstrap.__package__ = ""
+        bootstrap.__reviewed_source_sha256__ = hashlib.sha256(bootstrap_raw).hexdigest()
+        sys.modules[bootstrap.__name__] = bootstrap
+        exec(compile(bootstrap_raw, bootstrap.__file__, "exec"), bootstrap.__dict__)
+        package_root_identity = bootstrap._directory_identity(
+            os.fstat(package_root_descriptor)
+        )
+        w5 = bootstrap._import_target(
+            "direct_one_hop_transport",
+            bound_root_fd=package_root_descriptor,
+            expected_inventory_attestation_sha256=expected_inventory_attestation_sha256,
+        )
+        os.close(package_root_descriptor)
+        package_root_descriptor = -1
+        module = sys.modules.get("direct_trusted_session_composition")
+        channel = sys.modules.get("direct_shared_fixed_ssh_channel")
+        _require(
+            type(module) is types.ModuleType
+            and type(channel) is types.ModuleType
+            and type(w5) is types.ModuleType
+            and getattr(module, "__reviewed_source_sha256__", None)
+            == hashlib.sha256(session_raw).hexdigest()
+            and getattr(channel, "__reviewed_source_sha256__", None)
+            == hashlib.sha256(channel_raw).hexdigest()
+            and getattr(w5, "__reviewed_source_sha256__", None)
+            == hashlib.sha256(w5_raw).hexdigest(),
+            "clean-exec reviewed module closure differs",
+        )
         _require_disabled_runtime_config_path_absent()
         module._assert_fixed_dependency_chain(module._FIXED_DEPENDENCY_BINDINGS)
         runtime_config = sys.modules.get("runtime_config")
@@ -225,23 +257,13 @@ def _run_child(
             and getattr(runtime_config, "VALUES", None) == {},
             "clean-exec runtime config disable boundary differs",
         )
-        channel = types.ModuleType("direct_shared_fixed_ssh_channel")
-        channel.__file__ = str(scripts / "direct_shared_fixed_ssh_channel.py")
-        channel.__package__ = ""
-        channel.__reviewed_source_sha256__ = hashlib.sha256(channel_raw).hexdigest()
-        sys.modules[channel.__name__] = channel
-        exec(compile(channel_raw, channel.__file__, "exec"), channel.__dict__)
-        w5 = types.ModuleType("direct_one_hop_transport")
-        w5.__file__ = str(scripts / "direct_one_hop_transport.py")
-        w5.__package__ = ""
-        w5.__reviewed_source_sha256__ = hashlib.sha256(w5_raw).hexdigest()
-        sys.modules[w5.__name__] = w5
-        exec(compile(w5_raw, w5.__file__, "exec"), w5.__dict__)
-
         attestation = module._activate_fixed_clean_exec_child(
             control_descriptor=control_descriptor,
             helper_source_sha256=hashlib.sha256(helper_raw).hexdigest(),
             helper_source_identity=helper_identity,
+            bootstrap_source_sha256=hashlib.sha256(bootstrap_raw).hexdigest(),
+            bootstrap_source_identity=bootstrap_identity,
+            package_root_identity=package_root_identity,
             session_source_sha256=hashlib.sha256(session_raw).hexdigest(),
             session_source_identity=session_identity,
             channel_source_sha256=hashlib.sha256(channel_raw).hexdigest(),
@@ -355,7 +377,7 @@ def _run_child(
             pass
         return 2
     finally:
-        for descriptor in (helper_source_descriptor, session_source_descriptor, channel_source_descriptor, w5_source_descriptor, executable_descriptor):
+        for descriptor in (helper_source_descriptor, bootstrap_source_descriptor, package_root_descriptor, session_source_descriptor, channel_source_descriptor, w5_source_descriptor, executable_descriptor):
             if descriptor >= 0:
                 try:
                     os.close(descriptor)
@@ -370,27 +392,32 @@ def main(argv: list[str] | None = None) -> int:
     values = sys.argv[1:] if argv is None else argv
     if (
         type(values) is not list
-        or len(values) != 8
+        or len(values) != 11
         or values[0] != CHILD_FLAG
-        or any(not item.isascii() or not item.isdigit() for item in values[1:7])
+        or any(not item.isascii() or not item.isdigit() for item in values[1:9])
+        or len(values[9]) != 64
+        or any(character not in "0123456789abcdef" for character in values[9])
     ):
         return 64
-    control_descriptor, helper_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor = (
-        int(item, 10) for item in values[1:7]
+    control_descriptor, helper_descriptor, bootstrap_descriptor, package_root_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor = (
+        int(item, 10) for item in values[1:9]
     )
     if (
-        min(control_descriptor, helper_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor) < 3
-        or len({control_descriptor, helper_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor}) != 6
+        min(control_descriptor, helper_descriptor, bootstrap_descriptor, package_root_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor) < 3
+        or len({control_descriptor, helper_descriptor, bootstrap_descriptor, package_root_descriptor, session_descriptor, channel_descriptor, w5_descriptor, executable_descriptor}) != 8
     ):
         return 64
     return _run_child(
         control_descriptor,
         helper_descriptor,
+        bootstrap_descriptor,
+        package_root_descriptor,
         session_descriptor,
         channel_descriptor,
         w5_descriptor,
         executable_descriptor,
-        values[7],
+        values[9],
+        values[10],
     )
 
 

@@ -1270,7 +1270,7 @@ def _build_server_session_w3_owner_entries() -> tuple[object, object]:
         _SOURCE.with_name("direct_effect_time_replay_ingress.py")
     )
     expected_w3_source_sha256 = (
-        "9c1f09fba92b36e667ea5584ac9cc7462a97101b5385dccc615e96455e9ccc63"
+        "00d5bdf1c5825d947011f90e8fd88515b417ba715270eb61ab630c464dffb64f"
     )
     fixed_meta_path = tuple(sys.meta_path)
     isolated_meta_path = (BuiltinImporter, FrozenImporter, PathFinder)

@@ -619,9 +619,26 @@ adapter:
   `references/direct-ssh-pbs-offline-backend.md`, and
   `scripts/direct_onboarding.py` with
   `references/direct-onboarding-support.md`.
+- Phase 1A fixed server provisioning contracts are
+  `scripts/direct_subsystem_bootstrap.py`,
+  `scripts/direct_submit_subsystem_entrypoint.py`,
+  `scripts/direct_read_subsystem_entrypoint.py`,
+  `scripts/direct_gaussian_runtime_identity.py`, the `/2` transport/PBS
+  schemas, the profile-policy/stable-evidence `/2` and direct
+  profile/authorization `/4` successor schemas, the closed source inventory,
+  sanitized sshd template
+  `references/auto-g16-direct-subsystems.conf.template`, and
+  `references/direct-subsystem-gaussian-closure.md`. They retain historical
+  `/1` transport/PBS and `/1,/1,/3,/3` root-chain replay but require the exact
+  successors before production issuance; they authorize no install, sshd
+  apply/reload, SSH/PBS/Gaussian execution, or live use.
 
-W4B joins W1-W4 in one clean-exec process and W5 consumes only its typed
-child-local seam. The shared fixed-SSH channel owner fixes the OpenSSH
+W4B joins W1-W4 in one `-I -S -B` clean-exec process. The same reviewed
+subsystem bootstrap crosses that exec through a fixed source descriptor and
+loads the complete inventory-attested dependency closure without a scripts
+`sys.path` first import; W1 and W5 independently replay the Gaussian owner
+module/source/function binding before W2 or a first write. W5 consumes only
+its typed child-local seam. The shared fixed-SSH channel owner fixes the OpenSSH
 executable/options, subsystem mapping, descriptor execution, framing,
 absolute deadline and child retirement. W5 consumes its sealed submit
 operation through the exact private W5 join; no generic submit registrar or
@@ -631,6 +648,19 @@ descriptor-relative upload, reviewed PBS bytes, at-most-once qsub and exact
 submission receipt; its validation remains entirely offline with no live
 evidence. W6L adds only the server-local existing-job lineage observer and
 single-use read-capability foundation.
+
+The subsystem anchor graph is intentionally acyclic. The inventory and package
+projection exclude exactly the inventory file, bootstrap, and fixed
+submit/read entrypoints; the bootstrap embeds the inventory-file SHA, and each
+entrypoint embeds the bootstrap SHA. The bootstrap fixes that exclusion list,
+requires the inventory repository parents to equal exactly `scripts/` and
+`skills/auto-g16-rtwin-pbs/scripts/`, and no-follow binds the complete regular
+file projection of both roots. It rejects symlink/special/cache/bytecode or
+unbound extra source in either root, and rejects a dependency plus fully
+recomputed repository/package projection and inventory splice before W2 or
+any effect. A later Phase C provisioning owner must bind the three
+outer code anchors, inventory, and full package separately; this Skill does
+not authorize installation or physical endpoint use.
 Sealed query/fetch codecs alone do not authorize qstat or fetch. Q1 remains the
 sole qstat acquisition owner. W6M now joins the fixed submit, one query,
 terminal-only fetch and T4 production target through exact private owners and

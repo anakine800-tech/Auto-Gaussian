@@ -24,17 +24,20 @@ import struct
 import sys
 import threading
 import time
+import types
 from dataclasses import dataclass
 from typing import Any
 
 import direct_durable_submission_journal as W2
+import direct_gaussian_runtime_identity as GAUSSIAN
 import direct_root_fixed_mutation_consumer as W4
 import direct_shared_fixed_ssh_channel as CHANNEL
 import direct_trusted_session_composition as SESSION
 
 
 TRANSPORT_PROFILE_SCHEMA = CHANNEL.TRANSPORT_PROFILE_SCHEMA
-PBS_REVIEW_SCHEMA = "auto-g16-reviewed-direct-pbs-script/1"
+LEGACY_PBS_REVIEW_SCHEMA = "auto-g16-reviewed-direct-pbs-script/1"
+PBS_REVIEW_SCHEMA = "auto-g16-reviewed-direct-pbs-script/2"
 RESULT_SCHEMA = "auto-g16-direct-one-hop-submission-result/1"
 PROTOCOL = "auto-g16-direct-one-hop-transport/1"
 BACKEND_KIND = "direct_ssh_pbs"
@@ -349,9 +352,22 @@ def _validate_controller_artifact_join(
 ) -> dict[str, Any]:
     _require(type(artifacts) is SESSION.DirectServerSessionArtifacts, "exact reviewed artifact bundle is required")
     profile = load_transport_profile(artifacts.transport_profile)
+    _require(
+        profile["schema"] == TRANSPORT_PROFILE_SCHEMA,
+        "historical transport profile is replay-only before trusted session",
+    )
     try:
         direct_profile = SESSION.W1.validate_direct_execution_profile(
             json.loads(artifacts.profile.decode("utf-8"))
+        )
+        policy = SESSION.W1.validate_profile_policy(
+            json.loads(artifacts.profile_policy.decode("utf-8"))
+        )
+        stable = SESSION.W1.validate_stable_root_identity_evidence(
+            json.loads(artifacts.stable_evidence.decode("utf-8"))
+        )
+        authorization = SESSION.W1.validate_direct_execution_authorization(
+            json.loads(artifacts.authorization.decode("utf-8"))
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise DirectOneHopTransportError("direct profile artifact is not exact JSON") from exc
@@ -378,7 +394,25 @@ def _validate_controller_artifact_join(
         "portable_evidence_authorizes_effect": False,
     }
     _require(
-        direct_profile["transport_identity_binding_sha256"] == profile["profile_payload_sha256"]
+        policy["schema"] == SESSION.W1.SUCCESSOR_PROFILE_POLICY_SCHEMA
+        and stable["schema"] == SESSION.W1.SUCCESSOR_STABLE_EVIDENCE_SCHEMA
+        and direct_profile["schema"] == SESSION.W1.SUCCESSOR_DIRECT_PROFILE_SCHEMA
+        and authorization["schema"] == SESSION.W1.SUCCESSOR_DIRECT_AUTHORIZATION_SCHEMA
+        and artifacts.profile_policy == SESSION.W1.canonical_bytes(policy)
+        and artifacts.stable_evidence == SESSION.W1.canonical_bytes(stable)
+        and artifacts.profile == SESSION.W1.canonical_bytes(direct_profile)
+        and artifacts.authorization == SESSION.W1.canonical_bytes(authorization)
+        and direct_profile["profile_policy"]["profile_payload_sha256"]
+        == policy["profile_payload_sha256"]
+        and stable["profile_policy"]["profile_payload_sha256"]
+        == policy["profile_payload_sha256"]
+        and authorization["profile"]["profile_payload_sha256"]
+        == direct_profile["profile_payload_sha256"]
+        and policy["gaussian_runtime_binding"] == direct_profile["gaussian_runtime_binding"]
+        and direct_profile["gaussian_runtime_binding"] == profile["gaussian_runtime_binding"]
+        and direct_profile["transport_identity_binding_sha256"] == profile["profile_payload_sha256"]
+        and direct_profile["gaussian_runtime_binding_sha256"]
+        == profile["gaussian_runtime_binding"]["binding_payload_sha256"]
         and direct_profile["declared_allowed_root"] == profile["server"]["allowed_root"]
         and system_policy_evidence == expected_system_policy_evidence
         and artifacts.ssh_system_policy_evidence == canonical_bytes(system_policy_evidence)
@@ -551,7 +585,7 @@ def server_subsystem_once() -> int:
     _assert_production_binding()
     try:
         artifacts, request_id = _decode_controller_request(_read_framed_descriptor(0, 30.0))
-        profile = load_transport_profile(artifacts.transport_profile)
+        profile = _validate_controller_artifact_join(artifacts)
         python_fd = _open_reviewed_executable(
             profile["server"]["python_executable"],
             profile["server"]["python_executable_sha256"],
@@ -567,6 +601,36 @@ def server_subsystem_once() -> int:
         return 0
     except BaseException:
         return 3
+
+
+def _shell_single_quote(value: str) -> bytes:
+    _require(type(value) is str and "\x00" not in value and "\n" not in value
+             and "\r" not in value, "PBS fixed path bytes differ")
+    return ("'" + value.replace("'", "'\"'\"'") + "'").encode("utf-8")
+
+
+def _expected_pbs_script(
+    binding: dict[str, Any], profile: dict[str, Any], allowed_root: str,
+) -> bytes:
+    gaussian = GAUSSIAN.validate_gaussian_runtime_binding(
+        profile["gaussian_runtime_binding"]
+    )
+    project = binding["workspace"]["project"]
+    workdir = f"{allowed_root}/{project}"
+    quoted_workdir = _shell_single_quote(workdir)
+    gaussian_line = (
+        "exec " + gaussian["executable"]["canonical_absolute_path"] + " " + INPUT_BASENAME
+    ).encode("ascii")
+    return b"\n".join((
+        b"#!/bin/sh",
+        b"set -eu",
+        b'test "$(pwd -P)" = ' + quoted_workdir,
+        b'test "${PBS_O_WORKDIR:-}" = ' + quoted_workdir,
+        b"test -d scratch",
+        b"test ! -L scratch",
+        gaussian_line,
+        b"",
+    ))
 
 
 def _validate_pbs_review(
@@ -586,7 +650,10 @@ def _validate_pbs_review(
         {"schema", "review_id", "script", "workspace", "input", "resources", "gaussian", "safety", "review_payload_sha256"},
         "PBS review",
     )
-    _require(review["schema"] == PBS_REVIEW_SCHEMA, "PBS review schema differs")
+    _require(
+        review["schema"] == PBS_REVIEW_SCHEMA,
+        "historical PBS review is replay-only; closed production successor required",
+    )
     _text(review["review_id"], "PBS review id")
     script_ref = _exact(review["script"], {"basename", "sha256", "size_bytes"}, "PBS review script")
     _require(
@@ -624,12 +691,6 @@ def _validate_pbs_review(
             "memory_gb": str(int(binding["resources"]["memory_gb"])),
             "walltime_seconds": str(int(binding["resources"]["walltime_seconds"])),
         }
-        and review["gaussian"] == {
-            "executable": "g16",
-            "invocation": "filename_argument",
-            "input_basename": INPUT_BASENAME,
-            "scientific_route_owned_by_input": True,
-        }
         and review["safety"] == {
             "set_eu": True,
             "allowed_root_checked": True,
@@ -640,11 +701,65 @@ def _validate_pbs_review(
         },
         "reviewed PBS execution semantics differ",
     )
+    gaussian = GAUSSIAN.validate_gaussian_runtime_binding(review["gaussian"])
+    _require(
+        gaussian == profile["gaussian_runtime_binding"]
+        and script == _expected_pbs_script(binding, profile, allowed_root),
+        "Gaussian absolute executable/PBS/profile join differs",
+    )
     supplied = _sha(review["review_payload_sha256"], "PBS review")
     _require(supplied == profile["pbs_artifact"]["review_payload_sha256"], "PBS review binding differs")
     check = copy.deepcopy(review)
     check["review_payload_sha256"] = ""
     _require(supplied == digest(check) and raw == canonical_bytes(review), "PBS review bytes or self-hash differ")
+    return copy.deepcopy(review)
+
+
+def validate_legacy_pbs_review_for_replay(
+    raw: bytes, script: bytes, binding: dict[str, Any], profile: dict[str, Any],
+    allowed_root: str,
+) -> dict[str, Any]:
+    """Parse the historical logical-g16 /1 artifact without granting production use."""
+    _require(type(raw) is bytes and bool(raw) and type(script) is bytes and bool(script),
+             "historical PBS review bytes differ")
+    try:
+        review = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DirectOneHopTransportError("historical PBS review is not JSON") from exc
+    review = _exact(review, {"schema", "review_id", "script", "workspace", "input",
+        "resources", "gaussian", "safety", "review_payload_sha256"}, "historical PBS review")
+    _require(review["schema"] == LEGACY_PBS_REVIEW_SCHEMA
+             and review["gaussian"] == {"executable": "g16", "invocation": "filename_argument",
+                 "input_basename": INPUT_BASENAME, "scientific_route_owned_by_input": True},
+             "historical PBS review constants differ")
+    script_ref = _exact(review["script"], {"basename", "sha256", "size_bytes"},
+                        "historical PBS script")
+    _require(script_ref == {"basename": PBS_BASENAME,
+        "sha256": hashlib.sha256(script).hexdigest(), "size_bytes": str(len(script))},
+        "historical PBS script bytes differ")
+    _require(script_ref == {"basename": profile["pbs_artifact"]["basename"],
+        "sha256": profile["pbs_artifact"]["sha256"],
+        "size_bytes": profile["pbs_artifact"]["size_bytes"]},
+        "historical PBS profile/script join differs")
+    _require(review["workspace"] == {"allowed_root": allowed_root,
+        "project": binding["workspace"]["project"],
+        "working_directory_check": "pbs_o_workdir_equals_submission_directory",
+        "scratch_policy": "project_relative_scratch", "scratch_basename": "scratch"},
+        "historical PBS workspace differs")
+    _require(review["input"] == {"source_sha256": binding["input"]["sha256"],
+        "uploaded_basename": INPUT_BASENAME, "route_bytes_unchanged": True}
+        and review["resources"] == {"tier": binding["resources"]["tier"],
+            "cores": str(int(binding["resources"]["cores"])),
+            "memory_gb": str(int(binding["resources"]["memory_gb"])),
+            "walltime_seconds": str(int(binding["resources"]["walltime_seconds"]))}
+        and review["safety"] == {"set_eu": True, "allowed_root_checked": True,
+            "project_workdir_checked": True, "scratch_identity_checked": True,
+            "nested_ssh": False, "legacy_transport_called": False},
+        "historical PBS input, resources, or safety differs")
+    supplied = _sha(review["review_payload_sha256"], "historical PBS review")
+    _require(supplied == profile["pbs_artifact"]["review_payload_sha256"]
+             and supplied == digest({**review, "review_payload_sha256": ""})
+             and raw == canonical_bytes(review), "historical PBS review bytes or hash differ")
     return copy.deepcopy(review)
 
 
@@ -1070,8 +1185,55 @@ def _record_unknown(claim: W2.DurableEffectClaim, evidence: str) -> None:
         pass
 
 
+def _assert_gaussian_owner_binding() -> None:
+    expected_path = os.path.abspath(__file__)
+    expected_path = os.path.join(os.path.dirname(expected_path), "direct_gaussian_runtime_identity.py")
+    _FROZEN_REQUIRE(
+        type(GAUSSIAN) is types.ModuleType
+        and sys.modules.get("direct_gaussian_runtime_identity") is GAUSSIAN
+        and os.path.abspath(GAUSSIAN.__file__) == expected_path
+        and getattr(GAUSSIAN, "_EXECUTED_SOURCE_SHA256", None)
+        == _FROZEN_GAUSSIAN_SOURCE_SHA256
+        and getattr(GAUSSIAN, "__reviewed_source_sha256__", None)
+        in {None, _FROZEN_GAUSSIAN_SOURCE_SHA256}
+        and GAUSSIAN.assert_reviewed_module_binding is _FROZEN_GAUSSIAN_BINDING_ASSERT
+        and GAUSSIAN.validate_gaussian_runtime_binding is _FROZEN_GAUSSIAN_VALIDATOR
+        and GAUSSIAN.replay_gaussian_executable_identity is _FROZEN_GAUSSIAN_REPLAY
+        and _FROZEN_GAUSSIAN_VALIDATOR.__globals__ is GAUSSIAN.__dict__
+        and _FROZEN_GAUSSIAN_REPLAY.__globals__ is GAUSSIAN.__dict__,
+        "reviewed Gaussian owner module/source/function binding differs",
+    )
+    _FROZEN_GAUSSIAN_BINDING_ASSERT()
+
+
 def _consume_once(seam: SESSION.TrustedW5OperationSeam, driver: _DeterministicTestDriver | None) -> ExactSubmissionReceipt:
+    _assert_gaussian_owner_binding()
     seam.assert_owner_sealed()
+    transport_profile_raw = seam.transport_profile_bytes
+    try:
+        transport_document = json.loads(transport_profile_raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DirectOneHopTransportError(
+            "reviewed transport profile is not exact JSON"
+        ) from exc
+    if (type(transport_document) is dict
+            and transport_document.get("schema")
+            == CHANNEL.LEGACY_TRANSPORT_PROFILE_SCHEMA):
+        CHANNEL.validate_legacy_transport_profile_for_replay(transport_document)
+        raise DirectOneHopTransportError(
+            "historical transport profile is replay-only before W5 effect owner"
+        )
+    profile = load_transport_profile(transport_profile_raw)
+    direct_profile = SESSION.W1.validate_direct_execution_profile(
+        json.loads(seam._record["transaction"]._root_capability._profile_bytes)
+    )
+    _require(
+        profile["schema"] == TRANSPORT_PROFILE_SCHEMA
+        and direct_profile["schema"] == SESSION.W1.SUCCESSOR_DIRECT_PROFILE_SCHEMA
+        and direct_profile["gaussian_runtime_binding"]
+        == profile["gaussian_runtime_binding"],
+        "historical transport/profile chain is replay-only before W5 effect owner",
+    )
     claim = seam.durable_claim
     project: W4.ConsumedDirectProjectSession | None = None
     effect_possible = False
@@ -1080,7 +1242,6 @@ def _consume_once(seam: SESSION.TrustedW5OperationSeam, driver: _DeterministicTe
         project.assert_owner_sealed()
         binding_object = seam.direct_binding
         binding = binding_object.document()
-        profile = load_transport_profile(seam.transport_profile_bytes)
         _require(
             profile["profile_payload_sha256"] == seam.transport_binding_sha256
             and profile["server"]["allowed_root"] == seam.allowed_root,
@@ -1102,7 +1263,14 @@ def _consume_once(seam: SESSION.TrustedW5OperationSeam, driver: _DeterministicTe
             "approved input bytes drifted",
         )
         pbs_script = seam.pbs_script_bytes
-        _validate_pbs_review(seam.pbs_review_bytes, pbs_script, binding, profile, seam.allowed_root)
+        pbs_review = _validate_pbs_review(
+            seam.pbs_review_bytes, pbs_script, binding, profile, seam.allowed_root
+        )
+        gaussian_fd = GAUSSIAN.replay_gaussian_executable_identity(
+            pbs_review["gaussian"]
+        )
+        os.close(gaussian_fd)
+        _assert_gaussian_owner_binding()
         files = {INPUT_BASENAME: input_bytes, PBS_BASENAME: pbs_script}
         files[CHECKSUMS_BASENAME] = _checksums(files)
         project_fd = project._project_descriptor
@@ -1200,11 +1368,17 @@ _FROZEN_W1_AUTHORIZATION_VALIDATOR = SESSION.W1.validate_direct_execution_author
 _FROZEN_W1_CANONICAL_BYTES = SESSION.W1.canonical_bytes
 _FROZEN_EXECUTABLE_OPENER = _open_reviewed_executable
 _FROZEN_DESCRIPTOR_EXEC = _descriptor_execve
+_FROZEN_GAUSSIAN_SOURCE_SHA256 = "78665a4caf9ce5704549ffe3bc7a0d3497c113f02645b24105d3618bc2ea655e"
+_FROZEN_GAUSSIAN_BINDING_ASSERT = GAUSSIAN.assert_reviewed_module_binding
+_FROZEN_GAUSSIAN_VALIDATOR = GAUSSIAN.validate_gaussian_runtime_binding
+_FROZEN_GAUSSIAN_REPLAY = GAUSSIAN.replay_gaussian_executable_identity
 _FROZEN_SESSION_CONSUMER = SESSION.consume_w5_operation_seam_once
+_FROZEN_SESSION_COMPOSER = SESSION.compose_production_in_fixed_clean_exec_once
 _CANONICAL_SESSION_MODULE = SESSION
 _CANONICAL_W2_MODULE = W2
 _CANONICAL_W4_MODULE = W4
 _CANONICAL_CHANNEL_MODULE = CHANNEL
+_CANONICAL_GAUSSIAN_MODULE = GAUSSIAN
 _CANONICAL_W5_MODULE = sys.modules.get(__name__)
 _FROZEN_CHANNEL_ASSERT = CHANNEL._assert_production_binding
 _FROZEN_CHANNEL_SUBMIT_ISSUER = CHANNEL.issue_submit_channel_operation
@@ -1218,6 +1392,7 @@ _FROZEN_PBS_BASENAME = PBS_BASENAME
 
 
 def _assert_production_binding() -> None:
+    _assert_gaussian_owner_binding()
     CHANNEL._assert_production_binding()
     with open(__file__, "rb") as source:
         source_sha256 = hashlib.sha256(source.read()).hexdigest()
@@ -1263,12 +1438,20 @@ def _assert_production_binding() -> None:
         and SESSION.W1.validate_direct_execution_profile is _FROZEN_W1_PROFILE_VALIDATOR
         and SESSION.W1.validate_direct_execution_authorization is _FROZEN_W1_AUTHORIZATION_VALIDATOR
         and SESSION.W1.canonical_bytes is _FROZEN_W1_CANONICAL_BYTES
+        and SESSION.compose_production_in_fixed_clean_exec_once is _FROZEN_SESSION_COMPOSER
         and _open_reviewed_executable is _FROZEN_EXECUTABLE_OPENER
         and _descriptor_execve is _FROZEN_DESCRIPTOR_EXEC
+        and _assert_gaussian_owner_binding.__globals__ is globals()
+        and _FROZEN_GAUSSIAN_SOURCE_SHA256
+        == "78665a4caf9ce5704549ffe3bc7a0d3497c113f02645b24105d3618bc2ea655e"
+        and GAUSSIAN.assert_reviewed_module_binding is _FROZEN_GAUSSIAN_BINDING_ASSERT
+        and GAUSSIAN.validate_gaussian_runtime_binding is _FROZEN_GAUSSIAN_VALIDATOR
+        and GAUSSIAN.replay_gaussian_executable_identity is _FROZEN_GAUSSIAN_REPLAY
         and SESSION is _CANONICAL_SESSION_MODULE
         and W2 is _CANONICAL_W2_MODULE
         and W4 is _CANONICAL_W4_MODULE
         and CHANNEL is _CANONICAL_CHANNEL_MODULE
+        and GAUSSIAN is _CANONICAL_GAUSSIAN_MODULE
         and sys.modules.get(__name__) is _CANONICAL_W5_MODULE
         and CHANNEL._assert_production_binding is _FROZEN_CHANNEL_ASSERT
         and CHANNEL.issue_submit_channel_operation is _FROZEN_CHANNEL_SUBMIT_ISSUER
