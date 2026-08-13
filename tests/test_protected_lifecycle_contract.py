@@ -1441,7 +1441,7 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         self.assertTrue(coordinator_targets <= set(package))
         self.assertEqual(
             len(package),
-            81
+            84
             + len(present_successor_targets)
             + len(runtime_targets)
             + len(consumer_targets)

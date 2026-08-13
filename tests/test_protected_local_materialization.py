@@ -723,7 +723,7 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
         self.assertEqual(
             len(package),
             (
-                84
+                87
                 + len(runtime_targets)
                 + len(consumer_targets)
                 + len(ingress_targets)
@@ -781,6 +781,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        qst3_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_qst3_production_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         expected = {
             "scripts/protected_submit_contract.py": (
                 "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a"
@@ -962,6 +969,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        qst3_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_qst3_production_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
                 self.assertEqual(set(binding), {"sha256", "change_class"})

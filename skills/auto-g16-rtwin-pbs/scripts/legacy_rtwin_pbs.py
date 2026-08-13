@@ -82,6 +82,7 @@ INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/1"
 OPEN_SHELL_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/2"
 OPEN_SHELL_FAMILY_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/3"
 FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/4"
+QST3_INPUT_APPROVAL_SCHEMA = "gaussian-input-approval-receipt/5"
 FIXED_CONSTRAINT_AUDIT_SCHEMA = "auto-g16-fixed-constraint-input-audit/1"
 FIXED_CONSTRAINT_WORKFLOW = "closed_shell_fixed_coordinate_preoptimization_v1"
 LIVE_APPROVAL_V1_SCHEMA = "auto-g16-live-submission-approval/1"
@@ -96,8 +97,10 @@ LIVE_APPROVAL_V9_SCHEMA = "auto-g16-live-submission-approval/9"
 OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA = "auto-g16-live-submission-approval/10"
 OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA = "auto-g16-live-submission-approval/11"
 FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA = "auto-g16-live-submission-approval/12"
+QST3_LIVE_APPROVAL_V13_SCHEMA = "auto-g16-live-submission-approval/13"
 CANCELLATION_APPROVAL_SCHEMA = "auto-g16-exact-cancellation-approval/1"
-INPUT_APPROVAL_WORK_KINDS = {"ordinary", "minimum", "ts_pilot", "formal_ts"}
+ENDPOINT_ANCHORED_TS_CANDIDATE = "endpoint_anchored_ts_candidate"
+INPUT_APPROVAL_WORK_KINDS = {"ordinary", "minimum", "ts_pilot", "formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE}
 SPECIALIST_INPUT_WORK_KINDS = {"ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"}
 ALL_WORK_KINDS = INPUT_APPROVAL_WORK_KINDS | SPECIALIST_INPUT_WORK_KINDS
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 60
@@ -1297,6 +1300,22 @@ def _load_scientific_maturity(version: int = 1) -> Any:
     return module
 
 
+def _load_protected_qst3_owner() -> Any:
+    path = Path(__file__).resolve().with_name("protected_qst3_adapter.py")
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("protected QST3 input owner is unavailable")
+    spec = importlib.util.spec_from_file_location(
+        "auto_g16_pbs_protected_qst3_owner", path
+    )
+    if spec is None or spec.loader is None:
+        raise ValueError("protected QST3 input owner cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if Path(module.__file__).resolve() != path.resolve():
+        raise ValueError("protected QST3 input owner origin changed")
+    return module
+
+
 def _load_open_shell_minimum_owner() -> Any:
     path = Path(__file__).resolve().parents[2] / "auto-g16-main-group-open-shell" / "scripts" / "open_shell_minimum.py"
     if not path.is_file():
@@ -1567,7 +1586,7 @@ def input_approval_compatibility(report: dict[str, Any], work_kind: str | None) 
         }
 
     protected = classify_protected_input(report)
-    if work_kind in {"ts_pilot", "formal_ts"}:
+    if work_kind in {"ts_pilot", "formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE}:
         if protected != "ts" or not route_has_frequency(route):
             return {"status": "work_kind_route_mismatch", "work_kind": work_kind}
     elif protected is not None:
@@ -2307,7 +2326,7 @@ def _make_input_approval_receipt(
     _replay_route_profile_mapping(review, selected)
     request_structure = options.get("request_snapshot", {}).get("structure", {})
     _assert_protocol_structure_scope(request_structure, report)
-    if review["work_kind"] in {"ts_pilot", "formal_ts"} and review["protocol_task_types"] != [
+    if review["work_kind"] in {"ts_pilot", "formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE} and review["protocol_task_types"] != [
         "transition_state_optimization", "harmonic_frequency"
     ]:
         raise ValueError("generic single-guess TS approval requires the exact TS optimization + frequency task family")
@@ -2639,6 +2658,26 @@ def validate_input_approval(
                 resolved_approval, input_path, report, work_kind,
                 _document=loaded_document,
             )
+        elif loaded_document.get("schema") == QST3_INPUT_APPROVAL_SCHEMA:
+            owner = _load_protected_qst3_owner()
+            document = owner.validate_receipt(resolved_approval)
+            if document != loaded_document:
+                raise ValueError(
+                    "protected QST3 receipt changed during owner replay"
+                )
+            _, current_bytes, current_digest = read_stable_bytes(
+                input_path, "current protected QST3 Gaussian input"
+            )
+            if (
+                current_digest != document["input"]["sha256"]
+                or len(current_bytes) != document["input"]["size_bytes"]
+                or document["approved_input"] != _input_approval_facts(report)
+                or document["work_kind"] != work_kind
+                or work_kind not in {"formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE}
+            ):
+                raise ValueError(
+                    "protected QST3 receipt differs from the exact protected TS input"
+                )
         else:
             compatibility = input_approval_compatibility(report, work_kind)
             if compatibility["status"] == "blocked_combined_open_shell_minimum_stability_parse_risk":
@@ -2668,6 +2707,7 @@ def validate_input_approval(
         if document["schema"] in {
             OPEN_SHELL_INPUT_APPROVAL_SCHEMA,
             FIXED_CONSTRAINT_INPUT_APPROVAL_SCHEMA,
+            QST3_INPUT_APPROVAL_SCHEMA,
         }:
             result["specialist_owner_binding"] = copy.deepcopy(
                 document["specialist_owner_binding"]
@@ -2746,7 +2786,10 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
             fail("prospective live input-approval binding differs from the current exact input/work_kind")
         expected["work_kind"] = summary["work_kind"]
         expected["input_approval"] = exact_input_approval
-        if maturity is not None:
+        if (
+            maturity is not None
+            and exact_input_approval["schema"] != QST3_INPUT_APPROVAL_SCHEMA
+        ):
             fail(
                 "mixed approval generations are forbidden: protected maturity evidence cannot be "
                 "combined with a prospective input receipt + live approval"
@@ -2904,9 +2947,122 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
                 )
             expected["fixed_constraint_owner"] = copy.deepcopy(owner)
             expected_schema = FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA
+        elif exact_input_approval["schema"] == QST3_INPUT_APPROVAL_SCHEMA:
+            if (
+                input_approval.get("status")
+                != "validated_exact_input_approval"
+                or summary["work_kind"] not in {"formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE}
+                or summary["multiplicity"] != 1
+                or maturity_schema != MATURITY_ACTION_V2_SCHEMA
+            ):
+                fail(
+                    "QST3 live approval /13 requires one fully replayed "
+                    "closed-shell protected TS receipt /5 and maturity action /2"
+                )
+            owner = _exact_fields(
+                input_approval.get("specialist_owner_binding"),
+                {
+                    "owner", "workflow", "work_kind", "candidate_search",
+                    "qst_raw_audit_payload_sha256",
+                    "ts_family_sha256", "ts_input_action_payload_sha256",
+                    "ts_submission_action_payload_sha256",
+                    "scientific_action_authorization_sha256",
+                    "scientific_action_authorization_payload_sha256",
+                    "selected_option_payload_sha256", "project",
+                    "input_sha256", "exact_route", "input_family",
+                    "structure_count", "atom_count", "charge",
+                    "multiplicity", "scientific_maturity",
+                    "endpoint_minimum_lineages", "atom_identity_mapping",
+                    "coordinate_equivalence", "authorized_budget",
+                    "resources", "owner_replay_passed",
+                },
+                "live approval /13 protected QST3 owner binding",
+            )
+            resources = _exact_fields(
+                owner["resources"],
+                {"resource_tier", "mem_gb", "cores"},
+                "live approval /13 protected QST3 resources",
+            )
+            budget = _exact_fields(
+                owner["authorized_budget"],
+                {"task_count", "estimated_core_hours", "planned_concurrency"},
+                "live approval /13 protected QST3 budget",
+            )
+            owner_maturity = owner["scientific_maturity"]
+            exact_authorization = maturity.get("exact_action_authorization")
+            candidate_search = owner["candidate_search"]
+            candidate_mode = summary["work_kind"] == ENDPOINT_ANCHORED_TS_CANDIDATE
+            if (
+                owner["owner"] != "auto-g16-ts-irc"
+                or owner["workflow"] != "protected_qst3_ts_freq_input_v1"
+                or owner["work_kind"] != summary["work_kind"]
+                or owner["project"] != summary["project"]
+                or owner["input_sha256"] != summary["input_sha256"]
+                or owner["exact_route"] != summary["protocol"]["route"]
+                or owner["input_family"] != "qst3"
+                or owner["structure_count"] != 3
+                or owner["charge"] != summary["charge"]
+                or owner["multiplicity"] != summary["multiplicity"]
+                or owner["owner_replay_passed"] is not True
+                or resources["cores"] != summary["protocol"]["nproc"]
+                or parse_memory(summary["protocol"]["mem"])
+                != resources["mem_gb"] * 1024**3
+                or budget["task_count"] != 1
+                or not isinstance(budget["estimated_core_hours"], int)
+                or budget["estimated_core_hours"] < 1
+                or not isinstance(budget["planned_concurrency"], int)
+                or budget["planned_concurrency"] < 1
+                or not isinstance(owner_maturity, dict)
+                or not isinstance(exact_authorization, dict)
+                or owner_maturity.get("edge_id") != maturity["edge_id"]
+                or owner_maturity.get("node_id") != maturity["node_id"]
+                or owner_maturity.get("pilot")
+                is not candidate_mode
+                or candidate_search != exact_authorization.get("candidate_search")
+                or (
+                    candidate_mode
+                    and (
+                        not isinstance(candidate_search, dict)
+                        or candidate_search.get("schema") != "gaussian-endpoint-anchored-ts-candidate-scope/1"
+                        or candidate_search.get("atom_count") != 84
+                        or candidate_search.get("resource_tier") != "general"
+                        or candidate_search.get("task_limit") != 1
+                        or candidate_search.get("automatic_retry") is not False
+                        or candidate_search.get("mechanism_claim_authorized") is not False
+                        or candidate_search.get("accepted_ts_claim_authorized") is not False
+                        or owner["atom_count"] != 84
+                        or resources != {"resource_tier": "general", "mem_gb": 50, "cores": 22}
+                        or budget["planned_concurrency"] != 1
+                    )
+                )
+                or (not candidate_mode and candidate_search is not None)
+                or owner_maturity.get(
+                    "scientific_action_authorization_sha256"
+                )
+                != exact_authorization["sha256"]
+                or owner_maturity.get(
+                    "scientific_action_authorization_payload_sha256"
+                )
+                != exact_authorization["payload_sha256"]
+            ):
+                fail(
+                    "live approval /13 protected QST3 owner differs from the "
+                    "exact maturity/input/project/resources/budget scope"
+                )
+            expected["ts_qst_owner"] = copy.deepcopy(owner)
+            expected["scientific_maturity"] = {
+                key: owner_maturity[key]
+                for key in (
+                    "edge_id", "pilot", "maturity_gate_sha256",
+                    "maturity_gate_payload_sha256", "node_id",
+                    "scientific_action_authorization_sha256",
+                    "scientific_action_authorization_payload_sha256",
+                )
+            }
+            expected_schema = QST3_LIVE_APPROVAL_V13_SCHEMA
         else:
             fail(
-                "prospective live approval supports only input receipt /1, /2, /3, or /4"
+                "prospective live approval supports only input receipt /1, /2, /3, /4, or /5"
             )
     else:
         if maturity is None:
@@ -3013,6 +3169,8 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
                 else "open_shell_family" if expected_schema == OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA
                 else "fixed_constraint_owner"
                 if expected_schema == FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA
+                else "ts_qst_owner"
+                if expected_schema == QST3_LIVE_APPROVAL_V13_SCHEMA
                 else None
             )
             if owner_key is not None:
@@ -3023,11 +3181,23 @@ def expected_live_approval_scope(summary: dict[str, Any]) -> tuple[str, dict[str
                     or owner_resources["mem_gb"] != exact_resource["memory_gb"]
                 ):
                     fail("specialist owner resources differ from the exact resource-bound live gate")
+            if expected_schema == QST3_LIVE_APPROVAL_V13_SCHEMA:
+                qst_budget = expected["ts_qst_owner"]["authorized_budget"]
+                if (
+                    float(exact_execution["estimated_core_hours"])
+                    != float(qst_budget["estimated_core_hours"])
+                    or qst_budget["task_count"] != 1
+                    or qst_budget["planned_concurrency"] < 1
+                ):
+                    fail(
+                        "protected QST3 execution differs from the exact action-authorized budget"
+                    )
             schema_upgrade = {
                 LIVE_APPROVAL_V3_SCHEMA: LIVE_APPROVAL_V9_SCHEMA,
                 OPEN_SHELL_LIVE_APPROVAL_SCHEMA: OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA,
                 OPEN_SHELL_FAMILY_LIVE_APPROVAL_SCHEMA: OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA,
                 FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA: FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA,
+                QST3_LIVE_APPROVAL_V13_SCHEMA: QST3_LIVE_APPROVAL_V13_SCHEMA,
             }
         else:
             schema_upgrade = {
@@ -3051,6 +3221,7 @@ def _validate_live_approval_document(approval: dict[str, Any], summary: dict[str
         OPEN_SHELL_LIVE_APPROVAL_V10_SCHEMA,
         OPEN_SHELL_FAMILY_LIVE_APPROVAL_V11_SCHEMA,
         FIXED_CONSTRAINT_LIVE_APPROVAL_V12_SCHEMA,
+        QST3_LIVE_APPROVAL_V13_SCHEMA,
     }
     if expected_schema in protected_schemas:
         try:
@@ -3161,13 +3332,13 @@ def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) ->
     if protected == "specialist_path":
         fail("IRCMax/standalone Scan requires a dedicated specialist path owner and cannot use ordinary IRC or TS authority")
     expected_kinds = {
-        "ts": {"ts_pilot", "formal_ts"},
+        "ts": {"ts_pilot", "formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE},
         "ts_scan": {"ts_scan"},
         "irc": {"irc_forward", "irc_reverse"},
     }[protected]
     if work_kind not in expected_kinds:
         fail(f"protected {protected} route requires explicit --work-kind in {sorted(expected_kinds)}")
-    pilot = work_kind in {"ts_pilot", "ts_scan"}
+    pilot = work_kind in {"ts_pilot", "ts_scan", ENDPOINT_ANCHORED_TS_CANDIDATE}
     if bool(getattr(args, "pilot", False)) != pilot:
         fail(f"--pilot must be {'set' if pilot else 'unset'} for --work-kind {work_kind}")
     maturity_action = "irc_input" if protected == "irc" else action
@@ -3198,12 +3369,6 @@ def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) ->
             check = maturity.assert_action(
                 gate_path, edge_id, node_id, maturity_action, pilot=pilot,
             )
-        if prospective_live and gate_schema == MATURITY_GATE_V2_SCHEMA:
-            fail(
-                "protected live integration remains unavailable after maturity /2 replay; future "
-                "protected live requires an exact maturity action /2, action authorization /2, "
-                "and specialist input receipt"
-            )
         if action == "ts_submission" and gate_schema == MATURITY_GATE_V1_SCHEMA:
             authorization_value = getattr(args, "scientific_action_authorization", None)
             if not authorization_value:
@@ -3226,6 +3391,46 @@ def audit_scientific_maturity(args: Any, report: dict[str, Any], action: str) ->
                 "input_sha256": authorization["input"]["sha256"],
                 "no_submission_authorization": True,
             }
+        elif action == "ts_submission" and gate_schema == MATURITY_GATE_V2_SCHEMA:
+            authorization_value = getattr(
+                args, "scientific_action_authorization", None
+            )
+            if not authorization_value:
+                fail(
+                    "protected TS submission under maturity /2 requires one "
+                    "exact --scientific-action-authorization"
+                )
+            authorization_path = Path(authorization_value).expanduser().resolve()
+            authorization = maturity.validate_action_authorization(
+                authorization_path,
+                gate_path=gate_path,
+                input_sha256=report["input_sha256"],
+                edge_id=edge_id,
+                node_id=node_id,
+                project=args.project,
+                work_kind=work_kind,
+                resource_tier=tier,
+            )
+            check["exact_action_authorization"] = {
+                "schema": authorization["schema"],
+                "sha256": sha256(authorization_path),
+                "payload_sha256": authorization["payload_sha256"],
+                "node_id": authorization["scope"]["node_id"],
+                "project": authorization["scope"]["project"],
+                "input_sha256": authorization["input"]["sha256"],
+                "task_count": authorization["scope"]["task_count"],
+                "estimated_core_hours": authorization["scope"][
+                    "estimated_core_hours"
+                ],
+                "planned_concurrency": authorization["scope"][
+                    "planned_concurrency"
+                ],
+                "no_submission_authorization": True,
+            }
+            if "candidate_search" in authorization:
+                check["exact_action_authorization"]["candidate_search"] = copy.deepcopy(
+                    authorization["candidate_search"]
+                )
         return check
     except Exception as exc:
         future = (
@@ -8623,7 +8828,7 @@ def add_scientific_maturity_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--edge-id", help="reviewed mechanism edge bound by the maturity gate")
     parser.add_argument("--node-id", help="exact reviewed calculation-DAG node for this protected action")
     parser.add_argument("--pilot", action="store_true", help="limit this TS action to the reviewed one-candidate simple-tier pilot")
-    parser.add_argument("--work-kind", choices=["ordinary", "minimum", "ts_pilot", "formal_ts", "ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"], help="explicit scientific work classification; required for every live submission (dry-run may report it missing)")
+    parser.add_argument("--work-kind", choices=["ordinary", "minimum", "ts_pilot", "formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE, "ts_scan", "irc_forward", "irc_reverse", "endpoint_reopt"], help="explicit scientific work classification; required for every live submission (dry-run may report it missing)")
     parser.add_argument("--scientific-action-authorization", help="exact offline input/project/node/budget binding required for protected submission; it is not live approval")
 
 

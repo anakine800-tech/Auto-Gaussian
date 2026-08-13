@@ -205,3 +205,24 @@ symmetry and multireference states all fail closed. Authorizations remain
 exactly directory creation and one submission `true`; retry, cancellation,
 cleanup and server-data deletion are `false`. Offline prepare and dry-run emit
 only a scope proposal and required schema. They do not emit an approved `/4`.
+
+## Protected QST3 candidate live approval `/13`
+
+`auto-g16-live-submission-approval/13` binds one receipt `/5`, its QST3 owner
+projection, maturity gate/action authorization, exact project under
+`/home/user100/SDL`, execution attempt and complete resource tuple. It retains
+the active window, revocation, single-use, no-retry, no-cancel, no-cleanup and
+no-delete fields of the protected live contracts.
+
+For `endpoint_anchored_ts_candidate`, `/13` also binds the exact 84-atom
+candidate-scope record, `pilot: true`, general 22-core/50-GB resources and a
+single task/concurrent attempt. It does not grant a mechanism or accepted-TS
+claim and cannot be reused for `formal_ts`.
+
+The schema and scope validator are not a production effect owner. The
+versioned successor accepts `/5` and `/13` only after execution authorization,
+protected-submit and effect-time replay reproduce the exact specialist,
+scientific-maturity, endpoint-lineage, budget and resource bindings. The
+existing legacy raw-effect owner remains the only qsub path. An approved `/13`
+must not be represented as qsub authority unless that complete successor is
+the deployed named-Skill revision and every live gate is freshly satisfied.

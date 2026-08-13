@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/scientific-action-authorization-v2.schema.json",
+  "title": "Auto-G16 scientific exact action authorization v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "study_id", "scientific_maturity_action", "input", "candidate_search", "scope", "single_exact_scope_only", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-scientific-action-authorization/2"},
+    "study_id": {"$ref": "#/$defs/id"},
+    "scientific_maturity_action": {"$ref": "#/$defs/actionBinding"},
+    "input": {"$ref": "#/$defs/blob"},
+    "candidate_search": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/candidateSearch"}]},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_id", "node_id", "project", "work_kind", "resource_tier", "task_count", "estimated_core_hours", "planned_concurrency"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/id"},
+        "node_id": {"$ref": "#/$defs/id"},
+        "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "work_kind": {"enum": ["ts_pilot", "formal_ts", "endpoint_anchored_ts_candidate"]},
+        "resource_tier": {"enum": ["simple", "general", "complex"]},
+        "task_count": {"type": "integer", "minimum": 1},
+        "estimated_core_hours": {"type": "integer", "minimum": 1},
+        "planned_concurrency": {"type": "integer", "minimum": 1}
+      }
+    },
+    "single_exact_scope_only": {"const": true},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,95}$"},
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "blob": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}
+    },
+    "candidateSearch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "endpoint_minimum_ids", "atom_count", "resource_tier", "task_limit", "automatic_retry", "mechanism_claim_authorized", "accepted_ts_claim_authorized", "validation_requirements"],
+      "properties": {
+        "schema": {"const": "gaussian-endpoint-anchored-ts-candidate-scope/1"},
+        "endpoint_minimum_ids": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "atom_count": {"const": 84}, "resource_tier": {"const": "general"}, "task_limit": {"const": 1},
+        "automatic_retry": {"const": false}, "mechanism_claim_authorized": {"const": false}, "accepted_ts_claim_authorized": {"const": false},
+        "validation_requirements": {"const": ["exactly_one_intended_imaginary_mode", "explicit_h30_b51_c4_mode_review", "separately_approved_bidirectional_irc", "structurally_identified_irc_endpoints"]}
+      }
+    },
+    "actionBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "schema", "payload_sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}, "schema": {"const": "gaussian-scientific-maturity-action/2"}, "payload_sha256": {"$ref": "#/$defs/sha"}}
+    }
+  }
+}

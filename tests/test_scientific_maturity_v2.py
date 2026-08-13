@@ -71,6 +71,74 @@ class ScientificMaturityV2Tests(unittest.TestCase):
         fixture = load(FIXTURES / "reaction_workflow" / "scientific_maturity_v2_cases.json")
         self.cases = {item["case_id"]: item for item in fixture["cases"]}
 
+    def test_coordinate_order_is_mapped_by_atom_id_not_canonical_state_list_position(self) -> None:
+        state = {
+            "state_id": "state_fixture", "formal_charge": 0, "multiplicity": 1,
+            "components": [{"component_id": "all"}],
+            "atoms": [
+                {"atom_id": "b_3", "element": "B"},
+                {"atom_id": "c_2", "element": "C"},
+                {"atom_id": "n_1", "element": "N"},
+            ],
+        }
+        coordinate_signature = {
+            "state_id": "state_fixture", "formal_charge": 0, "multiplicity": 1,
+            "component_count": 1,
+            "atom_order": ["n_1", "c_2", "b_3"],
+            "elements": ["N", "C", "B"],
+        }
+        self.assertTrue(V2._state_signature_matches_owner(coordinate_signature, state))
+        wrong_mapping = copy.deepcopy(coordinate_signature)
+        wrong_mapping["elements"][0], wrong_mapping["elements"][2] = wrong_mapping["elements"][2], wrong_mapping["elements"][0]
+        self.assertFalse(V2._state_signature_matches_owner(wrong_mapping, state))
+
+    def test_exact_v2_minimum_lineages_supersede_only_legacy_endpoint_blockers(self) -> None:
+        base_gate = {
+            "study_id": "study_fixture",
+            "payload_sha256": "a" * 64,
+            "minimum_gates": [
+                {"minimum_id": "minimum_start", "state_id": "state_start", "accepted": False},
+                {"minimum_id": "minimum_end", "state_id": "state_end", "accepted": False},
+            ],
+            "edge_gates": [{
+                "edge_id": "edge_fixture", "start_minimum_id": "minimum_start", "end_minimum_id": "minimum_end",
+                "pilot_node_ids": ["ts_pilot"], "formal_ts_node_ids": ["ts_formal"],
+                "pilot_ts_input_scientifically_ready": False, "formal_ts_input_scientifically_ready": False,
+                "pilot_blockers": ["start_minimum_not_accepted", "end_minimum_not_accepted"],
+                "formal_blockers": ["start_minimum_not_accepted", "end_minimum_not_accepted", "formal_mechanism_support_absent"],
+                "owner_ts_mode_evidence_valid": False, "owner_irc_path_evidence_valid": False,
+                "owner_energy_lineage_valid": False, "ts_mode_accepted": False,
+                "bidirectional_irc_accepted": False, "irc_endpoints_reoptimized_as_expected_minima": False,
+            }],
+        }
+        receipt = {
+            "study_id": "study_fixture",
+            "base_gate": {"payload_sha256": "a" * 64},
+            "review_source": {"payload_sha256": "b" * 64},
+            "manual_evidence": [],
+            "minimum_evidence": [
+                {"minimum_id": minimum_id, "selected_candidate_id": minimum_id + "_lineage", "owner_evidence_ready": True,
+                 "candidate_input_result_lineage_status": "owner_validated_minimum_lineage_v2", "blockers": []}
+                for minimum_id in ("minimum_start", "minimum_end")
+            ],
+            "edge_evidence": [{
+                "edge_id": "edge_fixture", "stereochemical_channel": None,
+                "pilot_blockers": [], "formal_blockers": ["mechanism_claim_not_supported_for_exact_edge_channel"],
+            }],
+        }
+        review = {
+            "study_id": "study_fixture", "review_id": "review_fixture",
+            "review_decision": "accepted", "payload_sha256": "b" * 64,
+        }
+        gate = V2._build_gate(
+            base_gate, {"payload_sha256": "a" * 64}, receipt,
+            {"payload_sha256": "c" * 64}, review, {"payload_sha256": "b" * 64},
+        )
+        self.assertTrue(all(item["owner_evidence_ready"] for item in gate["minimum_gates"]))
+        self.assertTrue(gate["edge_gates"][0]["pilot_scientifically_ready"])
+        self.assertFalse(gate["edge_gates"][0]["formal_scientifically_ready"])
+        self.assertIn("mechanism_claim_not_supported_for_exact_edge_channel", gate["edge_gates"][0]["formal_blockers"])
+
     def conformer_handoff(self, root: Path, minimum: dict, state: dict, *, multiplicity: int | None = None) -> tuple[Path, str]:
         stem = minimum["minimum_id"]
         r08_path = root / f"{stem}-r08.json"

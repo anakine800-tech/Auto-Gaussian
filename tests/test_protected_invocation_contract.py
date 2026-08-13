@@ -253,7 +253,20 @@ class ProtectedInvocationContractTests(unittest.TestCase):
                 "6a23eb9307fdf930d4055589dd08baff8dea9275470db7ea9154f6ffa324b6b5"
             ),
         }
+        qst3_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_qst3_production_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for name, expected_hash in expected_hashes.items():
+            relative = f"scripts/{name}"
+            if relative in qst3_successor:
+                self.assertEqual(
+                    qst3_successor[relative]["before_sha256"], expected_hash
+                )
+                expected_hash = qst3_successor[relative]["sha256"]
             self.assertEqual(
                 hashlib.sha256(
                     (archive_root / "scripts" / name).read_bytes()
@@ -1239,8 +1252,21 @@ class ProtectedInvocationContractTests(unittest.TestCase):
                 "1fbafcbefeba67115e33a9ad5402dc19e0ac426945f51c995fea3c560132e270"
             ),
         }
+        qst3_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_qst3_production_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, expected_hash in expected.items():
             with self.subTest(path=relative):
+                if relative in qst3_successor:
+                    self.assertEqual(
+                        qst3_successor[relative]["before_sha256"],
+                        expected_hash,
+                    )
+                    expected_hash = qst3_successor[relative]["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected_hash,

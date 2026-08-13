@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "gaussian-input-approval-receipt/1"},
     "receipt_id": {"type": "string", "minLength": 1},
-    "work_kind": {"enum": ["ordinary", "minimum", "ts_pilot", "formal_ts"]},
+    "work_kind": {"enum": ["ordinary", "minimum", "ts_pilot", "formal_ts", "endpoint_anchored_ts_candidate"]},
     "protocol_task_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "sources": {
       "type": "object",

@@ -11,19 +11,50 @@ import argparse
 import copy
 import hashlib
 import heapq
+import importlib.util
 import json
 import os
 import re
 import stat
 import sys
 from pathlib import Path
+from functools import lru_cache
 from typing import Any, Iterable
 
 import mechanism_network as mechanism
 import mechanism_support
 import reaction_workflow as rw
 import ts_precedent_map as ts_precedent
-import calculation_artifacts
+
+
+@lru_cache(maxsize=1)
+def _calculation_artifacts_owner() -> Any:
+    """Load the candidate-target adapter only for target-import operations.
+
+    Plan validation does not consume a candidate-target import.  Keeping this
+    owner lazy preserves that boundary and lets the same plan validator run in
+    the closed QST3 named package without importing unrelated input builders.
+    """
+
+    path = Path(__file__).resolve().with_name("calculation_artifacts.py")
+    spec = importlib.util.spec_from_file_location(
+        "auto_g16_calculation_dag_artifacts_owner", path
+    )
+    require(
+        spec is not None and spec.loader is not None,
+        "calculation-artifact owner validator is unavailable",
+    )
+    module = importlib.util.module_from_spec(spec)
+    owner_dir = str(path.parent)
+    added = owner_dir not in sys.path
+    if added:
+        sys.path.insert(0, owner_dir)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if added:
+            sys.path.remove(owner_dir)
+    return module
 
 
 REVIEW_SCHEMA = "gaussian-reaction-calculation-plan-review/1"
@@ -2009,7 +2040,11 @@ def _validate_mapping_review_semantics(
     validated_plan, _chain = _validate_plan_internal(plan_path, set())
     require(plan == validated_plan, "target-mapping target plan changed during validation")
     target_import, target_import_path = _resolve_binding(review["target_import"], owner_path, TARGET_IMPORT_SCHEMA, "target-mapping target import")
-    _validated_upstream(target_import_path, calculation_artifacts.validate_artifact, "candidate target import")
+    _validated_upstream(
+        target_import_path,
+        _calculation_artifacts_owner().validate_artifact,
+        "candidate target import",
+    )
     _selected_external_target(target_import, review["external_target_key"])
     locator = review["locator"]
     require(locator["study_id"] == plan["study_id"] and locator["plan_id"] == plan["plan_id"], "target-mapping locator does not identify the exact target plan")
@@ -2121,7 +2156,11 @@ def _validate_node_update_internal(path: Path, stack: set[Path]) -> dict[str, An
         require(plan == validated_plan, "node-update target plan changed during validation")
         require(plan == reviewed_plan, "node-update target plan differs from mapping-review-root validation")
         target_import, target_import_path = _resolve_binding(artifact["artifact"], path, TARGET_IMPORT_SCHEMA, "node-update candidate target import")
-        _validated_upstream(target_import_path, calculation_artifacts.validate_artifact, "candidate target import")
+        _validated_upstream(
+            target_import_path,
+            _calculation_artifacts_owner().validate_artifact,
+            "candidate target import",
+        )
         require(target_import == reviewed_target_import, "node-update target import differs from mapping-review-root validation")
         for index, binding in enumerate(artifact["supersedes"]):
             previous, previous_path = _resolve_binding(binding, path, NODE_UPDATE_SCHEMA, f"node-update supersedes[{index}]")

@@ -420,8 +420,20 @@ class ExecutionBatchReservationCapabilityTests(unittest.TestCase):
             "scripts/protected_runtime_state_contract.py": "3c8a5b523c695b9ecba3345af5ab56a85fd4d578cfbd00832c07751e97d86d9f",
             "scripts/protected_production_ingress_contract.py": "0cb8d84271968dbc5641a2a2f625d3f3a950a793952104f773c73f71ff45e2df",
         }
+        qst3_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_qst3_production_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):
+                if relative in qst3_successor:
+                    self.assertEqual(
+                        qst3_successor[relative]["before_sha256"], expected
+                    )
+                    expected = qst3_successor[relative]["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected,

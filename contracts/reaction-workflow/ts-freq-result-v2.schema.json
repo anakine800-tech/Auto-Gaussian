@@ -48,6 +48,7 @@
         "job_id": {"type": "string", "minLength": 1},
         "attempt_id": {"type": "string", "pattern": "^qsub-attempt-.+"},
         "family": {"$ref": "#/$defs/ref"}, "input": {"$ref": "#/$defs/ref"},
+        "input_approval": {"$ref": "#/$defs/ref"},
         "job": {"$ref": "#/$defs/ref"}, "terminal_inspection_receipt": {"$ref": "#/$defs/ref"},
         "fetch_snapshot": {"$ref": "#/$defs/ref"}
       }

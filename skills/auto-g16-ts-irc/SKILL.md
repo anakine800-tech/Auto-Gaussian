@@ -60,14 +60,27 @@ adapter. The open-shell adapter has no transport or execution surface.
    requires a hash-bound explicit reviewed-guess record with
    `minimum_claim: false`. Only `validate-qst-raw-audit` may replay the emitted
    immutable artifact; the only next step remains manual input review.
+   For protected formal QST3, the declared permutation must additionally close
+   every reactant index/stable atom ID to the product index/stable atom ID and
+   exact mechanism-edge atom mapping. Gaussian uses the actual structure-block
+   row order, so product row `i` must already contain accepted product minimum
+   row `atom_map[i]`; the external map cannot repair unreordered input bytes.
+   Same-element swaps are not cosmetic.
 3. Create an immutable local family manifest with `--scientific-maturity`,
-   `--edge-id` and the exact reviewed `--node-id` (plus `--pilot` only for the reviewed one-candidate simple
-   pilot). Bind its routes to the selected
-   protocol candidate and preserve the proposal/selection hashes. It neither
-   submits nor writes to the server.
+   `--edge-id` and the exact reviewed `--node-id` (plus `--pilot` only for a
+   reviewed one-candidate pilot, including the exact protected 84-atom General
+   exception below). Bind `ts_freq` to the selected protocol candidate and
+   preserve the proposal/selection hashes. A pilot must set both IRC routes and
+   the endpoint route to `deferred_requires_separate_approval`, with IRC and
+   endpoint resource tiers `unselected`; it must not invent settings for later
+   stages. It neither submits nor writes to the server.
 4. After the user approves the exact TS project, use `auto-g16-rtwin-pbs` to stage and run the separately prepared TS/Freq input. Fetch the log and checkpoint before proceeding.
 5. Before a live result exists, prepare one hash-bound `gaussian-terminal-intake-template/1` per approved project. After terminal process/PBS evidence, fetch the complete log and run `ingest-terminal` against the exact local input and mutable `job.json`. The command refuses non-terminal, unfetched, process-alive, size/count-mismatched, transport-unverified, project-mismatched, input-hash-mismatched, or template-hash-mismatched evidence. A committed template contains no runtime job ID and grants no live authority.
 6. For TS/Freq, proceed to `analyze-ts` and `mode-review` only when intake reports `ready_for_manual_mode_review`. `analyze-ts` emits source-bound `gaussian-ts-freq-result/2` with the exact portable log reference, SHA-256, size, parser version/schema, exact 3N-6 or 3N-5 expectation, and full mode-displacement replay. Require normal TS/Freq termination, stationary-point evidence, the exact expected mode count, exactly one raw negative frequency, and a complete displacement block. Re-fetch if an earlier automatic snapshot ended after Opt but before Freq. Historical result `/1` is replay-only and cannot enter the new formal path-acceptance contract.
+   A protected QST3 result additionally replays `validate_family_artifact()`
+   and requires the supplied family file SHA-256 to equal the `/5` receipt's
+   `specialist_owner_binding.ts_family_sha256`; matching coordinates alone
+   cannot substitute another edge, node, project prefix, or protocol family.
    Parser/terminal classification replay and mode-review geometry arithmetic
    remain owned by `classify_ts_freq_result_facts`,
    `classify_ts_freq_terminal_facts`, and `validate_mode_review_geometry`;
@@ -195,7 +208,7 @@ candidate starts a new prospective gate.
 
 ## Interpretation gates
 
-- **G0**: approve chemical identities, atom map, coordinates, all routes, tiers, and fresh project names.
+- **G0**: approve chemical identities, atom map, coordinates, the current-stage route/tier, and fresh project name. Pilot families explicitly defer every later IRC/endpoint route and resource tier to its own gate.
 - **G1**: validate Cartesian input, atom order, charge/multiplicity, and hashes.
 - **G2**: require exactly one raw imaginary frequency and review its displacement against the intended reaction coordinate.
 - **G3**: approve the reviewed TS hash, immutable mode-decision hash, checkpoint hash, checkpoint atom-order audit hash, verified G16 revision, each directional IRC route, resources, and every fresh project name. A one-direction diagnostic approval authorizes only that exact direction and project.
@@ -218,3 +231,8 @@ unless the maturity review binds successful-pilot evidence and a specific
 `general` (50 GB/22 cores) or `complex` (120 GB/44 cores) scale, memory and
 cost rationale. Still display the exact resources and obtain submission
 approval for every fresh project; unit tests remain offline.
+The only non-successful-pilot general-tier exception is the protected
+`endpoint_anchored_ts_candidate`: one exact 84-atom neutral-singlet QST3 task
+whose two minima and complete atom map are replayed by maturity `/2`. It has no
+automatic retry and cannot establish a mechanism or an accepted TS without the
+normal mode and separately approved bidirectional IRC gates.

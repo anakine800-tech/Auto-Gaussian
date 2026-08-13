@@ -53,6 +53,11 @@ FIXED_CONSTRAINT_SUCCESSOR_PATH = (
     / "tests/fixtures/rtwin_pbs/"
     "legacy_rtwin_pbs_fixed_constraint_successor.json"
 )
+QST3_SUCCESSOR_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "protected_qst3_production_successor.json"
+)
 CI_PORTABILITY_SUCCESSOR_PATH = (
     ROOT
     / "tests/fixtures/rtwin_pbs/"
@@ -604,6 +609,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        qst3_successor_document = json.loads(
+            QST3_SUCCESSOR_PATH.read_text(encoding="utf-8")
+        )
+        qst3_successor = qst3_successor_document["files"]
         ci_portability = json.loads(
             CI_PORTABILITY_SUCCESSOR_PATH.read_text(encoding="utf-8")
         )
@@ -753,6 +762,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         self.assertEqual(
             ci_portability["base_tree"],
             "3ba2053be2494b0d3db53d2f65746b09a0c19c1a",
+        )
+        self.assertEqual(
+            qst3_successor_document["schema"],
+            "auto-g16-protected-qst3-production-successor/1",
         )
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):

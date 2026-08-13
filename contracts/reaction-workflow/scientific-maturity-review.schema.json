@@ -169,7 +169,7 @@
     "conformerOrigin": {
       "type": "object", "additionalProperties": false,
       "required": ["scope", "source_id", "ts_derivation_allowed"],
-      "properties": {"scope": {"const": "minimum_search"}, "source_id": {"$ref": "#/$defs/id"}, "ts_derivation_allowed": {"type": "boolean"}}
+      "properties": {"scope": {"enum": ["minimum_search", "accepted_minimum_result_review"]}, "source_id": {"$ref": "#/$defs/id"}, "ts_derivation_allowed": {"type": "boolean"}}
     },
     "minimumAcceptanceFacts": {
       "type": "object", "additionalProperties": false,

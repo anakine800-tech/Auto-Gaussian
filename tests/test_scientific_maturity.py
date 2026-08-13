@@ -308,8 +308,13 @@ class ScientificMaturityTests(unittest.TestCase):
                 "workflow_id": "maturity_fixture", "project_prefix": "maturity",
                 "expected_reactant_identity": "fixture reactants", "expected_product_identity": "fixture activated state",
                 "coordinate_changes": [{"forming": [1, 5]}],
-                "routes": {"ts_freq": "#p hf/sto-3g opt=(ts) freq", "irc_forward": "#p hf/sto-3g irc=(forward)", "irc_reverse": "#p hf/sto-3g irc=(reverse)", "endpoint_opt_freq": "#p hf/sto-3g opt freq"},
-                "resource_tiers": {"ts_freq": "simple", "irc": "simple", "endpoint": "simple"},
+                "routes": {
+                    "ts_freq": "#p hf/sto-3g opt=(ts) freq",
+                    "irc_forward": "deferred_requires_separate_approval",
+                    "irc_reverse": "deferred_requires_separate_approval",
+                    "endpoint_opt_freq": "deferred_requires_separate_approval",
+                },
+                "resource_tiers": {"ts_freq": "simple", "irc": "unselected", "endpoint": "unselected"},
                 "temperature_k": 298.15, "standard_state": "1M",
             })
             created = self.run_cli(
