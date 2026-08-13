@@ -1,31 +1,50 @@
 # Auto-G16 Repository Status
 
-## Current mainline state
+## Current source-candidate state
 
-Status date: 2026-08-05
+Status date: 2026-08-06
 
 Auto-Gaussian 2.7.0 is the current local offline-only source candidate. Its
-release-preparation baseline is exact merged `main` commit
-`5b125a0b233b8815166c745e3654ba0053773333`, tree
-`53fb0d1ddbc9c7334fc3aa2db8d3b70379dec1f8`. That merge integrates the v2.7
-direct-root boundary, direct SSH/PBS synthetic transaction, and direct
-onboarding/support milestones. This metadata patch changes no runtime,
-scientific logic, Schema, or owner semantics.
+future tag target remains unresolved until post-merge `main` and is recorded in
+the release checklist only as `FINAL_POST_MERGE_MAIN_COMMIT` and
+`FINAL_POST_MERGE_MAIN_TREE`. The local source collection changes no runtime,
+scientific logic, Schema, or owner semantics in this release-package closure.
 
-For `direct_ssh_pbs`, the integrated source supplies offline interfaces,
+For `direct_ssh_pbs`, the collected source supplies offline interfaces,
 closed Schemas and state contracts, synthetic in-memory transaction models,
 offline onboarding, migration guidance, and a support matrix. Its exact status
 remains `offline_synthetic`, `production_blocked`, and `live_not_ready`, with
-`backend_supported=false` and `live_ready=false`. Real no-follow observation,
-a physical descriptor-relative helper, durable cross-process consumption and
-uncertain-outcome storage, direct resource/live replay ingress, transport,
-`qsub`, real inspect/fetch, and separately authorized live-smoke evidence are
-all still blocked.
+`backend_supported=false` and `live_ready=false`. The current feature
+collection includes the W1 backend-owned POSIX no-follow observer, W2 durable
+journal owner, W4 process-isolated fixed descriptor-relative mutation helper,
+and W3 offline resource/live replay ingress. W4B fixed trusted server-local
+session composition is present in the local collection and joins those owners
+and descriptor identities in one clean-exec process. W5 fixed one-hop
+production code is present: a reviewed OpenSSH subsystem profile, canonical
+framing, descriptor-relative exact upload, fixed at-most-once qsub and an
+owner-issued exact submission receipt. All validation is offline synthetic.
+W6L is present as the server-local existing-job lineage observer and
+single-use read-capability foundation. W6C0 remains the provisional
+non-authorizing qstat parser/evidence core. W6Q1 adds a production-shaped,
+offline-validated exact qstat acquisition and final non-authorizing
+`gaussian-job-inspection/3` scheduler-evidence owner. It does not authorize
+live SSH/PBS/qstat, and PBS evidence is not Gaussian completion or scientific
+acceptance. Real W6 live query, fetch, materialization and advanced inspection
+remain blocked; W7 lifecycle
+operations and a separately authorized live smoke remain absent. W3 retains its portable
+`arbitrary_same_process_reflection_isolated=false` disclosure, while W4B/W5
+composition excludes untrusted arbitrary same-process code. Overall
+`production_closure=false` remains unchanged.
 
 The existing `legacy_rtwin_pbs` production backend remains permanently fixed
 below `/home/user100/SDL`, with its existing-directory refusal, one-shot
-submission and no-automatic-`qdel` boundaries unchanged. The new direct
-contracts neither relocate nor generalize that legacy backend. No 2.7.0 tag,
+submission and no-automatic-`qdel` boundaries unchanged. Its active-cancel
+owner is additionally fail-closed to two exact `Q`/`R` qstat observations and
+rejects terminal/zombie evidence, state or identity drift, ambiguity and local
+job-directory symlink ancestry before qdel. This legacy maintenance patch is
+not direct W7: the direct effect owner and direct cancellation remain absent
+and production-blocked. The new direct contracts neither relocate nor
+generalize that legacy backend. No 2.7.0 tag,
 GitHub Release, deployment, Skill synchronization, or live action is claimed
 by this local candidate.
 
@@ -74,11 +93,24 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   preflight, a proportional offline test ladder, exact CI-name auditing and
   separate release, deployment and live authority. Static contract audits
   validate local declarations only.
-- The `direct_ssh_pbs` source surface is offline synthetic only. It exposes
+- The `direct_ssh_pbs` source surface now includes a real server-local POSIX
+  no-follow root observer and a process-isolated fixed descriptor-relative
+  project/scratch mutation helper and the W5 fixed one-hop transport code. It also exposes
   closed typed models, onboarding and support reporting while remaining
   `production_blocked`, `live_not_ready`, `backend_supported=false`, and
-  `live_ready=false`; it has no real observer, helper, transport, qsub,
-  inspect/fetch, durable cross-process state, or live evidence.
+  `live_ready=false`. W4B fixed trusted server-local session composition is
+  present and composes the W2 claim, W3 replay and W4 process-isolated helper
+  into the typed child-local W5 seam. W5 has no caller override, retry, qdel,
+  cleanup, inspect or fetch surface; its receipt projection is non-authorizing.
+  W6L adds exact completed-W5/W2 existing-job lineage and a process-local
+  single-use read-capability foundation. W6C0 remains the provisional
+  non-authorizing qstat evidence core. W6Q1 is production-shaped but only
+  offline-validated: it binds the fixed query acquisition to exact lineage and
+  emits scheduler-only `gaussian-job-inspection/3`. It grants no live
+  SSH/PBS/qstat authority and cannot establish Gaussian completion or
+  scientific acceptance. Real W6 live query, fetch, materialization and
+  advanced inspection remain blocked, W7 is not present, and live smoke
+  remains absent.
 - RTwin result fetching records bounded stage-specific timeout and failure
   evidence without exposing command details or retrying automatically. A
   partial destination blocks an implicit rerun and requires human review.

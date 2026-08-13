@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Minimal non-executable direct SSH/PBS synthetic transaction.
+"""Minimal non-executable direct SSH/PBS transaction owners.
 
 There is no SSH, shell, network, PBS, Gaussian, qsub, qdel, delete, cleanup,
-or fallback implementation here.  The fake transport records only fixed typed
-in-memory operations and every returned artifact is non-authorizing.
+or fallback implementation here. The historical fake transport records only
+fixed typed in-memory operations. The server-session owner issues one real
+root-capability-bound transaction but exposes no transport or effect method.
+Every returned artifact is non-authorizing.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import json
 import threading
 from dataclasses import dataclass
 from enum import Enum
+from os import getpid, register_at_fork
 from typing import Any
 
 import direct_root_mutation_boundary as ROOT_BOUNDARY
@@ -261,6 +264,231 @@ def build_binding(
         "binding_payload_sha256",
     )
     return Binding(canonical_bytes(document))
+
+
+def build_server_session_binding(
+    root_capability: ROOT_OWNER.SingleUseWorkspaceDescriptorCapability,
+    immutable_input: ImmutableInput,
+) -> Binding:
+    """Build the exact direct binding without a synthetic transaction owner."""
+    _require(type(immutable_input) is ImmutableInput, "exact immutable input is required")
+    _require(
+        type(root_capability) is ROOT_OWNER.SingleUseWorkspaceDescriptorCapability,
+        "exact direct-root capability is required",
+    )
+    root_capability.assert_current()
+    _require(
+        root_capability._descriptor_set._mode == "posix_nofollow",
+        "server session requires real retained POSIX descriptors",
+    )
+    profile = ROOT_OWNER.validate_direct_execution_profile(
+        json.loads(root_capability._profile_bytes)
+    )
+    authorization = ROOT_OWNER.validate_direct_execution_authorization(
+        json.loads(root_capability._authorization_bytes)
+    )
+    receipt = ROOT_OWNER.validate_fresh_root_observation_receipt(
+        root_capability.portable_receipt()
+    )
+    scope = authorization["scope"]
+    workspace = authorization["workspace"]
+    approved_input = authorization["input"]
+    _require(
+        profile["backend_kind"] == BACKEND_KIND
+        and profile["scheduler_dialect"] == SCHEDULER_DIALECT
+        and authorization["live_ready"] is False
+        and authorization["profile"]["profile_payload_sha256"]
+        == profile["profile_payload_sha256"]
+        and receipt["profile"]["profile_payload_sha256"]
+        == profile["profile_payload_sha256"]
+        and receipt["stable_root_evidence"]["evidence_payload_sha256"]
+        == profile["stable_root_identity_evidence_sha256"]
+        and receipt["authorization"]["authorization_payload_sha256"]
+        == authorization["authorization_payload_sha256"]
+        and receipt["authorization"]["authorization_scope_sha256"]
+        == scope["authorization_scope_sha256"]
+        and receipt["operation"]["scientific_task_id"] == scope["scientific_task_id"]
+        and receipt["operation"]["attempt_id"] == scope["attempt_id"]
+        and receipt["observed_root"]["project"] == workspace["project"]
+        and receipt["observed_root"]["workspace_binding_sha256"]
+        == workspace["workspace_binding_sha256"]
+        and immutable_input.metadata() == approved_input,
+        "server-session profile, receipt, workspace, or input join differs",
+    )
+    document = finalized(
+        {
+            "schema": "auto-g16-direct-ssh-pbs-offline-binding/1",
+            "backend_kind": BACKEND_KIND,
+            "transport_kind": TRANSPORT_KIND,
+            "scheduler_dialect": SCHEDULER_DIALECT,
+            "profile": {
+                "profile_id": profile["profile_id"],
+                "profile_payload_sha256": profile["profile_payload_sha256"],
+                "stable_root_evidence_sha256": profile[
+                    "stable_root_identity_evidence_sha256"
+                ],
+                "resource_catalog_sha256": profile["resource_catalog_sha256"],
+            },
+            "receipt_payload_sha256": receipt["receipt_payload_sha256"],
+            "authorization": {
+                "authorization_id": authorization["authorization_id"],
+                "authorization_payload_sha256": authorization[
+                    "authorization_payload_sha256"
+                ],
+                "authorization_scope_sha256": scope["authorization_scope_sha256"],
+            },
+            "workspace": {
+                "project": workspace["project"],
+                "workspace_binding_sha256": workspace["workspace_binding_sha256"],
+                "descriptor_set_sha256": receipt["observed_root"][
+                    "descriptor_set_sha256"
+                ],
+            },
+            "input": copy.deepcopy(approved_input),
+            "resources": copy.deepcopy(authorization["resources"]),
+            "scope": {
+                "scientific_task_id": scope["scientific_task_id"],
+                "attempt_id": scope["attempt_id"],
+                "idempotency_key": scope["idempotency_key"],
+            },
+            "owner_gaps": [gap.document() for gap in OWNER_GAPS],
+            "live_ready": False,
+            "binding_payload_sha256": "",
+        },
+        "binding_payload_sha256",
+    )
+    return Binding(canonical_bytes(document))
+
+
+class DirectServerSessionTransaction:
+    """Exact non-executable transaction issued inside one trusted session."""
+
+    __slots__ = ("_binding", "_input", "_root_capability", "_state", "_seal")
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("server-session transactions are owner-issued only")
+
+    def assert_current(self) -> None:
+        _assert_server_session_transaction(self)
+
+    def binding(self) -> dict[str, Any]:
+        _assert_server_session_transaction(self)
+        return self._binding.document()
+
+    def state(self) -> str:
+        _assert_server_session_transaction(self)
+        return self._state
+
+    def __copy__(self) -> Any:
+        raise TypeError("server-session transactions are not clonable")
+
+    def __deepcopy__(self, _memo: Any) -> Any:
+        raise TypeError("server-session transactions are not clonable")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("server-session transactions are not serializable")
+
+
+class DirectServerSessionTransactionOwner:
+    """Sole real owner for one non-executable server-local transaction."""
+
+    __slots__ = ("_lock", "_pid", "_status", "_seal")
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise TypeError("server-session transaction owners use production()")
+
+    @classmethod
+    def production(cls) -> "DirectServerSessionTransactionOwner":
+        owner = object.__new__(cls)
+        owner._lock = threading.Lock()
+        owner._pid = getpid()
+        owner._status = "issued"
+        owner._seal = _SERVER_SESSION_OWNER_TOKEN
+        return owner
+
+    def issue_once(
+        self,
+        *,
+        root_capability: ROOT_OWNER.SingleUseWorkspaceDescriptorCapability,
+        immutable_input: ImmutableInput,
+    ) -> DirectServerSessionTransaction:
+        with self._lock:
+            _require(
+                type(self) is DirectServerSessionTransactionOwner
+                and self._pid == getpid()
+                and self._status == "issued"
+                and self._seal is _SERVER_SESSION_OWNER_TOKEN,
+                "server-session transaction owner is foreign, forked, or terminal",
+            )
+            self._status = "claiming"
+            try:
+                binding = build_server_session_binding(root_capability, immutable_input)
+                transaction = object.__new__(DirectServerSessionTransaction)
+                transaction._root_capability = root_capability
+                transaction._input = immutable_input
+                transaction._binding = binding
+                transaction._state = READY
+                transaction._seal = _SERVER_SESSION_TRANSACTION_TOKEN
+                record = {
+                    "transaction": transaction,
+                    "pid": getpid(),
+                    "root_capability": root_capability,
+                    "immutable_input": immutable_input,
+                    "binding_bytes": binding._bytes,
+                    "state": READY,
+                }
+                with _SERVER_SESSION_REGISTRY_LOCK:
+                    _require(
+                        transaction not in _SERVER_SESSION_REGISTRY,
+                        "server-session transaction registry differs",
+                    )
+                    _SERVER_SESSION_REGISTRY[transaction] = record
+                transaction.assert_current()
+                self._status = "consumed"
+                return transaction
+            except BaseException:
+                self._status = "failed"
+                raise
+
+
+_SERVER_SESSION_OWNER_TOKEN = object()
+_SERVER_SESSION_TRANSACTION_TOKEN = object()
+_SERVER_SESSION_REGISTRY_LOCK = threading.RLock()
+_SERVER_SESSION_REGISTRY: dict[object, dict[str, Any]] = {}
+
+
+def _assert_server_session_transaction(
+    transaction: DirectServerSessionTransaction,
+) -> dict[str, Any]:
+    with _SERVER_SESSION_REGISTRY_LOCK:
+        record = _SERVER_SESSION_REGISTRY.get(transaction)
+        _require(
+            type(transaction) is DirectServerSessionTransaction
+            and transaction._seal is _SERVER_SESSION_TRANSACTION_TOKEN
+            and type(record) is dict
+            and record["transaction"] is transaction
+            and record["pid"] == getpid()
+            and record["root_capability"] is transaction._root_capability
+            and record["immutable_input"] is transaction._input
+            and record["binding_bytes"] == transaction._binding._bytes
+            and record["state"] == transaction._state == READY,
+            "server-session transaction is foreign, copied, forked, or drifted",
+        )
+    transaction._root_capability.assert_current()
+    expected = build_server_session_binding(
+        transaction._root_capability,
+        transaction._input,
+    )
+    _require(expected._bytes == transaction._binding._bytes, "server session binding bytes drifted")
+    return record
+
+
+def _after_server_session_fork_child() -> None:
+    with _SERVER_SESSION_REGISTRY_LOCK:
+        _SERVER_SESSION_REGISTRY.clear()
+
+
+register_at_fork(after_in_child=_after_server_session_fork_child)
 
 
 @dataclass(frozen=True, slots=True)

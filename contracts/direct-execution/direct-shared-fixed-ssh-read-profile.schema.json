@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/direct-execution/direct-shared-fixed-ssh-read-profile.schema.json",
+  "title": "Auto-G16 shared fixed-SSH read profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "profile_id", "transport_binding", "server_read", "safety", "read_profile_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-shared-fixed-ssh-read-profile/1"},
+    "profile_id": {"type": "string", "minLength": 1},
+    "transport_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "transport_profile_bytes_sha256", "transport_profile_payload_sha256"],
+      "properties": {
+        "schema": {"const": "exact_w5_transport_profile_bytes/1"},
+        "transport_profile_bytes_sha256": {"$ref": "#/$defs/sha256"},
+        "transport_profile_payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "server_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_sha256", "qstat", "fetch"],
+      "properties": {
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "qstat": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executable", "executable_sha256", "executable_owner_uid", "executable_mode", "max_stdout_bytes", "timeout_seconds"],
+          "properties": {
+            "executable": {"const": "/usr/bin/qstat"},
+            "executable_sha256": {"$ref": "#/$defs/sha256"},
+            "executable_owner_uid": {"const": "0"},
+            "executable_mode": {"const": "0755"},
+            "max_stdout_bytes": {"const": "65536"},
+            "timeout_seconds": {"const": "30"}
+          }
+        },
+        "fetch": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_total_bytes", "max_chunk_bytes", "max_chunks", "timeout_seconds"],
+          "properties": {
+            "max_total_bytes": {"$ref": "#/$defs/positiveDecimal"},
+            "max_chunk_bytes": {"$ref": "#/$defs/positiveDecimal"},
+            "max_chunks": {"$ref": "#/$defs/positiveDecimal"},
+            "timeout_seconds": {"$ref": "#/$defs/positiveDecimal"}
+          }
+        }
+      }
+    },
+    "safety": {
+      "const": {
+        "read_only": true,
+        "authorizes_effect": false,
+        "qsub_calls": "0",
+        "qdel": false,
+        "cancel": false,
+        "cleanup": false,
+        "delete": false,
+        "project_access": false,
+        "remote_execution_present": false,
+        "automatic_retry": false,
+        "caller_override": false
+      }
+    },
+    "read_profile_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$(?![\\s\\S])",
+      "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
+    },
+    "decimal": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)$(?![\\s\\S])"},
+    "positiveDecimal": {"type": "string", "pattern": "^[1-9][0-9]*$(?![\\s\\S])"}
+  }
+}

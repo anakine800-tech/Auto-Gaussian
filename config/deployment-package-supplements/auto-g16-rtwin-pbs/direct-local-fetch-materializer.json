@@ -1,0 +1,10 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {"source": "scripts/direct_local_fetch_materializer.py", "target": "scripts/direct_local_fetch_materializer.py"},
+    {"source": "contracts/direct-execution/direct-local-fetch-target-policy.schema.json", "target": "contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json"},
+    {"source": "contracts/direct-execution/direct-fetch-manifest.schema.json", "target": "contracts/rtwin-pbs/direct-fetch-manifest.schema.json"},
+    {"source": "docs/v2.7-direct-local-fetch-materializer.md", "target": "references/direct-local-fetch-materializer.md"}
+  ]
+}

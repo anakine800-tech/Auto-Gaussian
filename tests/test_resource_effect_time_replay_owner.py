@@ -686,7 +686,7 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             & forbidden_functions
         )
         frozen = {
-            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1",
             "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
             "skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py": "3a978dbfbf6d5111d50c087c3c2df775fd15d5cd3924ea063e5ae674bafc0cdb",
             "scripts/protected_owner_consumer_contract.py": "01fe0e30fdbd155e982962d8c4258d4d773d9d0de0b1323e119a6ab3573cd899",
@@ -706,6 +706,58 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                 "release_2_7_ci_contract_successor.json"
             ).read_text(encoding="utf-8")
         )["files"]
+        direct_replay_successor_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "direct_effect_time_replay_ingress_ci_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        direct_replay_successor = direct_replay_successor_document["files"]
+        foundation_successor_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_foundation_integration_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        foundation_successor = foundation_successor_document["files"]
+        local_integration_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_local_draft_integration_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        local_integration = local_integration_document["files"]
+        current_lineage_files = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
+        current_lineage = {
+            relative: current_lineage_files[relative]
+            for relative in (
+                ".github/workflows/offline-tests.yml",
+                "skills/auto-g16-rtwin-pbs/SKILL.md",
+            )
+        }
+
+        def apply_foundation_successor(relative: str, expected: str) -> str:
+            if relative not in foundation_successor:
+                return expected
+            binding = foundation_successor[relative]
+            self.assertEqual(binding["before_sha256"], expected)
+            return binding["sha256"]
+
+        def apply_local_integration(relative: str, expected: str) -> str:
+            if relative not in local_integration:
+                return expected
+            binding = local_integration[relative]
+            self.assertEqual(binding["left_before_sha256"], expected)
+            return binding["sha256"]
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):
                 if relative in release_successor:
@@ -715,10 +767,42 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                         expected,
                     )
                     expected = successor_binding["sha256"]
+                if relative in direct_replay_successor:
+                    successor_binding = direct_replay_successor[relative]
+                    self.assertEqual(
+                        successor_binding["before_sha256"],
+                        expected,
+                    )
+                    expected = successor_binding["sha256"]
+                expected = apply_foundation_successor(relative, expected)
+                expected = apply_local_integration(relative, expected)
+                if relative in current_lineage:
+                    current_binding = current_lineage[relative]
+                    self.assertEqual(current_binding["before_sha256"], expected)
+                    expected = current_binding["sha256"]
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected,
                 )
+        self.assertEqual(
+            direct_replay_successor_document["schema"],
+            "auto-g16-direct-effect-time-replay-ingress-ci-successor/1",
+        )
+        self.assertFalse(
+            direct_replay_successor_document["scope"][
+                "legacy_runtime_semantics_changed"
+            ]
+        )
+        self.assertEqual(
+            foundation_successor_document["schema"],
+            "auto-g16-v2.7-production-foundation-integration-successor/1",
+        )
+        self.assertFalse(foundation_successor_document["scope"]["production_closure"])
+        self.assertEqual(
+            local_integration_document["schema"],
+            "auto-g16-v2.7-local-draft-integration-successor/1",
+        )
+        self.assertFalse(local_integration_document["scope"]["production_closure"])
         from scripts import skill_package
 
         package = skill_package.package_files_with_supplements(

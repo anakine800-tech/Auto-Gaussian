@@ -341,12 +341,12 @@ class DirectOnboardingTests(unittest.TestCase):
 
         resource_token = ONBOARDING.OWNER_GAP_SUPPORT_TOKENS[resource.port]
         reduced_gaps = tuple(
-            gap for gap in ONBOARDING.PRODUCTION_GAPS if gap != resource_token
+            gap for gap in ONBOARDING.COMPOSITION_CLOSED_GAPS if gap != resource_token
         )
-        with mock.patch.object(ONBOARDING, "PRODUCTION_GAPS", reduced_gaps):
+        with mock.patch.object(ONBOARDING, "COMPOSITION_CLOSED_GAPS", reduced_gaps):
             with self.assertRaises(ONBOARDING.DirectOnboardingError) as raised:
                 ONBOARDING._assert_pr6_non_authority()
-        self.assertEqual(raised.exception.code, "pr6_support_snapshot_drift")
+        self.assertEqual(raised.exception.code, "pr6_support_gap_drift")
 
         changed_tokens = copy.deepcopy(ONBOARDING.OWNER_GAP_SUPPORT_TOKENS)
         changed_tokens[resource.port] = "real_no_follow_observer"
@@ -635,12 +635,24 @@ class DirectOnboardingTests(unittest.TestCase):
         )
         self.assertFalse(direct["backend_supported"])
         self.assertFalse(direct["live_ready"])
+        self.assertEqual(direct["trusted_server_local_session"], "fixed_clean_exec_w5_code_offline_validated")
+        self.assertEqual(
+            tuple(direct["composition_closed_gaps"]),
+            ONBOARDING.COMPOSITION_CLOSED_GAPS,
+        )
+        self.assertTrue(direct["arbitrary_same_process_reflection_isolated"])
+        self.assertFalse(direct["w3_portable_disclosure_arbitrary_same_process_reflection_isolated"])
+        self.assertFalse(direct["production_closure"])
         self.assertTrue(DIRECT_OFFLINE.AUTHORITY["synthetic_only"])
         self.assertFalse(DIRECT_OFFLINE.AUTHORITY["backend_supported"])
         self.assertFalse(DIRECT_OFFLINE.AUTHORITY["live_ready"])
         self.assertEqual(
             tuple(direct["production_gaps"]),
             ONBOARDING.PRODUCTION_GAPS,
+        )
+        self.assertNotIn(
+            "real_no_follow_observer",
+            direct["production_gaps"],
         )
         for backend in (
             "local_gaussian",
@@ -653,7 +665,11 @@ class DirectOnboardingTests(unittest.TestCase):
         self.assertEqual(ONBOARDING.SUPPORT_MATRIX["unknown"]["status"], "fail_closed")
 
         text = DOC.read_text(encoding="utf-8")
-        for marker in (*ONBOARDING.DIRECT_STATUSES, *ONBOARDING.PRODUCTION_GAPS):
+        for marker in (
+            *ONBOARDING.DIRECT_STATUSES,
+            *ONBOARDING.COMPOSITION_CLOSED_GAPS,
+            *ONBOARDING.PRODUCTION_GAPS,
+        ):
             self.assertIn(marker, text)
         for marker in (
             "existing_production_path_not_authorized_by_this_command",
@@ -667,6 +683,7 @@ class DirectOnboardingTests(unittest.TestCase):
         ):
             self.assertIn(marker, text)
         self.assertIn("`backend_supported=false`", text)
+        self.assertNotIn("`real_no_follow_observer`", text)
         self.assertNotIn("direct backend is production-ready", text.lower())
 
     def test_migration_guide_forbids_upgrade_rehash_backfill_and_root_override(self) -> None:
@@ -747,7 +764,7 @@ class DirectOnboardingTests(unittest.TestCase):
             "scripts/protected_production_ingress_contract.py": "0cb8d84271968dbc5641a2a2f625d3f3a950a793952104f773c73f71ff45e2df",
             "scripts/protected_production_factory_consumer.py": "5db1043a9107cc11843d2a7284ab802200b2502a77807ed8e8e9c38f1786ddf7",
             "skills/auto-g16-rtwin-pbs/scripts/execution_facade.py": "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3",
-            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
+            "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1",
         }
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):

@@ -45,7 +45,12 @@ Active cancellation first atomically publishes `cancellation-intent.json`
 before qstat/qdel. The intent is the durable one-shot consumption boundary:
 all later cancellation commands refuse qdel, including after transport or
 outcome-receipt failure. `reconcile-cancellation` only reports
-active/absent/unknown and never qdel.
+active/absent/unknown and never qdel. The active classification and qdel gate
+now require one exact job ID/name record in PBS state `Q` or `R`, twice, with
+the second read immediately before qdel. `H`, `E`, terminal/stale/zombie local
+evidence, missing/duplicate/malformed state, case/lookalike tokens, identity
+drift, explicit absence and transport ambiguity all fail closed with zero
+qdel; no consumed intent is reissued.
 
 ## Package-4 interface
 

@@ -1,0 +1,59 @@
+{
+  "schema": "auto-g16-v2.7-production-foundation-integration-successor/1",
+  "parents": [
+    "44b25f43257b3ce83baf1dd2bc63168758acdab9",
+    "a7f8101f24dc2b9bae75bf10fe88ef5c86d2409c"
+  ],
+  "scope": {
+    "foundation_integration_only": true,
+    "historical_fixture_rewritten": false,
+    "legacy_runtime_semantics_changed": false,
+    "scientific_semantics_changed": false,
+    "production_closure": false,
+    "live_actions": false
+  },
+  "files": {
+    ".github/workflows/offline-tests.yml": {
+      "before_sha256": "b66627a6e8d1390e60f2719a825988efcaf558739526ef0b48bf17f4fd62dcf4",
+      "sha256": "7eb63bb5e7885b5e0e90e180987b017e984be61b4cd0d66895333a5f1b1ce3a9",
+      "change_class": "merge_w2_w3_w4_ordered_draft202012_inventory",
+      "legacy_semantics_changed": false
+    },
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "319a348a12b01dab6c736ff3938fe9bc565b0d777fc2ca5bbe1b8273a11bf999",
+      "sha256": "9e45d4ebb50289177387fee9ea84a3f3d6efed34f43e7ff5220c779a09f2d5a1",
+      "change_class": "audit_merged_w2_w3_w4_ordered_draft202012_inventory",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_audit_python_contract.py": {
+      "before_sha256": "36fadd9a202a1789a0234465add1749836fde03c1a3f44fdbeacea68105f4408",
+      "sha256": "86b6c45554ab19593b6a99eb3c6e0da1441b5a6594a6983c27300a7220cf4620",
+      "change_class": "test_merged_w2_w3_w4_ordered_draft202012_inventory",
+      "legacy_semantics_changed": false
+    },
+    "docs/release-2.7.0-checklist.md": {
+      "before_sha256": "a0b64d1bea66eefb29fbf753e41d075f1fc85dd0a45e2e39c20fb302d98c3128",
+      "sha256": "6e2fc1aad010999e1d474e90bdab69fa8b09dba50851f8b0169c44a9e139fb32",
+      "change_class": "document_merged_inventory_without_hard_coded_count",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_sha256": "bfb08480b29a73c660ff93b55ae26d7abe2f65cab1925e82ef4449b4921742d5",
+      "sha256": "f00e4d62f8246e502ffc067b1514eeb74d068583e77acd2048f359fd8229c074",
+      "change_class": "append_foundation_integration_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_production_ingress_contract.py": {
+      "before_sha256": "e1d139d4a74e5f4ccc6981588cf9e9e971a154ca0fbac05d79ea12fb18d6f11f",
+      "sha256": "3cf755d4493b467c1a5d00fe548fd04aa0e2abd6934d7cf8f57f51ff8f0d6d3a",
+      "change_class": "append_foundation_integration_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_resource_effect_time_replay_owner.py": {
+      "before_sha256": "5a426aceef21f03d0c7438db323c62badd52ad6850291bc916f6979648118a53",
+      "sha256": "c2d94b6b3f31814b1953c46a1e2146295d3bc3d9f1f13791faddbdccb9268acc",
+      "change_class": "append_foundation_integration_successor_hash_chain",
+      "legacy_semantics_changed": false
+    }
+  }
+}

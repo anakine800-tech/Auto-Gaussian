@@ -1,0 +1,22 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/direct_read_only_evidence.py",
+      "target": "scripts/direct_read_only_evidence.py"
+    },
+    {
+      "source": "contracts/direct-execution/direct-qstat-evidence-core.schema.json",
+      "target": "contracts/rtwin-pbs/direct-qstat-evidence-core.schema.json"
+    },
+    {
+      "source": "contracts/direct-execution/direct-scheduler-terminal-evidence-receipt.schema.json",
+      "target": "contracts/rtwin-pbs/direct-scheduler-terminal-evidence-receipt.schema.json"
+    },
+    {
+      "source": "docs/v2.7-direct-read-only-evidence-core.md",
+      "target": "references/direct-read-only-evidence-core.md"
+    }
+  ]
+}

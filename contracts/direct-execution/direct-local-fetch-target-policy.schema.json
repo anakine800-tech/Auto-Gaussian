@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-direct-local-fetch-target-policy/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "owner", "owner_version", "backend_kind", "target_root", "review_id", "review_status", "policy", "authority", "policy_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-local-fetch-target-policy/1"},
+    "owner": {"const": "auto-g16-direct-local-fetch-materializer-owner"},
+    "owner_version": {"const": "direct-local-fetch-materializer/1"},
+    "backend_kind": {"const": "direct_ssh_pbs"},
+    "target_root": {"type": "string", "pattern": "^/(?!$)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[^\\u0000]+$"},
+    "review_id": {"type": "string", "pattern": "^local-fetch-target-review-[a-f0-9]{64}$"},
+    "review_status": {"const": "reviewed"},
+    "policy": {"$ref": "#/$defs/policy"},
+    "authority": {"$ref": "#/$defs/authority"},
+    "policy_payload_sha256": {"$ref": "#/$defs/nonzero_sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonzero_sha": {
+      "allOf": [
+        {"$ref": "#/$defs/sha"},
+        {"not": {"enum": ["0000000000000000000000000000000000000000000000000000000000000000"]}}
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_external_required", "descriptor_traversal_required", "no_follow_required", "owner_derived_unique_leaf", "caller_path_override_allowed", "caller_root_override_allowed", "overwrite_allowed", "delete_allowed", "cleanup_allowed"],
+      "properties": {
+        "repo_external_required": {"const": true},
+        "descriptor_traversal_required": {"const": true},
+        "no_follow_required": {"const": true},
+        "owner_derived_unique_leaf": {"const": true},
+        "caller_path_override_allowed": {"const": false},
+        "caller_root_override_allowed": {"const": false},
+        "overwrite_allowed": {"const": false},
+        "delete_allowed": {"const": false},
+        "cleanup_allowed": {"const": false}
+      }
+    },
+    "authority": {
+      "oneOf": [
+        {"$ref": "#/$defs/offline_authority"},
+        {"$ref": "#/$defs/production_authority"}
+      ]
+    },
+    "offline_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portable_policy", "authorizes_effect", "production_integration", "caller_bytes_can_issue_owner", "required_production_predecessor"],
+      "properties": {
+        "portable_policy": {"const": true},
+        "authorizes_effect": {"const": false},
+        "production_integration": {"const": false},
+        "caller_bytes_can_issue_owner": {"const": false},
+        "required_production_predecessor": {"const": "reviewed_local_policy_owner_exact_type_not_frozen"}
+      }
+    },
+    "production_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portable_policy", "authorizes_effect", "production_integration", "caller_bytes_can_issue_owner", "fixed_policy_path", "policy_file_is_authority", "backend_owner_descriptor_issuance_required"],
+      "properties": {
+        "portable_policy": {"const": true},
+        "authorizes_effect": {"const": false},
+        "production_integration": {"const": true},
+        "caller_bytes_can_issue_owner": {"const": false},
+        "fixed_policy_path": {"const": "/Library/Application Support/Auto-G16/direct-local-fetch-target-v1.json"},
+        "policy_file_is_authority": {"const": false},
+        "backend_owner_descriptor_issuance_required": {"const": true}
+      }
+    }
+  }
+}

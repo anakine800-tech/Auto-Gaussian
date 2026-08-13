@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "scripts/direct_durable_submission_journal.py",
+      "target": "scripts/direct_durable_submission_journal.py"
+    },
+    {
+      "source": "docs/v2.7-direct-durable-submission-journal.md",
+      "target": "references/direct-durable-submission-journal.md"
+    }
+  ]
+}

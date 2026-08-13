@@ -84,12 +84,13 @@ comparison or any live gate.
 ## 2.7.0 offline-only release candidate
 
 Auto-Gaussian 2.7.0 is the current local offline-only source candidate. It
-starts from merged `main` commit
-`5b125a0b233b8815166c745e3654ba0053773333`, tree
-`53fb0d1ddbc9c7334fc3aa2db8d3b70379dec1f8`, and packages the integrated
-`direct_ssh_pbs` interfaces, closed Schema and state contracts, synthetic root
-and transaction models, offline onboarding, migration guidance, and support
-matrix. Its exact direct statuses are `offline_synthetic`,
+packages the collected `direct_ssh_pbs` interfaces, closed Schema and state
+contracts, synthetic root and transaction models, offline onboarding,
+migration guidance, and support matrix. The repository package collection also
+contains the separately reviewed W1 backend-owned POSIX no-follow observer, W2
+durable journal owner, W3 exact resource/live replay ingress, and W4
+process-isolated fixed descriptor-relative mutation helper. Their presence is
+not a composed production adapter. Its exact direct statuses are `offline_synthetic`,
 `production_blocked`, and `live_not_ready`; it does not claim
 `backend_supported`, production readiness, transport authority, or live
 readiness.
@@ -100,13 +101,21 @@ legacy path. The direct profile's mandatory backend-owned root contract is an
 offline safety interface only and does not grant filesystem or server
 authority.
 
-Real no-follow observation, a physical descriptor-relative helper, durable
-cross-process consumption and uncertain-outcome storage, direct resource/live
-replay ingress, real transport, `qsub`, inspect, fetch, and separately
-authorized live-smoke evidence all remain blocked. This candidate has not been
-tagged or published as 2.7.0 and grants no deployment, SSH, RTwin, PBS,
-Gaussian, submission, retry, `qdel`, cleanup, deletion, live, or scientific
-authority.
+W4B fixed trusted server-local session composition is present in the local
+collection. It joins the W1-W4 owners and descriptor identities in one
+clean-exec process. W5 fixed one-hop transport code consumes its typed
+child-local seam and implements immutable upload and at-most-once `qsub` under
+offline-only validation. W6L supplies only the server-local existing-job
+lineage observer and single-use read-capability foundation. W6C0 supplies only
+a provisional non-authorizing qstat evidence core. W6Q1 adds a
+production-shaped, offline-validated exact qstat acquisition and final
+scheduler-only `gaussian-job-inspection/3`; it authorizes no live SSH/PBS/qstat
+and does not prove Gaussian completion or scientific acceptance. Real W6 live
+query, fetch, materialization and advanced inspection remain
+blocked, and W7 is not present.
+Separately authorized live-smoke evidence therefore remains blocked. This candidate has not been
+tagged or published as 2.7.0 and grants no deployment, SSH, RTwin, PBS, Gaussian,
+submission, retry, `qdel`, cleanup, deletion, live, or scientific authority.
 
 ## 2.6.1 published release
 
@@ -394,6 +403,12 @@ pressure test. CI runs ordinary compatibility coverage on Python 3.11, 3.12,
 and 3.13, then runs the complete pressure and source-archive replay once on
 Python 3.13. The chemistry job separately executes a real RDKit structure,
 3D-conformer, and 2D-depiction smoke.
+
+Real local Draft 2020-12 validation uses a separate existing test-only virtual
+environment; it is not part of either runtime profile. See
+[`docs/local-draft-validation.md`](docs/local-draft-validation.md) for the
+fail-closed local command. Missing `jsonschema` in `core` or `chem`, or a
+skipped Draft test in the ordinary suite, is not Schema-validation evidence.
 
 The Python-file shebangs remain portable compatibility metadata. Repository
 and deployed Skill commands must invoke scripts with the selected interpreter

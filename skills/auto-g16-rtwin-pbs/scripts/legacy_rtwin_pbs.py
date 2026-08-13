@@ -842,6 +842,96 @@ def classify_qstat_evidence(result: subprocess.CompletedProcess) -> dict[str, An
     }
 
 
+ACTIVE_CANCELLATION_PBS_STATES = frozenset({"Q", "R"})
+QSTAT_EVIDENCE_COMPATIBILITY_FIELDS = (
+    "status", "record_present", "pbs_state", "job_name", "session_id",
+    "returncode", "error",
+)
+
+
+def qstat_compatibility_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    """Retain the historical nested qstat evidence shape for consumers."""
+
+    return {field: evidence[field] for field in QSTAT_EVIDENCE_COMPATIBILITY_FIELDS}
+
+
+def classify_active_cancellation_qstat(
+    result: subprocess.CompletedProcess,
+    *,
+    job_id: str,
+    project: str,
+) -> dict[str, Any]:
+    """Apply the strict, exact-record state gate owned by active cancellation.
+
+    General monitoring retains its historical qstat parser.  Cancellation is
+    narrower: one successful qstat response must contain exactly one record
+    header, job name and state, all bound to the approved target, and the state
+    token must be exactly Q or R.  Every other shape remains non-authorizing.
+    """
+
+    validate_job_id(job_id)
+    validate_project(project)
+    if result.returncode != 0:
+        evidence = classify_qstat_evidence(result)
+        classification = (
+            "absent" if evidence["status"] == "absent" else "unknown"
+        )
+        return {
+            **evidence,
+            "active_cancel_classification": classification,
+            "active_cancel_eligible": False,
+        }
+
+    text = str(result.stdout or "")
+    job_ids = re.findall(r"(?m)^\s*Job Id:\s*(\S+)\s*$", text)
+    job_names = re.findall(r"(?m)^\s*Job_Name\s*=\s*(\S+)\s*$", text)
+    states = re.findall(r"(?m)^\s*job_state\s*=\s*(\S+)\s*$", text)
+    session_ids = re.findall(r"(?m)^\s*session_id\s*=\s*(\d+)\s*$", text)
+    if len(job_ids) != 1 or len(job_names) != 1 or len(states) != 1:
+        return {
+            "status": "unknown",
+            "record_present": None,
+            "pbs_state": None,
+            "job_name": None,
+            "session_id": None,
+            "returncode": result.returncode,
+            "error": "qstat active-cancellation record is missing, duplicate, or malformed",
+            "active_cancel_classification": "malformed",
+            "active_cancel_eligible": False,
+        }
+
+    observed_job_id = job_ids[0]
+    observed_job_name = job_names[0]
+    observed_state = states[0]
+    evidence = {
+        "status": "present",
+        "record_present": True,
+        "pbs_state": observed_state,
+        "job_name": observed_job_name,
+        "session_id": session_ids[0] if len(session_ids) == 1 else None,
+        "returncode": result.returncode,
+        "error": None,
+        "observed_job_id": observed_job_id,
+    }
+    if observed_job_id != job_id or observed_job_name != project:
+        return {
+            **evidence,
+            "active_cancel_classification": "identity_conflict",
+            "active_cancel_eligible": False,
+        }
+    if observed_state not in ACTIVE_CANCELLATION_PBS_STATES:
+        return {
+            **evidence,
+            "active_cancel_classification": "non_active_state",
+            "active_cancel_eligible": False,
+        }
+    return {
+        **evidence,
+        "active_cancel_classification": "active",
+        "active_cancel_eligible": True,
+    }
+
+
 def classify_process_evidence(result: subprocess.CompletedProcess) -> dict[str, Any]:
     """Classify an exact PBS session process observation without guessing."""
 
@@ -8175,6 +8265,54 @@ def command_cleanup_zombie(args) -> None:
         fail("qdel was issued once but cleanup could not be verified; do not retry automatically", code=5)
 
 
+def active_cancellation_local_blocker(job: dict[str, Any]) -> str | None:
+    """Return the exact local evidence that belongs outside active cancel."""
+
+    status = job.get("status")
+    if status in {
+        "held", "exiting", "stale", "completed", "failed", "interrupted",
+        "cancellation_reserved", "cancellation_uncertain", "cancel_requested",
+    }:
+        return f"local job status is {status}"
+    for field in ("monitor_observation", "last_inspection"):
+        observation = job.get(field)
+        if not isinstance(observation, dict):
+            continue
+        if observation.get("state") in {
+            "held", "exiting", "stale", "completed", "failed", "interrupted",
+        }:
+            return f"{field} is not queued or running"
+        if observation.get("scheduler_zombie_candidate") is True:
+            return f"{field} belongs to scheduler-zombie review"
+    diagnosis = job.get("last_zombie_diagnosis")
+    if isinstance(diagnosis, dict) and (
+        diagnosis.get("classification") == "confirmed_scheduler_zombie"
+        or diagnosis.get("cleanup_eligible") is True
+    ):
+        return "confirmed scheduler-zombie evidence belongs to cleanup-zombie"
+    return None
+
+
+def record_active_cancellation_refusal(
+    local_dir: Path,
+    *,
+    phase: str,
+    evidence: dict[str, Any],
+) -> None:
+    classification = evidence.get("active_cancel_classification", "unknown")
+    update_job(
+        local_dir,
+        status="cancellation_uncertain",
+        cancellation_precheck={
+            "phase": phase,
+            "classification": f"{classification}_no_qdel",
+            "pbs_evidence": qstat_compatibility_evidence(evidence),
+            "qdel_issued": False,
+            "automatic_retry_authorized": False,
+        },
+    )
+
+
 def command_cancel(args) -> None:
     job_id = validate_job_id(args.job_id)
     if not args.local_dir or not args.approval_record or not args.execution_batch_ledger or not args.attempt_id:
@@ -8182,7 +8320,9 @@ def command_cancel(args) -> None:
             "active cancellation requires --local-dir, exact --approval-record, "
             "--execution-batch-ledger, and --attempt-id; --confirmed is not authority"
         )
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    local_dir = checked_local_path(
+        Path(args.local_dir), "active cancellation local job directory"
+    )
     if (local_dir / "cancellation-intent.json").exists():
         fail(
             "cancellation intent already exists; this job scope is consumed and qdel is "
@@ -8194,6 +8334,12 @@ def command_cancel(args) -> None:
     project = validate_project(job["project"])
     if job.get("job_id") != job_id or job.get("remote_workdir") != remote_project_dir(project):
         fail("local job state does not match the exact cancellation target")
+    local_blocker = active_cancellation_local_blocker(job)
+    if local_blocker is not None:
+        fail(
+            "active cancellation is limited to queued/running jobs; "
+            f"qdel is forbidden because {local_blocker}"
+        )
     ledger_path = Path(args.execution_batch_ledger).expanduser().resolve()
     try:
         ledger = validate_execution_ledger_path(ledger_path)
@@ -8298,33 +8444,70 @@ def command_cancel(args) -> None:
             code=5,
         )
     before = run(nested_ssh(args, "qstat", "-f", job_id), check=False)
-    before_evidence = classify_qstat_evidence(before)
-    if (
-        before_evidence["status"] != "present"
-        or before_evidence["job_name"] != project
-    ):
-        classification = (
-            "absent_no_qdel" if before_evidence["status"] == "absent"
-            else "unknown_no_qdel"
-        )
-        update_job(
-            local_dir,
-            status="cancellation_uncertain",
-            cancellation_precheck={
-                "classification": classification,
-                "pbs_evidence": before_evidence,
-                "qdel_issued": False,
-                "automatic_retry_authorized": False,
-            },
+    before_evidence = classify_active_cancellation_qstat(
+        before, job_id=job_id, project=project
+    )
+    if before_evidence["active_cancel_eligible"] is not True:
+        record_active_cancellation_refusal(
+            local_dir, phase="initial", evidence=before_evidence
         )
         fail(
-            "cancellation intent is consumed but exact active-job evidence is absent or unknown; "
+            "cancellation intent is consumed but exact queued/running evidence is unavailable; "
+            "qdel was not issued and must not be retried automatically",
+            code=3,
+        )
+    update_job(
+        local_dir,
+        cancellation_precheck={
+            "phase": "initial",
+            "classification": "active",
+            "pbs_evidence": qstat_compatibility_evidence(before_evidence),
+            "qdel_issued": False,
+            "automatic_retry_authorized": False,
+        },
+    )
+    immediately_before = run(
+        nested_ssh(args, "qstat", "-f", job_id), check=False
+    )
+    immediately_before_evidence = classify_active_cancellation_qstat(
+        immediately_before, job_id=job_id, project=project
+    )
+    if immediately_before_evidence["active_cancel_eligible"] is not True:
+        record_active_cancellation_refusal(
+            local_dir,
+            phase="immediately_before_qdel",
+            evidence=immediately_before_evidence,
+        )
+        fail(
+            "cancellation intent is consumed but queued/running evidence changed before qdel; "
+            "qdel was not issued and must not be retried automatically",
+            code=3,
+        )
+    exact_record_fields = ("observed_job_id", "job_name", "pbs_state")
+    if any(
+        immediately_before_evidence[field] != before_evidence[field]
+        for field in exact_record_fields
+    ):
+        drift_evidence = {
+            **immediately_before_evidence,
+            "active_cancel_classification": "pre_effect_record_drift",
+        }
+        record_active_cancellation_refusal(
+            local_dir,
+            phase="immediately_before_qdel",
+            evidence=drift_evidence,
+        )
+        fail(
+            "cancellation intent is consumed but the exact active PBS record changed before qdel; "
             "qdel was not issued and must not be retried automatically",
             code=3,
         )
     update_job(
         local_dir,
         status="cancellation_uncertain",
+        cancellation_pre_effect_evidence=qstat_compatibility_evidence(
+            immediately_before_evidence
+        ),
         qdel_invocation_started=True,
         qdel_invocation_started_at=utc_now(),
     )
@@ -8378,7 +8561,9 @@ def command_reconcile_cancellation(args) -> None:
     """Read one exact PBS record after a consumed intent; never issue qdel."""
 
     job_id = validate_job_id(args.job_id)
-    local_dir = Path(args.local_dir).expanduser().resolve()
+    local_dir = checked_local_path(
+        Path(args.local_dir), "cancellation reconciliation local job directory"
+    )
     job = read_job_state(local_dir)
     project = validate_project(str(job.get("project", "")))
     if job.get("job_id") != job_id or job.get("remote_workdir") != remote_project_dir(project):
@@ -8400,8 +8585,10 @@ def command_reconcile_cancellation(args) -> None:
     ):
         fail("immutable cancellation intent hash/scope is invalid")
     result = run(nested_ssh(args, "qstat", "-f", job_id), check=False)
-    evidence = classify_qstat_evidence(result)
-    if evidence["status"] == "present" and evidence["job_name"] == project:
+    evidence = classify_active_cancellation_qstat(
+        result, job_id=job_id, project=project
+    )
+    if evidence["active_cancel_eligible"] is True:
         classification = "active"
     elif evidence["status"] == "absent":
         classification = "absent"
@@ -8413,7 +8600,7 @@ def command_reconcile_cancellation(args) -> None:
         "job_id": job_id,
         "intent_sha256": intent["intent_sha256"],
         "classification": classification,
-        "pbs_evidence": evidence,
+        "pbs_evidence": qstat_compatibility_evidence(evidence),
         "remote_read_only": True,
         "qdel_issued": False,
         "automatic_retry_authorized": False,

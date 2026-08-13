@@ -25,6 +25,7 @@ TOOL_KEYS = {
     "schema-validation-lock",
 }
 SCHEMA_VALIDATION_ENTRYPOINT = "requirements/schema-validation.txt"
+LOCAL_SCHEMA_VALIDATION_RUNNER = "scripts/run_schema_validation.py"
 SCHEMA_VALIDATION_PINS = {
     "attrs": "26.1.0",
     "jsonschema": "4.26.0",
@@ -33,30 +34,7 @@ SCHEMA_VALIDATION_PINS = {
     "rpds-py": "2026.6.3",
     "typing-extensions": "4.16.0",
 }
-SCHEMA_DRAFT202012_TEST_MODULES = (
-    "tests.test_direct_root_mutation_boundary_schema_draft202012",
-    "tests.test_direct_root_owner_schema_draft202012",
-    "tests.test_execution_batch_reservation_capability_schema_draft202012",
-    "tests.test_legacy_root_authority_schema_draft202012",
-    "tests.test_live_approval_effect_time_replay_schema_draft202012",
-    "tests.test_local_state_binding_schema_draft202012",
-    "tests.test_protected_invocation_schema_draft202012",
-    "tests.test_protected_job_runtime_coordinator_schema_draft202012",
-    "tests.test_protected_legacy_effect_handoff_schema_draft202012",
-    "tests.test_protected_lifecycle_schema_draft202012",
-    "tests.test_protected_local_materialization_schema_draft202012",
-    "tests.test_protected_owner_consumer_schema_draft202012",
-    "tests.test_protected_production_factory_consumer_schema_draft202012",
-    "tests.test_protected_production_ingress_schema_draft202012",
-    "tests.test_protected_runtime_state_schema_draft202012",
-    "tests.test_protected_submit_schema_draft202012",
-    "tests.test_resource_effect_time_replay_schema_draft202012",
-)
-SCHEMA_VALIDATION_TEST_COMMAND = (
-    "python -m unittest "
-    + " ".join(SCHEMA_DRAFT202012_TEST_MODULES)
-    + " -v"
-)
+SCHEMA_TEST_MODULE = re.compile(r"tests\.test_[a-z0-9_]+_schema_draft202012")
 EXACT_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[A-Za-z0-9._+-]*)")
 REQUIRES_PYTHON = re.compile(
     r">=(3)\.(0|[1-9][0-9]*)\s*,\s*<(3)\.(0|[1-9][0-9]*)"
@@ -260,6 +238,58 @@ def parse_lock(root: Path, relative: str) -> dict[str, str]:
     return pins
 
 
+def load_local_schema_validation_contract(root: Path) -> dict[str, Any]:
+    """Read the public lock and the sole CI-owned ordered Schema inventory."""
+    root = root.resolve()
+    supported_python_minors, configured_paths = load_pyproject(root)
+    required = CI_CONTRACT.load_contract(_repo_file(root, "config/required-checks.json"))
+    workflow_paths = {
+        item["workflow_file"]
+        for item in required["required_checks"]
+        if item["job_id"] == "chemistry-dependencies"
+    }
+    if len(workflow_paths) != 1:
+        raise ContractError(
+            "chemistry-dependencies must own exactly one workflow for local Schema validation"
+        )
+    workflow_relative = next(iter(workflow_paths))
+    workflow = _repo_file(root, workflow_relative)
+    run_commands = CI_CONTRACT.parse_run_commands(workflow)
+    schema_commands = [
+        (job_id, command)
+        for job_id, commands in run_commands.items()
+        for command in commands
+        if "_schema_draft202012" in command
+    ]
+    if len(schema_commands) != 1 or schema_commands[0][0] != "chemistry-dependencies":
+        raise ContractError(
+            "CI must contain exactly one chemistry-dependencies Draft 2020-12 command"
+        )
+    command = schema_commands[0][1]
+    parts = command.split()
+    if (
+        len(parts) < 5
+        or parts[:3] != ["python", "-m", "unittest"]
+        or parts[-1] != "-v"
+    ):
+        raise ContractError("CI Draft 2020-12 command uses unsupported syntax")
+    modules = tuple(parts[3:-1])
+    if (
+        len(modules) != len(set(modules))
+        or not all(SCHEMA_TEST_MODULE.fullmatch(module) for module in modules)
+    ):
+        raise ContractError(
+            "CI Draft 2020-12 inventory must contain unique supported test modules"
+        )
+    return {
+        "workflow": workflow_relative,
+        "command": command,
+        "modules": modules,
+        "pins": parse_lock(root, configured_paths["schema-validation-lock"]),
+        "supported_python_minors": supported_python_minors,
+    }
+
+
 def validate_requirement_entrypoint(
     root: Path,
     relative: str,
@@ -375,12 +405,21 @@ def audit(root: Path) -> dict[str, Any]:
         f"tests.{path.stem}"
         for path in discovered_schema_paths
     )
-    _compare(
-        errors,
-        discovered_schema_modules,
-        SCHEMA_DRAFT202012_TEST_MODULES,
-        "Draft 2020-12 test module inventory",
+    _repo_file(root, LOCAL_SCHEMA_VALIDATION_RUNNER)
+    try:
+        static_quality = json.loads(_read(root, "config/static-quality.json"))
+    except json.JSONDecodeError as exc:
+        raise ContractError(f"invalid static-quality config: {exc}") from exc
+    selected_static_paths = (
+        static_quality.get("paths") if isinstance(static_quality, dict) else None
     )
+    if (
+        not isinstance(selected_static_paths, list)
+        or LOCAL_SCHEMA_VALIDATION_RUNNER not in selected_static_paths
+    ):
+        errors.append(
+            "local Schema-validation runner must remain selected by static quality"
+        )
     if core["requirements"] is not None or core["packages"] != {}:
         errors.append(
             "core profile must not contain third-party runtime requirements or packages"
@@ -443,6 +482,15 @@ def audit(root: Path) -> dict[str, Any]:
         _compare(errors, selectors.get(job_id), expected, f"CI {job_id} setup-python selector")
 
     run_commands = CI_CONTRACT.parse_run_commands(workflow)
+    local_schema_contract = load_local_schema_validation_contract(root)
+    schema_validation_test_command = local_schema_contract["command"]
+    schema_draft202012_test_modules = local_schema_contract["modules"]
+    _compare(
+        errors,
+        discovered_schema_modules,
+        schema_draft202012_test_modules,
+        "Draft 2020-12 test module inventory",
+    )
     expected_chemistry_commands = [
         "python -m pip install --requirement requirements/chemistry.txt",
         (
@@ -462,7 +510,7 @@ def audit(root: Path) -> dict[str, Any]:
             "print('; '.join(name + '=' + m.version(name) for name in names))\""
         ),
         "python -m unittest tests.test_rdkit_smoke -v",
-        SCHEMA_VALIDATION_TEST_COMMAND,
+        schema_validation_test_command,
     ]
     _compare(
         errors,
@@ -478,7 +526,7 @@ def audit(root: Path) -> dict[str, Any]:
             "requirements/schema-validation" in command
             or any(
                 module in command
-                for module in SCHEMA_DRAFT202012_TEST_MODULES
+                for module in schema_draft202012_test_modules
             )
         )
     ]
@@ -491,7 +539,7 @@ def audit(root: Path) -> dict[str, Any]:
                 "python -m pip install --requirement "
                 "requirements/schema-validation.txt",
             ),
-            ("chemistry-dependencies", SCHEMA_VALIDATION_TEST_COMMAND),
+            ("chemistry-dependencies", schema_validation_test_command),
         ],
         "test-only Schema validation CI boundary",
     )
@@ -499,7 +547,7 @@ def audit(root: Path) -> dict[str, Any]:
         "      - name: Run all required Draft 2020-12 contract Schemas\n"
         "        env:\n"
         '          AUTO_G16_REQUIRE_JSONSCHEMA: "1"\n'
-        f"        run: {SCHEMA_VALIDATION_TEST_COMMAND}\n"
+        f"        run: {schema_validation_test_command}\n"
     )
     if workflow_text.count(required_schema_step) != 1:
         errors.append(
@@ -538,13 +586,15 @@ def audit(root: Path) -> dict[str, Any]:
         },
         "test_only_schema_validation": {
             "entrypoint": SCHEMA_VALIDATION_ENTRYPOINT,
+            "local_runner": LOCAL_SCHEMA_VALIDATION_RUNNER,
             "lock": paths["schema-validation-lock"],
             "pins": SCHEMA_VALIDATION_PINS,
-            "modules": list(SCHEMA_DRAFT202012_TEST_MODULES),
+            "modules": list(schema_draft202012_test_modules),
+            "inventory_owner": local_schema_contract["workflow"],
             "core_runtime_dependency": False,
             "chemistry_runtime_dependency": False,
         },
-        "summary": {"errors": len(errors), "surfaces": 10},
+        "summary": {"errors": len(errors), "surfaces": 11},
         "errors": errors,
         "interpreter_availability_verified": False,
         "remote_branch_protection_verified": False,

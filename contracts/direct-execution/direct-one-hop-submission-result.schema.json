@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.local/contracts/direct-execution/direct-one-hop-submission-result.schema.json",
+  "title": "Auto-G16 direct one-hop exact submission receipt portable projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "protocol", "backend_kind", "topology", "scheduler_dialect", "transport_profile_payload_sha256", "binding_payload_sha256", "journal_id", "attempt_id", "project", "input_sha256", "authorization_payload_sha256", "uploaded", "qsub", "invocation", "outcome", "durable_outcome", "authority", "receipt_id", "result_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-one-hop-submission-result/1"},
+    "protocol": {"const": "auto-g16-direct-one-hop-transport/1"},
+    "backend_kind": {"const": "direct_ssh_pbs"},
+    "topology": {"const": "mac_controller_direct_ssh_server_child"},
+    "scheduler_dialect": {"const": "pbs_legacy_v1"},
+    "transport_profile_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "binding_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "journal_id": {"type": "string", "pattern": "^direct-durable-submission-journal-[a-f0-9]{64}$(?![\\s\\S])"},
+    "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$(?![\\s\\S])"},
+    "project": {"type": "string", "minLength": 1},
+    "input_sha256": {"$ref": "#/$defs/sha256"},
+    "authorization_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "uploaded": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [
+        {"$ref": "#/$defs/inputFile"},
+        {"$ref": "#/$defs/pbsFile"},
+        {"$ref": "#/$defs/checksumsFile"}
+      ],
+      "items": false
+    },
+    "qsub": {
+      "type": "object", "additionalProperties": false,
+      "required": ["calls", "job_id", "raw_stdout_included", "invocation_payload_sha256", "outcome_payload_sha256"],
+      "properties": {
+        "calls": {"const": "1"},
+        "job_id": {"$ref": "#/$defs/jobId"},
+        "raw_stdout_included": {"const": false},
+        "invocation_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "outcome_payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "invocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["executable", "argv", "working_directory", "call_count", "invocation_payload_sha256"],
+      "properties": {
+        "executable": {"$ref": "#/$defs/absoluteFile"},
+        "argv": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "prefixItems": [
+            {"$ref": "#/$defs/absoluteFile"},
+            {"const": "--"},
+            {"const": "auto-g16-job.pbs"}
+          ],
+          "items": false
+        },
+        "working_directory": {"const": "already_open_project_fd"},
+        "call_count": {"const": "1"},
+        "invocation_payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "outcome": {
+      "type": "object", "additionalProperties": false,
+      "required": ["classification", "returncode", "stderr_empty", "raw_stdout_retained", "job_id", "outcome_payload_sha256"],
+      "properties": {
+        "classification": {"const": "exact_job_id_accepted"},
+        "returncode": {"const": "0"},
+        "stderr_empty": {"const": true},
+        "raw_stdout_retained": {"const": false},
+        "job_id": {"$ref": "#/$defs/jobId"},
+        "outcome_payload_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "durable_outcome": {"const": "completed"},
+    "authority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authorizes_effect", "portable_result_is_authority", "automatic_retry", "second_qsub", "qdel", "delete"],
+      "properties": {
+        "authorizes_effect": {"const": false},
+        "portable_result_is_authority": {"const": false},
+        "automatic_retry": {"const": false},
+        "second_qsub": {"const": false},
+        "qdel": {"const": false},
+        "delete": {"const": false}
+      }
+    },
+    "receipt_id": {"type": "string", "pattern": "^direct-submission-receipt-[a-f0-9]{64}$(?![\\s\\S])"},
+    "result_payload_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "absoluteFile": {
+      "type": "string",
+      "pattern": "^/(?!/)(?:[^/\\x00-\\x20]+/)*[^/\\x00-\\x20]+$(?![\\s\\S])",
+      "not": {"pattern": "(?:^|/)\\.\\.?(?:/|$)"}
+    },
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$(?![\\s\\S])", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
+    "jobId": {"type": "string", "pattern": "^[1-9][0-9]{0,19}\\.[A-Za-z0-9][A-Za-z0-9.-]{0,127}$(?![\\s\\S])"},
+    "file": {
+      "type": "object", "additionalProperties": false,
+      "required": ["basename", "sha256", "size_bytes"],
+      "properties": {"basename": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"$ref": "#/$defs/positiveDecimal"}}
+    },
+    "inputFile": {"allOf": [{"$ref": "#/$defs/file"}, {"properties": {"basename": {"const": "approved-input.gjf"}}}]},
+    "pbsFile": {"allOf": [{"$ref": "#/$defs/file"}, {"properties": {"basename": {"const": "auto-g16-job.pbs"}}}]},
+    "checksumsFile": {"allOf": [{"$ref": "#/$defs/file"}, {"properties": {"basename": {"const": "checksums.sha256"}}}]},
+    "positiveDecimal": {"type": "string", "pattern": "^[1-9][0-9]*$(?![\\s\\S])"}
+  }
+}

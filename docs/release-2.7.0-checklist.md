@@ -1,63 +1,58 @@
 # Auto-G16 2.7.0 Release Preparation Checklist
 
-Status: local offline-only metadata closure on 2026-08-05. The closure starts
-from exact merged `main` commit
-`5b125a0b233b8815166c745e3654ba0053773333`, tree
-`53fb0d1ddbc9c7334fc3aa2db8d3b70379dec1f8`. This checklist does not claim a
-2.7.0 tag, GitHub Release, deployment, Skill synchronization, remote operation,
-live smoke, or scientific acceptance.
+Status: local offline-only release-package closure on 2026-08-06. The future
+tag target is unresolved and must be filled only after merge as
+`FINAL_POST_MERGE_MAIN_COMMIT` and `FINAL_POST_MERGE_MAIN_TREE`. This checklist
+does not claim a 2.7.0 tag, GitHub Release, deployment, Skill synchronization,
+remote operation, live smoke, or scientific acceptance.
 
 ## Task identity and frozen scope
 
 - Task class: maintenance patch / L3 release hygiene.
-- Include only the already merged v2.7 offline direct-root boundary,
-  `direct_ssh_pbs` synthetic transaction, closed Schema/state surfaces,
-  offline onboarding, migration guide, support matrix, and this release
-  metadata closure.
+- Include the already collected v2.7 offline direct-root boundary,
+  `direct_ssh_pbs` synthetic transaction, closed Schema/state surfaces, W1
+  observer, W2 durable journal, W3 replay ingress, W4 process-isolated helper,
+  offline onboarding, migration guide, support matrix, named-Skill package
+  mapping, and this release-package closure.
 - Preserve implementation, scientific logic, versioned Schemas, owner
   semantics, historical artifacts, and every fail-closed gate unchanged.
-- The exact base-to-final candidate scope contains these 16 paths and no
-  others:
-  - `.github/workflows/offline-tests.yml`
-  - `CHANGELOG.md`
-  - `README.md`
-  - `docs/release-2.7.0-checklist.md`
-  - `docs/repository-status.md`
-  - `docs/v2.7-direct-onboarding-support.md`
-  - `docs/v2.7-direct-root-mutation-boundary.md`
-  - `docs/v2.7-direct-ssh-pbs-offline-backend.md`
-  - `pyproject.toml`
-  - `scripts/audit_python_contract.py`
-  - `tests/fixtures/rtwin_pbs/release_2_7_ci_contract_successor.json`
-  - `tests/test_audit_python_contract.py`
-  - `tests/test_protected_legacy_effect_handoff.py`
-  - `tests/test_protected_production_ingress_contract.py`
-  - `tests/test_release_hygiene.py`
-  - `tests/test_resource_effect_time_replay_owner.py`
-- The original nine paths close release metadata, merged-state documentation,
-  and release-hygiene tests. The three successor paths
-  `.github/workflows/offline-tests.yml`, `scripts/audit_python_contract.py`,
-  and `tests/test_audit_python_contract.py` close the related CI-contract gap:
-  they bind the complete ordered 17-module Draft 2020-12 inventory and fail
-  closed on missing, extra, reordered, or otherwise drifted coverage.
-- The four additive compatibility paths comprise one new release CI successor
-  fixture plus three protected-chain tests. They preserve every historical
-  fixture byte, bind the old-to-new workflow and audit hashes, and state
-  `legacy_runtime_semantics_changed=false`. They were required after the first
-  exact-head Python 3.13 CI run correctly rejected five stale current-byte
-  assertions; no legacy runtime or scientific source changed.
+- Freeze the exact candidate scope from the final Git diff and record its path
+  manifest and byte hash in handoff evidence. Do not maintain a duplicated,
+  hard-coded path count in this checklist.
+- Derive the named-Skill package inventory from
+  `package_files_with_supplements`; do not freeze a target count in prose. The
+  machine name, base manifest, supplements, mapped scripts/references and
+  `SKILL.md` owner index must remain closed under offline package regression.
+- The canonical ordered Draft 2020-12 inventory remains owned by the static
+  Python/CI contract. Missing, extra, reordered, skipped or otherwise drifted
+  coverage fails closed without a duplicated module count here.
 
 ## Truthful capability boundary
 
 - `direct_ssh_pbs` has exactly the statuses `offline_synthetic`,
   `production_blocked`, and `live_not_ready`. It is not `backend_supported`,
   production-ready, transport-authorized, or live-ready.
-- Version 2.7.0 delivers offline interfaces, Schemas, states, synthetic
-  transactions, onboarding, migration guidance, and support reporting only.
-- Real no-follow observer/helper behavior, durable cross-process consumption
-  and uncertain-outcome storage, direct resource/live replay ingress, real
-  transport, `qsub`, inspect, fetch, and separately authorized live-smoke
-  evidence remain blockers.
+- The local package collection includes separately reviewed W1 observer, W2
+  durable journal, W3 resource/live replay ingress, and W4 process-isolated
+  fixed descriptor-relative helper components. It also includes direct
+  onboarding/support, mutation-boundary and offline-backend surfaces.
+- W4B fixed trusted server-local session composition is present in the local
+  collection and joins W1-W4 in one clean-exec process. The shared fixed-SSH
+  owner provides sealed single-use submit/query/fetch operation types with no
+  generic submit registrar or live mutable record accessor. Query/fetch remain
+  codec-only and production blocked. W5 fixed one-hop transport code
+  consumes the owner's submit operation and its typed child-local seam and
+  implements immutable upload and at-most-once `qsub` under offline-only
+  validation. W6C0 contributes only
+  the non-authorizing `pbs_legacy_v1` qstat parser/classifier and direct
+  provisional scheduler-evidence schemas/core; it does not own final
+  `gaussian-job-inspection/3`. W6L contributes the server-local existing-job
+  lineage observer and single-use read-capability foundation only. Real W6
+  query/fetch acquisition, local materialization and advanced inspection
+  remain blocked, and W7 is not present; separately
+  authorized live-smoke evidence remains blocked. The W3 ingress policy records
+  `production_closure=false` and
+  `arbitrary_same_process_reflection_isolated=false`.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed
   below `/home/user100/SDL`. Direct profile/root contracts do not relocate,
   generalize, or authorize that legacy backend.
@@ -103,8 +98,10 @@ pass on that same recorded final commit:
 2. `chemistry-dependencies` must install the locked
    `requirements/schema-validation.txt` dependency set, including
    `jsonschema==4.26.0`, set `AUTO_G16_REQUIRE_JSONSCHEMA=1`, and successfully
-   execute the canonical ordered set of all 17 current Draft 2020-12 modules,
-   including `tests.test_direct_root_mutation_boundary_schema_draft202012`.
+   execute the canonical ordered Draft 2020-12 module inventory,
+   including `tests.test_direct_effect_time_replay_ingress_schema_draft202012`,
+   `tests.test_direct_root_fixed_mutation_schema_draft202012`, and
+   `tests.test_direct_root_mutation_boundary_schema_draft202012`.
 3. The other required contexts, `python-compatibility (3.11)`,
    `python-compatibility (3.12)`, and `python-compatibility (3.13)`, must also
    succeed on the same final commit.

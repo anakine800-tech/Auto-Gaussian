@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-g16.invalid/contracts/direct-execution/direct-submitted-job-read-lineage.schema.json",
+  "title": "Auto-G16 Direct Submitted Job Read Lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "owner", "owner_version", "lineage_id", "backend_kind", "artifact_sha256", "binding", "durable", "descriptor_identity", "policy", "authority", "result_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-submitted-job-read-lineage/1"},
+    "owner": {"const": "auto-g16-direct-existing-job-lineage-owner"},
+    "owner_version": {"const": "direct-existing-job-lineage-owner/1"},
+    "lineage_id": {"type": "string", "pattern": "^direct-submitted-job-read-[a-f0-9]{64}$"},
+    "backend_kind": {"const": "direct_ssh_pbs"},
+    "artifact_sha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_policy", "stable_evidence", "profile", "authorization", "transport_profile", "ssh_system_policy_evidence", "pbs_script", "pbs_review", "input_bytes", "resource_ledger", "resource_policy", "resource_gate", "scheduler_snapshot", "live_approval"],
+      "properties": {
+        "profile_policy": {"$ref": "#/$defs/sha"},
+        "stable_evidence": {"$ref": "#/$defs/sha"},
+        "profile": {"$ref": "#/$defs/sha"},
+        "authorization": {"$ref": "#/$defs/sha"},
+        "transport_profile": {"$ref": "#/$defs/sha"},
+        "ssh_system_policy_evidence": {"$ref": "#/$defs/sha"},
+        "pbs_script": {"$ref": "#/$defs/sha"},
+        "pbs_review": {"$ref": "#/$defs/sha"},
+        "input_bytes": {"$ref": "#/$defs/sha"},
+        "resource_ledger": {"$ref": "#/$defs/sha"},
+        "resource_policy": {"$ref": "#/$defs/sha"},
+        "resource_gate": {"$ref": "#/$defs/sha"},
+        "scheduler_snapshot": {"$ref": "#/$defs/sha"},
+        "live_approval": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["journal_id", "binding_payload_sha256", "attempt_id", "project", "input_sha256", "authorization_payload_sha256", "authorization_scope_sha256", "transport_profile_payload_sha256", "job_id", "qsub_calls", "invocation_payload_sha256", "outcome_payload_sha256", "result_payload_sha256", "receipt_id", "remote_receipt_bytes_sha256"],
+      "properties": {
+        "journal_id": {"type": "string", "pattern": "^direct-durable-submission-journal-[a-f0-9]{64}$"},
+        "binding_payload_sha256": {"$ref": "#/$defs/sha"},
+        "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$"},
+        "project": {"type": "string", "minLength": 1},
+        "input_sha256": {"$ref": "#/$defs/sha"},
+        "authorization_payload_sha256": {"$ref": "#/$defs/sha"},
+        "authorization_scope_sha256": {"$ref": "#/$defs/sha"},
+        "transport_profile_payload_sha256": {"$ref": "#/$defs/sha"},
+        "job_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}\\.[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"},
+        "qsub_calls": {"const": "1"},
+        "invocation_payload_sha256": {"$ref": "#/$defs/sha"},
+        "outcome_payload_sha256": {"$ref": "#/$defs/sha"},
+        "result_payload_sha256": {"$ref": "#/$defs/sha"},
+        "receipt_id": {"type": "string", "pattern": "^direct-submission-receipt-[a-f0-9]{64}$"},
+        "remote_receipt_bytes_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "durable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "effective_outcome", "manifest_payload_sha256", "started_event_payload_sha256", "terminal_event_payload_sha256", "terminal_evidence_sha256", "journal_payload_sha256", "reconciliation_only_after_noncompleted"],
+      "properties": {
+        "state": {"const": "completed"},
+        "effective_outcome": {"const": "completed"},
+        "manifest_payload_sha256": {"$ref": "#/$defs/sha"},
+        "started_event_payload_sha256": {"$ref": "#/$defs/sha"},
+        "terminal_event_payload_sha256": {"$ref": "#/$defs/sha"},
+        "terminal_evidence_sha256": {"$ref": "#/$defs/sha"},
+        "journal_payload_sha256": {"$ref": "#/$defs/sha"},
+        "reconciliation_only_after_noncompleted": {"const": true}
+      }
+    },
+    "descriptor_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_sha256", "receipt_sha256", "journal_sha256"],
+      "properties": {
+        "project_sha256": {"$ref": "#/$defs/sha"},
+        "receipt_sha256": {"$ref": "#/$defs/sha"},
+        "journal_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server_local_clean_exec_required", "existing_workspace_read_only", "component_by_component_no_follow", "descriptor_relative_only", "portable_document_is_authority", "single_use_read_capability", "fork_revoked", "qsub", "second_qsub", "qstat", "fetch", "materialize", "qdel", "cancel", "cleanup", "delete", "scientific_acceptance"],
+      "properties": {
+        "server_local_clean_exec_required": {"const": true},
+        "existing_workspace_read_only": {"const": true},
+        "component_by_component_no_follow": {"const": true},
+        "descriptor_relative_only": {"const": true},
+        "portable_document_is_authority": {"const": false},
+        "single_use_read_capability": {"const": true},
+        "fork_revoked": {"const": true},
+        "qsub": {"const": false},
+        "second_qsub": {"const": false},
+        "qstat": {"const": false},
+        "fetch": {"const": false},
+        "materialize": {"const": false},
+        "qdel": {"const": false},
+        "cancel": {"const": false},
+        "cleanup": {"const": false},
+        "delete": {"const": false},
+        "scientific_acceptance": {"const": false}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorizes_effect", "authorizes_read_successor", "portable_projection_authorizes_effect", "portable_projection_authorizes_read", "scientific_acceptance", "query_implemented", "fetch_implemented", "remote_effects", "qsub_calls", "qdel_calls"],
+      "properties": {
+        "authorizes_effect": {"const": false},
+        "authorizes_read_successor": {"const": true},
+        "portable_projection_authorizes_effect": {"const": false},
+        "portable_projection_authorizes_read": {"const": false},
+        "scientific_acceptance": {"const": false},
+        "query_implemented": {"const": false},
+        "fetch_implemented": {"const": false},
+        "remote_effects": {"const": 0},
+        "qsub_calls": {"const": 0},
+        "qdel_calls": {"const": 0}
+      }
+    },
+    "result_payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}
+  }
+}

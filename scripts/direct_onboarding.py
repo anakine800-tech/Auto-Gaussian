@@ -37,13 +37,8 @@ EXPECTED_DIRECT_STATUSES = (
 )
 
 EXPECTED_PRODUCTION_GAPS = (
-    "real_no_follow_observer",
-    "physical_descriptor_relative_helper",
-    "durable_cross_process_consumption",
-    "direct_resource_effect_time_replay_ingress",
-    "direct_live_approval_effect_time_replay_ingress",
-    "direct_transport",
-    "real_qsub",
+    "direct_transport_live_evidence",
+    "real_qsub_live_evidence",
     "real_inspect",
     "real_fetch",
     "separately_authorized_live_smoke_evidence",
@@ -64,14 +59,18 @@ EXPECTED_SUPPORT_MATRIX = {
         ],
         "backend_supported": False,
         "live_ready": False,
-        "production_gaps": [
-            "real_no_follow_observer",
-            "physical_descriptor_relative_helper",
+        "trusted_server_local_session": "fixed_clean_exec_w5_code_offline_validated",
+        "composition_closed_gaps": [
             "durable_cross_process_consumption",
             "direct_resource_effect_time_replay_ingress",
             "direct_live_approval_effect_time_replay_ingress",
-            "direct_transport",
-            "real_qsub",
+        ],
+        "arbitrary_same_process_reflection_isolated": True,
+        "w3_portable_disclosure_arbitrary_same_process_reflection_isolated": False,
+        "production_closure": False,
+        "production_gaps": [
+            "direct_transport_live_evidence",
+            "real_qsub_live_evidence",
             "real_inspect",
             "real_fetch",
             "separately_authorized_live_smoke_evidence",
@@ -125,14 +124,15 @@ OWNER_GAP_SUPPORT_TOKENS = {
     "live_approval_effect_time_replay": "direct_live_approval_effect_time_replay_ingress",
 }
 
-PRODUCTION_GAPS = (
-    "real_no_follow_observer",
-    "physical_descriptor_relative_helper",
+COMPOSITION_CLOSED_GAPS = (
     "durable_cross_process_consumption",
     "direct_resource_effect_time_replay_ingress",
     "direct_live_approval_effect_time_replay_ingress",
-    "direct_transport",
-    "real_qsub",
+)
+
+PRODUCTION_GAPS = (
+    "direct_transport_live_evidence",
+    "real_qsub_live_evidence",
     "real_inspect",
     "real_fetch",
     "separately_authorized_live_smoke_evidence",
@@ -149,6 +149,11 @@ SUPPORT_MATRIX = {
         "statuses": list(DIRECT_STATUSES),
         "backend_supported": False,
         "live_ready": False,
+        "trusted_server_local_session": "fixed_clean_exec_w5_code_offline_validated",
+        "composition_closed_gaps": list(COMPOSITION_CLOSED_GAPS),
+        "arbitrary_same_process_reflection_isolated": True,
+        "w3_portable_disclosure_arbitrary_same_process_reflection_isolated": False,
+        "production_closure": False,
         "production_gaps": list(PRODUCTION_GAPS),
     },
     "local_gaussian": {"status": "unsupported"},
@@ -338,7 +343,9 @@ def _assert_pr6_non_authority() -> None:
             "direct_resource_effect_time_replay_ingress",
             "direct_live_approval_effect_time_replay_ingress",
         )
-        or any(token not in PRODUCTION_GAPS for token in owner_gap_tokens)
+        or tuple(direct_support["composition_closed_gaps"])
+        != COMPOSITION_CLOSED_GAPS
+        or any(token in PRODUCTION_GAPS for token in owner_gap_tokens)
         or not _is_exact_closed_mapping(
             direct_support,
             EXPECTED_SUPPORT_MATRIX["direct_ssh_pbs"],

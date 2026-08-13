@@ -453,7 +453,13 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
 Active cancellation does not rely on `--confirmed`. It requires a fresh
 `auto-g16-exact-cancellation-approval/1` binding approver/time/project/job ID,
 current local job-state hash and exact attempt hash, then consumes it into one
-immutable receipt. Cancellation never authorizes retry, cleanup or deletion.
+immutable receipt. The consumed intent permits `qdel` only after two exact,
+strict qstat records (the second immediately before the effect) both bind the
+approved job ID/name and report the single-token PBS state `Q` or `R`. `H`,
+`E`, terminal/stale/zombie evidence, absence, malformed/duplicate records,
+identity conflict, drift and transport ambiguity all issue no `qdel` and grant
+no retry. Cancellation never authorizes retry, cleanup or deletion, and never
+uses the separate scheduler-zombie cleanup owner.
 
 ## PBS zombie records
 
@@ -504,11 +510,145 @@ Zombie cleanup changes only a PBS-owned record. It never deletes or modifies `/h
 Read [references/environment-and-failures.md](references/environment-and-failures.md) for connection, stale PBS, fetch, and restart decisions.
 Read [references/runtime-safety-compatibility.md](references/runtime-safety-compatibility.md) for additive inspection fields and the direct-fetch migration.
 
-## Bundled scripts
+## Bundled scripts, references and owner index
+
+The named-Skill package maps repository-owned sources into one installed
+package; the paths below are an index, not copied owner implementations. The
+base `deployment-package.json` and its lexically ordered supplements remain the
+package authority. W1 through W4 are separately reviewed local/offline
+components in the current repository collection. W4B is the reviewed fixed
+trusted server-local composition seam; none of them is a direct production
+adapter:
+
+- The legacy active-cancel Q/R-only pre-effect maintenance rule is documented
+  in `references/legacy-active-cancel-state-gate.md`; it is not direct W7 and
+  adds no direct cancellation capability.
+
+- W1 root observation: `scripts/direct_root_owner_contract.py` with
+  `references/direct-root-owner-contract.md`.
+- W2 durable single-use and outcome state:
+  `scripts/direct_durable_submission_journal.py` with
+  `references/direct-durable-submission-journal.md`.
+- W3 exact resource/live replay ingress:
+  `scripts/direct_effect_time_replay_ingress.py` with
+  `references/direct-effect-time-replay-ingress.md`.
+- W4 process-isolated fixed descriptor-relative mutation:
+  `scripts/direct_root_fixed_mutation_consumer.py` and
+  `scripts/direct_root_fixed_mutation_helper.py` with
+  `references/direct-root-fixed-mutation-helper.md`.
+- W4B fixed trusted server-local session composition:
+  `scripts/direct_trusted_session_composition.py` and
+  `scripts/direct_trusted_session_clean_exec.py` with
+  `references/direct-trusted-session-composition.md`.
+- W5 fixed one-hop transport and at-most-once submission:
+  `scripts/direct_shared_fixed_ssh_channel.py`,
+  `scripts/direct_one_hop_transport.py`,
+  `contracts/rtwin-pbs/direct-shared-fixed-ssh-read-profile.schema.json`,
+  `contracts/rtwin-pbs/direct-one-hop-submission-result.schema.json`,
+  `contracts/rtwin-pbs/direct-one-hop-transport-profile.schema.json`,
+  `contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json`,
+  `references/direct-one-hop-transport.md`, and
+  `references/shared-fixed-ssh-channel.md`.
+- W6L existing submitted-job lineage/read-capability owner:
+  `scripts/direct_existing_job_lineage.py`,
+  `contracts/rtwin-pbs/direct-submitted-job-read-lineage.schema.json`, and
+  `references/direct-existing-job-lineage.md`. It revalidates exact completed
+  W5/W2 lineage and retains no-follow descriptors; its portable projection is
+  non-authorizing and cannot itself perform query or fetch. Exact Q1 and F1
+  owner joins consume mutually exclusive single-use live-lease successors for
+  qstat acquisition or bounded terminal-minimum fetch acquisition.
+- W6F fixed terminal-minimum fetch acquisition and closed T4 stream seam:
+  `scripts/direct_fetch_acquisition.py` with
+  `references/direct-fetch-acquisition.md`. It consumes only the exact live
+  W6L lease, reads the T4-owned ordered five-file allowlist descriptor-
+  relatively, prebinds the complete bundle hash, and transfers one fixed
+  chunk-bounded sequential session into T4's manifest-last owner. Partial
+  transport leaves the unique local audit directory without a manifest and
+  never deletes or retries. Production fetch is reachable only through the
+  exact terminal-grant client join and the shared fixed read subsystem; raw
+  job-ID and raw response-descriptor issuance remain test-only.
+- W6C0 direct read-only evidence core:
+  `scripts/direct_read_only_evidence.py` with
+  `references/direct-read-only-evidence-core.md`. It only parses pre-collected
+  qstat bytes and validates provisional non-authorizing scheduler evidence; it
+  does not own final `gaussian-job-inspection/3` and is not a transport,
+  inspect acquisition, fetch, or terminal-science owner.
+- W6Q1 exact qstat acquisition and final scheduler evidence:
+  `scripts/direct_reviewed_read_profile.py`,
+  `scripts/direct_qstat_acquisition.py`,
+  `contracts/rtwin-pbs/direct-reviewed-read-profile-capability.schema.json`,
+  `contracts/rtwin-pbs/direct-qstat-acquisition.schema.json`,
+  `contracts/rtwin-pbs/gaussian-job-inspection-v3.schema.json`, and
+  `references/direct-qstat-acquisition.md`. This production-shaped but only
+  offline-validated path consumes exact W5/L1 authority, runs the fixed qstat
+  query shape, and emits non-authorizing `gaussian-job-inspection/3` scheduler
+  evidence. It does not authorize live SSH/PBS/qstat, prove Gaussian
+  completion or scientific acceptance, or add fetch, retry, qdel or cleanup.
+- W6M minimum submit-query-fetch-materialize composition gate:
+  `scripts/direct_minimum_production_closure.py`,
+  `scripts/direct_read_subsystem_dispatcher.py`,
+  `contracts/rtwin-pbs/direct-terminal-fetch-grant.schema.json`, and
+  `contracts/rtwin-pbs/direct-minimum-resume-result.schema.json`, and
+  `references/direct-minimum-production-closure.md`. It consumes only the
+  exact owner-issued Q1 final inspection and issues one private single-use F1
+  transition for fresh `C`/`F` or exact absent evidence. `Q`, `R`, `H`, `E`,
+  unknown and stale evidence issue no fetch. Portable grant bytes authorize
+  nothing. Its effectful public submit entry accepts only the exact reviewed
+  artifact object and returns the completed W5/W2 receipt's canonical bytes. Its separate read
+  entry accepts that receipt's exact canonical bytes plus the same artifact
+  object, performs one Q1 query, and only then may enter one terminal fetch and
+  T4 materialization; it contains no qsub path. The fixed read dispatcher accepts only the exact qstat
+  or fetch tagged union. Cancel/qdel, retry, cleanup, deletion, advanced inspect and
+  scientific acceptance are out of scope.
+- T4 repo-external local materializer:
+  `scripts/direct_local_fetch_materializer.py`,
+  `contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json`,
+  `contracts/rtwin-pbs/direct-fetch-manifest.schema.json`, and
+  `references/direct-local-fetch-materializer.md`. It consumes only its exact
+  local target capability and exact sealed offline synthetic or closed
+  acquisition stream lease,
+  creates the fixed five-file no-clobber snapshot descriptor-relatively, and
+  writes the manifest last. Its production owner reads only the fixed reviewed
+  `/Library/Application Support/Auto-G16/direct-local-fetch-target-v1.json`
+  policy; no caller or environment selects a root. Deployment, live smoke and
+  scientific acceptance remain separately gated.
+- The direct boundary, offline backend and onboarding/support surfaces are
+  `scripts/direct_root_mutation_boundary.py` with
+  `references/direct-root-mutation-boundary.md`,
+  `scripts/direct_ssh_pbs_offline.py` with
+  `references/direct-ssh-pbs-offline-backend.md`, and
+  `scripts/direct_onboarding.py` with
+  `references/direct-onboarding-support.md`.
+
+W4B joins W1-W4 in one clean-exec process and W5 consumes only its typed
+child-local seam. The shared fixed-SSH channel owner fixes the OpenSSH
+executable/options, subsystem mapping, descriptor execution, framing,
+absolute deadline and child retirement. W5 consumes its sealed submit
+operation through the exact private W5 join; no generic submit registrar or
+live mutable shared record exists. Every acquisition atomically consumes its
+operation and finishes terminal on success or failure. W5 retains immutable
+descriptor-relative upload, reviewed PBS bytes, at-most-once qsub and exact
+submission receipt; its validation remains entirely offline with no live
+evidence. W6L adds only the server-local existing-job lineage observer and
+single-use read-capability foundation.
+Sealed query/fetch codecs alone do not authorize qstat or fetch. Q1 remains the
+sole qstat acquisition owner. W6M now joins the fixed submit, one query,
+terminal-only fetch and T4 production target through exact private owners and
+the closed-union read subsystem; its validation remains offline and live use
+is unauthorized. W6C0 remains a non-authorizing offline qstat parser/evidence
+core. T4 retains its offline synthetic test issuer while accepting the exact
+production closed-stream join. Deployment, live query/fetch, advanced inspect
+and W7 remain blocked. No qdel,
+cleanup,
+deployment or live authority is granted; the direct backend remains
+`offline_synthetic`, `production_blocked` and `live_not_ready`.
 
 - `scripts/platform_contracts.py`: standard-library-only strict canonical JSON,
   new closed platform-contract validation, sanitized legacy mapping and
   explicit private no-clobber profile init; it has no network or live operation.
+- `scripts/platform_runtime_config_owner.py` and `scripts/runtime_config.py`:
+  packaged runtime-configuration owner and compatibility loader; neither grants
+  a backend, transport or live capability.
 - `scripts/execution_authorization.py`: standard-library-only PR3 request,
   human-issued authorization and exact owner-replay gate; it returns only
   immutable offline closure evidence, uses ephemeral private validation copies,
@@ -527,6 +667,8 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/execution_facade.py` and `scripts/execution_models.py`: typed sealed
   execution boundary, fixed legacy backend dispatch, non-executable live
   attestation plan and narrow protected-submit seal/reserve entry points.
+- `scripts/transport_authority_closure.py`: packaged offline transport-authority
+  closure; it validates evidence but performs no transport.
 - `scripts/protected_submit_contract.py`: packaged copy of the repository
   owner that composes existing approvals and identity closures into a
   non-executable, single-use protected-submit bundle.
@@ -535,23 +677,47 @@ Read [references/runtime-safety-compatibility.md](references/runtime-safety-comp
 - `scripts/protected_invocation_contract.py`: packaged additive PR4F owner
   that composes PR4D, PR4G and the unique legacy stage-byte plan into a
   replayable in-process seal with no reservation or effect surface.
+- `scripts/protected_lifecycle_contract.py`: packaged non-executable lifecycle
+  ordering owner; all adapter, effect and reconciliation states remain closed.
 - `scripts/protected_local_materialization.py`: packaged additive PR4L owner
   for reserve-first, no-clobber exact stage materialization and final sealed
   local-state publication; it provides no adapter or external-effect method.
 - `scripts/protected_legacy_effect_handoff.py`: packaged additive PR4N owner
   for the non-executable typed PR4L-to-PR4M handoff; every effect, adapter and
   runner status remains false.
+- `scripts/protected_runtime_state_contract.py` and
+  `scripts/protected_owner_consumer_contract.py`: packaged state-chain and
+  single-consumer owners; they do not create a second raw effect owner.
 - `scripts/protected_production_ingress_contract.py`: packaged additive
   effect-free owner for the exact owner-consumer to production/factory-port
   handoff; production and the legacy internal factory consumer remain
   deliberately unwired.
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
+- `scripts/legacy_root_authority_contract.py`: packaged sole legacy-root
+  authority contract; it does not generalize or relocate `/home/user100/SDL`.
+- `scripts/resource_efficiency.py`,
+  `scripts/resource_effect_time_replay_owner.py`, and
+  `scripts/live_approval_effect_time_replay.py`: packaged sole resource and
+  live effect-time replay owners. The W3 ingress composes their capabilities
+  without copying selection or approval logic.
+- `scripts/legacy_adapter_integration.py`: packaged compatibility integration
+  for the existing legacy backend; it is not a direct transport implementation.
 - `scripts/legacy_rtwin_pbs.py`: the sole legacy execution implementation for
   preflight, stage, submit, inspect, watch, fetch, analyze and exact scheduler
   operations.
 - `scripts/gaussian_log.py`: deterministic Gaussian result and geometry parser.
 - `scripts/gaussian_workflow.py`: build and analyze Opt-Freq-single-point workflows and aggregate conformer populations.
+
+Additional packaged owner/reference entry points are
+`references/execution-batch-v3-reservation-capability.md`,
+`references/legacy-root-authority-contract.md`,
+`references/live-approval-effect-time-replay.md`,
+`references/resource-effect-time-replay-owner.md`,
+`references/protected-invocation-contract.md`, and
+`references/resource-monitor-efficiency.md`. Every other packaged reference is
+linked at its owning workflow gate above; adding a packaged script or reference
+requires updating this index in the same repository change.
 
 Read [references/live-approval-record.md](references/live-approval-record.md)
 before creating an exact live approval or invoking a non-dry-run `auto` command.

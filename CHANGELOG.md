@@ -5,6 +5,23 @@ All notable public release changes are recorded here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- Added the offline T4 repository-external local fetch target owner and fixed
+  descriptor-relative no-clobber five-file materializer. Its manifest proves
+  only safe local bytes; scientific acceptance and effect authority are false.
+- Added production-shaped, offline-validated exact qstat acquisition and final
+  non-authorizing `gaussian-job-inspection/3` scheduler evidence. The exact
+  result consumes W5/L1 authority and cannot be constructed from caller bytes
+  or provisional evidence.
+
+### Scope
+
+- Only offline synthetic validation exists. Live query, every fetch path,
+  production T3 shared-channel lease integration, SSH/PBS/Gaussian, retry,
+  cancellation, cleanup, deployment and live work remain blocked. Scheduler
+  evidence is not Gaussian completion or scientific acceptance.
+
 ## [2.7.0] - 2026-08-05
 
 ### Added
@@ -16,14 +33,23 @@ All notable public release changes are recorded here. The project follows
 - Added exact machine-readable direct status and gap reporting. The only
   current direct statuses are `offline_synthetic`, `production_blocked`, and
   `live_not_ready`; `backend_supported` and `live_ready` remain false.
+- The local package collection now includes the separately reviewed W1
+  backend-owned POSIX no-follow observer, W2 durable journal owner, W3 exact
+  resource/live replay ingress, and W4 process-isolated fixed descriptor-
+  relative mutation helper, plus direct boundary, offline-backend and
+  onboarding/support surfaces.
 
 ### Scope
 
-- Version 2.7.0 delivers only offline interfaces, Schemas, state transitions,
-  synthetic transactions, onboarding, and support documentation for
-  `direct_ssh_pbs`. It does not deliver a real observer, physical mutation
-  helper, durable cross-process consumption, direct transport, real `qsub`,
-  real inspect/fetch, or live-smoke evidence.
+- Version 2.7.0 remains an offline-only source candidate. W4B fixed trusted
+  server-local session composition is present in the local collection and
+  joins the W1-W4 local/offline components in one clean-exec process. W5 fixed
+  one-hop transport code consumes its typed child-local seam and implements
+  immutable upload and at-most-once `qsub` under offline-only validation.
+  W6L adds only the server-local existing-job lineage observer and single-use
+  read-capability foundation. W6C0 is a provisional non-authorizing qstat
+  evidence core; real W6 query/fetch/materialization/advanced inspection, W7
+  and live-smoke evidence remain blocked.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed
   below `/home/user100/SDL`. The direct profile contract does not relocate or
   generalize that legacy backend.

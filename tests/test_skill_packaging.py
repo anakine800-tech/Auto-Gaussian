@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,17 @@ def load_adapter():
 
 
 ADAPTER = load_adapter()
+SKILL_INDEX_TARGET = re.compile(
+    r"`(?P<code>(?:scripts|references)/[A-Za-z0-9_.\-/]+)`|"
+    r"\]\((?P<link>(?:scripts|references)/[A-Za-z0-9_.\-/]+)\)"
+)
+
+
+def skill_index_targets(text: str) -> set[Path]:
+    return {
+        Path(match.group("code") or match.group("link"))
+        for match in SKILL_INDEX_TARGET.finditer(text)
+    }
 
 
 class SkillPackagingTests(unittest.TestCase):
@@ -292,6 +304,141 @@ class SkillPackagingTests(unittest.TestCase):
             "RTwin/PBS contracts must be mapped from the repository root, not duplicated",
         )
 
+    def test_rtwin_package_map_and_skill_owner_index_are_closed(self) -> None:
+        skill_name = "auto-g16-rtwin-pbs"
+        skill_root = ROOT / "skills" / skill_name
+        skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        front_matter_name = re.search(r"(?m)^name: (auto-g16-[a-z0-9-]+)$", skill_text)
+        self.assertIsNotNone(front_matter_name)
+        self.assertEqual(front_matter_name.group(1), skill_name)
+
+        manifest_paths = [skill_root / package.MANIFEST_NAME]
+        manifest_paths.extend(
+            sorted(
+                (
+                    ROOT
+                    / "config/deployment-package-supplements"
+                    / skill_name
+                ).glob("*.json")
+            )
+        )
+        for manifest_path in manifest_paths:
+            with self.subTest(manifest=manifest_path.name):
+                document = package.load_json(manifest_path)
+                self.assertEqual(document["schema"], package.MANIFEST_SCHEMA)
+                self.assertEqual(document["skill"], skill_name)
+
+        package_map = package.package_files_with_supplements(ROOT, skill_name)
+        self.assertEqual(package_map[Path("SKILL.md")], skill_root / "SKILL.md")
+        packaged_targets = {
+            target
+            for target in package_map
+            if target.parts[0] in {"scripts", "references"}
+        }
+        indexed_targets = skill_index_targets(skill_text)
+        self.assertSetEqual(packaged_targets, indexed_targets)
+
+        reviewed_target = min(packaged_targets)
+        counterexample = Path("scripts/temporary_package_index_counterexample.py")
+        self.assertNotIn(counterexample, packaged_targets)
+        self.assertNotIn(counterexample, indexed_targets)
+        counterexamples = {
+            "package-target-deleted": (packaged_targets - {reviewed_target}, indexed_targets),
+            "package-target-added": (packaged_targets | {counterexample}, indexed_targets),
+            "skill-index-target-deleted": (packaged_targets, indexed_targets - {reviewed_target}),
+            "skill-index-target-added": (packaged_targets, indexed_targets | {counterexample}),
+        }
+        for label, (candidate_package, candidate_index) in counterexamples.items():
+            with self.subTest(counterexample=label):
+                with self.assertRaises(AssertionError):
+                    self.assertSetEqual(candidate_package, candidate_index)
+
+        current_direct_index = {
+            "W1": (
+                "scripts/direct_root_owner_contract.py",
+                "references/direct-root-owner-contract.md",
+            ),
+            "W2": (
+                "scripts/direct_durable_submission_journal.py",
+                "references/direct-durable-submission-journal.md",
+            ),
+            "W3": (
+                "scripts/direct_effect_time_replay_ingress.py",
+                "references/direct-effect-time-replay-ingress.md",
+            ),
+            "W4": (
+                "scripts/direct_root_fixed_mutation_consumer.py",
+                "scripts/direct_root_fixed_mutation_helper.py",
+                "references/direct-root-fixed-mutation-helper.md",
+            ),
+            "W4B": (
+                "scripts/direct_trusted_session_composition.py",
+                "scripts/direct_trusted_session_clean_exec.py",
+                "references/direct-trusted-session-composition.md",
+            ),
+            "W5": (
+                "scripts/direct_shared_fixed_ssh_channel.py",
+                "scripts/direct_one_hop_transport.py",
+                "contracts/rtwin-pbs/direct-shared-fixed-ssh-read-profile.schema.json",
+                "contracts/rtwin-pbs/direct-one-hop-submission-result.schema.json",
+                "contracts/rtwin-pbs/direct-one-hop-transport-profile.schema.json",
+                "contracts/rtwin-pbs/reviewed-direct-pbs-script.schema.json",
+                "references/direct-one-hop-transport.md",
+                "references/shared-fixed-ssh-channel.md",
+            ),
+            "W6L": (
+                "scripts/direct_existing_job_lineage.py",
+                "contracts/rtwin-pbs/direct-submitted-job-read-lineage.schema.json",
+                "references/direct-existing-job-lineage.md",
+            ),
+            "W6Q1": (
+                "scripts/direct_reviewed_read_profile.py",
+                "scripts/direct_qstat_acquisition.py",
+                "contracts/rtwin-pbs/direct-reviewed-read-profile-capability.schema.json",
+                "contracts/rtwin-pbs/direct-qstat-acquisition.schema.json",
+                "contracts/rtwin-pbs/gaussian-job-inspection-v3.schema.json",
+                "tests/test_direct_qstat_acquisition.py",
+                "tests/test_direct_qstat_acquisition_schema_draft202012.py",
+                "references/direct-qstat-acquisition.md",
+            ),
+            "W6F": (
+                "scripts/direct_fetch_acquisition.py",
+                "references/direct-fetch-acquisition.md",
+            ),
+            "W6M": (
+                "scripts/direct_minimum_production_closure.py",
+                "scripts/direct_read_subsystem_dispatcher.py",
+                "contracts/rtwin-pbs/direct-terminal-fetch-grant.schema.json",
+                "contracts/rtwin-pbs/direct-minimum-resume-result.schema.json",
+                "tests/test_direct_minimum_production_closure.py",
+                "tests/test_direct_minimum_production_closure_schema_draft202012.py",
+                "tests/test_direct_read_subsystem_dispatcher.py",
+                "references/direct-minimum-production-closure.md",
+            ),
+            "T4": (
+                "scripts/direct_local_fetch_materializer.py",
+                "contracts/rtwin-pbs/direct-local-fetch-target-policy.schema.json",
+                "contracts/rtwin-pbs/direct-fetch-manifest.schema.json",
+                "references/direct-local-fetch-materializer.md",
+            ),
+            "direct-boundary": (
+                "scripts/direct_root_mutation_boundary.py",
+                "references/direct-root-mutation-boundary.md",
+            ),
+            "direct-offline-backend": (
+                "scripts/direct_ssh_pbs_offline.py",
+                "references/direct-ssh-pbs-offline-backend.md",
+            ),
+            "direct-onboarding": (
+                "scripts/direct_onboarding.py",
+                "references/direct-onboarding-support.md",
+            ),
+        }
+        for owner, targets in current_direct_index.items():
+            for target in targets:
+                with self.subTest(owner=owner, target=target):
+                    self.assertIn(Path(target), package_map)
+
     def test_dry_run_does_not_write_and_apply_refuses_installed_extras(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             installed = Path(temporary) / "skills"
@@ -326,6 +473,93 @@ class SkillPackagingTests(unittest.TestCase):
                     confirmed=True, plan_sha256=drifted["plan_sha256"],
                 )
             self.assertEqual(extra.read_text(encoding="utf-8"), "do not delete implicitly\n")
+
+    def test_synced_rtwin_named_skill_imports_minimum_closure_in_isolation(self) -> None:
+        probe = r'''
+import pathlib, sys
+scripts = pathlib.Path(sys.argv[1]).resolve(strict=True)
+effects = pathlib.Path(sys.argv[2]).resolve(strict=True)
+sys.path.insert(0, str(scripts))
+import direct_trusted_session_composition as session
+import direct_minimum_production_closure as closure
+session._assert_module_binding()
+if session._FIXED_DEPENDENCY_LAYOUT != "named-skill":
+    raise AssertionError("NAMED_SKILL_LAYOUT_NOT_SELECTED")
+if session.AUTHORITY["external_effects"] != 0:
+    raise AssertionError("EXTERNAL_EFFECT_REPORTED")
+if session.AUTHORITY["qsub_calls"] != 0:
+    raise AssertionError("QSUB_REPORTED")
+owners = {item[0] for item in session._FIXED_DEPENDENCY_ORDER} | {
+    "direct_trusted_session_composition",
+    "direct_minimum_production_closure",
+}
+resolved = []
+for name, module in sorted(sys.modules.items()):
+    raw = getattr(module, "__file__", None)
+    if name in owners and isinstance(raw, str):
+        path = pathlib.Path(raw).resolve(strict=True)
+        if path.parent != scripts:
+            raise AssertionError("OWNER_OUTSIDE_STAGING:" + name + ":" + str(path))
+        resolved.append(name)
+if len(resolved) != 11:
+    raise AssertionError("OWNER_IMPORT_COUNT_DIFFERS:" + str(resolved))
+if any("/.codex/skills/auto-g16-rtwin-pbs/" in value for value in sys.path):
+    raise AssertionError("REAL_INSTALLED_SKILL_ON_SYS_PATH")
+if tuple(effects.iterdir()):
+    raise AssertionError("IMPORT_EFFECT_RECORDED")
+print("PURE_NAMED_SKILL_IMPORT_READY external_effects=0 qsub=0")
+'''
+        with tempfile.TemporaryDirectory(
+            prefix="auto-g16-packaged-import-"
+        ) as temporary:
+            root = Path(temporary).resolve()
+            installed = root / "skills"
+            installed.mkdir()
+            dry = sync.sync_skill(
+                ROOT, installed, "auto-g16-rtwin-pbs", apply=False, confirmed=False
+            )
+            applied = sync.sync_skill(
+                ROOT,
+                installed,
+                "auto-g16-rtwin-pbs",
+                apply=True,
+                confirmed=True,
+                plan_sha256=dry["plan_sha256"],
+            )
+            self.assertTrue(applied["applied"])
+            settled = sync.sync_skill(
+                ROOT, installed, "auto-g16-rtwin-pbs", apply=False, confirmed=False
+            )
+            self.assertEqual(settled["missing"], [])
+            self.assertEqual(settled["changed"], [])
+            self.assertEqual(settled["extra"], [])
+
+            scripts = installed / "auto-g16-rtwin-pbs/scripts"
+            isolated_home = root / "isolated-home"
+            empty_path = root / "empty-bin"
+            effects = root / "effects"
+            isolated_home.mkdir()
+            empty_path.mkdir()
+            effects.mkdir()
+            result = subprocess.run(
+                [sys.executable, "-I", "-S", "-B", "-c", probe,
+                 str(scripts), str(effects)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+                env={
+                    "HOME": str(isolated_home),
+                    "PATH": str(empty_path),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                result.stdout,
+                "PURE_NAMED_SKILL_IMPORT_READY external_effects=0 qsub=0\n",
+            )
+            self.assertEqual(tuple(effects.iterdir()), ())
 
     def test_apply_refuses_symlink_install_root_and_invalid_skill_name(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-direct-minimum-resume-result/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "submission", "query", "terminal_fetch_grant", "materialization_manifest", "authority", "result_payload_sha256"],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-minimum-resume-result/1"},
+    "status": {"enum": ["query_nonterminal", "query_unknown", "query_transport_unknown", "materialized"]},
+    "submission": {"$ref": "#/$defs/submission"},
+    "query": {"$ref": "#/$defs/query"},
+    "terminal_fetch_grant": {"type": ["object", "null"]},
+    "materialization_manifest": {"type": ["object", "null"]},
+    "authority": {"$ref": "#/$defs/authority"},
+    "result_payload_sha256": {"$ref": "#/$defs/nonzero_sha"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "query_transport_unknown"}}},
+      "then": {
+        "properties": {
+          "query": {"properties": {"inspection": {"const": null}, "transport_unknown": {"const": true}}},
+          "terminal_fetch_grant": {"const": null},
+          "materialization_manifest": {"const": null},
+          "authority": {"properties": {"fetch_performed": {"const": false}, "local_materialization_performed": {"const": false}, "explicit_future_query_required": {"const": true}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "query_nonterminal"}}},
+      "then": {
+        "properties": {
+          "query": {
+            "properties": {
+              "inspection": {
+                "type": "object",
+                "required": ["scheduler"],
+                "properties": {
+                  "scheduler": {
+                    "type": "object",
+                    "required": ["status", "state", "record_present", "pbs_state", "freshness"],
+                    "properties": {
+                      "status": {"not": {"const": "unknown"}},
+                      "freshness": {"const": "fresh"}
+                    },
+                    "not": {
+                      "anyOf": [
+                        {"properties": {"status": {"const": "present"}, "state": {"const": "terminal"}, "record_present": {"const": true}, "pbs_state": {"enum": ["C", "F"]}}, "required": ["status", "state", "record_present", "pbs_state"]},
+                        {"properties": {"status": {"const": "absent"}, "state": {"const": "absent"}, "record_present": {"const": false}, "pbs_state": {"const": null}}, "required": ["status", "state", "record_present", "pbs_state"]}
+                      ]
+                    }
+                  }
+                }
+              },
+              "transport_unknown": {"const": false}
+            }
+          },
+          "terminal_fetch_grant": {"const": null},
+          "materialization_manifest": {"const": null},
+          "authority": {"properties": {"fetch_performed": {"const": false}, "local_materialization_performed": {"const": false}, "explicit_future_query_required": {"const": true}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "query_unknown"}}},
+      "then": {
+        "properties": {
+          "query": {
+            "properties": {
+              "inspection": {
+                "type": "object",
+                "required": ["scheduler"],
+                "properties": {
+                  "scheduler": {
+                    "type": "object",
+                    "required": ["status", "freshness"],
+                    "anyOf": [
+                      {"properties": {"status": {"const": "unknown"}}},
+                      {"properties": {"freshness": {"not": {"const": "fresh"}}}}
+                    ]
+                  }
+                }
+              },
+              "transport_unknown": {"const": false}
+            }
+          },
+          "terminal_fetch_grant": {"const": null},
+          "materialization_manifest": {"const": null},
+          "authority": {"properties": {"fetch_performed": {"const": false}, "local_materialization_performed": {"const": false}, "explicit_future_query_required": {"const": true}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "materialized"}}},
+      "then": {
+        "properties": {
+          "query": {
+            "properties": {
+              "inspection": {
+                "type": "object",
+                "required": ["scheduler"],
+                "properties": {
+                  "scheduler": {
+                    "type": "object",
+                    "required": ["status", "state", "record_present", "pbs_state", "freshness"],
+                    "properties": {"freshness": {"const": "fresh"}},
+                    "oneOf": [
+                      {"properties": {"status": {"const": "present"}, "state": {"const": "terminal"}, "record_present": {"const": true}, "pbs_state": {"enum": ["C", "F"]}}},
+                      {"properties": {"status": {"const": "absent"}, "state": {"const": "absent"}, "record_present": {"const": false}, "pbs_state": {"const": null}}}
+                    ]
+                  }
+                }
+              },
+              "transport_unknown": {"const": false}
+            }
+          },
+          "terminal_fetch_grant": {
+            "type": "object",
+            "required": ["classification"],
+            "properties": {
+              "classification": {
+                "type": "object",
+                "required": ["freshness", "terminal_fetch_allowed"],
+                "properties": {"freshness": {"const": "fresh"}, "terminal_fetch_allowed": {"const": true}}
+              }
+            }
+          },
+          "materialization_manifest": {
+            "type": "object",
+            "required": ["stream", "authority", "integration"],
+            "properties": {
+              "stream": {"type": "object", "required": ["stream_mode"], "properties": {"stream_mode": {"const": "closed_fetch_acquisition_exact_owner"}}},
+              "authority": {"type": "object", "required": ["remote_fetch_performed", "scheduler_inspection_performed"], "properties": {"remote_fetch_performed": {"const": true}, "scheduler_inspection_performed": {"const": true}}},
+              "integration": {"type": "object", "required": ["production_integration"], "properties": {"production_integration": {"const": true}}}
+            }
+          },
+          "authority": {"properties": {"fetch_performed": {"const": true}, "local_materialization_performed": {"const": true}, "explicit_future_query_required": {"const": false}}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nonzero_sha": {"type": "string", "pattern": "^(?!0{64}$)[a-f0-9]{64}$"},
+    "submission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt_bytes_sha256", "result_payload_sha256", "project", "attempt_id", "job_id", "prior_submission_qsub_calls"],
+      "properties": {
+        "receipt_bytes_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "result_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "project": {"type": "string", "minLength": 1},
+        "attempt_id": {"type": "string", "minLength": 1},
+        "job_id": {"type": "string", "pattern": "^[1-9][0-9]{0,19}\\.[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"},
+        "prior_submission_qsub_calls": {"const": "1"}
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempted", "inspection", "transport_unknown"],
+      "properties": {
+        "attempted": {"const": true},
+        "inspection": {"type": ["object", "null"]},
+        "transport_unknown": {"type": "boolean"}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portable_result", "authorizes_effect", "this_call_qsub_calls", "qdel_calls", "automatic_retry", "fetch_performed", "local_materialization_performed", "cancel_performed", "advanced_inspect_performed", "scientific_acceptance", "explicit_future_query_required"],
+      "properties": {
+        "portable_result": {"const": true},
+        "authorizes_effect": {"const": false},
+        "this_call_qsub_calls": {"const": "0"},
+        "qdel_calls": {"const": "0"},
+        "automatic_retry": {"const": false},
+        "fetch_performed": {"type": "boolean"},
+        "local_materialization_performed": {"type": "boolean"},
+        "cancel_performed": {"const": false},
+        "advanced_inspect_performed": {"const": false},
+        "scientific_acceptance": {"const": false},
+        "explicit_future_query_required": {"type": "boolean"}
+      }
+    }
+  }
+}

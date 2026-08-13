@@ -188,7 +188,7 @@ class ReleaseHygieneTests(unittest.TestCase):
 
     def test_repository_status_separates_current_and_historical_evidence(self) -> None:
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
-        self.assertIn("## Current mainline state", status)
+        self.assertIn("## Current source-candidate state", status)
         self.assertIn("Auto-Gaussian 2.6.1 is the latest published release", status)
         self.assertIn(
             "Auto-Gaussian 2.7.0 is the current local offline-only source candidate",
@@ -279,6 +279,7 @@ class ReleaseHygieneTests(unittest.TestCase):
 
     def test_v27_release_boundary_is_offline_only_and_merged_docs_are_current(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         status = (ROOT / "docs" / "repository-status.md").read_text(encoding="utf-8")
         checklist = (ROOT / "docs" / "release-2.7.0-checklist.md").read_text(
             encoding="utf-8"
@@ -289,12 +290,34 @@ class ReleaseHygieneTests(unittest.TestCase):
             ROOT / "docs" / "v2.7-direct-onboarding-support.md",
         ]
 
-        for text in (readme, status, checklist):
+        for text in (readme, changelog, status, checklist):
             self.assertIn("legacy_rtwin_pbs", text)
             self.assertRegex(text, r"permanently fixed\s+below `/home/user100/SDL`")
             self.assertIn("offline_synthetic", text)
             self.assertIn("production_blocked", text)
             self.assertIn("live_not_ready", text)
+            normalized = " ".join(text.split())
+            integrated_markers = {
+                "W1 observer": r"\bW1\b[^.]*\bobserver\b",
+                "W2 durable journal": r"\bW2\b[^.]*\bjournal\b",
+                "W3 replay ingress": r"\bW3\b[^.]*\breplay ingress\b",
+                "W4 isolated helper": r"\bW4\b[^.]*\bhelper\b",
+                "W4B trusted composition": r"\bW4B\b[^.]*\bcomposition\b[^.]*\bpresent\b",
+                "W5 fixed transport": r"\bW5\b[^.]*\bfixed one-hop\b",
+                "W6L lineage owner": r"\bW6L\b[^.]*\b(?:lineage|read-capability)\b",
+                "W6C0 provisional core": r"\bW6C0\b[^.]*\b(?:provisional|non-authorizing)\b",
+            }
+            for marker, pattern in integrated_markers.items():
+                with self.subTest(marker=marker):
+                    self.assertRegex(normalized, pattern)
+            self.assertRegex(
+                normalized,
+                r"\b(?:real )?W6\b[^.]*\b(?:not present|remain blocked)\b",
+            )
+            self.assertRegex(
+                normalized,
+                r"\bW7\b[^.]*\b(?:not present|remain blocked)\b",
+            )
 
         for path in milestone_docs:
             text = path.read_text(encoding="utf-8")
@@ -304,7 +327,7 @@ class ReleaseHygieneTests(unittest.TestCase):
             self.assertNotRegex(text, r"(?m)^Branch:")
 
         combined = "\n".join(
-            [readme, status, checklist]
+            [readme, changelog, status, checklist]
             + [path.read_text(encoding="utf-8") for path in milestone_docs]
         )
         for forbidden in (
@@ -315,14 +338,18 @@ class ReleaseHygieneTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, combined)
         for blocker in (
-            "real no-follow",
-            "durable cross-process",
+            "real w6",
             "qsub",
             "inspect",
             "fetch",
             "live-smoke",
         ):
             self.assertIn(blocker, combined.lower())
+
+        self.assertIn("FINAL_POST_MERGE_MAIN_COMMIT", checklist)
+        self.assertIn("FINAL_POST_MERGE_MAIN_TREE", checklist)
+        self.assertNotRegex(checklist, r"contains these \d+ paths")
+        self.assertNotRegex(checklist, r"\d+-module Draft 2020-12 inventory")
 
     def test_machine_local_reports_are_ignored_and_not_release_material(self) -> None:
         ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")

@@ -1,0 +1,14 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {"source": "scripts/direct_minimum_production_closure.py", "target": "scripts/direct_minimum_production_closure.py"},
+    {"source": "scripts/direct_read_subsystem_dispatcher.py", "target": "scripts/direct_read_subsystem_dispatcher.py"},
+    {"source": "contracts/direct-execution/direct-terminal-fetch-grant.schema.json", "target": "contracts/rtwin-pbs/direct-terminal-fetch-grant.schema.json"},
+    {"source": "contracts/direct-execution/direct-minimum-resume-result.schema.json", "target": "contracts/rtwin-pbs/direct-minimum-resume-result.schema.json"},
+    {"source": "tests/test_direct_minimum_production_closure.py", "target": "tests/test_direct_minimum_production_closure.py"},
+    {"source": "tests/test_direct_minimum_production_closure_schema_draft202012.py", "target": "tests/test_direct_minimum_production_closure_schema_draft202012.py"},
+    {"source": "tests/test_direct_read_subsystem_dispatcher.py", "target": "tests/test_direct_read_subsystem_dispatcher.py"},
+    {"source": "docs/v2.7-direct-minimum-production-closure.md", "target": "references/direct-minimum-production-closure.md"}
+  ]
+}

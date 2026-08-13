@@ -768,12 +768,102 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         release_successor = release_successor_document["files"]
-        for relative, expected in fixture["frozen_predecessors"].items():
+        direct_replay_successor_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "direct_effect_time_replay_ingress_ci_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        direct_replay_successor = direct_replay_successor_document["files"]
+        foundation_successor_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_foundation_integration_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        foundation_successor = foundation_successor_document["files"]
+        local_integration_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_local_draft_integration_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        local_integration = local_integration_document["files"]
+        current_lineage_document = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )
+        current_lineage = current_lineage_document["files"]
+        lineage_verifier_terminal = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_lineage_verifier_terminal.json"
+            ).read_text(encoding="utf-8")
+        )
+        historical_transition = lineage_verifier_terminal[
+            "historical_transition"
+        ]
+        immutable_verifier_objects = lineage_verifier_terminal[
+            "immutable_verifier_objects"
+        ]
+
+        def apply_foundation_successor(relative: str, expected: str) -> str:
+            if relative not in foundation_successor:
+                return expected
+            binding = foundation_successor[relative]
+            self.assertEqual(binding["before_sha256"], expected, relative)
+            return binding["sha256"]
+
+        def apply_local_integration(relative: str, expected: str) -> str:
+            if relative not in local_integration:
+                return expected
+            binding = local_integration[relative]
+            self.assertEqual(binding["left_before_sha256"], expected, relative)
+            return binding["sha256"]
+
+        def apply_current_lineage(relative: str, expected: str) -> str:
+            if relative not in current_lineage:
+                return expected
+            binding = current_lineage[relative]
+            self.assertEqual(binding["before_sha256"], expected, relative)
+            return binding["sha256"]
+
+        def apply_terminal_lineage(relative: str, expected: str) -> str:
+            if relative != historical_transition["verifier_path"]:
+                return expected
+            self.assertEqual(
+                expected,
+                historical_transition["before_sha256"],
+                relative,
+            )
+            return historical_transition["terminal_content_sha256"]
+
+        def assert_current_or_terminal(relative: str, expected: str) -> None:
+            if relative in immutable_verifier_objects:
+                self.assertEqual(
+                    expected,
+                    immutable_verifier_objects[relative]["content_sha256"],
+                    relative,
+                )
+                return
             self.assertEqual(
                 hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                 expected,
                 relative,
             )
+        for relative, expected in fixture["frozen_predecessors"].items():
+            expected = apply_foundation_successor(relative, expected)
+            expected = apply_local_integration(relative, expected)
+            expected = apply_current_lineage(relative, expected)
+            expected = apply_terminal_lineage(relative, expected)
+            assert_current_or_terminal(relative, expected)
         for relative, binding in fixture["successor_files"].items():
             expected = binding["sha256"]
             if relative in release_successor:
@@ -784,11 +874,19 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                     relative,
                 )
                 expected = successor_binding["sha256"]
-            self.assertEqual(
-                hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                expected,
-                relative,
-            )
+            if relative in direct_replay_successor:
+                successor_binding = direct_replay_successor[relative]
+                self.assertEqual(
+                    successor_binding["before_sha256"],
+                    expected,
+                    relative,
+                )
+                expected = successor_binding["sha256"]
+            expected = apply_foundation_successor(relative, expected)
+            expected = apply_local_integration(relative, expected)
+            expected = apply_current_lineage(relative, expected)
+            expected = apply_terminal_lineage(relative, expected)
+            assert_current_or_terminal(relative, expected)
         for relative, expected in fixture["new_files"].items():
             if relative in release_successor:
                 successor_binding = release_successor[relative]
@@ -798,11 +896,36 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                     relative,
                 )
                 expected = successor_binding["sha256"]
-            self.assertEqual(
-                hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                expected,
-                relative,
-            )
+            if relative in direct_replay_successor:
+                successor_binding = direct_replay_successor[relative]
+                self.assertEqual(
+                    successor_binding["before_sha256"],
+                    expected,
+                    relative,
+                )
+                expected = successor_binding["sha256"]
+            expected = apply_foundation_successor(relative, expected)
+            expected = apply_local_integration(relative, expected)
+            expected = apply_current_lineage(relative, expected)
+            expected = apply_terminal_lineage(relative, expected)
+            assert_current_or_terminal(relative, expected)
+        self.assertEqual(
+            lineage_verifier_terminal["schema"],
+            "auto-g16-v2.7-lineage-verifier-terminal/1",
+        )
+        self.assertEqual(
+            lineage_verifier_terminal["terminal_commit"],
+            "7744c47d70bfd58a2f87d20881810a39425e85f2",
+        )
+        self.assertEqual(
+            lineage_verifier_terminal["terminal_tree"],
+            "33fe4c9f6a83ccebe6d06a0731ab0d3e6df46e59",
+        )
+        self.assertFalse(
+            lineage_verifier_terminal["scope"][
+                "mutable_verifier_current_sha256_bound"
+            ]
+        )
         self.assertEqual(
             release_successor_document["schema"],
             "auto-g16-release-2.7-ci-contract-successor/1",
@@ -812,6 +935,25 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
                 "legacy_runtime_semantics_changed"
             ]
         )
+        self.assertEqual(
+            direct_replay_successor_document["schema"],
+            "auto-g16-direct-effect-time-replay-ingress-ci-successor/1",
+        )
+        self.assertFalse(
+            direct_replay_successor_document["scope"][
+                "legacy_runtime_semantics_changed"
+            ]
+        )
+        self.assertEqual(
+            foundation_successor_document["schema"],
+            "auto-g16-v2.7-production-foundation-integration-successor/1",
+        )
+        self.assertFalse(foundation_successor_document["scope"]["production_closure"])
+        self.assertEqual(
+            local_integration_document["schema"],
+            "auto-g16-v2.7-local-draft-integration-successor/1",
+        )
+        self.assertFalse(local_integration_document["scope"]["production_closure"])
         package = json.loads(
             (
                 ROOT / "skills/auto-g16-rtwin-pbs/deployment-package.json"

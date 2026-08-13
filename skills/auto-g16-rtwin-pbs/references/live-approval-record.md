@@ -50,11 +50,20 @@ Before any qstat or qdel, cancellation atomically publishes one immutable
 `cancellation-intent.json` with the exact approval/job/attempt hashes and adds
 the reservation to the append-only job event log. Any existing intent blocks
 every later qdel invocation, including after transport loss or local outcome-
-receipt failure. Once qdel invocation starts, every non-success result is
+receipt failure. Active cancellation then requires two strict exact-record
+qstat observations, with the second immediately before qdel. Both must contain
+exactly one matching Job Id, one matching Job_Name and the exact PBS state `Q`
+or `R`. They are two explicit prechecks after durable intent consumption, not
+an automatic retry. A non-active state, terminal/stale/zombie local evidence,
+absent record, missing/duplicate/malformed field, identity conflict, state
+drift or transport ambiguity issues no qdel; the consumed intent still forbids
+retry. Once qdel invocation starts, every non-success result is
 `cancellation_uncertain` and cannot be retried automatically.
 `reconcile-cancellation` is remote read-only: it classifies the exact job as
-`active`, `absent`, or `unknown`, never issues qdel, and never converts an old
-intent into new cancellation authority.
+`active` only for the same strict `Q`/`R` evidence, otherwise `absent` only for
+explicit Unknown Job Id or `unknown`; it never issues qdel and never converts
+an old intent into new cancellation authority. Local cancellation and
+reconciliation reject a symlink in the supplied job-directory ancestry.
 
 Create this record only after showing and approving the exact structure,
 stereochemistry, charge, multiplicity, route, memory, cores, input SHA-256,

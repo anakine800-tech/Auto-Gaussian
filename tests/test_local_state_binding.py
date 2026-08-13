@@ -544,6 +544,13 @@ class LocalStateBindingTests(unittest.TestCase):
                 "legacy_rtwin_pbs_fixed_constraint_successor.json",
             )
         ]
+        current_lineage = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "v2_7_production_closure_lineage_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, expected in manifest["files"].items():
             with self.subTest(path=relative):
                 actual = hashlib.sha256(
@@ -563,6 +570,10 @@ class LocalStateBindingTests(unittest.TestCase):
                         if "after_sha256" in record
                         else record["sha256"]
                     )
+                if relative in current_lineage:
+                    binding = current_lineage[relative]
+                    self.assertEqual(binding["before_sha256"], current)
+                    current = binding["sha256"]
                 self.assertEqual(actual, current)
 
     def test_package_and_source_relocation_preserve_exact_origin(self) -> None:

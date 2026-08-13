@@ -66,17 +66,24 @@ can be finalized.
 
 ## Resources and fresh server scope
 
+- [ ] Select exactly one backend. `legacy_rtwin_pbs` and `direct_ssh_pbs` have
+      different root owners and approval chains; neither may inherit the
+      other's root bytes or authority.
 - [ ] Resource tier is `simple`: 12 GB memory and 8 cores. Any different or
       smaller explicitly chosen custom smoke-test resource must be separately
       justified and approved; `general` or `complex` is not implicit.
 - [ ] Exact `%mem`: `12GB` unless a reviewed custom value is approved.
 - [ ] Exact `%nprocshared`: `8` unless a reviewed custom value is approved.
 - [ ] Fresh project name: `<BLOCKED: choose only after the exact input is set>`.
-- [ ] Canonical remote directory:
+- [ ] For `legacy_rtwin_pbs` only, the canonical remote directory is
       `/home/user100/SDL/<BLOCKED-fresh-project>`.
-- [ ] A read-only preflight proves the resolved project path is a non-symlink
-      below canonical `/home/user100/SDL` and the target project directory is
-      new and empty. Never upload to a non-empty directory or overwrite a job.
+- [ ] For `direct_ssh_pbs`, the canonical remote directory is derived only
+      from the separately reviewed, hash-bound direct root and exact project;
+      `/home/user100/SDL` is not copied from the legacy contract.
+- [ ] A read-only preflight proves the selected backend's resolved project path
+      is a non-symlink below its exact owner-approved root and the target
+      project directory is new and empty. Never upload to a non-empty directory
+      or overwrite a job.
 - [ ] Scratch is exactly below the fresh project directory, never `/tmp`.
 
 ## Exact live `/3` approval
@@ -115,8 +122,8 @@ occurs:
 
 - any identity, stereochemistry, charge, multiplicity, route, resource, input,
   receipt, project, or hash mismatch;
-- the project path is outside `/home/user100/SDL`, is a symlink, already exists
-  non-empty, or would overwrite data;
+- the project path is outside the selected backend's exact owner-approved root,
+  is a symlink, already exists non-empty, or would overwrite data;
 - the input is classified as protected/specialist or no longer matches the
   approved ordinary/minimum contract;
 - SSH/host-key, transfer, PBS, process, or Gaussian state is ambiguous;

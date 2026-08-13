@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auto-g16-direct-durable-submission-journal/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "owner",
+    "owner_version",
+    "journal_id",
+    "manifest_payload_sha256",
+    "identity",
+    "state",
+    "last_recorded_outcome",
+    "effective_outcome",
+    "events",
+    "reconciliation",
+    "policy",
+    "journal_payload_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "auto-g16-direct-durable-submission-journal/1"},
+    "owner": {"const": "auto-g16-direct-durable-submission-journal-owner"},
+    "owner_version": {"const": "direct-durable-submission-journal-owner/1"},
+    "journal_id": {
+      "type": "string",
+      "pattern": "^direct-durable-submission-journal-[a-f0-9]{64}$"
+    },
+    "manifest_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+    "identity": {"$ref": "#/$defs/identity"},
+    "state": {"enum": ["submission_uncertain", "completed"]},
+    "last_recorded_outcome": {"enum": ["started", "completed", "unknown"]},
+    "effective_outcome": {"enum": ["completed", "unknown"]},
+    "events": {
+      "type": "array",
+      "prefixItems": [
+        {"$ref": "#/$defs/started_event"},
+        {"$ref": "#/$defs/terminal_event"}
+      ],
+      "items": false,
+      "minItems": 1,
+      "maxItems": 2
+    },
+    "reconciliation": {"$ref": "#/$defs/reconciliation"},
+    "policy": {"$ref": "#/$defs/policy"},
+    "journal_payload_sha256": {"$ref": "#/$defs/nonzero_sha"}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "state": {"const": "submission_uncertain"},
+        "last_recorded_outcome": {"const": "started"},
+        "effective_outcome": {"const": "unknown"},
+        "events": {"minItems": 1, "maxItems": 1}
+      }
+    },
+    {
+      "properties": {
+        "state": {"const": "completed"},
+        "last_recorded_outcome": {"const": "completed"},
+        "effective_outcome": {"const": "completed"},
+        "events": {
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{}, {"properties": {"outcome": {"const": "completed"}}}]
+        }
+      }
+    },
+    {
+      "properties": {
+        "state": {"const": "submission_uncertain"},
+        "last_recorded_outcome": {"const": "unknown"},
+        "effective_outcome": {"const": "unknown"},
+        "events": {
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{}, {"properties": {"outcome": {"const": "unknown"}}}]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonzero_sha": {
+      "allOf": [
+        {"$ref": "#/$defs/sha"},
+        {"not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}
+      ]
+    },
+    "text": {"type": "string", "minLength": 1},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend_kind",
+        "binding_payload_sha256",
+        "profile_id",
+        "profile_payload_sha256",
+        "stable_root_evidence_sha256",
+        "resource_catalog_sha256",
+        "receipt_payload_sha256",
+        "authorization_id",
+        "authorization_payload_sha256",
+        "authorization_scope_sha256",
+        "project",
+        "workspace_binding_sha256",
+        "descriptor_set_sha256",
+        "input_sha256",
+        "resources_sha256",
+        "scientific_task_id",
+        "attempt_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "backend_kind": {"const": "direct_ssh_pbs"},
+        "binding_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "profile_id": {"$ref": "#/$defs/text"},
+        "profile_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "stable_root_evidence_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "resource_catalog_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "receipt_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "authorization_id": {"$ref": "#/$defs/text"},
+        "authorization_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "authorization_scope_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "project": {"$ref": "#/$defs/text"},
+        "workspace_binding_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "descriptor_set_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "input_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "resources_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "scientific_task_id": {"$ref": "#/$defs/text"},
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^qsub-attempt-[a-f0-9]{64}$"
+        },
+        "idempotency_key": {"$ref": "#/$defs/text"}
+      }
+    },
+    "base_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "owner",
+        "journal_id",
+        "binding_payload_sha256",
+        "sequence",
+        "event_type",
+        "state",
+        "outcome",
+        "previous_event_sha256",
+        "evidence_sha256",
+        "recorded_at",
+        "event_payload_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "auto-g16-direct-durable-submission-event/1"},
+        "owner": {"const": "auto-g16-direct-durable-submission-journal-owner"},
+        "journal_id": {"type": "string", "pattern": "^direct-durable-submission-journal-[a-f0-9]{64}$"},
+        "binding_payload_sha256": {"$ref": "#/$defs/nonzero_sha"},
+        "sequence": {"type": "integer", "minimum": 0, "maximum": 1},
+        "event_type": {"enum": ["submission_uncertain", "effect_completed", "effect_outcome_unknown"]},
+        "state": {"enum": ["submission_uncertain", "completed"]},
+        "outcome": {"enum": ["started", "completed", "unknown"]},
+        "previous_event_sha256": {"$ref": "#/$defs/sha"},
+        "evidence_sha256": {"$ref": "#/$defs/sha"},
+        "recorded_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"},
+        "event_payload_sha256": {"$ref": "#/$defs/nonzero_sha"}
+      }
+    },
+    "started_event": {
+      "allOf": [
+        {"$ref": "#/$defs/base_event"},
+        {
+          "properties": {
+            "sequence": {"const": 0},
+            "event_type": {"const": "submission_uncertain"},
+            "state": {"const": "submission_uncertain"},
+            "outcome": {"const": "started"},
+            "previous_event_sha256": {"const": "0000000000000000000000000000000000000000000000000000000000000000"},
+            "evidence_sha256": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
+          }
+        }
+      ]
+    },
+    "terminal_event": {
+      "allOf": [
+        {"$ref": "#/$defs/base_event"},
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "sequence": {"const": 1},
+                "event_type": {"const": "effect_completed"},
+                "state": {"const": "completed"},
+                "outcome": {"const": "completed"},
+                "previous_event_sha256": {"$ref": "#/$defs/nonzero_sha"},
+                "evidence_sha256": {"$ref": "#/$defs/nonzero_sha"}
+              }
+            },
+            {
+              "properties": {
+                "sequence": {"const": 1},
+                "event_type": {"const": "effect_outcome_unknown"},
+                "state": {"const": "submission_uncertain"},
+                "outcome": {"const": "unknown"},
+                "previous_event_sha256": {"$ref": "#/$defs/nonzero_sha"},
+                "evidence_sha256": {"$ref": "#/$defs/nonzero_sha"}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "read_only",
+        "mutation_performed",
+        "automatic_retry",
+        "second_effect_allowed",
+        "started_without_terminal_is_unknown"
+      ],
+      "properties": {
+        "mode": {"const": "read_only_reconciliation_only"},
+        "read_only": {"const": true},
+        "mutation_performed": {"const": false},
+        "automatic_retry": {"const": false},
+        "second_effect_allowed": {"const": false},
+        "started_without_terminal_is_unknown": {"const": true}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_state_only",
+        "append_only",
+        "no_clobber",
+        "cross_process_single_use",
+        "submission_uncertain_before_effect",
+        "creator_process_claim_only",
+        "forked_claim_rejected",
+        "closure_private_claim_registry",
+        "immutable_claim_registry_records",
+        "claim_canonical_state_replay",
+        "descriptor_identity_replay_before_terminal",
+        "arbitrary_same_process_reflection_isolated",
+        "single_terminal_slot",
+        "restart_read_only_reconciliation_only",
+        "automatic_retry",
+        "second_effect_allowed",
+        "portable_document_authorizes_effect",
+        "remote_effect_performed",
+        "qsub_authorized",
+        "delete_allowed",
+        "cleanup_allowed"
+      ],
+      "properties": {
+        "local_state_only": {"const": true},
+        "append_only": {"const": true},
+        "no_clobber": {"const": true},
+        "cross_process_single_use": {"const": true},
+        "submission_uncertain_before_effect": {"const": true},
+        "creator_process_claim_only": {"const": true},
+        "forked_claim_rejected": {"const": true},
+        "closure_private_claim_registry": {"const": true},
+        "immutable_claim_registry_records": {"const": true},
+        "claim_canonical_state_replay": {"const": true},
+        "descriptor_identity_replay_before_terminal": {"const": true},
+        "arbitrary_same_process_reflection_isolated": {"const": false},
+        "single_terminal_slot": {"const": true},
+        "restart_read_only_reconciliation_only": {"const": true},
+        "automatic_retry": {"const": false},
+        "second_effect_allowed": {"const": false},
+        "portable_document_authorizes_effect": {"const": false},
+        "remote_effect_performed": {"const": false},
+        "qsub_authorized": {"const": false},
+        "delete_allowed": {"const": false},
+        "cleanup_allowed": {"const": false}
+      }
+    }
+  }
+}

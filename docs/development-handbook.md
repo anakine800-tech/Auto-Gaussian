@@ -93,6 +93,14 @@ move the new task to a clean isolated worktree if ownership is unclear.
   remote protection, or a successful CI run. If Python 3.12 is unavailable
   locally, record that gap explicitly and require the 3.12 PR matrix result;
   do not install it from the network solely to complete local evidence.
+- For real local Draft 2020-12 coverage, use the reviewed test-only entrypoint
+  in [`local-draft-validation.md`](local-draft-validation.md). It discovers
+  only explicit or conventional existing isolated environments, verifies all
+  exact pins in `requirements/schema-validation.lock.txt`, and then runs the
+  ordered inventory owned by CI with `AUTO_G16_REQUIRE_JSONSCHEMA=1`. A missing
+  or drifted environment is `BLOCKED`, never a skipped or inferred pass. The
+  entrypoint never creates an environment, installs a package, or adds the
+  validator to `core` or `chem`.
 - Tests and fixtures must be offline and synthetic or release-cleared. A unit
   test must never contact SSH/RTwin/PBS/Gaussian, deploy, submit, cancel,
   migrate private data, or clean a server.
