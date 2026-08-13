@@ -21,6 +21,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
@@ -753,6 +755,7 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
     def test_frozen_predecessors_named_package_and_git_free_relocation(
         self,
     ) -> None:
+        integration_lineage = QST3_LINEAGE.load(ROOT)
         fixture = json.loads(
             (
                 ROOT
@@ -846,6 +849,9 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             return historical_transition["terminal_content_sha256"]
 
         def assert_current_or_terminal(relative: str, expected: str) -> None:
+            if relative in integration_lineage.records:
+                integration_lineage.assert_candidate(self, relative)
+                return
             if relative in immutable_verifier_objects:
                 self.assertEqual(
                     expected,

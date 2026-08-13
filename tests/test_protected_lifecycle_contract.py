@@ -25,6 +25,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
@@ -1247,6 +1249,7 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_predecessor_and_legacy_bytes_remain_frozen(self) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         lifecycle_successor = json.loads(
             (
                 ROOT
@@ -1368,10 +1371,13 @@ class ProtectedLifecycleContractTests(unittest.TestCase):
                     binding = current_lineage[relative]
                     self.assertEqual(binding["before_sha256"], current_hash)
                     current_hash = binding["sha256"]
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    current_hash,
-                )
+                if relative in lineage.records:
+                    lineage.assert_candidate(self, relative)
+                else:
+                    self.assertEqual(
+                        hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                        current_hash,
+                    )
 
     def test_named_skill_package_contains_owner_schema_and_reference(
         self,

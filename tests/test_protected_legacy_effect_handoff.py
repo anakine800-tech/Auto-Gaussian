@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
@@ -584,6 +586,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_fixture_binds_base_and_additive_candidate_files(self) -> None:
+        integration_lineage = QST3_LINEAGE.load(ROOT)
         fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
         successor = json.loads(
             FIXED_CONSTRAINT_SUCCESSOR_PATH.read_text(encoding="utf-8")
@@ -702,6 +705,9 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             relative: str,
             expected_sha256: str,
         ) -> None:
+            if relative in integration_lineage.records:
+                integration_lineage.assert_candidate(self, relative)
+                return
             if relative in immutable_verifier_objects:
                 self.assertEqual(
                     expected_sha256,

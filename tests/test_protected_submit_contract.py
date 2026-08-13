@@ -22,6 +22,8 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
@@ -1082,6 +1084,7 @@ class ProtectedSubmitContractTests(unittest.TestCase):
             )
 
     def test_historical_hashes_freeze_and_stage_extraction_is_explicit(self) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         manifest = json.loads(
             (
                 ROOT
@@ -1109,7 +1112,6 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                 "legacy_effect_owner_lifecycle_fix.json",
                 "protected_legacy_effect_handoff.json",
                 "legacy_rtwin_pbs_fixed_constraint_successor.json",
-                "protected_qst3_production_successor.json",
             )
         ]
         current_lineage = json.loads(
@@ -1140,6 +1142,8 @@ class ProtectedSubmitContractTests(unittest.TestCase):
                     binding = current_lineage[relative]
                     self.assertEqual(binding["before_sha256"], current)
                     current = binding["sha256"]
+                if relative in lineage.records:
+                    current = lineage.candidate_from_git_predecessor(relative)
                 self.assertEqual(actual, current)
 
     def test_facade_exact_owner_survives_shadow_cache_and_both_relocation_orders(self) -> None:

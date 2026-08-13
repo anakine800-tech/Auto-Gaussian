@@ -18,6 +18,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
 from tests.test_direct_root_owner_contract import DirectRootFixture
 
 
@@ -741,6 +742,7 @@ class DirectOnboardingTests(unittest.TestCase):
         self.assertIn("correlation risk", template)
 
     def test_package_links_naming_and_frozen_legacy_bytes(self) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         package = SKILL_PACKAGE.package_files_with_supplements(
             ROOT,
             "auto-g16-rtwin-pbs",
@@ -768,6 +770,8 @@ class DirectOnboardingTests(unittest.TestCase):
         }
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):
+                if relative in lineage.records:
+                    expected = lineage.candidate_from_git_predecessor(relative)
                 payload = (ROOT / relative).read_bytes()
                 self.assertEqual(hashlib.sha256(payload).hexdigest(), expected)
         legacy = (SCRIPTS / "legacy_root_authority_contract.py").read_text(

@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
@@ -829,6 +831,7 @@ class ProtectedRuntimeStateContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
 
     def test_frozen_predecessor_bytes_and_new_package_entries(self) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         fixture = json.loads(
             (
                 ROOT
@@ -848,11 +851,14 @@ class ProtectedRuntimeStateContractTests(unittest.TestCase):
                 binding = current_lineage[relative]
                 self.assertEqual(binding["before_sha256"], expected)
                 expected = binding["sha256"]
-            self.assertEqual(
-                hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                expected,
-                relative,
-            )
+            if relative in lineage.records:
+                lineage.assert_candidate(self, relative)
+            else:
+                self.assertEqual(
+                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                    expected,
+                    relative,
+                )
         package = json.loads(
             (
                 ROOT

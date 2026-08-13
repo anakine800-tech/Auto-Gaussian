@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
 SKILL_SCRIPTS = ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts"
@@ -651,6 +653,7 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
     def test_no_effect_surface_frozen_predecessors_and_package_supplement(
         self,
     ) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         source_path = ROOT_SCRIPTS / "resource_effect_time_replay_owner.py"
         tree = ast.parse(source_path.read_text(encoding="utf-8"))
         imports = {
@@ -780,10 +783,13 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                     current_binding = current_lineage[relative]
                     self.assertEqual(current_binding["before_sha256"], expected)
                     expected = current_binding["sha256"]
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    expected,
-                )
+                if relative in lineage.records:
+                    lineage.assert_candidate(self, relative)
+                else:
+                    self.assertEqual(
+                        hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                        expected,
+                    )
         self.assertEqual(
             direct_replay_successor_document["schema"],
             "auto-g16-direct-effect-time-replay-ingress-ci-successor/1",

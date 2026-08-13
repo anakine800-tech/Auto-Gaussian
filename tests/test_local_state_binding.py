@@ -19,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
@@ -519,6 +521,7 @@ class LocalStateBindingTests(unittest.TestCase):
             self.assertNotIn(forbidden, section)
 
     def test_predecessor_hashes_freeze_and_stage_extraction_is_explicit(self) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         manifest = json.loads(
             (
                 ROOT
@@ -542,7 +545,6 @@ class LocalStateBindingTests(unittest.TestCase):
                 "legacy_effect_owner_lifecycle_fix.json",
                 "protected_legacy_effect_handoff.json",
                 "legacy_rtwin_pbs_fixed_constraint_successor.json",
-                "protected_qst3_production_successor.json",
             )
         ]
         current_lineage = json.loads(
@@ -575,6 +577,8 @@ class LocalStateBindingTests(unittest.TestCase):
                     binding = current_lineage[relative]
                     self.assertEqual(binding["before_sha256"], current)
                     current = binding["sha256"]
+                if relative in lineage.records:
+                    current = lineage.candidate_from_git_predecessor(relative)
                 self.assertEqual(actual, current)
 
     def test_package_and_source_relocation_preserve_exact_origin(self) -> None:
