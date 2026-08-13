@@ -38,11 +38,13 @@ SUPPORTED_INPUT_APPROVALS = {
     "gaussian-input-approval-receipt/1",
     "gaussian-input-approval-receipt/2",
     "gaussian-input-approval-receipt/3",
+    "gaussian-input-approval-receipt/5",
 }
 SUPPORTED_LIVE_APPROVALS = {
     "auto-g16-live-submission-approval/9",
     "auto-g16-live-submission-approval/10",
     "auto-g16-live-submission-approval/11",
+    "auto-g16-live-submission-approval/13",
 }
 UNRESOLVED_ATTEMPT_STATES = {
     "submission_uncertain",

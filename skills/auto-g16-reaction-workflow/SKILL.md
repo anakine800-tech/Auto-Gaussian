@@ -408,6 +408,11 @@ Formal TS input remains blocked unless the exact plan already binds the owner-
 validated mechanism-support and TS-precedent artifacts and the overlay supplies
 the explicit edge/channel mapping. Without direct precedent, only one simple-
 tier pilot may pass after both minima; it remains an internal hypothesis.
+The sole `endpoint_anchored_ts_candidate` exception is not a formal-mechanism
+promotion: maturity `/2` may bind one exact 84-atom neutral-singlet endpoint
+pair to one `general` (50 GB/22 cores) QST3 candidate search, with task and
+concurrency limits of one and no automatic retry. Its artifact must keep both
+`mechanism_claim_authorized` and `accepted_ts_claim_authorized` false.
 Minimum acceptance binds the raw log and replays it through the RTwin/PBS
 Gaussian parser; a rehashed result JSON cannot substitute for that owner
 evidence. Passing this gate grants neither input approval nor live authority.
@@ -423,12 +428,39 @@ evidence receipt, gate, and exact-scope science action; it does not alter `/1`
 semantics. Manual evidence remains supporting-only, and `ts_input`,
 `ts_submission`, and `irc_input` still require separate input review. The
 overlay can consume `gaussian-minimum-lineage-handoff/2`. It replays the owner
-and binds an exact conformer-selection or endpoint-review source through input,
-project/job/attempt, terminal receipt, fetch snapshot, raw log, result,
+chain and binds an exact conformer-selection, endpoint-review, or reviewed
+accepted-result source through
+input, project/job/attempt, terminal receipt, fetch snapshot, raw log, result,
 checkpoint and optimized structure. Missing, stale or wrong-state lineage
 remains fail-closed. IRC and formal reporting additionally require exact owner
 TS-mode/path `/2` and complete thermochemistry/energy artifacts; `/1` booleans
 do not provide `/2` authority.
+
+Historical terminal receipts that predate exact process-absence recording may
+retain `process_alive: null` after PBS has purged the job. They remain blocked
+unless a separate `gaussian-terminal-process-reconciliation/1` replays exactly
+two hash-bound, at-least-five-second-separated project/stem probes with zero
+matching and zero unresolved relevant processes. The reconciliation is
+supporting evidence only; it never rewrites the terminal receipt or fetch
+snapshot and grants no scientific or live authority by itself.
+
+For an exact formal submission, first
+build the `ts_submission` action `/2`, then bind it with:
+
+```bash
+python3 scripts/scientific_maturity_v2.py authorize-action ts-submission-action.json \
+  --input exact-qst3.gjf --project fresh_project --work-kind formal_ts \
+  --resource-tier general --task-count 1 --estimated-core-hours 216 \
+  --planned-concurrency 1 --output scientific-action-authorization-v2.json
+```
+
+This `/2` authorization is non-live evidence and cannot substitute for an
+input receipt, live approval or protected production consumer.
+
+For the exact endpoint-anchored candidate exception, use the same command with
+`--work-kind endpoint_anchored_ts_candidate --resource-tier general`; the
+selected maturity action must be the reviewed pilot node and the owner will
+reject any system other than the exact 84-atom neutral-singlet endpoint pair.
 
 For a new portable closed-shell minimum chain, read
 [references/scientific-closure-lineage-contract.md](references/scientific-closure-lineage-contract.md)

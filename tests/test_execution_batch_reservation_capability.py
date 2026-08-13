@@ -13,6 +13,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
 from tests import test_resource_monitor_efficiency as PACKAGE4
 
 
@@ -420,8 +421,11 @@ class ExecutionBatchReservationCapabilityTests(unittest.TestCase):
             "scripts/protected_runtime_state_contract.py": "3c8a5b523c695b9ecba3345af5ab56a85fd4d578cfbd00832c07751e97d86d9f",
             "scripts/protected_production_ingress_contract.py": "0cb8d84271968dbc5641a2a2f625d3f3a950a793952104f773c73f71ff45e2df",
         }
+        lineage = QST3_LINEAGE.load(ROOT)
         for relative, expected in frozen.items():
             with self.subTest(relative=relative):
+                if relative in lineage.records:
+                    expected = lineage.candidate_from_git_predecessor(relative)
                 self.assertEqual(
                     hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
                     expected,

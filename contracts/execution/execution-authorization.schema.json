@@ -149,14 +149,15 @@
       "type": "object", "additionalProperties": false,
       "required": ["schema", "sha256", "size_bytes", "payload_sha256", "input_sha256", "work_kind"],
       "properties": {
-        "schema": {"enum": ["gaussian-input-approval-receipt/1", "gaussian-input-approval-receipt/2", "gaussian-input-approval-receipt/3"]},
+        "schema": {"enum": ["gaussian-input-approval-receipt/1", "gaussian-input-approval-receipt/2", "gaussian-input-approval-receipt/3", "gaussian-input-approval-receipt/5"]},
         "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 1},
         "payload_sha256": {"$ref": "#/$defs/sha256"}, "input_sha256": {"$ref": "#/$defs/sha256"},
-        "work_kind": {"enum": ["ordinary", "minimum"]}
+        "work_kind": {"enum": ["ordinary", "minimum", "formal_ts", "endpoint_anchored_ts_candidate"]}
       },
       "oneOf": [
         {"properties": {"schema": {"const": "gaussian-input-approval-receipt/1"}, "work_kind": {"enum": ["ordinary", "minimum"]}}},
-        {"properties": {"schema": {"enum": ["gaussian-input-approval-receipt/2", "gaussian-input-approval-receipt/3"]}, "work_kind": {"const": "minimum"}}}
+        {"properties": {"schema": {"enum": ["gaussian-input-approval-receipt/2", "gaussian-input-approval-receipt/3"]}, "work_kind": {"const": "minimum"}}},
+        {"properties": {"schema": {"const": "gaussian-input-approval-receipt/5"}, "work_kind": {"enum": ["formal_ts", "endpoint_anchored_ts_candidate"]}}}
       ]
     },
     "resource_chain": {

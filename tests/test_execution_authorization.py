@@ -782,6 +782,8 @@ class ExecutionAuthorizationTests(unittest.TestCase):
             ("gaussian-input-approval-receipt/1", "minimum"),
             ("gaussian-input-approval-receipt/2", "minimum"),
             ("gaussian-input-approval-receipt/3", "minimum"),
+            ("gaussian-input-approval-receipt/5", "formal_ts"),
+            ("gaussian-input-approval-receipt/5", "endpoint_anchored_ts_candidate"),
         }
         self.assertEqual(schema_pairs, expected_pairs)
         for receipt_schema in AUTH.SCIENTIFIC_RECEIPT_SCHEMAS:

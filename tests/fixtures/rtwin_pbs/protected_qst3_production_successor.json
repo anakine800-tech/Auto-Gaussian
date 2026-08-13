@@ -1,0 +1,411 @@
+{
+  "schema": "auto-g16-protected-qst3-production-successor/1",
+  "base_branch": "codex/bph3-h30-c4-ts-study",
+  "base_commit": "2a870b2f01c6b5bafaf5dbdf4b8d952944fbdc0e",
+  "base_tree": "5532ef3c55f25168d65a6d80d7505f88c192ca81",
+  "base_parents": [
+    "87d150f675326698007974b9847d04635944c55e",
+    "6edb1e43855470a12d728c6ed6ab160fd69ab7d8"
+  ],
+  "base_parent_semantics": "ordered_git_parent_list; first entry is the first-parent feature baseline",
+  "scope": {
+    "formal_closed_shell_qst3_receipt_v5": true,
+    "live_approval_v13": true,
+    "endpoint_minimum_lineages_replayed": true,
+    "action_budget_and_resources_replayed": true,
+    "ts_result_three_structure_binding": true,
+    "sole_legacy_effect_owner_retained": true,
+    "parallel_effect_owner_created": false,
+    "historical_fixtures_rewritten": false,
+    "live_actions": false,
+    "reviewed_result_minimum_origin": true,
+    "endpoint_anchored_ts_candidate": true
+  },
+  "files": {
+    "contracts/execution/execution-authorization.schema.json": {
+      "before_state": "present",
+      "before_sha256": "6514ee1a2480fd28669b7570c2e466810716e9ab47666fedd31b47757b39f58e",
+      "sha256": "34a3d6b910997e4f92209901ea0c1ab2522d6fcf1a750c5ae253bb6557a8cc91",
+      "change_class": "accept_qst3_receipt_v5_formal_ts",
+      "legacy_semantics_changed": false
+    },
+    "contracts/execution/execution-request.schema.json": {
+      "before_state": "present",
+      "before_sha256": "a7625d8c6f07412f9718f24c8eec30d4e06518743681161235808c3a53efef6b",
+      "sha256": "182c9c5d5d13ab42549f3b29a87cae9120789a2f3d94a0867cbbfa8f6f2307d4",
+      "change_class": "accept_qst3_receipt_v5_formal_ts",
+      "legacy_semantics_changed": false
+    },
+    "contracts/execution/protected-submit-bundle.schema.json": {
+      "before_state": "present",
+      "before_sha256": "eb88ae46acc4f8a17166ffb2d124430782e8bb563817eba50fa34a80e8851ac4",
+      "sha256": "79c44abf9d84f4be9a6a7c69538823144cac81b96ac91fe32c3899a9f4e6c3ad",
+      "change_class": "accept_qst3_receipt_v5_live_v13",
+      "legacy_semantics_changed": false
+    },
+    "contracts/live-approval-replay/live-approval-effect-time-replay.schema.json": {
+      "before_state": "present",
+      "before_sha256": "3b5f908f87e2135281aa5122de51974d02c0ed5e91304dd7bc5048f0a02a586b",
+      "sha256": "2754167b0d58f2635cb3446450ba135057337270f85468c65fe17fb511c8c36d",
+      "change_class": "accept_qst3_live_v13_effect_time_replay",
+      "legacy_semantics_changed": false
+    },
+    "contracts/reaction-workflow/minimum-lineage-handoff-v2.schema.json": {
+      "before_state": "present",
+      "before_sha256": "c1ca8b56a354eaf4dba6143a5714a7d028e7d46c94ff630d9076f3f973cccc1b",
+      "sha256": "09c5e3cb72f5e17935eaf3029a45d73c2a53491f19496e13635eb82bd73210a8",
+      "change_class": "allow_exact_reviewed_result_minimum_origin",
+      "legacy_semantics_changed": false
+    },
+    "contracts/reaction-workflow/scientific-action-authorization-v2.schema.json": {
+      "before_state": "absent",
+      "before_sha256": null,
+      "sha256": "51b5472beb854df8293d1d07e279b7be49655ab6ed19951524319ec77c2a3a80",
+      "change_class": "new_exact_formal_ts_action_budget_authorization",
+      "legacy_semantics_changed": false
+    },
+    "contracts/reaction-workflow/scientific-evidence-receipt.schema.json": {
+      "before_state": "present",
+      "before_sha256": "d22ff886f7a87ee8e8dff3b39ec4ade6ee33becbd2077a0969b3efd9a050803b",
+      "sha256": "f0275b01ad77f0b4734f4ce2fd12b0b0ed2b8a7a363fc3d626c1e14f670032bc",
+      "change_class": "project_reviewed_result_origin_without_fabricated_conformer",
+      "legacy_semantics_changed": false
+    },
+    "contracts/reaction-workflow/scientific-maturity-gate-v2.schema.json": {
+      "before_state": "present",
+      "before_sha256": "d834b83a841e571c67eeb091b66bd5bba7ebcc909fb83899760e63cc6fc13b3e",
+      "sha256": "b1b63e3296fb16b534f85684f7568f6008593bb615ed6b89671894090ed5ab77",
+      "change_class": "repair_boolean_gate_schema",
+      "legacy_semantics_changed": false
+    },
+    "contracts/reaction-workflow/scientific-maturity-review-v2.schema.json": {
+      "before_state": "present",
+      "before_sha256": "4d21fdf0af9e1ccd68819f0f69a19b188e4a562ee80ae337d6005888e176552f",
+      "sha256": "e9c2dc0e3869e8a50b090aeb3bd36630a1a9d58b6e6223ebff5e1551fcf3b264",
+      "change_class": "allow_null_conformer_handoff_for_reviewed_result_origin",
+      "legacy_semantics_changed": false
+    },
+    "contracts/reaction-workflow/scientific-maturity-review.schema.json": {
+      "before_state": "present",
+      "before_sha256": "f2fa5606956b4b3a28891e2828e99d4a0dd14654f81261b3714f6aa24cba6087",
+      "sha256": "ecbd331d64bdfa8066b52976331c9b8e2dd80b48c972fbfeaa9a6cb009b3c60e",
+      "change_class": "allow_accepted_minimum_result_review_origin_scope",
+      "legacy_semantics_changed": false
+    },
+    "contracts/reaction-workflow/ts-freq-result-v2.schema.json": {
+      "before_state": "present",
+      "before_sha256": "227b21656999418174b9a5d30f3b9ff637630ec57629a9f0b0e8128257776073",
+      "sha256": "71cfc9eef752a3d4767adb7c886fc485d23bfd725fb4d72db10f3eed057abc3a",
+      "change_class": "add_optional_qst3_input_receipt_result_binding",
+      "legacy_semantics_changed": false
+    },
+    "contracts/rtwin-pbs/input-approval-receipt-v5.schema.json": {
+      "before_state": "absent",
+      "before_sha256": null,
+      "sha256": "033e9f5e496860186be90744757c1bf371a8d94174f7786d75dc06594c4bd568",
+      "change_class": "new_protected_qst3_exact_input_receipt_with_mechanism_atom_identity",
+      "legacy_semantics_changed": false
+    },
+    "contracts/rtwin-pbs/live-submission-approval-v13.schema.json": {
+      "before_state": "absent",
+      "before_sha256": null,
+      "sha256": "1e81e102b26d67fffc92a944c091398113b411a0484812cfe16fd8dfca750133",
+      "change_class": "new_protected_qst3_live_approval_with_mechanism_atom_identity",
+      "legacy_semantics_changed": false
+    },
+    "scripts/execution_authorization.py": {
+      "before_state": "present",
+      "before_sha256": "0c000ba91145943b6d8aec7570fad96d2ff519a595682cc4926e8277a46efe61",
+      "sha256": "664990a43527b0ff4aac1370573755cdf3ee0c53f2c87c0c5915d5a0b19ceedb",
+      "change_class": "consume_qst3_receipt_v5_formal_ts",
+      "legacy_semantics_changed": false
+    },
+    "scripts/live_approval_effect_time_replay.py": {
+      "before_state": "present",
+      "before_sha256": "2769f217473cd7c6eab50112d0425f4cb7ed1b4a397f2d4769ea046d466a45b1",
+      "sha256": "ddddd0bcfc1be2adcd6398942c88fdce6fee5d72ff4ba27a96ddc0985156f1f7",
+      "change_class": "replay_qst3_live_v13_at_effect_time",
+      "legacy_semantics_changed": false
+    },
+    "scripts/protected_submit_contract.py": {
+      "before_state": "present",
+      "before_sha256": "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a",
+      "sha256": "7d95938f69a2584da581fdf92a3ab533efb8eafdab4c79b9f748ca8513c79047",
+      "change_class": "accept_qst3_receipt_v5_live_v13_bundle",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-reaction-workflow/SKILL.md": {
+      "before_state": "present",
+      "before_sha256": "ac910ea9fb83ca15ec465c56deed44330da97e4c634420fa547db7c5d6d2dbbc",
+      "sha256": "8fbbb22f06c5420f4262ffe3cf5f6957fedc7be0f5dcc00ac67642ac3e2c6dbd",
+      "change_class": "document_action_authorization_and_reviewed_result_minimum_origin",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-reaction-workflow/references/scientific-maturity-owner-evidence-v2-contract.md": {
+      "before_state": "present",
+      "before_sha256": "6fd74294405e4f55a02301ed7de72538bfae48b3562a1287ae47a82e491c232b",
+      "sha256": "9c39cbbdb9dfc0940dc59dac72fa3cea6ecb8506f1f02cfdf8c63708f87f0d46",
+      "change_class": "document_reviewed_result_minimum_origin_and_non_live_boundary",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-reaction-workflow/scripts/scientific_closure_lineage.py": {
+      "before_state": "present",
+      "before_sha256": "c89f48005116d4bc16024c3b500c79b3fb3b5231b8c938e6bbdb403fde014b37",
+      "sha256": "91c9ffc10b40be2b7ec80e832e8327ee7f350103938e631950ad9afb3da870c9",
+      "change_class": "replay_exact_reviewed_result_origin_and_fix_cli_owner_import",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-reaction-workflow/scripts/scientific_maturity.py": {
+      "before_state": "present",
+      "before_sha256": "3a09e270a753402976882b540b048c04a9e2c7a1a2ef8af3f90c972b3a190772",
+      "sha256": "f3f781714dc096069bd863461ca501264905c9434cd76886b381d40aa2f0fd7e",
+      "change_class": "accept_reviewed_result_origin_scope",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-reaction-workflow/scripts/scientific_maturity_v2.py": {
+      "before_state": "present",
+      "before_sha256": "3c7d777316d02ff995ce65389161a96064e2b62cdd0f76aeb532d39c232fcd21",
+      "sha256": "b3ceff26bf798ad3504b69bff2b455d7b8fa8126136432be48a5e67add75e808",
+      "change_class": "add_action_authorization_endpoint_minima_mechanism_atom_projection_and_reviewed_result_origin",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/SKILL.md": {
+      "before_state": "present",
+      "before_sha256": "d5107598c2a5dac5c6cf875cd474d502621996282b3116729b7546bed63e2280",
+      "sha256": "2c274b9021ba9fef41089b8f7be402db34b81ed19759ac69a1cc2425405720b5",
+      "change_class": "document_versioned_qst3_production_successor_and_atom_identity",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/references/input-approval-receipt.md": {
+      "before_state": "present",
+      "before_sha256": "37b8d9d62e4cb2f10899177f03f3a627b04418898bf06d558fb85af9aac2c6ff",
+      "sha256": "70a4f11f6b898e8bf1f5dd7c223a5e15b9f082fedc11055fd0f1e8f90ee5a082",
+      "change_class": "document_qst3_receipt_v5_atom_identity_and_coordinate_tolerance",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/references/live-approval-record.md": {
+      "before_state": "present",
+      "before_sha256": "1030e0c95c0043a2c561197c75e12afa829273571dc9feefa43c82fe5993c109",
+      "sha256": "bff8a24847856c079127ff37f9196f0258d25950bba5ab637491c17f585b5d5e",
+      "change_class": "document_qst3_live_v13",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": {
+      "before_state": "present",
+      "before_sha256": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e",
+      "sha256": "c3dac03dcf5b91ff10b87c366d0f1a5f079ed0cb17e375fdf1b65f44e36bce87",
+      "change_class": "versioned_additive_qst3_consumer_on_sole_effect_owner_with_atom_identity",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-rtwin-pbs/scripts/protected_qst3_adapter.py": {
+      "before_state": "absent",
+      "before_sha256": null,
+      "sha256": "300d25181969046732035180d41e9da9f4e997ed8db73300aa8e7867f3f525c6",
+      "change_class": "new_qst3_specialist_family_atom_identity_and_tolerance_adapter_no_effect",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-ts-irc/SKILL.md": {
+      "before_state": "present",
+      "before_sha256": "b00a60e214ade1e0213ea211bcbded6a81014b08a7398f35bf04f53e36c87370",
+      "sha256": "1e740e7fe5fe42914af8404f7fb9f670a61836fdee53aae1cdf363bd67f28335",
+      "change_class": "document_qst3_family_hash_and_mechanism_atom_identity_result_gate",
+      "legacy_semantics_changed": false
+    },
+    "skills/auto-g16-ts-irc/scripts/ts_irc.py": {
+      "before_state": "present",
+      "before_sha256": "820192b4fdd15f55c45a02c79556bb72e210207dc10e697ea1431c610f61f8f2",
+      "sha256": "ce9158f2c8f3e7c86e7b9442a2f390a9c5a2e67d5d69ff4156dd1c1309b39aff",
+      "change_class": "bind_qst3_result_to_exact_replayed_family_receipt_atom_identity_and_three_structures",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_execution_authorization.py": {
+      "before_state": "present",
+      "before_sha256": "faf4e6c90275d49b12430cd8e95c672c0a8349509a1754f39be92fa19a4aacb7",
+      "sha256": "a9d073a69ee9e59bddf5b0cb76fd35bc936e5148698d7b6af1d88e2f814aa0d7",
+      "change_class": "test_qst3_receipt_execution_authorization",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_execution_batch_reservation_capability.py": {
+      "before_state": "present",
+      "before_sha256": "0cc7417d810add407eabc68553d402d8b4761153d2fb3932b5511642b625f78d",
+      "sha256": "d8321508547c9231e260e0214c31bdded7d24255a0b2141adc079a9ea19f2ade",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_legacy_effect_owner.py": {
+      "before_state": "present",
+      "before_sha256": "5dfe89f68439a799fc5cdea4129f5181aba160552dce9718459a45141a8743f9",
+      "sha256": "89ac7b9ae4780387bbff7262952a6d41c1ef8ead2939e18bdad496258739b073",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_local_state_binding.py": {
+      "before_state": "present",
+      "before_sha256": "fcc737f07f857b7715d1023b13af62c6487b1e4f43a55007321c54dd740c4031",
+      "sha256": "5457722c418b68b7788aa6ff51a88bb47763b828afd18bdde1ad176dec7e825e",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_invocation_contract.py": {
+      "before_state": "present",
+      "before_sha256": "0ca3117e948fa4622f95ebcd71cf2a68c0ad741b1508780f0339def8e6ec3823",
+      "sha256": "d9009f163f924fedbb64af2c4a92bee97d5c414d8dd6cae41ef3c48bc1c3a5f2",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_legacy_effect_handoff.py": {
+      "before_state": "present",
+      "before_sha256": "45d2938842568fea8c68b17c77b51306b5cee0b828e5526c4fd9f6e0e916b5e0",
+      "sha256": "8cdfffec56d159bbb5ee73f7cc216588994b8cb9cb1b849fb6432b473b230612",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_lifecycle_contract.py": {
+      "before_state": "present",
+      "before_sha256": "91fa1b79673fec5534639d3bfd2956b8b9e5197d7f01fc9b9d4a8c8c4b45c43e",
+      "sha256": "3437b4c5507194185962ff0f825f835d74417c15389339bf8d35738cd0522ab4",
+      "change_class": "append_qst3_successor_hash_and_package_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_local_materialization.py": {
+      "before_state": "present",
+      "before_sha256": "6dba9d74f5ae04d50cad226e8b36f95c82e57512445bf5440b7cc8f85a0d1660",
+      "sha256": "4680f12b8273d484cb107c893dab2b5944d265e75152322cb02b8fc5ff8860c7",
+      "change_class": "append_qst3_successor_hash_and_package_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_owner_consumer_contract.py": {
+      "before_state": "present",
+      "before_sha256": "4e17d4e9bfebed7f5c35a8f8f693b925bcab36c16cde0f3996a4ad608b816f06",
+      "sha256": "311dc2957ce92fd6692ef7b1873374851d75b4d3e9d7a7fbd2d9d3d698cb6536",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_production_ingress_contract.py": {
+      "before_state": "present",
+      "before_sha256": "edc61c2950e90bd26b9d3f2110aec71c73b047b154b76c29a53279d9b04d0011",
+      "sha256": "982fdcec0f85852686de46362efe02691e547ca6cee59a50c5cb36004fd8e0a4",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_qst3_adapter.py": {
+      "before_state": "absent",
+      "before_sha256": null,
+      "sha256": "05143852dfcc42506fbc66eebfbc8e17e725c3c4b8ef91705c3e558c202cb2e5",
+      "change_class": "new_qst3_successor_family_hash_atom_swap_and_contract_regressions",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_qst3_real_chain.py": {
+      "before_state": "absent",
+      "before_sha256": null,
+      "sha256": "4929fd4d25e6fb0e1267b6253377b45339d4ac1025cff8cbc805048616f48249",
+      "change_class": "new_real_file_zero_network_reviewed_result_maturity_qst3_receipt_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_runtime_state_contract.py": {
+      "before_state": "present",
+      "before_sha256": "8d440ebace621cc769dc14c4f9003b2382c0fd87669f968971e83f826489368f",
+      "sha256": "0146b4fa62718b87f2bb3611d7d23d1d00e182e3eb4212a19d6130311edde11a",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_protected_submit_contract.py": {
+      "before_state": "present",
+      "before_sha256": "17ec84f3cbd962089957bd06a04ffdb41600f6040ca2060db0201af62d15ea39",
+      "sha256": "d914f9c1d50d090ad41dd1491abaec2b4dd7e6650d2cc756ba3b729fbcd73a15",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_resource_effect_time_replay_owner.py": {
+      "before_state": "present",
+      "before_sha256": "65226ce677bb386e8d7b9bae9c89a29f3f04cb5cc54c3c058b5c15b89f869250",
+      "sha256": "a877ca4a6d9ff3d2d0babadade85fd7c8012e291f63e40aaf551e0bf6f25244b",
+      "change_class": "append_qst3_successor_hash_chain",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_scientific_closure_lineage.py": {
+      "before_state": "present",
+      "before_sha256": "c6f8b042382f6ede18848876041f0ec7a70f99114bccfecd818a150861eab775",
+      "sha256": "e1948d4d249382665c51352b578f0c09f5c03b915cf4b5ebef857d53d0c5eb2e",
+      "change_class": "test_reviewed_result_minimum_lineage_owner_and_schema",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_skill_packaging.py": {
+      "before_state": "present",
+      "before_sha256": "11339432ab6358a8e9155f1e3b9802e2feba1dd1382362abe24fc73a5cb08bf2",
+      "sha256": "5f32eccf201d10be5c7a4d4fba7f23ae98b59abfd5010280d97a7aab97f97c07",
+      "change_class": "test_named_skill_qst3_successor_packaging",
+      "legacy_semantics_changed": false
+    },
+    "contracts/reaction-workflow/terminal-process-reconciliation.schema.json": {
+      "before_state": "absent",
+      "before_sha256": null,
+      "sha256": "3a9b3474486dbe1d7d53bc8e42c4a38795238ce30b4d0d5947b19a7f129e6249",
+      "change_class": "new_exact_terminal_process_reconciliation",
+      "legacy_semantics_changed": false
+    },
+    "contracts/rtwin-pbs/input-approval-receipt.schema.json": {
+      "before_state": "present",
+      "before_sha256": "71c6331c3f917d128bde5aa35c96b9ac5cb34147e81d3cfc76f4f09db3c3f1e5",
+      "sha256": "71731f04975d4d97c8aad01e4b5a96b2c344561966bd9968c2bb2a840e342441",
+      "change_class": "accept_endpoint_anchored_ts_candidate_review_work_kind",
+      "legacy_semantics_changed": false
+    },
+    "contracts/rtwin-pbs/input-draft-review-v2.schema.json": {
+      "before_state": "present",
+      "before_sha256": "6411e00fde9f64bb22fabd462068d651b0d24ddc19d8abb83a00752111a2f1d9",
+      "sha256": "8d9c0374f7a4223c98cb46af6797b8fa4d8dada13ca1b4a9ed2cde7d29eb7bb7",
+      "change_class": "accept_endpoint_anchored_ts_candidate_review_work_kind",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_gaussian_ts_irc.py": {
+      "before_state": "present",
+      "before_sha256": "5c62cf7319e6102e1bbd57457dcc279c96bf8bb0cffa9d6b6ce63dafdadf661d",
+      "sha256": "9191657b1d910c756539fbf7b1a3984fa0544f6da0eb7173eb034debe3eeb54e",
+      "change_class": "regress_pilot_deferred_follow_on_routes",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_scientific_maturity_v2.py": {
+      "before_state": "present",
+      "before_sha256": "dbb3dbbe79c8bd77a0e15d1ed199dce50c6882527790e3e3574777c33f7795a3",
+      "sha256": "abfbb91c21f271cdbe0bfd960da08947573093d5f9cf3e2cd022000426d0c9d3",
+      "change_class": "regress_endpoint_atom_id_mapping_and_limited_supersession",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_scientific_maturity.py": {
+      "before_state": "present",
+      "before_sha256": "515707da51221e7bce40a816ae31a8692f93674950dfbd55d7d7c1d20ab43171",
+      "sha256": "105dc82c127a7102a09c41935527a68e8c75d436d0718a370a4834a0dc359979",
+      "change_class": "regress_pilot_family_defers_unapproved_follow_on_work",
+      "legacy_semantics_changed": false
+    },
+    "tests/test_legacy_v254_golden.py": {
+      "before_state": "present",
+      "before_sha256": "3521d643ec51d2e45f3af850dd781762a63eff981fda3fe90b8285ad480bf265",
+      "sha256": "63ae0cea34bce64566feb0c1d219b570a3d2f14648caa43b9ac26e93fe57ea39",
+      "change_class": "characterize_additive_endpoint_candidate_work_kind",
+      "legacy_semantics_changed": false
+    }
+  },
+  "frozen_predecessors": {
+    "protected_legacy_effect_handoff_fixture_sha256": "12778362073cb1d048ff6655a7df10c45f77405a673666e974592a5baf5ce867",
+    "fixed_constraint_successor_fixture_sha256": "124487b586f4c11a18a05b3ffe4febc66136d3fca866d0ff3e70dbaa8b54037a",
+    "legacy_owner_before_sha256": "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e"
+  },
+  "remaining_gates": {
+    "offline_full_suite_zero_failures": true,
+    "independent_l3_go": false,
+    "named_skill_deployed": false,
+    "exact_live_scope_approved": false,
+    "qsub_performed": false
+  },
+  "offline_full_suite_evidence": {
+    "command": "./scripts/python core scripts/run_tests.py --verbosity 0 --top-slow 1",
+    "tests_run": 1246,
+    "skipped": 81,
+    "failures": 0,
+    "errors": 0,
+    "exit_code": 0,
+    "wall_time_seconds": 3327.158
+  }
+}

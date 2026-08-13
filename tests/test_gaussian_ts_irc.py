@@ -598,6 +598,33 @@ class TsIrcTests(unittest.TestCase):
         self.assertEqual(manifest["status"], "prepared_not_submitted")
         self.assertTrue(manifest["safety"]["no_submission_authorization"])
 
+    def test_pilot_family_defers_unapproved_irc_and_endpoint_routes(self) -> None:
+        audit = {"schema": TS.SCHEMA, "valid": True}
+        deferred = "deferred_requires_separate_approval"
+        protocol = {
+            "workflow_id": "pilot", "project_prefix": "pilot_ts",
+            "expected_reactant_identity": "A", "expected_product_identity": "B",
+            "coordinate_changes": [{"forming": [1, 2]}],
+            "routes": {"ts_freq": "#p Opt=(QST3) Freq", "irc_forward": deferred, "irc_reverse": deferred, "endpoint_opt_freq": deferred},
+            "resource_tiers": {"ts_freq": "general", "irc": "unselected", "endpoint": "unselected"},
+            "temperature_k": 298.15, "standard_state": "1M",
+        }
+        maturity_check = {"scientific_gate_passed": True}
+        maturity_binding = {"path": "maturity.json", "sha256": "a" * 64, "size_bytes": 1, "schema": "gaussian-scientific-maturity-action/2", "payload_sha256": "b" * 64}
+        manifest = TS.create_family_manifest(
+            audit, protocol, maturity_check=maturity_check,
+            maturity_binding=maturity_binding, edge_id="edge_fixture",
+            node_id="node_fixture", pilot=True,
+        )
+        self.assertEqual(manifest["protocol"]["routes"]["irc_forward"], deferred)
+        self.assertEqual(manifest["protocol"]["resource_tiers"]["irc"], "unselected")
+        with self.assertRaisesRegex(ValueError, "formal families require complete"):
+            TS.create_family_manifest(
+                audit, protocol, maturity_check=maturity_check,
+                maturity_binding=maturity_binding, edge_id="edge_fixture",
+                node_id="node_fixture", pilot=False,
+            )
+
     def test_checkpoint_atom_order_audit_and_coordinate_free_builder(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

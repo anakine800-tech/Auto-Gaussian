@@ -25,6 +25,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / "skills" / "auto-g16-rtwin-pbs" / "scripts"
@@ -818,6 +820,7 @@ class LegacyEffectOwnerTests(unittest.TestCase):
     def test_lifecycle_successor_binds_exact_base_and_current_source(
         self,
     ) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         fixture = json.loads(LIFECYCLE_FIXTURE.read_text(encoding="utf-8"))
         handoff = json.loads(HANDOFF_FIXTURE.read_text(encoding="utf-8"))
         fixed_constraint_successor = json.loads(
@@ -874,9 +877,9 @@ class LegacyEffectOwnerTests(unittest.TestCase):
         )
         self.assertEqual(
             hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
-            production_closure_successor["files"][
+            lineage.candidate_from_git_predecessor(
                 "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py"
-            ]["sha256"],
+            ),
         )
         self.assertTrue(binding["lifecycle_semantics_changed"])
         self.assertFalse(binding["behavior_parity"]["command_bytes_changed"])

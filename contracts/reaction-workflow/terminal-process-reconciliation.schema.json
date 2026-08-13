@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/reaction-workflow/terminal-process-reconciliation.schema.json",
+  "title": "Auto-G16 terminal process reconciliation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "project", "job_id", "input_stem", "input_sha256", "terminal_inspection_receipt_sha256", "observations", "stable_duration_seconds", "process_evidence_status", "process_alive", "scientific_acceptance", "calculation_ready", "no_submission_authorization", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "gaussian-terminal-process-reconciliation/1"},
+    "project": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"},
+    "job_id": {"type": "string", "pattern": "^[0-9]+(?:\\.[A-Za-z0-9_.-]+)?$"},
+    "input_stem": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"},
+    "input_sha256": {"$ref": "#/$defs/sha"},
+    "terminal_inspection_receipt_sha256": {"$ref": "#/$defs/sha"},
+    "observations": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/observation"}},
+    "stable_duration_seconds": {"type": "integer", "minimum": 5},
+    "process_evidence_status": {"const": "absent"},
+    "process_alive": {"const": false},
+    "scientific_acceptance": {"const": false},
+    "calculation_ready": {"const": false},
+    "no_submission_authorization": {"const": true},
+    "payload_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "fileRef": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "size_bytes"], "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha"}, "size_bytes": {"type": "integer", "minimum": 1}}},
+    "observation": {"type": "object", "additionalProperties": false, "required": ["source", "collected_epoch", "match_count", "unresolved_count", "ignored_infrastructure_count"], "properties": {"source": {"$ref": "#/$defs/fileRef"}, "collected_epoch": {"type": "integer", "minimum": 1}, "match_count": {"const": 0}, "unresolved_count": {"const": 0}, "ignored_infrastructure_count": {"type": "integer", "minimum": 0}}}
+  }
+}

@@ -7,7 +7,7 @@
   "required": ["schema", "source_kind", "lineage_id", "minimum_id", "state_id", "sources", "workflow_settings", "stable_atom_ids", "atom_mapping", "formula", "charge", "multiplicity", "structure_review", "review", "workflow_states", "acceptance", "migration_policy", "immutability", "calculation_ready", "no_submission_authorization", "payload_sha256"],
   "properties": {
     "schema": {"const": "gaussian-minimum-lineage-handoff/2"},
-    "source_kind": {"enum": ["conformer_selection", "endpoint_structure_review"]},
+    "source_kind": {"enum": ["conformer_selection", "endpoint_structure_review", "reviewed_result"]},
     "lineage_id": {"type": "string", "minLength": 1},
     "minimum_id": {"type": "string", "minLength": 1},
     "state_id": {"type": "string", "minLength": 1},
@@ -19,7 +19,8 @@
         "input": {"$ref": "#/$defs/fileRef"}, "job": {"$ref": "#/$defs/jsonRef"},
         "result": {"$ref": "#/$defs/jsonRef"}, "raw_log": {"$ref": "#/$defs/fileRef"},
         "checkpoint": {"$ref": "#/$defs/fileRef"}, "optimized_coordinates": {"$ref": "#/$defs/fileRef"},
-        "terminal_inspection_receipt": {"$ref": "#/$defs/jsonRef"}, "fetch_snapshot": {"$ref": "#/$defs/jsonRef"}
+        "terminal_inspection_receipt": {"$ref": "#/$defs/jsonRef"}, "fetch_snapshot": {"$ref": "#/$defs/jsonRef"},
+        "process_reconciliation": {"$ref": "#/$defs/jsonRef"}
       }
     },
     "workflow_settings": {"type": "object", "additionalProperties": false, "required": ["temperature_k", "standard_state", "expected_stages"], "properties": {"temperature_k": {"type": "number", "exclusiveMinimum": 0}, "standard_state": {"enum": ["1atm", "1M"]}, "expected_stages": {"type": "integer", "minimum": 1}}},

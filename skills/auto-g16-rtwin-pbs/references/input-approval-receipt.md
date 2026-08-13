@@ -181,6 +181,43 @@ Finalization uses same-directory durable temporary output and atomic
 no-clobber publication. An existing or concurrently created destination fails;
 immutable review/receipt files are never replaced in place.
 
+## Protected QST3 candidate receipt `/5`
+
+`gaussian-input-approval-receipt/5` is an additive, non-authorizing candidate
+owned by `scripts/protected_qst3_adapter.py`. It is restricted to one protected,
+closed-shell QST3+Freq input and binds the installed-revision raw syntax audit,
+TS-family `/2`, atom mapping, separate `ts_input` and `ts_submission`
+maturity actions `/2`, exact action authorization `/2`, selected protocol,
+finalized input review and Gaussian bytes.
+
+The atom mapping is not merely a permutation: every QST reactant index is
+bound to its reactant stable atom ID, declared product index, product stable
+atom ID, and the exact `from_atom_id -> to_atom_id` mapping of the reviewed
+mechanism edge. Same-element H/C swaps fail closed. Endpoint coordinates use
+the declared `absolute_cartesian_tolerance/1` equivalence rule of `1e-8`
+angstrom absolute tolerance and zero relative tolerance; they are not
+described as byte-exact decimals. A downstream QST3 result must replay the
+formal family owner and match the family file SHA-256 stored in receipt `/5`.
+Because Gaussian itself follows QST3 structure-block row order and never reads
+the external atom-map artifact, raw product row `i` must equal accepted product
+minimum row `declared_atom_map[i]`. Merely recording a valid permutation while
+leaving the product block in its minimum-native order is rejected.
+
+The receipt supports `formal_ts` and one narrower
+`endpoint_anchored_ts_candidate`. The latter requires exactly two accepted
+84-atom neutral-singlet minima, the pilot maturity node, `general` resources
+(22 cores/50 GB), one task, one concurrent attempt and no automatic retry. Its
+candidate-scope record keeps mechanism and accepted-TS claims false and lists
+the mode and bidirectional-IRC evidence still required.
+
+It retains `calculation_ready: false` and
+`no_submission_authorization: true`. The generic receipt contracts remain
+historically replayable. The specialist adapter can propose and replay the
+matching `/13` scope but cannot create a server directory or call qsub.
+Production consumption requires the separately validated versioned successor
+through execution authorization, protected-submit and effect-time replay to
+the sole legacy raw-effect owner; `/5` by itself never grants a live action.
+
 For `submit`, transport first captures one unique durable non-symlink snapshot
 of the source input. Input approval, scientific authorization and the matching
 live approval

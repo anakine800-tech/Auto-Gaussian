@@ -433,7 +433,10 @@ def _normalize_review(value: dict[str, Any], *, require_hash: bool) -> dict[str,
     for index, raw in enumerate(data["minimum_records"]):
         item = _exact(raw, {"minimum_id", "state_id", "composition_signature", "formal_charge", "multiplicity", "atom_order", "conformer_origin", "source_log", "workflow_settings", "result", "checkpoint", "optimized_coordinates", "acceptance_facts", "decision", "reviewer", "notes"}, f"minimum_records[{index}]")
         origin = _exact(item["conformer_origin"], {"scope", "source_id", "ts_derivation_allowed"}, "minimum conformer origin")
-        require(origin["scope"] == "minimum_search", "conformer search must serve minima before TS derivation")
+        require(
+            origin["scope"] in {"minimum_search", "accepted_minimum_result_review"},
+            "minimum origin must be either a reviewed conformer search or an accepted minimum-result review",
+        )
         require(isinstance(origin["ts_derivation_allowed"], bool), "ts_derivation_allowed must be boolean")
         facts = _exact(item["acceptance_facts"], fact_keys, "minimum acceptance_facts")
         require(isinstance(facts["imaginary_frequency_count"], int) and facts["imaginary_frequency_count"] >= 0, "minimum imaginary-frequency count must be non-negative")
@@ -671,14 +674,23 @@ def _build_gate(plan: dict[str, Any], plan_binding: dict[str, Any], review: dict
         if state is None:
             blockers.append("minimum_state_missing_from_mechanism_owner")
         else:
-            expected_atom_order = [atom["atom_id"] for atom in state["atoms"]]
-            if record["atom_order"] != expected_atom_order:
+            # Mechanism-network artifacts are canonically sorted by atom_id,
+            # while a Gaussian result necessarily retains coordinate order.
+            # Replay the reviewed coordinate-order map against the owner's
+            # atom-id -> element inventory instead of treating canonical JSON
+            # order as a coordinate-order authority.
+            expected_elements_by_id = {atom["atom_id"]: atom["element"] for atom in state["atoms"]}
+            if (
+                len(record["atom_order"]) != len(expected_elements_by_id)
+                or len(set(record["atom_order"])) != len(record["atom_order"])
+                or set(record["atom_order"]) != set(expected_elements_by_id)
+            ):
                 blockers.append("minimum_atom_order_differs_from_mechanism_owner")
             try:
                 result, _ = _resolve_json_observation(record["result"], review_path, "minimum Gaussian result")
                 observed_elements = [atom.get("element") for atom in result.get("final_coordinates", [])]
-                expected_elements = [atom["element"] for atom in state["atoms"]]
-                if observed_elements != expected_elements:
+                expected_elements = [expected_elements_by_id.get(atom_id) for atom_id in record["atom_order"]]
+                if None in expected_elements or observed_elements != expected_elements:
                     blockers.append("minimum_element_order_differs_from_mechanism_owner")
             except MaturityError as exc:
                 blockers.append(f"minimum_source_binding_invalid:{exc}")

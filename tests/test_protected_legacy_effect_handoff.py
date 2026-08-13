@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
@@ -52,6 +54,11 @@ FIXED_CONSTRAINT_SUCCESSOR_PATH = (
     ROOT
     / "tests/fixtures/rtwin_pbs/"
     "legacy_rtwin_pbs_fixed_constraint_successor.json"
+)
+QST3_SUCCESSOR_PATH = (
+    ROOT
+    / "tests/fixtures/rtwin_pbs/"
+    "protected_qst3_production_successor.json"
 )
 CI_PORTABILITY_SUCCESSOR_PATH = (
     ROOT
@@ -579,6 +586,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_fixture_binds_base_and_additive_candidate_files(self) -> None:
+        integration_lineage = QST3_LINEAGE.load(ROOT)
         fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
         successor = json.loads(
             FIXED_CONSTRAINT_SUCCESSOR_PATH.read_text(encoding="utf-8")
@@ -604,6 +612,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                 "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        qst3_successor_document = json.loads(
+            QST3_SUCCESSOR_PATH.read_text(encoding="utf-8")
+        )
+        qst3_successor = qst3_successor_document["files"]
         ci_portability = json.loads(
             CI_PORTABILITY_SUCCESSOR_PATH.read_text(encoding="utf-8")
         )
@@ -693,6 +705,9 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             relative: str,
             expected_sha256: str,
         ) -> None:
+            if relative in integration_lineage.records:
+                integration_lineage.assert_candidate(self, relative)
+                return
             if relative in immutable_verifier_objects:
                 self.assertEqual(
                     expected_sha256,
@@ -753,6 +768,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         self.assertEqual(
             ci_portability["base_tree"],
             "3ba2053be2494b0d3db53d2f65746b09a0c19c1a",
+        )
+        self.assertEqual(
+            qst3_successor_document["schema"],
+            "auto-g16-protected-qst3-production-successor/1",
         )
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):

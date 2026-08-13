@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from tests import qst3_package_integration_lineage as QST3_LINEAGE
+
 
 ROOT = Path(__file__).parents[1]
 ROOT_SCRIPTS = ROOT / "scripts"
@@ -723,7 +725,7 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
         self.assertEqual(
             len(package),
             (
-                84
+                87
                 + len(runtime_targets)
                 + len(consumer_targets)
                 + len(ingress_targets)
@@ -732,6 +734,7 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
         )
 
     def test_predecessor_and_effect_owner_bytes_remain_frozen(self) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         current_lineage = json.loads(
             (
                 ROOT
@@ -781,6 +784,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        qst3_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_qst3_production_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         expected = {
             "scripts/protected_submit_contract.py": (
                 "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a"
@@ -850,10 +860,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                     binding = current_lineage[relative]
                     self.assertEqual(binding["before_sha256"], current_sha256)
                     current_sha256 = binding["sha256"]
-                self.assertEqual(
-                    hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
-                    current_sha256,
-                )
+                if relative in lineage.records:
+                    lineage.assert_candidate(self, relative)
+                else:
+                    self.assertEqual(
+                        hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(),
+                        current_sha256,
+                    )
 
     def test_state_validator_rejects_owner_semantic_splices(self) -> None:
         document = self.materialize().document()
@@ -882,6 +895,7 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
     def test_successor_fixture_binds_exact_base_and_candidate_files(
         self,
     ) -> None:
+        lineage = QST3_LINEAGE.load(ROOT)
         current_lineage = json.loads(
             (
                 ROOT
@@ -962,6 +976,13 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                 "protected_production_ingress_contract.json"
             ).read_text(encoding="utf-8")
         )["successor_files"]
+        qst3_successor = json.loads(
+            (
+                ROOT
+                / "tests/fixtures/rtwin_pbs/"
+                "protected_qst3_production_successor.json"
+            ).read_text(encoding="utf-8")
+        )["files"]
         for relative, binding in fixture["files"].items():
             with self.subTest(path=relative):
                 self.assertEqual(set(binding), {"sha256", "change_class"})
@@ -1015,12 +1036,15 @@ class ProtectedLocalMaterializationTests(unittest.TestCase):
                         current_sha256,
                     )
                     current_sha256 = successor_binding["sha256"]
-                self.assertEqual(
-                    hashlib.sha256(
-                        (ROOT / relative).read_bytes()
-                    ).hexdigest(),
-                    current_sha256,
-                )
+                if relative in lineage.records:
+                    lineage.assert_candidate(self, relative)
+                else:
+                    self.assertEqual(
+                        hashlib.sha256(
+                            (ROOT / relative).read_bytes()
+                        ).hexdigest(),
+                        current_sha256,
+                    )
         self.assertFalse(
             fixture["remaining_gates"][
                 "long_process_raw_owner_lifecycle_bounded"

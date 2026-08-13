@@ -198,6 +198,10 @@ class SkillPackagingTests(unittest.TestCase):
             ROOT / "skills/auto-g16-reaction-workflow/scripts/scientific_maturity_v2.py",
         )
         self.assertEqual(
+            reaction[Path("contracts/reaction-workflow/scientific-action-authorization-v2.schema.json")],
+            ROOT / "contracts/reaction-workflow/scientific-action-authorization-v2.schema.json",
+        )
+        self.assertEqual(
             reaction[Path("references/scientific-maturity-owner-evidence-v2-contract.md")],
             ROOT / "skills/auto-g16-reaction-workflow/references/scientific-maturity-owner-evidence-v2-contract.md",
         )
@@ -267,6 +271,18 @@ class SkillPackagingTests(unittest.TestCase):
             rtwin[Path("contracts/rtwin-pbs/live-submission-approval-v5.schema.json")],
             ROOT / "contracts/rtwin-pbs/live-submission-approval-v5.schema.json",
         )
+        self.assertEqual(
+            rtwin[Path("scripts/protected_qst3_adapter.py")],
+            ROOT / "skills/auto-g16-rtwin-pbs/scripts/protected_qst3_adapter.py",
+        )
+        for name in (
+            "input-approval-receipt-v5.schema.json",
+            "live-submission-approval-v13.schema.json",
+        ):
+            self.assertEqual(
+                rtwin[Path("contracts/rtwin-pbs") / name],
+                ROOT / "contracts/rtwin-pbs" / name,
+            )
         self.assertEqual(
             rtwin[Path("contracts/rtwin-pbs/execution-batch.schema.json")],
             ROOT / "contracts/rtwin-pbs/execution-batch.schema.json",

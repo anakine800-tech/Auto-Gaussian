@@ -1,0 +1,855 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/contracts/rtwin-pbs/live-submission-approval-v13.schema.json",
+  "title": "Auto-G16 resource-bound protected QST3 live approval v13",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "approval_id",
+    "approver_identity",
+    "approved_at",
+    "expires_at",
+    "decision",
+    "explicit_confirmation",
+    "scope",
+    "revocation",
+    "consumption",
+    "authorizations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "auto-g16-live-submission-approval/13"
+    },
+    "approval_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approver_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "expires_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "decision": {
+      "const": "approved"
+    },
+    "explicit_confirmation": {
+      "const": true
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "revocation": {
+      "$ref": "#/$defs/revocation"
+    },
+    "consumption": {
+      "$ref": "#/$defs/consumption"
+    },
+    "authorizations": {
+      "$ref": "#/$defs/auth"
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,95}$"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "sha256"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_id",
+        "policy_sha256",
+        "gate_id",
+        "gate_sha256",
+        "resource_tier",
+        "cores",
+        "memory_gb",
+        "walltime_seconds"
+      ],
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "gate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gate_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "resource_tier": {
+          "enum": [
+            "simple",
+            "general",
+            "complex",
+            "custom_reviewed"
+          ]
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memory_gb": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "walltime_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "batch_id",
+        "review_sha256",
+        "scientific_task_id",
+        "attempt_id",
+        "idempotency_key",
+        "estimated_core_hours",
+        "estimated_core_hours_evidence",
+        "resource_binding"
+      ],
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "review_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "scientific_task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimated_core_hours": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "estimated_core_hours_evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "resource_binding": {
+          "$ref": "#/$defs/resource"
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "sha256",
+        "payload_sha256",
+        "input_sha256",
+        "work_kind"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gaussian-input-approval-receipt/5"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "input_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "work_kind": {
+          "enum": [
+            "formal_ts",
+            "endpoint_anchored_ts_candidate"
+          ]
+        }
+      }
+    },
+    "scientificMaturity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edge_id",
+        "pilot",
+        "maturity_gate_sha256",
+        "maturity_gate_payload_sha256",
+        "node_id",
+        "scientific_action_authorization_sha256",
+        "scientific_action_authorization_payload_sha256"
+      ],
+      "properties": {
+        "edge_id": {
+          "$ref": "#/$defs/id"
+        },
+        "pilot": {
+          "type": "boolean"
+        },
+        "maturity_gate_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "maturity_gate_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "node_id": {
+          "$ref": "#/$defs/id"
+        },
+        "scientific_action_authorization_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "scientific_action_authorization_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "ownerScientificMaturity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "edge_id",
+        "node_id",
+        "pilot",
+        "maturity_gate_sha256",
+        "maturity_gate_payload_sha256",
+        "scientific_action_authorization_sha256",
+        "scientific_action_authorization_payload_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gaussian-scientific-maturity-action/2"
+        },
+        "edge_id": {
+          "$ref": "#/$defs/id"
+        },
+        "node_id": {
+          "$ref": "#/$defs/id"
+        },
+        "pilot": {
+          "type": "boolean"
+        },
+        "maturity_gate_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "maturity_gate_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "scientific_action_authorization_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "scientific_action_authorization_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "ownerResources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_tier",
+        "mem_gb",
+        "cores"
+      ],
+      "properties": {
+        "resource_tier": {
+          "enum": [
+            "simple",
+            "general",
+            "complex"
+          ]
+        },
+        "mem_gb": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "authorizedBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_count",
+        "estimated_core_hours",
+        "planned_concurrency"
+      ],
+      "properties": {
+        "task_count": {
+          "const": 1
+        },
+        "estimated_core_hours": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "planned_concurrency": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "endpointAtom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "element",
+        "x",
+        "y",
+        "z"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "element": {
+          "type": "string",
+          "pattern": "^[A-Z][a-z]?$"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "endpointMinimum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_id",
+        "state_id",
+        "lineage_payload_sha256",
+        "optimized_coordinates_sha256",
+        "charge",
+        "multiplicity",
+        "stable_atom_ids",
+        "coordinates"
+      ],
+      "properties": {
+        "minimum_id": {
+          "$ref": "#/$defs/id"
+        },
+        "state_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lineage_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "optimized_coordinates_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "charge": {
+          "type": "integer"
+        },
+        "multiplicity": {
+          "const": 1
+        },
+        "stable_atom_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "coordinates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/endpointAtom"
+          }
+        }
+      }
+    },
+    "atomMapEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_atom_id",
+        "to_atom_id"
+      ],
+      "properties": {
+        "from_atom_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to_atom_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "endpointLineages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "edge_id",
+        "node_id",
+        "from_state_id",
+        "to_state_id",
+        "atom_mapping",
+        "reactant",
+        "product",
+        "calculation_ready",
+        "no_submission_authorization"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gaussian-ts-endpoint-minimum-lineage-projection/1"
+        },
+        "edge_id": {
+          "$ref": "#/$defs/id"
+        },
+        "node_id": {
+          "$ref": "#/$defs/id"
+        },
+        "from_state_id": {
+          "$ref": "#/$defs/id"
+        },
+        "to_state_id": {
+          "$ref": "#/$defs/id"
+        },
+        "atom_mapping": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/atomMapEntry"
+          }
+        },
+        "reactant": {
+          "$ref": "#/$defs/endpointMinimum"
+        },
+        "product": {
+          "$ref": "#/$defs/endpointMinimum"
+        },
+        "calculation_ready": {
+          "const": false
+        },
+        "no_submission_authorization": {
+          "const": true
+        }
+      }
+    },
+    "atomIndexBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reactant_index",
+        "reactant_stable_atom_id",
+        "product_index",
+        "product_stable_atom_id",
+        "mechanism_to_atom_id"
+      ],
+      "properties": {
+        "reactant_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reactant_stable_atom_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "product_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "product_stable_atom_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mechanism_to_atom_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "atomIdentityMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "declared_atom_map",
+        "reviewed_guess_index_basis",
+        "index_bindings"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gaussian-qst3-mechanism-atom-identity/1"
+        },
+        "declared_atom_map": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "reviewed_guess_index_basis": {
+          "const": "reactant"
+        },
+        "index_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/atomIndexBinding"
+          }
+        }
+      }
+    },
+    "coordinateEquivalence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scheme",
+        "unit",
+        "absolute_tolerance",
+        "relative_tolerance"
+      ],
+      "properties": {
+        "scheme": {
+          "const": "absolute_cartesian_tolerance/1"
+        },
+        "unit": {
+          "const": "angstrom"
+        },
+        "absolute_tolerance": {
+          "const": 1E-8
+        },
+        "relative_tolerance": {
+          "const": 0.0
+        }
+      }
+    },
+    "candidateSearch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "endpoint_minimum_ids", "atom_count", "resource_tier",
+        "task_limit", "automatic_retry", "mechanism_claim_authorized",
+        "accepted_ts_claim_authorized", "validation_requirements"
+      ],
+      "properties": {
+        "schema": {"const": "gaussian-endpoint-anchored-ts-candidate-scope/1"},
+        "endpoint_minimum_ids": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "atom_count": {"const": 84}, "resource_tier": {"const": "general"}, "task_limit": {"const": 1},
+        "automatic_retry": {"const": false}, "mechanism_claim_authorized": {"const": false}, "accepted_ts_claim_authorized": {"const": false},
+        "validation_requirements": {"const": ["exactly_one_intended_imaginary_mode", "explicit_h30_b51_c4_mode_review", "separately_approved_bidirectional_irc", "structurally_identified_irc_endpoints"]}
+      }
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "workflow",
+        "work_kind",
+        "candidate_search",
+        "qst_raw_audit_payload_sha256",
+        "ts_family_sha256",
+        "ts_input_action_payload_sha256",
+        "ts_submission_action_payload_sha256",
+        "scientific_action_authorization_sha256",
+        "scientific_action_authorization_payload_sha256",
+        "selected_option_payload_sha256",
+        "project",
+        "input_sha256",
+        "exact_route",
+        "input_family",
+        "structure_count",
+        "atom_count",
+        "charge",
+        "multiplicity",
+        "scientific_maturity",
+        "endpoint_minimum_lineages",
+        "atom_identity_mapping",
+        "coordinate_equivalence",
+        "authorized_budget",
+        "resources",
+        "owner_replay_passed"
+      ],
+      "properties": {
+        "owner": {
+          "const": "auto-g16-ts-irc"
+        },
+        "workflow": {
+          "const": "protected_qst3_ts_freq_input_v1"
+        },
+        "work_kind": {
+          "enum": [
+            "formal_ts",
+            "endpoint_anchored_ts_candidate"
+          ]
+        },
+        "candidate_search": {
+          "anyOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/candidateSearch"}
+          ]
+        },
+        "qst_raw_audit_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "ts_family_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "ts_input_action_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "ts_submission_action_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "scientific_action_authorization_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "scientific_action_authorization_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "selected_option_payload_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "project": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+        },
+        "input_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "exact_route": {
+          "type": "string",
+          "pattern": "^#"
+        },
+        "input_family": {
+          "const": "qst3"
+        },
+        "structure_count": {
+          "const": 3
+        },
+        "atom_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "charge": {
+          "type": "integer"
+        },
+        "multiplicity": {
+          "const": 1
+        },
+        "scientific_maturity": {
+          "$ref": "#/$defs/ownerScientificMaturity"
+        },
+        "endpoint_minimum_lineages": {
+          "$ref": "#/$defs/endpointLineages"
+        },
+        "atom_identity_mapping": {
+          "$ref": "#/$defs/atomIdentityMapping"
+        },
+        "coordinate_equivalence": {
+          "$ref": "#/$defs/coordinateEquivalence"
+        },
+        "authorized_budget": {
+          "$ref": "#/$defs/authorizedBudget"
+        },
+        "resources": {
+          "$ref": "#/$defs/ownerResources"
+        },
+        "owner_replay_passed": {
+          "const": true
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project",
+        "remote_workdir",
+        "input_sha256",
+        "route",
+        "mem",
+        "nprocshared",
+        "charge",
+        "multiplicity",
+        "work_kind",
+        "input_approval",
+        "ts_qst_owner",
+        "scientific_maturity",
+        "operation",
+        "execution"
+      ],
+      "properties": {
+        "project": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+        },
+        "remote_workdir": {
+          "type": "string",
+          "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+        },
+        "input_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "route": {
+          "type": "string",
+          "pattern": "^#"
+        },
+        "mem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nprocshared": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 44
+        },
+        "charge": {
+          "type": "integer"
+        },
+        "multiplicity": {
+          "const": 1
+        },
+        "work_kind": {
+          "enum": [
+            "formal_ts",
+            "endpoint_anchored_ts_candidate"
+          ]
+        },
+        "input_approval": {
+          "$ref": "#/$defs/input"
+        },
+        "ts_qst_owner": {
+          "$ref": "#/$defs/owner"
+        },
+        "scientific_maturity": {
+          "$ref": "#/$defs/scientificMaturity"
+        },
+        "operation": {
+          "const": "submit"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        }
+      }
+    },
+    "revocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revoked",
+        "revoked_at",
+        "reason"
+      ],
+      "properties": {
+        "revoked": {
+          "const": false
+        },
+        "revoked_at": {
+          "type": "null"
+        },
+        "reason": {
+          "type": "null"
+        }
+      }
+    },
+    "consumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "single_use",
+        "consumed"
+      ],
+      "properties": {
+        "single_use": {
+          "const": true
+        },
+        "consumed": {
+          "const": false
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "create_server_directory",
+        "submit",
+        "retry",
+        "cancel",
+        "cleanup",
+        "delete_server_data"
+      ],
+      "properties": {
+        "create_server_directory": {
+          "const": true
+        },
+        "submit": {
+          "const": true
+        },
+        "retry": {
+          "const": false
+        },
+        "cancel": {
+          "const": false
+        },
+        "cleanup": {
+          "const": false
+        },
+        "delete_server_data": {
+          "const": false
+        }
+      }
+    }
+  }
+}

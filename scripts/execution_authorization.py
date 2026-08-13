@@ -50,8 +50,10 @@ SCIENTIFIC_RECEIPT_SCHEMAS = {
     "gaussian-input-approval-receipt/1",
     "gaussian-input-approval-receipt/2",
     "gaussian-input-approval-receipt/3",
+    "gaussian-input-approval-receipt/5",
 }
-WORK_KINDS = {"ordinary", "minimum"}
+ENDPOINT_ANCHORED_TS_CANDIDATE = "endpoint_anchored_ts_candidate"
+WORK_KINDS = {"ordinary", "minimum", "formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE}
 BACKENDS = {"legacy_rtwin_pbs", "direct_ssh_pbs"}
 CAPABILITIES = set(platform_contracts.DECLARED_CAPABILITIES)
 REQUIRED_EXECUTION_CAPABILITIES = {
@@ -456,8 +458,21 @@ def _validate_scientific_ref(value: Any) -> dict[str, Any]:
         _sha(ref[field], f"scientific_owner_receipt.{field}")
     _positive_integer(ref["size_bytes"], "scientific_owner_receipt.size_bytes")
     require(isinstance(ref["work_kind"], str) and ref["work_kind"] in WORK_KINDS, "scientific owner receipt work_kind is unsupported")
-    if ref["schema"] != "gaussian-input-approval-receipt/1":
+    if ref["schema"] == "gaussian-input-approval-receipt/1":
+        require(
+            ref["work_kind"] in {"ordinary", "minimum"},
+            "generic scientific receipt does not authorize protected QST3 work",
+        )
+    if ref["schema"] in {
+        "gaussian-input-approval-receipt/2",
+        "gaussian-input-approval-receipt/3",
+    }:
         require(ref["work_kind"] == "minimum", "specialist scientific receipt is restricted to minimum")
+    if ref["schema"] == "gaussian-input-approval-receipt/5":
+        require(
+            ref["work_kind"] in {"formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE},
+            "protected QST3 scientific receipt work kind is unsupported",
+        )
     return copy.deepcopy(ref)
 
 

@@ -14,7 +14,9 @@ import math
 import os
 import re
 import stat
+import sys
 import tempfile
+import types
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,7 +25,14 @@ SCHEMA = "gaussian-minimum-lineage-handoff/1"
 SCHEMA_V2 = "gaussian-minimum-lineage-handoff/2"
 REVIEW_SCHEMA = "gaussian-minimum-lineage-review/1"
 SELECTION_SCHEMA = "gaussian-conformer-selection-receipt/1"
+PROCESS_RECONCILIATION_SCHEMA = "gaussian-terminal-process-reconciliation/1"
+SOURCE_KINDS = {"conformer_selection", "endpoint_structure_review", "reviewed_result"}
 HASH_RE = re.compile(r"^[a-f0-9]{64}$")
+OWNER_SOURCE_SHA256 = {
+    "log": "ae6ce8b5d9da5f7de11c07522fa2dbaf3f8ccbff0f5d71149b17c95f2cee28ca",
+    "approval": "3a978dbfbf6d5111d50c087c3c2df775fd15d5cd3924ea063e5ae674bafc0cdb",
+    "input": "ce9158f2c8f3e7c86e7b9442a2f390a9c5a2e67d5d69ff4156dd1c1309b39aff",
+}
 
 
 class LineageError(ValueError):
@@ -172,22 +181,253 @@ def resolve_reference(ref: dict[str, Any], root: Path, label: str, *, json_sourc
     return path, document
 
 
-def load_owner(relative: tuple[str, ...], name: str) -> Any:
-    skills = Path(__file__).resolve().parents[2]
-    path = skills.joinpath(*relative)
-    require(path.is_file(), f"owner validator unavailable: {path}")
-    spec = importlib.util.spec_from_file_location(name, path)
-    require(spec is not None and spec.loader is not None, f"owner validator cannot be loaded: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+def _plain_directory(path: Path) -> bool:
+    return (
+        os.path.lexists(path)
+        and not path.is_symlink()
+        and path.is_dir()
+        and path.resolve(strict=True) == path
+    )
+
+
+def _plain_file(path: Path) -> bool:
+    return (
+        os.path.lexists(path)
+        and not path.is_symlink()
+        and path.is_file()
+        and path.resolve(strict=True) == path
+    )
+
+
+def owner_paths() -> dict[str, Path]:
+    """Select one complete repository or named-package owner layout."""
+
+    source = Path(os.path.abspath(__file__))
+    require(
+        _plain_file(source)
+        and source.name == "scientific_closure_lineage.py"
+        and source.parent.name == "scripts"
+        and source.parent.parent.name == "auto-g16-reaction-workflow"
+        and source.parents[2].name == "skills",
+        "minimum-lineage owner source path differs",
+    )
+    repository_shape = source.parents[3].name != "dependencies"
+    named_shape = (
+        source.parents[3].name == "dependencies"
+        and source.parents[4].name == "auto-g16-rtwin-pbs"
+    )
+    require(
+        repository_shape != named_shape,
+        "minimum-lineage requires exactly one repository or named-Skill owner layout",
+    )
+
+    if repository_shape:
+        repository_root = source.parents[3]
+        skills = repository_root / "skills"
+        directories = (
+            repository_root,
+            repository_root / "scripts",
+            skills,
+            skills / "auto-g16-rtwin-pbs",
+            skills / "auto-g16-rtwin-pbs" / "scripts",
+            skills / "auto-g16-ts-irc",
+            skills / "auto-g16-ts-irc" / "scripts",
+            source.parent.parent,
+            source.parent,
+        )
+        paths = {
+            "log": skills / "auto-g16-rtwin-pbs" / "scripts" / "gaussian_log.py",
+            "approval": skills / "auto-g16-rtwin-pbs" / "scripts" / "gaussian_rtwin_pbs.py",
+            "input": skills / "auto-g16-ts-irc" / "scripts" / "ts_irc.py",
+        }
+        marker = repository_root / "scripts" / "skill_package.py"
+        require(
+            all(_plain_directory(path) for path in directories)
+            and _plain_file(marker)
+            and all(_plain_file(path) for path in paths.values()),
+            "minimum-lineage repository owner layout is partial or path-drifted",
+        )
+        return paths
+
+    package_root = source.parents[4]
+    dependency_skills = package_root / "dependencies" / "skills"
+    second_owner_shapes = (
+        dependency_skills / "auto-g16-rtwin-pbs",
+        package_root / "skills" / "auto-g16-rtwin-pbs",
+    )
+    require(
+        not any(os.path.lexists(path) for path in second_owner_shapes),
+        "minimum-lineage named-Skill layout contains a second RTwin owner",
+    )
+    directories = (
+        package_root,
+        package_root / "scripts",
+        package_root / "dependencies",
+        dependency_skills,
+        dependency_skills / "auto-g16-ts-irc",
+        dependency_skills / "auto-g16-ts-irc" / "scripts",
+        source.parent.parent,
+        source.parent,
+    )
+    paths = {
+        "log": package_root / "scripts" / "gaussian_log.py",
+        "approval": package_root / "scripts" / "gaussian_rtwin_pbs.py",
+        "input": dependency_skills / "auto-g16-ts-irc" / "scripts" / "ts_irc.py",
+    }
+    require(
+        all(_plain_directory(path) for path in directories)
+        and _plain_file(package_root / "SKILL.md")
+        and all(_plain_file(path) for path in paths.values()),
+        "minimum-lineage named-Skill owner layout is partial or path-drifted",
+    )
+    return paths
+
+
+def _read_owner_source(path: Path) -> tuple[tuple[int, ...], str]:
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+    )
+    try:
+        before = os.fstat(descriptor)
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    identity = (
+        before.st_dev,
+        before.st_ino,
+        before.st_uid,
+        before.st_gid,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+    )
+    require(
+        stat.S_ISREG(before.st_mode)
+        and identity
+        == (
+            after.st_dev,
+            after.st_ino,
+            after.st_uid,
+            after.st_gid,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        ),
+        f"owner validator identity changed while reading: {path}",
+    )
+    raw = b"".join(chunks)
+    require(len(raw) == before.st_size, f"owner validator size changed while reading: {path}")
+    return identity, hashlib.sha256(raw).hexdigest()
+
+
+def _assert_loaded_owner(
+    key: str,
+    path: Path,
+    module: Any,
+    *,
+    identity: tuple[int, ...],
+    source_sha256: str,
+    canonical_name: str | None = None,
+) -> Any:
+    current_identity, current_sha256 = _read_owner_source(path)
+    raw_file = getattr(module, "__file__", None)
+    raw_origin = getattr(getattr(module, "__spec__", None), "origin", None)
+    require(
+        type(module) is types.ModuleType
+        and type(raw_file) is str
+        and type(raw_origin) is str
+        and Path(raw_file).resolve(strict=True) == path
+        and Path(raw_origin).resolve(strict=True) == path
+        and current_identity == identity
+        and current_sha256 == source_sha256 == OWNER_SOURCE_SHA256[key]
+        and (
+            canonical_name is None
+            or sys.modules.get(canonical_name) is module
+        ),
+        f"owner validator origin, identity, or currentness differs: {path}",
+    )
     return module
 
 
+def load_owner(
+    key: str,
+    path: Path,
+    name: str,
+    *,
+    canonical: bool = False,
+) -> Any:
+    require(_plain_file(path), f"owner validator unavailable: {path}")
+    identity, source_sha256 = _read_owner_source(path)
+    require(
+        source_sha256 == OWNER_SOURCE_SHA256[key],
+        f"reviewed owner validator bytes differ: {path}",
+    )
+    if canonical:
+        existing = sys.modules.get(name)
+        if existing is not None:
+            return _assert_loaded_owner(
+                key,
+                path,
+                existing,
+                identity=identity,
+                source_sha256=source_sha256,
+                canonical_name=name,
+            )
+    spec = importlib.util.spec_from_file_location(name, path)
+    require(spec is not None and spec.loader is not None, f"owner validator cannot be loaded: {path}")
+    module = importlib.util.module_from_spec(spec)
+    if canonical:
+        sys.modules[name] = module
+    sys.path.insert(0, str(path.parent))
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        if canonical and sys.modules.get(name) is module:
+            del sys.modules[name]
+        raise
+    finally:
+        sys.path.pop(0)
+    return _assert_loaded_owner(
+        key,
+        path,
+        module,
+        identity=identity,
+        source_sha256=source_sha256,
+        canonical_name=name if canonical else None,
+    )
+
+
 def owners() -> dict[str, Any]:
+    paths = owner_paths()
+    log = load_owner(
+        "log",
+        paths["log"],
+        "gaussian_log",
+        canonical=True,
+    )
+    approval = load_owner(
+        "approval",
+        paths["approval"],
+        "closure_input_approval",
+    )
+    require(
+        approval.analyze_log_file is log.analyze_log_file
+        and approval.analyze_log_text is log.analyze_log_text
+        and approval.analyze_workflow_log_file
+        is log.analyze_workflow_log_file,
+        "input-approval owner uses another gaussian_log module",
+    )
     return {
-        "log": load_owner(("auto-g16-rtwin-pbs", "scripts", "gaussian_log.py"), "closure_gaussian_log"),
-        "approval": load_owner(("auto-g16-rtwin-pbs", "scripts", "gaussian_rtwin_pbs.py"), "closure_input_approval"),
-        "input": load_owner(("auto-g16-ts-irc", "scripts", "ts_irc.py"), "closure_ts_input"),
+        "log": log,
+        "approval": approval,
+        "input": load_owner("input", paths["input"], "closure_ts_input"),
     }
 
 
@@ -266,10 +506,79 @@ def normalize_review(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def parse_process_probe(path: Path, project: str, input_stem: str) -> dict[str, int]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    require(lines and lines[0].startswith("COLLECTED_EPOCH\t"), "process probe lacks a collection epoch")
+    epoch_fields = lines[0].split("\t")
+    require(len(epoch_fields) == 2 and epoch_fields[1].isdigit() and int(epoch_fields[1]) > 0, "process probe collection epoch is invalid")
+    summary: list[list[str]] = []
+    ignored = 0
+    for line in lines[1:]:
+        fields = line.split("\t")
+        require(fields and fields[0] in {"IGNORED_INFRASTRUCTURE", "SUMMARY"}, "process probe contains an unknown record")
+        if fields[0] == "IGNORED_INFRASTRUCTURE":
+            require(len(fields) == 5 and fields[1].isdigit() and fields[2] in {"sshd", "sftp-server"} and fields[3:] == ["1", "0"], "process probe infrastructure exclusion is invalid")
+            ignored += 1
+        else:
+            summary.append(fields)
+    require(len(summary) == 1, "process probe must contain exactly one target summary")
+    fields = summary[0]
+    require(len(fields) == 6 and fields[1] == project and fields[2] == input_stem, "process probe target differs from the exact job")
+    require(all(value.isdigit() for value in fields[3:]), "process probe summary counts are invalid")
+    matches, unresolved, excluded = map(int, fields[3:])
+    require(excluded == ignored, "process probe infrastructure count differs from its records")
+    return {"collected_epoch": int(epoch_fields[1]), "match_count": matches, "unresolved_count": unresolved, "ignored_infrastructure_count": excluded}
+
+
+def validate_process_reconciliation(path: Path, root: Path | None = None) -> dict[str, Any]:
+    artifact = load_json(path)
+    exact(artifact, {"schema", "project", "job_id", "input_stem", "input_sha256", "terminal_inspection_receipt_sha256", "observations", "stable_duration_seconds", "process_evidence_status", "process_alive", "scientific_acceptance", "calculation_ready", "no_submission_authorization", "payload_sha256"}, "terminal process reconciliation")
+    require(artifact["schema"] == PROCESS_RECONCILIATION_SCHEMA and artifact["payload_sha256"] == payload_sha256(artifact), "terminal process reconciliation schema or payload hash is invalid")
+    require(re.fullmatch(r"[A-Za-z0-9_.-]+", artifact["project"]) is not None and re.fullmatch(r"[0-9]+(?:\.[A-Za-z0-9_.-]+)?", artifact["job_id"]) is not None and re.fullmatch(r"[A-Za-z0-9_.-]+", artifact["input_stem"]) is not None, "terminal process reconciliation identity is invalid")
+    require(HASH_RE.fullmatch(artifact["input_sha256"]) is not None and HASH_RE.fullmatch(artifact["terminal_inspection_receipt_sha256"]) is not None, "terminal process reconciliation hashes are invalid")
+    require(artifact["process_evidence_status"] == "absent" and artifact["process_alive"] is False, "terminal process reconciliation does not prove process absence")
+    require(artifact["scientific_acceptance"] is False and artifact["calculation_ready"] is False and artifact["no_submission_authorization"] is True, "terminal process reconciliation crosses its authority boundary")
+    observations = artifact["observations"]
+    require(isinstance(observations, list) and len(observations) == 2, "terminal process reconciliation requires exactly two observations")
+    source_root = secure_root(root or path.parent)
+    epochs: list[int] = []
+    for observation in observations:
+        exact(observation, {"source", "collected_epoch", "match_count", "unresolved_count", "ignored_infrastructure_count"}, "terminal process observation")
+        source_path, _ = resolve_reference(observation["source"], source_root, "terminal process probe")
+        replay = parse_process_probe(source_path, f"/home/user100/SDL/{artifact['project']}", artifact["input_stem"])
+        require({key: observation[key] for key in replay} == replay, "terminal process observation differs from raw probe")
+        require(replay["match_count"] == 0 and replay["unresolved_count"] == 0, "terminal process probe is present or unresolved")
+        epochs.append(replay["collected_epoch"])
+    duration = epochs[1] - epochs[0]
+    require(duration >= 5 and artifact["stable_duration_seconds"] == duration, "terminal process observations are not stably separated")
+    return artifact
+
+
+def build_process_reconciliation(root: Path, project: str, job_id: str, input_stem: str, input_path: Path, receipt_path: Path, probes: list[Path], output: Path) -> dict[str, Any]:
+    lexical_root = Path(os.path.abspath(root)); root = secure_root(lexical_root)
+    output = Path(os.path.abspath(output)); require(output.parent.resolve() == root and not output.parent.is_symlink(), "process reconciliation output must be directly inside package root")
+    receipt = load_json(receipt_path)
+    require(receipt.get("schema") == "gaussian-terminal-inspection-receipt/1" and receipt.get("project") == project and receipt.get("job_id") == job_id and receipt.get("input_stem") == input_stem, "terminal receipt differs from process reconciliation scope")
+    input_digest = file_sha256(input_path)
+    require(receipt.get("input_sha256") == input_digest and receipt.get("receipt_sha256") == transport_digest({key: value for key, value in receipt.items() if key != "receipt_sha256"}), "terminal receipt input or receipt hash is invalid")
+    require(len(probes) == 2, "process reconciliation requires exactly two raw probes")
+    observations = []
+    for probe in probes:
+        parsed = parse_process_probe(probe, f"/home/user100/SDL/{project}", input_stem)
+        require(parsed["match_count"] == 0 and parsed["unresolved_count"] == 0, "terminal process probe is present or unresolved")
+        observations.append({"source": reference(probe, lexical_root), **parsed})
+    duration = observations[1]["collected_epoch"] - observations[0]["collected_epoch"]
+    require(duration >= 5, "terminal process probes must be separated by at least five seconds")
+    artifact = {"schema": PROCESS_RECONCILIATION_SCHEMA, "project": project, "job_id": job_id, "input_stem": input_stem, "input_sha256": input_digest, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "observations": observations, "stable_duration_seconds": duration, "process_evidence_status": "absent", "process_alive": False, "scientific_acceptance": False, "calculation_ready": False, "no_submission_authorization": True, "payload_sha256": None}
+    artifact["payload_sha256"] = payload_sha256(artifact)
+    return publish_json_exclusive(root / output.name, artifact, lambda candidate: validate_process_reconciliation(candidate, root))
+
+
 def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, Any]:
     v2 = artifact.get("schema") == SCHEMA_V2
     source_fields = ({"origin", "input_approval", "input", "job", "result", "raw_log", "checkpoint", "optimized_coordinates", "terminal_inspection_receipt", "fetch_snapshot"} if v2 else {"selection", "input_approval", "input", "job", "result", "raw_log", "checkpoint", "optimized_coordinates"})
-    sources = exact(artifact["sources"], source_fields, "minimum lineage sources")
+    sources = artifact["sources"]
+    require(isinstance(sources, dict) and set(sources) in {frozenset(source_fields), frozenset(source_fields | {"process_reconciliation"})}, "minimum lineage sources fields are invalid")
     selection = None
     endpoint = None
     if v2:
@@ -280,6 +589,9 @@ def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, An
         elif artifact["source_kind"] == "endpoint_structure_review":
             endpoint = owners()["input"].validate_endpoint_structure_review_artifact(origin_path)
             require(endpoint == origin_json, "endpoint owner replay returned different content")
+        elif artifact["source_kind"] == "reviewed_result":
+            direct_review = normalize_review(origin_json)
+            require(direct_review == origin_json, "reviewed-result origin is not deterministically normalized")
         else:
             raise LineageError("minimum lineage source_kind is unsupported")
     else:
@@ -319,15 +631,26 @@ def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, An
             and inspection.get("transport_returncode") == 0,
             "minimum terminal inspection crosses project/job/state/source/returncode",
         )
-        require(inspection.get("freshness") == "fresh" and inspection.get("transport_classification") == "success" and inspection.get("termination_counts_known") is True and inspection.get("process_alive") is False and inspection.get("evidence_conflict") is False, "minimum terminal inspection is stale or unknown")
+        require(inspection.get("freshness") == "fresh" and inspection.get("transport_classification") == "success" and inspection.get("termination_counts_known") is True and inspection.get("evidence_conflict") is False, "minimum terminal inspection is stale or unknown")
+        if inspection.get("process_alive") is not False:
+            require("process_reconciliation" in sources, "minimum terminal process evidence remains unknown")
+            process_path, process_reconciliation = resolve_reference(sources["process_reconciliation"], root, "terminal process reconciliation", json_source=True)
+            process_reconciliation = validate_process_reconciliation(process_path, root)
+            require(process_reconciliation.get("project") == job.get("project") and process_reconciliation.get("job_id") == job.get("job_id") and process_reconciliation.get("input_stem") == receipt.get("input_stem") and process_reconciliation.get("input_sha256") == job.get("input_sha256") and process_reconciliation.get("terminal_inspection_receipt_sha256") == receipt.get("receipt_sha256"), "terminal process reconciliation crosses project/job/input/receipt")
+        elif "process_reconciliation" in sources:
+            process_path, _ = resolve_reference(sources["process_reconciliation"], root, "terminal process reconciliation", json_source=True)
+            process_reconciliation = validate_process_reconciliation(process_path, root)
+            require(process_reconciliation.get("project") == job.get("project") and process_reconciliation.get("job_id") == job.get("job_id") and process_reconciliation.get("input_sha256") == job.get("input_sha256") and process_reconciliation.get("terminal_inspection_receipt_sha256") == receipt.get("receipt_sha256"), "terminal process reconciliation crosses project/job/input/receipt")
         require(inspection.get("log_size") == log_path.stat().st_size and inspection.get("full_normal_termination_count") == log_path.read_text(encoding="utf-8", errors="replace").count("Normal termination of Gaussian") and inspection.get("full_error_termination_count") == log_path.read_text(encoding="utf-8", errors="replace").count("Error termination"), "minimum terminal inspection differs from raw log")
         require(snapshot.get("schema") == "gaussian-fetch-snapshot/1" and snapshot.get("snapshot_complete") is True and snapshot.get("per_hop_sha256_verified") is True and snapshot.get("payload_sha256") == transport_digest({key: value for key, value in snapshot.items() if key != "payload_sha256"}), "minimum fetch snapshot is incomplete or invalid")
         require(snapshot.get("project") == job.get("project") and snapshot.get("job_id") == job.get("job_id") and snapshot.get("input_sha256") == job.get("input_sha256") and snapshot.get("terminal_inspection_receipt_sha256") == receipt.get("receipt_sha256"), "minimum fetch snapshot crosses project/job/input/receipt")
         require(job.get("terminal_inspection_receipt_sha256") == receipt.get("receipt_sha256") and job.get("fetch_snapshot_sha256") == file_sha256(snapshot_path) and job.get("fetch_snapshot_size") == snapshot_path.stat().st_size, "minimum job does not bind the exact receipt/fetch snapshot")
         require(snapshot_path.parent.resolve() == log_path.parent.resolve() == checkpoint_path.parent.resolve() == result_path.parent.resolve(), "minimum result/log/checkpoint must belong to the exact fetch snapshot")
-        for candidate in (log_path, checkpoint_path, result_path):
+        for candidate in (log_path, checkpoint_path, result_path, xyz_path):
             expected = {"sha256": file_sha256(candidate), "size": candidate.stat().st_size}
             require(snapshot.get("artifacts", {}).get(candidate.name) == expected, f"minimum fetch snapshot does not bind {candidate.name}")
+        for candidate in (log_path, checkpoint_path):
+            expected = {"sha256": file_sha256(candidate), "size": candidate.stat().st_size}
             hop = snapshot.get("per_hop", {}).get(candidate.name)
             require(
                 isinstance(hop, dict) and set(hop) == {"server_sha256", "rtwin_sha256", "mac_sha256", "size"}
@@ -337,20 +660,30 @@ def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, An
             )
     settings = artifact["workflow_settings"]
     replay = owner["log"].analyze_workflow_log_text(log_path.read_text(encoding="utf-8", errors="replace"), temperature_k=float(settings["temperature_k"]), standard_state=settings["standard_state"], expected_stages=settings["expected_stages"])
-    compare = {
-        "schema", "status", "normal_termination", "normal_termination_count", "error_termination",
-        "error_termination_count", "optimization_completed", "stationary_point_found", "optimization_success",
-        "final_energy_hartree", "frequency_count", "expected_frequency_count", "frequency_parse_complete",
-        "frequency_parse_diagnostics", "imaginary_frequency_count", "frequencies_cm-1", "final_coordinate_count",
-        "final_coordinates", "linearity", "parser", "execution_complete", "frequency_complete", "minimum_validated",
-        "workflow_success", "thermochemistry",
-    }
-    for key in compare:
-        require(result.get(key) == replay.get(key), f"minimum result differs from raw-log parser replay: {key}")
+    if result.get("schema") == "gaussian-result/1":
+        base_replay = owner["log"].analyze_log_text(log_path.read_text(encoding="utf-8", errors="replace"))
+        for key in set(result) - {"log", "optimized_xyz"}:
+            require(result.get(key) == base_replay.get(key), f"minimum result differs from raw-log base-parser replay: {key}")
+    else:
+        compare = {
+            "schema", "status", "normal_termination", "normal_termination_count", "error_termination",
+            "error_termination_count", "optimization_completed", "stationary_point_found", "optimization_success",
+            "final_energy_hartree", "frequency_count", "expected_frequency_count", "frequency_parse_complete",
+            "frequency_parse_diagnostics", "imaginary_frequency_count", "frequencies_cm-1", "final_coordinate_count",
+            "final_coordinates", "linearity", "parser", "execution_complete", "frequency_complete", "minimum_validated",
+            "workflow_success", "thermochemistry",
+        }
+        for key in compare:
+            require(result.get(key) == replay.get(key), f"minimum result differs from raw-log parser replay: {key}")
     require(replay["frequency_parse_complete"] is True and replay["expected_frequency_count"] is not None and replay["frequency_count"] == replay["expected_frequency_count"], "minimum frequency evidence is truncated, damaged, or incomplete")
     require(replay["minimum_validated"] is True and replay["imaginary_frequency_count"] == 0 and replay["workflow_success"] is True, "minimum result is not a completed zero-imaginary stationary minimum")
     mapping = artifact["atom_mapping"]
-    candidate_elements = selection.get("candidate_atom_elements") if selection is not None else [item["element"] for item in endpoint["endpoint_coordinates"]["records"]]
+    if selection is not None:
+        candidate_elements = selection.get("candidate_atom_elements")
+    elif endpoint is not None:
+        candidate_elements = [item["element"] for item in endpoint["endpoint_coordinates"]["records"]]
+    else:
+        candidate_elements = [item["element"] for item in artifact["atom_mapping"]]
     input_elements = [item["element"] for item in parsed_input["atoms"]]
     result_elements = [item.get("element") for item in replay["final_coordinates"]]
     mapped_elements = [item["element"] for item in mapping]
@@ -359,6 +692,11 @@ def replay_minimum_sources(root: Path, artifact: dict[str, Any]) -> dict[str, An
     if endpoint is not None:
         require(endpoint["stable_atom_ids"] == artifact["stable_atom_ids"] and endpoint["structure_identity"]["state_id"] == artifact["state_id"], "endpoint state or stable atom mapping differs from minimum lineage")
         require(endpoint["charge"] == parsed_input["charge"] and endpoint["multiplicity"] == parsed_input["multiplicity"], "endpoint charge or multiplicity differs from Opt/Freq input")
+    if artifact.get("source_kind") == "reviewed_result":
+        require(direct_review["lineage_id"] == artifact["lineage_id"], "reviewed-result lineage ID differs")
+        require(direct_review["minimum_id"] == artifact["minimum_id"] and direct_review["state_id"] == artifact["state_id"], "reviewed-result minimum or state differs")
+        require(direct_review["stable_atom_ids"] == artifact["stable_atom_ids"] and direct_review["atom_mapping"] == artifact["atom_mapping"], "reviewed-result stable atom mapping differs")
+        require(direct_review["structure_review"] == artifact["structure_review"], "reviewed-result structure review differs")
     require(artifact["formula"] == formula(result_elements), "minimum formula differs from exact result composition")
     require(parsed_input["charge"] == artifact["charge"] and parsed_input["multiplicity"] == artifact["multiplicity"], "minimum input charge or multiplicity differs from lineage")
     coordinates = parse_xyz(xyz_path)
@@ -375,7 +713,7 @@ def validate_artifact(path: Path) -> dict[str, Any]:
     exact(artifact, required, "minimum lineage handoff")
     require(artifact["schema"] in {SCHEMA, SCHEMA_V2} and artifact["payload_sha256"] == payload_sha256(artifact), "minimum lineage schema or payload hash is invalid")
     if artifact["schema"] == SCHEMA_V2:
-        require(artifact["source_kind"] in {"conformer_selection", "endpoint_structure_review"}, "minimum lineage /2 source_kind is invalid")
+        require(artifact["source_kind"] in SOURCE_KINDS, "minimum lineage /2 source_kind is invalid")
     require(artifact["immutability"] == "append_only_new_revision" and artifact["calculation_ready"] is False and artifact["no_submission_authorization"] is True, "minimum lineage authority or immutability boundary changed")
     expected_states = {"human_selected": True, "input_draft_generated": True, "exact_input_approved": True, "job_observed": True, "submission_authorized_by_this_artifact": False, "result_accepted": True}
     require(artifact["workflow_states"] == expected_states, "minimum lineage workflow states are invalid")
@@ -396,15 +734,22 @@ def build(root: Path, paths: dict[str, Path], review_path: Path, output: Path, *
     require(output.parent.resolve() == root and not output.parent.is_symlink(), "output must be a new file directly inside package root")
     output = root / output.name
     review = normalize_review(load_json(review_path))
-    require(source_kind in {"conformer_selection", "endpoint_structure_review"}, "minimum source_kind is invalid")
-    origin_key = "selection" if source_kind == "conformer_selection" else "endpoint_structure_review"
+    require(source_kind in SOURCE_KINDS, "minimum source_kind is invalid")
+    origin_key = {
+        "conformer_selection": "selection",
+        "endpoint_structure_review": "endpoint_structure_review",
+        "reviewed_result": "reviewed_result",
+    }[source_kind]
     selection = validate_selection_receipt(paths[origin_key]) if source_kind == "conformer_selection" else None
     endpoint = owners()["input"].validate_endpoint_structure_review_artifact(paths[origin_key]) if source_kind == "endpoint_structure_review" else None
+    direct_review = normalize_review(load_json(paths[origin_key])) if source_kind == "reviewed_result" else None
+    if direct_review is not None:
+        require(direct_review == review, "reviewed-result origin must be the exact minimum lineage review")
     parsed_input = owners()["input"].parse_cartesian_input(paths["input"])
     sources: dict[str, Any] = {}
     for key, path in paths.items():
         target_key = "origin" if key == origin_key else key
-        document = load_json(path) if key in {origin_key, "input_approval", "job", "result", "terminal_inspection_receipt", "fetch_snapshot"} else None
+        document = load_json(path) if key in {origin_key, "input_approval", "job", "result", "terminal_inspection_receipt", "fetch_snapshot", "process_reconciliation"} else None
         sources[target_key] = reference(path, lexical_root, json_document=document)
     result = load_json(paths["result"])
     artifact = {
@@ -420,8 +765,10 @@ def build(root: Path, paths: dict[str, Path], review_path: Path, output: Path, *
     }
     if selection is not None:
         require(selection.get("formula") == artifact["formula"], "selected conformer formula differs from minimum review")
-    else:
+    elif endpoint is not None:
         require(endpoint["structure_identity"]["formula"] == artifact["formula"], "endpoint formula differs from minimum review")
+    else:
+        require(direct_review["structure_review"]["formula"] == artifact["formula"], "reviewed-result formula differs from minimum review")
     require(result.get("parser", {}).get("schema") == "auto-g16-gaussian-log-parser/2", "minimum result must record parser schema/version")
     artifact["payload_sha256"] = payload_sha256(artifact)
     replay_minimum_sources(root, artifact)
@@ -433,11 +780,21 @@ def parser() -> argparse.ArgumentParser:
     commands = root.add_subparsers(dest="command", required=True)
     build_parser = commands.add_parser("build")
     build_parser.add_argument("--root", type=Path, required=True)
-    build_parser.add_argument("--source-kind", choices=["conformer_selection", "endpoint_structure_review"], required=True)
+    build_parser.add_argument("--source-kind", choices=sorted(SOURCE_KINDS), required=True)
     build_parser.add_argument("--selection", type=Path)
     build_parser.add_argument("--endpoint-structure-review", type=Path)
     for name in ("input-approval", "input", "job", "result", "raw-log", "checkpoint", "optimized-coordinates", "terminal-inspection-receipt", "fetch-snapshot", "review", "output"):
         build_parser.add_argument(f"--{name}", type=Path, required=True)
+    build_parser.add_argument("--process-reconciliation", type=Path)
+    process_parser = commands.add_parser("reconcile-process")
+    process_parser.add_argument("--root", type=Path, required=True)
+    process_parser.add_argument("--project", required=True)
+    process_parser.add_argument("--job-id", required=True)
+    process_parser.add_argument("--input-stem", required=True)
+    process_parser.add_argument("--input", type=Path, required=True)
+    process_parser.add_argument("--terminal-inspection-receipt", type=Path, required=True)
+    process_parser.add_argument("--probe", type=Path, action="append", required=True)
+    process_parser.add_argument("--output", type=Path, required=True)
     validate_parser = commands.add_parser("validate")
     validate_parser.add_argument("artifact", type=Path)
     return root
@@ -448,12 +805,29 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validate":
             artifact = validate_artifact(args.artifact)
+        elif args.command == "reconcile-process":
+            artifact = build_process_reconciliation(args.root, args.project, args.job_id, args.input_stem, args.input, args.terminal_inspection_receipt, args.probe, args.output)
         else:
-            origin = args.selection if args.source_kind == "conformer_selection" else args.endpoint_structure_review
-            require(origin is not None and (args.endpoint_structure_review is None if args.source_kind == "conformer_selection" else args.selection is None), "minimum source kinds are mutually exclusive and require exactly one origin")
-            paths = {("selection" if args.source_kind == "conformer_selection" else "endpoint_structure_review"): origin, "input_approval": args.input_approval, "input": args.input, "job": args.job, "result": args.result, "raw_log": args.raw_log, "checkpoint": args.checkpoint, "optimized_coordinates": args.optimized_coordinates, "terminal_inspection_receipt": args.terminal_inspection_receipt, "fetch_snapshot": args.fetch_snapshot}
+            if args.source_kind == "conformer_selection":
+                origin = args.selection
+                require(origin is not None and args.endpoint_structure_review is None, "minimum source kinds are mutually exclusive and require exactly one origin")
+                origin_key = "selection"
+            elif args.source_kind == "endpoint_structure_review":
+                origin = args.endpoint_structure_review
+                require(origin is not None and args.selection is None, "minimum source kinds are mutually exclusive and require exactly one origin")
+                origin_key = "endpoint_structure_review"
+            else:
+                origin = args.review
+                require(args.selection is None and args.endpoint_structure_review is None, "reviewed_result cannot carry a conformer or IRC-endpoint origin")
+                origin_key = "reviewed_result"
+            paths = {origin_key: origin, "input_approval": args.input_approval, "input": args.input, "job": args.job, "result": args.result, "raw_log": args.raw_log, "checkpoint": args.checkpoint, "optimized_coordinates": args.optimized_coordinates, "terminal_inspection_receipt": args.terminal_inspection_receipt, "fetch_snapshot": args.fetch_snapshot}
+            if args.process_reconciliation is not None:
+                paths["process_reconciliation"] = args.process_reconciliation
             artifact = build(args.root, paths, args.review, args.output, source_kind=args.source_kind)
-        print(json.dumps({"schema": artifact["schema"], "minimum_id": artifact["minimum_id"], "payload_sha256": artifact["payload_sha256"], "live_actions": False}, ensure_ascii=False))
+        response = {"schema": artifact["schema"], "payload_sha256": artifact["payload_sha256"], "live_actions": False}
+        if "minimum_id" in artifact:
+            response["minimum_id"] = artifact["minimum_id"]
+        print(json.dumps(response, ensure_ascii=False))
         return 0
     except (LineageError, ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}")

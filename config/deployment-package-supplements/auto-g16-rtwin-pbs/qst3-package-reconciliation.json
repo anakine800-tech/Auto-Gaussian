@@ -1,0 +1,74 @@
+{
+  "schema": "auto-g16-named-skill-package/1",
+  "skill": "auto-g16-rtwin-pbs",
+  "include": [
+    {
+      "source": "skills/auto-g16-ts-irc/scripts",
+      "target": "dependencies/skills/auto-g16-ts-irc/scripts"
+    },
+    {
+      "source": "skills/auto-g16-reaction-workflow/scripts",
+      "target": "dependencies/skills/auto-g16-reaction-workflow/scripts"
+    },
+    {
+      "source": "skills/auto-g16-conformer-search/scripts",
+      "target": "dependencies/skills/auto-g16-conformer-search/scripts"
+    },
+    {
+      "source": "skills/auto-g16-main-group-open-shell/scripts",
+      "target": "dependencies/skills/auto-g16-main-group-open-shell/scripts"
+    },
+    {
+      "source": "skills/auto-g16-knowledge-base/scripts",
+      "target": "dependencies/skills/auto-g16-knowledge-base/scripts"
+    },
+    {
+      "source": "skills/auto-g16-reaction-literature/scripts",
+      "target": "dependencies/skills/auto-g16-reaction-literature/scripts"
+    },
+    {
+      "source": "scripts/validate_asymmetric_contract.py",
+      "target": "dependencies/scripts/validate_asymmetric_contract.py"
+    },
+    {
+      "source": "contracts/asymmetric-catalysis",
+      "target": "dependencies/contracts/asymmetric-catalysis"
+    },
+    {
+      "source": "contracts/conformer-search",
+      "target": "dependencies/contracts/conformer-search"
+    },
+    {
+      "source": "contracts/reaction-workflow",
+      "target": "contracts/reaction-workflow"
+    },
+    {
+      "source": "skills/auto-g16-ts-irc/contracts",
+      "target": "contracts/ts-irc"
+    },
+    {
+      "source": "tests/test_protected_qst3_adapter.py",
+      "target": "tests/test_protected_qst3_adapter.py"
+    },
+    {
+      "source": "tests/test_protected_qst3_real_chain.py",
+      "target": "tests/test_protected_qst3_real_chain.py"
+    },
+    {
+      "source": "tests/test_protected_qst3_package_reconciliation.py",
+      "target": "tests/test_protected_qst3_package_reconciliation.py"
+    },
+    {
+      "source": "tests/fixtures/rtwin_pbs/protected_qst3_production_successor.json",
+      "target": "tests/fixtures/rtwin_pbs/protected_qst3_production_successor.json"
+    },
+    {
+      "source": "tests/fixtures/rtwin_pbs/protected_qst3_package_reconciliation.json",
+      "target": "tests/fixtures/rtwin_pbs/protected_qst3_package_reconciliation.json"
+    },
+    {
+      "source": "docs/v2.7-qst3-package-reconciliation.md",
+      "target": "references/qst3-package-reconciliation.md"
+    }
+  ]
+}

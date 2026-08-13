@@ -50,17 +50,45 @@ COVALENT_RADII_ANGSTROM = {
 }
 
 
-def _load_scientific_maturity() -> Any:
+def _load_scientific_maturity(gate_path: Path | None = None) -> Any:
     skills_root = Path(__file__).resolve().parents[2]
-    path = skills_root / "auto-g16-reaction-workflow" / "scripts" / "scientific_maturity.py"
+    version = 1
+    if gate_path is not None:
+        document = _load_json_strict(gate_path)
+        schema = document.get("schema") if isinstance(document, dict) else None
+        if schema == "gaussian-scientific-maturity-gate/2":
+            version = 2
+        elif schema != "gaussian-scientific-maturity-gate/1":
+            raise ValueError(f"unsupported scientific-maturity gate schema: {schema!r}")
+    filename = "scientific_maturity.py" if version == 1 else "scientific_maturity_v2.py"
+    path = skills_root / "auto-g16-reaction-workflow" / "scripts" / filename
     if not path.is_file():
         raise ValueError("scientific-maturity owner validator is unavailable")
-    spec = importlib.util.spec_from_file_location("auto_g16_ts_scientific_maturity", path)
+    spec = importlib.util.spec_from_file_location(f"auto_g16_ts_scientific_maturity_v{version}", path)
     if spec is None or spec.loader is None:
         raise ValueError("scientific-maturity owner validator cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _assert_maturity_action(
+    maturity: Any,
+    gate_path: Path,
+    edge_id: str,
+    node_id: str,
+    action: str,
+    *,
+    pilot: bool,
+    resource_tier: str,
+) -> dict[str, Any]:
+    document = _load_json_strict(gate_path)
+    if document.get("schema") == "gaussian-scientific-maturity-gate/2":
+        return maturity.assert_action(gate_path, edge_id, node_id, action, pilot=pilot)
+    return maturity.assert_action(
+        gate_path, edge_id, action, pilot=pilot,
+        resource_tier=resource_tier, node_id=node_id,
+    )
 
 
 def _load_gaussian_log_owner() -> Any:
@@ -71,6 +99,25 @@ def _load_gaussian_log_owner() -> Any:
     spec = importlib.util.spec_from_file_location("auto_g16_ts_gaussian_log", path)
     if spec is None or spec.loader is None:
         raise ValueError("Gaussian raw-log parser owner cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_protected_qst3_input_owner() -> Any:
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "auto-g16-rtwin-pbs"
+        / "scripts"
+        / "protected_qst3_adapter.py"
+    )
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("protected QST3 input owner is unavailable")
+    spec = importlib.util.spec_from_file_location(
+        "auto_g16_ts_protected_qst3_input", path
+    )
+    if spec is None or spec.loader is None:
+        raise ValueError("protected QST3 input owner cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -400,8 +447,8 @@ def _validate_endpoint_execution_evidence(paths: dict[str, Path], audit: dict[st
 
 
 def _revalidate_family_scientific_binding(family_path: Path, family: dict[str, Any]) -> dict[str, Any]:
-    if family.get("schema") != SCHEMA_V2 or family.get("pilot") is not False:
-        raise ValueError("formal downstream work requires a non-pilot TS-family /2")
+    if family.get("schema") != SCHEMA_V2 or not isinstance(family.get("pilot"), bool):
+        raise ValueError("downstream work requires an explicitly classified TS-family /2")
     binding = family.get("scientific_maturity", {})
     relative = Path(str(binding.get("path", "")))
     if relative.is_absolute() or ".." in relative.parts:
@@ -409,18 +456,43 @@ def _revalidate_family_scientific_binding(family_path: Path, family: dict[str, A
     maturity_path = family_path.parent / relative
     if not maturity_path.is_file() or maturity_path.is_symlink() or sha256(maturity_path) != binding.get("sha256") or maturity_path.stat().st_size != binding.get("size_bytes"):
         raise ValueError("TS-family scientific-maturity binding changed")
-    maturity = _load_scientific_maturity()
+    maturity = _load_scientific_maturity(maturity_path)
     maturity_document = maturity.validate_gate(maturity_path)
     if maturity_document.get("payload_sha256") != binding.get("payload_sha256"):
         raise ValueError("TS-family scientific-maturity payload changed")
-    fresh_check = maturity.assert_action(
-        maturity_path, family.get("mechanism_edge_id"), "ts_input", pilot=False,
+    fresh_check = _assert_maturity_action(
+        maturity, maturity_path, family.get("mechanism_edge_id"),
+        family.get("dag_node_id"), "ts_input", pilot=family["pilot"],
         resource_tier=family.get("protocol", {}).get("resource_tiers", {}).get("ts_freq", "simple"),
-        node_id=family.get("dag_node_id"),
     )
     if fresh_check != family.get("scientific_input_gate"):
         raise ValueError("TS-family scientific input gate no longer matches owner reconstruction")
     return fresh_check
+
+
+def validate_family_artifact(path: Path) -> dict[str, Any]:
+    """Replay one exact formal TS-family artifact through its owner chain."""
+
+    family = _load_json_strict(path)
+    if family.get("schema") != SCHEMA_V2:
+        raise ValueError(f"TS-family schema must be {SCHEMA_V2}")
+    _revalidate_family_scientific_binding(path, family)
+    return family
+
+
+def resolve_qst_atom_map_audit(
+    qst_audit_path: Path,
+    qst_audit: dict[str, Any],
+) -> tuple[Path, dict[str, Any]]:
+    """Resolve the exact atom-map audit owned by one raw QST audit."""
+
+    atom_map_path = _resolve_qst_artifact_ref(
+        qst_audit_path,
+        qst_audit["atom_map_audit"],
+        "QST atom-map audit",
+        extra_fields={"schema"},
+    )
+    return atom_map_path, _load_json_strict(atom_map_path)
 
 
 def validate_path_acceptance_artifact(path: Path) -> dict[str, Any]:
@@ -2850,12 +2922,26 @@ def create_family_manifest(
         raise ValueError("coordinate_changes must be a non-empty explicit list")
     routes = protocol["routes"]
     route_keys = ("ts_freq", "irc_forward", "irc_reverse", "endpoint_opt_freq")
-    if not isinstance(routes, dict) or any(not route_is_complete(routes.get(key, "")) for key in route_keys):
-        raise ValueError("routes must contain complete ts_freq, irc_forward, irc_reverse, and endpoint_opt_freq route sections")
+    deferred = "deferred_requires_separate_approval"
+    if not isinstance(routes, dict) or set(routes) != set(route_keys):
+        raise ValueError("routes must contain exact ts_freq, irc_forward, irc_reverse, and endpoint_opt_freq fields")
+    if pilot:
+        if not route_is_complete(routes["ts_freq"]) or any(
+            routes[key] != deferred
+            for key in ("irc_forward", "irc_reverse", "endpoint_opt_freq")
+        ):
+            raise ValueError("pilot families require one complete ts_freq route and explicitly deferred IRC/endpoint routes")
+    elif any(not route_is_complete(routes[key]) for key in route_keys):
+        raise ValueError("formal families require complete ts_freq, irc_forward, irc_reverse, and endpoint_opt_freq route sections")
     tiers = protocol["resource_tiers"]
     tier_keys = ("ts_freq", "irc", "endpoint")
-    if not isinstance(tiers, dict) or any(tiers.get(key) not in {"simple", "general", "complex"} for key in tier_keys):
-        raise ValueError("resource_tiers must declare ts_freq, irc, endpoint as simple/general/complex")
+    if not isinstance(tiers, dict) or set(tiers) != set(tier_keys):
+        raise ValueError("resource_tiers must declare exact ts_freq, irc, and endpoint fields")
+    if pilot:
+        if tiers["ts_freq"] not in {"simple", "general", "complex"} or tiers["irc"] != "unselected" or tiers["endpoint"] != "unselected":
+            raise ValueError("pilot families require one selected ts_freq tier and unselected IRC/endpoint resources")
+    elif any(tiers[key] not in {"simple", "general", "complex"} for key in tier_keys):
+        raise ValueError("formal resource tiers must declare ts_freq, irc, endpoint as simple/general/complex")
     manifest = {"schema": SCHEMA, "workflow_id": protocol["workflow_id"], "project_prefix": prefix, "input_audit": audit, "protocol": protocol, "review_states": {"G0": "pending", "G1": "passed", "G2": "pending", "G3": "pending", "G4": "pending"}, "status": "prepared_not_submitted", "safety": {"server_root": "/home/user100/SDL", "transport_skill": "auto-g16-rtwin-pbs", "no_submission_authorization": True}}
     if maturity_check is None and maturity_binding is None and edge_id is None:
         # Preserve replay/validation of historical /1 artifacts.  The
@@ -3093,19 +3179,26 @@ def _validate_ts_execution_evidence(
         "project", "job_id", "attempt_id", "family", "input", "job",
         "terminal_inspection_receipt", "fetch_snapshot",
     }
-    if not isinstance(execution, dict) or set(execution) != required:
+    if (
+        not isinstance(execution, dict)
+        or frozenset(execution)
+        not in {frozenset(required), frozenset(required | {"input_approval"})}
+    ):
         raise ValueError("TS/Freq execution evidence fields are invalid")
     resolved = {
         key: _closure_resolve_local_ref(execution[key], owner_path, f"TS/Freq {key.replace('_', ' ')}")
         for key in ("family", "input", "job", "terminal_inspection_receipt", "fetch_snapshot")
     }
+    if "input_approval" in execution:
+        resolved["input_approval"] = _closure_resolve_local_ref(
+            execution["input_approval"], owner_path, "TS/Freq input approval"
+        )
     project, job_id, attempt_id = execution["project"], execution["job_id"], execution["attempt_id"]
     if not isinstance(project, str) or not PROJECT_RE.fullmatch(project) or not isinstance(job_id, str) or not job_id or not isinstance(attempt_id, str) or not attempt_id.startswith("qsub-attempt-"):
         raise ValueError("TS/Freq project, job, or attempt identity is malformed")
     family = _load_json_strict(resolved["family"])
-    if family.get("schema") != SCHEMA_V2 or family.get("pilot") is not False:
-        raise ValueError("TS/Freq execution evidence requires one formal family /2")
-    input_document = parse_cartesian_input(resolved["input"])
+    if family.get("schema") != SCHEMA_V2 or not isinstance(family.get("pilot"), bool):
+        raise ValueError("TS/Freq execution evidence requires one explicitly classified family /2")
     input_audit = family.get("input_audit")
     protocol = family.get("protocol")
     prefix = family.get("project_prefix")
@@ -3118,15 +3211,29 @@ def _validate_ts_execution_evidence(
     structures = input_audit.get("structures")
     if not isinstance(structures, dict) or not structures:
         raise ValueError("TS/Freq family input audit has no exact structure set")
-    audited = structures.get("ts") if "ts" in structures else next(iter(structures.values()))
-    if (
-        not isinstance(audited, dict)
-        or audited.get("sha256") != sha256(resolved["input"])
-        or input_document["charge"] != audited.get("charge")
-        or input_document["multiplicity"] != audited.get("multiplicity")
-        or input_document["atoms"] != audited.get("atoms")
-    ):
-        raise ValueError("TS/Freq exact input bytes, coordinates, charge, spin, or atom order differ from the family input audit")
+    if input_audit.get("entry_mode") == "qst3":
+        if "input_approval" not in resolved:
+            raise ValueError(
+                "formal QST3 TS/Freq result requires the exact protected input receipt /5"
+            )
+        validate_qst3_result_input_binding(
+            resolved["family"], resolved["input"], resolved["input_approval"]
+        )
+    else:
+        if family.get("pilot") is not False:
+            raise ValueError(
+                "pilot TS/Freq result ingestion is limited to one protected QST3 candidate family"
+            )
+        input_document = parse_cartesian_input(resolved["input"])
+        audited = structures.get("ts") if "ts" in structures else next(iter(structures.values()))
+        if (
+            not isinstance(audited, dict)
+            or audited.get("sha256") != sha256(resolved["input"])
+            or input_document["charge"] != audited.get("charge")
+            or input_document["multiplicity"] != audited.get("multiplicity")
+            or input_document["atoms"] != audited.get("atoms")
+        ):
+            raise ValueError("TS/Freq exact input bytes, coordinates, charge, spin, or atom order differ from the family input audit")
     lines = resolved["input"].read_text(encoding="utf-8", errors="replace").splitlines()
     route_lines: list[str] = []
     collecting = False
@@ -3202,6 +3309,105 @@ def _validate_ts_execution_evidence(
     return resolved
 
 
+def validate_qst3_result_input_binding(
+    family_path: Path, input_path: Path, input_approval_path: Path,
+) -> dict[str, Any]:
+    """Replay the exact QST3 receipt, family owner, and all three structures."""
+
+    family = validate_family_artifact(family_path)
+    input_audit = family.get("input_audit")
+    if (
+        family.get("schema") != SCHEMA_V2
+        or not isinstance(family.get("pilot"), bool)
+        or not isinstance(input_audit, dict)
+        or input_audit.get("entry_mode") != "qst3"
+        or input_audit.get("valid") is not True
+    ):
+        raise ValueError("QST3 result binding requires one explicitly classified valid family /2")
+    receipt = _load_protected_qst3_input_owner().validate_receipt(
+        input_approval_path
+    )
+    owner_binding = receipt.get("specialist_owner_binding")
+    input_document = parse_raw_qst_input(input_path)
+    candidate = family["pilot"]
+    expected_work_kind = (
+        "endpoint_anchored_ts_candidate" if candidate else "formal_ts"
+    )
+    if (
+        receipt.get("schema") != "gaussian-input-approval-receipt/5"
+        or receipt.get("work_kind") != expected_work_kind
+        or receipt.get("input", {}).get("sha256") != sha256(input_path)
+        or input_document.get("mode") != "qst3"
+        or not isinstance(owner_binding, dict)
+        or owner_binding.get("ts_family_sha256") != sha256(family_path)
+    ):
+        raise ValueError(
+            "TS/Freq QST3 input receipt, family hash, or raw input binding differs"
+        )
+    owner_maturity = owner_binding.get("scientific_maturity")
+    candidate_scope = owner_binding.get("candidate_search")
+    if (
+        owner_binding.get("work_kind") != expected_work_kind
+        or not isinstance(owner_maturity, dict)
+        or owner_maturity.get("pilot") is not candidate
+        or (
+            candidate
+            and (
+                not isinstance(candidate_scope, dict)
+                or candidate_scope.get("schema")
+                != "gaussian-endpoint-anchored-ts-candidate-scope/1"
+                or candidate_scope.get("atom_count") != 84
+                or candidate_scope.get("resource_tier") != "general"
+                or candidate_scope.get("task_limit") != 1
+                or candidate_scope.get("automatic_retry") is not False
+                or candidate_scope.get("mechanism_claim_authorized") is not False
+                or candidate_scope.get("accepted_ts_claim_authorized") is not False
+                or owner_binding.get("atom_count") != 84
+                or any(
+                    structure.get("atom_count") != 84
+                    for structure in input_document.get("structures", [])
+                )
+            )
+        )
+        or (not candidate and candidate_scope is not None)
+    ):
+        raise ValueError(
+            "TS/Freq QST3 candidate/formal classification differs from its protected owner"
+        )
+    atom_identity = owner_binding.get("atom_identity_mapping")
+    endpoint_lineages = owner_binding.get("endpoint_minimum_lineages")
+    if (
+        not isinstance(atom_identity, dict)
+        or atom_identity.get("declared_atom_map") != input_audit.get("atom_map")
+        or not isinstance(endpoint_lineages, dict)
+        or endpoint_lineages.get("edge_id") != family.get("mechanism_edge_id")
+        or endpoint_lineages.get("node_id") != family.get("dag_node_id")
+    ):
+        raise ValueError(
+            "TS/Freq QST3 atom identity or mechanism family binding differs"
+        )
+    structures = input_audit.get("structures")
+    if not isinstance(structures, dict):
+        raise ValueError("TS/Freq QST3 family input audit has no structures")
+    role_map = {
+        "reactant": "reactant",
+        "product": "product",
+        "reviewed_guess": "ts",
+    }
+    for raw in input_document["structures"]:
+        audited = structures.get(role_map[raw["role"]])
+        if (
+            not isinstance(audited, dict)
+            or raw["charge"] != audited.get("charge")
+            or raw["multiplicity"] != audited.get("multiplicity")
+            or raw["atoms"] != audited.get("atoms")
+        ):
+            raise ValueError(
+                "TS/Freq QST3 endpoint/guess coordinates differ from the family audit"
+            )
+    return receipt
+
+
 def _make_ts_result_v2(
     log_path: Path, owner_dir: Path, execution_sources: dict[str, Path] | None = None,
 ) -> dict[str, Any]:
@@ -3231,8 +3437,14 @@ def _make_ts_result_v2(
     artifact.update(classify_ts_freq_result_facts(artifact))
     if execution_sources is not None:
         required_sources = {"family", "input", "job", "terminal_inspection_receipt", "fetch_snapshot"}
-        if set(execution_sources) != required_sources:
-            raise ValueError("TS/Freq execution sources must cover family/input/job/receipt/snapshot exactly")
+        allowed_sources = {
+            frozenset(required_sources),
+            frozenset(required_sources | {"input_approval"}),
+        }
+        if frozenset(execution_sources) not in allowed_sources:
+            raise ValueError(
+                "TS/Freq execution sources must cover family/input/job/receipt/snapshot and optional input approval exactly"
+            )
         job = _load_json_strict(execution_sources["job"])
         artifact["execution"] = {
             "project": job.get("project"), "job_id": job.get("job_id"),
@@ -3760,7 +3972,10 @@ def main() -> int:
     raw_qst_validate.add_argument("artifact")
     family = sub.add_parser("create-family"); family.add_argument("--input-audit", required=True); family.add_argument("--protocol", required=True); family.add_argument("--scientific-maturity", required=True); family.add_argument("--edge-id", required=True); family.add_argument("--node-id", required=True); family.add_argument("--pilot", action="store_true"); family.add_argument("--output", required=True)
     analyze = sub.add_parser("analyze-ts"); analyze.add_argument("log"); analyze.add_argument("--output", required=True)
-    for option in ("family", "input", "job", "terminal-inspection-receipt", "fetch-snapshot"):
+    for option in (
+        "family", "input", "input-approval", "job",
+        "terminal-inspection-receipt", "fetch-snapshot",
+    ):
         analyze.add_argument("--" + option)
     review = sub.add_parser("mode-review"); review.add_argument("result"); review.add_argument("--output-dir", required=True); review.add_argument("--forming", action="append", default=[]); review.add_argument("--breaking", action="append", default=[]); review.add_argument("--amplitude", type=float, default=0.1)
     decide = sub.add_parser("record-mode-decision"); decide.add_argument("mode_review"); decide.add_argument("--decision", choices=["accepted", "rejected", "unclear"], required=True); decide.add_argument("--output", required=True); decide.add_argument("--confirmed", action="store_true")
@@ -3831,14 +4046,11 @@ def main() -> int:
             if output_path.exists(): raise ValueError("refusing to overwrite an existing family manifest")
             protocol = json.loads(Path(args.protocol).read_text(encoding="utf-8"))
             maturity_path = Path(args.scientific_maturity).resolve()
-            maturity = _load_scientific_maturity()
-            maturity_check = maturity.assert_action(
-                maturity_path,
-                args.edge_id,
-                "ts_input",
-                pilot=args.pilot,
+            maturity = _load_scientific_maturity(maturity_path)
+            maturity_check = _assert_maturity_action(
+                maturity, maturity_path, args.edge_id, args.node_id,
+                "ts_input", pilot=args.pilot,
                 resource_tier=protocol.get("resource_tiers", {}).get("ts_freq", "simple"),
-                node_id=args.node_id,
             )
             maturity_document = maturity.validate_gate(maturity_path)
             try:
@@ -3868,9 +4080,17 @@ def main() -> int:
                 "terminal_inspection_receipt": args.terminal_inspection_receipt,
                 "fetch_snapshot": args.fetch_snapshot,
             }
-            if any(source_values.values()) and not all(source_values.values()):
+            if args.input_approval:
+                source_values["input_approval"] = args.input_approval
+            required_values = {
+                key: value for key, value in source_values.items()
+                if key != "input_approval"
+            }
+            if any(required_values.values()) and not all(required_values.values()):
                 raise ValueError("analyze-ts execution evidence must provide family/input/job/terminal receipt/fetch snapshot together")
-            sources = {key: Path(value) for key, value in source_values.items()} if all(source_values.values()) else None
+            sources = {
+                key: Path(value) for key, value in source_values.items()
+            } if all(required_values.values()) else None
             build_ts_result_v2(Path(args.log), Path(args.output), sources)
         elif args.command == "mode-review":
             pairs = [tuple(map(int, raw.split(","))) for raw in args.forming + args.breaking]
@@ -3894,17 +4114,14 @@ def main() -> int:
             maturity_path = family_path.parent / maturity_relative
             if not maturity_path.is_file() or sha256(maturity_path) != maturity_binding.get("sha256") or maturity_path.stat().st_size != maturity_binding.get("size_bytes"):
                 raise ValueError("TS-family scientific-maturity binding changed")
-            maturity = _load_scientific_maturity()
+            maturity = _load_scientific_maturity(maturity_path)
             maturity_document = maturity.validate_gate(maturity_path)
             if maturity_document.get("payload_sha256") != maturity_binding.get("payload_sha256"):
                 raise ValueError("TS-family scientific-maturity payload changed")
-            fresh_check = maturity.assert_action(
-                maturity_path,
-                family_document.get("mechanism_edge_id"),
-                "ts_input",
-                pilot=False,
+            fresh_check = _assert_maturity_action(
+                maturity, maturity_path, family_document.get("mechanism_edge_id"),
+                family_document.get("dag_node_id"), "ts_input", pilot=False,
                 resource_tier=family_document.get("protocol", {}).get("resource_tiers", {}).get("ts_freq", "simple"),
-                node_id=family_document.get("dag_node_id"),
             )
             if fresh_check != family_document.get("scientific_input_gate"):
                 raise ValueError("TS-family scientific input gate no longer matches owner reconstruction")

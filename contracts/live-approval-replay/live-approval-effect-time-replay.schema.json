@@ -121,7 +121,8 @@
           "enum": [
             "auto-g16-live-submission-approval/9",
             "auto-g16-live-submission-approval/10",
-            "auto-g16-live-submission-approval/11"
+            "auto-g16-live-submission-approval/11",
+            "auto-g16-live-submission-approval/13"
           ]
         },
         "approval_id": {

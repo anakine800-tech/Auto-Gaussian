@@ -1,0 +1,53 @@
+{
+  "schema": "auto-g16-qst3-package-integration-terminal/1",
+  "predecessor": {
+    "commit": "4d4d8be1551729e527f229b91af97b40167ea748",
+    "tree": "aa6063fc4fff23d62cf81e45d7756297497e16ea"
+  },
+  "candidate": {
+    "commit": "695307f0577b236f827a630bfb8058d3f089e8e1",
+    "tree": "6ba29c79062861978b665df357d73d6cc23e8d38",
+    "parent": "4d4d8be1551729e527f229b91af97b40167ea748"
+  },
+  "scope": {
+    "historical_fixtures_unchanged": true,
+    "production_semantics_unchanged": true,
+    "scientific_semantics_unchanged": true,
+    "live_semantics_unchanged": true,
+    "package_behavior_unchanged": true,
+    "self_sha_bound": false,
+    "mutable_verifier_sha_bound": false,
+    "test_only_lineage_infrastructure": true
+  },
+  "product_package_objects": {
+    "contracts/execution/execution-authorization.schema.json": ["100644", "c5f95efee0d8231725fe74e96e9204acbf49cc1e", "6514ee1a2480fd28669b7570c2e466810716e9ab47666fedd31b47757b39f58e", "100644", "6a9123a2902771ed38e9e938b2204d2fdf81baa6", "34a3d6b910997e4f92209901ea0c1ab2522d6fcf1a750c5ae253bb6557a8cc91"],
+    "contracts/execution/execution-request.schema.json": ["100644", "775cbb02b154ed6a32b427b0f6ce8fb0b93a49da", "a7625d8c6f07412f9718f24c8eec30d4e06518743681161235808c3a53efef6b", "100644", "ac000d3d8ca4ba10934d9ac0136841fe5a7b72d6", "182c9c5d5d13ab42549f3b29a87cae9120789a2f3d94a0867cbbfa8f6f2307d4"],
+    "contracts/execution/protected-submit-bundle.schema.json": ["100644", "1c354fb65eff2edf2ece51832e963fd6a1c950d7", "eb88ae46acc4f8a17166ffb2d124430782e8bb563817eba50fa34a80e8851ac4", "100644", "6daafa75bbf79eccc23fe69b1a8e745d28b93c39", "79c44abf9d84f4be9a6a7c69538823144cac81b96ac91fe32c3899a9f4e6c3ad"],
+    "scripts/execution_authorization.py": ["100644", "fa852209744b27e8b63bd4330f5cb2780aa0dbb8", "0c000ba91145943b6d8aec7570fad96d2ff519a595682cc4926e8277a46efe61", "100644", "7453fc862cac86eb3baaca1ec3f3c60b8fd25f41", "664990a43527b0ff4aac1370573755cdf3ee0c53f2c87c0c5915d5a0b19ceedb"],
+    "scripts/protected_submit_contract.py": ["100644", "6b9b0745eac3712869c2d84d214df73bd36337ea", "60f0da3b9306f19eb54efe9de94593b1f428c066dda919d4ac384289dd450c2a", "100644", "17e63326633b11a9e66ee96f2d67da29b1051cd9", "7d95938f69a2584da581fdf92a3ab533efb8eafdab4c79b9f748ca8513c79047"],
+    "skills/auto-g16-rtwin-pbs/SKILL.md": ["100644", "965cfcdc164ef81c65a0b03e55f7ce6ffb418438", "0a61f99826ffc01cc37c9c810d2c1bf744f7a9172ec405f781291c8e97794d85", "100644", "42e366432a6a9664d1da2b1adce442acff706fca", "4a2709414780ab6d07ee5f457732682a6c03dc4f4dde30e7946fe3c83f5d4e92"],
+    "skills/auto-g16-rtwin-pbs/references/input-approval-receipt.md": ["100644", "64a7dd0e39c9e957143695de51fe89996693fd57", "37b8d9d62e4cb2f10899177f03f3a627b04418898bf06d558fb85af9aac2c6ff", "100644", "d57c68eb74a971f36b92bc81158dc530f7f131cd", "70a4f11f6b898e8bf1f5dd7c223a5e15b9f082fedc11055fd0f1e8f90ee5a082"],
+    "skills/auto-g16-rtwin-pbs/references/live-approval-record.md": ["100644", "cefb40df9d3f7b858a31d7f65679e0f5a9adac64", "0b3914e9e58a4ec12c3e9ff999b87e453e75565bc33fb40780120e94a3cf715b", "100644", "41412300b049131e6bd3abe409780e2b4b3a9610", "3b4f4e57cb68fc1928258b5aa89de41a52876d79fbc44ab1f123158cef5c6e58"],
+    "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py": ["100644", "1ee579e7719bde3768d48bc697712f9fc980ea79", "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1", "100644", "df826982c6f5f154a742cdf6a8d57cc8ec615bc0", "cb46328557318878e82e7e658b1fb65979e09ebf611d666b980d5cffa584c8ff"]
+  },
+  "immutable_verifier_objects": {
+    "tests/test_direct_onboarding.py": ["100644", "7929f52e05d01f02f79670fc16ee72f0e445ff44", "a06c26af7e057eb28203e8be40d6536076ada7ce628ea65a4e9fa0d185ab63e7", "100644", "7929f52e05d01f02f79670fc16ee72f0e445ff44", "a06c26af7e057eb28203e8be40d6536076ada7ce628ea65a4e9fa0d185ab63e7"],
+    "tests/test_execution_batch_reservation_capability.py": ["100644", "c9d7257f1b96cc8f74a63b9e2a6978ae21f83442", "a832a457c705a74658e4bb780c066a8e10a97e75d63588d015b1c475d8c94305", "100644", "d0ac58f2d4a23924ae43a2f65be4eac4ea8ac557", "1f18d8706efb0ebea76407926cd22fb878ad023caf337135839465aac418b90e"],
+    "tests/test_legacy_effect_owner.py": ["100644", "f4476427a7fe3a8427afa6d98927307b05313b25", "a0fe2f98df8a3f172038c97925e57cf41db23b3df13a8c5b3433971e3e3111b4", "100644", "f4476427a7fe3a8427afa6d98927307b05313b25", "a0fe2f98df8a3f172038c97925e57cf41db23b3df13a8c5b3433971e3e3111b4"],
+    "tests/test_local_state_binding.py": ["100644", "956226b9512794b9e01e704db1de4321d349cc95", "efcd7bea1336f5c13c052c374d9dd96cd274ba123169c1264dab4d08ce72811d", "100644", "94bc4d67f8ea61e857e8feff59cc395287876157", "5d35bd95c19bf188d8ca267f8077d0b2298808ff7937112cb56ce8626d8e1f20"],
+    "tests/test_protected_legacy_effect_handoff.py": ["100644", "dcd6135fdbc93d77f473bb8f3bdb28a093a9d30e", "ef81a1a0b49ddbce072380c0de73e478df05134fdaa46781ed2af61bcb3367fe", "100644", "0cb308c6537e00680bf0926c14ef8adbc814aaa2", "0d1f09873752de3989ed87b5c9c73d7ee88288b1e3f4287e782bd6f9f8dcdc82"],
+    "tests/test_protected_lifecycle_contract.py": ["100644", "6d6e0e850ba3fa3991a2bad4ec060e0c6888c715", "b58891ee45f886bf2f40486bcf0d4f75f1ce53f6965f22b57c2d2d4629f0b06b", "100644", "c85f0bc8c3ddb347c9d627d0d4a15fb4d9f53afd", "28237cc2a87e9cb581b353d107dbd628b5b86f5ba4ab9b5e76f0648a4aa94c04"],
+    "tests/test_protected_local_materialization.py": ["100644", "bcebf229ec8148fa2ede86e480f8fc68718c05cb", "28919e1ab0797110f28f98eb8deed6392ce47b1dabbb4372a66302e94ecbbfac", "100644", "c44e79873a4a17987f7575c19fa0388cf7b9eff2", "8c75b85249198dab3137286e13374c43f1dbb610bd09c867bcf9260af49ee5c6"],
+    "tests/test_protected_owner_consumer_contract.py": ["100644", "ee9df85e344660764d58579e3436654cfefea4ff", "b0a2768e6426f92127de64cabe38a7f1c1a9620f34ad8b8c19ba4bc5d49c6ecb", "100644", "ee9df85e344660764d58579e3436654cfefea4ff", "b0a2768e6426f92127de64cabe38a7f1c1a9620f34ad8b8c19ba4bc5d49c6ecb"],
+    "tests/test_protected_production_ingress_contract.py": ["100644", "35e82ee2e0fa92ab29e95346deef376a40b70e11", "5d7b7d2c6ce58ea0268e700c4e037c4265b8beede0e15748114d6d7728361de5", "100644", "35e82ee2e0fa92ab29e95346deef376a40b70e11", "5d7b7d2c6ce58ea0268e700c4e037c4265b8beede0e15748114d6d7728361de5"],
+    "tests/test_protected_runtime_state_contract.py": ["100644", "31238cec2f979995e7c8515b63689fb079336d28", "33e0a377209f358b7bed1a50021610ee20159844519e47453c8a302e1562aa63", "100644", "31238cec2f979995e7c8515b63689fb079336d28", "33e0a377209f358b7bed1a50021610ee20159844519e47453c8a302e1562aa63"],
+    "tests/test_protected_submit_contract.py": ["100644", "72f96b4ba95cbce6ad3e8e049b5364dfa7940fbf", "3177fa33d1ec589ba0c40958b88ddf2cbef22c18eeb7871d043a05d547083917", "100644", "4120d2fda03c9d4b2804e5e7df3a5b25ab413f53", "d6d6ab596bbb44e3489399e70aeed71bef8c20f8a9780427f569869c174116fa"],
+    "tests/test_resource_effect_time_replay_owner.py": ["100644", "2695c1e671271b73484ae08ec04d1dfb7921d725", "5415f9a9ed8e3c7fd98213f73deaf9a4ef3e8768a4aff24869b5ffe653d8d4c2", "100644", "2695c1e671271b73484ae08ec04d1dfb7921d725", "5415f9a9ed8e3c7fd98213f73deaf9a4ef3e8768a4aff24869b5ffe653d8d4c2"]
+  },
+  "immutable_supporting_test_objects": {
+    "tests/test_legacy_v254_golden.py": ["100644", "76d4c2c2773d9bad2a78c5972e0d1f30d5d4538e", "3521d643ec51d2e45f3af850dd781762a63eff981fda3fe90b8285ad480bf265", "100644", "b1fa970936ccdab72cca41942a272573179e7b03", "63ae0cea34bce64566feb0c1d219b570a3d2f14648caa43b9ac26e93fe57ea39"]
+  },
+  "historical_evidence_objects": {
+    "tests/fixtures/rtwin_pbs/protected_qst3_production_successor.json": ["100644", "ed8ee0d5224452d1e1d338dec4f7113a81e924ee", "de1d78de7ba3e4c1f40a093412734fb1e72af057763f4703a08c6fd2f599fef2"]
+  }
+}

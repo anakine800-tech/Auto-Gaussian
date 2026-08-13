@@ -37,6 +37,7 @@ SUPPORTED_APPROVALS = {
     "auto-g16-live-submission-approval/9",
     "auto-g16-live-submission-approval/10",
     "auto-g16-live-submission-approval/11",
+    "auto-g16-live-submission-approval/13",
 }
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 CAPABILITY_ID_RE = re.compile(
@@ -465,6 +466,9 @@ def _summary_from_approval(
             else {"open_shell_family"}
             if approval.get("schema")
             == "auto-g16-live-submission-approval/11"
+            else {"ts_qst_owner", "scientific_maturity"}
+            if approval.get("schema")
+            == "auto-g16-live-submission-approval/13"
             else set()
         ),
         "live approval scope",
@@ -483,7 +487,11 @@ def _summary_from_approval(
         input_approval["specialist_family_binding"] = copy.deepcopy(
             scope["open_shell_family"]
         )
-    return {
+    if "ts_qst_owner" in scope:
+        input_approval["specialist_owner_binding"] = copy.deepcopy(
+            scope["ts_qst_owner"]
+        )
+    summary = {
         "project": scope["project"],
         "remote_workdir": scope["remote_workdir"],
         "input_sha256": scope["input_sha256"],
@@ -498,6 +506,32 @@ def _summary_from_approval(
         "input_approval": input_approval,
         "execution": copy.deepcopy(scope["execution"]),
     }
+    if "scientific_maturity" in scope:
+        owner = scope["ts_qst_owner"]
+        summary["scientific_maturity"] = {
+            "schema": "gaussian-scientific-maturity-action/2",
+            "edge_id": scope["scientific_maturity"]["edge_id"],
+            "node_id": scope["scientific_maturity"]["node_id"],
+            "pilot": scope["scientific_maturity"]["pilot"],
+            "maturity_gate_sha256": scope["scientific_maturity"][
+                "maturity_gate_sha256"
+            ],
+            "maturity_gate_payload_sha256": scope["scientific_maturity"][
+                "maturity_gate_payload_sha256"
+            ],
+            "exact_action_authorization": {
+                "sha256": owner[
+                    "scientific_action_authorization_sha256"
+                ],
+                "payload_sha256": owner[
+                    "scientific_action_authorization_payload_sha256"
+                ],
+                "candidate_search": copy.deepcopy(
+                    owner.get("candidate_search")
+                ),
+            },
+        }
+    return summary
 
 
 def _bind_live_owner_clock(

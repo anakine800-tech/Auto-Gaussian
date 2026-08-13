@@ -317,7 +317,7 @@ class DirectTrustedSessionCompositionTests(unittest.TestCase):
             for index, (name, _layout, _sha256) in enumerate(SESSION._FIXED_DEPENDENCY_ORDER)
             if name == "legacy_rtwin_pbs"
         )
-        current_sha256 = "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1"
+        current_sha256 = "cb46328557318878e82e7e658b1fb65979e09ebf611d666b980d5cffa584c8ff"
         old_sha256 = "3471014b9358380938e98839aaacb9cd3f9f20146fc79c1a9738483021c2cb8e"
         self.assertEqual(
             SESSION._FIXED_DEPENDENCY_ORDER[legacy_index],
@@ -391,7 +391,7 @@ if session._fixed_dependency_origin(legacy) != (legacy_path, legacy_path):
     raise AssertionError("LEGACY_DEPENDENCY_ORIGIN_DIFFERS")
 legacy_sha256 = session._read_fixed_dependency_source(legacy_path)[1]
 if legacy_sha256 != (
-    "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1"
+    "cb46328557318878e82e7e658b1fb65979e09ebf611d666b980d5cffa584c8ff"
 ):
     raise AssertionError("LEGACY_DEPENDENCY_BYTES_DIFFER")
 old_plan_type = legacy._LegacyEffectPlan

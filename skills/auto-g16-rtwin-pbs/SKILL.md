@@ -20,6 +20,15 @@ cannot begin formal TS input review while this gate is blocked. A no-direct-
 precedent exception is limited to one reviewed simple-tier pilot after two
 accepted minima; it never establishes literature support.
 
+One separately reviewed successor is narrower than that generic pilot: the
+`endpoint_anchored_ts_candidate` work kind may use exactly `general`
+(50 GB/22 cores) only when maturity `/2` proves two accepted, neutral-singlet,
+84-atom minimum lineages with a complete atom map. It is limited to one task,
+one concurrent attempt and no automatic retry. It authorizes neither a
+mechanism claim nor acceptance of a TS; exactly one intended imaginary mode,
+explicit H30/B51/C4 mode review and separately approved bidirectional IRC with
+identified endpoints remain mandatory.
+
 For every new calculation need, read
 [`references/protocol-rigor.md`](references/protocol-rigor.md) before writing a
 Gaussian input. First present exactly three reviewed protocol candidates named
@@ -220,6 +229,25 @@ one-time approval and execution-batch gate described below.
    submission chain. The low-level `submit` command
    independently validates the same shared receipt; `--confirmed` is only an
    additional command confirmation.
+
+   The additive `scripts/protected_qst3_adapter.py` closes the specialist
+   formal closed-shell QST3 evidence chain for input receipt `/5` and
+   live-scope contract `/13`. It requires installed-revision raw-QST syntax
+   evidence, one formal TS-family `/2`, separate `ts_input` and
+   `ts_submission` maturity actions `/2`, and an exact project/input/resource
+   action authorization `/2`. It also closes every QST index to the reviewed
+   mechanism-edge stable atom identities, rejects same-element swaps, records
+   the declared `1e-8` angstrom absolute coordinate-equivalence rule, and
+   verifies the actual Gaussian product-block row `i` against accepted product
+   minimum row `atom_map[i]`; metadata without byte-level row reordering is
+   insufficient. It also requires downstream results to match the exact family file SHA-256. The
+   adapter owns no transport or qsub call.
+   Receipt `/5` and live approval `/13` are accepted only by the versioned
+   successor chain through execution authorization, protected-submit,
+   effect-time replay and the existing sole legacy raw-effect owner. The
+   successor must be package/hash reviewed and deployed as one named Skill
+   before production use. Never substitute generic receipt `/1`, live `/9`,
+   copied private tokens or a parallel raw effect owner for that chain.
 5. Classify state from three sources: PBS record, PBS session process, and Gaussian log. PBS and process evidence are fail-closed three-state observations: `present`, `absent`, or `unknown`. SSH failures, non-recognized command return codes and parse failures are `unknown`; they never prove interruption, self-purge, process absence or a zombie. Treat PBS `Q` with no session/process/log as a valid queued job, not a failed launch. For a 44-core full-node request, unavailable capacity is a common explanation, but `Q` alone does not prove the server is full; report a specific reason only when PBS exposes one. Wait without duplicate submission, automatic resource reduction, cancellation, or method changes. A live PBS `R` session always outranks an earlier `Normal termination` in a multi-stage input such as `Opt ... Freq`; do not fetch or interpret a partial log as final. A stale PBS `R` with explicitly absent process evidence is not a running calculation, but one observation is only a zombie candidate. After a verified terminal fetch, `watch` records the evidence and stops without `qdel`; invoke the separately selected `cleanup-zombie` command only after its repeated-evidence gate passes.
    Package 4 collects qstat, session process, log size/mtime/tail/terminal counts,
    manifest, collection time, transport and freshness in one remote read-only
@@ -523,6 +551,13 @@ adapter:
 - The legacy active-cancel Q/R-only pre-effect maintenance rule is documented
   in `references/legacy-active-cancel-state-gate.md`; it is not direct W7 and
   adds no direct cancellation capability.
+
+- The additive protected closed-shell QST3 receipt and package reconciliation
+  are owned by `scripts/protected_qst3_adapter.py` and documented in
+  `references/qst3-package-reconciliation.md`. The lexical package supplement
+  maps the exact repository-owned specialist dependencies below
+  `dependencies/`; it adds no qsub, transport, retry, cancel, cleanup,
+  deletion, overwrite, scientific-acceptance, deployment or live authority.
 
 - W1 root observation: `scripts/direct_root_owner_contract.py` with
   `references/direct-root-owner-contract.md`.

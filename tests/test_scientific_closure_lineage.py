@@ -112,6 +112,31 @@ def ts_execution_sources(root: Path, log_path: Path) -> dict[str, Path]:
 
 
 class ScientificClosureLineageTests(unittest.TestCase):
+    def test_terminal_process_reconciliation_replays_two_exact_absence_probes(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+            root = Path(temp).resolve()
+            project, job_id, stem = "minimum1", "31.master", "minimum_input"
+            input_path = root / f"{stem}.gjf"
+            input_path.write_text("%chk=minimum_input.chk\n#p hf/sto-3g opt freq\n\nminimum\n\n0 1\nH 0 0 0\n\n")
+            receipt = {"schema": "gaussian-terminal-inspection-receipt/1", "project": project, "job_id": job_id, "input_stem": stem, "input_sha256": LINEAGE.file_sha256(input_path), "attempt_id": "qsub-attempt-minimum1", "terminal_state": "completed", "collected_at": "2026-08-09T12:00:00Z", "inspection_evidence_sha256": "a" * 64, "inspection": {}, "scientific_acceptance": False}
+            receipt["receipt_sha256"] = LINEAGE.transport_digest(receipt)
+            receipt_path = root / "terminal-inspection.json"; receipt_path.write_text(json.dumps(receipt))
+            probes = []
+            for index, epoch in enumerate((100, 107), 1):
+                probe = root / f"probe-{index}.txt"
+                probe.write_text(f"COLLECTED_EPOCH\t{epoch}\nIGNORED_INFRASTRUCTURE\t9\tsshd\t1\t0\nSUMMARY\t/home/user100/SDL/{project}\t{stem}\t0\t0\t1\n")
+                probes.append(probe)
+            output = root / "process-reconciliation.json"
+            built = LINEAGE.build_process_reconciliation(root, project, job_id, stem, input_path, receipt_path, probes, output)
+            self.assertEqual(LINEAGE.validate_process_reconciliation(output), built)
+            self.assertFalse(built["process_alive"])
+            schema = json.loads((ROOT / "contracts/reaction-workflow/terminal-process-reconciliation.schema.json").read_text())
+            SCHEMA_VALIDATOR._validate_schema_instance(built, schema, schema)
+            damaged = probes[1].read_text().replace("\t0\t0\t1\n", "\t1\t0\t1\n")
+            probes[1].write_text(damaged)
+            with self.assertRaisesRegex(LINEAGE.LineageError, "file binding changed"):
+                LINEAGE.validate_process_reconciliation(output)
+
     def test_gaussian_log_file_api_is_streaming_and_text_equivalent(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); text = water_log(); log_path = root / "small.log"; log_path.write_text(text)
@@ -220,8 +245,16 @@ class ScientificClosureLineageTests(unittest.TestCase):
             inspection["evidence_sha256"] = LINEAGE.transport_digest(inspection)
             receipt = {"schema": "gaussian-terminal-inspection-receipt/1", "project": project, "job_id": job_id, "input_stem": input_path.stem, "input_sha256": LINEAGE.file_sha256(input_path), "attempt_id": attempt_id, "terminal_state": "completed", "collected_at": inspection["collected_at"], "inspection_evidence_sha256": inspection["evidence_sha256"], "inspection": inspection, "scientific_acceptance": False}
             receipt["receipt_sha256"] = LINEAGE.transport_digest(receipt); receipt_path = root / "terminal-inspection.json"; receipt_path.write_text(json.dumps(receipt))
-            artifacts = {source.name: {"sha256": LINEAGE.file_sha256(source), "size": source.stat().st_size} for source in (log_path, result_path, checkpoint)}
-            per_hop = {name: {"server_sha256": value["sha256"], "rtwin_sha256": value["sha256"], "mac_sha256": value["sha256"], "size": value["size"]} for name, value in artifacts.items()}
+            artifacts = {source.name: {"sha256": LINEAGE.file_sha256(source), "size": source.stat().st_size} for source in (log_path, result_path, checkpoint, xyz)}
+            per_hop = {
+                source.name: {
+                    "server_sha256": LINEAGE.file_sha256(source),
+                    "rtwin_sha256": LINEAGE.file_sha256(source),
+                    "mac_sha256": LINEAGE.file_sha256(source),
+                    "size": source.stat().st_size,
+                }
+                for source in (log_path, checkpoint)
+            }
             snapshot = {"schema": "gaussian-fetch-snapshot/1", "project": project, "job_id": job_id, "input_sha256": LINEAGE.file_sha256(input_path), "snapshot_complete": True, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "per_hop_sha256_verified": True, "artifacts": artifacts, "per_hop": per_hop}
             snapshot["payload_sha256"] = LINEAGE.transport_digest(snapshot); snapshot_path = root / "transfer.json"; snapshot_path.write_text(json.dumps(snapshot))
             job = {"schema": "gaussian-rtwin-pbs/1", "project": project, "job_id": job_id, "status": "completed", "results_fetched": True, "input_sha256": LINEAGE.file_sha256(input_path), "execution_batch": {"attempt_id": attempt_id}, "terminal_inspection_receipt_sha256": receipt["receipt_sha256"], "fetch_snapshot_sha256": LINEAGE.file_sha256(snapshot_path), "fetch_snapshot_size": snapshot_path.stat().st_size}
@@ -231,6 +264,34 @@ class ScientificClosureLineageTests(unittest.TestCase):
             output = root / "minimum-lineage.json"
             built = LINEAGE.build(root, {"selection": selection_path, "input_approval": approval_path, "input": input_path, "job": job_path, "result": result_path, "raw_log": log_path, "checkpoint": checkpoint, "optimized_coordinates": xyz, "terminal_inspection_receipt": receipt_path, "fetch_snapshot": snapshot_path}, review_path, output, source_kind="conformer_selection")
             self.assertEqual(LINEAGE.validate_artifact(output), built)
+            reviewed_result_output = root / "minimum-lineage-reviewed-result.json"
+            reviewed_result = LINEAGE.build(root, {"reviewed_result": review_path, "input_approval": approval_path, "input": input_path, "job": job_path, "result": result_path, "raw_log": log_path, "checkpoint": checkpoint, "optimized_coordinates": xyz, "terminal_inspection_receipt": receipt_path, "fetch_snapshot": snapshot_path}, review_path, reviewed_result_output, source_kind="reviewed_result")
+            self.assertEqual(reviewed_result["source_kind"], "reviewed_result")
+            self.assertEqual(LINEAGE.validate_artifact(reviewed_result_output), reviewed_result)
+            self.assertEqual(reviewed_result["sources"]["origin"]["sha256"], LINEAGE.file_sha256(review_path))
+            lineage_schema = json.loads((ROOT / "contracts/reaction-workflow/minimum-lineage-handoff-v2.schema.json").read_text())
+            SCHEMA_VALIDATOR._validate_schema_instance(reviewed_result, lineage_schema, lineage_schema)
+            original_receipt_for_reconciliation = json.loads(receipt_path.read_text())
+            original_snapshot_for_reconciliation = json.loads(snapshot_path.read_text())
+            original_job_for_reconciliation = json.loads(job_path.read_text())
+            unknown_receipt = json.loads(json.dumps(original_receipt_for_reconciliation))
+            unknown_receipt["inspection"]["process_alive"] = None
+            unknown_receipt["inspection"]["process_evidence_status"] = "unknown"
+            unknown_receipt["inspection"]["evidence_sha256"] = LINEAGE.transport_digest({key: value for key, value in unknown_receipt["inspection"].items() if key != "evidence_sha256"})
+            unknown_receipt["inspection_evidence_sha256"] = unknown_receipt["inspection"]["evidence_sha256"]
+            unknown_receipt["receipt_sha256"] = LINEAGE.transport_digest({key: value for key, value in unknown_receipt.items() if key != "receipt_sha256"})
+            receipt_path.write_text(json.dumps(unknown_receipt))
+            unknown_snapshot = json.loads(json.dumps(original_snapshot_for_reconciliation)); unknown_snapshot["terminal_inspection_receipt_sha256"] = unknown_receipt["receipt_sha256"]; unknown_snapshot["payload_sha256"] = LINEAGE.transport_digest({key: value for key, value in unknown_snapshot.items() if key != "payload_sha256"}); snapshot_path.write_text(json.dumps(unknown_snapshot))
+            unknown_job = json.loads(json.dumps(original_job_for_reconciliation)); unknown_job["terminal_inspection_receipt_sha256"] = unknown_receipt["receipt_sha256"]; unknown_job["fetch_snapshot_sha256"] = LINEAGE.file_sha256(snapshot_path); unknown_job["fetch_snapshot_size"] = snapshot_path.stat().st_size; job_path.write_text(json.dumps(unknown_job))
+            probe_paths = []
+            for index, epoch in enumerate((200, 207), 1):
+                probe = root / f"lineage-process-probe-{index}.txt"; probe.write_text(f"COLLECTED_EPOCH\t{epoch}\nSUMMARY\t/home/user100/SDL/{project}\t{input_path.stem}\t0\t0\t0\n"); probe_paths.append(probe)
+            process_path = root / "lineage-process-reconciliation.json"
+            LINEAGE.build_process_reconciliation(root, project, job_id, input_path.stem, input_path, receipt_path, probe_paths, process_path)
+            reconciled_output = root / "minimum-lineage-reconciled-process.json"
+            reconciled = LINEAGE.build(root, {"reviewed_result": review_path, "input_approval": approval_path, "input": input_path, "job": job_path, "result": result_path, "raw_log": log_path, "checkpoint": checkpoint, "optimized_coordinates": xyz, "terminal_inspection_receipt": receipt_path, "fetch_snapshot": snapshot_path, "process_reconciliation": process_path}, review_path, reconciled_output, source_kind="reviewed_result")
+            self.assertEqual(LINEAGE.validate_artifact(reconciled_output), reconciled)
+            receipt_path.write_text(json.dumps(original_receipt_for_reconciliation)); snapshot_path.write_text(json.dumps(original_snapshot_for_reconciliation)); job_path.write_text(json.dumps(original_job_for_reconciliation))
             binding = {"path": output.name, "sha256": LINEAGE.file_sha256(output), "size_bytes": output.stat().st_size, "schema": built["schema"], "payload_sha256": built["payload_sha256"]}
             consumed = MATURITY_V2.consume_minimum_lineage_v2(binding, root / "maturity-review.json", minimum_id="minimum_ch3", state_id="state_ch3", formula="CH3", formal_charge=0, multiplicity=2, stable_atom_ids=["c", "h1", "h2", "h3"])
             self.assertEqual(consumed["payload_sha256"], built["payload_sha256"])
@@ -300,6 +361,42 @@ class ScientificClosureLineageTests(unittest.TestCase):
             result_path.write_text(json.dumps(result))
             with self.assertRaisesRegex(ValueError, "exact input bytes, coordinates"):
                 TS.validate_ts_result_v2(result, result_path)
+
+    def test_candidate_qst3_family_can_build_result_but_not_non_qst3_pilot(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            log_path = root / "candidate-ts.log"
+            log_path.write_text(
+                water_log(" Frequencies -- -100.0 200.0 300.0")
+            )
+            sources = ts_execution_sources(root, log_path)
+            family = json.loads(sources["family"].read_text())
+            family["pilot"] = True
+            family["input_audit"]["entry_mode"] = "qst3"
+            sources["family"].write_text(json.dumps(family))
+            input_approval = root / "input-approval.json"
+            input_approval.write_text("{}")
+            sources["input_approval"] = input_approval
+            output = root / "candidate-result.json"
+            with mock.patch.object(
+                TS, "validate_qst3_result_input_binding",
+                return_value={"work_kind": "endpoint_anchored_ts_candidate"},
+            ):
+                result = TS.build_ts_result_v2(
+                    log_path, output, sources
+                )
+                TS.validate_ts_result_v2(result, output)
+
+            family["input_audit"]["entry_mode"] = "single_guess"
+            sources["family"].write_text(json.dumps(family))
+            with self.assertRaisesRegex(
+                ValueError, "limited to one protected QST3 candidate family",
+            ):
+                TS.build_ts_result_v2(
+                    log_path, root / "forbidden-result.json", sources
+                )
 
     def test_closure_paths_reject_leaf_and_intermediate_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

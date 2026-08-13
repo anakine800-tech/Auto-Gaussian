@@ -308,6 +308,27 @@ class LegacyV254GoldenTests(unittest.TestCase):
             for action in historical_actions["build-input-approval"]
             if action["option_strings"] != ["--fixed-constraint-audit"]
         ]
+        endpoint_candidate_actions = [
+            (subcommand, action)
+            for subcommand in expected["transport"]["subcommands"]
+            for action in historical_actions[subcommand]
+            if action["option_strings"] == ["--work-kind"]
+            and action["choices"] is not None
+            and any(
+                choice["value"] == "endpoint_anchored_ts_candidate"
+                for choice in action["choices"]["value"]
+            )
+        ]
+        self.assertEqual(
+            [subcommand for subcommand, _ in endpoint_candidate_actions],
+            ["preflight", "submit"],
+        )
+        for _, action in endpoint_candidate_actions:
+            action["choices"]["value"] = [
+                choice
+                for choice in action["choices"]["value"]
+                if choice["value"] != "endpoint_anchored_ts_candidate"
+            ]
         watch_cleanup = next(
             action
             for action in historical_actions["watch"]
@@ -338,8 +359,32 @@ class LegacyV254GoldenTests(unittest.TestCase):
             expected["transport"]["action_semantics_sha256"],
         )
         self.assertEqual(wrapper["subcommands"], expected["wrapper"]["subcommands"])
+        historical_wrapper_actions = json.loads(
+            json.dumps(wrapper["actions"], ensure_ascii=False)
+        )
+        wrapper_endpoint_candidate_actions = [
+            (subcommand, action)
+            for subcommand in wrapper["subcommands"]
+            for action in historical_wrapper_actions[subcommand]
+            if action["option_strings"] == ["--work-kind"]
+            and action["choices"] is not None
+            and any(
+                choice["value"] == "endpoint_anchored_ts_candidate"
+                for choice in action["choices"]["value"]
+            )
+        ]
         self.assertEqual(
-            wrapper["action_semantics_sha256"],
+            [subcommand for subcommand, _ in wrapper_endpoint_candidate_actions],
+            ["auto", "prepare"],
+        )
+        for _, action in wrapper_endpoint_candidate_actions:
+            action["choices"]["value"] = [
+                choice
+                for choice in action["choices"]["value"]
+                if choice["value"] != "endpoint_anchored_ts_candidate"
+            ]
+        self.assertEqual(
+            canonical_sha256(historical_wrapper_actions),
             expected["wrapper"]["action_semantics_sha256"],
         )
         expected_projection_keys = {

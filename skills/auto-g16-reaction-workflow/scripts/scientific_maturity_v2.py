@@ -28,6 +28,8 @@ REVIEW_SCHEMA = "gaussian-scientific-maturity-review/2"
 EVIDENCE_RECEIPT_SCHEMA = "gaussian-scientific-evidence-receipt/1"
 GATE_SCHEMA = "gaussian-scientific-maturity-gate/2"
 ACTION_SCHEMA = "gaussian-scientific-maturity-action/2"
+ACTION_AUTHORIZATION_SCHEMA = "gaussian-scientific-action-authorization/2"
+ENDPOINT_ANCHORED_TS_CANDIDATE = "endpoint_anchored_ts_candidate"
 BASE_GATE_SCHEMA = "gaussian-scientific-maturity-gate/1"
 PLAN_SCHEMA = "gaussian-reaction-calculation-plan/1"
 SUPPORT_SCHEMA = "gaussian-reaction-mechanism-support/1"
@@ -38,6 +40,7 @@ MANUAL_SCHEMA = "auto-g16-manual-evidence-receipt/1"
 MINIMUM_LINEAGE_SCHEMA = "gaussian-minimum-lineage-handoff/2"
 SHA_RE = re.compile(r"^[a-f0-9]{64}$")
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,95}$")
+PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$")
 EDGE_ACTIONS = {"ts_input", "ts_submission", "irc_input", "formal_barrier_reporting"}
 MANUAL_USES = {"scientific_context", "syntax_version_context", "electronic_structure_context"}
 
@@ -176,6 +179,38 @@ def _make_binding(path: Path, root: Path, schema: str) -> tuple[dict[str, Any], 
     }
 
 
+def _make_blob_binding(path: Path, root: Path, label: str) -> tuple[Path, dict[str, Any]]:
+    resolved = Path(os.path.abspath(path))
+    root_absolute = Path(os.path.abspath(root))
+    root_resolved = root_absolute.resolve(strict=True)
+    try:
+        relative = resolved.relative_to(root_absolute)
+    except ValueError:
+        try:
+            relative = resolved.resolve(strict=True).relative_to(root_resolved)
+        except ValueError:
+            raise EvidenceOverlayError(f"{label} escapes the authorization root: {path}") from None
+    require(not relative.is_absolute() and ".." not in relative.parts, f"{label} path must be portable and relative")
+    resolved = _strict_resolve(root_resolved, relative, label)
+    require(resolved.is_file(), f"{label} must be an existing file")
+    return resolved, {
+        "path": relative.as_posix(), "sha256": _file_sha(resolved),
+        "size_bytes": resolved.stat().st_size,
+    }
+
+
+def _resolve_blob(binding: Any, owner: Path, label: str) -> Path:
+    data = _exact(binding, {"path", "sha256", "size_bytes"}, label)
+    relative = Path(_text(data["path"], f"{label}.path"))
+    require(not relative.is_absolute() and ".." not in relative.parts, f"{label}.path must be portable and relative")
+    _sha(data["sha256"], f"{label}.sha256")
+    require(isinstance(data["size_bytes"], int) and not isinstance(data["size_bytes"], bool) and data["size_bytes"] >= 0, f"{label}.size_bytes is invalid")
+    resolved = _strict_resolve(owner.parent.resolve(strict=True), relative, label)
+    require(resolved.is_file(), f"{label} must resolve to a file")
+    require(_file_sha(resolved) == data["sha256"] and resolved.stat().st_size == data["size_bytes"], f"{label} bytes changed")
+    return resolved
+
+
 def _strict_resolve(root: Path, relative: Path, label: str) -> Path:
     """Resolve one portable path without following any artifact-tree symlink."""
 
@@ -274,8 +309,8 @@ def _normalize_review(value: dict[str, Any], *, require_hash: bool) -> dict[str,
                 "source_id": _identifier(origin["source_id"], "conformer_origin.source_id"),
                 "ts_derivation_allowed": origin["ts_derivation_allowed"],
             },
-            "selected_candidate_id": _identifier(item["selected_candidate_id"], "selected conformer candidate ID"),
-            "conformer_handoff": _binding_literal(item["conformer_handoff"], CONFORMER_SCHEMA, f"minimum_evidence[{index}].conformer_handoff"),
+            "selected_candidate_id": _identifier(item["selected_candidate_id"], "selected minimum-origin ID"),
+            "conformer_handoff": None if item["conformer_handoff"] is None else _binding_literal(item["conformer_handoff"], CONFORMER_SCHEMA, f"minimum_evidence[{index}].conformer_handoff"),
             "open_shell_acceptance": open_shell,
             "minimum_lineage": minimum_lineage,
         })
@@ -444,8 +479,40 @@ def consume_minimum_lineage_v2(
         == (formula, formal_charge, multiplicity),
         f"minimum lineage composition/charge/spin differs: {minimum_id}",
     )
-    require(lineage.get("stable_atom_ids") == stable_atom_ids, f"minimum lineage stable atom order differs: {minimum_id}")
+    lineage_ids = lineage.get("stable_atom_ids")
+    require(
+        isinstance(lineage_ids, list)
+        and len(lineage_ids) == len(stable_atom_ids)
+        and len(set(lineage_ids)) == len(lineage_ids)
+        and set(lineage_ids) == set(stable_atom_ids),
+        f"minimum lineage stable atom inventory differs: {minimum_id}",
+    )
     return lineage
+
+
+def _state_signature_matches_owner(signature: dict[str, Any], state: dict[str, Any]) -> bool:
+    """Compare a coordinate-ordered signature with a canonical mechanism state.
+
+    Mechanism atoms are sorted by atom ID for deterministic JSON, whereas a
+    conformer/result lineage preserves Cartesian coordinate order.  Atom IDs,
+    not list position in the mechanism document, own that correspondence.
+    """
+
+    order = signature.get("atom_order")
+    elements = signature.get("elements")
+    if not isinstance(order, list) or not isinstance(elements, list) or len(order) != len(elements):
+        return False
+    owner_elements = {atom["atom_id"]: atom["element"] for atom in state["atoms"]}
+    if len(order) != len(owner_elements) or len(set(order)) != len(order) or set(order) != set(owner_elements):
+        return False
+    if any(owner_elements.get(atom_id) != element for atom_id, element in zip(order, elements)):
+        return False
+    return (
+        signature.get("state_id") == state["state_id"]
+        and signature.get("formal_charge") == state["formal_charge"]
+        and signature.get("multiplicity") == state["multiplicity"]
+        and signature.get("component_count") == len(state["components"])
+    )
 
 
 def _owner_manifest(conformer: Any, handoff: dict[str, Any], handoff_path: Path) -> dict[str, Any]:
@@ -565,15 +632,8 @@ def _build_evidence_receipt(
             f"minimum {minimum_id} /2 mapping differs from base review /1",
         )
         require(item["conformer_origin"] == base["conformer_origin"], f"minimum {minimum_id} conformer_origin differs from base review /1")
-        handoff, handoff_path = _resolve(item["conformer_handoff"], review_path, CONFORMER_SCHEMA)
-        owners["conformer"].validate_handoff(handoff_path)
-        manifest = _owner_manifest(owners["conformer"], handoff, handoff_path)
         selected = item["selected_candidate_id"]
-        medoids = {cluster["medoid_candidate_id"] for cluster in manifest["clusters"]}
-        signature = handoff["state_signature"]
         local: list[str] = []
-        if selected not in handoff["selected_candidate_ids"] or selected not in medoids:
-            local.append("selected_conformer_is_not_a_reviewed_handoff_medoid")
         expected_atoms = state["atoms"]
         expected_elements = [atom["element"] for atom in expected_atoms]
         expected_order = [atom["atom_id"] for atom in expected_atoms]
@@ -582,22 +642,30 @@ def _build_evidence_receipt(
             "multiplicity": state["multiplicity"], "component_count": len(state["components"]),
             "atom_order": expected_order, "elements": expected_elements,
         }
-        actual_signature = {key: signature[key] for key in expected_signature}
-        if actual_signature != expected_signature:
-            local.append("conformer_state_signature_differs_from_mechanism_owner")
-        if _formula(signature["elements"]) != item["composition_signature"]:
-            local.append("conformer_composition_differs_from_minimum_mapping")
-        if base_minimum_gates[minimum_id]["accepted"] is not True:
-            local.append("base_minimum_owner_log_acceptance_is_blocked")
-        if item["conformer_origin"]["scope"] != "minimum_search":
-            local.append("base_conformer_origin_scope_is_not_minimum_search")
-        if item["conformer_origin"]["source_id"] != selected:
-            local.append("base_conformer_origin_source_id_differs_from_selected_candidate")
-        open_shell_projection, open_shell_blockers = _project_open_shell_evidence(
-            item, signature, selected, review_path, owners["open_shell"],
-        )
-        local.extend(open_shell_blockers)
+        base_minimum_accepted = base_minimum_gates[minimum_id]["accepted"] is True
+        handoff = None
+        manifest = None
+        medoids: set[str] = set()
+        signature = None
+        origin_kind = "conformer_selection"
+        if item["conformer_handoff"] is not None:
+            handoff, handoff_path = _resolve(item["conformer_handoff"], review_path, CONFORMER_SCHEMA)
+            owners["conformer"].validate_handoff(handoff_path)
+            manifest = _owner_manifest(owners["conformer"], handoff, handoff_path)
+            medoids = {cluster["medoid_candidate_id"] for cluster in manifest["clusters"]}
+            signature = handoff["state_signature"]
+            if selected not in handoff["selected_candidate_ids"] or selected not in medoids:
+                local.append("selected_conformer_is_not_a_reviewed_handoff_medoid")
+            if not _state_signature_matches_owner(signature, state):
+                local.append("conformer_state_signature_differs_from_mechanism_owner")
+            if _formula(signature["elements"]) != item["composition_signature"]:
+                local.append("conformer_composition_differs_from_minimum_mapping")
+            if item["conformer_origin"]["scope"] != "minimum_search":
+                local.append("base_conformer_origin_scope_is_not_minimum_search")
+            if item["conformer_origin"]["source_id"] != selected:
+                local.append("base_conformer_origin_source_id_differs_from_selected_candidate")
         lineage_payload = None
+        lineage = None
         if item["minimum_lineage"] is None:
             local.extend(_minimum_candidate_input_result_lineage_blockers())
         else:
@@ -610,14 +678,54 @@ def _build_evidence_receipt(
                 lineage_payload = lineage["payload_sha256"]
             except Exception as exc:
                 local.append(f"minimum_candidate_input_result_lineage_invalid:{exc}")
+        # A validated /2 lineage is the successor owner for legacy results that
+        # predate the v1 combined Opt/Freq/SP result schema.  It replays the raw
+        # log, input approval, terminal evidence, frequency completeness and
+        # exact coordinate mapping, so v1 parser-format blockers do not survive
+        # as scientific blockers once that exact lineage is accepted.
+        if not base_minimum_accepted and lineage is None:
+            local.append("base_minimum_owner_log_acceptance_is_blocked")
+        if item["conformer_handoff"] is None:
+            origin_kind = "reviewed_result"
+            if lineage is None or lineage.get("source_kind") != "reviewed_result":
+                local.append("direct_minimum_origin_requires_reviewed_result_lineage")
+            else:
+                signature = {
+                    "state_id": lineage["state_id"], "formal_charge": lineage["charge"],
+                    "multiplicity": lineage["multiplicity"], "component_count": len(state["components"]),
+                    "atom_order": lineage["stable_atom_ids"],
+                    "elements": [entry["element"] for entry in lineage["atom_mapping"]],
+                }
+                if not _state_signature_matches_owner(signature, state):
+                    local.append("reviewed_result_state_signature_differs_from_mechanism_owner")
+                if _formula(signature["elements"]) != item["composition_signature"]:
+                    local.append("reviewed_result_composition_differs_from_minimum_mapping")
+                if item["conformer_origin"]["scope"] != "accepted_minimum_result_review":
+                    local.append("base_minimum_origin_scope_is_not_accepted_result_review")
+                if item["conformer_origin"]["source_id"] != selected or selected != lineage["lineage_id"]:
+                    local.append("base_minimum_origin_source_id_differs_from_reviewed_result_lineage")
+        elif lineage is not None and lineage.get("source_kind") != "conformer_selection":
+            local.append("conformer_handoff_requires_conformer_selection_lineage")
+        if signature is None:
+            signature = {
+                "state_id": state["state_id"], "formal_charge": state["formal_charge"],
+                "multiplicity": state["multiplicity"], "component_count": len(state["components"]),
+                "atom_order": expected_order, "elements": expected_elements,
+            }
+        open_shell_projection, open_shell_blockers = _project_open_shell_evidence(
+            item, signature, selected, review_path, owners["open_shell"],
+        )
+        local.extend(open_shell_blockers)
         ready = not local
         minimum_results.append({
             "minimum_id": minimum_id, "state_id": item["state_id"],
             "composition_signature": item["composition_signature"], "formal_charge": item["formal_charge"],
-            "multiplicity": item["multiplicity"], "conformer_handoff_payload_sha256": handoff["payload_sha256"],
-            "ensemble_manifest_payload_sha256": manifest["payload_sha256"], "selected_candidate_id": selected,
+            "multiplicity": item["multiplicity"], "minimum_origin_kind": origin_kind,
+            "conformer_handoff_payload_sha256": handoff["payload_sha256"] if handoff is not None else None,
+            "ensemble_manifest_payload_sha256": manifest["payload_sha256"] if manifest is not None else None,
+            "selected_candidate_id": selected,
             "conformer_origin": copy.deepcopy(item["conformer_origin"]),
-            "selected_candidate_is_reviewed_medoid": selected in handoff["selected_candidate_ids"] and selected in medoids,
+            "selected_candidate_is_reviewed_medoid": handoff is not None and selected in handoff["selected_candidate_ids"] and selected in medoids,
             "candidate_input_result_lineage_status": "owner_validated_minimum_lineage_v2" if lineage_payload else "unavailable_v2_requires_exact_input_approval_and_result_binding",
             "minimum_lineage_payload_sha256": lineage_payload,
             "open_shell_acceptance": open_shell_projection, "owner_evidence_ready": ready,
@@ -742,7 +850,12 @@ def _build_gate(base_gate: dict[str, Any], base_binding: dict[str, Any], receipt
         local = list(evidence["blockers"])
         local.extend(manual_by_scope.get(("minimum", base_minimum["minimum_id"]), []))
         local.extend(manual_by_scope.get(("study", None), []))
-        if base_minimum["accepted"] is not True:
+        exact_successor_lineage = (
+            evidence.get("owner_evidence_ready") is True
+            and evidence.get("candidate_input_result_lineage_status")
+            == "owner_validated_minimum_lineage_v2"
+        )
+        if base_minimum["accepted"] is not True and not exact_successor_lineage:
             local.append("base_minimum_gate_is_blocked")
         minimum_gates.append({
             "minimum_id": base_minimum["minimum_id"], "state_id": base_minimum["state_id"],
@@ -759,8 +872,18 @@ def _build_gate(base_gate: dict[str, Any], base_binding: dict[str, Any], receipt
             if not minimum_map[minimum_id]["owner_evidence_ready"]
         ]
         manual_blockers = manual_by_scope.get(("edge", base_edge["edge_id"]), []) + manual_by_scope.get(("study", None), [])
-        pilot_blockers = list(base_edge["pilot_blockers"]) + list(evidence["pilot_blockers"]) + endpoint_blockers + manual_blockers
-        formal_blockers = list(base_edge["formal_blockers"]) + list(evidence["formal_blockers"]) + endpoint_blockers + manual_blockers
+        successor_endpoint_ready = not endpoint_blockers
+        legacy_endpoint_codes = {"start_minimum_not_accepted", "end_minimum_not_accepted"}
+        inherited_pilot_blockers = [
+            code for code in base_edge["pilot_blockers"]
+            if not (successor_endpoint_ready and code in legacy_endpoint_codes)
+        ]
+        inherited_formal_blockers = [
+            code for code in base_edge["formal_blockers"]
+            if not (successor_endpoint_ready and code in legacy_endpoint_codes)
+        ]
+        pilot_blockers = inherited_pilot_blockers + list(evidence["pilot_blockers"]) + endpoint_blockers + manual_blockers
+        formal_blockers = inherited_formal_blockers + list(evidence["formal_blockers"]) + endpoint_blockers + manual_blockers
         if review["review_decision"] != "accepted":
             pilot_blockers.append("scientific_maturity_review_v2_not_accepted")
             formal_blockers.append("scientific_maturity_review_v2_not_accepted")
@@ -768,8 +891,8 @@ def _build_gate(base_gate: dict[str, Any], base_binding: dict[str, Any], receipt
             "edge_id": base_edge["edge_id"], "stereochemical_channel": evidence["stereochemical_channel"],
             "start_minimum_id": base_edge["start_minimum_id"], "end_minimum_id": base_edge["end_minimum_id"],
             "pilot_node_ids": base_edge["pilot_node_ids"], "formal_ts_node_ids": base_edge["formal_ts_node_ids"],
-            "pilot_scientifically_ready": base_edge["pilot_ts_input_scientifically_ready"] and not pilot_blockers,
-            "formal_scientifically_ready": base_edge["formal_ts_input_scientifically_ready"] and not formal_blockers,
+            "pilot_scientifically_ready": not pilot_blockers,
+            "formal_scientifically_ready": not formal_blockers,
             "pilot_blockers": sorted(set(pilot_blockers)), "formal_blockers": sorted(set(formal_blockers)),
             "owner_ts_mode_evidence_valid": base_edge["owner_ts_mode_evidence_valid"],
             "owner_irc_path_evidence_valid": base_edge["owner_irc_path_evidence_valid"],
@@ -900,6 +1023,288 @@ def validate_action(path: Path) -> dict[str, Any]:
     return artifact
 
 
+def resolve_ts_endpoint_minimum_lineages(
+    action_path: Path,
+) -> dict[str, Any]:
+    """Replay an exact endpoint-anchored TS action and expose its two minima.
+
+    The returned projection is deliberately non-authorizing.  It exists so a
+    specialist QST owner can prove that the reactant and product structures in
+    one multi-structure input are the exact optimized structures already
+    accepted by the maturity /2 minimum-lineage owner.
+    """
+
+    action = validate_action(action_path)
+    scope = action["scope"]
+    require(
+        scope["action"] in {"ts_input", "ts_submission"},
+        "endpoint-lineage projection requires one TS input/submission action",
+    )
+    gate, gate_path = _resolve(
+        action["scientific_maturity"], action_path, GATE_SCHEMA
+    )
+    edge = next(
+        (
+            item
+            for item in gate["edge_gates"]
+            if item["edge_id"] == scope["edge_id"]
+        ),
+        None,
+    )
+    require(edge is not None, "TS action edge is absent from maturity /2")
+    review, review_path = _resolve(
+        gate["review_source"], gate_path, REVIEW_SCHEMA
+    )
+    evidence_by_id = {
+        item["minimum_id"]: item for item in review["minimum_evidence"]
+    }
+    lineage_owner = _owners()["minimum_lineage"]
+    base_gate, base_gate_path = _resolve(
+        gate["base_gate"], gate_path, BASE_GATE_SCHEMA
+    )
+    plan, plan_path = _resolve(
+        base_gate["calculation_plan"], base_gate_path, PLAN_SCHEMA
+    )
+    mechanism, _ = _resolve(
+        plan["mechanism_network"],
+        plan_path,
+        "gaussian-reaction-mechanism-network/1",
+    )
+    states_by_id = {state["state_id"]: state for state in mechanism["states"]}
+    mechanism_edge = next(
+        (
+            item
+            for item in mechanism["edges"]
+            if item["edge_id"] == scope["edge_id"]
+        ),
+        None,
+    )
+    require(
+        mechanism_edge is not None,
+        "TS action edge is absent from mechanism network",
+    )
+    atom_mapping = mechanism_edge.get("atom_mapping")
+    require(
+        isinstance(atom_mapping, list) and atom_mapping,
+        "TS mechanism edge lacks atom mapping",
+    )
+    from_state = states_by_id.get(mechanism_edge.get("from_state_id"))
+    to_state = states_by_id.get(mechanism_edge.get("to_state_id"))
+    require(
+        from_state is not None and to_state is not None,
+        "TS mechanism edge endpoint states are absent",
+    )
+    from_ids = [atom["atom_id"] for atom in from_state["atoms"]]
+    to_ids = [atom["atom_id"] for atom in to_state["atoms"]]
+    require(
+        all(
+            isinstance(item, dict)
+            and set(item) == {"from_atom_id", "to_atom_id"}
+            for item in atom_mapping
+        ),
+        "TS mechanism atom mapping entries are malformed",
+    )
+    mapping_from = [item["from_atom_id"] for item in atom_mapping]
+    mapping_to = [item["to_atom_id"] for item in atom_mapping]
+    require(
+        len(mapping_from) == len(set(mapping_from)) == len(from_ids)
+        and len(mapping_to) == len(set(mapping_to)) == len(to_ids)
+        and set(mapping_from) == set(from_ids)
+        and set(mapping_to) == set(to_ids),
+        "TS mechanism atom mapping is not a complete one-to-one endpoint map",
+    )
+
+    def endpoint(role: str, minimum_id: str) -> dict[str, Any]:
+        item = evidence_by_id.get(minimum_id)
+        require(item is not None, f"{role} minimum is absent from maturity review /2")
+        binding = item.get("minimum_lineage")
+        require(binding is not None, f"{role} minimum lacks exact lineage /2")
+        state = states_by_id.get(item["state_id"])
+        require(state is not None, f"{role} mechanism state is absent")
+        lineage = consume_minimum_lineage_v2(
+            binding,
+            review_path,
+            minimum_id=minimum_id,
+            state_id=item["state_id"],
+            formula=item["composition_signature"],
+            formal_charge=item["formal_charge"],
+            multiplicity=item["multiplicity"],
+            stable_atom_ids=[atom["atom_id"] for atom in state["atoms"]],
+        )
+        lineage_path = _resolve(binding, review_path, MINIMUM_LINEAGE_SCHEMA)[1]
+        xyz_ref = lineage["sources"]["optimized_coordinates"]
+        xyz_path, _ = lineage_owner.resolve_reference(
+            xyz_ref,
+            lineage_path.parent.resolve(),
+            f"{role} optimized coordinates",
+        )
+        coordinates = lineage_owner.parse_xyz(xyz_path)
+        return {
+            "minimum_id": minimum_id,
+            "state_id": item["state_id"],
+            "lineage_payload_sha256": lineage["payload_sha256"],
+            "optimized_coordinates_sha256": lineage_owner.file_sha256(xyz_path),
+            "charge": lineage["charge"],
+            "multiplicity": lineage["multiplicity"],
+            "stable_atom_ids": lineage["stable_atom_ids"],
+            "coordinates": coordinates,
+        }
+
+    reactant = endpoint("reactant", edge["start_minimum_id"])
+    product = endpoint("product", edge["end_minimum_id"])
+    require(
+        reactant["state_id"] == mechanism_edge["from_state_id"]
+        and product["state_id"] == mechanism_edge["to_state_id"],
+        "TS maturity minima differ from the mechanism edge direction",
+    )
+    return {
+        "schema": "gaussian-ts-endpoint-minimum-lineage-projection/1",
+        "edge_id": scope["edge_id"],
+        "node_id": scope["node_id"],
+        "from_state_id": mechanism_edge["from_state_id"],
+        "to_state_id": mechanism_edge["to_state_id"],
+        "atom_mapping": atom_mapping,
+        "reactant": reactant,
+        "product": product,
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+    }
+
+
+def _make_action_authorization(
+    action_path: Path,
+    input_path: Path,
+    project: str,
+    work_kind: str,
+    resource_tier: str,
+    task_count: int,
+    estimated_core_hours: int,
+    planned_concurrency: int,
+    output: Path,
+) -> dict[str, Any]:
+    action = validate_action(action_path)
+    scope = action["scope"]
+    require(scope["action"] == "ts_submission", "action authorization /2 requires an exact ts_submission maturity action")
+    require(PROJECT_RE.fullmatch(project) is not None, "project must be a 1-15 character PBS-safe name")
+    require(work_kind in {"ts_pilot", "formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE}, "action authorization /2 work kind is unsupported")
+    require(scope["pilot"] == (work_kind in {"ts_pilot", ENDPOINT_ANCHORED_TS_CANDIDATE}), "maturity action pilot flag and work kind disagree")
+    require(resource_tier in {"simple", "general", "complex"}, "resource tier is invalid")
+    gate, gate_path = _resolve(action["scientific_maturity"], action_path, GATE_SCHEMA)
+    base_gate, _ = _resolve(gate["base_gate"], gate_path, BASE_GATE_SCHEMA)
+    budget = base_gate["scientific_approval_summary"]["resources"]["task_budget"]
+    require(isinstance(task_count, int) and not isinstance(task_count, bool) and 1 <= task_count <= budget["max_tasks"], "requested task count exceeds the reviewed budget")
+    require(isinstance(estimated_core_hours, int) and not isinstance(estimated_core_hours, bool) and 1 <= estimated_core_hours <= budget["max_core_hours"], "estimated core-hours exceed the reviewed budget")
+    require(isinstance(planned_concurrency, int) and not isinstance(planned_concurrency, bool) and 1 <= planned_concurrency <= budget["max_concurrent"], "planned concurrency exceeds the reviewed budget")
+    candidate_search = None
+    if work_kind == ENDPOINT_ANCHORED_TS_CANDIDATE:
+        require(resource_tier == "general", "endpoint-anchored 84-atom TS candidate requires the exact reviewed general tier")
+        require(task_count == 1 and planned_concurrency == 1, "endpoint-anchored TS candidate is restricted to one task and one concurrent attempt")
+        endpoints = resolve_ts_endpoint_minimum_lineages(action_path)
+        reactant = endpoints["reactant"]
+        product = endpoints["product"]
+        require(
+            len(reactant["coordinates"]) == len(product["coordinates"]) == 84
+            and len(reactant["stable_atom_ids"]) == len(product["stable_atom_ids"]) == 84,
+            "endpoint-anchored TS candidate requires exact 84-atom minima",
+        )
+        require(
+            reactant["charge"] == product["charge"] == 0
+            and reactant["multiplicity"] == product["multiplicity"] == 1,
+            "endpoint-anchored TS candidate requires neutral closed-shell singlet minima",
+        )
+        candidate_search = {
+            "schema": "gaussian-endpoint-anchored-ts-candidate-scope/1",
+            "endpoint_minimum_ids": [reactant["minimum_id"], product["minimum_id"]],
+            "atom_count": 84,
+            "resource_tier": "general",
+            "task_limit": 1,
+            "automatic_retry": False,
+            "mechanism_claim_authorized": False,
+            "accepted_ts_claim_authorized": False,
+            "validation_requirements": [
+                "exactly_one_intended_imaginary_mode",
+                "explicit_h30_b51_c4_mode_review",
+                "separately_approved_bidirectional_irc",
+                "structurally_identified_irc_endpoints",
+            ],
+        }
+    root = output.parent.resolve(strict=True)
+    _, action_binding = _make_binding(action_path, root, ACTION_SCHEMA)
+    _, input_binding = _make_blob_binding(input_path, root, "authorized Gaussian input")
+    artifact = {
+        "schema": ACTION_AUTHORIZATION_SCHEMA,
+        "study_id": action["study_id"],
+        "scientific_maturity_action": action_binding,
+        "input": input_binding,
+        "candidate_search": candidate_search,
+        "scope": {
+            "edge_id": scope["edge_id"], "node_id": scope["node_id"],
+            "project": project, "work_kind": work_kind,
+            "resource_tier": resource_tier, "task_count": task_count,
+            "estimated_core_hours": estimated_core_hours,
+            "planned_concurrency": planned_concurrency,
+        },
+        "single_exact_scope_only": True,
+        "calculation_ready": False,
+        "no_submission_authorization": True,
+    }
+    return _finalize(artifact)
+
+
+def build_action_authorization(
+    action_path: Path,
+    input_path: Path,
+    output: Path,
+    **scope: Any,
+) -> dict[str, Any]:
+    artifact = _make_action_authorization(action_path, input_path, output=output, **scope)
+    _write(output, artifact)
+    return artifact
+
+
+def validate_action_authorization(
+    path: Path,
+    *,
+    maturity_action_path: Path | None = None,
+    gate_path: Path | None = None,
+    input_sha256: str | None = None,
+    edge_id: str | None = None,
+    node_id: str | None = None,
+    project: str | None = None,
+    work_kind: str | None = None,
+    resource_tier: str | None = None,
+) -> dict[str, Any]:
+    artifact = _load(path)
+    require(artifact.get("schema") == ACTION_AUTHORIZATION_SCHEMA, f"action authorization schema must be {ACTION_AUTHORIZATION_SCHEMA}")
+    require(artifact.get("payload_sha256") == _payload_sha256(artifact), "action authorization /2 payload hash is invalid")
+    require(artifact.get("single_exact_scope_only") is True and artifact.get("calculation_ready") is False and artifact.get("no_submission_authorization") is True, "action authorization /2 safety constants changed")
+    action, resolved_action = _resolve(artifact["scientific_maturity_action"], path, ACTION_SCHEMA)
+    validate_action(resolved_action)
+    resolved_input = _resolve_blob(artifact["input"], path, "authorized Gaussian input")
+    scope = artifact["scope"]
+    expected = _make_action_authorization(
+        resolved_action, resolved_input, scope["project"], scope["work_kind"],
+        scope["resource_tier"], scope["task_count"], scope["estimated_core_hours"],
+        scope["planned_concurrency"], path,
+    )
+    require(artifact == expected, "action authorization /2 differs from deterministic source reconstruction")
+    if maturity_action_path is not None:
+        require(resolved_action.resolve() == maturity_action_path.resolve(), "action authorization /2 binds a different maturity action")
+    if gate_path is not None:
+        _, resolved_gate = _resolve(action["scientific_maturity"], resolved_action, GATE_SCHEMA)
+        require(resolved_gate.resolve() == gate_path.resolve(), "action authorization /2 binds a different maturity gate")
+    if input_sha256 is not None:
+        require(artifact["input"]["sha256"] == input_sha256, "action authorization /2 binds a different Gaussian input")
+    for label, actual, requested in (
+        ("edge", scope["edge_id"], edge_id), ("node", scope["node_id"], node_id),
+        ("project", scope["project"], project), ("work kind", scope["work_kind"], work_kind),
+        ("resource tier", scope["resource_tier"], resource_tier),
+    ):
+        if requested is not None:
+            require(actual == requested, f"action authorization /2 {label} scope differs")
+    return artifact
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest="command", required=True)
@@ -917,6 +1322,18 @@ def parser() -> argparse.ArgumentParser:
     action_parser.add_argument("gate", type=Path); action_parser.add_argument("--edge-id", required=True); action_parser.add_argument("--node-id", required=True); action_parser.add_argument("--action", choices=sorted(EDGE_ACTIONS), required=True); action_parser.add_argument("--pilot", action="store_true"); action_parser.add_argument("--output", type=Path, required=True)
     validate_action_parser = commands.add_parser("validate-action")
     validate_action_parser.add_argument("artifact", type=Path)
+    authorize_parser = commands.add_parser("authorize-action")
+    authorize_parser.add_argument("action", type=Path)
+    authorize_parser.add_argument("--input", type=Path, required=True)
+    authorize_parser.add_argument("--project", required=True)
+    authorize_parser.add_argument("--work-kind", choices=["ts_pilot", "formal_ts", ENDPOINT_ANCHORED_TS_CANDIDATE], required=True)
+    authorize_parser.add_argument("--resource-tier", choices=["simple", "general", "complex"], required=True)
+    authorize_parser.add_argument("--task-count", type=int, required=True)
+    authorize_parser.add_argument("--estimated-core-hours", type=int, required=True)
+    authorize_parser.add_argument("--planned-concurrency", type=int, required=True)
+    authorize_parser.add_argument("--output", type=Path, required=True)
+    validate_authorization_parser = commands.add_parser("validate-action-authorization")
+    validate_authorization_parser.add_argument("artifact", type=Path)
     return root
 
 
@@ -929,7 +1346,14 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "build-gate": artifact = build_gate(args.base_gate, args.evidence_receipt, args.review, args.output)
         elif args.command == "validate-gate": artifact = validate_gate(args.artifact)
         elif args.command == "build-action": artifact = build_action(args.gate, args.edge_id, args.node_id, args.action, args.output, pilot=args.pilot)
-        else: artifact = validate_action(args.artifact)
+        elif args.command == "validate-action": artifact = validate_action(args.artifact)
+        elif args.command == "authorize-action": artifact = build_action_authorization(
+            args.action, args.input, args.output, project=args.project,
+            work_kind=args.work_kind, resource_tier=args.resource_tier,
+            task_count=args.task_count, estimated_core_hours=args.estimated_core_hours,
+            planned_concurrency=args.planned_concurrency,
+        )
+        else: artifact = validate_action_authorization(args.artifact)
     except (EvidenceOverlayError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

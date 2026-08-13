@@ -26,7 +26,7 @@ from typing import Any
 _FIXED_DEPENDENCY_ORDER = (
     ("runtime_config", "skill", "f2f4e4238742c0f6fff421f97f67cab88d3abb6f7995652827d09f488ce0d1eb"),
     ("execution_facade", "skill", "e7a3127b4729ee1db99fa9691c0d0b7f00cd953e179d750f3af5ee99cd4dcdc3"),
-    ("legacy_rtwin_pbs", "skill", "fb72f8aa5ba8063f14d7ef41eddf0b96a783cc69a6294ab04854457c47c158b1"),
+    ("legacy_rtwin_pbs", "skill", "cb46328557318878e82e7e658b1fb65979e09ebf611d666b980d5cffa584c8ff"),
     ("protected_lifecycle_contract", "root", "166e8b398922682eb94c9705e8ee1ccf0ed13546a75c49010090f7d7182fbafb"),
     ("protected_local_materialization", "root", "e79a703c9f68a7d047210cf3b939caac06cef25f7d664ecece335ea5c444e2d7"),
     ("protected_legacy_effect_handoff", "root", "ceb4ff659070f077b095a76fdcac589bda9dd5d217a5d6680f4bdb31c738d479"),

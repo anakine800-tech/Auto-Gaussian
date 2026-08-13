@@ -19,7 +19,7 @@
     "scientific_task_id": {"type": "string", "pattern": "^scientific-task-[a-f0-9]{64}$"},
     "attempt_id": {"type": "string", "pattern": "^qsub-attempt-[a-f0-9]{64}$"},
     "idempotency_key": {"$ref": "#/$defs/id"},
-    "work_kind": {"enum": ["ordinary", "minimum"]},
+    "work_kind": {"enum": ["ordinary", "minimum", "formal_ts", "endpoint_anchored_ts_candidate"]},
     "profile_id": {"$ref": "#/$defs/id"},
     "profile_sha256": {"$ref": "#/$defs/sha256"},
     "backend_kind": {"enum": ["legacy_rtwin_pbs", "direct_ssh_pbs"]},
@@ -95,7 +95,7 @@
         {"$ref": "#/$defs/artifact_ref_base"},
         {"properties": {
           "role": {"const": "scientific_owner_receipt"},
-          "schema": {"enum": ["gaussian-input-approval-receipt/1", "gaussian-input-approval-receipt/2", "gaussian-input-approval-receipt/3"]}
+          "schema": {"enum": ["gaussian-input-approval-receipt/1", "gaussian-input-approval-receipt/2", "gaussian-input-approval-receipt/3", "gaussian-input-approval-receipt/5"]}
         }}
       ]
     },
