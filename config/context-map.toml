@@ -15,15 +15,24 @@ focused_tests = ["tests/test_dev_preflight.py"]
 
 [[component]]
 id = "core-architecture"
-status = "not-started"
+status = "final-review-required"
 required_sections = [
   "OWNER_DECISIONS.md#od-01-clean-core-and-compatibility",
   "docs/v3/boundary-spec.md#dependency-direction",
   "docs/v3/boundary-spec.md#core-objects",
+  "docs/v3/boundary-spec.md#v30-core-01-runtime-contract",
   "docs/v3/boundary-spec.md#context-boundaries",
+  "docs/v3/acceptance.md#v30-core-01-clean-runtime-core",
+  "docs/v3/non-goals.md#auto-g16-v3-non-goals",
 ]
-code_paths = []
-focused_tests = []
+code_paths = [
+  "auto_g16/__init__.py",
+  "auto_g16/core/__init__.py",
+  "auto_g16/core/models.py",
+  "auto_g16/core/store.py",
+  "config/static-quality.json",
+]
+focused_tests = ["tests/v3/core/"]
 
 [[component]]
 id = "execution-safety"
