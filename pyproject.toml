@@ -5,6 +5,9 @@ description = "Guarded, offline-first Gaussian workflow Skills"
 requires-python = ">=3.11,<3.14"
 dependencies = []
 
+[tool.setuptools.packages.find]
+include = ["auto_g16*"]
+
 [tool.auto-g16.python]
 default-profile = "core"
 environment-registry = "config/python-environments.json"
