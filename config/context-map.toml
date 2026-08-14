@@ -15,7 +15,7 @@ focused_tests = ["tests/test_dev_preflight.py"]
 
 [[component]]
 id = "core-architecture"
-status = "final-review-required"
+status = "complete"
 required_sections = [
   "OWNER_DECISIONS.md#od-01-clean-core-and-compatibility",
   "docs/v3/boundary-spec.md#dependency-direction",
