@@ -7,6 +7,7 @@ Do not recursively read all repository documentation or references by default.
 | --- | --- |
 | Accepted design decisions | [`OWNER_DECISIONS.md`](../../OWNER_DECISIONS.md) |
 | Current phase and stop line | [`STATUS.md`](STATUS.md) |
+| Post-Core autonomy and frozen Task Contracts | [`AUTONOMOUS_DEVELOPMENT.md`](AUTONOMOUS_DEVELOPMENT.md) |
 | Capability reuse or rewrite disposition | [`reuse-adjudication.md`](reuse-adjudication.md) |
 | Stable architecture boundaries and core objects | [`boundary-spec.md`](boundary-spec.md) |
 | Explicitly excluded work | [`non-goals.md`](non-goals.md) |

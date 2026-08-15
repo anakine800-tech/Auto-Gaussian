@@ -1,7 +1,8 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-CORE-01 = CLOSED`; implementation is COMPLETE, Final
-  Core Review is PASS, and Integration is PASS.
+- **Current phase:** `V30-CORE-01 = CLOSED`; Post-Core Planning Gate is
+  `COMPLETE-CANDIDATE` on local evidence and requires Independent Planning
+  Review.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -24,10 +25,17 @@
 - **Completed:** V30-CORE-01 was merged to `main` at
   `d8f657d1f31a07f93cc9f58e2fa9cabe2cf8b1c7`; post-merge main CI is PASS on
   that exact SHA.
-- **In progress:** None; Core feature expansion is stopped.
-- **Next gate:** `post-core-planning-required`; no post-Core lane is authorized.
-- **Not started:** `V30-EXEC-01` (RTwin/OpenSSH), `V30-EXEC-02`, and
-  `V30-RESULT-01`; none is authorized by Core completion.
+- **Completed candidate:** The Post-Core autonomy policy, three-workstream
+  Integration Owner structure, validation policy, and four Task Contracts are
+  frozen in [`AUTONOMOUS_DEVELOPMENT.md`](AUTONOMOUS_DEVELOPMENT.md). Planning
+  completion does not authorize implementation.
+- **In progress:** Independent Planning Review only; Core feature expansion is
+  stopped.
+- **Next gate:** Independent Planning Review. No implementation lane may start
+  from planning completion alone.
+- **Not started:** `V3-MAINT-TEST-01`, `V30-EXEC-01`, and `V30-RESULT-01` are
+  `NOT STARTED`; `V30-EXEC-02` is `NOT STARTED / WAIT` pending RTwin validation
+  of the execution/transport public boundary.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
