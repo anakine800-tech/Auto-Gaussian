@@ -1,0 +1,189 @@
+{
+  "schema": "auto-g16-validation-selection/1",
+  "version": 1,
+  "lane_order": [
+    "focused",
+    "affected",
+    "v3-full",
+    "legacy-release"
+  ],
+  "fallback_lane": "legacy-release",
+  "v3_full_tests": [
+    "tests.v3.core.test_models",
+    "tests.v3.core.test_store",
+    "tests.test_validation_selector"
+  ],
+  "self_protecting_paths": [
+    "config/validation-selection.json",
+    "scripts/run_tests.py",
+    "scripts/select_validation.py",
+    "tests/test_test_runner.py",
+    "tests/test_validation_selector.py"
+  ],
+  "generated_prefixes": [
+    "build/",
+    "dist/",
+    "generated/",
+    "reports/"
+  ],
+  "safety_evidence": {
+    "approval-owner-separation": [
+      "tests.test_execution_authorization",
+      "tests.test_live_approval_effect_time_replay"
+    ],
+    "at-most-one-submission": [
+      "tests.v3.core.test_store.StorePersistenceTests.test_concurrent_submission_intent_has_one_unique_winner",
+      "tests.v3.core.test_store.AttemptLifecycleTests.test_submission_intent_and_outcome_are_exactly_once"
+    ],
+    "no-overwrite": [
+      "tests.v3.core.test_store.StorePersistenceTests.test_immutable_replay_is_idempotent_and_conflict_does_not_overwrite"
+    ],
+    "reconciliation": [
+      "tests.v3.core.test_store.AttemptLifecycleTests.test_unknown_requires_persisted_same_attempt_evidence",
+      "tests.v3.core.test_store.AttemptLifecycleTests.test_cross_attempt_observation_cannot_reconcile_unknown"
+    ],
+    "still-applicable-descriptor-capability": [
+      "tests.test_direct_one_hop_transport",
+      "tests.test_legacy_descriptor_mutation_capability",
+      "tests.test_legacy_root_authority_contract"
+    ],
+    "timeout-slow-running-is-not-failure": [
+      "tests.test_direct_qstat_acquisition",
+      "tests.test_resource_monitor_efficiency"
+    ],
+    "unknown-no-automatic-retry": [
+      "tests.v3.core.test_store.EvidencePersistenceTests.test_submission_intent_and_unknown_survive_reopen_without_retry_authority",
+      "tests.v3.core.test_store.AttemptLifecycleTests.test_unknown_root_cannot_be_bypassed_by_second_root"
+    ]
+  },
+  "routes": [
+    {
+      "id": "core-models",
+      "exact_paths": [
+        "auto_g16/__init__.py",
+        "auto_g16/core/__init__.py",
+        "auto_g16/core/models.py"
+      ],
+      "prefixes": [],
+      "lane": "focused",
+      "tests": [
+        "tests.v3.core.test_models"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
+      "id": "core-store",
+      "exact_paths": [
+        "auto_g16/core/store.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.core.test_models",
+        "tests.v3.core.test_store"
+      ],
+      "required_safety": [
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "core-model-tests",
+      "exact_paths": [
+        "tests/v3/core/test_models.py"
+      ],
+      "prefixes": [],
+      "lane": "focused",
+      "tests": [
+        "tests.v3.core.test_models"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
+      "id": "core-safety-tests",
+      "exact_paths": [
+        "tests/v3/core/test_store.py"
+      ],
+      "prefixes": [],
+      "lane": "v3-full",
+      "tests": [],
+      "required_safety": [
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v3-control-docs",
+      "exact_paths": [
+        "OWNER_DECISIONS.md"
+      ],
+      "prefixes": [
+        "docs/v3/"
+      ],
+      "lane": "v3-full",
+      "tests": [],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
+      "id": "future-transport-without-v3-evidence",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/transport/",
+        "tests/v3/transport/"
+      ],
+      "lane": "legacy-release",
+      "tests": [],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": true
+    },
+    {
+      "id": "future-result-without-v3-evidence",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/result/",
+        "tests/v3/result/"
+      ],
+      "lane": "legacy-release",
+      "tests": [],
+      "required_safety": [
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": true
+    },
+    {
+      "id": "legacy-touch",
+      "exact_paths": [],
+      "prefixes": [
+        "docs/release-",
+        "docs/v2",
+        "scripts/direct_",
+        "scripts/legacy_",
+        "scripts/protected_",
+        "skills/",
+        "templates/",
+        "tests/test_"
+      ],
+      "lane": "legacy-release",
+      "tests": [],
+      "required_safety": [],
+      "fail_closed": false
+    }
+  ]
+}
