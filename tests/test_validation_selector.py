@@ -12,6 +12,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).parents[1]
@@ -58,6 +59,36 @@ def commit_change(root: Path, path: str, content: str, message: str = "candidate
     subprocess.run(["git", "-C", str(root), "add", "--", path], check=True)
     subprocess.run(["git", "-C", str(root), "commit", "-qm", message], check=True)
     return git(root, "rev-parse", "HEAD")
+
+
+def commit_files(root: Path, files: dict[str, str], message: str = "candidate") -> str:
+    for relative, content in files.items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "--", *files], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", message], check=True)
+    return git(root, "rev-parse", "HEAD")
+
+
+def raw_copy_diff(root: Path, base: str, head: str) -> list[dict[str, object]]:
+    raw = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(root),
+            "diff",
+            "--name-status",
+            "-z",
+            "--find-renames=50%",
+            "--find-copies=50%",
+            "--find-copies-harder",
+            base,
+            head,
+            "--",
+        ]
+    )
+    return SELECTOR.parse_name_status(raw)
 
 
 class ValidationSelectorTests(unittest.TestCase):
@@ -282,6 +313,197 @@ class ValidationSelectorTests(unittest.TestCase):
                 decision = SELECTOR.compute_selection(root, base, head)
                 self.assertEqual(decision["lane"], "legacy-release")
                 self.assertEqual(decision["changed_paths"], sorted({source, destination}))
+
+    def test_reviewer_copy_fixture_enumerates_hidden_high_risk_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = "reviewer identical blob\nsecond line\n"
+            low_source = "auto_g16/core/models.py"
+            high_source = "auto_g16/core/store.py"
+            destination = "tests/v3/core/test_models.py"
+            base = initialize_repository(
+                root,
+                {low_source: payload, high_source: payload},
+            )
+            head = commit_change(root, destination, payload)
+
+            self.assertEqual(
+                raw_copy_diff(root, base, head),
+                [{"status": "C100", "paths": [low_source, destination]}],
+            )
+            changes, _merge_base, _tree = SELECTOR.inspect_git_range(root, base, head)
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(
+            changes,
+            [{"status": "C100", "paths": [low_source, high_source, destination]}],
+        )
+        self.assertEqual(decision["lane"], "affected")
+        self.assertEqual(
+            decision["tests"],
+            ["tests.v3.core.test_models", "tests.v3.core.test_store"],
+        )
+        self.assertEqual(
+            decision["safety_evidence"],
+            [
+                "at-most-one-submission",
+                "no-overwrite",
+                "reconciliation",
+                "unknown-no-automatic-retry",
+            ],
+        )
+        self.assertFalse(decision["fail_closed"])
+
+    def test_multiple_exact_sources_use_maximum_tier_and_union_safety(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = "shared across all tiers\nsecond line\n"
+            sources = {
+                "auto_g16/core/models.py": payload,
+                "auto_g16/core/store.py": payload,
+                "skills/high-risk.py": payload,
+            }
+            destination = "tests/v3/core/test_models.py"
+            base = initialize_repository(root, sources)
+            head = commit_change(root, destination, payload)
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(decision["lane"], "legacy-release")
+        self.assertEqual(decision["tests"], [])
+        self.assertEqual(
+            decision["safety_evidence"],
+            [
+                "at-most-one-submission",
+                "no-overwrite",
+                "reconciliation",
+                "unknown-no-automatic-retry",
+            ],
+        )
+        self.assertFalse(decision["fail_closed"])
+        self.assertEqual(
+            decision["changed_paths"],
+            sorted([*sources, destination]),
+        )
+
+    def test_copy_closure_is_stable_across_git_attribution_and_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = "stable attribution blob\nsecond line\n"
+            low_source = "auto_g16/core/models.py"
+            high_source = "auto_g16/core/store.py"
+            destinations = (
+                "auto_g16/core/__init__.py",
+                "tests/v3/core/test_models.py",
+            )
+            base = initialize_repository(
+                root,
+                {low_source: payload, high_source: payload},
+            )
+            head = commit_files(root, {item: payload for item in destinations})
+            git_executable, _version = SELECTOR.resolve_git()
+            low_attribution = SELECTOR._close_exact_copy_sources(
+                root,
+                base,
+                head,
+                [
+                    change("C100", low_source, destinations[0]),
+                    change("C100", low_source, destinations[1]),
+                ],
+                git_executable,
+            )
+            high_attribution_reversed = SELECTOR._close_exact_copy_sources(
+                root,
+                base,
+                head,
+                [
+                    change("C100", high_source, destinations[1]),
+                    change("C100", high_source, destinations[0]),
+                ],
+                git_executable,
+            )
+
+        self.assertEqual(low_attribution, high_attribution_reversed)
+        for record in low_attribution:
+            self.assertEqual(record["paths"][:2], [low_source, high_source])
+
+    def test_one_exact_copy_source_remains_precise(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = "one exact source\nsecond line\n"
+            source = "auto_g16/core/models.py"
+            destination = "tests/v3/core/test_models.py"
+            base = initialize_repository(root, {source: payload})
+            head = commit_change(root, destination, payload)
+            changes, _merge_base, _tree = SELECTOR.inspect_git_range(root, base, head)
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(
+            changes,
+            [{"status": "C100", "paths": [source, destination]}],
+        )
+        self.assertEqual(decision["lane"], "focused")
+        self.assertEqual(decision["tests"], ["tests.v3.core.test_models"])
+        self.assertEqual(decision["safety_evidence"], [])
+
+    def test_non_exact_or_blob_mismatched_copy_fails_closed(self) -> None:
+        cases = (
+            ("C099", "same exact blob\nsecond line\n"),
+            ("C100", "different destination blob\nsecond line\n"),
+        )
+        for status, destination_payload in cases:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = "auto_g16/core/models.py"
+                destination = "tests/v3/core/test_models.py"
+                source_payload = "same exact blob\nsecond line\n"
+                base = initialize_repository(root, {source: source_payload})
+                head = commit_change(root, destination, destination_payload)
+                with mock.patch.object(
+                    SELECTOR,
+                    "parse_name_status",
+                    return_value=[change(status, source, destination)],
+                ):
+                    decision = SELECTOR.compute_selection(root, base, head)
+
+            self.assertEqual(decision["lane"], "legacy-release")
+            self.assertTrue(decision["fail_closed"])
+            self.assertEqual(decision["tests"], [])
+            self.assertIn("ambiguous_copy_source", decision["reasons"][0])
+
+    def test_unclosable_exact_candidate_enumeration_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = "exact but unclosable copy\nsecond line\n"
+            source = "auto_g16/core/models.py"
+            destination = "tests/v3/core/test_models.py"
+            base = initialize_repository(root, {source: payload})
+            head = commit_change(root, destination, payload)
+            with mock.patch.object(
+                SELECTOR,
+                "_base_blob_paths",
+                side_effect=SELECTOR.SelectionError("synthetic incomplete tree"),
+            ):
+                decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(decision["lane"], "legacy-release")
+        self.assertTrue(decision["fail_closed"])
+        self.assertEqual(decision["tests"], [])
+        self.assertIn("ambiguous_copy_source", decision["reasons"][0])
+
+    def test_unmapped_exact_source_candidate_uses_unknown_path_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = "unmapped twin blob\nsecond line\n"
+            mapped = "auto_g16/core/models.py"
+            unmapped = "unmapped/twin.py"
+            destination = "tests/v3/core/test_models.py"
+            base = initialize_repository(root, {mapped: payload, unmapped: payload})
+            head = commit_change(root, destination, payload)
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(decision["lane"], "legacy-release")
+        self.assertTrue(decision["fail_closed"])
+        self.assertIn(f"changed path is not mapped: {unmapped}", decision["reasons"][0])
 
     def test_actual_delete_retains_the_owned_old_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

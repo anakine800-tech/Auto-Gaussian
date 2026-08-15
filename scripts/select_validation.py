@@ -68,6 +68,23 @@ class SelectionError(ValueError):
     """Selector input or routing data is unavailable, invalid, or ambiguous."""
 
 
+class AmbiguousCopyError(SelectionError):
+    """A Git-reported copy cannot be closed over every exact base-tree source."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        changes: list[dict[str, Any]],
+        merge_base: str,
+        head_tree: str,
+    ) -> None:
+        super().__init__(f"ambiguous_copy_source: {reason}")
+        self.changes = changes
+        self.merge_base = merge_base
+        self.head_tree = head_tree
+
+
 def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -294,6 +311,120 @@ def parse_name_status(raw: bytes) -> list[dict[str, Any]]:
     return changes
 
 
+def _tree_blob(
+    root: Path,
+    revision: str,
+    path: str,
+    git_executable: str,
+) -> str:
+    result = _git(
+        git_executable,
+        root,
+        "ls-tree",
+        "-z",
+        revision,
+        "--",
+        path,
+    )
+    records = result.stdout.split(b"\0") if result.returncode == 0 else []
+    if records and records[-1] == b"":
+        records.pop()
+    if len(records) != 1:
+        raise SelectionError("copy endpoint is absent or ambiguous in its exact tree")
+    metadata, separator, raw_path = records[0].partition(b"\t")
+    parts = metadata.split(b" ")
+    if separator != b"\t" or len(parts) != 3 or parts[1] != b"blob":
+        raise SelectionError("copy endpoint is not one exact blob")
+    try:
+        returned_path = raw_path.decode("utf-8", errors="strict")
+        blob = parts[2].decode("ascii", errors="strict")
+    except UnicodeError as exc:
+        raise SelectionError("copy endpoint tree identity is malformed") from exc
+    if returned_path != path or not FULL_SHA.fullmatch(blob):
+        raise SelectionError("copy endpoint tree identity is inconsistent")
+    return blob
+
+
+def _base_blob_paths(
+    root: Path,
+    base: str,
+    git_executable: str,
+) -> dict[str, list[str]]:
+    result = _git(
+        git_executable,
+        root,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--full-tree",
+        base,
+    )
+    if result.returncode != 0:
+        raise SelectionError("exact base tree cannot be enumerated")
+    records = result.stdout.split(b"\0")
+    if records and records[-1] == b"":
+        records.pop()
+    blobs: dict[str, list[str]] = {}
+    seen_paths: set[str] = set()
+    for record in records:
+        metadata, separator, raw_path = record.partition(b"\t")
+        parts = metadata.split(b" ")
+        if separator != b"\t" or len(parts) != 3:
+            raise SelectionError("exact base tree record is malformed")
+        mode, object_type, raw_object = parts
+        try:
+            path = raw_path.decode("utf-8", errors="strict")
+            object_id = raw_object.decode("ascii", errors="strict")
+            mode_text = mode.decode("ascii", errors="strict")
+            type_text = object_type.decode("ascii", errors="strict")
+        except UnicodeError as exc:
+            raise SelectionError("exact base tree identity is malformed") from exc
+        _relative_path(path, "exact base tree path")
+        if path in seen_paths:
+            raise SelectionError("exact base tree contains a duplicate path")
+        seen_paths.add(path)
+        if not re.fullmatch(r"[0-7]{6}", mode_text) or not FULL_SHA.fullmatch(object_id):
+            raise SelectionError("exact base tree object identity is malformed")
+        if type_text == "blob":
+            blobs.setdefault(object_id, []).append(path)
+        elif type_text != "commit":
+            raise SelectionError("exact base tree contains an unsupported object type")
+    return {blob: sorted(paths) for blob, paths in blobs.items()}
+
+
+def _close_exact_copy_sources(
+    root: Path,
+    base: str,
+    head: str,
+    changes: list[dict[str, Any]],
+    git_executable: str,
+) -> list[dict[str, Any]]:
+    """Use every exact base candidate for routing, never as lineage evidence."""
+    if not any(change["status"].startswith("C") for change in changes):
+        return changes
+    base_blobs = _base_blob_paths(root, base, git_executable)
+    closed: list[dict[str, Any]] = []
+    for change in changes:
+        status = change["status"]
+        if not status.startswith("C"):
+            closed.append(change)
+            continue
+        if status != "C100" or len(change["paths"]) != 2:
+            raise SelectionError("copy status is not exact C100")
+        reported_source, destination = change["paths"]
+        source_blob = _tree_blob(root, base, reported_source, git_executable)
+        destination_blob = _tree_blob(root, head, destination, git_executable)
+        if source_blob != destination_blob:
+            raise SelectionError("reported source and destination blobs are not identical")
+        candidates = base_blobs.get(destination_blob)
+        if not candidates or reported_source not in candidates:
+            raise SelectionError("complete exact source candidate enumeration is unavailable")
+        if destination in candidates:
+            raise SelectionError("copy destination already exists as an identical base path")
+        closed.append({"status": status, "paths": [*candidates, destination]})
+    return sorted(closed, key=lambda item: (tuple(item["paths"]), item["status"]))
+
+
 def inspect_git_range(
     root: Path,
     base: str,
@@ -335,7 +466,23 @@ def inspect_git_range(
     )
     if diff.returncode != 0:
         raise SelectionError("Git diff could not be inspected")
-    return parse_name_status(diff.stdout), merge_base, tree.stdout.strip()
+    changes = parse_name_status(diff.stdout)
+    try:
+        changes = _close_exact_copy_sources(
+            root,
+            base,
+            head,
+            changes,
+            git_executable,
+        )
+    except SelectionError as exc:
+        raise AmbiguousCopyError(
+            str(exc),
+            changes=changes,
+            merge_base=merge_base,
+            head_tree=tree.stdout.strip(),
+        ) from exc
+    return changes, merge_base, tree.stdout.strip()
 
 
 def _repository_identity(root: Path, git_executable: str) -> str:
@@ -662,10 +809,14 @@ def validate_result(value: Any, *, require_authority: bool = True) -> dict[str, 
         paths = change["paths"]
         if not isinstance(status, str) or not status:
             raise SelectionError("selection result change status is invalid")
-        expected = 2 if status[:1] in {"C", "R"} else 1
         if status[:1] not in {"A", "C", "D", "M", "R", "T"}:
             raise SelectionError("selection result change status is unsupported")
-        if not isinstance(paths, list) or len(paths) != expected:
+        if status[:1] == "C":
+            valid_path_count = isinstance(paths, list) and len(paths) >= 2
+        else:
+            expected = 2 if status[:1] == "R" else 1
+            valid_path_count = isinstance(paths, list) and len(paths) == expected
+        if not valid_path_count:
             raise SelectionError("selection result change paths do not match status")
         for index, path in enumerate(paths):
             if not isinstance(path, str):
@@ -699,20 +850,31 @@ def compute_selection(repository: Path, base: str, head: str) -> dict[str, Any]:
     _verify_exact_checkout(root, head, git_executable)
     repository_identity = _repository_identity(root, git_executable)
     manifest, manifest_blob = _candidate_manifest(root, head, git_executable)
-    changes, merge_base, head_tree = inspect_git_range(
-        root,
-        base,
-        head,
-        git_executable=git_executable,
-    )
-    result = select_changes(
-        manifest,
-        changes,
-        base=base,
-        head=head,
-        merge_base=merge_base,
-        head_tree=head_tree,
-    )
+    try:
+        changes, merge_base, head_tree = inspect_git_range(
+            root,
+            base,
+            head,
+            git_executable=git_executable,
+        )
+    except AmbiguousCopyError as exc:
+        result = fallback_result(
+            base=base,
+            head=head,
+            changes=exc.changes,
+            merge_base=exc.merge_base,
+            head_tree=exc.head_tree,
+            reason=str(exc),
+        )
+    else:
+        result = select_changes(
+            manifest,
+            changes,
+            base=base,
+            head=head,
+            merge_base=merge_base,
+            head_tree=head_tree,
+        )
     result.update(
         {
             "repository_root": str(root),
