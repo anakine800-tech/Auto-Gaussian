@@ -102,6 +102,7 @@ class ValidationSelectorTests(unittest.TestCase):
     def test_representative_routes_cover_all_four_lanes(self) -> None:
         cases = (
             ((), "v3-full", False),
+            ((change("M", "README.md"),), "focused", False),
             ((change("M", "tests/v3/core/test_models.py"),), "focused", False),
             ((change("M", "auto_g16/core/store.py"),), "affected", False),
             ((change("M", "docs/v3/STATUS.md"),), "v3-full", False),

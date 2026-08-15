@@ -134,6 +134,19 @@
       "fail_closed": false
     },
     {
+      "id": "low-risk-readme",
+      "exact_paths": [
+        "README.md"
+      ],
+      "prefixes": [],
+      "lane": "focused",
+      "tests": [
+        "tests.test_release_hygiene"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
       "id": "future-transport-without-v3-evidence",
       "exact_paths": [],
       "prefixes": [
