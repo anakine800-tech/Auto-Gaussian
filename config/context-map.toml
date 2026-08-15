@@ -1,0 +1,94 @@
+schema = "auto-g16-v3-context-map/1"
+default_read_policy = "Read only the selected component sections and paths; do not recursively read all docs or references."
+
+[[component]]
+id = "phase-0-control-plane"
+status = "documentation"
+required_sections = [
+  "OWNER_DECISIONS.md#auto-g16-v3-owner-decisions",
+  "docs/v3/STATUS.md#auto-g16-v3-status",
+  "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
+  "docs/v3/non-goals.md#auto-g16-v3-non-goals",
+]
+code_paths = ["scripts/dev_preflight.py"]
+focused_tests = ["tests/test_dev_preflight.py"]
+
+[[component]]
+id = "core-architecture"
+status = "not-started"
+required_sections = [
+  "OWNER_DECISIONS.md#od-01-clean-core-and-compatibility",
+  "docs/v3/boundary-spec.md#dependency-direction",
+  "docs/v3/boundary-spec.md#core-objects",
+  "docs/v3/boundary-spec.md#context-boundaries",
+]
+code_paths = []
+focused_tests = []
+
+[[component]]
+id = "execution-safety"
+status = "reuse-source"
+required_sections = [
+  "OWNER_DECISIONS.md#od-03-mutable-profiles-and-execution-snapshots",
+  "OWNER_DECISIONS.md#od-04-project-reuse-and-the-no-overwrite-boundary",
+  "OWNER_DECISIONS.md#od-05-single-submission-and-uncertainty",
+  "OWNER_DECISIONS.md#od-07-safety-semantics-and-governance-implementation",
+  "docs/v3/boundary-spec.md#context-boundaries",
+]
+code_paths = ["skills/auto-g16-rtwin-pbs/scripts/execution_batch.py"]
+focused_tests = ["tests/test_execution_batch.py", "tests/test_idempotent_execution.py"]
+
+[[component]]
+id = "transport"
+status = "reuse-source"
+required_sections = [
+  "OWNER_DECISIONS.md#od-06-transport-targets",
+  "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
+  "docs/v3/boundary-spec.md#context-boundaries",
+]
+code_paths = [
+  "scripts/direct_ssh_pbs_offline.py",
+  "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py",
+]
+focused_tests = ["tests/test_direct_ssh_pbs_offline.py"]
+
+[[component]]
+id = "knowledge"
+status = "reuse-source"
+required_sections = [
+  "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
+  "docs/v3/boundary-spec.md#context-boundaries",
+]
+code_paths = ["skills/auto-g16-knowledge-base/scripts/knowledge_base.py"]
+focused_tests = ["tests/test_knowledge_base.py", "tests/test_knowledge_store.py"]
+
+[[component]]
+id = "conformer"
+status = "policy-rebenchmark-required"
+required_sections = [
+  "OWNER_DECISIONS.md#od-09-conformer-policy-must-be-benchmarked-again",
+  "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
+  "docs/v3/acceptance.md#v31-flexible-molecule-ensemble",
+]
+code_paths = ["skills/auto-g16-conformer-search/scripts/conformer_core.py"]
+focused_tests = ["tests/test_conformer_search.py"]
+
+[[component]]
+id = "reaction-workflow"
+status = "acceptance-target"
+required_sections = [
+  "docs/v3/acceptance.md#v32a-representative-reaction",
+  "docs/v3/boundary-spec.md#context-boundaries",
+]
+code_paths = [
+  "skills/auto-g16-reaction-workflow/scripts/calculation_dag.py",
+  "skills/auto-g16-ts-irc/scripts/ts_irc.py",
+]
+focused_tests = ["tests/test_reaction_workflow.py", "tests/test_gaussian_ts_irc.py"]
+
+[[component]]
+id = "ci-runtime"
+status = "policy"
+required_sections = ["OWNER_DECISIONS.md#od-08-runtime-and-change-aware-ci"]
+code_paths = ["scripts/audit_ci_contract.py", "scripts/audit_python_contract.py"]
+focused_tests = ["tests/test_audit_ci_contract.py", "tests/test_audit_python_contract.py"]
