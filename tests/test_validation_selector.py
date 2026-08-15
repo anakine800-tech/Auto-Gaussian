@@ -27,10 +27,43 @@ def change(status: str, *paths: str) -> dict[str, object]:
     return {"status": status, "paths": list(paths)}
 
 
+def git(root: Path, *args: str) -> str:
+    return subprocess.check_output(
+        ["git", "-C", str(root), *args],
+        text=True,
+    ).strip()
+
+
+def initialize_repository(root: Path, files: dict[str, str]) -> str:
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "Selector Test"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "selector@example.invalid"],
+        check=True,
+    )
+    content = {SELECTOR.MANIFEST_RELATIVE: MANIFEST.read_text(encoding="utf-8"), **files}
+    for relative, value in content.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value, encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "--", *content], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", "base"], check=True)
+    return git(root, "rev-parse", "HEAD")
+
+
+def commit_change(root: Path, path: str, content: str, message: str = "candidate") -> str:
+    target = root / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "--", path], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", message], check=True)
+    return git(root, "rev-parse", "HEAD")
+
+
 class ValidationSelectorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.manifest = SELECTOR.load_manifest(MANIFEST)
+        cls.manifest = SELECTOR._load_manifest_for_test(MANIFEST)
 
     def select(self, *changes: dict[str, object]) -> dict[str, object]:
         return SELECTOR.select_changes(self.manifest, list(changes))
@@ -139,6 +172,16 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(deleted["changed_paths"], ["auto_g16/core/store.py"])
         self.assertEqual(deleted["lane"], "affected")
 
+        copied_forward = self.select(
+            change("C100", "skills/high-risk.py", "auto_g16/core/models.py")
+        )
+        copied_reverse = self.select(
+            change("C100", "auto_g16/core/models.py", "skills/high-risk.py")
+        )
+        for copied in (copied_forward, copied_reverse):
+            self.assertEqual(copied["lane"], "legacy-release")
+            self.assertFalse(copied["fail_closed"])
+
     def test_diff_parser_rejects_unknown_and_incomplete_records(self) -> None:
         self.assertEqual(
             SELECTOR.parse_name_status(b"R100\0old.py\0new.py\0D\0gone.py\0"),
@@ -157,19 +200,19 @@ class ValidationSelectorTests(unittest.TestCase):
             original = MANIFEST.read_text(encoding="utf-8")
             path.write_text(original.replace('"version": 1,', '"version": 1,\n  "version": 1,'), encoding="utf-8")
             with self.assertRaisesRegex(SELECTOR.SelectionError, "duplicate JSON key"):
-                SELECTOR.load_manifest(path)
+                SELECTOR._load_manifest_for_test(path)
 
             overlap = copy.deepcopy(self.manifest)
             overlap["routes"][0]["exact_paths"].append("auto_g16/core/store.py")
             path.write_text(json.dumps(overlap), encoding="utf-8")
             with self.assertRaisesRegex(SELECTOR.SelectionError, "ambiguous exact path"):
-                SELECTOR.load_manifest(path)
+                SELECTOR._load_manifest_for_test(path)
 
             missing = copy.deepcopy(self.manifest)
             del missing["safety_evidence"]["no-overwrite"]
             path.write_text(json.dumps(missing), encoding="utf-8")
             with self.assertRaisesRegex(SELECTOR.SelectionError, "unavailable safety evidence"):
-                SELECTOR.load_manifest(path)
+                SELECTOR._load_manifest_for_test(path)
 
     def test_exact_git_range_records_rename_identity_and_rejects_short_sha(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -212,12 +255,106 @@ class ValidationSelectorTests(unittest.TestCase):
             with self.assertRaisesRegex(SELECTOR.SelectionError, "full lowercase"):
                 SELECTOR.inspect_git_range(root, base[:12], head)
 
+    def test_actual_unchanged_source_copies_preserve_both_paths_conservatively(self) -> None:
+        cases = (
+            (
+                "skills/high-risk.py",
+                "auto_g16/core/models.py",
+                "legacy source copied to focused destination",
+            ),
+            (
+                "auto_g16/core/models.py",
+                "skills/high-risk.py",
+                "focused source copied to legacy destination",
+            ),
+        )
+        for source, destination, label in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                payload = "identity-preserving copy\nsecond line\n"
+                base = initialize_repository(root, {source: payload})
+                head = commit_change(root, destination, payload)
+                changes, _merge_base, _tree = SELECTOR.inspect_git_range(root, base, head)
+                self.assertEqual(
+                    changes,
+                    [{"status": "C100", "paths": [source, destination]}],
+                )
+                decision = SELECTOR.compute_selection(root, base, head)
+                self.assertEqual(decision["lane"], "legacy-release")
+                self.assertEqual(decision["changed_paths"], sorted({source, destination}))
+
+    def test_actual_delete_retains_the_owned_old_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = "auto_g16/core/store.py"
+            base = initialize_repository(root, {path: "value = 1\n"})
+            (root / path).unlink()
+            subprocess.run(["git", "-C", str(root), "add", "--", path], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "delete"], check=True)
+            head = git(root, "rev-parse", "HEAD")
+            changes, _merge_base, _tree = SELECTOR.inspect_git_range(root, base, head)
+            self.assertEqual(changes, [{"status": "D", "paths": [path]}])
+            self.assertEqual(SELECTOR.compute_selection(root, base, head)["lane"], "affected")
+
+    def test_candidate_authority_is_exact_and_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(
+                root,
+                {"auto_g16/core/models.py": "value = 1\n"},
+            )
+            head = commit_change(root, "auto_g16/core/models.py", "value = 2\n")
+            first = SELECTOR.compute_selection(root, base, head)
+            second = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["lane"], "focused")
+        self.assertEqual(first["manifest_path"], SELECTOR.MANIFEST_RELATIVE)
+        self.assertRegex(first["manifest_blob"], r"^[0-9a-f]{40}$")
+        self.assertTrue(Path(first["git_executable"]).is_absolute())
+        self.assertTrue(first["git_version"].startswith("git version "))
+        self.assertRegex(first["head_tree"], r"^[0-9a-f]{40}$")
+
+    def test_mixed_path_maximum_and_delete_remain_deterministic(self) -> None:
+        forward = self.select(
+            change("M", "auto_g16/core/models.py"),
+            change("M", "auto_g16/core/store.py"),
+        )
+        reverse = self.select(
+            change("M", "auto_g16/core/store.py"),
+            change("M", "auto_g16/core/models.py"),
+        )
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(
+            self.select(change("D", "auto_g16/core/store.py"))["lane"],
+            "affected",
+        )
+
+    def test_production_cli_rejects_external_manifest_and_repository_authority(self) -> None:
+        with self.assertRaises(SystemExit) as manifest:
+            SELECTOR.main(
+                [
+                    "--base",
+                    "0" * 40,
+                    "--head",
+                    "1" * 40,
+                    "--manifest",
+                    "/tmp/external.json",
+                ]
+            )
+        self.assertEqual(manifest.exception.code, 2)
+        with self.assertRaises(SystemExit) as repository:
+            SELECTOR.main(
+                ["--base", "0" * 40, "--head", "1" * 40, "--repo", "/tmp"]
+            )
+        self.assertEqual(repository.exception.code, 2)
+
     def test_cli_invalid_identity_emits_legacy_release_result(self) -> None:
         output = StringIO()
         with redirect_stdout(output):
-            returncode = SELECTOR.main(
-                ["--base", "short", "--head", "also-short", "--repo", str(ROOT)]
-            )
+            returncode = SELECTOR.main(["--base", "short", "--head", "also-short"])
         self.assertEqual(returncode, 0)
         result = json.loads(output.getvalue())
         self.assertEqual(result["lane"], "legacy-release")

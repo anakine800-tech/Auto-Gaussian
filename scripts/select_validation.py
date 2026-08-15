@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
@@ -13,8 +15,9 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MANIFEST_RELATIVE = "config/validation-selection.json"
 MANIFEST_SCHEMA = "auto-g16-validation-selection/1"
-RESULT_SCHEMA = "auto-g16-validation-selection-result/1"
+RESULT_SCHEMA = "auto-g16-validation-selection-result/2"
 LANES = ("focused", "affected", "v3-full", "legacy-release")
 MANIFEST_KEYS = {
     "schema",
@@ -51,6 +54,12 @@ RESULT_KEYS = {
     "safety_evidence",
     "fail_closed",
     "reasons",
+    "repository_root",
+    "repository_identity",
+    "manifest_path",
+    "manifest_blob",
+    "git_executable",
+    "git_version",
 }
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
@@ -177,36 +186,79 @@ def validate_manifest(value: Any) -> dict[str, Any]:
     return value
 
 
-def load_manifest(path: Path) -> dict[str, Any]:
-    if path.is_symlink() or not path.is_file():
-        raise SelectionError("validation selection manifest must be a regular non-symlink file")
+def _decode_manifest(raw: bytes) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_object)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_object)
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise SelectionError(f"invalid validation selection manifest: {exc}") from exc
     return validate_manifest(value)
 
 
-def _git(root: Path, *args: str, text: bool = False) -> subprocess.CompletedProcess[Any]:
+def _load_manifest_for_test(path: Path) -> dict[str, Any]:
+    """Load an alternate manifest only for the closed in-process test seam."""
+    if path.is_symlink() or not path.is_file():
+        raise SelectionError("validation selection manifest must be a regular non-symlink file")
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise SelectionError(f"invalid validation selection manifest: {exc}") from exc
+    return _decode_manifest(raw)
+
+
+def resolve_git() -> tuple[str, str]:
+    located = shutil.which("git")
+    if not located:
+        raise SelectionError("Git executable is unavailable")
+    try:
+        executable = Path(located).resolve(strict=True)
+    except OSError as exc:
+        raise SelectionError("Git executable identity is unavailable") from exc
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise SelectionError("Git executable is not a runnable regular file")
+    result = subprocess.run(
+        [str(executable), "--version"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    version = result.stdout.strip()
+    if result.returncode != 0 or not version.startswith("git version ") or "\n" in version:
+        raise SelectionError("Git executable version is unavailable or malformed")
+    return str(executable), version
+
+
+def _git(
+    git_executable: str,
+    root: Path,
+    *args: str,
+    text: bool = False,
+) -> subprocess.CompletedProcess[Any]:
     return subprocess.run(
-        ["git", "-C", str(root), *args],
+        [git_executable, "-C", str(root), *args],
         check=False,
         capture_output=True,
         text=text,
     )
 
 
-def find_root(start: Path) -> Path:
-    result = _git(start, "rev-parse", "--show-toplevel", text=True)
+def find_root(start: Path, git_executable: str) -> Path:
+    result = _git(git_executable, start, "rev-parse", "--show-toplevel", text=True)
     if result.returncode != 0:
         raise SelectionError("repository root is unavailable")
     return Path(result.stdout.strip()).resolve()
 
 
-def _resolve_commit(root: Path, value: str, label: str) -> str:
+def _resolve_commit(root: Path, value: str, label: str, git_executable: str) -> str:
     if not FULL_SHA.fullmatch(value):
         raise SelectionError(f"{label} must be a full lowercase 40-character commit SHA")
-    result = _git(root, "rev-parse", "--verify", f"{value}^{{commit}}", text=True)
+    result = _git(
+        git_executable,
+        root,
+        "rev-parse",
+        "--verify",
+        f"{value}^{{commit}}",
+        text=True,
+    )
     if result.returncode != 0 or result.stdout.strip() != value:
         raise SelectionError(f"{label} commit is unavailable or does not resolve exactly")
     return value
@@ -242,23 +294,41 @@ def parse_name_status(raw: bytes) -> list[dict[str, Any]]:
     return changes
 
 
-def inspect_git_range(root: Path, base: str, head: str) -> tuple[list[dict[str, Any]], str, str]:
-    base = _resolve_commit(root, base, "base")
-    head = _resolve_commit(root, head, "head")
-    merge = _git(root, "merge-base", "--all", base, head, text=True)
+def inspect_git_range(
+    root: Path,
+    base: str,
+    head: str,
+    *,
+    git_executable: str | None = None,
+) -> tuple[list[dict[str, Any]], str, str]:
+    if git_executable is None:
+        git_executable, _version = resolve_git()
+    base = _resolve_commit(root, base, "base", git_executable)
+    head = _resolve_commit(root, head, "head", git_executable)
+    merge = _git(git_executable, root, "merge-base", "--all", base, head, text=True)
     merge_bases = merge.stdout.splitlines() if merge.returncode == 0 else []
     if len(merge_bases) != 1 or not FULL_SHA.fullmatch(merge_bases[0]):
         raise SelectionError("base and head must have exactly one available merge base")
     merge_base = merge_bases[0]
-    tree = _git(root, "rev-parse", "--verify", f"{head}^{{tree}}", text=True)
+    tree = _git(
+        git_executable,
+        root,
+        "rev-parse",
+        "--verify",
+        f"{head}^{{tree}}",
+        text=True,
+    )
     if tree.returncode != 0 or not FULL_SHA.fullmatch(tree.stdout.strip()):
         raise SelectionError("head tree is unavailable")
     diff = _git(
+        git_executable,
         root,
         "diff",
         "--name-status",
         "-z",
         "--find-renames=50%",
+        "--find-copies=50%",
+        "--find-copies-harder",
         merge_base,
         head,
         "--",
@@ -266,6 +336,93 @@ def inspect_git_range(root: Path, base: str, head: str) -> tuple[list[dict[str, 
     if diff.returncode != 0:
         raise SelectionError("Git diff could not be inspected")
     return parse_name_status(diff.stdout), merge_base, tree.stdout.strip()
+
+
+def _repository_identity(root: Path, git_executable: str) -> str:
+    result = _git(
+        git_executable,
+        root,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        raise SelectionError("repository identity is unavailable")
+    try:
+        identity = Path(result.stdout.strip()).resolve(strict=True)
+    except OSError as exc:
+        raise SelectionError("repository identity is unavailable") from exc
+    if not identity.is_dir():
+        raise SelectionError("repository identity is not a directory")
+    return str(identity)
+
+
+def _candidate_manifest(
+    root: Path,
+    head: str,
+    git_executable: str,
+) -> tuple[dict[str, Any], str]:
+    entry = _git(
+        git_executable,
+        root,
+        "ls-tree",
+        "-z",
+        head,
+        "--",
+        MANIFEST_RELATIVE,
+    )
+    expected_suffix = b"\t" + MANIFEST_RELATIVE.encode("utf-8") + b"\0"
+    if entry.returncode != 0 or not entry.stdout.endswith(expected_suffix):
+        raise SelectionError("canonical manifest is absent from the exact candidate")
+    metadata = entry.stdout[: -len(expected_suffix)]
+    parts = metadata.split(b" ")
+    if len(parts) != 3 or parts[0] != b"100644" or parts[1] != b"blob":
+        raise SelectionError("canonical manifest candidate entry is not a regular file")
+    try:
+        blob = parts[2].decode("ascii", errors="strict")
+    except UnicodeError as exc:
+        raise SelectionError("canonical manifest blob identity is malformed") from exc
+    if not FULL_SHA.fullmatch(blob):
+        raise SelectionError("canonical manifest blob identity is malformed")
+    content = _git(git_executable, root, "cat-file", "blob", blob)
+    if content.returncode != 0:
+        raise SelectionError("canonical manifest blob is unavailable")
+    return _decode_manifest(content.stdout), blob
+
+
+def _verify_exact_checkout(root: Path, head: str, git_executable: str) -> None:
+    current = _git(
+        git_executable,
+        root,
+        "rev-parse",
+        "--verify",
+        "HEAD^{commit}",
+        text=True,
+    )
+    if current.returncode != 0 or current.stdout.strip() != head:
+        raise SelectionError("checked-out HEAD does not match the exact candidate")
+    status = _git(
+        git_executable,
+        root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+    )
+    if status.returncode != 0 or status.stdout:
+        raise SelectionError("working tree does not exactly match the candidate tree")
+
+
+def _empty_authority() -> dict[str, Any]:
+    return {
+        "repository_root": None,
+        "repository_identity": None,
+        "manifest_path": MANIFEST_RELATIVE,
+        "manifest_blob": None,
+        "git_executable": None,
+        "git_version": None,
+    }
 
 
 def _route_for_path(manifest: dict[str, Any], path: str) -> dict[str, Any] | None:
@@ -299,7 +456,7 @@ def fallback_result(
     )
     return {
         "schema": RESULT_SCHEMA,
-        "version": 1,
+        "version": 2,
         "base": safe_base,
         "head": safe_head,
         "merge_base": merge_base,
@@ -312,6 +469,7 @@ def fallback_result(
         "safety_evidence": [],
         "fail_closed": True,
         "reasons": [reason],
+        **_empty_authority(),
     }
 
 
@@ -328,7 +486,7 @@ def select_changes(
     if not paths:
         return {
             "schema": RESULT_SCHEMA,
-            "version": 1,
+            "version": 2,
             "base": base,
             "head": head,
             "merge_base": merge_base,
@@ -341,6 +499,7 @@ def select_changes(
             "safety_evidence": [],
             "fail_closed": False,
             "reasons": ["unchanged range selects the bounded v3 full inventory"],
+            **_empty_authority(),
         }
 
     self_paths = set(manifest["self_protecting_paths"])
@@ -428,7 +587,7 @@ def select_changes(
     route_fail_closed = any(route["fail_closed"] for route in selected_routes)
     return {
         "schema": RESULT_SCHEMA,
-        "version": 1,
+        "version": 2,
         "base": base,
         "head": head,
         "merge_base": merge_base,
@@ -445,48 +604,144 @@ def select_changes(
             if route_fail_closed
             else "all changed paths have one reviewed route"
         ],
+        **_empty_authority(),
     }
+
+
+def validate_result(value: Any, *, require_authority: bool = True) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != RESULT_KEYS:
+        raise SelectionError("selection result must be a closed object")
+    if value["schema"] != RESULT_SCHEMA or value["version"] != 2:
+        raise SelectionError("unsupported selection result schema/version")
+
+    sha_keys = ("base", "head", "merge_base", "head_tree", "manifest_blob")
+    for key in sha_keys:
+        item = value[key]
+        if item is None:
+            if require_authority:
+                raise SelectionError(f"selection result {key} must bind an exact SHA")
+        elif not isinstance(item, str) or not FULL_SHA.fullmatch(item):
+            raise SelectionError(f"selection result {key} must be a full SHA")
+
+    string_keys = (
+        "repository_root",
+        "repository_identity",
+        "git_executable",
+        "git_version",
+    )
+    for key in string_keys:
+        item = value[key]
+        if item is None:
+            if require_authority:
+                raise SelectionError(f"selection result {key} must bind exact authority")
+        elif not isinstance(item, str) or not item or item != item.strip():
+            raise SelectionError(f"selection result {key} is malformed")
+    if value["manifest_path"] != MANIFEST_RELATIVE:
+        raise SelectionError("selection result manifest_path is not canonical")
+    if require_authority:
+        for key in ("repository_root", "repository_identity", "git_executable"):
+            item = value[key]
+            assert isinstance(item, str)
+            if not Path(item).is_absolute():
+                raise SelectionError(f"selection result {key} must be absolute")
+
+    for key in ("changed_paths", "matched_routes", "safety_evidence", "reasons"):
+        items = _string_list(value[key], f"selection result {key}")
+        if key == "changed_paths":
+            for index, path in enumerate(items):
+                _relative_path(path, f"selection result changed_paths[{index}]")
+    if not value["reasons"]:
+        raise SelectionError("selection result reasons must not be empty")
+    if not isinstance(value["changes"], list) or not isinstance(value["fail_closed"], bool):
+        raise SelectionError("selection result changes/fail_closed fields are invalid")
+    change_paths: list[str] = []
+    for change in value["changes"]:
+        if not isinstance(change, dict) or set(change) != {"status", "paths"}:
+            raise SelectionError("selection result change must be a closed status/path object")
+        status = change["status"]
+        paths = change["paths"]
+        if not isinstance(status, str) or not status:
+            raise SelectionError("selection result change status is invalid")
+        expected = 2 if status[:1] in {"C", "R"} else 1
+        if status[:1] not in {"A", "C", "D", "M", "R", "T"}:
+            raise SelectionError("selection result change status is unsupported")
+        if not isinstance(paths, list) or len(paths) != expected:
+            raise SelectionError("selection result change paths do not match status")
+        for index, path in enumerate(paths):
+            if not isinstance(path, str):
+                raise SelectionError("selection result change path is invalid")
+            _relative_path(path, f"selection result change paths[{index}]")
+        change_paths.extend(paths)
+    if value["changed_paths"] != sorted(set(change_paths)):
+        raise SelectionError("selection result changed_paths do not match change records")
+
+    lane = value["lane"]
+    tests = _test_names(value["tests"], "selection result tests")
+    if lane not in LANES:
+        raise SelectionError("selection result lane is unsupported")
+    if lane == "legacy-release" and tests:
+        raise SelectionError("legacy-release must use full discovery, not partial tests")
+    if lane != "legacy-release" and not tests:
+        raise SelectionError("non-legacy selections must contain tests")
+    if value["fail_closed"] and lane != "legacy-release":
+        raise SelectionError("fail-closed selection must expand to legacy-release")
+    return value
+
+
+def compute_selection(repository: Path, base: str, head: str) -> dict[str, Any]:
+    """Reconstruct one canonical decision from an exact clean candidate checkout."""
+    git_executable, git_version = resolve_git()
+    requested = repository.resolve(strict=True)
+    root = find_root(requested, git_executable)
+    if root != requested:
+        raise SelectionError("repository argument is not the canonical repository root")
+    _resolve_commit(root, head, "head", git_executable)
+    _verify_exact_checkout(root, head, git_executable)
+    repository_identity = _repository_identity(root, git_executable)
+    manifest, manifest_blob = _candidate_manifest(root, head, git_executable)
+    changes, merge_base, head_tree = inspect_git_range(
+        root,
+        base,
+        head,
+        git_executable=git_executable,
+    )
+    result = select_changes(
+        manifest,
+        changes,
+        base=base,
+        head=head,
+        merge_base=merge_base,
+        head_tree=head_tree,
+    )
+    result.update(
+        {
+            "repository_root": str(root),
+            "repository_identity": repository_identity,
+            "manifest_path": MANIFEST_RELATIVE,
+            "manifest_blob": manifest_blob,
+            "git_executable": git_executable,
+            "git_version": git_version,
+        }
+    )
+    return validate_result(result)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True, help="full base commit SHA")
     parser.add_argument("--head", required=True, help="full head commit SHA")
-    parser.add_argument("--repo", type=Path, default=ROOT)
-    parser.add_argument(
-        "--manifest",
-        type=Path,
-        default=ROOT / "config" / "validation-selection.json",
-    )
     args = parser.parse_args(argv)
 
-    changes: list[dict[str, Any]] | None = None
-    merge_base: str | None = None
-    head_tree: str | None = None
     try:
-        root = find_root(args.repo)
-        manifest_path = args.manifest
-        if not manifest_path.is_absolute():
-            manifest_path = root / manifest_path
-        manifest = load_manifest(manifest_path)
-        changes, merge_base, head_tree = inspect_git_range(root, args.base, args.head)
-        result = select_changes(
-            manifest,
-            changes,
-            base=args.base,
-            head=args.head,
-            merge_base=merge_base,
-            head_tree=head_tree,
-        )
+        result = compute_selection(ROOT, args.base, args.head)
     except SelectionError as exc:
         result = fallback_result(
             base=args.base,
             head=args.head,
-            changes=changes,
-            merge_base=merge_base,
-            head_tree=head_tree,
+            changes=None,
             reason=str(exc),
         )
+        validate_result(result, require_authority=False)
     assert set(result) == RESULT_KEYS
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0
