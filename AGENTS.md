@@ -53,6 +53,7 @@ These rules apply to the entire repository.
 
 ## Development and testing
 
+- Route post-Core autonomy and Task Contract questions on demand through `docs/v3/AUTONOMOUS_DEVELOPMENT.md`; planning completion does not authorize implementation.
 - Use `docs/development-handbook.md` as the mandatory operation-order entry
   point for task classification, preflight, validation, review, CI, integration,
   cleanup and release handoff; it does not override any rule in this file.

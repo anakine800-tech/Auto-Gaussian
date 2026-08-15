@@ -35,6 +35,18 @@ code_paths = [
 focused_tests = ["tests/v3/core/"]
 
 [[component]]
+id = "post-core-planning"
+status = "complete-candidate"
+required_sections = [
+  "docs/v3/STATUS.md#auto-g16-v3-status",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#autonomy-contract",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#execution-and-monitoring-rules",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#frozen-post-core-task-contracts",
+]
+code_paths = []
+focused_tests = []
+
+[[component]]
 id = "execution-safety"
 status = "reuse-source"
 required_sections = [
