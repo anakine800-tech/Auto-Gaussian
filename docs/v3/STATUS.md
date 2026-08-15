@@ -1,7 +1,7 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-CORE-01 = COMPLETE`; Core public boundary freeze is
-  PASS and the next gate is `integration-required`.
+- **Current phase:** `V30-CORE-01 = CLOSED`; implementation is COMPLETE, Final
+  Core Review is PASS, and Integration is PASS.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -21,11 +21,17 @@
 - **Completed:** Core public boundary freeze is PASS. The reviewed public
   exports, record fields, enums, errors, store methods, schema-v1 contract, and
   private-implementation boundary are frozen.
+- **Completed:** V30-CORE-01 was merged to `main` at
+  `d8f657d1f31a07f93cc9f58e2fa9cabe2cf8b1c7`; post-merge main CI is PASS on
+  that exact SHA.
 - **In progress:** None; Core feature expansion is stopped.
-- **Next gate:** `integration-required`, covering the affected/full offline
-  suite, Python 3.11/3.12/3.13, remote CI, and branch protection.
+- **Next gate:** `post-core-planning-required`; no post-Core lane is authorized.
 - **Not started:** `V30-EXEC-01` (RTwin/OpenSSH), `V30-EXEC-02`, and
   `V30-RESULT-01`; none is authorized by Core completion.
+- **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
+  them to local time. Do not report unchanged status minute by minute, rerun a
+  still-running job, impose an unapproved timeout, or classify a slow harness
+  as a product failure. Report state changes, anomalies, and terminal status.
 - **Do not start:** `ExecutionSnapshot`, transport, execution-safety, conformer,
   knowledge, reaction, or TS implementation; production changes, deployment,
   live smoke, and SSH/PBS/Gaussian operations also remain unauthorized.
