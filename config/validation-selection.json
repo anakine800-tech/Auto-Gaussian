@@ -123,7 +123,8 @@
     {
       "id": "v3-control-docs",
       "exact_paths": [
-        "OWNER_DECISIONS.md"
+        "OWNER_DECISIONS.md",
+        "docs/development-handbook.md"
       ],
       "prefixes": [
         "docs/v3/"

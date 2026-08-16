@@ -114,6 +114,35 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertEqual(result["lane"], lane)
                 self.assertEqual(result["fail_closed"], fail_closed)
 
+    def test_closeout_control_docs_select_v3_full_deterministically(self) -> None:
+        handbook = change("M", "docs/development-handbook.md")
+        status = change("M", "docs/v3/STATUS.md")
+        decisions = {
+            "handbook only": self.select(handbook),
+            "status only": self.select(status),
+            "exact closeout pair": self.select(handbook, status),
+            "reversed closeout pair": self.select(status, handbook),
+        }
+        for label, decision in decisions.items():
+            with self.subTest(label=label):
+                self.assertEqual(decision["lane"], "v3-full")
+                self.assertFalse(decision["fail_closed"])
+                self.assertNotEqual(decision["lane"], "legacy-release")
+                self.assertEqual(decision["matched_routes"], ["v3-control-docs"])
+
+        for field in (
+            "changed_paths",
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(
+                decisions["exact closeout pair"][field],
+                decisions["reversed closeout pair"][field],
+            )
+
     def test_transport_and_result_fail_closed_until_v3_evidence_exists(self) -> None:
         expected = {
             "auto_g16/transport/openssh.py": {
