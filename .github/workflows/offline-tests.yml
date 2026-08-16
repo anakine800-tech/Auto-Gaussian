@@ -31,21 +31,51 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+          PUSH_REF: ${{ github.ref }}
+          PUSH_CREATED: ${{ github.event.created }}
+          PUSH_DELETED: ${{ github.event.deleted }}
+          PUSH_FORCED: ${{ github.event.forced }}
         run: |
-          set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            printf '%s\n' 'lane=legacy-release' 'authoritative=false' >> "$GITHUB_OUTPUT"
-            exit 0
+          set -uo pipefail
+          lane="legacy-release"
+          authoritative="false"
+          base_sha=""
+          head_sha=""
+          selection_file=""
+          emit_route() {
+            printf '%s\n' "lane=$lane" "authoritative=$authoritative" >> "$GITHUB_OUTPUT"
+            if [[ "$authoritative" == "true" ]]; then
+              printf '%s\n' "base=$base_sha" "head=$head_sha" "selection=$selection_file" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          trap emit_route EXIT
+          case "$EVENT_NAME" in
+            pull_request)
+              base_sha="$PR_BASE_SHA"
+              head_sha="$PR_HEAD_SHA"
+              ;;
+            push)
+              [[ "$PUSH_REF" == "refs/heads/main" ]] || exit 0
+              [[ "$PUSH_CREATED" == "false" && "$PUSH_DELETED" == "false" && "$PUSH_FORCED" == "false" ]] || exit 0
+              base_sha="$PUSH_BASE_SHA"
+              head_sha="$PUSH_HEAD_SHA"
+              ;;
+            *) exit 0 ;;
+          esac
+          [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" != "0000000000000000000000000000000000000000" ]] || exit 0
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" != "0000000000000000000000000000000000000000" ]] || exit 0
+          git cat-file -e "${base_sha}^{commit}" || exit 0
+          git cat-file -e "${head_sha}^{commit}" || exit 0
+          test "$(git rev-parse HEAD)" = "$head_sha" || exit 0
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            git merge-base --is-ancestor "$base_sha" "$head_sha" || exit 0
           fi
-          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git cat-file -e "${PR_BASE_SHA}^{commit}"
-          git cat-file -e "${PR_HEAD_SHA}^{commit}"
-          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
           selection_file="$RUNNER_TEMP/validation-selection.json"
           python scripts/select_validation.py \
-            --base "$PR_BASE_SHA" \
-            --head "$PR_HEAD_SHA" > "$selection_file"
+            --base "$base_sha" \
+            --head "$head_sha" > "$selection_file" || exit 0
           route_metadata="$(python - "$selection_file" <<'PY'
           import json
           import sys
@@ -65,28 +95,22 @@ jobs:
               authoritative = "false"
           print(value["lane"], authoritative)
           PY
-          )"
-          read -r lane authoritative <<< "$route_metadata"
+          )" || exit 0
+          read -r lane authoritative <<< "$route_metadata" || exit 0
           case "$lane" in
             focused|affected|v3-full|legacy-release) ;;
-            *) exit 1 ;;
+            *) exit 0 ;;
           esac
           case "$authoritative" in
             true|false) ;;
-            *) exit 1 ;;
+            *) exit 0 ;;
           esac
-          printf '%s\n' \
-            "lane=$lane" \
-            "authoritative=$authoritative" \
-            "base=$PR_BASE_SHA" \
-            "head=$PR_HEAD_SHA" \
-            "selection=$selection_file" >> "$GITHUB_OUTPUT"
       - name: Compile Python sources
         run: python -m compileall -q scripts skills tests
       - name: Run progressive static quality checks
         run: python scripts/static_quality.py
       - name: Run selected offline unit tests
-        if: github.event_name == 'pull_request' && steps.validation-route.outputs.authoritative == 'true'
+        if: steps.validation-route.outputs.authoritative == 'true'
         env:
           AUTO_G16_SKIP_PRESSURE_TESTS: "1"
         run: |
@@ -97,7 +121,7 @@ jobs:
             --top-slow 15 \
             --slow-threshold 1.0
       - name: Run complete offline unit tests
-        if: github.event_name != 'pull_request' || steps.validation-route.outputs.authoritative != 'true'
+        if: steps.validation-route.outputs.authoritative != 'true'
         env:
           AUTO_G16_SKIP_PRESSURE_TESTS: "1"
         run: python scripts/run_tests.py --top-slow 15 --slow-threshold 1.0
@@ -123,21 +147,51 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+          PUSH_REF: ${{ github.ref }}
+          PUSH_CREATED: ${{ github.event.created }}
+          PUSH_DELETED: ${{ github.event.deleted }}
+          PUSH_FORCED: ${{ github.event.forced }}
         run: |
-          set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            printf '%s\n' 'lane=legacy-release' 'authoritative=false' >> "$GITHUB_OUTPUT"
-            exit 0
+          set -uo pipefail
+          lane="legacy-release"
+          authoritative="false"
+          base_sha=""
+          head_sha=""
+          selection_file=""
+          emit_route() {
+            printf '%s\n' "lane=$lane" "authoritative=$authoritative" >> "$GITHUB_OUTPUT"
+            if [[ "$authoritative" == "true" ]]; then
+              printf '%s\n' "base=$base_sha" "head=$head_sha" "selection=$selection_file" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          trap emit_route EXIT
+          case "$EVENT_NAME" in
+            pull_request)
+              base_sha="$PR_BASE_SHA"
+              head_sha="$PR_HEAD_SHA"
+              ;;
+            push)
+              [[ "$PUSH_REF" == "refs/heads/main" ]] || exit 0
+              [[ "$PUSH_CREATED" == "false" && "$PUSH_DELETED" == "false" && "$PUSH_FORCED" == "false" ]] || exit 0
+              base_sha="$PUSH_BASE_SHA"
+              head_sha="$PUSH_HEAD_SHA"
+              ;;
+            *) exit 0 ;;
+          esac
+          [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" != "0000000000000000000000000000000000000000" ]] || exit 0
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" != "0000000000000000000000000000000000000000" ]] || exit 0
+          git cat-file -e "${base_sha}^{commit}" || exit 0
+          git cat-file -e "${head_sha}^{commit}" || exit 0
+          test "$(git rev-parse HEAD)" = "$head_sha" || exit 0
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            git merge-base --is-ancestor "$base_sha" "$head_sha" || exit 0
           fi
-          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git cat-file -e "${PR_BASE_SHA}^{commit}"
-          git cat-file -e "${PR_HEAD_SHA}^{commit}"
-          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
           selection_file="$RUNNER_TEMP/validation-selection.json"
           python scripts/select_validation.py \
-            --base "$PR_BASE_SHA" \
-            --head "$PR_HEAD_SHA" > "$selection_file"
+            --base "$base_sha" \
+            --head "$head_sha" > "$selection_file" || exit 0
           route_metadata="$(python - "$selection_file" <<'PY'
           import json
           import sys
@@ -157,22 +211,16 @@ jobs:
               authoritative = "false"
           print(value["lane"], authoritative)
           PY
-          )"
-          read -r lane authoritative <<< "$route_metadata"
+          )" || exit 0
+          read -r lane authoritative <<< "$route_metadata" || exit 0
           case "$lane" in
             focused|affected|v3-full|legacy-release) ;;
-            *) exit 1 ;;
+            *) exit 0 ;;
           esac
           case "$authoritative" in
             true|false) ;;
-            *) exit 1 ;;
+            *) exit 0 ;;
           esac
-          printf '%s\n' \
-            "lane=$lane" \
-            "authoritative=$authoritative" \
-            "base=$PR_BASE_SHA" \
-            "head=$PR_HEAD_SHA" \
-            "selection=$selection_file" >> "$GITHUB_OUTPUT"
       - name: Audit required-check declarations
         run: python scripts/audit_ci_contract.py
       - name: Audit static Python version contract

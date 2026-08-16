@@ -6,8 +6,10 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -18,6 +20,7 @@ from unittest import mock
 ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / "scripts" / "select_validation.py"
 MANIFEST = ROOT / "config" / "validation-selection.json"
+WORKFLOW = ROOT / ".github" / "workflows" / "offline-tests.yml"
 SPEC = importlib.util.spec_from_file_location("validation_selector", SCRIPT)
 assert SPEC and SPEC.loader
 SELECTOR = importlib.util.module_from_spec(SPEC)
@@ -91,6 +94,84 @@ def raw_copy_diff(root: Path, base: str, head: str) -> list[dict[str, object]]:
     return SELECTOR.parse_name_status(raw)
 
 
+def workflow_route_scripts() -> list[str]:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    marker = "      - name: Resolve exact validation route\n"
+    sections = text.split(marker)
+    if len(sections) != 3:
+        raise AssertionError("workflow must contain exactly two validation route steps")
+    scripts: list[str] = []
+    for section in sections[1:]:
+        step = section.split("\n      - name:", 1)[0]
+        run_marker = "        run: |\n"
+        if step.count(run_marker) != 1:
+            raise AssertionError("validation route step must contain one literal run block")
+        scripts.append(textwrap.dedent(step.split(run_marker, 1)[1]))
+    return scripts
+
+
+def initialize_workflow_repository(root: Path) -> str:
+    return initialize_repository(
+        root,
+        {
+            ".github/workflows/offline-tests.yml": WORKFLOW.read_text(encoding="utf-8"),
+            "scripts/select_validation.py": SCRIPT.read_text(encoding="utf-8"),
+            "README.md": "baseline readme\n",
+            "auto_g16/core/models.py": "baseline models\n",
+            "auto_g16/core/store.py": "baseline store\n",
+            "tests/v3/core/test_store.py": "baseline store tests\n",
+            "docs/v3/STATUS.md": "baseline closeout\n",
+        },
+    )
+
+
+def run_workflow_route(
+    script: str,
+    root: Path,
+    runner: Path,
+    *,
+    event_name: str,
+    base: str = "",
+    head: str = "",
+    ref: str = "refs/heads/main",
+    created: str = "false",
+    deleted: str = "false",
+    forced: str = "false",
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    output = runner / "github-output.txt"
+    output.write_text("", encoding="utf-8")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "EVENT_NAME": event_name,
+            "PR_BASE_SHA": base if event_name == "pull_request" else "",
+            "PR_HEAD_SHA": head if event_name == "pull_request" else "",
+            "PUSH_BASE_SHA": base if event_name == "push" else "",
+            "PUSH_HEAD_SHA": head if event_name == "push" else "",
+            "PUSH_REF": ref if event_name == "push" else "",
+            "PUSH_CREATED": created if event_name == "push" else "",
+            "PUSH_DELETED": deleted if event_name == "push" else "",
+            "PUSH_FORCED": forced if event_name == "push" else "",
+            "RUNNER_TEMP": str(runner),
+            "GITHUB_OUTPUT": str(output),
+        }
+    )
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    metadata: dict[str, str] = {}
+    for line in output.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            metadata[key] = value
+    return result, metadata
+
+
 class ValidationSelectorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -98,6 +179,163 @@ class ValidationSelectorTests(unittest.TestCase):
 
     def select(self, *changes: dict[str, object]) -> dict[str, object]:
         return SELECTOR.select_changes(self.manifest, list(changes))
+
+    def test_workflow_uses_identical_canonical_route_steps_without_yaml_path_routing(self) -> None:
+        scripts = workflow_route_scripts()
+        self.assertEqual(scripts[0], scripts[1])
+        self.assertEqual(scripts[0].count("python scripts/select_validation.py"), 1)
+        self.assertNotIn("changed_paths", scripts[0])
+        self.assertNotIn("README.md", scripts[0])
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(workflow.count("python scripts/select_validation.py"), 2)
+        self.assertIn("if: steps.validation-route.outputs.authoritative == 'true'", workflow)
+        self.assertIn("if: steps.validation-route.outputs.authoritative != 'true'", workflow)
+        self.assertNotIn("if: github.event_name == 'pull_request' &&", workflow)
+        self.assertIn('--selection "${{ steps.validation-route.outputs.selection }}"', workflow)
+
+    def test_main_push_route_matrix_executes_real_canonical_selection(self) -> None:
+        script = workflow_route_scripts()[0]
+        cases = (
+            ("README.md", "focused readme\n", "focused", False),
+            ("auto_g16/core/store.py", "affected store\n", "affected", False),
+            ("tests/v3/core/test_store.py", "core safety\n", "v3-full", False),
+            ("docs/v3/STATUS.md", "closeout after\n", "v3-full", False),
+            (
+                ".github/workflows/offline-tests.yml",
+                WORKFLOW.read_text(encoding="utf-8") + "\n# control-plane candidate\n",
+                "legacy-release",
+                True,
+            ),
+            ("unmapped/new_surface.py", "unknown\n", "legacy-release", True),
+        )
+        for path, content, lane, fail_closed in cases:
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
+                root = Path(temporary)
+                base = initialize_workflow_repository(root)
+                head = commit_change(root, path, content)
+                result, metadata = run_workflow_route(
+                    script,
+                    root,
+                    Path(runner_temp),
+                    event_name="push",
+                    base=base,
+                    head=head,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(metadata["lane"], lane)
+                self.assertEqual(metadata["authoritative"], "true")
+                self.assertEqual(metadata.get("base"), base)
+                self.assertEqual(metadata.get("head"), head)
+                selection_path = Path(metadata["selection"])
+                self.assertTrue(selection_path.is_file())
+                selection = json.loads(selection_path.read_text(encoding="utf-8"))
+                self.assertEqual(selection["lane"], lane)
+                self.assertEqual(selection["fail_closed"], fail_closed)
+                if not fail_closed:
+                    self.assertTrue(selection["tests"])
+
+    def test_main_push_identity_and_history_ambiguity_fall_back_to_full(self) -> None:
+        script = workflow_route_scripts()[0]
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
+            root = Path(temporary)
+            runner = Path(runner_temp)
+            base = initialize_workflow_repository(root)
+            head = commit_change(root, "README.md", "candidate readme\n")
+            cases = (
+                ("missing before", {"base": ""}),
+                ("zero before", {"base": "0" * 40}),
+                ("invalid before", {"base": "short"}),
+                ("unresolved before", {"base": "f" * 40}),
+                ("zero head", {"head": "0" * 40}),
+                ("invalid head", {"head": "short"}),
+                ("unresolved head", {"head": "e" * 40}),
+                ("branch creation", {"created": "true"}),
+                ("branch deletion", {"deleted": "true"}),
+                ("force push payload", {"forced": "true"}),
+                ("wrong ref", {"ref": "refs/heads/not-main"}),
+            )
+            for label, overrides in cases:
+                with self.subTest(label=label):
+                    arguments = {"base": base, "head": head, **overrides}
+                    result, metadata = run_workflow_route(
+                        script,
+                        root,
+                        runner,
+                        event_name="push",
+                        **arguments,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+
+            git(root, "checkout", "-q", "--detach", base)
+            other_base = commit_change(root, "README.md", "divergent base\n", "divergent")
+            git(root, "checkout", "-q", "--detach", head)
+            result, metadata = run_workflow_route(
+                script,
+                root,
+                runner,
+                event_name="push",
+                base=other_base,
+                head=head,
+                forced="false",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+
+            newer = commit_change(root, "README.md", "checkout mismatch\n", "newer")
+            self.assertNotEqual(newer, head)
+            result, metadata = run_workflow_route(
+                script,
+                root,
+                runner,
+                event_name="push",
+                base=base,
+                head=head,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+
+    def test_selection_or_artifact_closure_failure_falls_back_to_full(self) -> None:
+        script = workflow_route_scripts()[0]
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
+            root = Path(temporary)
+            base = initialize_workflow_repository(root)
+            head = commit_change(root, "README.md", "candidate readme\n")
+            selector_path = root / "scripts" / "select_validation.py"
+            original = selector_path.read_text(encoding="utf-8")
+            for label, replacement in (
+                ("selection command failure", "raise SystemExit(2)\n"),
+                ("invalid selection artifact", "print('{}')\n"),
+            ):
+                with self.subTest(label=label):
+                    selector_path.write_text(replacement, encoding="utf-8")
+                    result, metadata = run_workflow_route(
+                        script,
+                        root,
+                        Path(runner_temp),
+                        event_name="push",
+                        base=base,
+                        head=head,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+            selector_path.write_text(original, encoding="utf-8")
+
+    def test_manual_and_release_like_events_retain_full_attestation(self) -> None:
+        script = workflow_route_scripts()[0]
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
+            root = Path(temporary)
+            initialize_workflow_repository(root)
+            for event_name in ("workflow_dispatch", "release"):
+                with self.subTest(event_name=event_name):
+                    result, metadata = run_workflow_route(
+                        script,
+                        root,
+                        Path(runner_temp),
+                        event_name=event_name,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
 
     def test_representative_routes_cover_all_four_lanes(self) -> None:
         cases = (
