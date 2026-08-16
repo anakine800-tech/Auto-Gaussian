@@ -1,8 +1,7 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-CORE-01 = CLOSED`; Post-Core Planning Gate is
-  `COMPLETE-CANDIDATE` on local evidence and requires Independent Planning
-  Review.
+- **Current phase:** `V3-MAINT-TEST-01 = CLOSED / INTEGRATED ON MAIN`;
+  implementation changes are complete and other lanes remain paused.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -25,17 +24,24 @@
 - **Completed:** V30-CORE-01 was merged to `main` at
   `d8f657d1f31a07f93cc9f58e2fa9cabe2cf8b1c7`; post-merge main CI is PASS on
   that exact SHA.
+- **Completed:** `V3-MAINT-TEST-01` was merged by normal merge in PR #63 and is
+  integrated on `main` at `a2c092e3a089e8803054e75ab3828c079db185b5`.
+  Exact-main post-merge CI is PASS and product findings are `0`.
+- **Validation disposition:** The PR #63 and exact-main control-plane full
+  attestations took approximately 77 minutes as expected. This is integration
+  evidence, not a permanent target or a reason for ordinary leaf v3 PRs to run
+  the legacy-heavy full suite.
 - **Completed candidate:** The Post-Core autonomy policy, three-workstream
   Integration Owner structure, validation policy, and four Task Contracts are
   frozen in [`AUTONOMOUS_DEVELOPMENT.md`](AUTONOMOUS_DEVELOPMENT.md). Planning
   completion does not authorize implementation.
-- **In progress:** Independent Planning Review only; Core feature expansion is
-  stopped.
-- **Next gate:** Independent Planning Review. No implementation lane may start
-  from planning completion alone.
-- **Not started:** `V3-MAINT-TEST-01`, `V30-EXEC-01`, and `V30-RESULT-01` are
-  `NOT STARTED`; `V30-EXEC-02` is `NOT STARTED / WAIT` pending RTwin validation
-  of the execution/transport public boundary.
+- **In progress:** Documentation closeout review only; Core feature expansion
+  is stopped and other lanes remain paused.
+- **Next gate:** Closeout Review / Publish. No implementation lane may start
+  from this closeout.
+- **Not started:** `V30-EXEC-01` and `V30-RESULT-01` are `NOT STARTED`;
+  `V30-EXEC-02` is `NOT STARTED / WAIT` pending RTwin validation of the
+  execution/transport public boundary.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
