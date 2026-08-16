@@ -586,6 +586,16 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertEqual(len(loader.errors), 1)
                 self.assertIn("contains no direct test*.py test modules", loader.errors[0])
 
+    def test_empty_ownership_packages_do_not_poison_full_discovery(self) -> None:
+        for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
+            with self.subTest(package=package.__name__):
+                standard_tests = unittest.TestSuite()
+                suite = package.load_tests(
+                    unittest.TestLoader(), standard_tests, "test*.py"
+                )
+                self.assertIs(suite, standard_tests)
+                self.assertEqual(suite.countTestCases(), 0)
+
     def test_package_aggregation_is_stable_direct_and_nonrecursive(self) -> None:
         for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
             with self.subTest(package=package.__name__), tempfile.TemporaryDirectory() as temporary:

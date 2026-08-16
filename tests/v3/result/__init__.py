@@ -30,6 +30,8 @@ def load_tests(
         return standard_tests
     module_names = _direct_test_module_names()
     if not module_names:
+        if pattern == _TEST_PATTERN:
+            return standard_tests
         raise RuntimeError(f"{__name__} contains no direct {_TEST_PATTERN} test modules")
     suite = loader.loadTestsFromNames(module_names)
     if suite.countTestCases() == 0:
