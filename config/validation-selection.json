@@ -123,6 +123,7 @@
     {
       "id": "v3-control-docs",
       "exact_paths": [
+        "AGENTS.md",
         "OWNER_DECISIONS.md",
         "docs/development-handbook.md"
       ],
@@ -148,6 +149,36 @@
       "fail_closed": false
     },
     {
+      "id": "v30-execution",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/execution/",
+        "tests/v3/execution/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
       "id": "future-transport-without-v3-evidence",
       "exact_paths": [],
       "prefixes": [
@@ -168,18 +199,22 @@
       "fail_closed": true
     },
     {
-      "id": "future-result-without-v3-evidence",
+      "id": "v30-result",
       "exact_paths": [],
       "prefixes": [
         "auto_g16/result/",
         "tests/v3/result/"
       ],
-      "lane": "legacy-release",
-      "tests": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.result",
+        "tests.v3.core.test_store"
+      ],
       "required_safety": [
+        "no-overwrite",
         "unknown-no-automatic-retry"
       ],
-      "fail_closed": true
+      "fail_closed": false
     },
     {
       "id": "legacy-touch",

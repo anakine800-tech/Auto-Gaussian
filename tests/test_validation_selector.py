@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -15,6 +16,9 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest import mock
+
+from tests.v3 import execution as EXECUTION_PACKAGE
+from tests.v3 import result as RESULT_PACKAGE
 
 
 ROOT = Path(__file__).parents[1]
@@ -27,8 +31,42 @@ SELECTOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SELECTOR)
 
 
+EXEC_SAFETY = [
+    "approval-owner-separation",
+    "at-most-one-submission",
+    "no-overwrite",
+    "reconciliation",
+    "still-applicable-descriptor-capability",
+    "timeout-slow-running-is-not-failure",
+    "unknown-no-automatic-retry",
+]
+EXEC_TESTS = [
+    "tests.test_direct_one_hop_transport",
+    "tests.test_direct_qstat_acquisition",
+    "tests.test_execution_authorization",
+    "tests.test_legacy_descriptor_mutation_capability",
+    "tests.test_legacy_root_authority_contract",
+    "tests.test_live_approval_effect_time_replay",
+    "tests.test_resource_monitor_efficiency",
+    "tests.v3.core.test_store",
+    "tests.v3.execution",
+]
+RESULT_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
+RESULT_TESTS = ["tests.v3.core.test_store", "tests.v3.result"]
+
+
 def change(status: str, *paths: str) -> dict[str, object]:
     return {"status": status, "paths": list(paths)}
+
+
+def suite_ids(suite: unittest.TestSuite) -> list[str]:
+    identifiers: list[str] = []
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            identifiers.extend(suite_ids(item))
+        else:
+            identifiers.append(item.id())
+    return identifiers
 
 
 def git(root: Path, *args: str) -> str:
@@ -117,6 +155,7 @@ def initialize_workflow_repository(root: Path) -> str:
             ".gitignore": (ROOT / ".gitignore").read_text(encoding="utf-8"),
             ".github/workflows/offline-tests.yml": WORKFLOW.read_text(encoding="utf-8"),
             "scripts/select_validation.py": SCRIPT.read_text(encoding="utf-8"),
+            "AGENTS.md": "baseline repository authority\n",
             "README.md": "baseline readme\n",
             "auto_g16/core/models.py": "baseline models\n",
             "auto_g16/core/store.py": "baseline store\n",
@@ -197,8 +236,11 @@ class ValidationSelectorTests(unittest.TestCase):
     def test_main_push_route_matrix_executes_real_canonical_selection(self) -> None:
         script = workflow_route_scripts()[0]
         cases = (
+            ("AGENTS.md", "v3 authority routing\n", "v3-full", False),
             ("README.md", "focused readme\n", "focused", False),
             ("auto_g16/core/store.py", "affected store\n", "affected", False),
+            ("auto_g16/execution/service.py", "execution owner\n", "affected", False),
+            ("auto_g16/result/parser.py", "result owner\n", "affected", False),
             ("tests/v3/core/test_store.py", "core safety\n", "v3-full", False),
             ("docs/v3/STATUS.md", "closeout after\n", "v3-full", False),
             (
@@ -438,10 +480,12 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertEqual(result["lane"], lane)
                 self.assertEqual(result["fail_closed"], fail_closed)
 
-    def test_closeout_control_docs_select_v3_full_deterministically(self) -> None:
+    def test_v3_control_docs_select_v3_full_deterministically(self) -> None:
+        agents = change("M", "AGENTS.md")
         handbook = change("M", "docs/development-handbook.md")
         status = change("M", "docs/v3/STATUS.md")
         decisions = {
+            "agents only": self.select(agents),
             "handbook only": self.select(handbook),
             "status only": self.select(status),
             "exact closeout pair": self.select(handbook, status),
@@ -467,26 +511,145 @@ class ValidationSelectorTests(unittest.TestCase):
                 decisions["reversed closeout pair"][field],
             )
 
-    def test_transport_and_result_fail_closed_until_v3_evidence_exists(self) -> None:
-        expected = {
-            "auto_g16/transport/openssh.py": {
-                "approval-owner-separation",
-                "at-most-one-submission",
-                "no-overwrite",
-                "reconciliation",
-                "still-applicable-descriptor-capability",
-                "timeout-slow-running-is-not-failure",
-                "unknown-no-automatic-retry",
-            },
-            "auto_g16/result/parser.py": {"unknown-no-automatic-retry"},
-        }
-        for path, safety in expected.items():
-            with self.subTest(path=path):
+    def test_future_transport_remains_fail_closed_until_v3_evidence_exists(self) -> None:
+        result = self.select(change("A", "auto_g16/transport/openssh.py"))
+        self.assertEqual(result["lane"], "legacy-release")
+        self.assertTrue(result["fail_closed"])
+        self.assertEqual(result["tests"], [])
+        self.assertEqual(
+            result["safety_evidence"],
+            EXEC_SAFETY,
+        )
+
+    def test_execution_and_result_routes_own_product_and_test_prefixes(self) -> None:
+        cases = (
+            (
+                "execution product",
+                "auto_g16/execution/service.py",
+                "v30-execution",
+                EXEC_TESTS,
+                EXEC_SAFETY,
+            ),
+            (
+                "execution tests",
+                "tests/v3/execution/test_service.py",
+                "v30-execution",
+                EXEC_TESTS,
+                EXEC_SAFETY,
+            ),
+            (
+                "result product",
+                "auto_g16/result/parser.py",
+                "v30-result",
+                RESULT_TESTS,
+                RESULT_SAFETY,
+            ),
+            (
+                "result tests",
+                "tests/v3/result/test_parser.py",
+                "v30-result",
+                RESULT_TESTS,
+                RESULT_SAFETY,
+            ),
+        )
+        for label, path, route, tests, safety in cases:
+            with self.subTest(label=label):
                 result = self.select(change("A", path))
-                self.assertEqual(result["lane"], "legacy-release")
-                self.assertTrue(result["fail_closed"])
-                self.assertEqual(result["tests"], [])
-                self.assertEqual(set(result["safety_evidence"]), safety)
+                self.assertEqual(result["lane"], "affected")
+                self.assertEqual(result["matched_routes"], [route])
+                self.assertEqual(result["tests"], tests)
+                self.assertEqual(result["safety_evidence"], safety)
+                self.assertFalse(result["fail_closed"])
+
+    def test_mixed_execution_and_result_change_uses_deterministic_union(self) -> None:
+        execution = change("M", "auto_g16/execution/service.py")
+        result = change("M", "auto_g16/result/parser.py")
+        forward = self.select(execution, result)
+        reverse = self.select(result, execution)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(forward["matched_routes"], ["v30-execution", "v30-result"])
+        self.assertEqual(forward["tests"], sorted({*EXEC_TESTS, *RESULT_TESTS}))
+        self.assertEqual(forward["safety_evidence"], EXEC_SAFETY)
+        self.assertFalse(forward["fail_closed"])
+
+    def test_empty_execution_and_result_packages_fail_closed_today(self) -> None:
+        for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
+            with self.subTest(package=package.__name__):
+                loader = unittest.TestLoader()
+                suite = loader.loadTestsFromName(package.__name__)
+                outcome = unittest.TestResult()
+                suite.run(outcome)
+                self.assertEqual(suite.countTestCases(), 1)
+                self.assertFalse(outcome.wasSuccessful())
+                self.assertEqual(len(loader.errors), 1)
+                self.assertIn("contains no direct test*.py test modules", loader.errors[0])
+
+    def test_package_aggregation_is_stable_direct_and_nonrecursive(self) -> None:
+        for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
+            with self.subTest(package=package.__name__), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                (directory / "test_zeta.py").write_text(
+                    "import unittest\n"
+                    "class ZetaTests(unittest.TestCase):\n"
+                    "    def test_zeta(self): self.assertTrue(True)\n",
+                    encoding="utf-8",
+                )
+                (directory / "test_alpha.py").write_text(
+                    "import unittest\n"
+                    "class AlphaTests(unittest.TestCase):\n"
+                    "    def test_alpha(self): self.assertTrue(True)\n",
+                    encoding="utf-8",
+                )
+                nested = directory / "nested"
+                nested.mkdir()
+                (nested / "test_nested.py").write_text(
+                    "raise AssertionError('recursive discovery is forbidden')\n",
+                    encoding="utf-8",
+                )
+                module_names = [
+                    f"{package.__name__}.test_alpha",
+                    f"{package.__name__}.test_zeta",
+                ]
+                try:
+                    with (
+                        mock.patch.object(package, "__file__", str(directory / "__init__.py")),
+                        mock.patch.object(package, "__path__", [str(directory)]),
+                    ):
+                        first = package.load_tests(
+                            unittest.TestLoader(), unittest.TestSuite(), None
+                        )
+                        second = package.load_tests(
+                            unittest.TestLoader(), unittest.TestSuite(), "test*.py"
+                        )
+                finally:
+                    for name in module_names:
+                        sys.modules.pop(name, None)
+
+                expected = [
+                    f"{package.__name__}.test_alpha.AlphaTests.test_alpha",
+                    f"{package.__name__}.test_zeta.ZetaTests.test_zeta",
+                ]
+                self.assertEqual(suite_ids(first), expected)
+                self.assertEqual(suite_ids(second), expected)
+                self.assertEqual(first.countTestCases(), 2)
+
+    def test_package_aggregation_rejects_test_modules_with_zero_tests(self) -> None:
+        for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
+            with self.subTest(package=package.__name__), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                (directory / "test_empty.py").write_text("VALUE = 'no tests'\n", encoding="utf-8")
+                module_name = f"{package.__name__}.test_empty"
+                try:
+                    with (
+                        mock.patch.object(package, "__file__", str(directory / "__init__.py")),
+                        mock.patch.object(package, "__path__", [str(directory)]),
+                        self.assertRaisesRegex(RuntimeError, "discovered zero tests"),
+                    ):
+                        package.load_tests(unittest.TestLoader(), unittest.TestSuite(), None)
+                finally:
+                    sys.modules.pop(module_name, None)
 
     def test_unknown_generated_and_self_changes_fail_closed(self) -> None:
         cases = (
