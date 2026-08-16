@@ -26,6 +26,33 @@ SHA_A = "a" * 64
 SHA_B = "b" * 64
 
 
+def program_facts(**changes: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "program_status": "normal-termination",
+        "normal_termination_count": 1,
+        "error_termination_count": 0,
+        "optimization_completed_marker": True,
+        "stationary_point_marker": True,
+        "scf_calculation_count": 1,
+        "final_energy_hartree": -75.0,
+        "frequency_count": 3,
+        "frequency_parse_complete": True,
+        "imaginary_frequency_count": 0,
+        "frequencies_cm-1": (100.0, 200.0, 300.0),
+        "thermochemistry": {
+            "zero_point_correction_hartree": 0.01,
+            "thermal_correction_energy_hartree": 0.02,
+            "thermal_correction_enthalpy_hartree": 0.03,
+            "thermal_correction_gibbs_hartree": 0.04,
+            "sum_electronic_zpe_hartree": -74.99,
+            "sum_electronic_enthalpy_hartree": -74.98,
+            "sum_electronic_gibbs_hartree": -74.97,
+        },
+    }
+    values.update(changes)
+    return values
+
+
 def input_binding(**changes: object) -> InputBinding:
     values: dict[str, object] = {
         "attempt_id": "attempt-1",
@@ -131,16 +158,15 @@ class ResultModelTests(unittest.TestCase):
             envelope_observation_id=envelope().observation_id,
             parser_name="parser",
             parser_version="1",
-            result_kind="facts",
+            result_kind="gaussian-log-facts",
             parse_status=ParseStatus.PARSED,
-            facts={"energy": -1.0},
         )
         replay = ParseOutcome(
             attempt_id="attempt-1",
             envelope_observation_id=envelope().observation_id,
             parser_name="parser",
             parser_version="1",
-            result_kind="facts",
+            result_kind="gaussian-log-facts",
             parse_status=ParseStatus.UNPARSEABLE,
         )
         changed = ParseOutcome(
@@ -148,7 +174,7 @@ class ResultModelTests(unittest.TestCase):
             envelope_observation_id=envelope().observation_id,
             parser_name="parser",
             parser_version="2",
-            result_kind="facts",
+            result_kind="gaussian-log-facts",
             parse_status=ParseStatus.PARSED,
         )
         self.assertEqual(first.result_id, replay.result_id)
@@ -178,22 +204,27 @@ class ResultModelTests(unittest.TestCase):
             envelope(capture_status="execution-succeeded")
         self.assertIs(envelope().capture_status, CaptureStatus.CAPTURED)
 
-    def test_facts_cannot_claim_scientific_acceptance(self) -> None:
-        for key in (
-            "accepted",
-            "minimum_validated",
-            "scientific_acceptance",
-            "workflow_success",
-        ):
+    def test_program_fact_authority_rejects_science_runtime_and_near_synonyms(self) -> None:
+        forbidden = (
+            "is_minimum",
+            "transition_state_validated",
+            "scientifically_accepted",
+            "attempt_state",
+            "execution_success",
+            "scientificAcceptance",
+            "runtime_status",
+            "workflow_succeeded",
+        )
+        for key in forbidden:
             with self.subTest(key=key), self.assertRaises(ResultBoundaryError):
                 ParseOutcome(
                     attempt_id="attempt-1",
                     envelope_observation_id=envelope().observation_id,
                     parser_name="parser",
                     parser_version="1",
-                    result_kind="facts",
+                    result_kind="gaussian-log-facts",
                     parse_status=ParseStatus.PARSED,
-                    facts={key: True},
+                    facts={**program_facts(), key: True},
                 )
         with self.assertRaises(ResultBoundaryError):
             ParseOutcome(
@@ -201,10 +232,37 @@ class ResultModelTests(unittest.TestCase):
                 envelope_observation_id=envelope().observation_id,
                 parser_name="parser",
                 parser_version="1",
-                result_kind="facts",
+                result_kind="gaussian-log-facts",
                 parse_status=ParseStatus.PARSED,
-                facts={"nested": {"scientific_acceptance": True}},
+                facts=program_facts(
+                    thermochemistry={"scientifically_accepted": 1.0}
+                ),
             )
+        with self.assertRaises(ResultBoundaryError):
+            ParseOutcome(
+                attempt_id="attempt-1",
+                envelope_observation_id=envelope().observation_id,
+                parser_name="parser",
+                parser_version="1",
+                result_kind="scientifically-accepted",
+                parse_status=ParseStatus.PARSED,
+            )
+
+    def test_every_supported_program_fact_and_type_is_accepted(self) -> None:
+        parsed = ParseOutcome(
+            attempt_id="attempt-1",
+            envelope_observation_id=envelope().observation_id,
+            parser_name="parser",
+            parser_version="1",
+            result_kind="gaussian-log-facts",
+            parse_status=ParseStatus.PARSED,
+            facts=program_facts(),
+        )
+        self.assertEqual(set(parsed.facts), set(program_facts()))
+        self.assertEqual(
+            set(parsed.facts["thermochemistry"]),
+            set(program_facts()["thermochemistry"]),
+        )
 
     def test_payloads_fail_closed_on_unknown_fields_and_nonfinite_facts(self) -> None:
         payload = dict(input_binding().payload())
@@ -217,9 +275,9 @@ class ResultModelTests(unittest.TestCase):
                 envelope_observation_id=envelope().observation_id,
                 parser_name="parser",
                 parser_version="1",
-                result_kind="facts",
+                result_kind="gaussian-log-facts",
                 parse_status=ParseStatus.PARSED,
-                facts={"energy": float("nan")},
+                facts=program_facts(final_energy_hartree=float("nan")),
             )
 
 

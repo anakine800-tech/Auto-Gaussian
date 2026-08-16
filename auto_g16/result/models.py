@@ -26,8 +26,36 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ARTIFACT_KINDS = frozenset(
     {"gaussian-log", "stdout", "stderr", "checkpoint-manifest"}
 )
-_FORBIDDEN_FACTS = frozenset(
-    {"accepted", "minimum_validated", "scientific_acceptance", "workflow_success"}
+_GAUSSIAN_RESULT_KIND = "gaussian-log-facts"
+_PROGRAM_FACT_KEYS = frozenset(
+    {
+        "program_status",
+        "normal_termination_count",
+        "error_termination_count",
+        "optimization_completed_marker",
+        "stationary_point_marker",
+        "scf_calculation_count",
+        "final_energy_hartree",
+        "frequency_count",
+        "frequency_parse_complete",
+        "imaginary_frequency_count",
+        "frequencies_cm-1",
+        "thermochemistry",
+    }
+)
+_PROGRAM_STATUSES = frozenset(
+    {"normal-termination", "error-termination", "no-terminal-marker"}
+)
+_THERMOCHEMISTRY_FACT_KEYS = frozenset(
+    {
+        "zero_point_correction_hartree",
+        "thermal_correction_energy_hartree",
+        "thermal_correction_enthalpy_hartree",
+        "thermal_correction_gibbs_hartree",
+        "sum_electronic_zpe_hartree",
+        "sum_electronic_enthalpy_hartree",
+        "sum_electronic_gibbs_hartree",
+    }
 )
 
 
@@ -187,18 +215,78 @@ def _require_exact_keys(
         raise ResultBoundaryError(f"{name} has " + "; ".join(details))
 
 
-def _forbidden_fact_paths(value: object, path: str = "facts") -> tuple[str, ...]:
-    found: list[str] = []
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            item_path = f"{path}.{key}"
-            if key in _FORBIDDEN_FACTS:
-                found.append(item_path)
-            found.extend(_forbidden_fact_paths(item, item_path))
-    elif isinstance(value, tuple):
-        for index, item in enumerate(value):
-            found.extend(_forbidden_fact_paths(item, f"{path}[{index}]"))
-    return tuple(found)
+def _program_facts(value: Mapping[str, object], result_kind: str) -> None:
+    if not value:
+        return
+    if result_kind != _GAUSSIAN_RESULT_KIND:
+        raise ResultBoundaryError(
+            "non-empty facts are supported only for gaussian-log-facts"
+        )
+    _require_exact_keys(value, set(_PROGRAM_FACT_KEYS), "facts")
+    if value["program_status"] not in _PROGRAM_STATUSES:
+        raise ResultBoundaryError("facts.program_status is not a supported program fact")
+    for name in (
+        "normal_termination_count",
+        "error_termination_count",
+        "scf_calculation_count",
+        "frequency_count",
+        "imaginary_frequency_count",
+    ):
+        _require_size(value[name], f"facts.{name}")
+    if (
+        value["program_status"] == "normal-termination"
+        and value["normal_termination_count"] == 0
+    ):
+        raise ResultBoundaryError("normal program status requires its terminal marker")
+    if (
+        value["program_status"] == "error-termination"
+        and value["error_termination_count"] == 0
+    ):
+        raise ResultBoundaryError("error program status requires its terminal marker")
+    if value["program_status"] == "no-terminal-marker" and (
+        value["normal_termination_count"] or value["error_termination_count"]
+    ):
+        raise ResultBoundaryError("no-terminal-marker conflicts with terminal counts")
+    for name in (
+        "optimization_completed_marker",
+        "stationary_point_marker",
+        "frequency_parse_complete",
+    ):
+        if type(value[name]) is not bool:
+            raise ResultBoundaryError(f"facts.{name} must be a boolean")
+    energy = value["final_energy_hartree"]
+    if energy is not None and (type(energy) is not float or not isfinite(energy)):
+        raise ResultBoundaryError("facts.final_energy_hartree must be finite or null")
+    frequencies = value["frequencies_cm-1"]
+    if not isinstance(frequencies, tuple) or not all(
+        type(item) is float and isfinite(item) for item in frequencies
+    ):
+        raise ResultBoundaryError(
+            "facts.frequencies_cm-1 must contain only finite floats"
+        )
+    if value["frequency_count"] != len(frequencies):
+        raise ResultBoundaryError("facts.frequency_count does not match frequencies")
+    if value["imaginary_frequency_count"] != sum(item < 0 for item in frequencies):
+        raise ResultBoundaryError(
+            "facts.imaginary_frequency_count does not match frequencies"
+        )
+    if value["scf_calculation_count"] == 0 and energy is not None:
+        raise ResultBoundaryError("final energy requires at least one SCF calculation")
+    if value["scf_calculation_count"] > 0 and energy is None:
+        raise ResultBoundaryError("SCF calculations require a final energy fact")
+    thermochemistry = value["thermochemistry"]
+    if not isinstance(thermochemistry, Mapping):
+        raise ResultBoundaryError("facts.thermochemistry must be a mapping")
+    unknown_thermochemistry = set(thermochemistry) - _THERMOCHEMISTRY_FACT_KEYS
+    if unknown_thermochemistry:
+        raise ResultBoundaryError(
+            "facts.thermochemistry has unsupported keys: "
+            + ", ".join(sorted(unknown_thermochemistry))
+        )
+    if not all(type(item) is float and isfinite(item) for item in thermochemistry.values()):
+        raise ResultBoundaryError(
+            "facts.thermochemistry values must be finite floats"
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -444,6 +532,10 @@ class ParseOutcome:
         _require_text(self.parser_name, "parser_name")
         _require_text(self.parser_version, "parser_version")
         _require_text(self.result_kind, "result_kind")
+        if self.result_kind != _GAUSSIAN_RESULT_KIND:
+            raise ResultBoundaryError(
+                "result_kind must be the supported gaussian-log-facts kind"
+            )
         try:
             status = ParseStatus(self.parse_status)
         except ValueError as exc:
@@ -452,11 +544,7 @@ class ParseOutcome:
             ) from exc
         object.__setattr__(self, "parse_status", status)
         facts = _freeze_mapping(self.facts, "facts")
-        forbidden = _forbidden_fact_paths(facts)
-        if forbidden:
-            raise ResultBoundaryError(
-                "facts must not encode scientific acceptance: " + ", ".join(forbidden)
-            )
+        _program_facts(facts, self.result_kind)
         object.__setattr__(self, "facts", facts)
         diagnostics = tuple(self.diagnostics)
         if not all(isinstance(item, str) and item for item in diagnostics):

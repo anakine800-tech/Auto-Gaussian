@@ -51,6 +51,23 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def program_facts(final_energy: float) -> dict[str, object]:
+    return {
+        "program_status": "normal-termination",
+        "normal_termination_count": 1,
+        "error_termination_count": 0,
+        "optimization_completed_marker": True,
+        "stationary_point_marker": True,
+        "scf_calculation_count": 1,
+        "final_energy_hartree": final_energy,
+        "frequency_count": 3,
+        "frequency_parse_complete": True,
+        "imaginary_frequency_count": 0,
+        "frequencies_cm-1": (100.0, 200.0, 300.0),
+        "thermochemistry": {},
+    }
+
+
 def binding(attempt_id: str = "attempt-1", **changes: object) -> InputBinding:
     values: dict[str, object] = {
         "attempt_id": attempt_id,
@@ -109,7 +126,7 @@ def outcome(
         envelope_observation_id=envelope.observation_id,
         parser_name="fixture-parser",
         parser_version=version,
-        result_kind="gaussian-facts",
+        result_kind="gaussian-log-facts",
         parse_status=status,
         facts={} if facts is None else facts,
     )
@@ -157,8 +174,8 @@ class ResultServiceTests(unittest.TestCase):
             service = ResultProvenanceService(store)
             item = binding()
             envelope = output_envelope(item)
-            first = outcome(envelope, version="1", facts={"energy": -75.0})
-            second = outcome(envelope, version="2", facts={"energy": -75.0})
+            first = outcome(envelope, version="1", facts=program_facts(-75.0))
+            second = outcome(envelope, version="2", facts=program_facts(-75.0))
             for _ in range(2):
                 service.record_input_binding(item)
                 service.record_output_envelope(envelope)
@@ -186,9 +203,11 @@ class ResultServiceTests(unittest.TestCase):
                 service.record_output_envelope(
                     output_envelope(original, data=b"different captured bytes")
                 )
-            service.record_parse_outcome(outcome(envelope, facts={"energy": -1.0}))
+            service.record_parse_outcome(outcome(envelope, facts=program_facts(-1.0)))
             with self.assertRaises(RecordConflictError):
-                service.record_parse_outcome(outcome(envelope, facts={"energy": -2.0}))
+                service.record_parse_outcome(
+                    outcome(envelope, facts=program_facts(-2.0))
+                )
 
     def test_plan_revision_and_task_relationships_fail_closed(self) -> None:
         with initialized_store() as store:
@@ -266,7 +285,7 @@ class ResultServiceTests(unittest.TestCase):
                 envelope_observation_id=partial.observation_id,
                 parser_name="fixture-parser",
                 parser_version="1",
-                result_kind="gaussian-facts",
+                result_kind="gaussian-log-facts",
                 parse_status=ParseStatus.PARTIAL,
             )
             with self.assertRaisesRegex(ProvenanceConflictError, "same-Attempt"):
@@ -290,9 +309,11 @@ class ResultServiceTests(unittest.TestCase):
             )
             for envelope in (complete_1, complete_2, partial_3):
                 service.record_output_envelope(envelope)
-            service.record_parse_outcome(outcome(complete_1, facts={"capture": 1}))
             service.record_parse_outcome(
-                outcome(complete_2, version="2", facts={"capture": 2})
+                outcome(complete_1, facts=program_facts(-1.0))
+            )
+            service.record_parse_outcome(
+                outcome(complete_2, version="2", facts=program_facts(-2.0))
             )
             service.record_parse_outcome(
                 outcome(partial_3, status=ParseStatus.PARTIAL)
