@@ -47,6 +47,36 @@ code_paths = []
 focused_tests = []
 
 [[component]]
+id = "v30-exec-01-contract"
+status = "contract-frozen"
+required_sections = [
+  "AGENTS.md#server-safety-boundary",
+  "OWNER_DECISIONS.md#od-03-mutable-profiles-and-execution-snapshots",
+  "OWNER_DECISIONS.md#od-04-project-reuse-and-the-no-overwrite-boundary",
+  "OWNER_DECISIONS.md#od-05-single-submission-and-uncertainty",
+  "OWNER_DECISIONS.md#od-06-transport-targets",
+  "OWNER_DECISIONS.md#od-07-safety-semantics-and-governance-implementation",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-exec-01",
+  "docs/v3/boundary-spec.md#v30-core-01-runtime-contract",
+  "docs/v3/boundary-spec.md#v30-exec-01-execution-boundary-contract",
+  "docs/v3/acceptance.md#v30-exec-01-execution-boundary",
+]
+code_paths = []
+focused_tests = []
+
+[[component]]
+id = "v30-result-01-contract"
+status = "contract-frozen"
+required_sections = [
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-result-01",
+  "docs/v3/boundary-spec.md#v30-core-01-runtime-contract",
+  "docs/v3/boundary-spec.md#v30-result-01-result-provenance-contract",
+  "docs/v3/acceptance.md#v30-result-01-result-provenance-boundary",
+]
+code_paths = []
+focused_tests = []
+
+[[component]]
 id = "execution-safety"
 status = "reuse-source"
 required_sections = [

@@ -2,9 +2,34 @@
 
 These rules apply to the entire repository.
 
+## Version and authority routing
+
+- Treat this file as the repository-wide entry and safety router. Classify a
+  task as v3 or legacy/v2 before selecting implementation authority; this file
+  does not duplicate the exact fields of a versioned product contract.
+- For v3 work, apply authority in this order: `OWNER_DECISIONS.md`,
+  `docs/v3/boundary-spec.md`, `docs/v3/acceptance.md`,
+  `config/context-map.toml`, `docs/v3/AUTONOMOUS_DEVELOPMENT.md`, then the
+  current explicit Owner Gate. A lower-priority source must not override a
+  higher-priority scientific, safety, permission, or compatibility boundary.
+- Treat `legacy_rtwin_pbs`, `scripts/direct_*`, `scripts/protected_*`, and
+  legacy/v2 or v2.7 owner, receipt, capability, and hash-lineage mechanisms as
+  reuse and history sources. They are not v3 implementation requirements
+  unless a frozen v3 contract explicitly adopts the behavior.
+- Preserve repository-wide safety semantics across versions: no overwrite or
+  deletion, reviewed root containment and no-follow handling, at most one
+  submission per Attempt, `UNKNOWN` without automatic retry, explicit live
+  authority, and secrets isolation.
+- For v3 work, preserve reviewed safety semantics but do not infer that the
+  legacy v2/v2.7 receipt, owner, capability, or hash-lineage implementation is
+  required unless a frozen v3 contract explicitly adopts it.
+
 ## Source of truth
 
-- Treat `skills/` as the version-controlled source of truth.
+- Treat `skills/` as the version-controlled source of truth only for
+  repository-owned Skills. For v3 runtime and product work, `auto_g16/**` plus
+  the frozen v3 authority documents above are the version-controlled source of
+  truth.
 - Treat `~/.codex/skills/<name>` as a deployed copy. Do not edit a deployed copy and a repository copy independently.
 - Before deploying a Skill, validate the repository copy, compare the planned diff, then synchronize only that named Skill.
 - Keep experimental workflow code on a feature branch. Merge it only after offline tests and an explicitly approved live smoke test.
@@ -18,26 +43,31 @@ These rules apply to the entire repository.
 
 ## Server safety boundary
 
+The safety outcomes in this section apply repository-wide. The root-approval,
+stable-evidence, receipt, owner, and single-use capability mechanics below are
+the existing legacy/v2 implementation contract; they do not require a new
+`auto_g16.execution` implementation to reproduce that governance architecture.
+
 - Keep every legacy backend, including `legacy_rtwin_pbs`, permanently fixed
   below `/home/user100/SDL`.
-- A new backend may use a different server root only when that root is a
+- A legacy/v2 backend may use a different server root only when that root is a
   mandatory field owned by the backend's closed profile contract, has received
   repository-owner and server-safety review, and is covered by the profile
   hash. A CLI flag, environment variable, local runtime setting, caller
   argument, or other override must never select or replace it.
-- Before approval, resolve the allowed root policy and identity canonically into
-  backend-owner-issued stable evidence that excludes observation time and
-  expiry. The exact approval must bind both the profile hash and that stable
-  evidence hash.
-- Immediately before the first remote mutation, the same owner must issue a
-  fresh, time-bounded no-follow observation receipt that references the stable
-  evidence hash and must give the mutation owner a single-use descriptor- or
-  capability-bound handle to the same verified component identities. The
-  mutation must consume that handle atomically or by descriptor-relative
-  operations without reopening a path. Any symlink, reparse point, root escape,
-  identity drift, expired receipt, replacement, or capability failure stops
-  with zero remote effect and requires a new review or observation as
-  applicable.
+- Before approval of that legacy/v2 backend, resolve the allowed root policy
+  and identity canonically into backend-owner-issued stable evidence that
+  excludes observation time and expiry. The exact approval must bind both the
+  profile hash and that stable evidence hash.
+- Immediately before its first remote mutation, the same legacy/v2 owner must
+  issue a fresh, time-bounded no-follow observation receipt that references the
+  stable evidence hash and must give the mutation owner a single-use
+  descriptor- or capability-bound handle to the same verified component
+  identities. The mutation must consume that handle atomically or by
+  descriptor-relative operations without reopening a path. Any symlink,
+  reparse point, root escape, identity drift, expired receipt, replacement, or
+  capability failure stops with zero remote effect and requires a new review or
+  observation as applicable.
 - Never upload into a non-empty server project directory or overwrite an existing job implicitly.
 - Never issue `rm`, `rmdir`, truncation, recursive replacement, or a server-data cleanup command.
 - Treat active-job cancellation and terminal scheduler-zombie cleanup as different `qdel` operations. Require explicit authorization for the exact PBS job ID before cancelling a queued or running job. Permit one automatic exact `qdel` only after results are fetched and repeated stable evidence proves a terminal scheduler zombie; never retry it automatically. Neither operation authorizes file deletion.

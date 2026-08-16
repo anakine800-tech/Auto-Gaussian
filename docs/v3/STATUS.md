@@ -1,7 +1,7 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V3-MAINT-TEST-01 = CLOSED / INTEGRATED ON MAIN`;
-  implementation changes are complete and other lanes remain paused.
+- **Current phase:** Unified EXEC/RESULT contract-freeze documentation is a
+  local candidate only; no implementation lane is authorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -27,6 +27,8 @@
 - **Completed:** `V3-MAINT-TEST-01` was merged by normal merge in PR #63 and is
   integrated on `main` at `a2c092e3a089e8803054e75ab3828c079db185b5`.
   Exact-main post-merge CI is PASS and product findings are `0`.
+- **Closed:** `V3-MAINT-TEST-02` is integrated and CLOSED on
+  `main@56eee913ca0041ce6b26aa1d2c9b8a807114b078`.
 - **Validation disposition:** The PR #63 and exact-main control-plane full
   attestations took approximately 77 minutes as expected. This is integration
   evidence, not a permanent target or a reason for ordinary leaf v3 PRs to run
@@ -35,13 +37,12 @@
   Integration Owner structure, validation policy, and four Task Contracts are
   frozen in [`AUTONOMOUS_DEVELOPMENT.md`](AUTONOMOUS_DEVELOPMENT.md). Planning
   completion does not authorize implementation.
-- **In progress:** Documentation closeout review only; Core feature expansion
-  is stopped and other lanes remain paused.
-- **Next gate:** Closeout Review / Publish. No implementation lane may start
-  from this closeout.
-- **Not started:** `V30-EXEC-01` and `V30-RESULT-01` are `NOT STARTED`;
-  `V30-EXEC-02` is `NOT STARTED / WAIT` pending RTwin validation of the
-  execution/transport public boundary.
+- **Contract frozen:** `V30-EXEC-01` is FROZEN. EXEC implementation remains
+  pending repository authority and is not authorized by this candidate.
+- **Contract frozen:** `V30-RESULT-01` is FROZEN. RESULT implementation remains
+  pending repository authority and is not authorized by this candidate.
+- **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
+- **Next gate:** Independent Unified Contract Freeze Review.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness

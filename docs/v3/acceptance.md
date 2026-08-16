@@ -69,6 +69,95 @@ contract for Python 3.11 or newer:
 All conditions are satisfied. V30-CORE-01 stops at this boundary; completion
 does not authorize another v3 slice.
 
+## V30-EXEC-01: Execution Boundary
+
+**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** A future
+implementation conforms only when focused, adversarial, synthetic, offline
+evidence demonstrates all of the following without SSH, RTwin, PBS, Gaussian,
+deployment, or another live effect:
+
+1. Exact replay of identical reviewed Core joins, prepared bytes, resources,
+   resolved target, template bytes, workspaces, and program selection produces
+   identical Core intent and ExecutionSnapshot identities. Mutation of any
+   effect-relevant profile, SSH/runtime configuration, endpoint, or PBS
+   template content changes the relevant identity and cannot alter an existing
+   snapshot.
+2. The complete `Attempt -> Task -> WorkflowRun -> Project` traversal and exact
+   `CalculationPlan`/`ResourceSpec` task joins are enforced. Execution consumes
+   the Preparation Owner's same sealed bytes and exact resolved resource request
+   without rereading ambient input, interpreting the plan, defaulting, or
+   resizing.
+3. Local, Windows, and server paths satisfy the frozen absolute canonical
+   grammar and containment rules. Workspace derivation is deterministic;
+   exclusive component-wise no-follow allocation rejects an existing target,
+   symlink/reparse point, replacement, escape, endpoint drift, or overwrite,
+   while retaining durable evidence for any partial per-platform allocation.
+4. PBS template identity derives from the validated immutable raw bytes, exact
+   size, and SHA-256. Execution consumes those same bytes; a caller path,
+   revision, opaque identity, missing byte value, or mutable reread fails.
+5. Concurrent and replay tests prove that only the explicit Core `WINNER`
+   enters the effect boundary, at most one submission call occurs for the
+   Attempt, and `REPLAY` performs zero adapter, transport, allocation, transfer,
+   or submission calls.
+6. A proven failure before Core intent/effect remains pre-effect and is not
+   classified as submission uncertainty. The frozen legal Core handling of a
+   proven no-effect stop after `WINNER` reconciles the same Attempt to
+   `NOT_SUBMITTED` without retry.
+7. Any possibly effectful ambiguity persists `UNKNOWN` plus exact
+   Attempt/snapshot/intent-bound evidence. Missing, multiple, unbound,
+   contradictory, or unreliable job evidence remains unresolved.
+8. Reconciliation is durable and same-Attempt only. `UNKNOWN` never permits an
+   automatic retry, another `qsub`, alternate profile/workspace, bypass
+   Attempt, cleanup, cancellation, or `qdel`.
+9. Minimal append-only RemoteEffectReceipts persist confirmed and ambiguous
+   allocations, transfers, and submission evidence, including partial
+   allocation. They are idempotent evidence rather than authority and do not
+   grow into an owner-chain, capability, signature, or hash-lineage framework.
+10. The synthetic boundary exercises the RTwin-first contract only. It proves
+    that ExecutionSnapshot, immutable byte handoffs, receipts, transport, and
+    program selection remain outside Core and grants no implementation or live
+    authorization.
+
+## V30-RESULT-01: Result Provenance Boundary
+
+**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** A future
+implementation conforms only when focused, adversarial, synthetic, offline
+evidence demonstrates all of the following:
+
+1. The reader resolves the Core ownership chain and exact CalculationPlan, then
+   persists one deterministic input-binding Observation for the Attempt's exact
+   SHA-256/size/media-type input. Conflicting plan/input binding fails closed.
+2. A valid complete capture persists an exact deterministic envelope and can
+   materialize a complete Result only when its named result contract has every
+   required fact. Program failure may still be completely captured and parsed.
+3. A partial capture stays partial. It may produce only an explicitly partial
+   Result with nonempty unambiguous facts and missing codes; no default,
+   promotion, or inferred completion is allowed.
+4. Malformed envelope metadata, identity, relationship, or artifact validation
+   produces no valid envelope or Result and does not alter earlier records.
+5. Valid captured bytes that are unparseable or unsupported retain their valid
+   envelope and expose `output-sealed/result-absent`; they are not recast as a
+   malformed envelope, execution failure, or scientific rejection.
+6. New captures and parser name/version/contract/kind combinations produce new
+   UUIDv5 identities. Readers enumerate and revalidate all versions, select the
+   current capture by frozen Core order, group Results by exact envelope/parser
+   identity, and never splice provenance across captures.
+7. Exact replay is idempotent with the same identity and original timestamps;
+   the same identity with different payload conflicts. New capture/parser
+   records append without overwriting history.
+8. Observation and Result persistence is append-only across close/reopen and
+   retains deterministic Core order. Conflicting or malformed later material
+   leaves all prior facts unchanged.
+9. `input-bound/output-absent`, `output-sealed/result-absent`, partial Result,
+   and complete Result prefixes are durable legal states. A missing later
+   record is explicitly incomplete, not failure and not permission to
+   synthesize or roll back records.
+10. Result creation and reading never mutate or reconcile Attempt state, infer
+    execution success/failure, or authorize retry. Program status, capture
+    completeness, parse status, Result existence, and scientific acceptance
+    remain separate; minimum, TS, IRC, and workflow acceptance are unexecuted
+    until their own review.
+
 ## v3.0: Closed-Shell Minimum
 
 A real closed-shell minimum completes:
