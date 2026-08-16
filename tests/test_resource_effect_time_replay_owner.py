@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT_SCRIPTS))
 
 import resource_efficiency as RESOURCE  # noqa: E402
 import resource_effect_time_replay_owner as REPLAY  # noqa: E402
+import audit_ci_contract as CI_CONTRACT  # noqa: E402
 from tests import test_resource_monitor_efficiency as PACKAGE4  # noqa: E402
 from tests import (  # noqa: E402
     test_execution_batch_reservation_capability as RESERVATION,
@@ -747,6 +748,10 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                 "skills/auto-g16-rtwin-pbs/SKILL.md",
             )
         }
+        ci_contract = CI_CONTRACT.load_contract(
+            ROOT / "config/required-checks.json"
+        )
+        ci_contract_report = CI_CONTRACT.audit(ROOT, ci_contract)
 
         def apply_foundation_successor(relative: str, expected: str) -> str:
             if relative not in foundation_successor:
@@ -783,6 +788,27 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                     current_binding = current_lineage[relative]
                     self.assertEqual(current_binding["before_sha256"], expected)
                     expected = current_binding["sha256"]
+                if relative == ".github/workflows/offline-tests.yml":
+                    historical_binding = current_lineage[relative]
+                    self.assertEqual(expected, historical_binding["sha256"])
+                    self.assertEqual(
+                        historical_binding["sha256"],
+                        historical_binding["base_sha256"],
+                    )
+                    self.assertEqual(
+                        ci_contract_report["status"],
+                        "pass",
+                        ci_contract_report["errors"],
+                    )
+                    self.assertEqual(ci_contract_report["summary"]["errors"], 0)
+                    self.assertEqual(
+                        ci_contract_report["declared_contexts"],
+                        sorted(
+                            item["context"]
+                            for item in ci_contract["required_checks"]
+                        ),
+                    )
+                    continue
                 if relative in lineage.records:
                     lineage.assert_candidate(self, relative)
                 else:

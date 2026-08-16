@@ -43,6 +43,7 @@ import skill_package  # noqa: E402
 from tests import test_protected_local_materialization as SUPPORT  # noqa: E402
 from tests import test_protected_submit_contract as PR4D_SUPPORT  # noqa: E402
 import protected_legacy_effect_handoff as HANDOFF  # noqa: E402
+import audit_ci_contract as CI_CONTRACT  # noqa: E402
 
 
 FIXTURE_PATH = (
@@ -652,6 +653,10 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         current_lineage = current_lineage_document["files"]
+        ci_contract = CI_CONTRACT.load_contract(
+            ROOT / "config/required-checks.json"
+        )
+        ci_contract_report = CI_CONTRACT.audit(ROOT, ci_contract)
         legacy_effect_owner_test_lineage_document = json.loads(
             LEGACY_EFFECT_OWNER_TEST_LINEAGE_SUCCESSOR_PATH.read_text(
                 encoding="utf-8"
@@ -705,6 +710,27 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             relative: str,
             expected_sha256: str,
         ) -> None:
+            if relative == ".github/workflows/offline-tests.yml":
+                historical_binding = current_lineage[relative]
+                self.assertEqual(expected_sha256, historical_binding["sha256"])
+                self.assertEqual(
+                    historical_binding["sha256"],
+                    historical_binding["base_sha256"],
+                )
+                self.assertEqual(
+                    ci_contract_report["status"],
+                    "pass",
+                    ci_contract_report["errors"],
+                )
+                self.assertEqual(ci_contract_report["summary"]["errors"], 0)
+                self.assertEqual(
+                    ci_contract_report["declared_contexts"],
+                    sorted(
+                        item["context"]
+                        for item in ci_contract["required_checks"]
+                    ),
+                )
+                return
             if relative in integration_lineage.records:
                 integration_lineage.assert_candidate(self, relative)
                 return

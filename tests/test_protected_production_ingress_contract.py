@@ -45,6 +45,7 @@ from tests.test_protected_runtime_state_contract import (  # noqa: E402
 import protected_owner_consumer_contract as CONSUMER  # noqa: E402
 import protected_production_ingress_contract as INGRESS  # noqa: E402
 import skill_package as SKILL_PACKAGE  # noqa: E402
+import audit_ci_contract as CI_CONTRACT  # noqa: E402
 
 
 PUBLIC_INTEGER_FIELDS = (
@@ -803,6 +804,10 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         current_lineage = current_lineage_document["files"]
+        ci_contract = CI_CONTRACT.load_contract(
+            ROOT / "config/required-checks.json"
+        )
+        ci_contract_report = CI_CONTRACT.audit(ROOT, ci_contract)
         lineage_verifier_terminal = json.loads(
             (
                 ROOT
@@ -849,6 +854,28 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             return historical_transition["terminal_content_sha256"]
 
         def assert_current_or_terminal(relative: str, expected: str) -> None:
+            if relative == ".github/workflows/offline-tests.yml":
+                historical_binding = current_lineage[relative]
+                self.assertEqual(expected, historical_binding["sha256"], relative)
+                self.assertEqual(
+                    historical_binding["sha256"],
+                    historical_binding["base_sha256"],
+                    relative,
+                )
+                self.assertEqual(
+                    ci_contract_report["status"],
+                    "pass",
+                    ci_contract_report["errors"],
+                )
+                self.assertEqual(ci_contract_report["summary"]["errors"], 0)
+                self.assertEqual(
+                    ci_contract_report["declared_contexts"],
+                    sorted(
+                        item["context"]
+                        for item in ci_contract["required_checks"]
+                    ),
+                )
+                return
             if relative in integration_lineage.records:
                 integration_lineage.assert_candidate(self, relative)
                 return
