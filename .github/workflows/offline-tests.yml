@@ -44,6 +44,7 @@ jobs:
           base_sha=""
           head_sha=""
           selection_file=""
+          failure_exit="0"
           emit_route() {
             printf '%s\n' "lane=$lane" "authoritative=$authoritative" >> "$GITHUB_OUTPUT"
             if [[ "$authoritative" == "true" ]]; then
@@ -53,6 +54,7 @@ jobs:
           trap emit_route EXIT
           case "$EVENT_NAME" in
             pull_request)
+              failure_exit="1"
               base_sha="$PR_BASE_SHA"
               head_sha="$PR_HEAD_SHA"
               ;;
@@ -64,18 +66,18 @@ jobs:
               ;;
             *) exit 0 ;;
           esac
-          [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" != "0000000000000000000000000000000000000000" ]] || exit 0
-          [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" != "0000000000000000000000000000000000000000" ]] || exit 0
-          git cat-file -e "${base_sha}^{commit}" || exit 0
-          git cat-file -e "${head_sha}^{commit}" || exit 0
-          test "$(git rev-parse HEAD)" = "$head_sha" || exit 0
+          [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" != "0000000000000000000000000000000000000000" ]] || exit "$failure_exit"
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" != "0000000000000000000000000000000000000000" ]] || exit "$failure_exit"
+          git cat-file -e "${base_sha}^{commit}" || exit "$failure_exit"
+          git cat-file -e "${head_sha}^{commit}" || exit "$failure_exit"
+          test "$(git rev-parse HEAD)" = "$head_sha" || exit "$failure_exit"
           if [[ "$EVENT_NAME" == "push" ]]; then
             git merge-base --is-ancestor "$base_sha" "$head_sha" || exit 0
           fi
           selection_file="$RUNNER_TEMP/validation-selection.json"
           python scripts/select_validation.py \
             --base "$base_sha" \
-            --head "$head_sha" > "$selection_file" || exit 0
+            --head "$head_sha" > "$selection_file" || exit "$failure_exit"
           route_metadata="$(python - "$selection_file" <<'PY'
           import json
           import sys
@@ -95,16 +97,17 @@ jobs:
               authoritative = "false"
           print(value["lane"], authoritative)
           PY
-          )" || exit 0
-          read -r lane authoritative <<< "$route_metadata" || exit 0
+          )" || exit "$failure_exit"
+          read -r lane authoritative <<< "$route_metadata" || exit "$failure_exit"
           case "$lane" in
             focused|affected|v3-full|legacy-release) ;;
-            *) exit 0 ;;
+            *) exit "$failure_exit" ;;
           esac
           case "$authoritative" in
             true|false) ;;
-            *) exit 0 ;;
+            *) exit "$failure_exit" ;;
           esac
+          [[ "$EVENT_NAME" != "pull_request" || "$authoritative" == "true" ]] || exit 1
       - name: Compile Python sources
         run: python -m compileall -q scripts skills tests
       - name: Run progressive static quality checks
@@ -160,6 +163,7 @@ jobs:
           base_sha=""
           head_sha=""
           selection_file=""
+          failure_exit="0"
           emit_route() {
             printf '%s\n' "lane=$lane" "authoritative=$authoritative" >> "$GITHUB_OUTPUT"
             if [[ "$authoritative" == "true" ]]; then
@@ -169,6 +173,7 @@ jobs:
           trap emit_route EXIT
           case "$EVENT_NAME" in
             pull_request)
+              failure_exit="1"
               base_sha="$PR_BASE_SHA"
               head_sha="$PR_HEAD_SHA"
               ;;
@@ -180,18 +185,18 @@ jobs:
               ;;
             *) exit 0 ;;
           esac
-          [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" != "0000000000000000000000000000000000000000" ]] || exit 0
-          [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" != "0000000000000000000000000000000000000000" ]] || exit 0
-          git cat-file -e "${base_sha}^{commit}" || exit 0
-          git cat-file -e "${head_sha}^{commit}" || exit 0
-          test "$(git rev-parse HEAD)" = "$head_sha" || exit 0
+          [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" != "0000000000000000000000000000000000000000" ]] || exit "$failure_exit"
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" != "0000000000000000000000000000000000000000" ]] || exit "$failure_exit"
+          git cat-file -e "${base_sha}^{commit}" || exit "$failure_exit"
+          git cat-file -e "${head_sha}^{commit}" || exit "$failure_exit"
+          test "$(git rev-parse HEAD)" = "$head_sha" || exit "$failure_exit"
           if [[ "$EVENT_NAME" == "push" ]]; then
             git merge-base --is-ancestor "$base_sha" "$head_sha" || exit 0
           fi
           selection_file="$RUNNER_TEMP/validation-selection.json"
           python scripts/select_validation.py \
             --base "$base_sha" \
-            --head "$head_sha" > "$selection_file" || exit 0
+            --head "$head_sha" > "$selection_file" || exit "$failure_exit"
           route_metadata="$(python - "$selection_file" <<'PY'
           import json
           import sys
@@ -211,16 +216,17 @@ jobs:
               authoritative = "false"
           print(value["lane"], authoritative)
           PY
-          )" || exit 0
-          read -r lane authoritative <<< "$route_metadata" || exit 0
+          )" || exit "$failure_exit"
+          read -r lane authoritative <<< "$route_metadata" || exit "$failure_exit"
           case "$lane" in
             focused|affected|v3-full|legacy-release) ;;
-            *) exit 0 ;;
+            *) exit "$failure_exit" ;;
           esac
           case "$authoritative" in
             true|false) ;;
-            *) exit 0 ;;
+            *) exit "$failure_exit" ;;
           esac
+          [[ "$EVENT_NAME" != "pull_request" || "$authoritative" == "true" ]] || exit 1
       - name: Audit required-check declarations
         run: python scripts/audit_ci_contract.py
       - name: Audit static Python version contract

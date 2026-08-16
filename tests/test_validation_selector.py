@@ -114,6 +114,7 @@ def initialize_workflow_repository(root: Path) -> str:
     return initialize_repository(
         root,
         {
+            ".gitignore": (ROOT / ".gitignore").read_text(encoding="utf-8"),
             ".github/workflows/offline-tests.yml": WORKFLOW.read_text(encoding="utf-8"),
             "scripts/select_validation.py": SCRIPT.read_text(encoding="utf-8"),
             "README.md": "baseline readme\n",
@@ -294,6 +295,91 @@ class ValidationSelectorTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+
+    def test_pull_request_requires_authority_but_accepts_canonical_fail_closed(self) -> None:
+        script = workflow_route_scripts()[0]
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
+            root = Path(temporary)
+            runner = Path(runner_temp)
+            base = initialize_workflow_repository(root)
+            head = commit_change(root, "README.md", "candidate readme\n")
+
+            result, metadata = run_workflow_route(
+                script,
+                root,
+                runner,
+                event_name="pull_request",
+                base=base,
+                head=head,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(metadata["lane"], "focused")
+            self.assertEqual(metadata["authoritative"], "true")
+
+            result, metadata = run_workflow_route(
+                script,
+                root,
+                runner,
+                event_name="pull_request",
+                base="",
+                head=head,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+
+            newer = commit_change(root, "README.md", "checkout mismatch\n", "newer")
+            self.assertNotEqual(newer, head)
+            result, metadata = run_workflow_route(
+                script,
+                root,
+                runner,
+                event_name="pull_request",
+                base=base,
+                head=head,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+            git(root, "checkout", "-q", "--detach", head)
+
+            selector_path = root / "scripts" / "select_validation.py"
+            original = selector_path.read_text(encoding="utf-8")
+            for label, replacement in (
+                ("selector process error", "raise SystemExit(2)\n"),
+                ("malformed selector result", "print('{}')\n"),
+            ):
+                with self.subTest(label=label):
+                    selector_path.write_text(replacement, encoding="utf-8")
+                    result, metadata = run_workflow_route(
+                        script,
+                        root,
+                        runner,
+                        event_name="pull_request",
+                        base=base,
+                        head=head,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+            selector_path.write_text(original, encoding="utf-8")
+
+            fail_closed_base = git(root, "rev-parse", "HEAD")
+            fail_closed_head = commit_change(
+                root,
+                ".github/workflows/offline-tests.yml",
+                WORKFLOW.read_text(encoding="utf-8") + "\n# control-plane candidate\n",
+            )
+            result, metadata = run_workflow_route(
+                script,
+                root,
+                runner,
+                event_name="pull_request",
+                base=fail_closed_base,
+                head=fail_closed_head,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(metadata["lane"], "legacy-release")
+            self.assertEqual(metadata["authoritative"], "true")
+            selection = json.loads(Path(metadata["selection"]).read_text(encoding="utf-8"))
+            self.assertTrue(selection["fail_closed"])
 
     def test_selection_or_artifact_closure_failure_falls_back_to_full(self) -> None:
         script = workflow_route_scripts()[0]
