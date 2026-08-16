@@ -127,6 +127,15 @@ Use the least costly check that can falsify the change, in order:
 6. an explicitly approved live smoke only when offline evidence cannot close
    a named live-only gap.
 
+Focused and affected validation are the default development feedback. Full
+regression is integration/release attestation, not the routine loop for an
+ordinary v3 edit. Selector, control-plane, or safety-evidence changes may
+conservatively escalate to `legacy-release` full validation. Selection remains
+fail-closed: unknown, ambiguous, or unprovable inputs expand validation and
+never under-select evidence. Do not repeat full validation for the same frozen
+candidate. A running, silent, or slow runner is not failed and does not
+authorize a rerun.
+
 Typical commands are:
 
 ```bash
@@ -216,6 +225,9 @@ aligned at that time. It remains historical evidence: the static audit cannot
 prove current branch protection or CI success, which must be independently
 verified before merge. CI permission failure is a blocker/limitation to report,
 never a reason to claim green status.
+
+Change-aware routing may vary the evidence executed inside these jobs, but it
+must not rename or remove the required contexts.
 
 ## 9. Merge and local synchronization
 
