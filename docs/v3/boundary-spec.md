@@ -105,25 +105,26 @@ Any future change to the `auto_g16.core` exports, public record fields,
 constructor or store method contracts, enum or error names, or schema-v1 Core
 invariants requires a new Core boundary review before integration.
 
-## V30-EXEC-01 Execution Boundary Contract
+## V30-EXEC-01 Frozen Execution Contract
 
 **Contract status: FROZEN. Implementation remains unauthorized.** This is the
 RTwin-first `legacy_rtwin_pbs` execution boundary, not a generic execution or
 transport framework. `ExecutionSnapshot`, preparation records, effect evidence,
 and transport remain outside `auto_g16.core`.
 
-### Execution identity and preparation
+### Package placement and identity
 
-Execution identities use the execution-private canonical encoding
-`EXEC-CANON/1`, whose domain prefix is
-`auto-g16-exec-canonical/1\0`. It encodes null, booleans, integers, finite
-binary64 floats (`-0.0` normalized to `+0.0`), exact UTF-8 strings without
-Unicode normalization, ordered sequences, and mappings sorted by UTF-8 key
-bytes. Counts and byte lengths are unsigned eight-byte big-endian values;
-integers use a sign byte plus a minimally encoded magnitude. Duplicate keys,
-cycles, non-finite floats, path objects, timestamps, and unsupported values
-fail closed. This encoding is not Core's private encoding, a persistence
-format, or a cross-domain serializer.
+The public package is `auto_g16.execution`; its focused tests belong under
+`tests/v3/execution/`. It may depend on `auto_g16.core`, but Core must not
+depend on it. The RTwin adapter is an execution/transport adapter, not Core.
+
+Every execution-layer record identity below is deterministically derived from
+a schema-versioned, domain-separated canonical semantic payload. Exact replay
+has the same identity; the same identity with different content fails closed.
+Formatting, serialization byte order, timestamps, log times, and temporary
+paths do not affect semantic identity. A caller-supplied digest or path is not
+authority, and an implementation may not replace the expanded payload with a
+set of unverified, cross-spliceable opaque IDs.
 
 Before snapshot resolution, the resolver must load and validate the complete
 Core chain:
@@ -136,78 +137,77 @@ Attempt -> Task -> WorkflowRun -> Project
 
 The `Attempt`, `CalculationPlan`, and `ResourceSpec` must have the same
 `task_id`; the Task must belong to the loaded WorkflowRun and Project. The
-executor never reinterprets `CalculationPlan.intent`, changes chemistry,
-rewrites the prepared input, supplies defaults, or resizes resources.
+executor never reinterprets `CalculationPlan.intent`, changes chemistry, or
+generates different input at the effect seam. The prepared input bytes are
+verified before snapshot creation and remain immutable through execution.
 
-The Preparation Owner produces one sealed, read-only local handoff containing
-the exact prepared input bytes. It creates the Attempt-local directory as the
-single derived child of the approved local root using exclusive, component-wise
-no-follow operations; an existing target, symlink, replacement, containment
-failure, or partial seal fails closed and retains durable Preparation Owner
-evidence of any allocated prefix. It records and verifies the immutable bytes,
-size, and SHA-256 before handing the same byte value to execution.
-Execution may read that sealed handoff but may not mutate it or reread an
-ambient source path.
-
-`ExactInputBinding` has exactly these immutable fields:
+`PreparedInputBinding` has these mandatory semantic fields:
 
 | Field | Meaning |
 | --- | --- |
-| `exact_input_binding_id` | Domain-separated identity of every other field |
-| `task_id` | Exact Core Task |
-| `calculation_plan_id`, `calculation_plan_revision` | Exact persisted plan version |
-| `calculation_plan_content_id` | SHA-256 of `EXEC-CANON/1` over the plan's public semantic fields |
-| `input_basename` | Reviewed path-safe basename |
-| `input_sha256`, `input_size_bytes` | Exact sealed prepared bytes; size is positive and booleans are invalid |
+| `prepared_input_binding_id` | Deterministic identity of the canonical payload |
+| `attempt_id` | Exact Core Attempt |
+| `calculation_plan_id` | Exact reviewed CalculationPlan |
+| `calculation_plan_revision` | Exact positive revision |
+| `input_format` | Explicit format, such as `gaussian-gjf`; Core does not infer it |
+| `logical_name` | Portable logical filename |
+| `sha256` | SHA-256 of the exact prepared input bytes |
+| `size_bytes` | Exact byte count |
 
-The ID is `auto-g16-exact-input/1:` plus the lowercase SHA-256 of
-`EXEC-CANON/1` over every field except the ID. The execution consumer verifies
-the handed-off bytes against basename, size, and digest and consumes those
-same bytes without a mutable reread.
+Execution consumes those same verified bytes without an ambient-source or
+mutable-path reread.
 
-`ResourceSpec.resources` has exactly `tier`, `cores`, `memory_gb`, and
-`walltime_seconds`. Integers are positive and booleans are invalid. Resolution
-has no default or environment override. `ExactResolvedResourceRequest` has
-exactly:
+`ResolvedResourceRequest` has these mandatory semantic fields:
 
 | Field | Meaning |
 | --- | --- |
-| `resolved_resource_request_id` | Domain-separated identity of every other output field |
-| `task_id`, `resource_spec_id` | Exact Core join |
-| `resource_spec_content_id` | SHA-256 of `EXEC-CANON/1` over the public ResourceSpec fields |
-| `tier`, `cores`, `memory_bytes`, `walltime_seconds` | Exact request, with `memory_bytes = memory_gb * 1024^3` |
+| `resolved_resource_request_id` | Deterministic identity of the canonical request |
+| `resource_spec_id` | Exact Core ResourceSpec |
+| `cores` | Positive integer |
+| `memory_mb` | Positive integer |
+| `walltime_seconds` | Positive integer |
+| `queue` | Optional reviewed queue name |
+
+Resource policy remains separate from scientific intent. A Controller may
+adjust resources only within policy, and the exact values must be shown before
+each effect. Arbitrary PBS-directive passthrough is forbidden; a new resource
+field requires an Owner Gate rather than a free-text bypass.
 
 ### ServerProfile resolution and immutable bytes
 
-`ServerProfile` is mutable, closed configuration. Before the Core submission
-intent claim, the resolver deterministically freezes its exact revision and all
-effect-relevant, non-secret resolved content. The resolved target contains
-exactly:
+`ServerProfile` is mutable configuration. Before the Core submission-intent
+claim, the resolver freezes one immutable `ResolvedServerProfile` with these
+mandatory semantics:
 
-- `server_profile_id`, `server_profile_revision`, and
-  `server_profile_content_id`;
-- `adapter_kind`, exactly `legacy_rtwin_pbs`;
-- normalized local and Windows workspace roots and the fixed server root
-  `/home/user100/SDL`;
-- `rtwin_config_content_id`, `rtwin_effective_config_id`,
-  `server_config_content_id`, and `server_effective_config_id`;
-- `runtime_effective_config_id`; and
-- `pbs_template_content_id`.
+```text
+resolved_server_profile_id
+server_profile_id
+profile_revision
+effective_config_sha256
+transport_kind
+target_identity
+remote_user
+remote_root
+platform_paths
+runtime_identities
+```
 
 For each SSH hop, the content identity binds the exact ordered, validated
 config/include-file bytes used for the selected alias. The effective identity
 binds the complete normalized non-network resolution, including destination,
 port, user, jump topology, host-key behavior, batch and identity-selection
-behavior, and identity/known-hosts path identities. Credentials, private-key
-bytes, agent material, passwords, and tokens are excluded. Alias, revision,
-source path, or caller-supplied digest alone is never authority. Unsupported
-command-bearing or ambient expansion (`ProxyCommand`, `LocalCommand`,
-`RemoteCommand`, `Match exec`, shell expansion, or include outside the approved
-root) fails closed. The runtime identity likewise derives from the complete
-closed effect-relevant non-secret runtime record, never from an opaque caller
-digest. Resolution failure or mutation during resolution fails closed; after
+behavior, and identity/known-hosts path identities. `effective_config_sha256`
+binds all canonical effect-relevant values, including validated referenced
+configuration content. Credentials, private-key bytes, agent material,
+passwords, and tokens are excluded. Alias, profile revision, filename, source
+path, or caller-supplied digest alone is never authority. Resolution failure,
+host-identity drift, or mutation during resolution fails closed; after
 resolution, execution may not reread the profile, CLI, environment, or mutable
 configuration.
+
+For `legacy_rtwin_pbs`, `remote_root` remains fixed at `/home/user100/SDL`.
+`runtime_identities` derive from the complete effect-relevant, non-secret
+runtime content, never an opaque runtime digest.
 
 Every effect-relevant path is an explicit absolute canonical path. POSIX paths
 start at `/` and contain no empty, `.`, `..`, repeated-separator, NUL, or
@@ -218,70 +218,52 @@ ADS, empty/`.`/`..` components, repeated separators, control characters,
 reserved device names, and trailing spaces or dots are forbidden. No resolver
 may repair or reinterpret a rejected path.
 
-The fixed `V30-EXEC-01 PBS Template Byte Owner` opens the one approved template
-descriptor-relatively from a stable local root with component-wise no-follow
-checks. It requires a regular file with `nlink == 1`, reads once from the same
-descriptor, verifies stable device/inode/type/size before and after the read,
-and records exact raw bytes, size, and lowercase SHA-256. Template bytes may not
-contain connection metadata or secrets. Its narrow byte receipt has exactly
-`receipt_id`, the fixed owner string, `template_root_id`,
-`template_relative_name`, `st_dev`, `st_ino`, `file_type = regular`, `mode`,
-`nlink = 1`, `template_size_bytes`, and `template_sha256`; timestamps are
-excluded. The receipt ID and content ID are respectively domain-separated over
-all receipt fields and over `{encoding = raw-bytes, size, sha256}`. Execution
-consumes the same immutable byte value accompanying the receipt; a missing or
-mismatched value or any mutable reread fails closed. This is not a template
-registry, signature, lineage, or general receipt framework.
+`PbsTemplateBinding` has mandatory semantics
+`pbs_template_binding_id`, `logical_name`, `sha256`, `size_bytes`, and
+`template_contract_version`. Its identity derives from the validated exact
+immutable template bytes, size, and SHA-256; changing the bytes changes the
+identity. Execution consumes those same bytes without a mutable reread. An
+opaque caller template ID, arbitrary shell expansion, or caller-selected
+command is forbidden.
 
 ### ExecutionSnapshot and workspaces
 
-`ExecutionSnapshot` is keyword-only, deeply immutable, and has exactly these
-top-level fields:
+`WorkspaceBinding` has mandatory semantics `workspace_binding_id`,
+`project_id`, `attempt_id`, `local_attempt_dir`, optional
+`rtwin_attempt_dir`, and `remote_attempt_dir`. A Project remains reusable, but
+every no-overwrite boundary is a new Attempt. Each directory is an explicit
+absolute canonical, Attempt-specific path contained under its approved root.
+The binding identity derives from this canonical payload, and the local
+Attempt directory is a sealed read-only handoff of the exact prepared bytes.
+Effectful allocation is no-follow and fresh/exclusive; existing targets,
+symlinks or reparse points, replacement, containment escape, or overwrite fail
+closed. The three platform strings may differ but bind the same Attempt. A
+partial allocation is a durable prefix represented by minimal effect evidence,
+not a claim of globally zero effect.
 
-| Field | Closed value |
-| --- | --- |
-| `execution_snapshot_id` | Final deterministic snapshot identity |
-| `attempt_id`, `task_id`, `project_id` | Exact validated Core chain |
-| `core_submission_intent_id` | Exact caller-supplied Core intent reference |
-| `exact_input` | One `ExactInputBinding` |
-| `resources` | One exact resolved resource request |
-| `target` | All resolved profile, endpoint, runtime, and template identities above |
-| `workspace` | Name, normalized roots, derived paths, and three platform identities |
-| `program` | `program_kind = gaussian`, `runtime_kind = g16`, `invocation_mode = legacy_stdin`, and the runtime identity |
-
-It contains no timestamp, credentials, mutable path source, approval, or
-transport authority. Build `snapshot_body` from every field except the two ID
-fields, then derive:
+`ExecutionSnapshot` has these mandatory semantic fields:
 
 ```text
-core_submission_intent_id =
-  "auto-g16-v30-exec-intent/1:" + sha256(EXEC-CANON/1(snapshot_body))
-
-execution_snapshot_id =
-  "auto-g16-v30-exec-snapshot/1:" +
-  sha256(EXEC-CANON/1(all fields except execution_snapshot_id))
+execution_snapshot_id
+attempt_id
+submission_intent_id
+calculation_plan_id
+calculation_plan_revision
+prepared_input_binding
+resolved_resource_request
+resolved_server_profile
+workspace_binding
+pbs_template_binding
+adapter_contract_version
 ```
 
-Identical semantic content replays both identities. Changing the Attempt,
-Core chain, input, resources, profile/config/runtime/template content,
-workspace, program, or exact Core intent changes the relevant identity.
-
-The workspace name is `attempt-` plus the full lowercase SHA-256 of the exact
-UTF-8 `attempt_id`. `Project` remains a logical reusable collection and is not
-a physical path component. The three derived directories are the single child
-of the resolved local root, resolved Windows root, and fixed
-`/home/user100/SDL` root. Each workspace identity is domain-separated over the
-platform tag, endpoint/effective-config identity, normalized root, workspace
-name, and normalized derived path.
-
-The local directory is the Preparation Owner's sealed read-only handoff.
-RTwin and server directories are allocated only inside the ordered effect
-boundary, descriptor-relatively and exclusively after immediately revalidating
-the owned root. Existing targets, root or endpoint drift, symlinks, reparse
-points, escape, or capability failure stop with no later effect. No caller
-override, fallback, overwrite, reuse, deletion, or automatic cleanup exists.
-Any confirmed or ambiguous partial allocation is retained as durable evidence
-and remains unresolved rather than being reused.
+Its identity is derived from the canonical expanded payload and binds the
+exact Attempt, Core submission intent, reviewed CalculationPlan, prepared
+input bytes, resolved resource values, effect-relevant resolved profile,
+workspaces, template bytes, and adapter contract. It contains no timestamp,
+credentials, mutable path source, approval, or live transport authority.
+Profile drift before the effect seam stops the pending operation for fresh
+resolution and confirmation; it cannot mutate an existing snapshot.
 
 ### Submission and effect semantics
 
@@ -290,7 +272,7 @@ The only legal Core claim is:
 ```text
 record_submission_intent(
     snapshot.attempt_id,
-    snapshot.core_submission_intent_id,
+    snapshot.submission_intent_id,
 )
 ```
 
@@ -298,170 +280,206 @@ Exactly one explicit `WINNER` may enter the effect boundary. `REPLAY` makes
 zero adapter, transport, allocation, transfer, or submission calls. Validation,
 a snapshot, profile, receipt, or adapter state cannot replace `WINNER`.
 
-Effects are strictly ordered: RTwin allocation; server allocation; transfer of
-the exact prepared bytes to RTwin; transfer of the same verified bytes to the
-server; and one submission call. Each step requires all earlier evidence to be
-confirmed, immediately revalidates the root and endpoint identity, consumes a
-single-use descriptor- or capability-bound internal handle, and persists its
-outcome before the next step. This handle is internal; no public owner-chain or
-capability framework is introduced. At most one `qsub` call is permitted for
-the Attempt.
-
-The only public execution-layer effect evidence is a minimal, private,
-append-only `RemoteEffectReceipt` with exactly `attempt_id`,
-`execution_snapshot_id`, `core_submission_intent_id`, one remote workspace
-platform/path/identity, `effect_kind`, `effect_outcome`, and optional exact
-`remote_job_id`. Effect kinds are RTwin allocation, server allocation, transfer
-to RTwin, transfer to server, and submission; outcomes are `CONFIRMED` or
-`AMBIGUOUS`. Sanitized views remove paths and connection metadata. Receipt
-presence is evidence, never authority; exact replay is idempotent and
-conflicting content fails closed.
-
-A proven failure during preparation, profile resolution, path derivation,
-template sealing, or snapshot validation occurs before the Core intent and any
-effect, leaves the Attempt `PLANNED`, and is not `UNKNOWN`. After `WINNER`, a
-proven no-effect stop is semantically not submission uncertainty, but the
-frozen Core API requires the legal persisted path `UNKNOWN` -> same-Attempt
-no-submission Observation -> reconciliation to `NOT_SUBMITTED`. Any failure
-that may have crossed allocation, transfer, or submission without exact bound
-evidence is genuinely `UNKNOWN`. Only exact Attempt/snapshot/intent-bound
-reliable evidence can establish `SUBMITTED`; missing, multiple, contradictory,
-unbound, or unreliable evidence remains `UNKNOWN`.
-
-`UNKNOWN` is reconciled durably on the same Attempt. It never authorizes an
-automatic retry, another `qsub`, alternate profile or workspace, replacement
-root Attempt, child Attempt, cleanup, cancellation, or `qdel`. ExecutionSnapshot
-and all transport/effect behavior remain outside Core.
-
-## V30-RESULT-01 Result Provenance Contract
-
-**Contract status: FROZEN. Implementation remains unauthorized.** The frozen
-append-only chain is:
+Effects use this explicit order:
 
 ```text
-CalculationPlan -> Attempt
-                -> exact input-binding Observation
-                -> program-output-envelope Observation
-                -> Result
+resolve profile/resources/input
+→ create ExecutionSnapshot
+→ obtain exact operational confirmation
+→ claim Core submission intent
+→ allocate/verify attempt workspaces
+→ materialize/upload input and PBS bytes
+→ invoke adapter submission effect at most once
+→ record exact outcome/receipt
 ```
 
-Ownership is resolved only through
-`Attempt -> Task -> WorkflowRun -> Project`; provenance payloads do not copy a
-second ownership truth. The loaded CalculationPlan must have the Attempt's
-`task_id`. Under the frozen Core store, a new semantic plan revision requires a
-new `calculation_plan_id`, and an input-bound Attempt cannot be rebound.
+Each effect preserves containment, no-follow, fresh/no-overwrite, exact-byte,
+and endpoint-identity checks. At most one `qsub` call is permitted for the
+Attempt.
+
+The only public execution-layer effect evidence is a minimal append-only
+`RemoteEffectReceipt` with these mandatory semantic fields:
+
+```text
+remote_effect_receipt_id
+attempt_id
+execution_snapshot_id
+submission_intent_id
+effect_sequence
+effect_kind
+effect_state
+optional remote_workspace
+optional job_id
+details
+```
+
+`effect_state` is exactly one of `confirmed_no_effect`, `confirmed_effect`, or
+`possibly_effectful`. Exact replay is idempotent; the same identity with
+different content conflicts. A receipt records evidence and never grants new
+authorization. The v3 boundary requires no additional legacy governance
+implementation beyond these public records and the safety semantics stated
+here.
+
+A proven failure before any effect is not `UNKNOWN` and records explicit
+`confirmed_no_effect` evidence. A failure that may have crossed an effect seam
+is `possibly_effectful`, drives durable `UNKNOWN`, and permits read-only,
+same-Attempt reconciliation only. A reliable confirmed submission records the
+exact job identity when available; scheduler success is not scientific
+acceptance. Missing, multiple, contradictory, unbound, or unreliable evidence
+remains `UNKNOWN`.
+
+`UNKNOWN` never authorizes an automatic retry, another `qsub`, alternate
+profile or workspace, bypass or replacement Attempt, cleanup, cancellation,
+or `qdel`. This slice validates `Mac -> RTwin -> Server` first with a synthetic
+offline adapter. Live RTwin requires separate Owner authorization;
+`V30-EXEC-02` OpenSSH remains `WAIT` and must later reuse this public execution
+port. ExecutionSnapshot and transport/effect behavior remain outside Core.
+
+## V30-RESULT-01 Frozen Result Provenance Contract
+
+**Contract status: FROZEN. Implementation remains unauthorized.** The public
+package is `auto_g16.result`; focused tests belong under `tests/v3/result/`.
+It may depend on `auto_g16.core`, but not live Transport, PBS, or RTwin, and it
+does not change the Core schema. The only legal append-only chain is:
+
+```text
+CalculationPlan
+→ Attempt
+→ exact input-binding Observation
+→ program-output-envelope Observation
+→ Result
+```
+
+Ownership is resolved only through `Project -> WorkflowRun -> Task -> Attempt`;
+provenance payloads do not copy a second ownership truth. The exact
+CalculationPlan must bind the Attempt through the frozen Core relationships.
+Directory names, mtimes, current filenames, cross-Attempt joins, and
+cross-capture joins are not provenance authority.
 
 ### Deterministic record identities
 
-The boundary namespace is UUIDv5 of URL namespace name
-`https://github.com/anakine800-tech/Auto-Gaussian/contracts/v30-result-provenance/1`:
+Each record type uses a source-controlled, domain-separated UUIDv5 namespace;
+a caller cannot choose a namespace or identity. The canonical tuples are:
 
 ```text
-52422c7e-cbef-589a-b1d0-0da41666d8eb
+input-binding Observation = uuid5(
+  NS_INPUT_BINDING,
+  canonical(
+    attempt_id,
+    calculation_plan_id,
+    calculation_plan_revision,
+    prepared_input_binding_id,
+    execution_snapshot_id
+  )
+)
+
+output-envelope Observation = uuid5(
+  NS_OUTPUT_ENVELOPE,
+  canonical(
+    attempt_id,
+    input_binding_observation_id,
+    capture_source_id,
+    capture_manifest_sha256,
+    capture_completeness
+  )
+)
+
+Result = uuid5(
+  NS_PARSED_RESULT,
+  canonical(
+    envelope_observation_id,
+    parser_name,
+    parser_version,
+    result_kind
+  )
+)
 ```
 
-Each ordered identity field is exact UTF-8 encoded as
-`ASCII(decimal byte length) + ":" + bytes`; decimal lengths have no sign or
-leading zero except zero itself. Names are the concatenation of those fields.
-There is no Unicode normalization, no empty identity field, and no use of
-Core's private canonical encoding. UUID text is canonical lowercase.
+Exact replay produces the same identity. A new capture source or manifest,
+capture completeness, parser name/version, or result kind produces the
+corresponding new identity. Timestamps do not participate. The same identity
+with different content is a Core conflict and cannot be evaded with another
+caller-chosen ID.
 
-The input binding uses `observation_type` and `contract`
-`auto-g16.program-input-binding/1`. Its UUIDv5 name fields are, in order,
-record kind without version, `1`, `attempt_id`, exact input SHA-256, decimal
-size, and media type. Its payload has exactly `contract`,
-`calculation_plan_id`, `calculation_plan_revision`, `input_artifact` containing
-`sha256`, `size_bytes`, and `media_type`, and `bound_at_utc`. Exact replay keeps
-the same ID and timestamp. A different plan under the deterministic ID is a
-conflict; more than one distinct valid binding for one Attempt is a semantic
-conflict.
+The input-binding Observation payload has mandatory semantics
+`schema_version`, `attempt_id`, `calculation_plan_id`,
+`calculation_plan_revision`, `prepared_input_binding_id`,
+`execution_snapshot_id`, `input_format`, `logical_name`, `sha256`, and
+`size_bytes`. It records one exact durable input binding; it authorizes neither
+execution nor scientific acceptance.
 
-A capture ID is a durable canonical lowercase UUID issued and reserved by the
-owner of exact output-byte capture before exposure to this boundary. Replaying
-or rereading the same sealed capture reuses it; every new acquisition gets a
-new ID even if its bytes match an older capture. A parser, rescan, mtime, or
-result materialization cannot issue or change it. Without a stable owner-issued
-capture ID there is no valid envelope.
+Each `OutputArtifact` has mandatory semantics `artifact_kind`, `logical_name`,
+`sha256`, and `size_bytes`. Artifact kinds are allowlisted, and a local
+absolute path is not portable identity. The output-envelope payload has
+mandatory semantics:
 
-The output envelope uses `observation_type` and `contract`
-`auto-g16.program-output-envelope/1`. Its UUIDv5 name fields are, in order,
-record kind without version, `1`, `attempt_id`, exact input-binding Observation
-ID, and `capture_id`. Its payload has exactly:
+```text
+schema_version
+attempt_id
+input_binding_observation_id
+execution_snapshot_id
+capture_source_id
+capture_sequence
+capture_status
+capture_completeness
+artifacts
+capture_manifest_sha256
+captured_at_utc
+```
 
-- `contract`, `input_binding_observation_id`, and `capture_id`;
-- `program` with `name` and nullable `version`;
-- `adapter` with `name`, `version`, and `output_contract`;
-- exact repeated `input_artifact` and exact captured `output_artifact`, each
-  with `sha256`, `size_bytes`, and `media_type`;
-- `observed_at_utc` and `sealed_at_utc`;
-- `program_status`; and
-- `capture_completeness`.
+`capture_completeness` is exactly `partial` or `complete`; partial capture is
+never promoted to complete. `capture_status` expresses capture-layer fact only
+and does not replace Core runtime state. A caller- or owner-issued `capture_id`
+is not authority; the frozen tuple uses the resolved `capture_source_id` and
+exact capture manifest.
 
-`program_status` is one of `completed`, `failed`, `interrupted`, `nonterminal`,
-or `unknown`. It is a runtime/program fact, not Attempt state or scientific
-acceptance. Capture completeness is `complete` or `partial`, is asserted by the
-capture layer, and cannot be promoted by the parser.
-
-The Result uses `result_type` and `contract`
-`auto-g16.program-result/1`. Its UUIDv5 name fields are, in order, record kind
-without version, `1`, exact envelope Observation ID, parser name, parser
-version, parser result contract, and parser result kind. Its payload has
-exactly `contract`, `source_envelope_observation_id`,
-`input_binding_observation_id`, `parser` with those four parser fields, exact
-repeated input/output artifact identities, `materialized_at_utc`,
-`parse_status`, `facts`, `missing_fact_codes`, and `diagnostic_codes`.
-Persisted parse status is only `complete` or `partial`.
-
-Exact replay produces the same record identity. A new capture or parser
-name/version/contract/kind produces a new identity. All captures, parser
-identities, envelopes, and Results append; none overwrites prior history.
+The Result payload has mandatory semantics `schema_version`, `attempt_id`,
+`envelope_observation_id`, `parser_name`, `parser_version`, `result_kind`,
+`parse_status`, `facts`, and `diagnostics`. `parse_status` supports exactly the
+frozen outcomes `parsed`, `partial`, `unparseable`, and `unsupported`. Facts
+are program/output facts, not scientific acceptance, and a parser cannot
+modify Attempt state or complete facts across captures.
 
 ### Envelope, parsing, and durable views
 
-Artifact SHA-256 is exactly 64 lowercase hexadecimal characters. Size is a
-nonnegative integer with booleans rejected. Media type is nonempty and has no
-surrounding whitespace. Times are calendar-valid RFC3339 UTC with `Z`, optional
-one-to-nine fractional digits, no surrounding whitespace or leap second, and
-`sealed_at_utc >= observed_at_utc`. Replay retains original times.
+Malformed envelope metadata or relationships are provenance-boundary invalid:
+they produce diagnostics but are not persisted as a legal envelope. By
+contrast, a valid envelope with exact captured-byte identities remains legal
+when a parser cannot interpret the program output. The envelope is preserved
+and a Result records the explicit `unparseable` or `unsupported` parse outcome;
+this is neither execution failure nor scientific rejection. A partial capture
+remains explicitly partial and is never treated as complete.
 
-Malformed envelope metadata, identity, relationship, repeated input, captured
-byte hash/size, timestamps, status/completeness, or payload types produces no
-valid envelope and no Result. By contrast, a valid envelope with exact captured
-bytes remains valid when output is unparseable or unsupported; it is persisted,
-and no Result exists unless at least one unambiguous fact justifies an explicit
-partial Result. A partial Result requires nonempty `facts` and nonempty
-`missing_fact_codes`. A partial capture can produce only a partial Result; a
-complete capture may also produce a partial Result. A malformed Result
-candidate produces no Result and leaves its envelope unchanged. None of these
-conditions is execution failure or scientific rejection.
+These are all legal durable prefixes:
 
-Readers enumerate all typed Observations and Results in frozen Core persisted
-order, validate exact field sets and types, rederive every UUID, revalidate all
-references and repeated artifact identities, and reject cross-Attempt or
-cross-capture splicing. One Result binds exactly one envelope. Results are
-grouped by exact envelope plus parser name/version/contract/kind and are never
-combined across groups.
+```text
+Attempt only
+Attempt + input binding
+Attempt + input binding + partial envelope
+Attempt + input binding + complete envelope
+Attempt + input binding + envelope + parse outcome
+```
 
-The current view prefers the last valid complete capture in Core persisted
-Observation order. If no complete capture exists, it exposes the last valid
-partial capture as explicitly incomplete. A newer partial capture never
-displaces an existing valid complete capture. Filesystem mtime, filename,
-directory/scan order, embedded time, or parser output never selects the current
-view.
+Readers distinguish `awaiting-input-binding`, `awaiting-capture`,
+`capture-incomplete`, `awaiting-parse`, `parsed`, `unparseable`, and
+`unsupported`. Missing later records are explicitly incomplete, not failure
+and not permission to synthesize a record.
 
-The legal durable states include `input-bound/output-absent`,
-`output-sealed/result-absent`, `output-sealed/partial-result`, and
-`output-sealed/complete-result`. Each record append is independently atomic;
-the absence of a later record is a valid explicit incomplete prefix, not an
-error or permission to synthesize data. Later captures, parser versions, and
-Results append without changing the prefix's history.
+Captures, envelopes, and parser Results are append-only. One Result binds one
+exact envelope; no fact or provenance is spliced across captures, and new
+captures or parser versions never overwrite history. The current view resolves
+the Core ownership relationships, selects the latest legal complete capture by
+deterministic Core insertion order, or the latest partial capture when no
+complete capture exists while marking it incomplete. It exposes all prior
+captures and Results plus the selection reason. Filesystem mtime and scan order
+never select the current view; runtime status comes from Core, not the parser.
 
-Result creation and reading never advance, reconcile, or otherwise mutate
-Attempt runtime state, infer success or failure, synthesize a record, or grant
-retry authority. Program completion, capture completeness, parse status,
-Result existence, and scientific acceptance are separate facts. Minimum,
-transition-state, IRC, workflow, and other scientific acceptance remain a
-later independent review layer. Core API and schema remain unchanged.
+Result creation and reading never advance or reconcile Attempt runtime state,
+infer execution success or failure, or grant retry authority. Program status,
+capture completeness, parse status, Result existence, and scientific
+acceptance remain separate facts. Minimum, transition-state, IRC, workflow,
+and other scientific acceptance require a later independent review. Core API
+and schema remain unchanged.
 
 ## Context Boundaries
 

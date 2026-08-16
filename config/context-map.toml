@@ -47,34 +47,47 @@ code_paths = []
 focused_tests = []
 
 [[component]]
-id = "v30-exec-01-contract"
+id = "v30-execution"
 status = "contract-frozen"
 required_sections = [
-  "AGENTS.md#server-safety-boundary",
   "OWNER_DECISIONS.md#od-03-mutable-profiles-and-execution-snapshots",
   "OWNER_DECISIONS.md#od-04-project-reuse-and-the-no-overwrite-boundary",
   "OWNER_DECISIONS.md#od-05-single-submission-and-uncertainty",
   "OWNER_DECISIONS.md#od-06-transport-targets",
   "OWNER_DECISIONS.md#od-07-safety-semantics-and-governance-implementation",
+  "docs/v3/boundary-spec.md#v30-exec-01-frozen-execution-contract",
+  "docs/v3/acceptance.md#v30-exec-01-frozen-offline-execution-boundary",
   "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-exec-01",
-  "docs/v3/boundary-spec.md#v30-core-01-runtime-contract",
-  "docs/v3/boundary-spec.md#v30-exec-01-execution-boundary-contract",
-  "docs/v3/acceptance.md#v30-exec-01-execution-boundary",
 ]
-code_paths = []
-focused_tests = []
+code_paths = [
+  "auto_g16/execution/",
+  "skills/auto-g16-rtwin-pbs/scripts/execution_batch.py",
+  "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py",
+]
+focused_tests = [
+  "tests/v3/execution/",
+  "tests/test_execution_batch.py",
+  "tests/test_idempotent_execution.py",
+]
 
 [[component]]
-id = "v30-result-01-contract"
+id = "v30-result"
 status = "contract-frozen"
 required_sections = [
+  "docs/v3/boundary-spec.md#v30-result-01-frozen-result-provenance-contract",
+  "docs/v3/acceptance.md#v30-result-01-frozen-result-provenance-boundary",
   "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-result-01",
-  "docs/v3/boundary-spec.md#v30-core-01-runtime-contract",
-  "docs/v3/boundary-spec.md#v30-result-01-result-provenance-contract",
-  "docs/v3/acceptance.md#v30-result-01-result-provenance-boundary",
 ]
-code_paths = []
-focused_tests = []
+code_paths = [
+  "auto_g16/result/",
+  "skills/auto-g16-rtwin-pbs/scripts/gaussian_log.py",
+  "skills/auto-g16-rtwin-pbs/scripts/gaussian_workflow.py",
+]
+focused_tests = [
+  "tests/v3/result/",
+  "tests/test_scientific_closure_lineage.py",
+  "tests/test_scientific_maturity.py",
+]
 
 [[component]]
 id = "execution-safety"
