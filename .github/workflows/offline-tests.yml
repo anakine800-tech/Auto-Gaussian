@@ -21,14 +21,83 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Resolve exact validation route
+        id: validation-route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            printf '%s\n' 'lane=legacy-release' 'authoritative=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "${PR_BASE_SHA}^{commit}"
+          git cat-file -e "${PR_HEAD_SHA}^{commit}"
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+          selection_file="$RUNNER_TEMP/validation-selection.json"
+          python scripts/select_validation.py \
+            --base "$PR_BASE_SHA" \
+            --head "$PR_HEAD_SHA" > "$selection_file"
+          route_metadata="$(python - "$selection_file" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path.cwd() / "scripts"))
+          import select_validation as selector
+
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          try:
+              selector.validate_result(value)
+              authoritative = "true"
+          except selector.SelectionError:
+              selector.validate_result(value, require_authority=False)
+              if value["lane"] != "legacy-release" or not value["fail_closed"]:
+                  raise
+              authoritative = "false"
+          print(value["lane"], authoritative)
+          PY
+          )"
+          read -r lane authoritative <<< "$route_metadata"
+          case "$lane" in
+            focused|affected|v3-full|legacy-release) ;;
+            *) exit 1 ;;
+          esac
+          case "$authoritative" in
+            true|false) ;;
+            *) exit 1 ;;
+          esac
+          printf '%s\n' \
+            "lane=$lane" \
+            "authoritative=$authoritative" \
+            "base=$PR_BASE_SHA" \
+            "head=$PR_HEAD_SHA" \
+            "selection=$selection_file" >> "$GITHUB_OUTPUT"
       - name: Compile Python sources
         run: python -m compileall -q scripts skills tests
       - name: Run progressive static quality checks
         run: python scripts/static_quality.py
-      - name: Run offline unit tests
+      - name: Run selected offline unit tests
+        if: github.event_name == 'pull_request' && steps.validation-route.outputs.authoritative == 'true'
+        env:
+          AUTO_G16_SKIP_PRESSURE_TESTS: "1"
+        run: |
+          python scripts/run_tests.py \
+            --selection "${{ steps.validation-route.outputs.selection }}" \
+            --base "${{ steps.validation-route.outputs.base }}" \
+            --head "${{ steps.validation-route.outputs.head }}" \
+            --top-slow 15 \
+            --slow-threshold 1.0
+      - name: Run complete offline unit tests
+        if: github.event_name != 'pull_request' || steps.validation-route.outputs.authoritative != 'true'
         env:
           AUTO_G16_SKIP_PRESSURE_TESTS: "1"
         run: python scripts/run_tests.py --top-slow 15 --slow-threshold 1.0
@@ -38,30 +107,102 @@ jobs:
   source-archive-release:
     name: source-archive-release
     runs-on: ubuntu-latest
+    outputs:
+      validation-lane: ${{ steps.validation-route.outputs.lane }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: "3.13"
+      - name: Resolve exact validation route
+        id: validation-route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            printf '%s\n' 'lane=legacy-release' 'authoritative=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "${PR_BASE_SHA}^{commit}"
+          git cat-file -e "${PR_HEAD_SHA}^{commit}"
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+          selection_file="$RUNNER_TEMP/validation-selection.json"
+          python scripts/select_validation.py \
+            --base "$PR_BASE_SHA" \
+            --head "$PR_HEAD_SHA" > "$selection_file"
+          route_metadata="$(python - "$selection_file" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path.cwd() / "scripts"))
+          import select_validation as selector
+
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          try:
+              selector.validate_result(value)
+              authoritative = "true"
+          except selector.SelectionError:
+              selector.validate_result(value, require_authority=False)
+              if value["lane"] != "legacy-release" or not value["fail_closed"]:
+                  raise
+              authoritative = "false"
+          print(value["lane"], authoritative)
+          PY
+          )"
+          read -r lane authoritative <<< "$route_metadata"
+          case "$lane" in
+            focused|affected|v3-full|legacy-release) ;;
+            *) exit 1 ;;
+          esac
+          case "$authoritative" in
+            true|false) ;;
+            *) exit 1 ;;
+          esac
+          printf '%s\n' \
+            "lane=$lane" \
+            "authoritative=$authoritative" \
+            "base=$PR_BASE_SHA" \
+            "head=$PR_HEAD_SHA" \
+            "selection=$selection_file" >> "$GITHUB_OUTPUT"
       - name: Audit required-check declarations
         run: python scripts/audit_ci_contract.py
       - name: Audit static Python version contract
         run: python scripts/audit_python_contract.py
-      - name: Test the GitHub source archive including pressure coverage
+      - name: Build and statically verify the Git source archive
         run: |
-          archive_dir="$(mktemp -d)"
-          trap 'rm -rf "$archive_dir"' EXIT
+          archive_dir="$RUNNER_TEMP/source-archive"
+          mkdir "$archive_dir"
           git archive HEAD | tar -x -C "$archive_dir"
           cd "$archive_dir"
+          test -f scripts/run_tests.py
+          test -f config/required-checks.json
+          python -m compileall -q scripts skills tests
+          python scripts/static_quality.py
+      - name: Test the GitHub source archive including pressure coverage
+        if: steps.validation-route.outputs.lane == 'legacy-release'
+        run: |
+          cd "$RUNNER_TEMP/source-archive"
           python scripts/run_tests.py --top-slow 20 --slow-threshold 1.0
 
   chemistry-dependencies:
     name: chemistry-dependencies
+    needs: source-archive-release
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: "3.11"
@@ -87,3 +228,4 @@ jobs:
         env:
           AUTO_G16_REQUIRE_JSONSCHEMA: "1"
         run: python -m unittest tests.test_direct_durable_submission_journal_schema_draft202012 tests.test_direct_effect_time_replay_ingress_schema_draft202012 tests.test_direct_existing_job_lineage_schema_draft202012 tests.test_direct_local_fetch_materializer_schema_draft202012 tests.test_direct_minimum_production_closure_schema_draft202012 tests.test_direct_one_hop_transport_schema_draft202012 tests.test_direct_qstat_acquisition_schema_draft202012 tests.test_direct_read_only_evidence_schema_draft202012 tests.test_direct_root_fixed_mutation_schema_draft202012 tests.test_direct_root_mutation_boundary_schema_draft202012 tests.test_direct_root_owner_schema_draft202012 tests.test_direct_shared_fixed_ssh_channel_schema_draft202012 tests.test_direct_trusted_session_schema_draft202012 tests.test_execution_batch_reservation_capability_schema_draft202012 tests.test_legacy_root_authority_schema_draft202012 tests.test_live_approval_effect_time_replay_schema_draft202012 tests.test_local_state_binding_schema_draft202012 tests.test_protected_invocation_schema_draft202012 tests.test_protected_job_runtime_coordinator_schema_draft202012 tests.test_protected_legacy_effect_handoff_schema_draft202012 tests.test_protected_lifecycle_schema_draft202012 tests.test_protected_local_materialization_schema_draft202012 tests.test_protected_owner_consumer_schema_draft202012 tests.test_protected_production_factory_consumer_schema_draft202012 tests.test_protected_production_ingress_schema_draft202012 tests.test_protected_runtime_state_schema_draft202012 tests.test_protected_submit_schema_draft202012 tests.test_resource_effect_time_replay_schema_draft202012 -v
+        if: needs.source-archive-release.result != 'success' || needs.source-archive-release.outputs.validation-lane == 'v3-full' || needs.source-archive-release.outputs.validation-lane == 'legacy-release'
