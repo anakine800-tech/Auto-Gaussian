@@ -69,6 +69,83 @@ contract for Python 3.11 or newer:
 All conditions are satisfied. V30-CORE-01 stops at this boundary; completion
 does not authorize another v3 slice.
 
+## V30-EXEC-01: Frozen Offline Execution Boundary
+
+**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** A future
+implementation conforms only when focused, adversarial, synthetic, offline
+evidence demonstrates all of the following without SSH, RTwin, PBS, Gaussian,
+deployment, or another live effect:
+
+1. Semantically identical snapshots keep one identity across JSON key order or
+   formatting changes.
+2. Any effect-relevant field change produces a new snapshot identity.
+3. Mutable ServerProfile changes stale an unexecuted snapshot and require fresh
+   resolution.
+4. Windows relative, home-relative, and `~` paths are rejected.
+5. POSIX relative or non-canonical paths are rejected.
+6. PBS template identity derives from exact bytes; an opaque caller ID is
+   rejected.
+7. `PreparedInputBinding` binds exact prepared bytes durably to the
+   CalculationPlan, revision, and Attempt.
+8. `ResolvedResourceRequest` binds the exact ResourceSpec and effect-time
+   values while remaining separate from scientific intent.
+9. An existing Project can receive a fresh Attempt workspace.
+10. Local, RTwin, and server workspaces are Attempt-specific, contained,
+    no-follow where effectful, and no-overwrite.
+11. Partial workspace allocation persists explicitly and never masquerades as
+    globally no effect.
+12. Concurrent claims yield exactly one Core `WINNER` for a submission intent
+    and at most one submission call for the Attempt.
+13. `REPLAY` makes zero adapter or external-effect calls.
+14. Pre-effect failure records no-effect evidence and is not `UNKNOWN`.
+15. Possibly effectful submission ambiguity becomes `UNKNOWN`.
+16. `UNKNOWN` permits same-Attempt reconciliation, never automatic retry.
+17. Minimal `RemoteEffectReceipt` replay is idempotent and conflicting content
+    is rejected; all three frozen effect states and `effect_sequence` are
+    covered.
+18. The RTwin synthetic adapter needs no real SSH, PBS, or Gaussian.
+19. Core remains transport-free.
+20. No `qdel`, cancellation, deletion, cleanup, deployment, or live behavior is
+    exercised or authorized.
+
+## V30-RESULT-01: Frozen Result Provenance Boundary
+
+**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** A future
+implementation conforms only when focused, adversarial, synthetic, offline
+evidence demonstrates all of the following:
+
+1. UUIDv5 namespaces are source-controlled and caller-invariant.
+2. Exact replay of the input tuple (`attempt_id`, `calculation_plan_id`,
+   `calculation_plan_revision`, `prepared_input_binding_id`,
+   `execution_snapshot_id`) produces the same identity.
+3. A changed plan revision, prepared input binding, or snapshot identity
+   produces a new input-binding identity.
+4. Malformed envelope metadata fails closed without a false legal envelope.
+5. A valid complete envelope persists under the exact tuple
+   (`attempt_id`, `input_binding_observation_id`, `capture_source_id`,
+   `capture_manifest_sha256`, `capture_completeness`).
+6. A valid partial envelope persists and remains explicitly incomplete.
+7. A valid envelope with unparseable output is preserved with an explicit
+   `unparseable` Result outcome.
+8. `unsupported` output or parser status remains distinct from malformed
+   metadata.
+9. Exact Result tuple (`envelope_observation_id`, `parser_name`,
+   `parser_version`, `result_kind`) replay is idempotent.
+10. The same Result identity with a different payload conflicts.
+11. A new parser version produces a new Result identity without overwriting the
+    earlier result.
+12. Multiple captures remain append-only.
+13. A Result never splices facts or provenance across captures.
+14. The current view chooses the latest legal complete capture by deterministic
+    insertion order.
+15. With no complete capture, the current view exposes the latest partial
+    capture as explicitly incomplete.
+16. Durable incomplete prefixes survive close and reopen.
+17. Result creation and reading never change Attempt runtime state.
+18. Result existence and parser status do not grant scientific acceptance.
+19. Synthetic artifacts require no live RTwin or PBS.
+20. Core API and schema remain unchanged.
+
 ## v3.0: Closed-Shell Minimum
 
 A real closed-shell minimum completes:
