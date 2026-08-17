@@ -118,6 +118,99 @@ class PathBoundaryTests(ExecutionFixture):
             if moved_parent.exists():
                 moved_parent.rename(self.local_project)
 
+    def test_same_paths_after_real_directory_replacement_have_new_identities(self) -> None:
+        first, profile = self.snapshot()
+        moved_parent = self.local_root / "old-project-1"
+        self.local_project.rename(moved_parent)
+        self.local_project.mkdir()
+        try:
+            second, _profile = self.snapshot()
+            self.assertNotEqual(
+                first.workspace_binding.workspace_binding_id,
+                second.workspace_binding.workspace_binding_id,
+            )
+            self.assertNotEqual(first.submission_intent_id, second.submission_intent_id)
+            self.assertNotEqual(
+                first.execution_snapshot_id, second.execution_snapshot_id
+            )
+            adapter = execution.SyntheticRTWinAdapter()
+            with self.assertRaises(execution.ExecutionValueError):
+                execution.execute_once(
+                    self.store,
+                    snapshot=first,
+                    current_profile=profile,
+                    prepared_input_bytes=INPUT_BYTES,
+                    pbs_template_bytes=TEMPLATE_BYTES,
+                    confirmed_execution_snapshot_id=first.execution_snapshot_id,
+                    port=adapter,
+                )
+            self.assertEqual(adapter.calls, ())
+            self.assertIs(
+                self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED
+            )
+            self.assertFalse((self.local_project / "attempt-1").exists())
+            self.assertFalse((moved_parent / "attempt-1").exists())
+        finally:
+            self.local_project.rmdir()
+            moved_parent.rename(self.local_project)
+
+    def test_private_anchor_rewrite_cannot_preserve_old_snapshot_authority(self) -> None:
+        first, profile = self.snapshot()
+        binding = first.workspace_binding
+        original_digest = binding._local_anchor_sha256
+        object.__setattr__(binding, "_local_anchor_sha256", "0" * 64)
+        adapter = execution.SyntheticRTWinAdapter()
+        try:
+            with self.assertRaises(execution.ExecutionValueError):
+                execution.execute_once(
+                    self.store,
+                    snapshot=first,
+                    current_profile=profile,
+                    prepared_input_bytes=INPUT_BYTES,
+                    pbs_template_bytes=TEMPLATE_BYTES,
+                    confirmed_execution_snapshot_id=first.execution_snapshot_id,
+                    port=adapter,
+                )
+            self.assertEqual(adapter.calls, ())
+        finally:
+            object.__setattr__(binding, "_local_anchor_sha256", original_digest)
+
+        moved_parent = self.local_root / "old-project-1"
+        self.local_project.rename(moved_parent)
+        self.local_project.mkdir()
+        try:
+            recaptured, _profile = self.snapshot()
+            replacement = recaptured.workspace_binding
+            for field_name in (
+                "_local_approved_root",
+                "_local_parent_parts",
+                "_local_component_identities",
+                "_local_parent_identity",
+                "_local_anchor_sha256",
+                "workspace_binding_id",
+            ):
+                object.__setattr__(
+                    binding, field_name, getattr(replacement, field_name)
+                )
+            with self.assertRaises(execution.ExecutionValueError):
+                execution.execute_once(
+                    self.store,
+                    snapshot=first,
+                    current_profile=profile,
+                    prepared_input_bytes=INPUT_BYTES,
+                    pbs_template_bytes=TEMPLATE_BYTES,
+                    confirmed_execution_snapshot_id=first.execution_snapshot_id,
+                    port=adapter,
+                )
+            self.assertEqual(adapter.calls, ())
+            self.assertIs(
+                self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED
+            )
+            self.assertFalse((self.local_project / "attempt-1").exists())
+        finally:
+            self.local_project.rmdir()
+            moved_parent.rename(self.local_project)
+
     def _assert_attempt_replacement_cannot_escape(self, checkpoint: str) -> None:
         snapshot, profile = self.snapshot()
         attempt = Path(snapshot.workspace_binding.local_attempt_dir)

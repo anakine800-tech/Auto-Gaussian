@@ -633,12 +633,20 @@ class WorkspaceBinding:
             )
             if not rtwin_attempt_dir.endswith("\\" + attempt_id):
                 raise ExecutionValueError("rtwin_attempt_dir must be Attempt-specific")
+        anchor_sha256 = semantic_sha256(
+            {
+                "approved_root": approved_root,
+                "parent_parts": parent_parts,
+                "component_identities": component_identities,
+            }
+        )
         payload = {
             "project_id": project.project_id,
             "attempt_id": attempt_id,
             "local_attempt_dir": local_attempt_dir,
             "rtwin_attempt_dir": rtwin_attempt_dir,
             "remote_attempt_dir": remote_attempt_dir,
+            "local_descriptor_anchor_sha256": anchor_sha256,
         }
         object.__setattr__(self, "project_id", project.project_id)
         object.__setattr__(self, "attempt_id", attempt_id)
@@ -656,13 +664,7 @@ class WorkspaceBinding:
         object.__setattr__(
             self,
             "_local_anchor_sha256",
-            semantic_sha256(
-                {
-                    "approved_root": approved_root,
-                    "parent_parts": parent_parts,
-                    "component_identities": component_identities,
-                }
-            ),
+            anchor_sha256,
         )
         object.__setattr__(
             self, "workspace_binding_id", semantic_id("workspace-binding", payload)
@@ -672,23 +674,25 @@ class WorkspaceBinding:
         return freeze_mapping(
             {
                 "workspace_binding_id": self.workspace_binding_id,
+                **_semantic_mapping(self._identity_payload()),
+            },
+            "workspace_binding",
+        )
+
+    def _identity_payload(self) -> Mapping[str, object]:
+        return freeze_mapping(
+            {
                 "project_id": self.project_id,
                 "attempt_id": self.attempt_id,
                 "local_attempt_dir": self.local_attempt_dir,
                 "rtwin_attempt_dir": self.rtwin_attempt_dir,
                 "remote_attempt_dir": self.remote_attempt_dir,
+                "local_descriptor_anchor_sha256": self._local_anchor_sha256,
             },
-            "workspace_binding",
+            "workspace binding identity",
         )
 
     def assert_identity_closed(self) -> None:
-        payload = {
-            key: self.semantic_payload()[key]
-            for key in self.semantic_payload()
-            if key != "workspace_binding_id"
-        }
-        if semantic_id("workspace-binding", payload) != self.workspace_binding_id:
-            raise ExecutionValueError("workspace binding identity is stale")
         validate_posix_path(self.local_attempt_dir, "local_attempt_dir")
         validate_posix_path(self._local_approved_root, "local_approved_root")
         expected_parent = self._local_approved_root
@@ -710,6 +714,11 @@ class WorkspaceBinding:
             }
         ):
             raise ExecutionValueError("local workspace descriptor anchor identity is stale")
+        if (
+            semantic_id("workspace-binding", self._identity_payload())
+            != self.workspace_binding_id
+        ):
+            raise ExecutionValueError("workspace binding identity is stale")
         validate_posix_path(self.remote_attempt_dir, "remote_attempt_dir")
         if self.rtwin_attempt_dir is not None:
             validate_windows_path(self.rtwin_attempt_dir, "rtwin_attempt_dir")
