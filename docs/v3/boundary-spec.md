@@ -107,7 +107,7 @@ invariants requires a new Core boundary review before integration.
 
 ## V30-3A Frozen Approval Authority Contract
 
-**Contract status: FROZEN CANDIDATE; IMPLEMENTATION NOT AUTHORIZED.** Approval
+**Contract status: FROZEN; IMPLEMENTATION NOT AUTHORIZED.** Approval
 belongs to a later Workflow/Controller layer. It does not add an
 `auto_g16.core` record, store method, state transition, schema table, or effect
 owner, and it does not reopen the frozen Execution or Result contracts. The

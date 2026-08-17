@@ -71,7 +71,7 @@ does not authorize another v3 slice.
 
 ## V30-3A: Approval Authority and Invalidation Contract
 
-**Status: CONTRACT FREEZE CANDIDATE; IMPLEMENTATION NOT AUTHORIZED.** The
+**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** The
 conditions below define reviewable authority behavior. They require no Core
 API/schema change, perform no external effect, and do not authorize V30-3B:
 
