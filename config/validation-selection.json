@@ -149,6 +149,29 @@
       "fail_closed": false
     },
     {
+      "id": "v30-approval",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/approval/",
+        "tests/v3/approval/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.approval",
+        "tests.v3.core.test_store",
+        "tests.v3.execution",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "reconciliation",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
       "id": "v30-execution",
       "exact_paths": [],
       "prefixes": [
