@@ -1,8 +1,8 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-RESULT-01` and `V30-EXEC-01` are integrated on
-  `main@2911451eb91a63c4c1df7601b4ac49610b6205a3`; the next product gate is
-  the `V30-3` Approval Contract Freeze, not approval implementation.
+- **Current phase:** `V30-3A` Approval Contract Freeze. The exact docs-only
+  contract candidate is awaiting independent review; approval implementation
+  remains unauthorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -44,14 +44,23 @@
 - **Satisfied / integrated:** `V30-EXEC-01` is integrated on
   `main@2911451eb91a63c4c1df7601b4ac49610b6205a3`; its exact-main affected CI
   and CodeQL are PASS.
+- **Closed:** `V3-MAINT-TEST-03` and `V30-INTEGRATION-CLOSEOUT-01` are
+  integrated on `main@6ab92707d3ff5c2f930c8566b8631684a16d4e22`;
+  exact-main `v3-full` CI and CodeQL are PASS.
+- **Contract candidate:** V30-3A freezes separate Scientific Approval, exact
+  finite-set Batch Submit Approval, and exact ExecutionSnapshot Operational
+  Confirmation authorities, owned by the future `auto_g16.approval` package.
+  It changes no Core API/schema and reopens neither the EXEC nor RESULT
+  contract.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** `V30-3A` Approval Contract Freeze.
+- **Next gate:** Independent V30-3A Approval Contract Review, followed only on
+  PASS by the V30-3A Publish Gate.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** `V30-3B` approval implementation, `V30-EXEC-02`, production
-  changes, deployment, live smoke, and SSH/PBS/Gaussian operations remain
-  unauthorized.
+- **Do not start:** V30-3A publication, `V30-3B` approval implementation,
+  selector/package ownership changes, `V30-EXEC-02`, production changes,
+  deployment, live smoke, and SSH/PBS/Gaussian operations remain unauthorized.
