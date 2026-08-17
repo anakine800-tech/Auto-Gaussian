@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 import os
-from pathlib import Path
 import re
 import stat
 from typing import Protocol, runtime_checkable
@@ -26,7 +25,6 @@ from ._identity import (
     require_text,
     semantic_id,
 )
-from ._paths import verify_local_parent_identity
 from .models import (
     EffectKind,
     EffectState,
@@ -34,6 +32,7 @@ from .models import (
     RECEIPT_OBSERVATION_TYPE,
     RemoteEffectReceipt,
     ServerProfile,
+    WorkspaceBinding,
     resolve_server_profile,
 )
 from .preparation import assert_execution_snapshot_identity
@@ -156,11 +155,86 @@ class ReceiptJournal:
         )
 
 
-def _exclusive_write(path: Path, value: bytes) -> None:
+_DIRECTORY_OPEN_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+if hasattr(os, "O_CLOEXEC"):
+    _DIRECTORY_OPEN_FLAGS |= os.O_CLOEXEC
+
+
+def _local_allocation_checkpoint(
+    _stage: str, _binding: WorkspaceBinding
+) -> None:
+    """Private deterministic test seam; production execution is a no-op."""
+
+
+def _directory_identity(descriptor: int) -> tuple[int, int]:
+    value = os.fstat(descriptor)
+    if not stat.S_ISDIR(value.st_mode):
+        raise ExecutionValueError("workspace descriptor is not a directory")
+    return (value.st_dev, value.st_ino)
+
+
+def _open_verified_workspace_parent(binding: WorkspaceBinding) -> int:
+    descriptor = os.open(binding._local_approved_root, _DIRECTORY_OPEN_FLAGS)
+    try:
+        if _directory_identity(descriptor) != binding._local_component_identities[0]:
+            raise ExecutionValueError("local approved-root descriptor changed")
+        for index, part in enumerate(binding._local_parent_parts, start=1):
+            child = os.open(part, _DIRECTORY_OPEN_FLAGS, dir_fd=descriptor)
+            try:
+                if (
+                    _directory_identity(child)
+                    != binding._local_component_identities[index]
+                ):
+                    raise ExecutionValueError("local workspace component changed")
+            except Exception:
+                os.close(child)
+                raise
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _verify_workspace_parent_still_named(
+    binding: WorkspaceBinding, expected_descriptor: int
+) -> None:
+    observed = _open_verified_workspace_parent(binding)
+    try:
+        if _directory_identity(observed) != _directory_identity(expected_descriptor):
+            raise ExecutionValueError("local workspace parent was replaced")
+    finally:
+        os.close(observed)
+
+
+def _verify_attempt_directory_still_named(
+    parent_descriptor: int,
+    attempt_name: str,
+    attempt_descriptor: int,
+    created_identity: tuple[int, int],
+) -> None:
+    named = os.stat(
+        attempt_name,
+        dir_fd=parent_descriptor,
+        follow_symlinks=False,
+    )
+    named_identity = (named.st_dev, named.st_ino)
+    if (
+        not stat.S_ISDIR(named.st_mode)
+        or named_identity != created_identity
+        or _directory_identity(attempt_descriptor) != created_identity
+    ):
+        raise ExecutionRuntimeError("local Attempt workspace was replaced")
+
+
+def _exclusive_write_at(
+    directory_descriptor: int, logical_name: str, value: bytes
+) -> None:
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    descriptor = os.open(path, flags, 0o400)
+    descriptor = os.open(logical_name, flags, 0o400, dir_fd=directory_descriptor)
     try:
         with os.fdopen(descriptor, "wb", closefd=False) as handle:
             handle.write(value)
@@ -179,37 +253,85 @@ def _materialize_local_handoff(
     pbs_template_bytes: bytes,
 ) -> None:
     binding = snapshot.workspace_binding
-    verify_local_parent_identity(
-        binding.local_attempt_dir, binding._local_parent_identity
-    )
-    directory = Path(binding.local_attempt_dir)
+    parent_descriptor: int | None = None
+    attempt_descriptor: int | None = None
+    created = False
     try:
-        os.mkdir(directory, 0o700)
-    except FileExistsError as exc:
-        raise ConfirmedNoEffectError(
-            EffectKind.LOCAL_WORKSPACE, "local-attempt-workspace-exists"
-        ) from exc
-    except OSError as exc:
-        raise ConfirmedNoEffectError(
-            EffectKind.LOCAL_WORKSPACE, "local-attempt-workspace-unavailable"
-        ) from exc
-    current = os.lstat(directory)
-    if stat.S_ISLNK(current.st_mode) or not stat.S_ISDIR(current.st_mode):
-        raise ExecutionRuntimeError("new local Attempt workspace is not a real directory")
-    try:
-        _exclusive_write(
-            directory / snapshot.prepared_input_binding.logical_name,
+        parent_descriptor = _open_verified_workspace_parent(binding)
+        _local_allocation_checkpoint("before-allocation", binding)
+        _verify_workspace_parent_still_named(binding, parent_descriptor)
+        attempt_name = binding.attempt_id
+        try:
+            os.mkdir(attempt_name, 0o700, dir_fd=parent_descriptor)
+        except FileExistsError as exc:
+            raise ConfirmedNoEffectError(
+                EffectKind.LOCAL_WORKSPACE, "local-attempt-workspace-exists"
+            ) from exc
+        created = True
+        created_value = os.stat(
+            attempt_name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        if not stat.S_ISDIR(created_value.st_mode):
+            raise ExecutionRuntimeError(
+                "new local Attempt workspace is not a real directory"
+            )
+        created_identity = (created_value.st_dev, created_value.st_ino)
+        _local_allocation_checkpoint("after-directory-creation", binding)
+        attempt_descriptor = os.open(
+            attempt_name,
+            _DIRECTORY_OPEN_FLAGS,
+            dir_fd=parent_descriptor,
+        )
+        _verify_attempt_directory_still_named(
+            parent_descriptor,
+            attempt_name,
+            attempt_descriptor,
+            created_identity,
+        )
+        _local_allocation_checkpoint("before-handoff-write", binding)
+        _verify_workspace_parent_still_named(binding, parent_descriptor)
+        _verify_attempt_directory_still_named(
+            parent_descriptor,
+            attempt_name,
+            attempt_descriptor,
+            created_identity,
+        )
+        _exclusive_write_at(
+            attempt_descriptor,
+            snapshot.prepared_input_binding.logical_name,
             prepared_input_bytes,
         )
-        _exclusive_write(
-            directory / snapshot.pbs_template_binding.logical_name,
+        _exclusive_write_at(
+            attempt_descriptor,
+            snapshot.pbs_template_binding.logical_name,
             pbs_template_bytes,
         )
-        os.chmod(directory, 0o500)
-    except Exception as exc:
+        _verify_attempt_directory_still_named(
+            parent_descriptor,
+            attempt_name,
+            attempt_descriptor,
+            created_identity,
+        )
+        os.fchmod(attempt_descriptor, 0o500)
+        os.fsync(attempt_descriptor)
+    except ConfirmedNoEffectError:
+        raise
+    except (ExecutionValueError, OSError) as exc:
+        if not created:
+            raise ConfirmedNoEffectError(
+                EffectKind.LOCAL_WORKSPACE,
+                "local-workspace-anchor-unavailable",
+            ) from exc
         raise ExecutionRuntimeError(
             "local Attempt workspace was created but its handoff is incomplete"
         ) from exc
+    finally:
+        if attempt_descriptor is not None:
+            os.close(attempt_descriptor)
+        if parent_descriptor is not None:
+            os.close(parent_descriptor)
 
 
 def _receipt(

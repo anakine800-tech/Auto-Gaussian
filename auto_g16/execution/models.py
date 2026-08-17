@@ -21,7 +21,7 @@ from ._identity import (
 )
 from ._paths import (
     require_contained,
-    require_local_parent_identity,
+    require_local_workspace_anchor,
     require_windows_contained,
     validate_platform_path,
     validate_portable_name,
@@ -583,6 +583,14 @@ class WorkspaceBinding:
     _local_parent_identity: tuple[int, int] = field(
         init=False, repr=False, compare=False
     )
+    _local_approved_root: str = field(init=False, repr=False, compare=False)
+    _local_parent_parts: tuple[str, ...] = field(
+        init=False, repr=False, compare=False
+    )
+    _local_component_identities: tuple[tuple[int, int], ...] = field(
+        init=False, repr=False, compare=False
+    )
+    _local_anchor_sha256: str = field(init=False, repr=False, compare=False)
 
     def __init__(
         self,
@@ -603,8 +611,10 @@ class WorkspaceBinding:
         validate_posix_path(local_attempt_dir, "local_attempt_dir")
         validate_posix_path(local_approved_root, "local_approved_root")
         require_contained(local_attempt_dir, local_approved_root, "local_attempt_dir")
-        parent_identity = require_local_parent_identity(
-            local_attempt_dir, local_approved_root
+        approved_root, parent_parts, component_identities = (
+            require_local_workspace_anchor(
+                local_attempt_dir, local_approved_root
+            )
         )
         validate_posix_path(remote_attempt_dir, "remote_attempt_dir")
         validate_posix_path(remote_approved_root, "remote_approved_root")
@@ -635,7 +645,25 @@ class WorkspaceBinding:
         object.__setattr__(self, "local_attempt_dir", local_attempt_dir)
         object.__setattr__(self, "rtwin_attempt_dir", rtwin_attempt_dir)
         object.__setattr__(self, "remote_attempt_dir", remote_attempt_dir)
-        object.__setattr__(self, "_local_parent_identity", parent_identity)
+        object.__setattr__(
+            self, "_local_parent_identity", component_identities[-1]
+        )
+        object.__setattr__(self, "_local_approved_root", approved_root)
+        object.__setattr__(self, "_local_parent_parts", parent_parts)
+        object.__setattr__(
+            self, "_local_component_identities", component_identities
+        )
+        object.__setattr__(
+            self,
+            "_local_anchor_sha256",
+            semantic_sha256(
+                {
+                    "approved_root": approved_root,
+                    "parent_parts": parent_parts,
+                    "component_identities": component_identities,
+                }
+            ),
+        )
         object.__setattr__(
             self, "workspace_binding_id", semantic_id("workspace-binding", payload)
         )
@@ -662,6 +690,26 @@ class WorkspaceBinding:
         if semantic_id("workspace-binding", payload) != self.workspace_binding_id:
             raise ExecutionValueError("workspace binding identity is stale")
         validate_posix_path(self.local_attempt_dir, "local_attempt_dir")
+        validate_posix_path(self._local_approved_root, "local_approved_root")
+        expected_parent = self._local_approved_root
+        if self._local_parent_parts:
+            expected_parent += "/" + "/".join(self._local_parent_parts)
+        if self.local_attempt_dir.rsplit("/", 1)[0] != expected_parent:
+            raise ExecutionValueError("local workspace descriptor anchor is stale")
+        if (
+            len(self._local_component_identities)
+            != len(self._local_parent_parts) + 1
+            or self._local_component_identities[-1] != self._local_parent_identity
+        ):
+            raise ExecutionValueError("local workspace component identities are stale")
+        if self._local_anchor_sha256 != semantic_sha256(
+            {
+                "approved_root": self._local_approved_root,
+                "parent_parts": self._local_parent_parts,
+                "component_identities": self._local_component_identities,
+            }
+        ):
+            raise ExecutionValueError("local workspace descriptor anchor identity is stale")
         validate_posix_path(self.remote_attempt_dir, "remote_attempt_dir")
         if self.rtwin_attempt_dir is not None:
             validate_windows_path(self.rtwin_attempt_dir, "rtwin_attempt_dir")

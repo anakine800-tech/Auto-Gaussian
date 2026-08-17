@@ -4,9 +4,11 @@ from dataclasses import fields
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import auto_g16.core as core
 import auto_g16.execution as execution
+import auto_g16.execution.runtime as execution_runtime
 
 from .test_execution import ExecutionFixture, INPUT_BYTES, TEMPLATE_BYTES
 
@@ -74,6 +76,98 @@ class PathBoundaryTests(ExecutionFixture):
                 remote_approved_root=execution.LEGACY_REMOTE_ROOT,
                 remote_attempt_dir="/tmp/attempt-1",
             )
+
+    def test_parent_component_replacement_before_allocation_fails_no_effect(self) -> None:
+        snapshot, profile = self.snapshot()
+        moved_parent = self.local_root / "moved-project-1"
+        escape = self.temporary / "escape-before-allocation"
+        escape.mkdir()
+
+        def replace_parent(stage: str, _binding: execution.WorkspaceBinding) -> None:
+            if stage != "before-allocation":
+                return
+            self.local_project.rename(moved_parent)
+            self.local_project.symlink_to(escape, target_is_directory=True)
+
+        adapter = execution.SyntheticRTWinAdapter()
+        try:
+            with mock.patch.object(
+                execution_runtime,
+                "_local_allocation_checkpoint",
+                side_effect=replace_parent,
+            ):
+                result = execution.execute_once(
+                    self.store,
+                    snapshot=snapshot,
+                    current_profile=profile,
+                    prepared_input_bytes=INPUT_BYTES,
+                    pbs_template_bytes=TEMPLATE_BYTES,
+                    confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+                    port=adapter,
+                )
+            self.assertIs(
+                result.receipts[-1].effect_state,
+                execution.EffectState.CONFIRMED_NO_EFFECT,
+            )
+            self.assertEqual(adapter.calls, ())
+            self.assertEqual(list(escape.iterdir()), [])
+            self.assertFalse((moved_parent / "attempt-1").exists())
+        finally:
+            if self.local_project.is_symlink():
+                self.local_project.unlink()
+            if moved_parent.exists():
+                moved_parent.rename(self.local_project)
+
+    def _assert_attempt_replacement_cannot_escape(self, checkpoint: str) -> None:
+        snapshot, profile = self.snapshot()
+        attempt = Path(snapshot.workspace_binding.local_attempt_dir)
+        moved = self.local_project / f"moved-{checkpoint}"
+        escape = self.temporary / f"escape-{checkpoint}"
+        escape.mkdir()
+
+        def replace_attempt(
+            stage: str, _binding: execution.WorkspaceBinding
+        ) -> None:
+            if stage != checkpoint:
+                return
+            attempt.rename(moved)
+            attempt.symlink_to(escape, target_is_directory=True)
+
+        adapter = execution.SyntheticRTWinAdapter()
+        try:
+            with mock.patch.object(
+                execution_runtime,
+                "_local_allocation_checkpoint",
+                side_effect=replace_attempt,
+            ):
+                result = execution.execute_once(
+                    self.store,
+                    snapshot=snapshot,
+                    current_profile=profile,
+                    prepared_input_bytes=INPUT_BYTES,
+                    pbs_template_bytes=TEMPLATE_BYTES,
+                    confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+                    port=adapter,
+                )
+            self.assertIs(
+                result.receipts[-1].effect_state,
+                execution.EffectState.CONFIRMED_EFFECT,
+            )
+            self.assertEqual(result.receipts[-1].details["status"], "incomplete")
+            self.assertEqual(adapter.calls, ())
+            self.assertEqual(list(escape.iterdir()), [])
+            self.assertEqual(list(moved.iterdir()), [])
+        finally:
+            if attempt.is_symlink():
+                attempt.unlink()
+            if moved.exists():
+                moved.rename(attempt)
+
+    def test_attempt_replacement_after_creation_cannot_escape(self) -> None:
+        self._assert_attempt_replacement_cannot_escape("after-directory-creation")
+
+    def test_attempt_replacement_before_writes_cannot_escape(self) -> None:
+        self._assert_attempt_replacement_cannot_escape("before-handoff-write")
 
 
 class ReceiptAndAuthorityTests(ExecutionFixture):

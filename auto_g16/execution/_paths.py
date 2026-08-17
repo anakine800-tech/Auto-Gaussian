@@ -91,7 +91,11 @@ def require_windows_contained(path: str, root: str, field_name: str) -> None:
         raise ExecutionValueError(f"{field_name} is not strictly contained under its root")
 
 
-def require_local_parent_identity(path: str, root: str) -> tuple[int, int]:
+def require_local_workspace_anchor(
+    path: str, root: str
+) -> tuple[str, tuple[str, ...], tuple[tuple[int, int], ...]]:
+    """Freeze the canonical approved root and every existing parent component."""
+
     validate_posix_path(path, "local_attempt_dir")
     validate_posix_path(root, "local approved root")
     candidate = Path(path)
@@ -106,9 +110,6 @@ def require_local_parent_identity(path: str, root: str) -> tuple[int, int]:
         ) from exc
     if not relative.parts:
         raise ExecutionValueError("local_attempt_dir must be below the approved root")
-    current = approved
-    for part in relative.parts[:-1]:
-        current = current / part
     try:
         root_real = approved.resolve(strict=True)
         parent_real = candidate.parent.resolve(strict=True)
@@ -116,16 +117,30 @@ def require_local_parent_identity(path: str, root: str) -> tuple[int, int]:
         raise ExecutionValueError("local workspace parent is unavailable") from exc
     if str(root_real) != root or str(parent_real) != str(candidate.parent):
         raise ExecutionValueError("local workspace roots must already be canonical")
-    current = Path(root)
-    for part in relative.parts[:-1]:
+    identities: list[tuple[int, int]] = []
+    root_value = os.lstat(approved)
+    if stat.S_ISLNK(root_value.st_mode) or not stat.S_ISDIR(root_value.st_mode):
+        raise ExecutionValueError("local approved root must be a real directory")
+    identities.append((root_value.st_dev, root_value.st_ino))
+    parent_parts = relative.parts[:-1]
+    current = approved
+    for part in parent_parts:
         current = current / part
         value = os.lstat(current)
         if stat.S_ISLNK(value.st_mode) or not stat.S_ISDIR(value.st_mode):
             raise ExecutionValueError("local workspace parent chain must be real directories")
+        identities.append((value.st_dev, value.st_ino))
     parent = os.lstat(candidate.parent)
     if stat.S_ISLNK(parent.st_mode) or not stat.S_ISDIR(parent.st_mode):
         raise ExecutionValueError("local workspace parent must be a real directory")
-    return (parent.st_dev, parent.st_ino)
+    if identities[-1] != (parent.st_dev, parent.st_ino):
+        raise ExecutionValueError("local workspace parent identity is inconsistent")
+    return (root, tuple(parent_parts), tuple(identities))
+
+
+def require_local_parent_identity(path: str, root: str) -> tuple[int, int]:
+    _root, _parts, identities = require_local_workspace_anchor(path, root)
+    return identities[-1]
 
 
 def verify_local_parent_identity(path: str, expected: tuple[int, int]) -> None:
