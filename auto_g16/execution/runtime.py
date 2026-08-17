@@ -475,6 +475,7 @@ def reconcile_unknown_from_receipt(
 ) -> AttemptState:
     """Apply one persisted, read-only, same-Attempt reconciliation fact."""
 
+    assert_execution_snapshot_identity(snapshot)
     if receipt.effect_kind is not EffectKind.SUBMISSION_RECONCILIATION:
         raise ExecutionValueError("reconciliation requires submission-reconciliation evidence")
     if (
@@ -508,6 +509,7 @@ def reconcile_unknown(
 ) -> AttemptState:
     """Request one read-only reconciliation fact; never submit or retry."""
 
+    assert_execution_snapshot_identity(snapshot)
     if not isinstance(port, ExecutionPort):
         raise ExecutionValueError("port does not implement the frozen ExecutionPort")
     if port.contract_version != snapshot.adapter_contract_version:

@@ -216,6 +216,77 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
                 finally:
                     object.__setattr__(target, field_name, original)
 
+    def test_mutated_snapshot_cannot_reconcile_unknown_by_port_or_receipt(self) -> None:
+        snapshot, profile = self.snapshot()
+        failing = execution.SyntheticRTWinAdapter(
+            fail_stage=execution.EffectKind.SUBMISSION,
+            ambiguous=True,
+        )
+        result = execution.execute_once(
+            self.store,
+            snapshot=snapshot,
+            current_profile=profile,
+            prepared_input_bytes=INPUT_BYTES,
+            pbs_template_bytes=TEMPLATE_BYTES,
+            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+            port=failing,
+        )
+        self.assertIs(result.attempt_state, core.AttemptState.UNKNOWN)
+        receipt = execution.RemoteEffectReceipt(
+            attempt_id=snapshot.attempt_id,
+            execution_snapshot_id=snapshot.execution_snapshot_id,
+            submission_intent_id=snapshot.submission_intent_id,
+            effect_sequence=len(result.receipts) + 1,
+            effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
+            effect_state=execution.EffectState.CONFIRMED_NO_EFFECT,
+            details={"source": "synthetic-read-only"},
+        )
+        mutations = (
+            (snapshot.prepared_input_binding, "sha256", "0" * 64),
+            (snapshot.resolved_resource_request, "cores", 99),
+            (snapshot.resolved_server_profile, "remote_root", "/tmp/forged"),
+            (snapshot.workspace_binding, "remote_attempt_dir", "/tmp/forged"),
+            (snapshot.pbs_template_binding, "sha256", "0" * 64),
+            (snapshot, "execution_snapshot_id", "forged"),
+        )
+        for target, field_name, forged_value in mutations:
+            with self.subTest(target=type(target).__name__, field=field_name):
+                original = getattr(target, field_name)
+                before_observations = len(
+                    self.store.observations_for_attempt(snapshot.attempt_id)
+                )
+                before_results = len(
+                    self.store.results_for_attempt(snapshot.attempt_id)
+                )
+                object.__setattr__(target, field_name, forged_value)
+                reconciler = execution.SyntheticRTWinAdapter(
+                    reconciliation_state=execution.EffectState.CONFIRMED_NO_EFFECT
+                )
+                try:
+                    with self.assertRaises(execution.ExecutionValueError):
+                        execution.reconcile_unknown(
+                            self.store, snapshot=snapshot, port=reconciler
+                        )
+                    self.assertEqual(reconciler.calls, ())
+                    with self.assertRaises(execution.ExecutionValueError):
+                        execution.reconcile_unknown_from_receipt(
+                            self.store, snapshot=snapshot, receipt=receipt
+                        )
+                    self.assertIs(
+                        self.store.attempt_state(snapshot.attempt_id),
+                        core.AttemptState.UNKNOWN,
+                    )
+                    self.assertEqual(
+                        len(self.store.observations_for_attempt(snapshot.attempt_id)),
+                        before_observations,
+                    )
+                    self.assertEqual(
+                        len(self.store.results_for_attempt(snapshot.attempt_id)),
+                        before_results,
+                    )
+                finally:
+                    object.__setattr__(target, field_name, original)
+
     def test_receipt_exact_replay_is_idempotent_and_sequence_conflict_fails(self) -> None:
         snapshot, _profile = self.snapshot()
         journal = execution.ReceiptJournal(self.store)
