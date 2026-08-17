@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 import auto_g16.approval as approval
 import auto_g16.core as core
@@ -34,6 +35,28 @@ class ApprovalStoreTests(unittest.TestCase):
             reviewer_evidence={"scope": "two exact attempts"},
         )
         self.confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.runtime,
+            snapshot(self.runtime, self.root / "local"),
+            confirmer_id="operator-1",
+            confirmer_evidence={"displayed": "exact snapshot"},
+        )
+
+    def _fresh_scientific(self) -> approval.ScientificApproval:
+        return scientific(self.runtime)
+
+    def _fresh_batch(self) -> approval.BatchSubmitApproval:
+        return approval.BatchSubmitApproval.for_existing_attempts(
+            self.runtime,
+            [
+                ("attempt-1", scientific(self.runtime)),
+                ("attempt-2", scientific_two(self.runtime)),
+            ],
+            reviewer_id="batch-reviewer",
+            reviewer_evidence={"scope": "two exact attempts"},
+        )
+
+    def _fresh_confirmation(self) -> approval.ExactOperationalConfirmation:
+        return approval.ExactOperationalConfirmation.for_snapshot(
             self.runtime,
             snapshot(self.runtime, self.root / "local"),
             confirmer_id="operator-1",
@@ -94,6 +117,298 @@ class ApprovalStoreTests(unittest.TestCase):
             object.__setattr__(record, field_name, changed)
             with self.assertRaises(approval.ApprovalStoreConflictError):
                 persist(record)
+
+    def test_first_append_rejects_stale_or_malformed_authority_without_sql(self) -> None:
+        cases = (
+            (
+                "scientific-plan",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(
+                    value, "calculation_plan_id", "forged-plan"
+                ),
+            ),
+            (
+                "scientific-task",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(value, "task_id", "forged-task"),
+            ),
+            (
+                "scientific-revision-bool",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(
+                    value, "calculation_plan_revision", True
+                ),
+            ),
+            (
+                "scientific-intent",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(
+                    value, "canonical_intent", {"route": "forged"}
+                ),
+            ),
+            (
+                "scientific-displayed-meaning",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(
+                    value, "displayed_semantic_meaning", {"job": "forged"}
+                ),
+            ),
+            (
+                "scientific-reviewer",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(
+                    value, "reviewer_id", "forged-reviewer"
+                ),
+            ),
+            (
+                "scientific-reviewer-evidence",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(
+                    value, "reviewer_evidence", {"statement": "forged"}
+                ),
+            ),
+            (
+                "scientific-decision-type",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(value, "decision", "approved"),
+            ),
+            (
+                "scientific-domain-id-swap",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(
+                    value,
+                    "scientific_approval_id",
+                    self.batch.batch_submit_approval_id,
+                ),
+            ),
+            (
+                "scientific-schema-bool",
+                self._fresh_scientific,
+                "store_scientific_approval",
+                lambda value: object.__setattr__(value, "schema_version", True),
+            ),
+            (
+                "batch-member-attempt",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(
+                    value.members[0], "attempt_id", "forged-attempt"
+                ),
+            ),
+            (
+                "batch-member-task",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(
+                    value.members[0], "task_id", "forged-task"
+                ),
+            ),
+            (
+                "batch-member-plan",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(
+                    value.members[0], "calculation_plan_id", "forged-plan"
+                ),
+            ),
+            (
+                "batch-member-revision-bool",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(
+                    value.members[0], "calculation_plan_revision", True
+                ),
+            ),
+            (
+                "batch-member-scientific-id",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(
+                    value.members[0], "scientific_approval_id", "forged-science-id"
+                ),
+            ),
+            (
+                "batch-members-container",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(value, "members", list(value.members)),
+            ),
+            (
+                "batch-empty-members",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(value, "members", ()),
+            ),
+            (
+                "batch-reviewer",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(
+                    value, "reviewer_id", "forged-reviewer"
+                ),
+            ),
+            (
+                "batch-reviewer-evidence",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(
+                    value, "reviewer_evidence", {"scope": "forged"}
+                ),
+            ),
+            (
+                "batch-decision-type",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(value, "decision", "approved"),
+            ),
+            (
+                "batch-domain-id-swap",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(
+                    value,
+                    "batch_submit_approval_id",
+                    self.science.scientific_approval_id,
+                ),
+            ),
+            (
+                "batch-schema-bool",
+                self._fresh_batch,
+                "store_batch_submit_approval",
+                lambda value: object.__setattr__(value, "schema_version", True),
+            ),
+            (
+                "confirmation-snapshot-id",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(
+                    value, "execution_snapshot_id", "forged-snapshot"
+                ),
+            ),
+            (
+                "confirmation-attempt",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(
+                    value, "attempt_id", "forged-attempt"
+                ),
+            ),
+            (
+                "confirmation-plan",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(
+                    value, "calculation_plan_id", "forged-plan"
+                ),
+            ),
+            (
+                "confirmation-revision-bool",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(
+                    value, "calculation_plan_revision", True
+                ),
+            ),
+            (
+                "confirmation-snapshot-semantics",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(
+                    value,
+                    "execution_snapshot_semantics",
+                    {"execution_snapshot_id": "forged", "attempt_id": "attempt-1"},
+                ),
+            ),
+            (
+                "confirmation-confirmer",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(
+                    value, "confirmer_id", "forged-confirmer"
+                ),
+            ),
+            (
+                "confirmation-confirmer-evidence",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(
+                    value, "confirmer_evidence", {"displayed": "forged"}
+                ),
+            ),
+            (
+                "confirmation-decision-type",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(value, "decision", "approved"),
+            ),
+            (
+                "confirmation-domain-id-swap",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(
+                    value,
+                    "operational_confirmation_id",
+                    self.science.scientific_approval_id,
+                ),
+            ),
+            (
+                "confirmation-schema-bool",
+                self._fresh_confirmation,
+                "store_operational_confirmation",
+                lambda value: object.__setattr__(value, "schema_version", True),
+            ),
+        )
+
+        expected_failures = (
+            approval.ApprovalValueError,
+            approval.ApprovalStoreConflictError,
+        )
+        for index, (label, factory, method_name, mutate) in enumerate(cases):
+            with self.subTest(label=label):
+                database = self.root / f"first-append-forgery-{index}.sqlite3"
+                store = approval.SQLiteApprovalStore(database)
+                record = factory()
+                mutate(record)
+                with mock.patch.object(
+                    store,
+                    "_store",
+                    side_effect=AssertionError("SQL append boundary must not be reached"),
+                ):
+                    with self.assertRaises(expected_failures):
+                        getattr(store, method_name)(record)
+                self.assertEqual(store.evidence_count(), 0)
+                store.close()
+                reopened = approval.SQLiteApprovalStore(database)
+                self.assertEqual(reopened.evidence_count(), 0)
+                reopened.close()
+
+    def test_domain_swapped_records_never_reach_append_boundary(self) -> None:
+        store = approval.SQLiteApprovalStore(self.root / "domain-swapped.sqlite3")
+        self.addCleanup(store.close)
+        cases = (
+            (store.store_scientific_approval, self.batch),
+            (store.store_batch_submit_approval, self.confirmation),
+            (store.store_operational_confirmation, self.science),
+        )
+        with mock.patch.object(
+            store,
+            "_store",
+            side_effect=AssertionError("SQL append boundary must not be reached"),
+        ):
+            for persist, record in cases:
+                with self.subTest(persist=persist.__name__):
+                    with self.assertRaises(approval.ApprovalValueError):
+                        persist(record)  # type: ignore[arg-type]
+        self.assertEqual(store.evidence_count(), 0)
 
     def test_approval_store_is_independent_from_core_schema(self) -> None:
         approval_database = self.root / "approval.sqlite3"

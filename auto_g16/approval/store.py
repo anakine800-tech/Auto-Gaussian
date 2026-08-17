@@ -101,6 +101,80 @@ def _mapping(value: object, name: str) -> Mapping[str, object]:
     return cast(Mapping[str, object], value)
 
 
+def _assert_rebuilt_record(
+    record: object,
+    rebuilt: object,
+    identity_field: str,
+) -> None:
+    schema_version = getattr(record, "schema_version", None)
+    if type(schema_version) is not int or schema_version != APPROVAL_SCHEMA_VERSION:
+        raise ApprovalValueError(
+            f"record schema_version must be exactly {APPROVAL_SCHEMA_VERSION}"
+        )
+    evidence_id = getattr(record, identity_field, None)
+    require_text(evidence_id, identity_field)
+    if (
+        getattr(rebuilt, identity_field) != evidence_id
+        or _payload_text(rebuilt) != _payload_text(record)
+    ):
+        raise ApprovalStoreConflictError(
+            "approval evidence identity is stale for its authority payload"
+        )
+
+
+def _assert_scientific_record_closed(record: ScientificApproval) -> None:
+    rebuilt = ScientificApproval._from_values(
+        calculation_plan_id=record.calculation_plan_id,
+        task_id=record.task_id,
+        calculation_plan_revision=record.calculation_plan_revision,
+        canonical_intent=record.canonical_intent,
+        displayed_semantic_meaning=record.displayed_semantic_meaning,
+        reviewer_id=record.reviewer_id,
+        reviewer_evidence=record.reviewer_evidence,
+        decision=record.decision,
+    )
+    _assert_rebuilt_record(record, rebuilt, "scientific_approval_id")
+
+
+def _assert_batch_record_closed(record: BatchSubmitApproval) -> None:
+    if not isinstance(record.members, tuple):
+        raise ApprovalValueError("Batch members must be an immutable tuple")
+    members: list[BatchApprovalMember] = []
+    for member in record.members:
+        if not isinstance(member, BatchApprovalMember):
+            raise ApprovalValueError("Batch members must be BatchApprovalMember values")
+        members.append(
+            BatchApprovalMember(
+                attempt_id=member.attempt_id,
+                task_id=member.task_id,
+                calculation_plan_id=member.calculation_plan_id,
+                calculation_plan_revision=member.calculation_plan_revision,
+                scientific_approval_id=member.scientific_approval_id,
+            )
+        )
+    rebuilt = BatchSubmitApproval._from_values(
+        members=tuple(members),
+        reviewer_id=record.reviewer_id,
+        reviewer_evidence=record.reviewer_evidence,
+        decision=record.decision,
+    )
+    _assert_rebuilt_record(record, rebuilt, "batch_submit_approval_id")
+
+
+def _assert_operational_record_closed(record: ExactOperationalConfirmation) -> None:
+    rebuilt = ExactOperationalConfirmation._from_values(
+        execution_snapshot_id=record.execution_snapshot_id,
+        attempt_id=record.attempt_id,
+        calculation_plan_id=record.calculation_plan_id,
+        calculation_plan_revision=record.calculation_plan_revision,
+        execution_snapshot_semantics=record.execution_snapshot_semantics,
+        confirmer_id=record.confirmer_id,
+        confirmer_evidence=record.confirmer_evidence,
+        decision=record.decision,
+    )
+    _assert_rebuilt_record(record, rebuilt, "operational_confirmation_id")
+
+
 class SQLiteApprovalStore:
     """Minimal approval-layer store; its schema is not a cross-layer public ABI."""
 
@@ -228,6 +302,7 @@ class SQLiteApprovalStore:
     def store_scientific_approval(self, record: ScientificApproval) -> None:
         if not isinstance(record, ScientificApproval):
             raise ApprovalValueError("record must be a ScientificApproval")
+        _assert_scientific_record_closed(record)
         self._store("scientific-approval", record.scientific_approval_id, record)
 
     def load_scientific_approval(self, evidence_id: str) -> ScientificApproval:
@@ -251,6 +326,7 @@ class SQLiteApprovalStore:
     def store_batch_submit_approval(self, record: BatchSubmitApproval) -> None:
         if not isinstance(record, BatchSubmitApproval):
             raise ApprovalValueError("record must be a BatchSubmitApproval")
+        _assert_batch_record_closed(record)
         self._store("batch-submit-approval", record.batch_submit_approval_id, record)
 
     def load_batch_submit_approval(self, evidence_id: str) -> BatchSubmitApproval:
@@ -290,6 +366,7 @@ class SQLiteApprovalStore:
     ) -> None:
         if not isinstance(record, ExactOperationalConfirmation):
             raise ApprovalValueError("record must be an ExactOperationalConfirmation")
+        _assert_operational_record_closed(record)
         self._store(
             "operational-confirmation", record.operational_confirmation_id, record
         )
