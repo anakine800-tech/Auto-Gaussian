@@ -574,27 +574,45 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(forward["safety_evidence"], EXEC_SAFETY)
         self.assertFalse(forward["fail_closed"])
 
-    def test_empty_execution_and_result_packages_fail_closed_today(self) -> None:
+    def test_execution_and_result_packages_discover_real_tests(self) -> None:
         for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
             with self.subTest(package=package.__name__):
                 loader = unittest.TestLoader()
                 suite = loader.loadTestsFromName(package.__name__)
-                outcome = unittest.TestResult()
-                suite.run(outcome)
-                self.assertEqual(suite.countTestCases(), 1)
-                self.assertFalse(outcome.wasSuccessful())
-                self.assertEqual(len(loader.errors), 1)
-                self.assertIn("contains no direct test*.py test modules", loader.errors[0])
-
-    def test_empty_ownership_packages_do_not_poison_full_discovery(self) -> None:
-        for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
-            with self.subTest(package=package.__name__):
-                standard_tests = unittest.TestSuite()
-                suite = package.load_tests(
-                    unittest.TestLoader(), standard_tests, "test*.py"
+                self.assertGreater(suite.countTestCases(), 0)
+                self.assertEqual(loader.errors, [])
+                self.assertTrue(
+                    all(
+                        identifier.startswith(f"{package.__name__}.test_")
+                        for identifier in suite_ids(suite)
+                    )
                 )
-                self.assertIs(suite, standard_tests)
-                self.assertEqual(suite.countTestCases(), 0)
+
+    def test_synthetic_empty_ownership_packages_fail_closed(self) -> None:
+        for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
+            with self.subTest(package=package.__name__), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                with (
+                    mock.patch.object(package, "__file__", str(directory / "__init__.py")),
+                    mock.patch.object(package, "__path__", [str(directory)]),
+                ):
+                    standard_tests = unittest.TestSuite()
+                    suite = package.load_tests(
+                        unittest.TestLoader(), standard_tests, "test*.py"
+                    )
+                    self.assertIs(suite, standard_tests)
+                    self.assertEqual(suite.countTestCases(), 0)
+
+                    loader = unittest.TestLoader()
+                    failed_suite = loader.loadTestsFromName(package.__name__)
+                    outcome = unittest.TestResult()
+                    failed_suite.run(outcome)
+                    self.assertEqual(failed_suite.countTestCases(), 1)
+                    self.assertFalse(outcome.wasSuccessful())
+                    self.assertEqual(len(loader.errors), 1)
+                    self.assertIn(
+                        "contains no direct test*.py test modules", loader.errors[0]
+                    )
 
     def test_package_aggregation_is_stable_direct_and_nonrecursive(self) -> None:
         for package in (EXECUTION_PACKAGE, RESULT_PACKAGE):
