@@ -71,10 +71,10 @@ does not authorize another v3 slice.
 
 ## V30-EXEC-01: Frozen Offline Execution Boundary
 
-**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** A future
-implementation conforms only when focused, adversarial, synthetic, offline
-evidence demonstrates all of the following without SSH, RTwin, PBS, Gaussian,
-deployment, or another live effect:
+**Status: SATISFIED / INTEGRATED ON
+`main@2911451eb91a63c4c1df7601b4ac49610b6205a3`.** The numbered conditions
+below remain the acceptance contract; integration grants no SSH, RTwin, PBS,
+Gaussian, deployment, or other live-effect authority:
 
 1. Semantically identical snapshots keep one identity across JSON key order or
    formatting changes.
@@ -110,9 +110,10 @@ deployment, or another live effect:
 
 ## V30-RESULT-01: Frozen Result Provenance Boundary
 
-**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** A future
-implementation conforms only when focused, adversarial, synthetic, offline
-evidence demonstrates all of the following:
+**Status: SATISFIED / INTEGRATED ON
+`main@2911451eb91a63c4c1df7601b4ac49610b6205a3`.** The numbered conditions
+below remain the acceptance contract and do not grant scientific acceptance or
+live-effect authority:
 
 1. UUIDv5 namespaces are source-controlled and caller-invariant.
 2. Exact replay of the input tuple (`attempt_id`, `calculation_plan_id`,
