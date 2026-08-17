@@ -34,6 +34,7 @@ class ApprovalStoreTests(unittest.TestCase):
             reviewer_evidence={"scope": "two exact attempts"},
         )
         self.confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.runtime,
             snapshot(self.runtime, self.root / "local"),
             confirmer_id="operator-1",
             confirmer_evidence={"displayed": "exact snapshot"},

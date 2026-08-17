@@ -147,6 +147,7 @@ class ApprovalModelTests(unittest.TestCase):
         )
         current_snapshot = snapshot(self.store, self.root / "local")
         confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
             current_snapshot,
             confirmer_id="operator-1",
             confirmer_evidence={},
@@ -178,19 +179,191 @@ class ApprovalModelTests(unittest.TestCase):
         original = snapshot(self.store, self.root / "local")
         changed = snapshot(self.store, self.root / "local", cores=9)
         first = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
             original,
             confirmer_id="operator-1",
             confirmer_evidence={"displayed": "exact snapshot"},
         )
         replay = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
             original,
             confirmer_id="operator-1",
             confirmer_evidence={"displayed": "exact snapshot"},
         )
         self.assertEqual(first.operational_confirmation_id, replay.operational_confirmation_id)
-        first.assert_current(original)
+        first.assert_current(self.store, original)
         with self.assertRaises(approval.StaleApprovalError):
-            first.assert_current(changed)
+            first.assert_current(self.store, changed)
+
+    def test_operational_confirmation_rejects_forged_snapshot_identity_graph(self) -> None:
+        current_plan = self.store.load_calculation_plan("plan-1")
+        attempt = self.store.load_attempt("attempt-1")
+        science = scientific(self.store, current_plan)
+        batch = approval.BatchSubmitApproval.for_existing_attempts(
+            self.store,
+            [(attempt.attempt_id, science)],
+            reviewer_id="batch-reviewer",
+            reviewer_evidence={"scope": "one exact attempt"},
+        )
+        mutations = (
+            (
+                "prepared-input-payload",
+                lambda value: object.__setattr__(
+                    value.prepared_input_binding, "logical_name", "forged.gjf"
+                ),
+            ),
+            (
+                "prepared-input-identity",
+                lambda value: object.__setattr__(
+                    value.prepared_input_binding,
+                    "prepared_input_binding_id",
+                    "forged-prepared-input-id",
+                ),
+            ),
+            (
+                "resource-payload",
+                lambda value: object.__setattr__(
+                    value.resolved_resource_request, "cores", 99
+                ),
+            ),
+            (
+                "resource-identity",
+                lambda value: object.__setattr__(
+                    value.resolved_resource_request,
+                    "resolved_resource_request_id",
+                    "forged-resource-id",
+                ),
+            ),
+            (
+                "profile-payload",
+                lambda value: object.__setattr__(
+                    value.resolved_server_profile, "remote_user", "forged-user"
+                ),
+            ),
+            (
+                "profile-identity",
+                lambda value: object.__setattr__(
+                    value.resolved_server_profile,
+                    "resolved_server_profile_id",
+                    "forged-profile-id",
+                ),
+            ),
+            (
+                "workspace-payload",
+                lambda value: object.__setattr__(
+                    value.workspace_binding,
+                    "remote_attempt_dir",
+                    "/home/user100/SDL/forged/attempt-1",
+                ),
+            ),
+            (
+                "workspace-identity",
+                lambda value: object.__setattr__(
+                    value.workspace_binding,
+                    "workspace_binding_id",
+                    "forged-workspace-id",
+                ),
+            ),
+            (
+                "pbs-payload",
+                lambda value: object.__setattr__(
+                    value.pbs_template_binding, "logical_name", "forged.pbs"
+                ),
+            ),
+            (
+                "pbs-identity",
+                lambda value: object.__setattr__(
+                    value.pbs_template_binding,
+                    "pbs_template_binding_id",
+                    "forged-pbs-id",
+                ),
+            ),
+            (
+                "outer-attempt",
+                lambda value: object.__setattr__(
+                    value, "attempt_id", "attempt-2"
+                ),
+            ),
+            (
+                "outer-plan",
+                lambda value: object.__setattr__(
+                    value, "calculation_plan_id", "plan-2"
+                ),
+            ),
+            (
+                "outer-plan-revision",
+                lambda value: object.__setattr__(
+                    value, "calculation_plan_revision", 4
+                ),
+            ),
+            (
+                "outer-submission-intent",
+                lambda value: object.__setattr__(
+                    value, "submission_intent_id", "forged-intent-id"
+                ),
+            ),
+            (
+                "outer-adapter-contract",
+                lambda value: object.__setattr__(
+                    value, "adapter_contract_version", "forged-adapter-v2"
+                ),
+            ),
+            (
+                "outer-snapshot-identity",
+                lambda value: object.__setattr__(
+                    value, "execution_snapshot_id", "forged-snapshot-id"
+                ),
+            ),
+        )
+
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                current_snapshot = snapshot(self.store, self.root / "local")
+                confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+                    self.store,
+                    current_snapshot,
+                    confirmer_id="operator-1",
+                    confirmer_evidence={"displayed": "exact snapshot"},
+                )
+                unchanged_outer_id = current_snapshot.execution_snapshot_id
+                mutate(current_snapshot)
+                if label != "outer-snapshot-identity":
+                    self.assertEqual(
+                        current_snapshot.execution_snapshot_id, unchanged_outer_id
+                    )
+                with mock.patch.object(
+                    core.SQLiteRuntimeStore,
+                    "record_submission_intent",
+                    side_effect=AssertionError("Core claim must not be called"),
+                ), mock.patch.object(
+                    execution,
+                    "execute_once",
+                    side_effect=AssertionError("execution effect must not be called"),
+                ):
+                    with self.assertRaises(approval.ApprovalConflictError):
+                        approval.ExactOperationalConfirmation.for_snapshot(
+                            self.store,
+                            current_snapshot,
+                            confirmer_id="operator-1",
+                            confirmer_evidence={"displayed": "forged snapshot"},
+                        )
+                    with self.assertRaises(approval.ApprovalConflictError):
+                        confirmation.assert_current(self.store, current_snapshot)
+                    with self.assertRaises(approval.ApprovalError):
+                        approval.validate_effect_authority(
+                            runtime_store=self.store,
+                            attempt=attempt,
+                            plan=current_plan,
+                            displayed_semantic_meaning=DISPLAYED_MEANING,
+                            scientific_approval=science,
+                            batch_submit_approval=batch,
+                            execution_snapshot=current_snapshot,
+                            operational_confirmation=confirmation,
+                        )
+                self.assertIs(
+                    self.store.attempt_state(attempt.attempt_id),
+                    core.AttemptState.PLANNED,
+                )
 
     def test_three_domains_are_separated(self) -> None:
         science = scientific(self.store)
@@ -201,6 +374,7 @@ class ApprovalModelTests(unittest.TestCase):
             reviewer_evidence={"statement": "reviewed semantic plan"},
         )
         confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
             snapshot(self.store, self.root / "local"),
             confirmer_id="reviewer-1",
             confirmer_evidence={"statement": "reviewed semantic plan"},
@@ -263,22 +437,26 @@ class ApprovalModelTests(unittest.TestCase):
             batch_variants[-1].member_for("attempt-1")
         current_snapshot = snapshot(self.store, self.root / "local")
         confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
             current_snapshot,
             confirmer_id="operator-1",
             confirmer_evidence={"displayed": "exact"},
         )
         confirmation_variants = (
             approval.ExactOperationalConfirmation.for_snapshot(
+                self.store,
                 current_snapshot,
                 confirmer_id="operator-2",
                 confirmer_evidence={"displayed": "exact"},
             ),
             approval.ExactOperationalConfirmation.for_snapshot(
+                self.store,
                 current_snapshot,
                 confirmer_id="operator-1",
                 confirmer_evidence={"displayed": "different"},
             ),
             approval.ExactOperationalConfirmation.for_snapshot(
+                self.store,
                 current_snapshot,
                 confirmer_id="operator-1",
                 confirmer_evidence={"displayed": "exact"},
@@ -293,7 +471,7 @@ class ApprovalModelTests(unittest.TestCase):
             )
         )
         with self.assertRaises(approval.ApprovalRejectedError):
-            confirmation_variants[-1].assert_current(current_snapshot)
+            confirmation_variants[-1].assert_current(self.store, current_snapshot)
 
     def test_pure_chain_validation_is_unspliced_and_zero_effect(self) -> None:
         current_plan = self.store.load_calculation_plan("plan-1")
@@ -307,6 +485,7 @@ class ApprovalModelTests(unittest.TestCase):
         )
         current_snapshot = snapshot(self.store, self.root / "local")
         confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
             current_snapshot,
             confirmer_id="operator-1",
             confirmer_evidence={},
@@ -346,6 +525,7 @@ class ApprovalModelTests(unittest.TestCase):
         )
         current_snapshot = snapshot(self.store, self.root / "local")
         confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
             current_snapshot,
             confirmer_id="operator-1",
             confirmer_evidence={},
@@ -374,6 +554,7 @@ class ApprovalModelTests(unittest.TestCase):
         )
         first_snapshot = snapshot(self.store, self.root / "local", attempt_id="attempt-1")
         confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
             first_snapshot,
             confirmer_id="operator-1",
             confirmer_evidence={},

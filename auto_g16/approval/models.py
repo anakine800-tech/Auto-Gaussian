@@ -10,8 +10,19 @@ from math import isfinite
 from typing import Final
 from uuid import UUID, uuid5
 
-from auto_g16.core import Attempt, AttemptState, CalculationPlan, SQLiteRuntimeStore
-from auto_g16.execution import ExecutionSnapshot
+from auto_g16.core import (
+    Attempt,
+    AttemptState,
+    CalculationPlan,
+    CoreValidationError,
+    RuntimeStoreError,
+    SQLiteRuntimeStore,
+)
+from auto_g16.execution import (
+    ExecutionSnapshot,
+    ExecutionValueError,
+    prepare_execution_snapshot,
+)
 
 APPROVAL_SCHEMA_VERSION: Final = 1
 _APPROVAL_NAMESPACE: Final = UUID("b6f5ea80-fd5d-5e67-a66b-e4b7f66e90b3")
@@ -558,14 +569,14 @@ class ExactOperationalConfirmation:
     @classmethod
     def for_snapshot(
         cls,
+        runtime_store: SQLiteRuntimeStore,
         snapshot: ExecutionSnapshot,
         *,
         confirmer_id: str,
         confirmer_evidence: Mapping[str, object],
         decision: ApprovalDecision = ApprovalDecision.APPROVED,
     ) -> ExactOperationalConfirmation:
-        if not isinstance(snapshot, ExecutionSnapshot):
-            raise ApprovalValueError("snapshot must be a public ExecutionSnapshot")
+        _assert_execution_snapshot_closed(runtime_store, snapshot)
         return cls._from_values(
             execution_snapshot_id=snapshot.execution_snapshot_id,
             attempt_id=snapshot.attempt_id,
@@ -592,9 +603,12 @@ class ExactOperationalConfirmation:
             "Exact Operational Confirmation authority",
         )
 
-    def assert_current(self, snapshot: ExecutionSnapshot) -> None:
-        if not isinstance(snapshot, ExecutionSnapshot):
-            raise ApprovalValueError("snapshot must be a public ExecutionSnapshot")
+    def assert_current(
+        self,
+        runtime_store: SQLiteRuntimeStore,
+        snapshot: ExecutionSnapshot,
+    ) -> None:
+        _assert_execution_snapshot_closed(runtime_store, snapshot)
         observed = {
             "execution_snapshot_id": snapshot.execution_snapshot_id,
             "attempt_id": snapshot.attempt_id,
@@ -639,6 +653,42 @@ class ApprovalScopeError(ApprovalError):
 
 class ApprovalRejectedError(ApprovalError):
     """The recorded human decision is not approved."""
+
+
+def _assert_execution_snapshot_closed(
+    runtime_store: SQLiteRuntimeStore,
+    snapshot: ExecutionSnapshot,
+) -> None:
+    """Rebuild one snapshot through Execution's public closure boundary."""
+
+    if not isinstance(runtime_store, SQLiteRuntimeStore):
+        raise ApprovalValueError("runtime_store must be a public Core SQLiteRuntimeStore")
+    if not isinstance(snapshot, ExecutionSnapshot):
+        raise ApprovalValueError("snapshot must be a public ExecutionSnapshot")
+    try:
+        rebuilt = prepare_execution_snapshot(
+            runtime_store,
+            attempt_id=snapshot.attempt_id,
+            calculation_plan_id=snapshot.calculation_plan_id,
+            resource_spec_id=snapshot.resolved_resource_request.resource_spec_id,
+            prepared_input_binding=snapshot.prepared_input_binding,
+            resolved_resource_request=snapshot.resolved_resource_request,
+            resolved_server_profile=snapshot.resolved_server_profile,
+            workspace_binding=snapshot.workspace_binding,
+            pbs_template_binding=snapshot.pbs_template_binding,
+            adapter_contract_version=snapshot.adapter_contract_version,
+        )
+    except (CoreValidationError, RuntimeStoreError, ExecutionValueError) as exc:
+        raise ApprovalConflictError(
+            "ExecutionSnapshot is not closed over its current public Execution records"
+        ) from exc
+    if (
+        rebuilt.execution_snapshot_id != snapshot.execution_snapshot_id
+        or rebuilt.semantic_payload() != snapshot.semantic_payload()
+    ):
+        raise ApprovalConflictError(
+            "ExecutionSnapshot identity is stale for its effect-relevant semantics"
+        )
 
 
 def validate_effect_authority(
@@ -695,4 +745,4 @@ def validate_effect_authority(
         raise ApprovalConflictError("ExecutionSnapshot belongs to another CalculationPlan")
     if execution_snapshot.calculation_plan_revision != plan.revision:
         raise StaleApprovalError("ExecutionSnapshot plan revision is stale")
-    operational_confirmation.assert_current(execution_snapshot)
+    operational_confirmation.assert_current(runtime_store, execution_snapshot)
