@@ -173,6 +173,15 @@ class PreparedInputBinding:
         if observed["sha256"] != self.sha256 or observed["size_bytes"] != self.size_bytes:
             raise ExecutionValueError("prepared input bytes differ from their frozen binding")
 
+    def assert_identity_closed(self) -> None:
+        payload = {
+            key: self.semantic_payload()[key]
+            for key in self.semantic_payload()
+            if key != "prepared_input_binding_id"
+        }
+        if semantic_id("prepared-input-binding", payload) != self.prepared_input_binding_id:
+            raise ExecutionValueError("prepared input binding identity is stale")
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ResolvedResourceRequest:
@@ -230,6 +239,15 @@ class ResolvedResourceRequest:
             "resolved_resource_request",
         )
 
+    def assert_identity_closed(self) -> None:
+        payload = {
+            key: self.semantic_payload()[key]
+            for key in self.semantic_payload()
+            if key != "resolved_resource_request_id"
+        }
+        if semantic_id("resolved-resource-request", payload) != self.resolved_resource_request_id:
+            raise ExecutionValueError("resolved resource request identity is stale")
+
 
 @dataclass(frozen=True, slots=True, kw_only=True, init=False)
 class ResolvedServerProfile:
@@ -243,6 +261,7 @@ class ResolvedServerProfile:
     platform_paths: Mapping[str, object]
     runtime_identities: Mapping[str, object]
     resolved_server_profile_id: str
+    _identity_payload: Mapping[str, object] = field(repr=False, compare=False)
 
     def __init__(self) -> None:
         raise TypeError("ResolvedServerProfile is created only by resolve_server_profile")
@@ -261,6 +280,7 @@ class ResolvedServerProfile:
         platform_paths: Mapping[str, object],
         runtime_identities: Mapping[str, object],
         resolved_server_profile_id: str,
+        identity_payload: Mapping[str, object],
     ) -> ResolvedServerProfile:
         value = object.__new__(cls)
         object.__setattr__(value, "server_profile_id", server_profile_id)
@@ -273,6 +293,7 @@ class ResolvedServerProfile:
         object.__setattr__(value, "platform_paths", platform_paths)
         object.__setattr__(value, "runtime_identities", runtime_identities)
         object.__setattr__(value, "resolved_server_profile_id", resolved_server_profile_id)
+        object.__setattr__(value, "_identity_payload", identity_payload)
         return value
 
     def semantic_payload(self) -> Mapping[str, object]:
@@ -291,6 +312,35 @@ class ResolvedServerProfile:
             },
             "resolved_server_profile",
         )
+
+    def assert_identity_closed(self) -> None:
+        identity_payload = self._identity_payload
+        effective_payload = freeze_mapping(
+            {
+                key: identity_payload[key]
+                for key in identity_payload
+                if key != "effective_config_sha256"
+            },
+            "effective server profile verification",
+        )
+        if semantic_sha256(effective_payload) != self.effective_config_sha256:
+            raise ExecutionValueError("resolved server profile digest is stale")
+        if identity_payload["effective_config_sha256"] != self.effective_config_sha256:
+            raise ExecutionValueError("resolved server profile digest payload is stale")
+        for key in (
+            "server_profile_id",
+            "profile_revision",
+            "transport_kind",
+            "target_identity",
+            "remote_user",
+            "remote_root",
+            "platform_paths",
+            "runtime_identities",
+        ):
+            if identity_payload[key] != getattr(self, key):
+                raise ExecutionValueError(f"resolved server profile {key} is stale")
+        if semantic_id("resolved-server-profile", identity_payload) != self.resolved_server_profile_id:
+            raise ExecutionValueError("resolved server profile identity is stale")
 
 
 def resolve_server_profile(profile: ServerProfile) -> ResolvedServerProfile:
@@ -413,19 +463,21 @@ def resolve_server_profile(profile: ServerProfile) -> ResolvedServerProfile:
         platform_paths=freeze_mapping(platform_paths, "platform_paths"),
         runtime_identities=freeze_mapping(runtime_identities, "runtime_identities"),
         resolved_server_profile_id=resolved_id,
+        identity_payload=identity_payload,
     )
     if _profile_marker(profile) != initial_marker:
         raise ExecutionValueError("ServerProfile mutated during resolution")
     return resolved
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class PbsTemplateBinding:
     logical_name: str
     sha256: str = field(init=False)
     size_bytes: int = field(init=False)
     template_contract_version: str
     pbs_template_binding_id: str = field(init=False)
+    _prepared_input_logical_name: str = field(init=False, repr=False, compare=False)
 
     def __init__(
         self,
@@ -507,8 +559,20 @@ class PbsTemplateBinding:
         if observed["sha256"] != self.sha256 or observed["size_bytes"] != self.size_bytes:
             raise ExecutionValueError("PBS template bytes differ from their frozen binding")
 
+    def assert_identity_closed(self) -> None:
+        payload = {
+            key: self.semantic_payload()[key]
+            for key in self.semantic_payload()
+            if key != "pbs_template_binding_id"
+        }
+        if semantic_id("pbs-template-binding", payload) != self.pbs_template_binding_id:
+            raise ExecutionValueError("PBS template binding identity is stale")
+        validate_portable_name(
+            self._prepared_input_logical_name, "prepared_input_logical_name"
+        )
 
-@dataclass(frozen=True, kw_only=True)
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class WorkspaceBinding:
     project_id: str
     attempt_id: str
@@ -516,6 +580,9 @@ class WorkspaceBinding:
     rtwin_attempt_dir: str | None
     remote_attempt_dir: str
     workspace_binding_id: str = field(init=False)
+    _local_parent_identity: tuple[int, int] = field(
+        init=False, repr=False, compare=False
+    )
 
     def __init__(
         self,
@@ -585,6 +652,19 @@ class WorkspaceBinding:
             },
             "workspace_binding",
         )
+
+    def assert_identity_closed(self) -> None:
+        payload = {
+            key: self.semantic_payload()[key]
+            for key in self.semantic_payload()
+            if key != "workspace_binding_id"
+        }
+        if semantic_id("workspace-binding", payload) != self.workspace_binding_id:
+            raise ExecutionValueError("workspace binding identity is stale")
+        validate_posix_path(self.local_attempt_dir, "local_attempt_dir")
+        validate_posix_path(self.remote_attempt_dir, "remote_attempt_dir")
+        if self.rtwin_attempt_dir is not None:
+            validate_windows_path(self.rtwin_attempt_dir, "rtwin_attempt_dir")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, init=False)

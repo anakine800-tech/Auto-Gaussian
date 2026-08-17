@@ -19,7 +19,13 @@ from auto_g16.core import (
     SubmissionOutcome,
 )
 
-from ._identity import ExecutionValueError, canonical_bytes, freeze_mapping, require_text
+from ._identity import (
+    ExecutionValueError,
+    canonical_bytes,
+    freeze_mapping,
+    require_text,
+    semantic_id,
+)
 from ._paths import verify_local_parent_identity
 from .models import (
     EffectKind,
@@ -30,6 +36,7 @@ from .models import (
     ServerProfile,
     resolve_server_profile,
 )
+from .preparation import assert_execution_snapshot_identity
 
 
 _JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -115,6 +122,13 @@ class ReceiptJournal:
         return tuple(receipts)
 
     def append(self, receipt: RemoteEffectReceipt) -> None:
+        if not isinstance(receipt, RemoteEffectReceipt):
+            raise ExecutionValueError("receipt must be a RemoteEffectReceipt")
+        if (
+            semantic_id("remote-effect-receipt", receipt.record_identity_payload())
+            != receipt.remote_effect_receipt_id
+        ):
+            raise ExecutionValueError("remote effect receipt identity is stale")
         existing = self.receipts_for_attempt(receipt.attempt_id)
         for item in existing:
             if item.execution_snapshot_id != receipt.execution_snapshot_id:
@@ -279,6 +293,7 @@ def execute_once(
 ) -> ExecutionAttemptResult:
     """Consume the Core claim once and drive only the synthetic/offline port."""
 
+    assert_execution_snapshot_identity(snapshot)
     if not isinstance(port, ExecutionPort):
         raise ExecutionValueError("port does not implement the frozen ExecutionPort")
     if store.attempt_state(snapshot.attempt_id) is AttemptState.PLANNED:

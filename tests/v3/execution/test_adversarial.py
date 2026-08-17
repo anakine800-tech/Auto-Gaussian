@@ -152,7 +152,69 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
         }
         for record_type, names in expected.items():
             with self.subTest(record_type=record_type.__name__):
-                self.assertEqual({item.name for item in fields(record_type)}, names)
+                self.assertEqual(
+                    {item.name for item in fields(record_type) if not item.name.startswith("_")},
+                    names,
+                )
+
+    def test_snapshot_records_are_slot_bound_and_nested_mutation_fails(self) -> None:
+        snapshot, _profile = self.snapshot()
+        records = (
+            snapshot,
+            snapshot.prepared_input_binding,
+            snapshot.resolved_resource_request,
+            snapshot.resolved_server_profile,
+            snapshot.workspace_binding,
+            snapshot.pbs_template_binding,
+        )
+        for record in records:
+            with self.subTest(record=type(record).__name__):
+                self.assertFalse(hasattr(record, "__dict__"))
+                with self.assertRaises((AttributeError, TypeError)):
+                    setattr(record, "injected", "forged")
+        with self.assertRaises((AttributeError, TypeError)):
+            snapshot.resolved_server_profile.platform_paths["rtwin_root"] = "forged"  # type: ignore[index]
+
+    def test_mutated_snapshot_graph_is_rejected_before_adapter_call(self) -> None:
+        mutations = (
+            ("prepared-input", "prepared_input_binding", "sha256", "0" * 64),
+            ("resource", "resolved_resource_request", "cores", 99),
+            ("profile", "resolved_server_profile", "remote_root", "/tmp/forged"),
+            ("workspace", "workspace_binding", "remote_attempt_dir", "/tmp/forged"),
+            ("workspace-parent", "workspace_binding", "_local_parent_identity", (0, 0)),
+            ("template", "pbs_template_binding", "sha256", "0" * 64),
+            (
+                "template-input-target",
+                "pbs_template_binding",
+                "_prepared_input_logical_name",
+                "other.gjf",
+            ),
+            ("snapshot", None, "execution_snapshot_id", "forged"),
+        )
+        for label, nested_name, field_name, forged_value in mutations:
+            with self.subTest(label=label):
+                snapshot, profile = self.snapshot()
+                target = snapshot if nested_name is None else getattr(snapshot, nested_name)
+                original = getattr(target, field_name)
+                object.__setattr__(target, field_name, forged_value)
+                adapter = execution.SyntheticRTWinAdapter()
+                try:
+                    with self.assertRaises(execution.ExecutionValueError):
+                        execution.execute_once(
+                            self.store,
+                            snapshot=snapshot,
+                            current_profile=profile,
+                            prepared_input_bytes=INPUT_BYTES,
+                            pbs_template_bytes=TEMPLATE_BYTES,
+                            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+                            port=adapter,
+                        )
+                    self.assertEqual(adapter.calls, ())
+                    self.assertIs(
+                        self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED
+                    )
+                finally:
+                    object.__setattr__(target, field_name, original)
 
     def test_receipt_exact_replay_is_idempotent_and_sequence_conflict_fails(self) -> None:
         snapshot, _profile = self.snapshot()
