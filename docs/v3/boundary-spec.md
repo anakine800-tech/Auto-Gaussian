@@ -107,10 +107,11 @@ invariants requires a new Core boundary review before integration.
 
 ## V30-EXEC-01 Frozen Execution Contract
 
-**Contract status: FROZEN. Implementation remains unauthorized.** This is the
-RTwin-first `legacy_rtwin_pbs` execution boundary, not a generic execution or
-transport framework. `ExecutionSnapshot`, preparation records, effect evidence,
-and transport remain outside `auto_g16.core`.
+**Contract status: FROZEN; IMPLEMENTATION INTEGRATED ON
+`main@2911451eb91a63c4c1df7601b4ac49610b6205a3`.** This is the RTwin-first
+`legacy_rtwin_pbs` execution boundary, not a generic execution or transport
+framework. `ExecutionSnapshot`, preparation records, effect evidence, and
+transport remain outside `auto_g16.core`.
 
 ### Package placement and identity
 
@@ -337,10 +338,11 @@ port. ExecutionSnapshot and transport/effect behavior remain outside Core.
 
 ## V30-RESULT-01 Frozen Result Provenance Contract
 
-**Contract status: FROZEN. Implementation remains unauthorized.** The public
-package is `auto_g16.result`; focused tests belong under `tests/v3/result/`.
-It may depend on `auto_g16.core`, but not live Transport, PBS, or RTwin, and it
-does not change the Core schema. The only legal append-only chain is:
+**Contract status: FROZEN; IMPLEMENTATION INTEGRATED ON
+`main@2911451eb91a63c4c1df7601b4ac49610b6205a3`.** The public package is
+`auto_g16.result`; focused tests belong under `tests/v3/result/`. It may depend
+on `auto_g16.core`, but not live Transport, PBS, or RTwin, and it does not
+change the Core schema. The only legal append-only chain is:
 
 ```text
 CalculationPlan

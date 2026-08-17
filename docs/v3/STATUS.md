@@ -1,7 +1,8 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** Unified EXEC/RESULT contract-freeze documentation is a
-  local candidate only; no implementation lane is authorized.
+- **Current phase:** `V30-RESULT-01` and `V30-EXEC-01` are integrated on
+  `main@2911451eb91a63c4c1df7601b4ac49610b6205a3`; the next product gate is
+  the `V30-3` Approval Contract Freeze, not approval implementation.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -37,16 +38,20 @@
   Integration Owner structure, validation policy, and four Task Contracts are
   frozen in [`AUTONOMOUS_DEVELOPMENT.md`](AUTONOMOUS_DEVELOPMENT.md). Planning
   completion does not authorize implementation.
-- **Contract frozen:** `V30-EXEC-01` is FROZEN. EXEC implementation remains
-  pending repository authority and is not authorized by this candidate.
-- **Contract frozen:** `V30-RESULT-01` is FROZEN. RESULT implementation remains
-  pending repository authority and is not authorized by this candidate.
+- **Satisfied / integrated:** `V30-RESULT-01` is integrated on
+  `main@9b771eb758e80dc8818e2022016bdef9db7075e7`; its exact-main affected CI and
+  CodeQL are PASS.
+- **Satisfied / integrated:** `V30-EXEC-01` is integrated on
+  `main@2911451eb91a63c4c1df7601b4ac49610b6205a3`; its exact-main affected CI
+  and CodeQL are PASS.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
-- **Next gate:** Independent Unified Contract Freeze Review.
+- **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
+  other live-effect authority.
+- **Next gate:** `V30-3A` Approval Contract Freeze.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** `ExecutionSnapshot`, transport, execution-safety, conformer,
-  knowledge, reaction, or TS implementation; production changes, deployment,
-  live smoke, and SSH/PBS/Gaussian operations also remain unauthorized.
+- **Do not start:** `V30-3B` approval implementation, `V30-EXEC-02`, production
+  changes, deployment, live smoke, and SSH/PBS/Gaussian operations remain
+  unauthorized.
