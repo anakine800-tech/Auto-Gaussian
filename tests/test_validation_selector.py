@@ -51,6 +51,19 @@ EXEC_TESTS = [
     "tests.v3.core.test_store",
     "tests.v3.execution",
 ]
+APPROVAL_SAFETY = [
+    "approval-owner-separation",
+    "at-most-one-submission",
+    "reconciliation",
+    "unknown-no-automatic-retry",
+]
+APPROVAL_TESTS = [
+    "tests.test_execution_authorization",
+    "tests.test_live_approval_effect_time_replay",
+    "tests.v3.approval",
+    "tests.v3.core.test_store",
+    "tests.v3.execution",
+]
 RESULT_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
 RESULT_TESTS = ["tests.v3.core.test_store", "tests.v3.result"]
 
@@ -239,6 +252,7 @@ class ValidationSelectorTests(unittest.TestCase):
             ("AGENTS.md", "v3 authority routing\n", "v3-full", False),
             ("README.md", "focused readme\n", "focused", False),
             ("auto_g16/core/store.py", "affected store\n", "affected", False),
+            ("auto_g16/approval/service.py", "approval owner\n", "affected", False),
             ("auto_g16/execution/service.py", "execution owner\n", "affected", False),
             ("auto_g16/result/parser.py", "result owner\n", "affected", False),
             ("tests/v3/core/test_store.py", "core safety\n", "v3-full", False),
@@ -560,6 +574,74 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertEqual(result["tests"], tests)
                 self.assertEqual(result["safety_evidence"], safety)
                 self.assertFalse(result["fail_closed"])
+
+    def test_approval_route_owns_future_product_and_test_prefixes(self) -> None:
+        product = change("A", "auto_g16/approval/service.py")
+        tests = change("A", "tests/v3/approval/test_service.py")
+        decisions = {
+            "product only": self.select(product),
+            "tests only": self.select(tests),
+            "product then tests": self.select(product, tests),
+            "tests then product": self.select(tests, product),
+        }
+        for label, decision in decisions.items():
+            with self.subTest(label=label):
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(decision["matched_routes"], ["v30-approval"])
+                self.assertEqual(decision["tests"], APPROVAL_TESTS)
+                self.assertEqual(decision["safety_evidence"], APPROVAL_SAFETY)
+                self.assertFalse(decision["fail_closed"])
+
+        for field in (
+            "changed_paths",
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(
+                decisions["product then tests"][field],
+                decisions["tests then product"][field],
+            )
+
+    def test_approval_and_execution_union_is_deterministic(self) -> None:
+        approval = change("M", "auto_g16/approval/service.py")
+        execution = change("M", "auto_g16/execution/service.py")
+        forward = self.select(approval, execution)
+        reverse = self.select(execution, approval)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(forward["matched_routes"], ["v30-approval", "v30-execution"])
+        self.assertEqual(forward["tests"], sorted({*APPROVAL_TESTS, *EXEC_TESTS}))
+        self.assertEqual(forward["safety_evidence"], EXEC_SAFETY)
+        self.assertFalse(forward["fail_closed"])
+
+    def test_approval_and_core_store_close_required_safety_evidence(self) -> None:
+        approval = change("M", "auto_g16/approval/service.py")
+        core_store = change("M", "auto_g16/core/store.py")
+        forward = self.select(approval, core_store)
+        reverse = self.select(core_store, approval)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(forward["matched_routes"], ["core-store", "v30-approval"])
+        self.assertEqual(
+            forward["tests"],
+            sorted({*APPROVAL_TESTS, "tests.v3.core.test_models"}),
+        )
+        self.assertEqual(
+            forward["safety_evidence"],
+            [
+                "approval-owner-separation",
+                "at-most-one-submission",
+                "no-overwrite",
+                "reconciliation",
+                "unknown-no-automatic-retry",
+            ],
+        )
+        self.assertFalse(forward["fail_closed"])
 
     def test_mixed_execution_and_result_change_uses_deterministic_union(self) -> None:
         execution = change("M", "auto_g16/execution/service.py")
