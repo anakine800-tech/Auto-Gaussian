@@ -5,10 +5,12 @@ select implementation techniques.
 
 ## Dependency Direction
 
-`Skills -> Workflows -> Core`
+`Skills -> Workflow -> Approval / Execution / Result -> Core`
 
-Skills compose workflows, and workflows depend on Core. Core must not depend
-on a Skill. Reverse imports across this direction are forbidden.
+Skills compose workflows. Workflow may depend only on public Approval,
+Execution, Result, and Core surfaces; those layers must not import Workflow.
+Core must not depend on a Skill or any higher layer. Reverse imports across
+this direction are forbidden.
 
 ## Core Objects
 
@@ -107,16 +109,18 @@ invariants requires a new Core boundary review before integration.
 
 ## V30-3A Frozen Approval Authority Contract
 
-**Contract status: FROZEN; IMPLEMENTATION NOT AUTHORIZED.** Approval
-belongs to a later Workflow/Controller layer. It does not add an
+**Contract status: FROZEN; IMPLEMENTATION INTEGRATED ON
+`main@4a181871b0894161dd74fe91c405aa35e3691fd6`.** Approval belongs to a
+Workflow/Controller layer. It does not add an
 `auto_g16.core` record, store method, state transition, schema table, or effect
 owner, and it does not reopen the frozen Execution or Result contracts. The
 approval-layer package is `auto_g16.approval`, with focused tests under
 `tests/v3/approval/`. It may depend on the public `auto_g16.core` and
 `auto_g16.execution` surfaces; neither Core nor Execution may depend on it.
 Workflows or a Controller compose the approval layer with execution. V30-3A
-fixes package ownership, authority, and invalidation semantics only; V30-3B
-must separately review public type shapes, persistence, and implementation.
+fixes package ownership, authority, and invalidation semantics; V30-3B
+separately reviewed and integrated the public type shapes, persistence, and
+implementation without changing this contract.
 
 The only legal approval-to-effect chain is:
 
@@ -253,8 +257,9 @@ zero submission effect unless the exact Core submission-intent claim returns
 Exact replay of unchanged approval evidence is deterministic and idempotent;
 the same evidence identity with different content conflicts. Approval evidence
 is durable review evidence, not a batch transaction, receipt owner-chain,
-single-use capability forest, or hash-lineage authority. The V30-3B design may
-not port those legacy governance mechanisms as an implicit requirement.
+single-use capability forest, or hash-lineage authority. The integrated V30-3B
+implementation does not port those legacy governance mechanisms as an implicit
+requirement.
 
 An ambiguous submission remains `UNKNOWN` under the frozen Core and Execution
 contracts. It authorizes only read-only same-Attempt reconciliation, never an
@@ -640,6 +645,173 @@ capture completeness, parse status, Result existence, and scientific
 acceptance remain separate facts. Minimum, transition-state, IRC, workflow,
 and other scientific acceptance require a later independent review. Core API
 and schema remain unchanged.
+
+## V30-WF-CONTRACT-01 Frozen Minimal Workflow Contract
+
+**Contract status: FROZEN; IMPLEMENTATION NOT AUTHORIZED.** The public package
+is `auto_g16.workflow`, with focused tests under `tests/v3/workflow/`. This
+contract defines V30-4 only. It changes no Core, Approval, Execution, or Result
+API or schema; grants no Transport, PBS, Gaussian, deployment, or live
+authority; and does not activate `V30-EXEC-02`.
+
+### Package and public record boundary
+
+`auto_g16.workflow` owns deterministic orchestration data and read-only run
+projection. Its public value records are immutable, keyword-only, and deeply
+closed over canonical semantic values. Every record identity is UUIDv5 from a
+source-controlled, schema-versioned, domain-separated namespace and the
+complete canonical authority payload. Exact replay has the same identity; the
+same identity with different content conflicts. Timestamps, serialization
+formatting, file paths, and hashes that are not explicit semantic fields do not
+decide Workflow authority.
+
+The frozen public record inventory and fields are:
+
+| Record | Fields |
+| --- | --- |
+| `Node` | `node_id`, `task_id`, `calculation_plan_id`, positive `calculation_plan_revision`, `node_kind`, canonical finite `input_roles`, canonical finite `output_roles` |
+| `Edge` | `edge_id`, `source_node_id`, `source_output_role`, `target_node_id`, `target_input_role`, optional `condition_id`, `branch` (`always`, `true`, or `false`) |
+| `Map` | `map_id`, `source_node_id`, `source_output_role`, canonical finite `items`; every item has one explicit `item_key`, `target_node_id`, and `target_input_role` |
+| `Condition` | `condition_id`, `source_node_id`, fixed `predicate = attempt_state_in`, canonical non-empty terminal `expected_states`, canonical `true_edge_ids`, canonical `false_edge_ids` |
+| `HumanGate` | `human_gate_id`, canonical non-empty `target_node_ids`, `prompt` |
+| `WorkflowDefinition` | `schema_version`, `workflow_definition_id`, `workflow_run_id`, `workflow_name`, canonical tuples of all `Node`, `Edge`, `Map`, `Condition`, and `HumanGate` records |
+| `WorkflowEvaluationInput` | `workflow_definition_id`, canonical finite `node_attempt_ids` mapping; an omitted node has no allocated Attempt |
+| `ConditionDecision` | `condition_decision_id`, `workflow_definition_id`, `workflow_run_id`, `condition_id`, `node_id`, `attempt_id`, exact terminal `observed_state`, canonical `selected_edge_ids` |
+| `HumanGateDecision` | `human_gate_decision_id`, `workflow_definition_id`, `workflow_run_id`, `human_gate_id`, `decision`, `reviewer_id`, canonical `review_evidence` |
+| `WorkflowRunView` | `workflow_definition_id`, `workflow_run_id`, canonical active, ready, pending, blocked, and terminal node IDs, exact decision IDs, and `run_outcome` (`pending`, `active`, `blocked`, or `completed`) |
+
+`node_kind` is an opaque orchestration discriminator. It is not a Gaussian,
+CREST, xTB, PBS, TS, IRC, thermochemistry, or scientific-acceptance policy.
+Input and output roles are typed names only; Workflow never interprets their
+scientific or program-specific payloads.
+
+The frozen public behavior is exposed through `validate_workflow_definition`,
+`record_condition_decision`, `record_human_gate_decision`, and
+`replay_workflow`, plus the minimal `SQLiteWorkflowStore`. There is no public
+callback, plugin, shell, code-evaluation, submit, execute, retry, cancel, or
+cleanup API.
+
+### Finite graph, mapping, and branch semantics
+
+A `WorkflowDefinition` binds one exact existing Core `WorkflowRun`. Every Node
+binds one exact existing Core `Task` in that run and one exact existing
+`CalculationPlan` ID and positive revision for that Task. The definition never
+asks Core to enumerate Tasks or infer a current plan revision: all identities
+are explicit and validated through existing public Core loads.
+
+Node IDs, edge IDs, map IDs, condition IDs, gate IDs, role names, and map item
+keys are non-empty and unique in their owning scope. Every referenced node,
+edge, role, condition, and gate must exist exactly once. A target input role has
+one producer on any active path. Missing, self, duplicate, ambiguous-producer,
+role-incompatible, or orphan references fail closed.
+
+The union of every possible unconditional and conditional edge is one finite
+acyclic graph. Topological order is derived with a stable lexical tie-break;
+caller order never changes it. A `Map` is only a finite, explicitly enumerated
+fan-out from one source role to already declared target Nodes. It cannot
+discover inputs, create Nodes or Tasks, evaluate code, or expand after the
+definition is frozen.
+
+V30-4 has one Condition predicate: membership of the source Node's exact bound
+Attempt state in a declared non-empty subset of Core terminal states
+`SUCCEEDED`, `FAILED`, and `NOT_SUBMITTED`. A condition can select only its
+predeclared true or false edges. It is recorded only against an exact supplied
+Attempt that belongs to the source Node's Task and whose public Core state is
+the recorded terminal state. `UNKNOWN`, running, missing, cross-Task, or stale
+Attempt evidence cannot produce a branch decision.
+
+A HumanGate decision is `approved` or `rejected`, binds the exact definition
+and gate, and is append-only. Approval opens only the named orchestration path;
+rejection leaves it blocked. A Workflow HumanGate is never Scientific
+Approval, Batch Submit Approval, Exact Operational Confirmation, or scientific
+acceptance.
+
+### Canonical state, persistence, and replay
+
+The immutable `WorkflowDefinition` and append-only `ConditionDecision` and
+`HumanGateDecision` records are canonical Workflow-owned state. They persist
+in a Workflow-owned SQLite schema version 1, separate from Core and Approval
+databases. The SQL layout is private, but fresh-schema identity, exact closed
+record decoding, deterministic insertion order, durable reopen, no implicit
+migration, exact replay idempotency, same-identity conflict, and no
+update/delete semantics are public acceptance requirements.
+
+`WorkflowRunView` is not stored as mutable truth. `replay_workflow` derives it
+from the exact immutable definition, exact persisted decisions, explicit
+`WorkflowEvaluationInput`, and public Core records. Reopening with those same
+inputs produces the same view. A decision from another definition, run, node,
+gate, condition, Task, or Attempt is rejected rather than spliced.
+
+There is at most one ConditionDecision for an exact definition, condition, and
+source Attempt, and at most one HumanGateDecision for an exact definition and
+gate. Exact replay is idempotent; a second different decision for either
+authority key conflicts. The store never resolves competing branch or human
+decisions by insertion order.
+
+The explicit node-to-Attempt mapping closes the absence of a public Core list
+API. Every supplied Attempt must exist and belong to the exact Node Task; no
+Attempt may be discovered, selected, created, replaced, or retried because a
+Node exists. A Node without an Attempt may become `ready`, which is only a
+proposal for a separately gated Controller action. A Node with an Attempt
+reflects the public Core state; Workflow never writes or overrides that state.
+
+An active run is `completed` only when every active Node has an exact terminal
+Core outcome and every required branch and HumanGate decision closes. This
+means orchestration is exhausted, not that any structure, calculation, result,
+minimum, TS, IRC, or scientific conclusion is accepted. Missing evidence,
+rejected gates, and `UNKNOWN` remain explicit blocked states.
+
+`pending` means the exact definition is valid but required upstream inputs or
+decisions are not yet available; `active` means at least one active Node is
+ready or has a nonterminal exact Attempt; `blocked` means no legal progress is
+available because a required gate was rejected or exact failure/`UNKNOWN`
+evidence stops the path; `completed` has the closed meaning above. The result
+is derived deterministically, never caller-selected.
+
+### Authority and failure boundaries
+
+Workflow may validate or compose public Approval, Execution, Result, and Core
+records, but it never owns their meaning. In particular:
+
+- Node readiness, a branch decision, a Map, and a HumanGate each grant zero
+  Core transition and zero filesystem, transport, scheduler, PBS, or Gaussian
+  effect.
+- Workflow never creates a root or recovery-child Attempt, changes a
+  CalculationPlan, chooses resources, resolves an `ExecutionSnapshot`, or
+  manufactures approval evidence.
+- A future Controller must still replay the current Scientific Approval, exact
+  Batch member, exact Operational Confirmation, and obtain explicit Core
+  `WINNER` before calling Execution. Workflow provides no shortcut.
+- `REPLAY` and every non-winner path make zero effect calls. `UNKNOWN` blocks
+  the affected path and creates no retry, replacement, child, Batch membership,
+  confirmation, or submission authority.
+- A separately authorized recovery child must already satisfy Core and
+  Approval contracts and be supplied explicitly to a later evaluation; V30-4
+  does not create or silently adopt it.
+
+The minimum implementation must remain offline and deterministic. A need for a
+new Core field, schema, enumeration method, state transition, public callback,
+dynamic node creation, distributed scheduler, event bus, or effectful API is a
+contract stop, not an implementation choice.
+
+### Narrow reuse boundary
+
+V30-4 ports the existing public Core `WorkflowRun`, `Task`, `Attempt`,
+`CalculationPlan`, and `SQLiteRuntimeStore` load/state APIs without changing
+them. It extracts finite-DAG, cycle, missing-reference, deterministic
+topological-order, and read-only-projection invariants and adversarial tests
+from `skills/auto-g16-reaction-workflow/scripts/calculation_dag.py` and
+`tests/test_calculation_dag.py`.
+
+The legacy `gaussian-reaction-calculation-plan/1` artifact may be wrapped only
+as an external scientific-plan input through an explicit validated identity
+mapping. Its chemistry-specific node kinds, stage matrix, alternatives,
+supersession, embedded execution state, `executable`, `calculation_ready`, file
+hash lineage, and resume index are not Workflow runtime authority. Generic
+typed graph validation and run projection are rewritten because the legacy
+private dictionary implementation mixes orchestration with chemistry and file
+artifact policy. Transport, program execution, scientific policy, and live
+work remain deferred.
 
 ## Context Boundaries
 

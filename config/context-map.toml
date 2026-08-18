@@ -90,6 +90,25 @@ focused_tests = [
 ]
 
 [[component]]
+id = "v30-workflow"
+status = "contract-frozen"
+required_sections = [
+  "OWNER_DECISIONS.md#od-11-minimal-workflow-is-deterministic-orchestration-not-effect-authority",
+  "docs/v3/boundary-spec.md#v30-wf-contract-01-frozen-minimal-workflow-contract",
+  "docs/v3/acceptance.md#v30-wf-contract-01-minimal-deterministic-workflow",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-wf-contract-01",
+  "docs/v3/reuse-adjudication.md#v30-wf-contract-01-narrow-reuse-adjudication",
+]
+code_paths = [
+  "auto_g16/workflow/",
+  "skills/auto-g16-reaction-workflow/scripts/calculation_dag.py",
+]
+focused_tests = [
+  "tests/v3/workflow/",
+  "tests/test_calculation_dag.py",
+]
+
+[[component]]
 id = "execution-safety"
 status = "reuse-source"
 required_sections = [

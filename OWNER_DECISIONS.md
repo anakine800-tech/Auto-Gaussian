@@ -111,3 +111,43 @@ current chain followed by the explicit Core `WINNER` claim may reach an effect.
 approval only when it still binds the exact same CalculationPlan; it always
 requires new Batch Submit Approval membership, a new snapshot, and a new exact
 operational confirmation.
+
+## OD-11: Minimal workflow is deterministic orchestration, not effect authority
+
+The v3.0 Workflow layer is an immutable, finite DAG over exact existing Core
+identities. Its public package is `auto_g16.workflow`, with focused tests under
+`tests/v3/workflow/`. It owns dependency order, bounded static mapping,
+condition branches, human orchestration gates, and a deterministic read-only
+run projection. It does not redefine Core records or persistence semantics.
+
+Every node binds one exact Core `Task` and one exact `CalculationPlan` ID and
+positive revision. The workflow definition enumerates those identities
+explicitly; it never discovers the current plan or lists Tasks through a new
+Core API. Every possible edge and mapped target is present in the finite
+definition, and the union of possible paths is acyclic. Conditions use a
+closed, data-only predicate over an exact supplied Attempt state. Arbitrary
+Python callbacks, shell commands, code evaluation, dynamic node creation, and
+open-ended fan-out are not Workflow features.
+
+The existing Core `WorkflowRun`, `Task`, `Attempt`, and `CalculationPlan`
+records remain authoritative for runtime identity and state. A Workflow
+evaluation receives an explicit finite node-to-Attempt mapping and validates
+every supplied record through public Core APIs. Missing bindings remain
+explicitly pending; a ready node is only a proposal for the next separately
+gated action. Workflow never creates a root or recovery Attempt, claims Core
+`WINNER`, calls Execution, or crosses an effect boundary.
+
+Workflow definitions and completed branch or HumanGate decisions use
+schema-versioned, domain-separated deterministic identities and a small
+Workflow-owned append-only persistence surface. Exact replay is idempotent;
+the same identity with different content conflicts. A `WorkflowRunView` is a
+derived projection, not separately mutable state. Reopening the same exact
+definition, decisions, explicit Attempt bindings, and Core state produces the
+same view.
+
+A Workflow `HumanGate` is orchestration state only. It never substitutes for
+Scientific Approval, Batch Submit Approval, Exact Operational Confirmation,
+scientific acceptance, or Core `WINNER`. `UNKNOWN` blocks the affected path and
+creates no retry, replacement, child, approval, or effect authority. Recovery
+children remain governed by the existing Core and Approval contracts and are
+outside automatic Workflow behavior.

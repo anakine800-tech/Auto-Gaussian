@@ -1,8 +1,8 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-3A` Approval Contract Freeze. Independent Contract
-  Review is PASS and the V30-3A contract is FROZEN; approval implementation
-  remains unauthorized.
+- **Current phase:** `V30-WF-CONTRACT-01` Workflow Contract Freeze. The V30-4
+  public contract is FROZEN; Workflow implementation remains unauthorized
+  pending separate validation-ownership and implementation Owner Gates.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -47,22 +47,31 @@
 - **Closed:** `V3-MAINT-TEST-03` and `V30-INTEGRATION-CLOSEOUT-01` are
   integrated on `main@6ab92707d3ff5c2f930c8566b8631684a16d4e22`;
   exact-main `v3-full` CI and CodeQL are PASS.
-- **Contract frozen:** V30-3A freezes separate Scientific Approval, exact
-  finite-set Batch Submit Approval, and exact ExecutionSnapshot Operational
-  Confirmation authorities, owned by the future `auto_g16.approval` package.
-  It changes no Core API/schema and reopens neither the EXEC nor RESULT
-  contract.
+- **Closed / integrated:** V30-3A and V30-3B are CLOSED. Scientific Approval,
+  exact finite-set Batch Submit Approval, and exact ExecutionSnapshot
+  Operational Confirmation are integrated under `auto_g16.approval` on
+  `main@4a181871b0894161dd74fe91c405aa35e3691fd6`. V30-3 changes no Core
+  API/schema and reopens neither the EXEC nor RESULT contract.
+- **Closed:** `V30-AUTH-HYGIENE-01` is integrated on
+  `main@d3a3626a9b93d5f744e71bfafa60e60e85b11fa1`; the residual v2/v3
+  Project-versus-Attempt workspace wording ambiguity is closed.
+- **Contract frozen:** V30-WF-CONTRACT-01 fixes the minimal finite Workflow DAG,
+  bounded Map, terminal Attempt-state Condition, HumanGate, append-only
+  decision persistence, deterministic replay, Core relationship, and
+  zero-effect boundary. It creates no Core/API/schema change and grants no
+  implementation or live authority.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** After V30-3A integration, activate explicit validation
-  ownership for `auto_g16.approval/**` and `tests/v3/approval/**` under a
-  separate Owner Gate.
+- **Next gate:** After V30-WF-CONTRACT-01 integration, activate explicit
+  change-aware validation ownership for `auto_g16/workflow/**` and
+  `tests/v3/workflow/**` under `V30-VAL-WF-01`; only then may a separate
+  V30-4 implementation Owner Gate be considered.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** `V30-3B` approval implementation, validation-ownership
-  changes without their separate Owner Gate, `V30-EXEC-02`, production
+- **Do not start:** Workflow validation-ownership changes without their
+  separate Owner Gate, V30-4 implementation, `V30-EXEC-02`, production
   changes, deployment, live smoke, and SSH/PBS/Gaussian operations remain
   unauthorized.

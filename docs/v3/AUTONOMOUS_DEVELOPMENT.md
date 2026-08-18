@@ -41,25 +41,26 @@ smoke, retry, cancellation, cleanup, or scientific-acceptance authority.
 
 ## Frozen Post-Core Task Contracts
 
-Planning priority is:
+The current post-V30-3 sequence is:
 
-1. `V3-MAINT-TEST-01`
-2. `V30-EXEC-01`
-3. `V30-RESULT-01`
+1. `V30-WF-CONTRACT-01`
+2. `V30-VAL-WF-01` (separate Owner Gate)
+3. `V30-4-IMPL-01` (separate Owner Gate)
 4. `V30-EXEC-02` (`WAIT`)
 
-The control structure is fixed:
+The control structure remains serial at integration:
 
 ```text
 Integration Owner
-├── V3-MAINT-TEST-01
-├── V30-EXEC-01
-└── V30-RESULT-01
+└── V30-WF-CONTRACT-01
+    -> V30-VAL-WF-01
+    -> V30-4-IMPL-01
 V30-EXEC-02 WAIT
 ```
 
-At most the three children of Integration Owner may be active concurrently.
-Integration and merge remain serial.
+At most three independent workstreams may be active concurrently. Integration
+and merge remain serial. Historical closed contracts below remain authority
+for their owned surfaces.
 
 ### V3-MAINT-TEST-01
 
@@ -152,6 +153,44 @@ Integration and merge remain serial.
   validation evidence, unresolved scientific decisions, and Integration Owner
   next gate.
 
+### V30-WF-CONTRACT-01
+
+- **Outcome:** Freeze the smallest deterministic, offline-only V30-4 Workflow
+  public boundary for finite dependency ordering, bounded static mapping,
+  terminal Attempt-state conditions, HumanGate orchestration, append-only
+  decisions, and read-only replay.
+- **Scope:** Contract authority only in existing v3 documents and context
+  routing. The public package is `auto_g16.workflow`; focused tests will belong
+  under `tests/v3/workflow/`. The contract fixes the exact public inventory,
+  Core relationships, finite-DAG rules, state/persistence ownership,
+  deterministic replay, Approval separation, `UNKNOWN` behavior, acceptance,
+  reuse adjudication, and non-goals.
+- **Explicit non-goals:** No product or selector implementation, Core/API/schema
+  change, Approval/Execution/Result change, dynamic scheduler, callback/plugin
+  framework, scientific policy, transport, SSH, RTwin/PBS/Gaussian, deployment,
+  live work, `V30-EXEC-02`, or V30-4 implementation.
+- **Dependencies:** V30-3 and authority hygiene are `CLOSED`; OD-11 and the
+  frozen Workflow boundary/acceptance sections are authoritative. Existing
+  public Core WorkflowRun/Task/Attempt/CalculationPlan and Approval/Execution/
+  Result contracts stay unchanged.
+- **Autonomy:** `OWNER-GUIDED`. The contract may be decomposed into narrow reuse
+  inspection, authority drafting, offline consistency checks, and independent
+  adversarial review only.
+- **Stop rules:** Stop for any required Core field/schema/API, public callback,
+  dynamic node creation, attempt enumeration, implicit current-plan selection,
+  scientific-condition policy, effectful API, new shared framework, scope
+  expansion, frozen-contract conflict, or two same-class repair failures.
+- **Acceptance/validation:** Prove exact record/API inventory, deterministic
+  UUIDv5 replay, finite acyclic graph and lexical topological order, explicit
+  Task/plan/Attempt closure, bounded Map and closed terminal-state Condition,
+  durable append-only decisions, deterministic reopened projection, HumanGate
+  separation, `UNKNOWN` no-retry, zero Core/effect behavior, dependency
+  direction, and byte-identical Core/Approval/Execution/Result contracts.
+- **Handoff:** Freeze base/head/tree and exact document scope, the narrow
+  `PORT`/`EXTRACT`/`WRAP`/`REWRITE`/`DROP`/`DEFER` adjudication, findings,
+  validation, and the independent Contract Owner Gate. Completion does not
+  authorize publication, selector mutation, or implementation.
+
 ### V30-EXEC-02
 
 - **Outcome:** Deliver the Owner-selected second execution/transport increment
@@ -173,5 +212,5 @@ Integration and merge remain serial.
 - **Handoff:** Report `WAIT`, dependency evidence present/missing, blocker, and
   Owner activation as the only next gate.
 
-Planning completion leaves every implementation lane `NOT STARTED` and grants
-no automatic authority to open one.
+Contract completion grants no automatic authority to open validation ownership,
+Workflow implementation, `V30-EXEC-02`, or live work.
