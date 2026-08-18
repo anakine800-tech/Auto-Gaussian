@@ -605,6 +605,14 @@ def reconcile_unknown_from_receipt(
         or receipt.submission_intent_id != snapshot.submission_intent_id
     ):
         raise ExecutionValueError("reconciliation evidence does not bind the same snapshot")
+    if (
+        receipt.effect_state is EffectState.CONFIRMED_EFFECT
+        and receipt.remote_workspace
+        != snapshot.workspace_binding.remote_attempt_dir
+    ):
+        raise ExecutionValueError(
+            "confirmed job reconciliation does not bind the exact remote workspace"
+        )
     journal = ReceiptJournal(store)
     if store.attempt_state(snapshot.attempt_id) is not AttemptState.UNKNOWN:
         raise ExecutionValueError("read-only execution reconciliation requires UNKNOWN")
@@ -617,11 +625,18 @@ def reconcile_unknown_from_receipt(
         resolution = ReconciliationResolution.SUBMITTED
     else:
         raise ExecutionValueError("confirmed submission reconciliation requires a job_id")
-    existing_job_ids = {
-        item.job_id
-        for item in journal.receipts_for_attempt(snapshot.attempt_id)
-        if item.job_id is not None
-    }
+    existing_receipts = journal.receipts_for_attempt(snapshot.attempt_id)
+    existing_job_receipts = tuple(
+        item for item in existing_receipts if item.job_id is not None
+    )
+    if any(
+        item.remote_workspace != snapshot.workspace_binding.remote_attempt_dir
+        for item in existing_job_receipts
+    ):
+        raise ExecutionConflictError(
+            "existing job evidence does not bind the exact remote workspace"
+        )
+    existing_job_ids = {item.job_id for item in existing_job_receipts}
     if len(existing_job_ids) > 1 or (
         existing_job_ids
         and (
