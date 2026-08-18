@@ -673,7 +673,7 @@ The frozen public record inventory and fields are:
 | --- | --- |
 | `Node` | `node_id`, `task_id`, `calculation_plan_id`, positive `calculation_plan_revision`, `node_kind`, canonical finite `input_roles`, canonical finite `output_roles` |
 | `Edge` | `edge_id`, `source_node_id`, `source_output_role`, `target_node_id`, `target_input_role`, optional `condition_id`, `branch` (`always`, `true`, or `false`) |
-| `Map` | `map_id`, `source_node_id`, `source_output_role`, canonical finite `items`; every item has one explicit `item_key`, `target_node_id`, and `target_input_role` |
+| `Map` | `map_id`, `source_node_id`, `source_output_role`, canonical finite `items`; every item is the closed tuple `(item_key, target_node_id, target_input_role)` |
 | `Condition` | `condition_id`, `source_node_id`, fixed `predicate = attempt_state_in`, canonical non-empty terminal `expected_states`, canonical `true_edge_ids`, canonical `false_edge_ids` |
 | `HumanGate` | `human_gate_id`, canonical non-empty `target_node_ids`, `prompt` |
 | `WorkflowDefinition` | `schema_version`, `workflow_definition_id`, `workflow_run_id`, `workflow_name`, canonical tuples of all `Node`, `Edge`, `Map`, `Condition`, and `HumanGate` records |
@@ -687,11 +687,20 @@ CREST, xTB, PBS, TS, IRC, thermochemistry, or scientific-acceptance policy.
 Input and output roles are typed names only; Workflow never interprets their
 scientific or program-specific payloads.
 
-The frozen public behavior is exposed through `validate_workflow_definition`,
-`record_condition_decision`, `record_human_gate_decision`, and
-`replay_workflow`, plus the minimal `SQLiteWorkflowStore`. There is no public
-callback, plugin, shell, code-evaluation, submit, execute, retry, cancel, or
-cleanup API.
+The frozen public behavior is exposed through `record_workflow_definition`,
+`validate_workflow_definition`, `record_condition_decision`,
+`record_human_gate_decision`, and `replay_workflow`, plus the minimal opaque
+`SQLiteWorkflowStore`. The store's only public lifecycle methods are
+`create_new(path)`, `open_existing(path)`, and `close()`; SQL and raw row access
+remain private. `record_workflow_definition(store, core_store, definition)`
+validates all public Core bindings before append. Condition recording receives
+the store, public Core store, exact definition ID, evaluation input, and
+condition ID and derives the decision from current Core state. HumanGate
+recording receives the store, exact definition ID, gate ID, explicit decision,
+reviewer, and canonical evidence. Replay receives the store, public Core store,
+exact definition ID, and evaluation input and returns the derived view. None of
+these functions accepts an adapter or effect callback. There is no public
+plugin, shell, code-evaluation, submit, execute, retry, cancel, or cleanup API.
 
 ### Finite graph, mapping, and branch semantics
 
@@ -737,8 +746,13 @@ the complete canonical `true_edge_ids`; otherwise it is the complete canonical
 Edges.
 
 A HumanGate decision is `approved` or `rejected`, binds the exact definition
-and gate, and is append-only. Approval opens only the named orchestration path;
-rejection leaves it blocked. A Workflow HumanGate is never Scientific
+and gate, and is append-only. HumanGate target sets are globally disjoint, so a
+Node has at most one Workflow gate; overlap fails definition validation. A gate
+is only a conjunctive filter on a Node already active through the graph and
+branch projection. For an active target, a missing decision leaves the Node
+pending, `rejected` blocks it, and `approved` removes only that gate filter. A
+decision for an inactive target never activates the Node or changes another
+path's readiness or outcome. A Workflow HumanGate is never Scientific
 Approval, Batch Submit Approval, Exact Operational Confirmation, or scientific
 acceptance.
 
@@ -751,6 +765,13 @@ databases. The SQL layout is private, but fresh-schema identity, exact closed
 record decoding, deterministic insertion order, durable reopen, no implicit
 migration, exact replay idempotency, same-identity conflict, and no
 update/delete semantics are public acceptance requirements.
+
+`SQLiteWorkflowStore.create_new(path)` fails if the target already exists;
+`open_existing(path)` fails if it is missing or is not the exact schema version
+1 store. Neither operation repairs, migrates, deletes, replaces, or silently
+initializes an existing database. Public record/replay functions are the only
+semantic access path and reject malformed, extra, conflicting, or cross-domain
+records before using them as Workflow state.
 
 `WorkflowRunView` is not stored as mutable truth. `replay_workflow` derives it
 from the exact immutable definition, exact persisted decisions, explicit
@@ -770,6 +791,19 @@ Attempt may be discovered, selected, created, replaced, or retried because a
 Node exists. A Node without an Attempt may become `ready`, which is only a
 proposal for a separately gated Controller action. A Node with an Attempt
 reflects the public Core state; Workflow never writes or overrides that state.
+
+Active roots are Nodes with no incoming dependency in the combined Edge/Map
+graph. An unconditional Edge or Map dependency is active when its source Node
+is active; a conditional Edge is active only when the exact persisted
+ConditionDecision selects it. Reachability through those active dependencies
+derives the active Node set; an inactive Node cannot become active through an
+Attempt binding or HumanGate decision. A no-Attempt active Node is `ready` only
+when every active unconditional/Map predecessor is exactly `SUCCEEDED`, every
+active conditional predecessor has its exact terminal decision, every declared
+input role has exactly one active producer, and its optional HumanGate is
+approved. Missing branch or gate decisions remain pending; rejected gates,
+failed always/Map predecessors, producer gaps, and `UNKNOWN` block rather than
+grant readiness.
 
 An active run is `completed` only when every active Node has an exact terminal
 Core outcome and every required branch and HumanGate decision closes. This

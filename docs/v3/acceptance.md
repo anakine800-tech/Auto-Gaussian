@@ -229,9 +229,13 @@ authority:
 2. The public inventory is exactly `Node`, `Edge`, `Map`, `Condition`,
    `HumanGate`, `WorkflowDefinition`, `WorkflowEvaluationInput`,
    `ConditionDecision`, `HumanGateDecision`, `WorkflowRunView`,
-   `SQLiteWorkflowStore`, `validate_workflow_definition`,
+   `SQLiteWorkflowStore`, `record_workflow_definition`,
+   `validate_workflow_definition`,
    `record_condition_decision`, `record_human_gate_decision`, and
-   `replay_workflow`. No effectful or callback API is public.
+   `replay_workflow`. Store lifecycle is exactly `create_new`, `open_existing`,
+   and `close`; raw SQL/rows are private. Public functions accept only the
+   exact store/Core/definition/evaluation/decision inputs frozen in the
+   boundary and no effect adapter or callback.
 3. Exact semantic replay of every identity-bearing Workflow record produces
    the same schema-versioned, domain-separated UUIDv5 identity. Any semantic
    field change produces a different identity; the same identity with
@@ -268,9 +272,12 @@ authority:
    the complete canonical false tuple otherwise; caller-selected subsets,
    supersets, reordering, or cross-splicing fail closed.
 10. A HumanGate decision binds the exact definition, run, and gate plus the
-    explicit reviewer and evidence. Exact replay is idempotent; conflict or
-    cross-gate reuse fails closed and survives durable reopen. There is at most
-    one decision for an exact definition/gate authority key.
+    explicit reviewer and evidence. HumanGate target sets are globally
+    disjoint. For an already active target, missing means pending, rejected
+    means blocked, and approved removes only that gate filter; a decision for
+    an inactive target never activates it. Exact replay is idempotent; overlap,
+    conflict, or cross-gate reuse fails closed and survives durable reopen.
+    There is at most one decision for an exact definition/gate authority key.
 11. HumanGate approval changes orchestration readiness only. It never creates
     Scientific Approval, Batch Submit Approval, Exact Operational
     Confirmation, scientific acceptance, a Core claim, or an external effect.
@@ -278,7 +285,9 @@ authority:
     append-only typed decisions independently of Core and Approval stores.
     Fresh schema, exact replay, same-ID conflict, closed decoding, deterministic
     order, durable reopen, no implicit migration, and no update/delete behavior
-    are tested. Competing Condition decisions for one exact
+    are tested. Create-new rejects an existing target; reopen rejects missing,
+    wrong-version, malformed, extra, or conflicting state and performs no
+    repair or initialization. Competing Condition decisions for one exact
     definition/condition/Attempt key also fail closed.
 13. `WorkflowRunView` is always recomputed from the exact definition,
     decisions, explicit node-to-Attempt mapping, and public Core records. The
@@ -286,11 +295,19 @@ authority:
     override those authorities.
 14. Every supplied Attempt exists and belongs to the exact Node Task. Missing
     bindings remain explicit; Workflow neither enumerates nor chooses Attempts.
-    A ready Node is only a proposal and creates no root Attempt.
+    Active roots and reachability are derived only from the combined graph and
+    selected conditional Edges; neither an Attempt binding nor HumanGate can
+    activate an inactive Node. A ready Node is only a proposal and creates no
+    root Attempt.
 15. Completed branch and HumanGate decisions survive reopen and cannot be
     spliced across definitions, runs, nodes, conditions, gates, Tasks, or
     Attempts. Map expansion and active-path projection are deterministic.
-16. A run becomes orchestration-complete only when every active Node has an
+16. An active no-Attempt Node is ready only when all active always/Map
+    predecessors are `SUCCEEDED`, selected conditional predecessors have exact
+    terminal decisions, every input role has one active producer, and its gate
+    is approved. Missing decisions are pending; rejection, failed always/Map
+    predecessors, producer gaps, and `UNKNOWN` block. A run becomes
+    orchestration-complete only when every active Node has an
     exact terminal Core outcome and all required decisions close. Completion
     does not imply execution success, valid chemistry, parsed Result maturity,
     or scientific acceptance. `pending`, `active`, `blocked`, and `completed`
@@ -308,8 +325,10 @@ authority:
 20. Focused adversarial tests cover identity drift, Edge-only, Map-only, and
     mixed Edge/Map cycles, deterministic order and Map-aware readiness, role
     and mapping closure, Edge/Condition branch mismatch, true/false overlap,
-    subset selection, terminal branch replay, gate conflict, durable reopen,
-    cross-splicing, `UNKNOWN`, zero-effect behavior, absence of
+    subset selection, terminal branch replay, overlapping gates,
+    approved-plus-missing/rejected gates, inactive-target approval, store
+    create/reopen closure, durable reopen, cross-splicing, `UNKNOWN`,
+    zero-effect behavior, absence of
     callback/shell/eval surfaces, and byte-identical Core/Approval/Execution/
     Result public contracts.
 

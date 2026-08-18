@@ -138,9 +138,11 @@ The existing Core `WorkflowRun`, `Task`, `Attempt`, and `CalculationPlan`
 records remain authoritative for runtime identity and state. A Workflow
 evaluation receives an explicit finite node-to-Attempt mapping and validates
 every supplied record through public Core APIs. Missing bindings remain
-explicitly pending; a ready node is only a proposal for the next separately
-gated action. Workflow never creates a root or recovery Attempt, claims Core
-`WINNER`, calls Execution, or crosses an effect boundary.
+explicitly pending. HumanGate target sets are disjoint; a gate filters only an
+already active Node and never activates an inactive branch. A ready node is
+only a proposal for the next separately gated action. Workflow never creates a
+root or recovery Attempt, claims Core `WINNER`, calls Execution, or crosses an
+effect boundary.
 
 Workflow definitions and completed branch or HumanGate decisions use
 schema-versioned, domain-separated deterministic identities and a small
