@@ -243,12 +243,16 @@ authority:
 5. Duplicate, missing, self, cross-run, cross-Task, stale-plan, unknown-role,
    ambiguous-producer, or orphan references fail closed. No new Core list,
    current-plan, or enumeration API is used or added.
-6. The union of unconditional and conditional edges is acyclic. Stable lexical
-   tie-breaking gives one deterministic topological order independent of input
-   collection order.
+6. The union of unconditional edges, every possible conditional edge, and
+   every Map item's source-to-target dependency is acyclic. Map-only and mixed
+   Edge/Map cycles fail closed. Stable lexical tie-breaking gives one
+   deterministic topological order and readiness projection independent of
+   input collection order.
 7. A Map contains a finite non-empty set of unique explicit item keys and maps
-   only to predeclared Nodes and input roles. It cannot dynamically create,
-   discover, or execute a Task, Node, callback, command, or program.
+   only to predeclared Nodes and input roles. Every item participates in the
+   graph dependency, topological order, and readiness rules in condition 6. It
+   cannot dynamically create, discover, or execute a Task, Node, callback,
+   command, or program.
 8. A Condition uses only the closed `attempt_state_in` predicate over an exact
    supplied source Attempt and a non-empty subset of `SUCCEEDED`, `FAILED`, and
    `NOT_SUBMITTED`. It selects only predeclared true or false edges.
@@ -293,9 +297,10 @@ authority:
 19. The later Controller still needs current Scientific Approval, exact Batch
     membership, exact Operational Confirmation, and explicit Core `WINNER`
     before an effect. `REPLAY` and every non-winner path make zero effect calls.
-20. Focused adversarial tests cover identity drift, cycles, deterministic order,
-    role and mapping closure, terminal branch replay, gate conflict, durable
-    reopen, cross-splicing, `UNKNOWN`, zero-effect behavior, absence of
+20. Focused adversarial tests cover identity drift, Edge-only, Map-only, and
+    mixed Edge/Map cycles, deterministic order and Map-aware readiness, role
+    and mapping closure, terminal branch replay, gate conflict, durable reopen,
+    cross-splicing, `UNKNOWN`, zero-effect behavior, absence of
     callback/shell/eval surfaces, and byte-identical Core/Approval/Execution/
     Result public contracts.
 

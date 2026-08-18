@@ -124,7 +124,9 @@ Every node binds one exact Core `Task` and one exact `CalculationPlan` ID and
 positive revision. The workflow definition enumerates those identities
 explicitly; it never discovers the current plan or lists Tasks through a new
 Core API. Every possible edge and mapped target is present in the finite
-definition, and the union of possible paths is acyclic. Conditions use a
+definition. Every Map item contributes its source-to-target dependency to the
+same graph as every possible Edge; that combined graph is acyclic and owns the
+deterministic topological order and readiness projection. Conditions use a
 closed, data-only predicate over an exact supplied Attempt state. Arbitrary
 Python callbacks, shell commands, code evaluation, dynamic node creation, and
 open-ended fan-out are not Workflow features.

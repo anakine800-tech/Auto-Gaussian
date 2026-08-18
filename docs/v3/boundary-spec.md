@@ -705,12 +705,15 @@ edge, role, condition, and gate must exist exactly once. A target input role has
 one producer on any active path. Missing, self, duplicate, ambiguous-producer,
 role-incompatible, or orphan references fail closed.
 
-The union of every possible unconditional and conditional edge is one finite
-acyclic graph. Topological order is derived with a stable lexical tie-break;
-caller order never changes it. A `Map` is only a finite, explicitly enumerated
-fan-out from one source role to already declared target Nodes. It cannot
-discover inputs, create Nodes or Tasks, evaluate code, or expand after the
-definition is frozen.
+Every possible unconditional or conditional Edge and every Map item's
+`source_node_id -> target_node_id` dependency belongs to one finite graph. That
+combined graph must be acyclic; map-only cycles and cycles formed by a mixture
+of Edge and Map dependencies fail closed. Topological order and readiness use
+that same combined graph and a stable lexical tie-break, so caller order never
+changes either result. A `Map` is only a finite, explicitly enumerated fan-out
+from one source role to already declared target Nodes. It cannot discover
+inputs, create Nodes or Tasks, evaluate code, or expand after the definition is
+frozen.
 
 V30-4 has one Condition predicate: membership of the source Node's exact bound
 Attempt state in a declared non-empty subset of Core terminal states

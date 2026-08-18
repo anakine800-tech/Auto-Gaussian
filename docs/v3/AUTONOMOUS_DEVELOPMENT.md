@@ -181,11 +181,12 @@ for their owned surfaces.
   scientific-condition policy, effectful API, new shared framework, scope
   expansion, frozen-contract conflict, or two same-class repair failures.
 - **Acceptance/validation:** Prove exact record/API inventory, deterministic
-  UUIDv5 replay, finite acyclic graph and lexical topological order, explicit
-  Task/plan/Attempt closure, bounded Map and closed terminal-state Condition,
-  durable append-only decisions, deterministic reopened projection, HumanGate
-  separation, `UNKNOWN` no-retry, zero Core/effect behavior, dependency
-  direction, and byte-identical Core/Approval/Execution/Result contracts.
+  UUIDv5 replay, a finite combined Edge/Map DAG with lexical topological order
+  and Map-aware readiness, explicit Task/plan/Attempt closure, bounded Map and
+  closed terminal-state Condition, durable append-only decisions,
+  deterministic reopened projection, HumanGate separation, `UNKNOWN`
+  no-retry, zero Core/effect behavior, dependency direction, and
+  byte-identical Core/Approval/Execution/Result contracts.
 - **Handoff:** Freeze base/head/tree and exact document scope, the narrow
   `PORT`/`EXTRACT`/`WRAP`/`REWRITE`/`DROP`/`DEFER` adjudication, findings,
   validation, and the independent Contract Owner Gate. Completion does not
