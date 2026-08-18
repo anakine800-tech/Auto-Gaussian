@@ -71,9 +71,10 @@ does not authorize another v3 slice.
 
 ## V30-3A: Approval Authority and Invalidation Contract
 
-**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** The
-conditions below define reviewable authority behavior. They require no Core
-API/schema change, perform no external effect, and do not authorize V30-3B:
+**Status: SATISFIED / INTEGRATED ON
+`main@4a181871b0894161dd74fe91c405aa35e3691fd6`.** The conditions below
+remain the frozen approval authority contract. They require no Core API/schema
+change and perform no external effect:
 
 1. Scientific Approval binds the exact CalculationPlan ID, task, positive
    revision, expanded canonical intent, displayed semantic meaning, explicit
@@ -134,8 +135,8 @@ API/schema change, perform no external effect, and do not authorize V30-3B:
     approval record or state is added to the Core schema.
 
 V30-3A stops after independent contract review and repository publication.
-Completion does not authorize approval implementation, selector changes,
-V30-EXEC-02, deployment, or live execution.
+V30-3B implementation is integrated without changing these conditions;
+completion does not authorize V30-EXEC-02, deployment, or live execution.
 
 ## V30-EXEC-01: Frozen Offline Execution Boundary
 
@@ -214,6 +215,126 @@ live-effect authority:
 18. Result existence and parser status do not grant scientific acceptance.
 19. Synthetic artifacts require no live RTwin or PBS.
 20. Core API and schema remain unchanged.
+
+## V30-WF-CONTRACT-01: Minimal Deterministic Workflow
+
+**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** The following are
+the exact acceptance conditions for V30-4. They grant no selector mutation,
+Workflow implementation, Core change, Execution effect, `V30-EXEC-02`, or live
+authority:
+
+1. `auto_g16.workflow` is the sole public Workflow package and
+   `tests/v3/workflow/` is its focused test package. Core, Approval, Execution,
+   and Result never import Workflow.
+2. The public inventory is exactly `Node`, `Edge`, `Map`, `Condition`,
+   `HumanGate`, `WorkflowDefinition`, `WorkflowEvaluationInput`,
+   `ConditionDecision`, `HumanGateDecision`, `WorkflowRunView`,
+   `SQLiteWorkflowStore`, `record_workflow_definition`,
+   `validate_workflow_definition`,
+   `record_condition_decision`, `record_human_gate_decision`, and
+   `replay_workflow`. Store lifecycle is exactly `create_new`, `open_existing`,
+   and `close`; raw SQL/rows are private. Public functions accept only the
+   exact store/Core/definition/evaluation/decision inputs frozen in the
+   boundary and no effect adapter or callback.
+3. Exact semantic replay of every identity-bearing Workflow record produces
+   the same schema-versioned, domain-separated UUIDv5 identity. Any semantic
+   field change produces a different identity; the same identity with
+   different content conflicts. `WorkflowEvaluationInput` and the derived
+   `WorkflowRunView` are canonical value records without independent authority
+   IDs and replay to byte-equivalent semantic values.
+4. A definition is finite, non-empty, deeply immutable, serializable, and
+   binds one exact existing Core WorkflowRun. Every Node binds one exact Task
+   in that run and one exact existing CalculationPlan ID and positive revision
+   for that Task.
+5. Duplicate, missing, self, cross-run, cross-Task, stale-plan, unknown-role,
+   ambiguous-producer, or orphan references fail closed. No new Core list,
+   current-plan, or enumeration API is used or added.
+6. The union of unconditional edges, every possible conditional edge, and
+   every Map item's source-to-target dependency is acyclic. Map-only and mixed
+   Edge/Map cycles fail closed. Stable lexical tie-breaking gives one
+   deterministic topological order and readiness projection independent of
+   input collection order.
+7. A Map contains a finite non-empty set of unique explicit item keys and maps
+   only to predeclared Nodes and input roles. Every item participates in the
+   graph dependency, topological order, and readiness rules in condition 6. It
+   cannot dynamically create, discover, or execute a Task, Node, callback,
+   command, or program.
+8. A Condition uses only the closed `attempt_state_in` predicate over an exact
+   supplied source Attempt and a non-empty subset of `SUCCEEDED`, `FAILED`, and
+   `NOT_SUBMITTED`. `always` Edges have no Condition; every conditional Edge is
+   listed exactly once in the matching Condition and branch. True and false
+   tuples are canonical and disjoint; mismatch, overlap, omission, duplicate,
+   or cross-Condition membership fails closed.
+9. Condition recording rejects missing, running, `UNKNOWN`, stale,
+   cross-definition, cross-run, cross-node, cross-Task, or mismatched-state
+   evidence without persisting a branch decision. The selected tuple is the
+   complete canonical true tuple when the exact terminal state is expected and
+   the complete canonical false tuple otherwise; caller-selected subsets,
+   supersets, reordering, or cross-splicing fail closed.
+10. A HumanGate decision binds the exact definition, run, and gate plus the
+    explicit reviewer and evidence. HumanGate target sets are globally
+    disjoint. For an already active target, missing means pending, rejected
+    means blocked, and approved removes only that gate filter; a decision for
+    an inactive target never activates it. Exact replay is idempotent; overlap,
+    conflict, or cross-gate reuse fails closed and survives durable reopen.
+    There is at most one decision for an exact definition/gate authority key.
+11. HumanGate approval changes orchestration readiness only. It never creates
+    Scientific Approval, Batch Submit Approval, Exact Operational
+    Confirmation, scientific acceptance, a Core claim, or an external effect.
+12. Workflow-owned SQLite schema version 1 stores immutable definitions and
+    append-only typed decisions independently of Core and Approval stores.
+    Fresh schema, exact replay, same-ID conflict, closed decoding, deterministic
+    order, durable reopen, no implicit migration, and no update/delete behavior
+    are tested. Create-new rejects an existing target; reopen rejects missing,
+    wrong-version, malformed, extra, or conflicting state and performs no
+    repair or initialization. Competing Condition decisions for one exact
+    definition/condition/Attempt key also fail closed.
+13. `WorkflowRunView` is always recomputed from the exact definition,
+    decisions, explicit node-to-Attempt mapping, and public Core records. The
+    same reopened inputs yield the same view; a stored mutable view cannot
+    override those authorities.
+14. Every supplied Attempt exists and belongs to the exact Node Task. Missing
+    bindings remain explicit; Workflow neither enumerates nor chooses Attempts.
+    Active roots and reachability are derived only from the combined graph and
+    selected conditional Edges; neither an Attempt binding nor HumanGate can
+    activate an inactive Node. A ready Node is only a proposal and creates no
+    root Attempt.
+15. Completed branch and HumanGate decisions survive reopen and cannot be
+    spliced across definitions, runs, nodes, conditions, gates, Tasks, or
+    Attempts. Map expansion and active-path projection are deterministic.
+16. An active no-Attempt Node is ready only when all active always/Map
+    predecessors are `SUCCEEDED`, selected conditional predecessors have exact
+    terminal decisions, every input role has one active producer, and its gate
+    is approved. Missing decisions are pending; rejection, failed always/Map
+    predecessors, producer gaps, and `UNKNOWN` block. A run becomes
+    orchestration-complete only when every active Node has an
+    exact terminal Core outcome and all required decisions close. Completion
+    does not imply execution success, valid chemistry, parsed Result maturity,
+    or scientific acceptance. `pending`, `active`, `blocked`, and `completed`
+    outcomes are deterministically derived rather than caller-selected.
+17. `UNKNOWN` blocks the affected path and creates no retry, replacement,
+    child, approval, confirmation, submission, or effect authority. Workflow
+    never silently creates or adopts a recovery child.
+18. Node readiness, Map, ConditionDecision, HumanGateDecision, and complete
+    Workflow replay each produce zero Core transitions, workspace writes,
+    adapter calls, transport, scheduler, PBS, Gaussian, cancellation, cleanup,
+    or deletion.
+19. The later Controller still needs current Scientific Approval, exact Batch
+    membership, exact Operational Confirmation, and explicit Core `WINNER`
+    before an effect. `REPLAY` and every non-winner path make zero effect calls.
+20. Focused adversarial tests cover identity drift, Edge-only, Map-only, and
+    mixed Edge/Map cycles, deterministic order and Map-aware readiness, role
+    and mapping closure, Edge/Condition branch mismatch, true/false overlap,
+    subset selection, terminal branch replay, overlapping gates,
+    approved-plus-missing/rejected gates, inactive-target approval, store
+    create/reopen closure, durable reopen, cross-splicing, `UNKNOWN`,
+    zero-effect behavior, absence of
+    callback/shell/eval surfaces, and byte-identical Core/Approval/Execution/
+    Result public contracts.
+
+V30-WF-CONTRACT-01 stops after independent contract review and repository
+publication. V30-4 implementation remains blocked until separate Workflow
+validation ownership is integrated and a new implementation Owner Gate opens.
 
 ## v3.0: Closed-Shell Minimum
 
