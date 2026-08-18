@@ -232,10 +232,12 @@ authority:
    `SQLiteWorkflowStore`, `validate_workflow_definition`,
    `record_condition_decision`, `record_human_gate_decision`, and
    `replay_workflow`. No effectful or callback API is public.
-3. Exact semantic replay of every Workflow record produces the same
-   schema-versioned, domain-separated UUIDv5 identity. Any semantic field
-   change produces a different identity; the same identity with different
-   content conflicts.
+3. Exact semantic replay of every identity-bearing Workflow record produces
+   the same schema-versioned, domain-separated UUIDv5 identity. Any semantic
+   field change produces a different identity; the same identity with
+   different content conflicts. `WorkflowEvaluationInput` and the derived
+   `WorkflowRunView` are canonical value records without independent authority
+   IDs and replay to byte-equivalent semantic values.
 4. A definition is finite, non-empty, deeply immutable, serializable, and
    binds one exact existing Core WorkflowRun. Every Node binds one exact Task
    in that run and one exact existing CalculationPlan ID and positive revision
@@ -255,10 +257,16 @@ authority:
    command, or program.
 8. A Condition uses only the closed `attempt_state_in` predicate over an exact
    supplied source Attempt and a non-empty subset of `SUCCEEDED`, `FAILED`, and
-   `NOT_SUBMITTED`. It selects only predeclared true or false edges.
+   `NOT_SUBMITTED`. `always` Edges have no Condition; every conditional Edge is
+   listed exactly once in the matching Condition and branch. True and false
+   tuples are canonical and disjoint; mismatch, overlap, omission, duplicate,
+   or cross-Condition membership fails closed.
 9. Condition recording rejects missing, running, `UNKNOWN`, stale,
    cross-definition, cross-run, cross-node, cross-Task, or mismatched-state
-   evidence without persisting a branch decision.
+   evidence without persisting a branch decision. The selected tuple is the
+   complete canonical true tuple when the exact terminal state is expected and
+   the complete canonical false tuple otherwise; caller-selected subsets,
+   supersets, reordering, or cross-splicing fail closed.
 10. A HumanGate decision binds the exact definition, run, and gate plus the
     explicit reviewer and evidence. Exact replay is idempotent; conflict or
     cross-gate reuse fails closed and survives durable reopen. There is at most
@@ -299,7 +307,8 @@ authority:
     before an effect. `REPLAY` and every non-winner path make zero effect calls.
 20. Focused adversarial tests cover identity drift, Edge-only, Map-only, and
     mixed Edge/Map cycles, deterministic order and Map-aware readiness, role
-    and mapping closure, terminal branch replay, gate conflict, durable reopen,
+    and mapping closure, Edge/Condition branch mismatch, true/false overlap,
+    subset selection, terminal branch replay, gate conflict, durable reopen,
     cross-splicing, `UNKNOWN`, zero-effect behavior, absence of
     callback/shell/eval surfaces, and byte-identical Core/Approval/Execution/
     Result public contracts.

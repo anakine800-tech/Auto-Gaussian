@@ -127,9 +127,12 @@ Core API. Every possible edge and mapped target is present in the finite
 definition. Every Map item contributes its source-to-target dependency to the
 same graph as every possible Edge; that combined graph is acyclic and owns the
 deterministic topological order and readiness projection. Conditions use a
-closed, data-only predicate over an exact supplied Attempt state. Arbitrary
-Python callbacks, shell commands, code evaluation, dynamic node creation, and
-open-ended fan-out are not Workflow features.
+closed, data-only predicate over an exact supplied Attempt state. Conditional
+Edge metadata and each Condition's true/false Edge tuples must agree exactly;
+the observed terminal state uniquely derives the complete selected tuple, not
+a caller-chosen subset. Arbitrary Python callbacks, shell commands, code
+evaluation, dynamic node creation, and open-ended fan-out are not Workflow
+features.
 
 The existing Core `WorkflowRun`, `Task`, `Attempt`, and `CalculationPlan`
 records remain authoritative for runtime identity and state. A Workflow

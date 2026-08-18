@@ -183,10 +183,11 @@ for their owned surfaces.
 - **Acceptance/validation:** Prove exact record/API inventory, deterministic
   UUIDv5 replay, a finite combined Edge/Map DAG with lexical topological order
   and Map-aware readiness, explicit Task/plan/Attempt closure, bounded Map and
-  closed terminal-state Condition, durable append-only decisions,
-  deterministic reopened projection, HumanGate separation, `UNKNOWN`
-  no-retry, zero Core/effect behavior, dependency direction, and
-  byte-identical Core/Approval/Execution/Result contracts.
+  closed terminal-state Condition with exact Edge/branch agreement and derived
+  complete branch selection, durable append-only decisions, deterministic
+  reopened projection, HumanGate separation, `UNKNOWN` no-retry, zero
+  Core/effect behavior, dependency direction, and byte-identical
+  Core/Approval/Execution/Result contracts.
 - **Handoff:** Freeze base/head/tree and exact document scope, the narrow
   `PORT`/`EXTRACT`/`WRAP`/`REWRITE`/`DROP`/`DEFER` adjudication, findings,
   validation, and the independent Contract Owner Gate. Completion does not

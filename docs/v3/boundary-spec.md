@@ -658,10 +658,12 @@ authority; and does not activate `V30-EXEC-02`.
 
 `auto_g16.workflow` owns deterministic orchestration data and read-only run
 projection. Its public value records are immutable, keyword-only, and deeply
-closed over canonical semantic values. Every record identity is UUIDv5 from a
-source-controlled, schema-versioned, domain-separated namespace and the
-complete canonical authority payload. Exact replay has the same identity; the
-same identity with different content conflicts. Timestamps, serialization
+closed over canonical semantic values. Every identity-bearing record identity
+is UUIDv5 from a source-controlled, schema-versioned, domain-separated
+namespace and the complete canonical authority payload. Exact replay has the
+same identity; the same identity with different content conflicts.
+`WorkflowEvaluationInput` and the derived `WorkflowRunView` are canonical value
+records without independent authority IDs. Timestamps, serialization
 formatting, file paths, and hashes that are not explicit semantic fields do not
 decide Workflow authority.
 
@@ -722,6 +724,17 @@ predeclared true or false edges. It is recorded only against an exact supplied
 Attempt that belongs to the source Node's Task and whose public Core state is
 the recorded terminal state. `UNKNOWN`, running, missing, cross-Task, or stale
 Attempt evidence cannot produce a branch decision.
+
+Edge and Condition branch metadata are one closed relation, not competing
+authorities. `branch = always` requires `condition_id = None` and the Edge must
+occur in no Condition tuple. `branch = true` or `false` requires one exact
+`condition_id` and membership only in that Condition's corresponding
+`true_edge_ids` or `false_edge_ids`. The two tuples are canonical, disjoint,
+and together enumerate every conditional Edge exactly once. When the observed
+state belongs to `expected_states`, `ConditionDecision.selected_edge_ids` is
+the complete canonical `true_edge_ids`; otherwise it is the complete canonical
+`false_edge_ids`. A caller cannot omit, add, reorder, or cross-splice selected
+Edges.
 
 A HumanGate decision is `approved` or `rejected`, binds the exact definition
 and gate, and is append-only. Approval opens only the named orchestration path;
