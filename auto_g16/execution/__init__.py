@@ -15,7 +15,7 @@ from .models import (
     WorkspaceBinding,
     resolve_server_profile,
 )
-from .preparation import prepare_execution_snapshot
+from .preparation import assert_execution_snapshot_identity, prepare_execution_snapshot
 from .runtime import (
     ConfirmedNoEffectError,
     ExecutionAttemptResult,
@@ -51,6 +51,7 @@ __all__ = [
     "ServerProfile",
     "SyntheticRTWinAdapter",
     "WorkspaceBinding",
+    "assert_execution_snapshot_identity",
     "execute_once",
     "prepare_execution_snapshot",
     "reconcile_unknown",
