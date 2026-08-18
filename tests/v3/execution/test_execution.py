@@ -9,6 +9,10 @@ import unittest
 
 import auto_g16.core as core
 import auto_g16.execution as execution
+from auto_g16.execution import assert_execution_snapshot_identity
+from auto_g16.execution.preparation import (
+    assert_execution_snapshot_identity as canonical_execution_snapshot_verifier,
+)
 
 
 INPUT_BYTES = b"%mem=12GB\n%nprocshared=8\n#p b3lyp/6-31g(d) opt\n\njob\n\n0 1\nH 0 0 0\n\n"
@@ -160,6 +164,19 @@ class ExecutionFixture(unittest.TestCase):
 
 
 class IdentityAndPreparationTests(ExecutionFixture):
+    def test_public_snapshot_verifier_is_canonical_execution_verifier(self) -> None:
+        self.assertIs(
+            assert_execution_snapshot_identity,
+            canonical_execution_snapshot_verifier,
+        )
+
+    def test_public_snapshot_verifier_rejects_stale_nested_resource_identity(self) -> None:
+        snapshot, _profile = self.snapshot()
+        object.__setattr__(snapshot.resolved_resource_request, "cores", 99)
+
+        with self.assertRaises(execution.ExecutionValueError):
+            assert_execution_snapshot_identity(snapshot)
+
     def test_exact_semantic_replay_keeps_snapshot_identity(self) -> None:
         first, _profile = self.snapshot()
         reordered = self.profile()
