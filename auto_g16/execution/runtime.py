@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 import os
-import re
 import stat
 from typing import Protocol, runtime_checkable
 
@@ -33,12 +32,10 @@ from .models import (
     RemoteEffectReceipt,
     ServerProfile,
     WorkspaceBinding,
+    _require_job_id,
     resolve_server_profile,
 )
 from .preparation import assert_execution_snapshot_identity
-
-
-_JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 class ExecutionRuntimeError(RuntimeError):
@@ -548,7 +545,9 @@ def execute_once(
     sequence += 1
     try:
         job_id = port.submit_once(snapshot)
-        if not isinstance(job_id, str) or not _JOB_ID.fullmatch(job_id):
+        try:
+            _require_job_id(job_id)
+        except ExecutionValueError:
             raise PossiblyEffectfulError(EffectKind.SUBMISSION, "invalid-job-identity")
     except ConfirmedNoEffectError as exc:
         _record_no_effect(journal, snapshot, sequence, exc)
@@ -607,15 +606,31 @@ def reconcile_unknown_from_receipt(
     ):
         raise ExecutionValueError("reconciliation evidence does not bind the same snapshot")
     journal = ReceiptJournal(store)
-    journal.append(receipt)
+    if store.attempt_state(snapshot.attempt_id) is not AttemptState.UNKNOWN:
+        raise ExecutionValueError("read-only execution reconciliation requires UNKNOWN")
     if receipt.effect_state is EffectState.POSSIBLY_EFFECTFUL:
         resolution = ReconciliationResolution.UNRESOLVED
     elif receipt.effect_state is EffectState.CONFIRMED_NO_EFFECT:
         resolution = ReconciliationResolution.NOT_SUBMITTED
     elif receipt.job_id is not None:
+        _require_job_id(receipt.job_id)
         resolution = ReconciliationResolution.SUBMITTED
     else:
         raise ExecutionValueError("confirmed submission reconciliation requires a job_id")
+    existing_job_ids = {
+        item.job_id
+        for item in journal.receipts_for_attempt(snapshot.attempt_id)
+        if item.job_id is not None
+    }
+    if len(existing_job_ids) > 1 or (
+        existing_job_ids
+        and (
+            receipt.job_id is None
+            or any(item != receipt.job_id for item in existing_job_ids)
+        )
+    ):
+        raise ExecutionConflictError("reconciliation job identity conflicts with existing evidence")
+    journal.append(receipt)
     return store.reconcile_unknown(
         snapshot.attempt_id,
         receipt.remote_effect_receipt_id,

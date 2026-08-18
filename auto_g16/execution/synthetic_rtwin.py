@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from threading import Lock
 
+from ._rtwin_minimal import (
+    _RTWinMinimalPlan,
+    _assert_plan_matches_snapshot,
+    _build_rtwin_minimal_plan,
+)
 from .models import EffectKind, EffectState, ExecutionSnapshot, RemoteEffectReceipt
 from .runtime import ConfirmedNoEffectError, PossiblyEffectfulError
 
@@ -29,6 +34,7 @@ class SyntheticRTWinAdapter:
         self._reconciliation_job_id = reconciliation_job_id
         self._calls: list[str] = []
         self._submitted_attempts: set[str] = set()
+        self._plans: dict[str, _RTWinMinimalPlan] = {}
         self._lock = Lock()
 
     @property
@@ -66,15 +72,25 @@ class SyntheticRTWinAdapter:
         prepared_input_bytes: bytes,
         pbs_template_bytes: bytes,
     ) -> None:
-        snapshot.prepared_input_binding.verify_bytes(prepared_input_bytes)
-        snapshot.pbs_template_binding.verify_bytes(pbs_template_bytes)
+        plan = _build_rtwin_minimal_plan(
+            snapshot, prepared_input_bytes, pbs_template_bytes
+        )
         self._stage(EffectKind.INPUT_TRANSFER, f"transfer:{snapshot.attempt_id}")
+        with self._lock:
+            existing = self._plans.get(snapshot.attempt_id)
+            if existing is not None and existing != plan:
+                raise RuntimeError("synthetic adapter refuses a conflicting private plan")
+            self._plans[snapshot.attempt_id] = plan
 
     def submit_once(self, snapshot: ExecutionSnapshot) -> str:
         with self._lock:
+            plan = self._plans.get(snapshot.attempt_id)
+            if plan is None:
+                raise RuntimeError("synthetic adapter requires an exact staged plan")
             if snapshot.attempt_id in self._submitted_attempts:
                 raise RuntimeError("synthetic adapter refuses a second submission call")
             self._submitted_attempts.add(snapshot.attempt_id)
+        _assert_plan_matches_snapshot(plan, snapshot)
         self._stage(EffectKind.SUBMISSION, f"submit:{snapshot.attempt_id}")
         return self._job_id
 
