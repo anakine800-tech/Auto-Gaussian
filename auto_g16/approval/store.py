@@ -12,6 +12,11 @@ import stat
 from typing import Final, cast
 from uuid import UUID
 
+from auto_g16.execution import (
+    ExecutionSnapshot,
+    assert_execution_snapshot_identity,
+)
+
 from .models import (
     APPROVAL_SCHEMA_VERSION,
     ApprovalValueError,
@@ -768,7 +773,11 @@ class SQLiteApprovalStore:
         path = Path(database).expanduser()
         if not path.is_absolute():
             path = Path.cwd() / path
-        return path.resolve(strict=False)
+        # Preserve the caller's lexical terminal component until lstat has
+        # proved that it is not a symlink.  resolve()/realpath() here would
+        # erase precisely the alias identity that the no-follow boundary must
+        # reject before SQLite opens the file.
+        return Path(os.path.abspath(os.fspath(path)))
 
     @staticmethod
     def _existing_file_identity(path: Path) -> tuple[int, int]:
@@ -914,7 +923,7 @@ class SQLiteApprovalStore:
                 raise ApprovalStoreSchemaError(
                     "file approval database has no main filename"
                 )
-            if Path(filename).resolve(strict=False) != self._database_path:
+            if self._canonical_database_path(filename) != self._database_path:
                 raise ApprovalStoreSchemaError(
                     "approval connection names an unexpected main database"
                 )
@@ -1171,6 +1180,38 @@ class SQLiteApprovalStore:
         record = self._load_record("operational-confirmation", evidence_id)
         if not isinstance(record, ExactOperationalConfirmation):
             raise _integrity_failure("decoded record is not an Operational Confirmation")
+        return record
+
+    def load_current_operational_confirmation(
+        self,
+        evidence_id: str,
+        current_snapshot: ExecutionSnapshot,
+    ) -> ExactOperationalConfirmation:
+        """Load evidence only when it exactly binds the current valid snapshot.
+
+        Persisted Operational Confirmation is durable review evidence, not a
+        self-authenticating ExecutionSnapshot.  Execution owns snapshot
+        identity closure; Approval only compares the resulting current public
+        semantics with the persisted binding and performs no Core transition
+        or external effect.
+        """
+
+        assert_execution_snapshot_identity(current_snapshot)
+        record = self.load_operational_confirmation(evidence_id)
+        expected = {
+            "execution_snapshot_id": current_snapshot.execution_snapshot_id,
+            "attempt_id": current_snapshot.attempt_id,
+            "calculation_plan_id": current_snapshot.calculation_plan_id,
+            "calculation_plan_revision": current_snapshot.calculation_plan_revision,
+            "execution_snapshot_semantics": current_snapshot.semantic_payload(),
+        }
+        observed = record.authority_payload()
+        for field_name, expected_value in expected.items():
+            if observed[field_name] != expected_value:
+                raise ApprovalStoreConflictError(
+                    "persisted Operational Confirmation does not bind the "
+                    f"current ExecutionSnapshot {field_name}"
+                )
         return record
 
     def evidence_count(self) -> int:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 import json
 from pathlib import Path
@@ -10,8 +11,10 @@ from unittest import mock
 from uuid import UUID, uuid5
 
 import auto_g16.approval as approval
+from auto_g16.approval import models as approval_models
 from auto_g16.approval import store as approval_store
 import auto_g16.core as core
+import auto_g16.execution as execution
 
 from ._fixtures import (
     DISPLAYED_MEANING,
@@ -38,9 +41,10 @@ class ApprovalStoreTests(unittest.TestCase):
             reviewer_id="batch-reviewer",
             reviewer_evidence={"scope": "two exact attempts"},
         )
+        self.current_snapshot = snapshot(self.runtime, self.root / "local")
         self.confirmation = approval.ExactOperationalConfirmation.for_snapshot(
             self.runtime,
-            snapshot(self.runtime, self.root / "local"),
+            self.current_snapshot,
             confirmer_id="operator-1",
             confirmer_evidence={"displayed": "exact snapshot"},
         )
@@ -98,6 +102,46 @@ class ApprovalStoreTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM approval_evidence"
             ).fetchone()[0]
 
+    @staticmethod
+    def _rewrite_operational_row(
+        database: Path,
+        evidence_id: str,
+        mutate: Callable[[dict[str, object]], None],
+    ) -> str:
+        with closing(sqlite3.connect(database)) as connection:
+            payload = json.loads(
+                connection.execute(
+                    "SELECT payload_json FROM approval_evidence "
+                    "WHERE evidence_id = ?",
+                    (evidence_id,),
+                ).fetchone()[0]
+            )
+            mutate(payload)
+            authority = {
+                key: payload[key]
+                for key in (
+                    "execution_snapshot_id",
+                    "attempt_id",
+                    "calculation_plan_id",
+                    "calculation_plan_revision",
+                    "execution_snapshot_semantics",
+                    "confirmer_id",
+                    "confirmer_evidence",
+                    "decision",
+                )
+            }
+            rewritten_id = approval_models.identity_for(
+                "operational-confirmation", authority
+            )
+            payload["operational_confirmation_id"] = rewritten_id
+            connection.execute(
+                "UPDATE approval_evidence SET evidence_id = ?, payload_json = ? "
+                "WHERE evidence_id = ?",
+                (rewritten_id, json.dumps(payload, sort_keys=True), evidence_id),
+            )
+            connection.commit()
+        return rewritten_id
+
     def test_sqlite_v1_identity_is_exact_and_minimal(self) -> None:
         database = self.root / "approval.sqlite3"
         with approval.SQLiteApprovalStore(database) as store:
@@ -136,6 +180,29 @@ class ApprovalStoreTests(unittest.TestCase):
         with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
             approval.SQLiteApprovalStore(half)
         self.assertEqual(half.read_bytes(), before)
+
+    def test_terminal_symlink_aliases_fail_before_sqlite_open(self) -> None:
+        database = self.root / "direct.sqlite3"
+        with approval.SQLiteApprovalStore(database) as direct:
+            self.assertEqual(direct.evidence_count(), 0)
+
+        alias = self.root / "alias.sqlite3"
+        alias.symlink_to(database)
+        self.assertEqual(
+            approval.SQLiteApprovalStore._canonical_database_path(alias), alias
+        )
+        with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+            approval.SQLiteApprovalStore(alias)
+
+        create_alias = self.root / "create-alias.sqlite3"
+        create_alias.symlink_to(self.root / "missing.sqlite3")
+        with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+            approval.SQLiteApprovalStore(create_alias)
+        self.assertTrue(create_alias.is_symlink())
+        self.assertFalse((self.root / "missing.sqlite3").exists())
+
+        with approval.SQLiteApprovalStore(database) as reopened:
+            self.assertEqual(reopened.evidence_count(), 0)
 
     def test_failed_initialization_is_retained_and_never_auto_repaired(self) -> None:
         database = self.root / "failed-init.sqlite3"
@@ -185,6 +252,136 @@ class ApprovalStoreTests(unittest.TestCase):
                 final_reopen.load_scientific_approval(rejected_id), rejected
             )
             self.assertEqual(final_reopen.evidence_count(), 4)
+
+    def test_operational_confirmation_replay_requires_exact_current_snapshot(self) -> None:
+        database = self.root / "current-confirmation.sqlite3"
+        with approval.SQLiteApprovalStore(database) as store:
+            store.store_operational_confirmation(self.confirmation)
+            self.assertEqual(
+                store.load_current_operational_confirmation(
+                    self.confirmation.operational_confirmation_id,
+                    self.current_snapshot,
+                ),
+                self.confirmation,
+            )
+        with approval.SQLiteApprovalStore(database) as reopened:
+            self.assertEqual(
+                reopened.load_current_operational_confirmation(
+                    self.confirmation.operational_confirmation_id,
+                    self.current_snapshot,
+                ),
+                self.confirmation,
+            )
+
+    def test_current_snapshot_is_closed_by_public_execution_verifier(self) -> None:
+        database = self.root / "stale-current.sqlite3"
+        current_snapshot = snapshot(self.runtime, self.root / "stale-current-local")
+        confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.runtime,
+            current_snapshot,
+            confirmer_id="operator-1",
+            confirmer_evidence={"displayed": "exact snapshot"},
+        )
+        with approval.SQLiteApprovalStore(database) as store:
+            store.store_operational_confirmation(confirmation)
+            object.__setattr__(
+                current_snapshot.resolved_resource_request, "cores", 99
+            )
+            with self.assertRaises(execution.ExecutionValueError):
+                execution.assert_execution_snapshot_identity(current_snapshot)
+            with self.assertRaises(execution.ExecutionValueError):
+                store.load_current_operational_confirmation(
+                    confirmation.operational_confirmation_id,
+                    current_snapshot,
+                )
+
+    def test_rewritten_persisted_snapshot_never_authenticates_current_authority(
+        self,
+    ) -> None:
+        namespace = UUID("5ffbb693-1fe5-5c64-9b2a-68af1871417b")
+
+        def change_cores(payload: dict[str, object]) -> None:
+            semantics = payload["execution_snapshot_semantics"]
+            assert isinstance(semantics, dict)
+            resources = semantics["resolved_resource_request"]
+            assert isinstance(resources, dict)
+            resources["cores"] = 99
+
+        def change_snapshot_id(payload: dict[str, object]) -> None:
+            changed = str(uuid5(namespace, "different-snapshot"))
+            payload["execution_snapshot_id"] = changed
+            semantics = payload["execution_snapshot_semantics"]
+            assert isinstance(semantics, dict)
+            semantics["execution_snapshot_id"] = changed
+
+        def change_submission_intent(payload: dict[str, object]) -> None:
+            semantics = payload["execution_snapshot_semantics"]
+            assert isinstance(semantics, dict)
+            semantics["submission_intent_id"] = str(
+                uuid5(namespace, "different-submission-intent")
+            )
+
+        def change_attempt(payload: dict[str, object]) -> None:
+            payload["attempt_id"] = "different-attempt"
+            semantics = payload["execution_snapshot_semantics"]
+            assert isinstance(semantics, dict)
+            semantics["attempt_id"] = "different-attempt"
+            prepared = semantics["prepared_input_binding"]
+            workspace = semantics["workspace_binding"]
+            assert isinstance(prepared, dict)
+            assert isinstance(workspace, dict)
+            prepared["attempt_id"] = "different-attempt"
+            workspace["attempt_id"] = "different-attempt"
+
+        def change_plan(payload: dict[str, object]) -> None:
+            payload["calculation_plan_id"] = "different-plan"
+            semantics = payload["execution_snapshot_semantics"]
+            assert isinstance(semantics, dict)
+            semantics["calculation_plan_id"] = "different-plan"
+            prepared = semantics["prepared_input_binding"]
+            assert isinstance(prepared, dict)
+            prepared["calculation_plan_id"] = "different-plan"
+
+        def change_revision(payload: dict[str, object]) -> None:
+            payload["calculation_plan_revision"] = 4
+            semantics = payload["execution_snapshot_semantics"]
+            assert isinstance(semantics, dict)
+            semantics["calculation_plan_revision"] = 4
+            prepared = semantics["prepared_input_binding"]
+            assert isinstance(prepared, dict)
+            prepared["calculation_plan_revision"] = 4
+
+        mutations = {
+            "cores": change_cores,
+            "snapshot-id": change_snapshot_id,
+            "submission-intent": change_submission_intent,
+            "attempt": change_attempt,
+            "plan": change_plan,
+            "revision": change_revision,
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                database = self.root / f"rewritten-{label}.sqlite3"
+                with approval.SQLiteApprovalStore(database) as store:
+                    store.store_operational_confirmation(self.confirmation)
+                rewritten_id = self._rewrite_operational_row(
+                    database,
+                    self.confirmation.operational_confirmation_id,
+                    mutate,
+                )
+                with approval.SQLiteApprovalStore(database) as reopened:
+                    structurally_valid = reopened.load_operational_confirmation(
+                        rewritten_id
+                    )
+                    self.assertEqual(
+                        structurally_valid.operational_confirmation_id,
+                        rewritten_id,
+                    )
+                    with self.assertRaises(approval.ApprovalStoreConflictError):
+                        reopened.load_current_operational_confirmation(
+                            rewritten_id,
+                            self.current_snapshot,
+                        )
 
     def test_same_identity_different_payload_conflicts_for_every_domain(self) -> None:
         with approval.SQLiteApprovalStore(self.root / "approval.sqlite3") as store:
