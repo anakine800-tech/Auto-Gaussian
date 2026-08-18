@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
 from unittest import mock
+from uuid import UUID, uuid5
 
 import auto_g16.approval as approval
 import auto_g16.core as core
@@ -61,6 +63,33 @@ class ApprovalStoreTests(unittest.TestCase):
             snapshot(self.runtime, self.root / "local"),
             confirmer_id="operator-1",
             confirmer_evidence={"displayed": "exact snapshot"},
+        )
+
+    def _fresh_family(
+        self, domain: str
+    ) -> tuple[object, str, str, str]:
+        if domain == "scientific-approval":
+            record = self._fresh_scientific()
+            return (
+                record,
+                "store_scientific_approval",
+                "load_scientific_approval",
+                "scientific_approval_id",
+            )
+        if domain == "batch-submit-approval":
+            record = self._fresh_batch()
+            return (
+                record,
+                "store_batch_submit_approval",
+                "load_batch_submit_approval",
+                "batch_submit_approval_id",
+            )
+        record = self._fresh_confirmation()
+        return (
+            record,
+            "store_operational_confirmation",
+            "load_operational_confirmation",
+            "operational_confirmation_id",
         )
 
     def test_all_domains_are_idempotent_and_durable_across_reopen(self) -> None:
@@ -409,6 +438,207 @@ class ApprovalStoreTests(unittest.TestCase):
                     with self.assertRaises(approval.ApprovalValueError):
                         persist(record)  # type: ignore[arg-type]
         self.assertEqual(store.evidence_count(), 0)
+
+    def test_hostile_persisted_rows_share_one_fail_closed_integrity_boundary(self) -> None:
+        domains = (
+            "scientific-approval",
+            "batch-submit-approval",
+            "operational-confirmation",
+        )
+        common_corruptions = (
+            "missing-embedded-schema",
+            "unsupported-embedded-schema",
+            "unsupported-row-schema",
+            "extra-top-level-field",
+            "extra-semantic-field",
+            "row-id-changed",
+            "embedded-id-changed",
+            "payload-changed-id-unchanged",
+            "embedded-kind-changed",
+            "row-kind-changed",
+            "malformed-json",
+            "malformed-uuid",
+            "revision-bool",
+            "duplicate-json-key",
+        )
+        other_domain = {
+            "scientific-approval": "batch-submit-approval",
+            "batch-submit-approval": "operational-confirmation",
+            "operational-confirmation": "scientific-approval",
+        }
+        namespace = UUID("5ffbb693-1fe5-5c64-9b2a-68af1871417b")
+
+        for domain in domains:
+            for corruption in common_corruptions:
+                with self.subTest(domain=domain, corruption=corruption):
+                    record, store_name, load_name, identity_field = self._fresh_family(
+                        domain
+                    )
+                    evidence_id = getattr(record, identity_field)
+                    database = self.root / f"hostile-{domain}-{corruption}.sqlite3"
+                    store = approval.SQLiteApprovalStore(database)
+                    getattr(store, store_name)(record)
+                    store.close()
+
+                    connection = sqlite3.connect(database)
+                    try:
+                        row = connection.execute(
+                            "SELECT payload FROM approval_evidence WHERE evidence_id = ?",
+                            (evidence_id,),
+                        ).fetchone()
+                        self.assertIsNotNone(row)
+                        payload = json.loads(row[0])
+                        load_id = evidence_id
+                        raw_payload: str | None = None
+
+                        if corruption == "missing-embedded-schema":
+                            payload.pop("schema_version")
+                        elif corruption == "unsupported-embedded-schema":
+                            payload["schema_version"] = 2
+                        elif corruption == "unsupported-row-schema":
+                            connection.execute("PRAGMA ignore_check_constraints = ON")
+                            connection.execute(
+                                "UPDATE approval_evidence SET schema_version = 2"
+                            )
+                        elif corruption == "extra-top-level-field":
+                            payload["unexpected"] = "forged"
+                        elif corruption == "extra-semantic-field":
+                            if domain == "scientific-approval":
+                                payload["canonical_intent"]["unexpected"] = "forged"
+                            elif domain == "batch-submit-approval":
+                                payload["members"][0]["unexpected"] = "forged"
+                            else:
+                                payload["execution_snapshot_semantics"][
+                                    "unexpected"
+                                ] = "forged"
+                        elif corruption == "row-id-changed":
+                            load_id = str(uuid5(namespace, f"row-{domain}"))
+                            connection.execute(
+                                "UPDATE approval_evidence SET evidence_id = ?",
+                                (load_id,),
+                            )
+                        elif corruption == "embedded-id-changed":
+                            payload[identity_field] = str(
+                                uuid5(namespace, f"embedded-{domain}")
+                            )
+                        elif corruption == "payload-changed-id-unchanged":
+                            field_name = (
+                                "confirmer_id"
+                                if domain == "operational-confirmation"
+                                else "reviewer_id"
+                            )
+                            payload[field_name] = "forged-reviewer"
+                        elif corruption == "embedded-kind-changed":
+                            payload["evidence_kind"] = other_domain[domain]
+                        elif corruption == "row-kind-changed":
+                            connection.execute(
+                                "UPDATE approval_evidence SET domain = ?",
+                                (other_domain[domain],),
+                            )
+                        elif corruption == "malformed-json":
+                            raw_payload = "{"
+                        elif corruption == "malformed-uuid":
+                            load_id = "not-a-uuid"
+                            payload[identity_field] = load_id
+                            connection.execute(
+                                "UPDATE approval_evidence SET evidence_id = ?",
+                                (load_id,),
+                            )
+                        elif corruption == "revision-bool":
+                            if domain == "batch-submit-approval":
+                                payload["members"][0][
+                                    "calculation_plan_revision"
+                                ] = True
+                            else:
+                                payload["calculation_plan_revision"] = True
+                        elif corruption == "duplicate-json-key":
+                            encoded = json.dumps(payload, sort_keys=True)
+                            raw_payload = (
+                                '{"schema_version":1,' + encoded[1:]
+                            )
+
+                        if corruption not in {
+                            "unsupported-row-schema",
+                            "row-id-changed",
+                            "row-kind-changed",
+                        }:
+                            connection.execute(
+                                "UPDATE approval_evidence SET payload = ?",
+                                (
+                                    raw_payload
+                                    if raw_payload is not None
+                                    else json.dumps(payload, sort_keys=True),
+                                ),
+                            )
+                        connection.commit()
+                    finally:
+                        connection.close()
+
+                    reopened = approval.SQLiteApprovalStore(database)
+                    try:
+                        with self.assertRaises(approval.ApprovalStoreConflictError):
+                            getattr(reopened, load_name)(load_id)
+                        if corruption not in {"row-id-changed", "malformed-uuid"}:
+                            before = reopened._db().execute(
+                                "SELECT domain, evidence_id, schema_version, payload "
+                                "FROM approval_evidence"
+                            ).fetchall()
+                            with self.assertRaises(
+                                approval.ApprovalStoreConflictError
+                            ):
+                                getattr(reopened, store_name)(record)
+                            after = reopened._db().execute(
+                                "SELECT domain, evidence_id, schema_version, payload "
+                                "FROM approval_evidence"
+                            ).fetchall()
+                            self.assertEqual(
+                                [tuple(row) for row in after],
+                                [tuple(row) for row in before],
+                            )
+                        self.assertEqual(reopened.evidence_count(), 1)
+                    finally:
+                        reopened.close()
+
+    def test_operational_envelope_and_snapshot_duplicates_must_agree(self) -> None:
+        mutations = (
+            ("attempt_id", "forged-attempt"),
+            ("calculation_plan_id", "forged-plan"),
+            (
+                "execution_snapshot_id",
+                "e682de51-7047-5e87-8505-0c8055708bd8",
+            ),
+        )
+        for field_name, changed in mutations:
+            with self.subTest(field_name=field_name):
+                record = self._fresh_confirmation()
+                evidence_id = record.operational_confirmation_id
+                database = self.root / f"duplicate-{field_name}.sqlite3"
+                store = approval.SQLiteApprovalStore(database)
+                store.store_operational_confirmation(record)
+                store.close()
+                connection = sqlite3.connect(database)
+                try:
+                    payload = json.loads(
+                        connection.execute(
+                            "SELECT payload FROM approval_evidence WHERE evidence_id = ?",
+                            (evidence_id,),
+                        ).fetchone()[0]
+                    )
+                    payload[field_name] = changed
+                    connection.execute(
+                        "UPDATE approval_evidence SET payload = ? WHERE evidence_id = ?",
+                        (json.dumps(payload, sort_keys=True), evidence_id),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+                reopened = approval.SQLiteApprovalStore(database)
+                try:
+                    with self.assertRaises(approval.ApprovalStoreConflictError):
+                        reopened.load_operational_confirmation(evidence_id)
+                    self.assertEqual(reopened.evidence_count(), 1)
+                finally:
+                    reopened.close()
 
     def test_approval_store_is_independent_from_core_schema(self) -> None:
         approval_database = self.root / "approval.sqlite3"

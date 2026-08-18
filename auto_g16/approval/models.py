@@ -340,6 +340,7 @@ class ScientificApproval:
         return freeze_mapping(
             {
                 "schema_version": self.schema_version,
+                "evidence_kind": "scientific-approval",
                 "scientific_approval_id": self.scientific_approval_id,
                 **dict(self.authority_payload()),
             },
@@ -497,6 +498,7 @@ class BatchSubmitApproval:
         return freeze_mapping(
             {
                 "schema_version": self.schema_version,
+                "evidence_kind": "batch-submit-approval",
                 "batch_submit_approval_id": self.batch_submit_approval_id,
                 **dict(self.authority_payload()),
             },
@@ -628,6 +630,7 @@ class ExactOperationalConfirmation:
         return freeze_mapping(
             {
                 "schema_version": self.schema_version,
+                "evidence_kind": "operational-confirmation",
                 "operational_confirmation_id": self.operational_confirmation_id,
                 **dict(self.authority_payload()),
             },
