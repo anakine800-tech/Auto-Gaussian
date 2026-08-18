@@ -240,6 +240,27 @@
       "fail_closed": false
     },
     {
+      "id": "v30-workflow",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/workflow/",
+        "tests/v3/workflow/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.workflow",
+        "tests.v3.core.test_store",
+        "tests.v3.approval",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
       "id": "legacy-touch",
       "exact_paths": [],
       "prefixes": [

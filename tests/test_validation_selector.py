@@ -66,6 +66,17 @@ APPROVAL_TESTS = [
 ]
 RESULT_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
 RESULT_TESTS = ["tests.v3.core.test_store", "tests.v3.result"]
+WORKFLOW_SAFETY = ["approval-owner-separation", "unknown-no-automatic-retry"]
+# Workflow owns its future package tests; Core store anchors exact record/replay and
+# UNKNOWN invariants; Approval anchors HumanGate non-authority. The two legacy
+# modules are the existing carriers required by approval-owner-separation.
+WORKFLOW_TESTS = [
+    "tests.test_execution_authorization",
+    "tests.test_live_approval_effect_time_replay",
+    "tests.v3.approval",
+    "tests.v3.core.test_store",
+    "tests.v3.workflow",
+]
 
 
 def change(status: str, *paths: str) -> dict[str, object]:
@@ -617,6 +628,113 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(forward["tests"], sorted({*APPROVAL_TESTS, *EXEC_TESTS}))
         self.assertEqual(forward["safety_evidence"], EXEC_SAFETY)
         self.assertFalse(forward["fail_closed"])
+
+    def test_workflow_route_owns_future_product_and_test_prefixes(self) -> None:
+        product = change("A", "auto_g16/workflow/models.py")
+        tests = change("A", "tests/v3/workflow/test_models.py")
+        decisions = {
+            "product only": self.select(product),
+            "tests only": self.select(tests),
+            "product then tests": self.select(product, tests),
+            "tests then product": self.select(tests, product),
+        }
+        for label, decision in decisions.items():
+            with self.subTest(label=label):
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(decision["matched_routes"], ["v30-workflow"])
+                self.assertEqual(decision["tests"], WORKFLOW_TESTS)
+                self.assertEqual(decision["safety_evidence"], WORKFLOW_SAFETY)
+                self.assertFalse(decision["fail_closed"])
+
+        for field in (
+            "changed_paths",
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(
+                decisions["product then tests"][field],
+                decisions["tests then product"][field],
+            )
+
+    def test_workflow_and_core_store_union_is_deterministic_and_closed(self) -> None:
+        workflow = change("M", "auto_g16/workflow/models.py")
+        core_store = change("M", "auto_g16/core/store.py")
+        forward = self.select(workflow, core_store)
+        reverse = self.select(core_store, workflow)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(forward["matched_routes"], ["core-store", "v30-workflow"])
+        self.assertEqual(
+            forward["tests"],
+            sorted({*WORKFLOW_TESTS, "tests.v3.core.test_models"}),
+        )
+        self.assertEqual(
+            forward["safety_evidence"],
+            [
+                "approval-owner-separation",
+                "at-most-one-submission",
+                "no-overwrite",
+                "reconciliation",
+                "unknown-no-automatic-retry",
+            ],
+        )
+        self.assertFalse(forward["fail_closed"])
+
+    def test_workflow_and_approval_union_is_deterministic_and_closed(self) -> None:
+        workflow = change("M", "auto_g16/workflow/models.py")
+        approval = change("M", "auto_g16/approval/service.py")
+        forward = self.select(workflow, approval)
+        reverse = self.select(approval, workflow)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(forward["matched_routes"], ["v30-approval", "v30-workflow"])
+        self.assertEqual(forward["tests"], sorted({*WORKFLOW_TESTS, *APPROVAL_TESTS}))
+        self.assertEqual(forward["safety_evidence"], APPROVAL_SAFETY)
+        self.assertFalse(forward["fail_closed"])
+
+    def test_workflow_never_weakens_legacy_or_fail_closed_selection(self) -> None:
+        workflow = change("M", "auto_g16/workflow/models.py")
+        legacy = self.select(workflow, change("M", "scripts/legacy_adapter.py"))
+        self.assertEqual(legacy["lane"], "legacy-release")
+        self.assertEqual(legacy["matched_routes"], ["legacy-touch", "v30-workflow"])
+
+        cases = (
+            ("unmapped", change("A", "unmapped/future_surface.py")),
+            ("manifest", change("M", "config/validation-selection.json")),
+            ("selector tests", change("M", "tests/test_validation_selector.py")),
+        )
+        for label, protected in cases:
+            with self.subTest(label=label):
+                decision = self.select(workflow, protected)
+                self.assertEqual(decision["lane"], "legacy-release")
+                self.assertTrue(decision["fail_closed"])
+                self.assertEqual(decision["tests"], [])
+
+    def test_future_workflow_route_does_not_require_current_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(root, {"README.md": "baseline\n"})
+            self.assertFalse((root / "auto_g16" / "workflow").exists())
+            self.assertFalse((root / "tests" / "v3" / "workflow").exists())
+            head = commit_files(
+                root,
+                {
+                    "auto_g16/workflow/models.py": "WORKFLOW_MODEL = 1\n",
+                    "tests/v3/workflow/test_models.py": "WORKFLOW_TEST = 1\n",
+                },
+            )
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(decision["lane"], "affected")
+        self.assertEqual(decision["matched_routes"], ["v30-workflow"])
+        self.assertEqual(decision["tests"], WORKFLOW_TESTS)
+        self.assertEqual(decision["safety_evidence"], WORKFLOW_SAFETY)
+        self.assertFalse(decision["fail_closed"])
 
     def test_approval_and_core_store_close_required_safety_evidence(self) -> None:
         approval = change("M", "auto_g16/approval/service.py")
