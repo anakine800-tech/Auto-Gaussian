@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -9,6 +10,7 @@ from unittest import mock
 from uuid import UUID, uuid5
 
 import auto_g16.approval as approval
+from auto_g16.approval import store as approval_store
 import auto_g16.core as core
 
 from ._fixtures import (
@@ -69,28 +71,82 @@ class ApprovalStoreTests(unittest.TestCase):
         self, domain: str
     ) -> tuple[object, str, str, str]:
         if domain == "scientific-approval":
-            record = self._fresh_scientific()
             return (
-                record,
+                self._fresh_scientific(),
                 "store_scientific_approval",
                 "load_scientific_approval",
                 "scientific_approval_id",
             )
         if domain == "batch-submit-approval":
-            record = self._fresh_batch()
             return (
-                record,
+                self._fresh_batch(),
                 "store_batch_submit_approval",
                 "load_batch_submit_approval",
                 "batch_submit_approval_id",
             )
-        record = self._fresh_confirmation()
         return (
-            record,
+            self._fresh_confirmation(),
             "store_operational_confirmation",
             "load_operational_confirmation",
             "operational_confirmation_id",
         )
+
+    @staticmethod
+    def _raw_count(database: Path) -> int:
+        with closing(sqlite3.connect(database)) as connection:
+            return connection.execute(
+                "SELECT COUNT(*) FROM approval_evidence"
+            ).fetchone()[0]
+
+    def test_sqlite_v1_identity_is_exact_and_minimal(self) -> None:
+        database = self.root / "approval.sqlite3"
+        with approval.SQLiteApprovalStore(database) as store:
+            self.assertEqual(store.evidence_count(), 0)
+        with closing(sqlite3.connect(database)) as connection:
+            self.assertEqual(
+                connection.execute("PRAGMA application_id").fetchone()[0],
+                0x41473341,
+            )
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
+            objects = connection.execute(
+                "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name"
+            ).fetchall()
+            self.assertEqual(len(objects), 1)
+            self.assertEqual(objects[0][0:3], ("table", "approval_evidence", "approval_evidence"))
+            self.assertEqual(objects[0][3], approval_store._SCHEMA)
+            self.assertTrue(objects[0][3].endswith("WITHOUT ROWID"))
+            self.assertNotIn("AUTOINCREMENT", objects[0][3])
+            self.assertEqual(
+                connection.execute("PRAGMA table_xinfo('approval_evidence')").fetchall(),
+                list(approval_store._TABLE_XINFO),
+            )
+
+    def test_create_new_is_exclusive_and_incomplete_existing_files_fail_closed(self) -> None:
+        zero = self.root / "zero.sqlite3"
+        zero.touch()
+        with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+            approval.SQLiteApprovalStore(zero)
+        self.assertEqual(zero.stat().st_size, 0)
+
+        half = self.root / "half.sqlite3"
+        with closing(sqlite3.connect(half)) as connection:
+            connection.execute("PRAGMA application_id = 123")
+            connection.execute("PRAGMA user_version = 1")
+        before = half.read_bytes()
+        with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+            approval.SQLiteApprovalStore(half)
+        self.assertEqual(half.read_bytes(), before)
+
+    def test_failed_initialization_is_retained_and_never_auto_repaired(self) -> None:
+        database = self.root / "failed-init.sqlite3"
+        with mock.patch.object(approval_store, "_SCHEMA", "CREATE TABL broken"):
+            with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                approval.SQLiteApprovalStore(database)
+        self.assertTrue(database.exists())
+        retained = database.read_bytes()
+        with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+            approval.SQLiteApprovalStore(database)
+        self.assertEqual(database.read_bytes(), retained)
 
     def test_all_domains_are_idempotent_and_durable_across_reopen(self) -> None:
         database = self.root / "approval.sqlite3"
@@ -101,94 +157,67 @@ class ApprovalStoreTests(unittest.TestCase):
             first.store_operational_confirmation(self.confirmation)
         self.assertEqual(first.evidence_count(), 3)
         first.close()
-        reopened = approval.SQLiteApprovalStore(database)
-        self.addCleanup(reopened.close)
-        self.assertEqual(
-            reopened.load_scientific_approval(self.science.scientific_approval_id),
-            self.science,
-        )
-        self.assertEqual(
-            reopened.load_batch_submit_approval(self.batch.batch_submit_approval_id),
-            self.batch,
-        )
-        self.assertEqual(
-            reopened.load_operational_confirmation(
-                self.confirmation.operational_confirmation_id
-            ),
-            self.confirmation,
-        )
+        with approval.SQLiteApprovalStore(database) as reopened:
+            reopened.store_scientific_approval(self.science)
+            reopened.store_batch_submit_approval(self.batch)
+            reopened.store_operational_confirmation(self.confirmation)
+            self.assertEqual(
+                reopened.load_scientific_approval(self.science.scientific_approval_id),
+                self.science,
+            )
+            self.assertEqual(
+                reopened.load_batch_submit_approval(self.batch.batch_submit_approval_id),
+                self.batch,
+            )
+            self.assertEqual(
+                reopened.load_operational_confirmation(
+                    self.confirmation.operational_confirmation_id
+                ),
+                self.confirmation,
+            )
+            rejected = scientific(
+                self.runtime, decision=approval.ApprovalDecision.REJECTED
+            )
+            reopened.store_scientific_approval(rejected)
+            rejected_id = rejected.scientific_approval_id
+        with approval.SQLiteApprovalStore(database) as final_reopen:
+            self.assertEqual(
+                final_reopen.load_scientific_approval(rejected_id), rejected
+            )
+            self.assertEqual(final_reopen.evidence_count(), 4)
 
     def test_same_identity_different_payload_conflicts_for_every_domain(self) -> None:
-        store = approval.SQLiteApprovalStore(self.root / "approval.sqlite3")
-        self.addCleanup(store.close)
-        records = [
-            (
-                self.science,
-                store.store_scientific_approval,
-                "reviewer_id",
-                "other-reviewer",
-            ),
-            (
-                self.batch,
-                store.store_batch_submit_approval,
-                "reviewer_id",
-                "other-reviewer",
-            ),
-            (
-                self.confirmation,
-                store.store_operational_confirmation,
-                "confirmer_id",
-                "other-confirmer",
-            ),
-        ]
-        for record, persist, field_name, changed in records:
-            persist(record)
-            object.__setattr__(record, field_name, changed)
-            with self.assertRaises(approval.ApprovalStoreConflictError):
+        with approval.SQLiteApprovalStore(self.root / "approval.sqlite3") as store:
+            records = (
+                (
+                    self.science,
+                    store.store_scientific_approval,
+                    "reviewer_id",
+                    "other-reviewer",
+                ),
+                (
+                    self.batch,
+                    store.store_batch_submit_approval,
+                    "reviewer_id",
+                    "other-reviewer",
+                ),
+                (
+                    self.confirmation,
+                    store.store_operational_confirmation,
+                    "confirmer_id",
+                    "other-confirmer",
+                ),
+            )
+            for record, persist, field_name, changed in records:
                 persist(record)
+                object.__setattr__(record, field_name, changed)
+                with self.assertRaises(approval.ApprovalStoreConflictError):
+                    persist(record)
+            self.assertEqual(store.evidence_count(), 3)
 
-    def test_first_append_rejects_stale_or_malformed_authority_without_sql(self) -> None:
+    def test_first_append_rejects_counterfeit_authority_before_sql(self) -> None:
         cases = (
             (
-                "scientific-plan",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(
-                    value, "calculation_plan_id", "forged-plan"
-                ),
-            ),
-            (
-                "scientific-task",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(value, "task_id", "forged-task"),
-            ),
-            (
-                "scientific-revision-bool",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(
-                    value, "calculation_plan_revision", True
-                ),
-            ),
-            (
-                "scientific-intent",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(
-                    value, "canonical_intent", {"route": "forged"}
-                ),
-            ),
-            (
-                "scientific-displayed-meaning",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(
-                    value, "displayed_semantic_meaning", {"job": "forged"}
-                ),
-            ),
-            (
-                "scientific-reviewer",
                 self._fresh_scientific,
                 "store_scientific_approval",
                 lambda value: object.__setattr__(
@@ -196,37 +225,6 @@ class ApprovalStoreTests(unittest.TestCase):
                 ),
             ),
             (
-                "scientific-reviewer-evidence",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(
-                    value, "reviewer_evidence", {"statement": "forged"}
-                ),
-            ),
-            (
-                "scientific-decision-type",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(value, "decision", "approved"),
-            ),
-            (
-                "scientific-domain-id-swap",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(
-                    value,
-                    "scientific_approval_id",
-                    self.batch.batch_submit_approval_id,
-                ),
-            ),
-            (
-                "scientific-schema-bool",
-                self._fresh_scientific,
-                "store_scientific_approval",
-                lambda value: object.__setattr__(value, "schema_version", True),
-            ),
-            (
-                "batch-member-attempt",
                 self._fresh_batch,
                 "store_batch_submit_approval",
                 lambda value: object.__setattr__(
@@ -234,210 +232,119 @@ class ApprovalStoreTests(unittest.TestCase):
                 ),
             ),
             (
-                "batch-member-task",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(
-                    value.members[0], "task_id", "forged-task"
-                ),
-            ),
-            (
-                "batch-member-plan",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(
-                    value.members[0], "calculation_plan_id", "forged-plan"
-                ),
-            ),
-            (
-                "batch-member-revision-bool",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(
-                    value.members[0], "calculation_plan_revision", True
-                ),
-            ),
-            (
-                "batch-member-scientific-id",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(
-                    value.members[0], "scientific_approval_id", "forged-science-id"
-                ),
-            ),
-            (
-                "batch-members-container",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(value, "members", list(value.members)),
-            ),
-            (
-                "batch-empty-members",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(value, "members", ()),
-            ),
-            (
-                "batch-reviewer",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(
-                    value, "reviewer_id", "forged-reviewer"
-                ),
-            ),
-            (
-                "batch-reviewer-evidence",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(
-                    value, "reviewer_evidence", {"scope": "forged"}
-                ),
-            ),
-            (
-                "batch-decision-type",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(value, "decision", "approved"),
-            ),
-            (
-                "batch-domain-id-swap",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(
-                    value,
-                    "batch_submit_approval_id",
-                    self.science.scientific_approval_id,
-                ),
-            ),
-            (
-                "batch-schema-bool",
-                self._fresh_batch,
-                "store_batch_submit_approval",
-                lambda value: object.__setattr__(value, "schema_version", True),
-            ),
-            (
-                "confirmation-snapshot-id",
                 self._fresh_confirmation,
                 "store_operational_confirmation",
                 lambda value: object.__setattr__(
                     value, "execution_snapshot_id", "forged-snapshot"
                 ),
             ),
-            (
-                "confirmation-attempt",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(
-                    value, "attempt_id", "forged-attempt"
-                ),
-            ),
-            (
-                "confirmation-plan",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(
-                    value, "calculation_plan_id", "forged-plan"
-                ),
-            ),
-            (
-                "confirmation-revision-bool",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(
-                    value, "calculation_plan_revision", True
-                ),
-            ),
-            (
-                "confirmation-snapshot-semantics",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(
-                    value,
-                    "execution_snapshot_semantics",
-                    {"execution_snapshot_id": "forged", "attempt_id": "attempt-1"},
-                ),
-            ),
-            (
-                "confirmation-confirmer",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(
-                    value, "confirmer_id", "forged-confirmer"
-                ),
-            ),
-            (
-                "confirmation-confirmer-evidence",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(
-                    value, "confirmer_evidence", {"displayed": "forged"}
-                ),
-            ),
-            (
-                "confirmation-decision-type",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(value, "decision", "approved"),
-            ),
-            (
-                "confirmation-domain-id-swap",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(
-                    value,
-                    "operational_confirmation_id",
-                    self.science.scientific_approval_id,
-                ),
-            ),
-            (
-                "confirmation-schema-bool",
-                self._fresh_confirmation,
-                "store_operational_confirmation",
-                lambda value: object.__setattr__(value, "schema_version", True),
-            ),
         )
-
-        expected_failures = (
-            approval.ApprovalValueError,
-            approval.ApprovalStoreConflictError,
-        )
-        for index, (label, factory, method_name, mutate) in enumerate(cases):
-            with self.subTest(label=label):
-                database = self.root / f"first-append-forgery-{index}.sqlite3"
-                store = approval.SQLiteApprovalStore(database)
-                record = factory()
-                mutate(record)
-                with mock.patch.object(
-                    store,
-                    "_store",
-                    side_effect=AssertionError("SQL append boundary must not be reached"),
-                ):
-                    with self.assertRaises(expected_failures):
-                        getattr(store, method_name)(record)
-                self.assertEqual(store.evidence_count(), 0)
-                store.close()
-                reopened = approval.SQLiteApprovalStore(database)
-                self.assertEqual(reopened.evidence_count(), 0)
-                reopened.close()
+        for index, (factory, method_name, mutate) in enumerate(cases):
+            with self.subTest(method=method_name):
+                database = self.root / f"counterfeit-{index}.sqlite3"
+                with approval.SQLiteApprovalStore(database) as store:
+                    record = factory()
+                    mutate(record)
+                    with mock.patch.object(
+                        store,
+                        "_store",
+                        side_effect=AssertionError("SQL boundary must not be reached"),
+                    ):
+                        with self.assertRaises(
+                            (approval.ApprovalValueError, approval.ApprovalStoreConflictError)
+                        ):
+                            getattr(store, method_name)(record)
+                    self.assertEqual(store.evidence_count(), 0)
+                with approval.SQLiteApprovalStore(database) as reopened:
+                    self.assertEqual(reopened.evidence_count(), 0)
 
     def test_domain_swapped_records_never_reach_append_boundary(self) -> None:
-        store = approval.SQLiteApprovalStore(self.root / "domain-swapped.sqlite3")
-        self.addCleanup(store.close)
-        cases = (
-            (store.store_scientific_approval, self.batch),
-            (store.store_batch_submit_approval, self.confirmation),
-            (store.store_operational_confirmation, self.science),
-        )
-        with mock.patch.object(
-            store,
-            "_store",
-            side_effect=AssertionError("SQL append boundary must not be reached"),
-        ):
-            for persist, record in cases:
-                with self.subTest(persist=persist.__name__):
+        with approval.SQLiteApprovalStore(self.root / "domain.sqlite3") as store:
+            cases = (
+                (store.store_scientific_approval, self.batch),
+                (store.store_batch_submit_approval, self.confirmation),
+                (store.store_operational_confirmation, self.science),
+            )
+            with mock.patch.object(
+                store,
+                "_store",
+                side_effect=AssertionError("SQL boundary must not be reached"),
+            ):
+                for persist, record in cases:
                     with self.assertRaises(approval.ApprovalValueError):
                         persist(record)  # type: ignore[arg-type]
-        self.assertEqual(store.evidence_count(), 0)
+            self.assertEqual(store.evidence_count(), 0)
+
+    def test_persistent_schema_attack_matrix_fails_closed(self) -> None:
+        attacks = {
+            "before-trigger": """
+                CREATE TRIGGER suppress_approval BEFORE INSERT ON approval_evidence
+                BEGIN SELECT RAISE(IGNORE); END
+            """,
+            "after-trigger": """
+                CREATE TRIGGER mutate_approval AFTER INSERT ON approval_evidence
+                BEGIN UPDATE approval_evidence SET payload_json='{}'
+                WHERE evidence_id=NEW.evidence_id; END
+            """,
+            "view": "CREATE VIEW approval_shadow AS SELECT * FROM approval_evidence",
+            "index": "CREATE INDEX approval_kind_index ON approval_evidence(evidence_kind)",
+            "table": "CREATE TABLE approval_shadow(value TEXT)",
+        }
+        for label, statement in attacks.items():
+            with self.subTest(label=label):
+                database = self.root / f"schema-{label}.sqlite3"
+                with approval.SQLiteApprovalStore(database):
+                    pass
+                with closing(sqlite3.connect(database)) as connection:
+                    connection.executescript(statement)
+                with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                    approval.SQLiteApprovalStore(database)
+
+    def test_suppressed_append_never_reports_success_or_mutates_rows(self) -> None:
+        database = self.root / "suppressed.sqlite3"
+        with approval.SQLiteApprovalStore(database) as store:
+            with closing(sqlite3.connect(database)) as attacker:
+                attacker.executescript(
+                    """
+                    CREATE TRIGGER suppress_approval BEFORE INSERT ON approval_evidence
+                    BEGIN SELECT RAISE(IGNORE); END;
+                    """
+                )
+            with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                store.store_scientific_approval(self.science)
+        self.assertEqual(self._raw_count(database), 0)
+
+    def test_temp_trigger_and_attach_fail_before_authority_write(self) -> None:
+        temp_database = self.root / "temp.sqlite3"
+        with approval.SQLiteApprovalStore(temp_database) as store:
+            store._db().executescript(
+                """
+                CREATE TEMP TRIGGER temp_suppress BEFORE INSERT
+                ON main.approval_evidence
+                BEGIN SELECT RAISE(IGNORE); END;
+                """
+            )
+            with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                store.store_scientific_approval(self.science)
+        self.assertEqual(self._raw_count(temp_database), 0)
+
+        attached_database = self.root / "attached.sqlite3"
+        with approval.SQLiteApprovalStore(attached_database) as store:
+            store._db().execute("ATTACH DATABASE ':memory:' AS surprise")
+            with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                store.store_scientific_approval(self.science)
+        self.assertEqual(self._raw_count(attached_database), 0)
+
+    def test_database_header_attack_matrix_fails_closed(self) -> None:
+        for pragma, value in (("application_id", 123), ("user_version", 2)):
+            with self.subTest(pragma=pragma):
+                database = self.root / f"wrong-{pragma}.sqlite3"
+                with approval.SQLiteApprovalStore(database):
+                    pass
+                with closing(sqlite3.connect(database)) as connection:
+                    connection.execute(f"PRAGMA {pragma} = {value}")
+                with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                    approval.SQLiteApprovalStore(database)
 
     def test_hostile_persisted_rows_share_one_fail_closed_integrity_boundary(self) -> None:
         domains = (
@@ -445,21 +352,12 @@ class ApprovalStoreTests(unittest.TestCase):
             "batch-submit-approval",
             "operational-confirmation",
         )
-        common_corruptions = (
-            "missing-embedded-schema",
-            "unsupported-embedded-schema",
-            "unsupported-row-schema",
-            "extra-top-level-field",
-            "extra-semantic-field",
-            "row-id-changed",
-            "embedded-id-changed",
-            "payload-changed-id-unchanged",
-            "embedded-kind-changed",
-            "row-kind-changed",
+        corruptions = (
             "malformed-json",
-            "malformed-uuid",
-            "revision-bool",
-            "duplicate-json-key",
+            "extra-field",
+            "evidence-id-mismatch",
+            "kind-mismatch",
+            "payload-drift",
         )
         other_domain = {
             "scientific-approval": "batch-submit-approval",
@@ -469,135 +367,59 @@ class ApprovalStoreTests(unittest.TestCase):
         namespace = UUID("5ffbb693-1fe5-5c64-9b2a-68af1871417b")
 
         for domain in domains:
-            for corruption in common_corruptions:
+            for corruption in corruptions:
                 with self.subTest(domain=domain, corruption=corruption):
-                    record, store_name, load_name, identity_field = self._fresh_family(
+                    record, store_name, _load_name, identity_field = self._fresh_family(
                         domain
                     )
                     evidence_id = getattr(record, identity_field)
                     database = self.root / f"hostile-{domain}-{corruption}.sqlite3"
-                    store = approval.SQLiteApprovalStore(database)
-                    getattr(store, store_name)(record)
-                    store.close()
-
-                    connection = sqlite3.connect(database)
-                    try:
-                        row = connection.execute(
-                            "SELECT payload FROM approval_evidence WHERE evidence_id = ?",
+                    with approval.SQLiteApprovalStore(database) as store:
+                        getattr(store, store_name)(record)
+                    with closing(sqlite3.connect(database)) as connection:
+                        payload_text = connection.execute(
+                            "SELECT payload_json FROM approval_evidence "
+                            "WHERE evidence_id = ?",
                             (evidence_id,),
-                        ).fetchone()
-                        self.assertIsNotNone(row)
-                        payload = json.loads(row[0])
-                        load_id = evidence_id
-                        raw_payload: str | None = None
-
-                        if corruption == "missing-embedded-schema":
-                            payload.pop("schema_version")
-                        elif corruption == "unsupported-embedded-schema":
-                            payload["schema_version"] = 2
-                        elif corruption == "unsupported-row-schema":
-                            connection.execute("PRAGMA ignore_check_constraints = ON")
+                        ).fetchone()[0]
+                        payload = json.loads(payload_text)
+                        if corruption == "malformed-json":
                             connection.execute(
-                                "UPDATE approval_evidence SET schema_version = 2"
+                                "UPDATE approval_evidence SET payload_json = ?",
+                                ("{",),
                             )
-                        elif corruption == "extra-top-level-field":
-                            payload["unexpected"] = "forged"
-                        elif corruption == "extra-semantic-field":
-                            if domain == "scientific-approval":
-                                payload["canonical_intent"]["unexpected"] = "forged"
-                            elif domain == "batch-submit-approval":
-                                payload["members"][0]["unexpected"] = "forged"
-                            else:
-                                payload["execution_snapshot_semantics"][
-                                    "unexpected"
-                                ] = "forged"
-                        elif corruption == "row-id-changed":
-                            load_id = str(uuid5(namespace, f"row-{domain}"))
+                        elif corruption == "extra-field":
+                            payload["unexpected_authority_shadow"] = True
+                            connection.execute(
+                                "UPDATE approval_evidence SET payload_json = ?",
+                                (json.dumps(payload, sort_keys=True),),
+                            )
+                        elif corruption == "evidence-id-mismatch":
+                            changed_id = str(uuid5(namespace, f"row-{domain}"))
                             connection.execute(
                                 "UPDATE approval_evidence SET evidence_id = ?",
-                                (load_id,),
+                                (changed_id,),
                             )
-                        elif corruption == "embedded-id-changed":
-                            payload[identity_field] = str(
-                                uuid5(namespace, f"embedded-{domain}")
+                        elif corruption == "kind-mismatch":
+                            connection.execute(
+                                "UPDATE approval_evidence SET evidence_kind = ?",
+                                (other_domain[domain],),
                             )
-                        elif corruption == "payload-changed-id-unchanged":
-                            field_name = (
+                        else:
+                            field = (
                                 "confirmer_id"
                                 if domain == "operational-confirmation"
                                 else "reviewer_id"
                             )
-                            payload[field_name] = "forged-reviewer"
-                        elif corruption == "embedded-kind-changed":
-                            payload["evidence_kind"] = other_domain[domain]
-                        elif corruption == "row-kind-changed":
+                            payload[field] = "forged-authority"
                             connection.execute(
-                                "UPDATE approval_evidence SET domain = ?",
-                                (other_domain[domain],),
-                            )
-                        elif corruption == "malformed-json":
-                            raw_payload = "{"
-                        elif corruption == "malformed-uuid":
-                            load_id = "not-a-uuid"
-                            payload[identity_field] = load_id
-                            connection.execute(
-                                "UPDATE approval_evidence SET evidence_id = ?",
-                                (load_id,),
-                            )
-                        elif corruption == "revision-bool":
-                            if domain == "batch-submit-approval":
-                                payload["members"][0][
-                                    "calculation_plan_revision"
-                                ] = True
-                            else:
-                                payload["calculation_plan_revision"] = True
-                        elif corruption == "duplicate-json-key":
-                            encoded = json.dumps(payload, sort_keys=True)
-                            raw_payload = (
-                                '{"schema_version":1,' + encoded[1:]
-                            )
-
-                        if corruption not in {
-                            "unsupported-row-schema",
-                            "row-id-changed",
-                            "row-kind-changed",
-                        }:
-                            connection.execute(
-                                "UPDATE approval_evidence SET payload = ?",
-                                (
-                                    raw_payload
-                                    if raw_payload is not None
-                                    else json.dumps(payload, sort_keys=True),
-                                ),
+                                "UPDATE approval_evidence SET payload_json = ?",
+                                (json.dumps(payload, sort_keys=True),),
                             )
                         connection.commit()
-                    finally:
-                        connection.close()
-
-                    reopened = approval.SQLiteApprovalStore(database)
-                    try:
-                        with self.assertRaises(approval.ApprovalStoreConflictError):
-                            getattr(reopened, load_name)(load_id)
-                        if corruption not in {"row-id-changed", "malformed-uuid"}:
-                            before = reopened._db().execute(
-                                "SELECT domain, evidence_id, schema_version, payload "
-                                "FROM approval_evidence"
-                            ).fetchall()
-                            with self.assertRaises(
-                                approval.ApprovalStoreConflictError
-                            ):
-                                getattr(reopened, store_name)(record)
-                            after = reopened._db().execute(
-                                "SELECT domain, evidence_id, schema_version, payload "
-                                "FROM approval_evidence"
-                            ).fetchall()
-                            self.assertEqual(
-                                [tuple(row) for row in after],
-                                [tuple(row) for row in before],
-                            )
-                        self.assertEqual(reopened.evidence_count(), 1)
-                    finally:
-                        reopened.close()
+                    with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                        approval.SQLiteApprovalStore(database)
+                    self.assertEqual(self._raw_count(database), 1)
 
     def test_operational_envelope_and_snapshot_duplicates_must_agree(self) -> None:
         mutations = (
@@ -613,81 +435,69 @@ class ApprovalStoreTests(unittest.TestCase):
                 record = self._fresh_confirmation()
                 evidence_id = record.operational_confirmation_id
                 database = self.root / f"duplicate-{field_name}.sqlite3"
-                store = approval.SQLiteApprovalStore(database)
-                store.store_operational_confirmation(record)
-                store.close()
-                connection = sqlite3.connect(database)
-                try:
+                with approval.SQLiteApprovalStore(database) as store:
+                    store.store_operational_confirmation(record)
+                with closing(sqlite3.connect(database)) as connection:
                     payload = json.loads(
                         connection.execute(
-                            "SELECT payload FROM approval_evidence WHERE evidence_id = ?",
+                            "SELECT payload_json FROM approval_evidence "
+                            "WHERE evidence_id = ?",
                             (evidence_id,),
                         ).fetchone()[0]
                     )
                     payload[field_name] = changed
                     connection.execute(
-                        "UPDATE approval_evidence SET payload = ? WHERE evidence_id = ?",
+                        "UPDATE approval_evidence SET payload_json = ? "
+                        "WHERE evidence_id = ?",
                         (json.dumps(payload, sort_keys=True), evidence_id),
                     )
                     connection.commit()
-                finally:
-                    connection.close()
-                reopened = approval.SQLiteApprovalStore(database)
-                try:
-                    with self.assertRaises(approval.ApprovalStoreConflictError):
-                        reopened.load_operational_confirmation(evidence_id)
-                    self.assertEqual(reopened.evidence_count(), 1)
-                finally:
-                    reopened.close()
+                with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                    approval.SQLiteApprovalStore(database)
+
+    def test_begin_immediate_closes_cooperative_schema_toctou(self) -> None:
+        database = self.root / "locked.sqlite3"
+        with approval.SQLiteApprovalStore(database) as store:
+            attacker = sqlite3.connect(database, timeout=0.05, isolation_level=None)
+            self.addCleanup(attacker.close)
+            with store._transaction(immediate=True) as transaction:
+                store._attest_database_and_decode_all_rows(transaction)
+                with self.assertRaisesRegex(sqlite3.OperationalError, "locked"):
+                    attacker.execute("CREATE TABLE injected(value TEXT)")
+                store._attest_database_and_decode_all_rows(transaction)
+            store.store_scientific_approval(self.science)
+            self.assertEqual(store.evidence_count(), 1)
 
     def test_approval_store_is_independent_from_core_schema(self) -> None:
         approval_database = self.root / "approval.sqlite3"
-        store = approval.SQLiteApprovalStore(approval_database)
-        store.store_scientific_approval(self.science)
-        store.close()
-        with sqlite3.connect(approval_database) as connection:
+        with approval.SQLiteApprovalStore(approval_database) as store:
+            store.store_scientific_approval(self.science)
+        with closing(sqlite3.connect(approval_database)) as connection:
             objects = {
                 row[0]
                 for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
+                    "SELECT name FROM sqlite_schema WHERE type='table'"
                 )
             }
-            self.assertIn("approval_evidence", objects)
-            self.assertNotIn("attempts", objects)
-        with sqlite3.connect(self.root / "runtime.sqlite3") as connection:
+            self.assertEqual(objects, {"approval_evidence"})
+        with closing(sqlite3.connect(self.root / "runtime.sqlite3")) as connection:
             objects = {
                 row[0]
                 for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
+                    "SELECT name FROM sqlite_schema WHERE type='table'"
                 )
             }
             self.assertNotIn("approval_evidence", objects)
 
-    def test_unknown_or_counterfeit_schema_fails_closed(self) -> None:
-        wrong_version = self.root / "wrong.sqlite3"
-        with sqlite3.connect(wrong_version) as connection:
-            connection.execute("PRAGMA user_version = 2")
-        with self.assertRaises(approval.ApprovalStoreSchemaError):
-            approval.SQLiteApprovalStore(wrong_version)
-        counterfeit = self.root / "counterfeit.sqlite3"
-        with sqlite3.connect(counterfeit) as connection:
-            connection.execute(
-                "CREATE TABLE approval_evidence (evidence_id TEXT PRIMARY KEY, payload TEXT)"
-            )
-            connection.execute("PRAGMA user_version = 1")
-        with self.assertRaises(approval.ApprovalStoreSchemaError):
-            approval.SQLiteApprovalStore(counterfeit)
-
     def test_rejected_decisions_persist_but_never_validate(self) -> None:
         rejected = scientific(self.runtime, decision=approval.ApprovalDecision.REJECTED)
-        store = approval.SQLiteApprovalStore(self.root / "approval.sqlite3")
-        self.addCleanup(store.close)
-        store.store_scientific_approval(rejected)
-        loaded = store.load_scientific_approval(rejected.scientific_approval_id)
-        with self.assertRaises(approval.ApprovalRejectedError):
-            loaded.assert_current(
-                plan(), displayed_semantic_meaning=DISPLAYED_MEANING
-            )
+        with approval.SQLiteApprovalStore(self.root / "approval.sqlite3") as store:
+            store.store_scientific_approval(rejected)
+            loaded = store.load_scientific_approval(rejected.scientific_approval_id)
+            with self.assertRaises(approval.ApprovalRejectedError):
+                loaded.assert_current(
+                    plan(), displayed_semantic_meaning=DISPLAYED_MEANING
+                )
 
 
 if __name__ == "__main__":

@@ -5,8 +5,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 from collections.abc import Iterator, Mapping
 import json
+import os
 from pathlib import Path
 import sqlite3
+import stat
 from typing import Final, cast
 from uuid import UUID
 
@@ -98,24 +100,38 @@ _SNAPSHOT_FIELDS: Final = frozenset(
     }
 )
 
-_SCHEMA = f"""
-CREATE TABLE approval_evidence (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-    domain TEXT NOT NULL CHECK (
-        domain IN ('scientific-approval', 'batch-submit-approval', 'operational-confirmation')
-    ),
-    evidence_id TEXT NOT NULL UNIQUE,
-    schema_version INTEGER NOT NULL CHECK (schema_version = {APPROVAL_SCHEMA_VERSION}),
-    payload TEXT NOT NULL
+_APPLICATION_ID: Final = 0x41473341
+_USER_VERSION: Final = 1
+_SCHEMA: Final = (
+    "CREATE TABLE approval_evidence("
+    "evidence_id TEXT NOT NULL PRIMARY KEY,"
+    "evidence_kind TEXT NOT NULL CHECK(evidence_kind IN("
+    "'scientific-approval','batch-submit-approval','operational-confirmation'"
+    ")),"
+    "payload_json TEXT NOT NULL"
+    ") WITHOUT ROWID"
 )
-""".strip()
+_ROW_COLUMNS: Final = ("evidence_id", "evidence_kind", "payload_json")
+_TABLE_XINFO: Final = (
+    (0, "evidence_id", "TEXT", 1, None, 1, 0),
+    (1, "evidence_kind", "TEXT", 1, None, 0, 0),
+    (2, "payload_json", "TEXT", 1, None, 0, 0),
+)
+_INDEX_LIST: Final = (
+    (0, "sqlite_autoindex_approval_evidence_1", 1, "pk", 0),
+)
+_INDEX_INFO: Final = ((0, 0, "evidence_id"),)
 
 
 class ApprovalStoreError(Exception):
     """Base failure for approval-owned persistence."""
 
 
-class ApprovalStoreSchemaError(ApprovalStoreError):
+class ApprovalPersistenceIntegrityError(ApprovalStoreError):
+    """The approval database, schema, row set, or write path is not exact."""
+
+
+class ApprovalStoreSchemaError(ApprovalPersistenceIntegrityError):
     """The approval database is not the exact supported schema."""
 
 
@@ -125,30 +141,6 @@ class ApprovalStoreConflictError(ApprovalStoreError):
 
 class ApprovalStoreNotFoundError(ApprovalStoreError):
     """Requested approval evidence was not found."""
-
-
-def _schema_identity(connection: sqlite3.Connection) -> tuple[object, ...]:
-    table = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='approval_evidence'"
-    ).fetchone()
-    columns = tuple(
-        tuple(row)
-        for row in connection.execute("PRAGMA table_info('approval_evidence')")
-    )
-    indexes = tuple(
-        tuple(row)
-        for row in connection.execute("PRAGMA index_list('approval_evidence')")
-    )
-    return (None if table is None else table[0], columns, indexes)
-
-
-def _expected_schema_identity() -> tuple[object, ...]:
-    connection = sqlite3.connect(":memory:")
-    try:
-        connection.execute(_SCHEMA)
-        return _schema_identity(connection)
-    finally:
-        connection.close()
 
 
 def _payload_text(record: object) -> str:
@@ -162,8 +154,10 @@ def _payload_text(record: object) -> str:
     )
 
 
-def _integrity_failure(message: str) -> ApprovalStoreConflictError:
-    return ApprovalStoreConflictError(f"persisted approval integrity failure: {message}")
+def _integrity_failure(message: str) -> ApprovalPersistenceIntegrityError:
+    return ApprovalPersistenceIntegrityError(
+        f"persisted approval integrity failure: {message}"
+    )
 
 
 def _exact_object(
@@ -238,7 +232,7 @@ def _decode_json_payload(value: object) -> dict[str, object]:
             object_pairs_hook=_json_object,
             parse_constant=_reject_json_constant,
         )
-    except ApprovalStoreConflictError:
+    except ApprovalPersistenceIntegrityError:
         raise
     except (TypeError, json.JSONDecodeError, UnicodeError) as exc:
         raise _integrity_failure("payload is malformed JSON") from exc
@@ -604,25 +598,24 @@ def _decode_operational(payload: dict[str, object]) -> ExactOperationalConfirmat
 def _decode_evidence_row(
     row: sqlite3.Row,
     *,
-    expected_domain: str,
+    expected_domain: str | None = None,
 ) -> object:
     """Decode one hostile row through the single persistence integrity seam."""
 
     try:
-        if tuple(row.keys()) != ("domain", "evidence_id", "schema_version", "payload"):
+        if tuple(row.keys()) != _ROW_COLUMNS:
             raise _integrity_failure("row envelope columns are not exact")
-        domain = _exact_text(row["domain"], "row.domain")
-        if domain not in _DOMAINS or domain != expected_domain:
+        domain = _exact_text(row["evidence_kind"], "row.evidence_kind")
+        if domain not in _DOMAINS or (
+            expected_domain is not None and domain != expected_domain
+        ):
             raise _integrity_failure("row evidence kind disagrees with requested type")
         evidence_id = _uuid5_text(row["evidence_id"], "row.evidence_id")
-        schema_version = row["schema_version"]
-        if type(schema_version) is not int or schema_version != APPROVAL_SCHEMA_VERSION:
-            raise _integrity_failure("row schema version is unsupported")
-        payload = _decode_json_payload(row["payload"])
+        payload = _decode_json_payload(row["payload_json"])
         if type(payload.get("schema_version")) is not int:
             raise _integrity_failure("embedded schema version has the wrong type")
-        if payload.get("schema_version") != schema_version:
-            raise _integrity_failure("row and embedded schema versions disagree")
+        if payload.get("schema_version") != APPROVAL_SCHEMA_VERSION:
+            raise _integrity_failure("embedded schema version is unsupported")
         if payload.get("evidence_kind") != domain:
             raise _integrity_failure("row and embedded evidence kinds disagree")
         identity_field, record_type = _DOMAINS[domain]
@@ -641,7 +634,7 @@ def _decode_evidence_row(
         if _payload_text(record) != _canonical_payload_text(payload):
             raise _integrity_failure("decoded authority payload is not canonical and exact")
         return record
-    except ApprovalStoreConflictError:
+    except ApprovalPersistenceIntegrityError:
         raise
     except (ApprovalValueError, KeyError, TypeError, ValueError) as exc:
         raise _integrity_failure("typed authority payload is malformed") from exc
@@ -722,20 +715,127 @@ def _assert_operational_record_closed(record: ExactOperationalConfirmation) -> N
 
 
 class SQLiteApprovalStore:
-    """Minimal approval-layer store; its schema is not a cross-layer public ABI."""
+    """Approval-owned exact SQLite v1 store with no effect authority."""
 
     def __init__(self, database: str | Path = ":memory:") -> None:
-        self._closed = False
+        self._closed = True
+        self._connection: sqlite3.Connection
+        self._database_path: Path | None = None
+        self._file_identity: tuple[int, int] | None = None
         try:
-            self._connection = sqlite3.connect(str(database), isolation_level=None)
-            self._connection.row_factory = sqlite3.Row
-            self._initialize_schema()
+            if str(database) == ":memory:":
+                self._connection = sqlite3.connect(":memory:", isolation_level=None)
+                self._closed = False
+                self._configure_connection()
+                self._initialize_reserved_database()
+            else:
+                self._database_path = self._canonical_database_path(database)
+                try:
+                    identity = self._existing_file_identity(self._database_path)
+                except FileNotFoundError:
+                    identity = self._reserve_new_file(self._database_path)
+                    self._file_identity = identity
+                    self._connection = self._connect_existing_file(self._database_path)
+                    self._closed = False
+                    self._configure_connection()
+                    self._assert_file_identity()
+                    self._initialize_reserved_database()
+                    self.close()
+                    self._file_identity = self._existing_file_identity(
+                        self._database_path
+                    )
+                    self._connection = self._connect_existing_file(self._database_path)
+                    self._closed = False
+                    self._configure_connection()
+                    self._assert_file_identity()
+                    self._validate_open_database()
+                else:
+                    self._file_identity = identity
+                    self._connection = self._connect_existing_file(self._database_path)
+                    self._closed = False
+                    self._configure_connection()
+                    self._assert_file_identity()
+                    self._validate_open_database()
         except Exception:
             connection = getattr(self, "_connection", None)
             if connection is not None:
                 connection.close()
             self._closed = True
             raise
+
+    @staticmethod
+    def _canonical_database_path(database: str | Path) -> Path:
+        path = Path(database).expanduser()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        return path.resolve(strict=False)
+
+    @staticmethod
+    def _existing_file_identity(path: Path) -> tuple[int, int]:
+        observed = os.lstat(path)
+        if stat.S_ISLNK(observed.st_mode) or not stat.S_ISREG(observed.st_mode):
+            raise ApprovalPersistenceIntegrityError(
+                "approval database target must be a regular non-symlink file"
+            )
+        return (observed.st_dev, observed.st_ino)
+
+    @staticmethod
+    def _reserve_new_file(path: Path) -> tuple[int, int]:
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(path, flags, 0o600)
+        except FileExistsError as exc:
+            raise ApprovalPersistenceIntegrityError(
+                "approval database create-new lost its exclusive namespace claim"
+            ) from exc
+        except OSError as exc:
+            raise ApprovalPersistenceIntegrityError(
+                "approval database could not be reserved atomically"
+            ) from exc
+        try:
+            os.fchmod(descriptor, 0o600)
+            observed = os.fstat(descriptor)
+            if not stat.S_ISREG(observed.st_mode):
+                raise ApprovalPersistenceIntegrityError(
+                    "reserved approval database is not a regular file"
+                )
+            return (observed.st_dev, observed.st_ino)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _connect_existing_file(path: Path) -> sqlite3.Connection:
+        uri = f"{path.as_uri()}?mode=rw&cache=private"
+        try:
+            return sqlite3.connect(uri, uri=True, isolation_level=None)
+        except sqlite3.Error as exc:
+            raise ApprovalPersistenceIntegrityError(
+                "approval database could not be opened in existing-file mode"
+            ) from exc
+
+    def _configure_connection(self) -> None:
+        connection = self._connection
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA trusted_schema = OFF")
+            connection.execute("PRAGMA read_uncommitted = OFF")
+            connection.execute("PRAGMA synchronous = FULL")
+            connection.execute("PRAGMA busy_timeout = 250")
+        except sqlite3.Error as exc:
+            raise ApprovalPersistenceIntegrityError(
+                "approval database connection policy could not be established"
+            ) from exc
+
+    def _assert_file_identity(self) -> None:
+        if self._database_path is None:
+            return
+        observed = self._existing_file_identity(self._database_path)
+        if observed != self._file_identity:
+            raise ApprovalPersistenceIntegrityError(
+                "approval database path no longer names the opened file identity"
+            )
 
     def __enter__(self) -> SQLiteApprovalStore:
         self._db()
@@ -754,95 +854,282 @@ class SQLiteApprovalStore:
             raise ApprovalStoreError("approval store is closed")
         return self._connection
 
+    def _rollback_after_failure(self, connection: sqlite3.Connection) -> None:
+        if not connection.in_transaction:
+            return
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error as exc:
+            self.close()
+            raise ApprovalPersistenceIntegrityError(
+                "approval transaction rollback failed; connection was closed"
+            ) from exc
+
     @contextmanager
-    def _transaction(self) -> Iterator[sqlite3.Connection]:
+    def _transaction(
+        self, *, immediate: bool
+    ) -> Iterator[sqlite3.Connection]:
         connection = self._db()
-        connection.execute("BEGIN IMMEDIATE")
+        statement = "BEGIN IMMEDIATE" if immediate else "BEGIN"
+        try:
+            connection.execute(statement)
+        except sqlite3.Error as exc:
+            raise ApprovalPersistenceIntegrityError(
+                "approval transaction could not begin"
+            ) from exc
         try:
             yield connection
-            connection.execute("COMMIT")
+        except sqlite3.Error as exc:
+            self._rollback_after_failure(connection)
+            raise ApprovalPersistenceIntegrityError(
+                "approval SQLite operation failed"
+            ) from exc
         except Exception:
-            if connection.in_transaction:
-                connection.execute("ROLLBACK")
+            self._rollback_after_failure(connection)
             raise
+        try:
+            connection.execute("COMMIT")
+        except sqlite3.Error as exc:
+            self._rollback_after_failure(connection)
+            raise ApprovalPersistenceIntegrityError(
+                "approval transaction commit failed"
+            ) from exc
 
-    def _initialize_schema(self) -> None:
-        connection = self._db()
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-        objects = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'"
+    def _assert_database_list(self, connection: sqlite3.Connection) -> None:
+        observed = tuple(
+            tuple(row) for row in connection.execute("PRAGMA database_list")
+        )
+        if len(observed) != 1 or observed[0][0:2] != (0, "main"):
+            raise ApprovalStoreSchemaError(
+                "approval connection must contain only the expected main database"
             )
-        }
-        if version == 0:
-            if objects:
+        filename = cast(str, observed[0][2])
+        if self._database_path is None:
+            if filename != "":
                 raise ApprovalStoreSchemaError(
-                    "refusing to initialize an unversioned database containing objects"
+                    "in-memory approval database has an unexpected filename"
                 )
-            with self._transaction() as transaction:
-                transaction.execute(_SCHEMA)
-                transaction.execute(f"PRAGMA user_version = {APPROVAL_SCHEMA_VERSION}")
-        elif version != APPROVAL_SCHEMA_VERSION:
+        else:
+            if not filename:
+                raise ApprovalStoreSchemaError(
+                    "file approval database has no main filename"
+                )
+            if Path(filename).resolve(strict=False) != self._database_path:
+                raise ApprovalStoreSchemaError(
+                    "approval connection names an unexpected main database"
+                )
+
+    def _assert_uninitialized_reserved_database(
+        self, connection: sqlite3.Connection
+    ) -> None:
+        self._assert_file_identity()
+        self._assert_database_list(connection)
+        application_id = connection.execute(
+            "PRAGMA main.application_id"
+        ).fetchone()[0]
+        user_version = connection.execute("PRAGMA main.user_version").fetchone()[0]
+        objects = tuple(connection.execute("SELECT * FROM main.sqlite_schema"))
+        if application_id != 0 or user_version != 0 or objects:
             raise ApprovalStoreSchemaError(
-                f"unsupported approval schema version {version}; "
-                f"expected {APPROVAL_SCHEMA_VERSION}"
+                "reserved approval database is not exact empty initialization state"
             )
-        if _schema_identity(connection) != _expected_schema_identity():
+
+    def _assert_schema(self, connection: sqlite3.Connection) -> None:
+        rows = tuple(
+            tuple(row)
+            for row in connection.execute(
+                "SELECT type,name,tbl_name,rootpage,sql "
+                "FROM main.sqlite_schema ORDER BY type,name"
+            )
+        )
+        if len(rows) != 1:
             raise ApprovalStoreSchemaError(
-                "approval store schema identity does not match schema version 1"
+                "approval schema contains an unexpected persistent object set"
             )
+        object_type, name, table_name, rootpage, sql = rows[0]
+        if (
+            object_type != "table"
+            or name != "approval_evidence"
+            or table_name != "approval_evidence"
+            or type(rootpage) is not int
+            or rootpage < 1
+            or sql != _SCHEMA
+        ):
+            raise ApprovalStoreSchemaError(
+                "approval schema object identity is not exact SQLite v1"
+            )
+        table_xinfo = tuple(
+            tuple(row)
+            for row in connection.execute(
+                "PRAGMA main.table_xinfo('approval_evidence')"
+            )
+        )
+        if table_xinfo != _TABLE_XINFO:
+            raise ApprovalStoreSchemaError(
+                "approval table structural metadata is not exact"
+            )
+        index_list = tuple(
+            tuple(row)
+            for row in connection.execute(
+                "PRAGMA main.index_list('approval_evidence')"
+            )
+        )
+        if index_list != _INDEX_LIST:
+            raise ApprovalStoreSchemaError(
+                "approval primary-key index metadata is not exact"
+            )
+        index_info = tuple(
+            tuple(row)
+            for row in connection.execute(
+                "PRAGMA main.index_info('sqlite_autoindex_approval_evidence_1')"
+            )
+        )
+        if index_info != _INDEX_INFO:
+            raise ApprovalStoreSchemaError(
+                "approval primary-key index columns are not exact"
+            )
+
+    def _attest_database_and_decode_all_rows(
+        self, connection: sqlite3.Connection
+    ) -> dict[str, tuple[str, str, object]]:
+        self._assert_file_identity()
+        self._assert_database_list(connection)
+        application_id = connection.execute(
+            "PRAGMA main.application_id"
+        ).fetchone()[0]
+        user_version = connection.execute("PRAGMA main.user_version").fetchone()[0]
+        if application_id != _APPLICATION_ID or user_version != _USER_VERSION:
+            raise ApprovalStoreSchemaError(
+                "approval database header identity is not exact SQLite v1"
+            )
+        self._assert_schema(connection)
+        integrity = tuple(
+            row[0] for row in connection.execute("PRAGMA main.integrity_check")
+        )
+        if integrity != ("ok",):
+            raise ApprovalPersistenceIntegrityError(
+                "SQLite integrity_check rejected the approval database"
+            )
+        rows = connection.execute(
+            "SELECT evidence_id,evidence_kind,payload_json "
+            "FROM main.approval_evidence ORDER BY evidence_id"
+        ).fetchall()
+        decoded: dict[str, tuple[str, str, object]] = {}
+        for row in rows:
+            record = _decode_evidence_row(row)
+            evidence_id = cast(str, row["evidence_id"])
+            if evidence_id in decoded:
+                raise ApprovalPersistenceIntegrityError(
+                    "approval database contains a duplicate evidence identity"
+                )
+            decoded[evidence_id] = (
+                cast(str, row["evidence_kind"]),
+                cast(str, row["payload_json"]),
+                record,
+            )
+        return decoded
+
+    def _initialize_reserved_database(self) -> None:
+        connection = self._db()
+        with self._transaction(immediate=True) as transaction:
+            self._assert_uninitialized_reserved_database(transaction)
+            transaction.execute(f"PRAGMA main.application_id = {_APPLICATION_ID}")
+            transaction.execute(f"PRAGMA main.user_version = {_USER_VERSION}")
+            transaction.execute(_SCHEMA)
+            if self._attest_database_and_decode_all_rows(transaction) != {}:
+                raise ApprovalPersistenceIntegrityError(
+                    "new approval database unexpectedly contains evidence"
+                )
+
+    def _validate_open_database(self) -> None:
+        with self._transaction(immediate=False) as transaction:
+            self._attest_database_and_decode_all_rows(transaction)
 
     def _store(self, domain: str, evidence_id: str, record: object) -> None:
         require_text(evidence_id, "evidence_id")
-        payload = _payload_text(record)
-        with self._transaction() as connection:
-            try:
-                connection.execute(
-                    """
-                    INSERT INTO approval_evidence
-                        (domain, evidence_id, schema_version, payload)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (domain, evidence_id, APPROVAL_SCHEMA_VERSION, payload),
-                )
-            except sqlite3.IntegrityError as exc:
-                existing = connection.execute(
-                    """
-                    SELECT domain, evidence_id, schema_version, payload
-                    FROM approval_evidence WHERE evidence_id = ?
-                    """,
-                    (evidence_id,),
-                ).fetchone()
-                if existing is None:
-                    raise ApprovalStoreConflictError(
-                        f"approval evidence {evidence_id!r} conflicted without a row"
-                    ) from exc
-                decoded = _decode_evidence_row(existing, expected_domain=domain)
-                identity_field, _record_type = _DOMAINS[domain]
+        intended_payload = _payload_text(record)
+        with self._transaction(immediate=True) as connection:
+            before = self._attest_database_and_decode_all_rows(connection)
+            existing = before.get(evidence_id)
+            if existing is not None:
+                existing_domain, existing_payload, existing_record = existing
                 if (
-                    getattr(decoded, identity_field) == evidence_id
-                    and _payload_text(decoded) == payload
+                    existing_domain == domain
+                    and existing_payload == intended_payload
+                    and existing_record == record
                 ):
+                    after = self._attest_database_and_decode_all_rows(connection)
+                    if after != before:
+                        raise ApprovalPersistenceIntegrityError(
+                            "idempotent replay changed approval persistence"
+                        )
                     return
                 raise ApprovalStoreConflictError(
                     f"approval evidence {evidence_id!r} already has different content"
+                )
+
+            try:
+                cursor = connection.execute(
+                    "INSERT OR ABORT INTO main.approval_evidence"
+                    "(evidence_id,evidence_kind,payload_json) VALUES(?,?,?)",
+                    (evidence_id, domain, intended_payload),
+                )
+            except sqlite3.Error as exc:
+                raise ApprovalPersistenceIntegrityError(
+                    "approval append did not complete exactly"
                 ) from exc
+            if cursor.rowcount != 1:
+                raise ApprovalPersistenceIntegrityError(
+                    "approval append reported a non-unit row count"
+                )
+            changes = connection.execute("SELECT changes()").fetchone()[0]
+            if type(changes) is not int or changes != 1:
+                raise ApprovalPersistenceIntegrityError(
+                    "approval append reported a non-unit SQLite change count"
+                )
+            inserted = connection.execute(
+                "SELECT evidence_id,evidence_kind,payload_json "
+                "FROM main.approval_evidence WHERE evidence_id = ?",
+                (evidence_id,),
+            ).fetchone()
+            if inserted is None:
+                raise ApprovalPersistenceIntegrityError(
+                    "approval append returned success without a durable row"
+                )
+            decoded = _decode_evidence_row(inserted, expected_domain=domain)
+            if (
+                cast(str, inserted["evidence_id"]) != evidence_id
+                or cast(str, inserted["evidence_kind"]) != domain
+                or cast(str, inserted["payload_json"]) != intended_payload
+                or decoded != record
+            ):
+                raise ApprovalPersistenceIntegrityError(
+                    "approval append re-read differs from intended evidence"
+                )
+            after = self._attest_database_and_decode_all_rows(connection)
+            expected_after = dict(before)
+            expected_after[evidence_id] = (domain, intended_payload, record)
+            if after != expected_after:
+                raise ApprovalPersistenceIntegrityError(
+                    "approval append changed more than the intended evidence row"
+                )
 
     def _load_record(self, domain: str, evidence_id: str) -> object:
         require_text(evidence_id, "evidence_id")
-        row = self._db().execute(
-            """
-            SELECT domain, evidence_id, schema_version, payload
-            FROM approval_evidence WHERE evidence_id = ?
-            """,
-            (evidence_id,),
-        ).fetchone()
-        if row is None:
+        found: tuple[str, str, object] | None
+        with self._transaction(immediate=False) as connection:
+            rows = self._attest_database_and_decode_all_rows(connection)
+            found = rows.get(evidence_id)
+        if found is None:
             raise ApprovalStoreNotFoundError(
                 f"{domain} evidence {evidence_id!r} was not found"
             )
-        return _decode_evidence_row(row, expected_domain=domain)
+        observed_domain, _payload, record = found
+        if observed_domain != domain:
+            raise ApprovalPersistenceIntegrityError(
+                "requested approval identity belongs to another evidence kind"
+            )
+        return record
 
     def store_scientific_approval(self, record: ScientificApproval) -> None:
         if not isinstance(record, ScientificApproval):
@@ -887,7 +1174,7 @@ class SQLiteApprovalStore:
         return record
 
     def evidence_count(self) -> int:
-        return cast(
-            int,
-            self._db().execute("SELECT COUNT(*) FROM approval_evidence").fetchone()[0],
-        )
+        with self._transaction(immediate=False) as connection:
+            rows = self._attest_database_and_decode_all_rows(connection)
+            count = len(rows)
+        return count

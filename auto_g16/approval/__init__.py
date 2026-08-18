@@ -15,6 +15,7 @@ from .models import (
     validate_effect_authority,
 )
 from .store import (
+    ApprovalPersistenceIntegrityError,
     ApprovalStoreConflictError,
     ApprovalStoreError,
     ApprovalStoreNotFoundError,
@@ -28,6 +29,7 @@ __all__ = [
     "ApprovalError",
     "ApprovalRejectedError",
     "ApprovalScopeError",
+    "ApprovalPersistenceIntegrityError",
     "ApprovalStoreConflictError",
     "ApprovalStoreError",
     "ApprovalStoreNotFoundError",
