@@ -1,8 +1,9 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-WF-CONTRACT-01` Workflow Contract Freeze. The V30-4
-  public contract is FROZEN; Workflow implementation remains unauthorized
-  pending separate validation-ownership and implementation Owner Gates.
+- **Current phase:** `V30-WF-ID-CLARIFY-01` docs-only Workflow identity contract
+  clarification. V30-4 is `NO-GO`; Workflow implementation remains
+  unauthorized pending clarified-contract integration and a separate
+  implementation Owner Gate.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -60,13 +61,19 @@
   decision persistence, deterministic replay, Core relationship, and
   zero-effect boundary. It creates no Core/API/schema change and grants no
   implementation or live authority.
+- **Validation ownership integrated:** `V30-VAL-WF-01` is integrated on
+  `main@999d8ffb823dc52298d6a882c96a9f663ce5e51e`; this does not authorize
+  Workflow implementation.
+- **Clarification pending:** `V30-WF-ID-CLARIFY-01` distinguishes local
+  definition-scoped component IDs from WorkflowDefinition and decision UUIDv5
+  authority records. V30-4 remains `NO-GO` until this clarification is
+  independently reviewed and integrated.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** After V30-WF-CONTRACT-01 integration, activate explicit
-  change-aware validation ownership for `auto_g16/workflow/**` and
-  `tests/v3/workflow/**` under `V30-VAL-WF-01`; only then may a separate
-  V30-4 implementation Owner Gate be considered.
+- **Next gate:** Independent `V30-WF-ID-CLARIFY-01` Review, followed by the
+  Integration Owner Gate. Only after clarified-contract integration may a
+  separate V30-4 implementation Owner Gate be considered.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness

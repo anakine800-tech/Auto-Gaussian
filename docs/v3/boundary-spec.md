@@ -658,10 +658,29 @@ authority; and does not activate `V30-EXEC-02`.
 
 `auto_g16.workflow` owns deterministic orchestration data and read-only run
 projection. Its public value records are immutable, keyword-only, and deeply
-closed over canonical semantic values. Every identity-bearing record identity
-is UUIDv5 from a source-controlled, schema-versioned, domain-separated
-namespace and the complete canonical authority payload. Exact replay has the
-same identity; the same identity with different content conflicts.
+closed over canonical semantic values. `Node.node_id`, `Edge.edge_id`,
+`Map.map_id`, `Condition.condition_id`, and `HumanGate.human_gate_id` are local
+canonical identifiers scoped to one exact `WorkflowDefinition`. Each is
+non-empty, immutable inside that definition, and unique within its component
+namespace; all intra-definition references use them. These five identifiers
+are not complete-payload UUIDv5 identities. A local component identifier alone
+grants no cross-definition identity, persistence equivalence, authority, or
+effect.
+
+`WorkflowDefinition.workflow_definition_id` is UUIDv5 from a
+source-controlled, schema-versioned, domain-separated namespace over the
+complete canonical WorkflowDefinition payload, including every local
+identifier and the complete semantics of every component. Reusing a local
+identifier with changed component semantics therefore changes the definition
+identity. `ConditionDecision` and `HumanGateDecision` use separate
+schema-versioned, domain-separated deterministic UUIDv5 identities binding the
+exact WorkflowDefinition identity, frozen Core/run identities, referenced
+local component identifier, and complete decision payload. Exact replay of
+each definition or decision authority record has the same identity; the same
+authority identity with different content conflicts. No circular component
+identity computation is permitted: in particular, `Edge.condition_id` and a
+Condition's true/false Edge IDs are ordinary intra-definition references
+inside the single definition payload.
 `WorkflowEvaluationInput` and the derived `WorkflowRunView` are canonical value
 records without independent authority IDs. Timestamps, serialization
 formatting, file paths, and hashes that are not explicit semantic fields do not
@@ -710,10 +729,11 @@ binds one exact existing Core `Task` in that run and one exact existing
 asks Core to enumerate Tasks or infer a current plan revision: all identities
 are explicit and validated through existing public Core loads.
 
-Node IDs, edge IDs, map IDs, condition IDs, gate IDs, role names, and map item
-keys are non-empty and unique in their owning scope. Every referenced node,
-edge, role, condition, and gate must exist exactly once. A target input role has
-one producer on any active path. Missing, self, duplicate, ambiguous-producer,
+Node IDs, Edge IDs, Map IDs, Condition IDs, HumanGate IDs, role names, and map
+item keys are non-empty and unique in their owning scope. Component IDs are
+immutable inside the exact definition. Every referenced node, edge, role,
+condition, and gate must exist exactly once. A target input role has one
+producer on any active path. Missing, self, duplicate, ambiguous-producer,
 role-incompatible, or orphan references fail closed.
 
 Every possible unconditional or conditional Edge and every Map item's
