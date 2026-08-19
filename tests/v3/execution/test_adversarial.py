@@ -264,8 +264,12 @@ class PathBoundaryTests(ExecutionFixture):
 
 
 class ReceiptAndAuthorityTests(ExecutionFixture):
-    def test_reconciliation_job_requires_exact_snapshot_remote_workspace(self) -> None:
+    def _start_unknown_reconciliation_case(self):
         snapshot, profile = self.snapshot()
+        source = execution.SyntheticRTWinAdapter(
+            fail_stage=execution.EffectKind.SUBMISSION,
+            ambiguous=True,
+        )
         result = execution.execute_once(
             self.store,
             snapshot=snapshot,
@@ -273,12 +277,24 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
             prepared_input_bytes=INPUT_BYTES,
             pbs_template_bytes=TEMPLATE_BYTES,
             confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
-            port=execution.SyntheticRTWinAdapter(
-                fail_stage=execution.EffectKind.SUBMISSION,
-                ambiguous=True,
-            ),
+            port=source,
         )
+        self.assertIs(result.attempt_state, core.AttemptState.UNKNOWN)
+        return snapshot, source, result
+
+    def _assert_direct_reconciliation_workspace_matrix(
+        self,
+        effect_state: execution.EffectState,
+        expected_state: core.AttemptState,
+    ) -> None:
+        snapshot, source, result = self._start_unknown_reconciliation_case()
         before = self.store.observations_for_attempt(snapshot.attempt_id)
+        before_calls = source.calls
+        job_id = (
+            "12345.synthetic"
+            if effect_state is execution.EffectState.CONFIRMED_EFFECT
+            else None
+        )
         invalid_workspaces = (
             "/home/user100/SDL/other/attempt-1",
             "/home/user100/SDL/project-10/attempt-1",
@@ -291,9 +307,9 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
                 submission_intent_id=snapshot.submission_intent_id,
                 effect_sequence=len(result.receipts) + 1,
                 effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
-                effect_state=execution.EffectState.CONFIRMED_EFFECT,
+                effect_state=effect_state,
                 remote_workspace=remote_workspace,
-                job_id="12345.synthetic",
+                job_id=job_id,
                 details={"source": "ordinary-constructor"},
             )
             with self.subTest(remote_workspace=remote_workspace), self.assertRaises(
@@ -309,6 +325,7 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
             self.assertEqual(
                 self.store.observations_for_attempt(snapshot.attempt_id), before
             )
+            self.assertEqual(source.calls, before_calls)
 
         exact = execution.RemoteEffectReceipt(
             attempt_id=snapshot.attempt_id,
@@ -316,70 +333,132 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
             submission_intent_id=snapshot.submission_intent_id,
             effect_sequence=len(result.receipts) + 1,
             effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
-            effect_state=execution.EffectState.CONFIRMED_EFFECT,
+            effect_state=effect_state,
             remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
-            job_id="12345.synthetic",
+            job_id=job_id,
             details={"source": "ordinary-constructor"},
         )
         self.assertIs(
             execution.reconcile_unknown_from_receipt(
                 self.store, snapshot=snapshot, receipt=exact
             ),
-            core.AttemptState.SUBMITTED,
+            expected_state,
         )
         self.assertEqual(
             len(self.store.observations_for_attempt(snapshot.attempt_id)),
             len(before) + 1,
         )
+        self.assertEqual(source.calls, before_calls)
 
-    def test_port_reconciliation_cannot_bypass_remote_workspace_binding(self) -> None:
-        snapshot, profile = self.snapshot()
-        execution.execute_once(
-            self.store,
-            snapshot=snapshot,
-            current_profile=profile,
-            prepared_input_bytes=INPUT_BYTES,
-            pbs_template_bytes=TEMPLATE_BYTES,
-            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
-            port=execution.SyntheticRTWinAdapter(
-                fail_stage=execution.EffectKind.SUBMISSION,
-                ambiguous=True,
-            ),
-        )
+    def _assert_port_reconciliation_workspace_matrix(
+        self,
+        effect_state: execution.EffectState,
+        expected_state: core.AttemptState,
+    ) -> None:
+        snapshot, source, result = self._start_unknown_reconciliation_case()
         before = self.store.observations_for_attempt(snapshot.attempt_id)
+        before_calls = source.calls
+        job_id = (
+            "12345.synthetic"
+            if effect_state is execution.EffectState.CONFIRMED_EFFECT
+            else None
+        )
+        invalid_workspaces = (
+            "/home/user100/SDL/other/attempt-1",
+            "/home/user100/SDL/project-10/attempt-1",
+            "/home/user100/SDL/Project-1/attempt-1",
+        )
 
-        class WorkspaceSpliceReconciler(execution.SyntheticRTWinAdapter):
-            def reconcile_submission(
-                self,
-                current: execution.ExecutionSnapshot,
-                *,
-                effect_sequence: int,
-            ) -> execution.RemoteEffectReceipt:
-                return execution.RemoteEffectReceipt(
-                    attempt_id=current.attempt_id,
-                    execution_snapshot_id=current.execution_snapshot_id,
-                    submission_intent_id=current.submission_intent_id,
-                    effect_sequence=effect_sequence,
-                    effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
-                    effect_state=execution.EffectState.CONFIRMED_EFFECT,
-                    remote_workspace="/home/user100/SDL/other/attempt-1",
-                    job_id="12345.synthetic",
-                    details={"source": "ordinary-constructor"},
+        for remote_workspace in invalid_workspaces:
+
+            class WorkspaceSpliceReconciler(execution.SyntheticRTWinAdapter):
+                def reconcile_submission(
+                    self,
+                    current: execution.ExecutionSnapshot,
+                    *,
+                    effect_sequence: int,
+                ) -> execution.RemoteEffectReceipt:
+                    return execution.RemoteEffectReceipt(
+                        attempt_id=current.attempt_id,
+                        execution_snapshot_id=current.execution_snapshot_id,
+                        submission_intent_id=current.submission_intent_id,
+                        effect_sequence=effect_sequence,
+                        effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
+                        effect_state=effect_state,
+                        remote_workspace=remote_workspace,
+                        job_id=job_id,
+                        details={"source": "ordinary-constructor"},
+                    )
+
+            reconciler = WorkspaceSpliceReconciler()
+            with self.subTest(remote_workspace=remote_workspace), self.assertRaises(
+                execution.ExecutionValueError
+            ):
+                execution.reconcile_unknown(
+                    self.store, snapshot=snapshot, port=reconciler
                 )
-
-        reconciler = WorkspaceSpliceReconciler()
-        with self.assertRaises(execution.ExecutionValueError):
-            execution.reconcile_unknown(
-                self.store, snapshot=snapshot, port=reconciler
+            self.assertIs(
+                self.store.attempt_state(snapshot.attempt_id),
+                core.AttemptState.UNKNOWN,
             )
+            self.assertEqual(
+                self.store.observations_for_attempt(snapshot.attempt_id), before
+            )
+            self.assertEqual(reconciler.calls, ())
+            self.assertEqual(reconciler.submission_calls, 0)
+            self.assertEqual(source.calls, before_calls)
 
+        exact = execution.SyntheticRTWinAdapter(
+            reconciliation_state=effect_state,
+            reconciliation_job_id=job_id,
+        )
         self.assertIs(
-            self.store.attempt_state(snapshot.attempt_id), core.AttemptState.UNKNOWN
+            execution.reconcile_unknown(self.store, snapshot=snapshot, port=exact),
+            expected_state,
         )
         self.assertEqual(
-            self.store.observations_for_attempt(snapshot.attempt_id), before
+            len(self.store.observations_for_attempt(snapshot.attempt_id)),
+            len(before) + 1,
         )
-        self.assertEqual(reconciler.submission_calls, 0)
+        self.assertEqual(exact.calls, (f"reconcile:{snapshot.attempt_id}",))
+        self.assertEqual(exact.submission_calls, 0)
+        self.assertEqual(source.calls, before_calls)
+
+    def test_direct_workspace_matrix_confirmed_effect(self) -> None:
+        self._assert_direct_reconciliation_workspace_matrix(
+            execution.EffectState.CONFIRMED_EFFECT,
+            core.AttemptState.SUBMITTED,
+        )
+
+    def test_direct_workspace_matrix_confirmed_no_effect(self) -> None:
+        self._assert_direct_reconciliation_workspace_matrix(
+            execution.EffectState.CONFIRMED_NO_EFFECT,
+            core.AttemptState.NOT_SUBMITTED,
+        )
+
+    def test_direct_workspace_matrix_possibly_effectful(self) -> None:
+        self._assert_direct_reconciliation_workspace_matrix(
+            execution.EffectState.POSSIBLY_EFFECTFUL,
+            core.AttemptState.UNKNOWN,
+        )
+
+    def test_port_workspace_matrix_confirmed_effect(self) -> None:
+        self._assert_port_reconciliation_workspace_matrix(
+            execution.EffectState.CONFIRMED_EFFECT,
+            core.AttemptState.SUBMITTED,
+        )
+
+    def test_port_workspace_matrix_confirmed_no_effect(self) -> None:
+        self._assert_port_reconciliation_workspace_matrix(
+            execution.EffectState.CONFIRMED_NO_EFFECT,
+            core.AttemptState.NOT_SUBMITTED,
+        )
+
+    def test_port_workspace_matrix_possibly_effectful(self) -> None:
+        self._assert_port_reconciliation_workspace_matrix(
+            execution.EffectState.POSSIBLY_EFFECTFUL,
+            core.AttemptState.UNKNOWN,
+        )
 
     def test_job_identity_uses_one_strict_lexical_rule(self) -> None:
         invalid = (
@@ -724,6 +803,7 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
             effect_sequence=len(result.receipts) + 1,
             effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
             effect_state=execution.EffectState.CONFIRMED_NO_EFFECT,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
             details={"source": "synthetic-read-only"},
         )
         mutations = (

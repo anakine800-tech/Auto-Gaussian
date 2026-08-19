@@ -438,6 +438,7 @@ class ExecutionFlowTests(ExecutionFixture):
             effect_sequence=5,
             effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
             effect_state=execution.EffectState.POSSIBLY_EFFECTFUL,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
             details={"source": "synthetic-read-only"},
         )
         self.assertIs(
@@ -453,6 +454,7 @@ class ExecutionFlowTests(ExecutionFixture):
             effect_sequence=6,
             effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
             effect_state=execution.EffectState.CONFIRMED_NO_EFFECT,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
             details={"source": "synthetic-read-only"},
         )
         self.assertIs(
