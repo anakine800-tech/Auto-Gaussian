@@ -236,12 +236,26 @@ authority:
    and `close`; raw SQL/rows are private. Public functions accept only the
    exact store/Core/definition/evaluation/decision inputs frozen in the
    boundary and no effect adapter or callback.
-3. Exact semantic replay of every identity-bearing Workflow record produces
-   the same schema-versioned, domain-separated UUIDv5 identity. Any semantic
-   field change produces a different identity; the same identity with
-   different content conflicts. `WorkflowEvaluationInput` and the derived
-   `WorkflowRunView` are canonical value records without independent authority
-   IDs and replay to byte-equivalent semantic values.
+3. `Node.node_id`, `Edge.edge_id`, `Map.map_id`, `Condition.condition_id`, and
+   `HumanGate.human_gate_id` are non-empty local canonical identifiers scoped
+   to one exact WorkflowDefinition, immutable inside it, and unique within
+   their component namespaces; all intra-definition references use them. They
+   are not complete-payload UUIDv5 identities and alone grant no
+   cross-definition identity, persistence equivalence, authority, or effect.
+   `WorkflowDefinition.workflow_definition_id` is schema-versioned,
+   domain-separated UUIDv5 over the complete canonical definition payload,
+   including every local ID and every component's complete semantics; reusing
+   a local ID with changed semantics changes the definition identity.
+   `ConditionDecision` and `HumanGateDecision` have separate domain-separated
+   deterministic UUIDv5 identities binding the exact WorkflowDefinition ID,
+   frozen Core/run identities, referenced local component ID, and complete
+   decision payload. Exact authority-record replay is idempotent and the same
+   authority identity with different content conflicts. No circular component
+   identity computation is permitted: Edge-to-Condition and
+   Condition-to-Edge IDs are ordinary intra-definition references inside the
+   single definition payload. `WorkflowEvaluationInput` and the derived
+   `WorkflowRunView` remain canonical value records without independent
+   authority IDs and replay to byte-equivalent semantic values.
 4. A definition is finite, non-empty, deeply immutable, serializable, and
    binds one exact existing Core WorkflowRun. Every Node binds one exact Task
    in that run and one exact existing CalculationPlan ID and positive revision
