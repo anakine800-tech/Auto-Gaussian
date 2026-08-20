@@ -168,7 +168,14 @@ def replay_workflow(
     validate_workflow_definition(core_store, definition)
     states = _evaluation_states(core_store, definition, evaluation_input)
     nodes = {node.node_id: node for node in definition.nodes}
-    condition_records = store._load_condition_decisions(workflow_definition_id)
+    condition_history = store._load_condition_decisions(workflow_definition_id)
+    # The load attests all append-only history; replay projects only the exact
+    # source Attempt authority supplied for this evaluation.
+    condition_records = tuple(
+        record
+        for record in condition_history
+        if evaluation_input.node_attempt_ids.get(record.node_id) == record.attempt_id
+    )
     gate_records = store._load_human_gate_decisions(workflow_definition_id)
     condition_decisions = {record.condition_id: record for record in condition_records}
     gate_decisions = {record.human_gate_id: record for record in gate_records}

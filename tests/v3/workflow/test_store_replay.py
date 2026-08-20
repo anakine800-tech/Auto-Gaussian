@@ -12,6 +12,7 @@ import unittest
 import auto_g16.core as core
 import auto_g16.workflow as workflow
 from auto_g16.workflow.models import _payload_text
+from auto_g16.workflow.store import WorkflowStoreConflictError, WorkflowStoreSchemaError
 
 from . import _fixtures as fx
 
@@ -236,6 +237,148 @@ class WorkflowStoreReplayTests(unittest.TestCase):
         self.assertEqual(view.ready_node_ids, ("node-2", "node-3"))
         self.assertEqual(view.condition_decision_ids, (decision.condition_decision_id,))
 
+    def test_recovery_child_uses_its_exact_decision_without_parent_history_poisoning(self) -> None:
+        condition = workflow.Condition(
+            condition_id="condition", source_node_id="node-1",
+            predicate="attempt_state_in",
+            expected_states=(core.AttemptState.SUCCEEDED,),
+            true_edge_ids=("true",), false_edge_ids=("false",),
+        )
+        definition = fx.definition(
+            nodes=(
+                fx.node(1, outputs=("out",)),
+                fx.node(2, inputs=("in",)),
+                fx.node(3, inputs=("in",)),
+            ),
+            edges=(
+                fx.edge(
+                    "true", "node-1", "node-2",
+                    condition_id="condition", branch="true",
+                ),
+                fx.edge(
+                    "false", "node-1", "node-3",
+                    condition_id="condition", branch="false",
+                ),
+            ),
+            conditions=(condition,),
+        )
+        self.record(definition)
+
+        fx.finish(self.core, "attempt-1", core.AttemptState.FAILED)
+        parent_evaluation = workflow.WorkflowEvaluationInput(
+            workflow_definition_id=definition.workflow_definition_id,
+            node_attempt_ids={"node-1": "attempt-1"},
+        )
+        parent_decision = workflow.record_condition_decision(
+            self.store, self.core, definition.workflow_definition_id,
+            parent_evaluation, "condition",
+        )
+        self.core.create_child_attempt(
+            "attempt-1",
+            core.Attempt(
+                attempt_id="attempt-child", task_id="task-1", ordinal=2,
+            ),
+        )
+        fx.finish(self.core, "attempt-child", core.AttemptState.SUCCEEDED)
+        child_evaluation = workflow.WorkflowEvaluationInput(
+            workflow_definition_id=definition.workflow_definition_id,
+            node_attempt_ids={"node-1": "attempt-child"},
+        )
+
+        before_child_decision = workflow.replay_workflow(
+            self.store, self.core, definition.workflow_definition_id,
+            child_evaluation,
+        )
+        self.assertEqual(before_child_decision.active_node_ids, ("node-1",))
+        self.assertEqual(before_child_decision.pending_node_ids, ("node-1",))
+        self.assertEqual(before_child_decision.condition_decision_ids, ())
+
+        child_decision = workflow.record_condition_decision(
+            self.store, self.core, definition.workflow_definition_id,
+            child_evaluation, "condition",
+        )
+        child_view = workflow.replay_workflow(
+            self.store, self.core, definition.workflow_definition_id,
+            child_evaluation,
+        )
+        self.assertEqual(child_view.active_node_ids, ("node-1", "node-2"))
+        self.assertEqual(
+            child_view.condition_decision_ids, (child_decision.condition_decision_id,)
+        )
+
+        parent_view = workflow.replay_workflow(
+            self.store, self.core, definition.workflow_definition_id,
+            parent_evaluation,
+        )
+        self.assertEqual(parent_view.active_node_ids, ("node-1", "node-3"))
+        self.assertEqual(
+            parent_view.condition_decision_ids, (parent_decision.condition_decision_id,)
+        )
+        self.assertEqual(
+            {record.condition_decision_id for record in self.store._load_condition_decisions(
+                definition.workflow_definition_id
+            )},
+            {parent_decision.condition_decision_id, child_decision.condition_decision_id},
+        )
+
+        competing_child = workflow.ConditionDecision._create(
+            workflow_definition_id=definition.workflow_definition_id,
+            workflow_run_id=definition.workflow_run_id,
+            condition_id="condition", node_id="node-1",
+            attempt_id="attempt-child", observed_state=core.AttemptState.FAILED,
+            selected_edge_ids=("false",),
+        )
+        with self.assertRaises(WorkflowStoreConflictError):
+            self.store._record_condition_decision(competing_child)
+        spliced_node = workflow.ConditionDecision._create(
+            workflow_definition_id=definition.workflow_definition_id,
+            workflow_run_id=definition.workflow_run_id,
+            condition_id="condition", node_id="node-2",
+            attempt_id="attempt-2", observed_state=core.AttemptState.SUCCEEDED,
+            selected_edge_ids=("true",),
+        )
+        with self.assertRaises(WorkflowStoreSchemaError):
+            self.store._record_condition_decision(spliced_node)
+        spliced_condition = workflow.ConditionDecision._create(
+            workflow_definition_id=definition.workflow_definition_id,
+            workflow_run_id=definition.workflow_run_id,
+            condition_id="other-condition", node_id="node-1",
+            attempt_id="attempt-2", observed_state=core.AttemptState.SUCCEEDED,
+            selected_edge_ids=("true",),
+        )
+        with self.assertRaises(WorkflowStoreSchemaError):
+            self.store._record_condition_decision(spliced_condition)
+
+        cross_attempt = workflow.WorkflowEvaluationInput(
+            workflow_definition_id=definition.workflow_definition_id,
+            node_attempt_ids={"node-1": "attempt-2"},
+        )
+        with self.assertRaises(ValueError):
+            workflow.replay_workflow(
+                self.store, self.core, definition.workflow_definition_id,
+                cross_attempt,
+            )
+        cross_definition = workflow.WorkflowEvaluationInput(
+            workflow_definition_id="another-definition",
+            node_attempt_ids={"node-1": "attempt-child"},
+        )
+        with self.assertRaises(ValueError):
+            workflow.replay_workflow(
+                self.store, self.core, definition.workflow_definition_id,
+                cross_definition,
+            )
+
+        self.store.close()
+        self.store = workflow.SQLiteWorkflowStore.open_existing(self.path)
+        replayed_child = workflow.replay_workflow(
+            self.store, self.core, definition.workflow_definition_id,
+            child_evaluation,
+        )
+        self.assertEqual(replayed_child, child_view)
+        self.assertEqual(
+            len(self.store._load_condition_decisions(definition.workflow_definition_id)), 2
+        )
+
     def test_condition_rejects_missing_running_unknown_and_cross_task_attempts(self) -> None:
         definition = fx.definition(
             nodes=(
@@ -332,7 +475,7 @@ class WorkflowStoreReplayTests(unittest.TestCase):
         )
         self.assertEqual(second.ready_node_ids, ("node-2",))
 
-    def test_replay_rejects_cross_spliced_or_stale_condition_evaluation(self) -> None:
+    def test_replay_never_applies_a_decision_without_its_exact_attempt(self) -> None:
         definition = fx.definition(
             nodes=(
                 fx.node(1, outputs=("out",)), fx.node(2, inputs=("in",)),
@@ -361,10 +504,12 @@ class WorkflowStoreReplayTests(unittest.TestCase):
             workflow_definition_id=definition.workflow_definition_id,
             node_attempt_ids={},
         )
-        with self.assertRaises(Exception):
-            workflow.replay_workflow(
-                self.store, self.core, definition.workflow_definition_id, unbound
-            )
+        view = workflow.replay_workflow(
+            self.store, self.core, definition.workflow_definition_id, unbound
+        )
+        self.assertEqual(view.active_node_ids, ("node-1",))
+        self.assertEqual(view.ready_node_ids, ("node-1",))
+        self.assertEqual(view.condition_decision_ids, ())
 
     def test_single_terminal_root_is_orchestration_complete_not_scientific_acceptance(self) -> None:
         definition = fx.definition(nodes=(fx.node(1),))

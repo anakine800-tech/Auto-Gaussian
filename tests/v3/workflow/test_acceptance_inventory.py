@@ -20,7 +20,11 @@ ACCEPTANCE_CASES = {
     12: ("test_create_new_rejects_existing_and_open_existing_rejects_missing", "test_reopen_rejects_wrong_version_extra_schema_and_noncanonical_payload"),
     13: ("test_definition_replay_is_idempotent_and_durable_reopen_is_deterministic",),
     14: ("test_condition_rejects_missing_running_unknown_and_cross_task_attempts", "test_gate_filters_active_target_and_inactive_approval_never_activates_branch"),
-    15: ("test_condition_decision_derives_complete_branch_and_survives_reopen", "test_replay_rejects_cross_spliced_or_stale_condition_evaluation"),
+    15: (
+        "test_condition_decision_derives_complete_branch_and_survives_reopen",
+        "test_recovery_child_uses_its_exact_decision_without_parent_history_poisoning",
+        "test_replay_never_applies_a_decision_without_its_exact_attempt",
+    ),
     16: ("test_map_dependency_participates_in_active_projection_and_readiness", "test_unknown_and_failed_always_predecessor_block_without_retry_or_core_transition"),
     17: ("test_unknown_and_failed_always_predecessor_block_without_retry_or_core_transition",),
     18: ("test_unknown_and_failed_always_predecessor_block_without_retry_or_core_transition", "test_dependency_direction_and_source_exclude_effect_frameworks"),
