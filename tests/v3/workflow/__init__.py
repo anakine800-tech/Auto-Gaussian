@@ -1,4 +1,4 @@
-"""Closed package aggregation for the frozen V30-4 Workflow slice."""
+"""Fail-closed discovery for the frozen V30-4 Workflow evidence package."""
 
 from __future__ import annotations
 
@@ -6,29 +6,41 @@ from pathlib import Path
 import unittest
 
 
-_TEST_PATTERN = "test*.py"
-_OWNED_MODULES = (
-    "test_acceptance_inventory",
-    "test_contract",
-    "test_store_replay",
-    "test_validation",
+_DISCOVERY_PATTERN = "test*.py"
+_WORKFLOW_EVIDENCE_FILES = frozenset(
+    {
+        "test_acceptance_inventory.py",
+        "test_contract.py",
+        "test_store_replay.py",
+        "test_validation.py",
+    }
 )
 
 
-def _direct_test_module_names() -> tuple[str, ...]:
-    directory = Path(__file__).resolve().parent
-    candidates = tuple(sorted(directory.glob(_TEST_PATTERN), key=lambda path: path.name))
-    if any(path.is_symlink() for path in candidates):
-        raise RuntimeError("Workflow evidence tests may not be symlinked")
-    observed = tuple(
-        path.stem for path in candidates if path.parent == directory and path.is_file()
-    )
-    if observed != _OWNED_MODULES:
+def _owned_test_files() -> tuple[str, ...]:
+    package_directory = Path(__file__).resolve().parent
+    observed: set[str] = set()
+    for entry in package_directory.iterdir():
+        if not entry.name.startswith("test") or entry.suffix != ".py":
+            continue
+        if entry.is_symlink():
+            raise RuntimeError(
+                f"Workflow evidence file must not be a symlink: {entry.name}"
+            )
+        if not entry.is_file():
+            raise RuntimeError(
+                f"Workflow evidence entry must be a regular file: {entry.name}"
+            )
+        observed.add(entry.name)
+
+    if observed != _WORKFLOW_EVIDENCE_FILES:
+        missing = tuple(sorted(_WORKFLOW_EVIDENCE_FILES - observed))
+        unexpected = tuple(sorted(observed - _WORKFLOW_EVIDENCE_FILES))
         raise RuntimeError(
-            "Workflow test ownership is incomplete or ambiguous: "
-            f"expected {_OWNED_MODULES!r}, observed {observed!r}"
+            "Workflow test ownership does not match the frozen evidence set: "
+            f"missing={missing!r}, unexpected={unexpected!r}"
         )
-    return tuple(f"{__name__}.{module}" for module in _OWNED_MODULES)
+    return tuple(sorted(observed))
 
 
 def load_tests(
@@ -36,9 +48,13 @@ def load_tests(
     standard_tests: unittest.TestSuite,
     pattern: str | None,
 ) -> unittest.TestSuite:
-    if pattern not in {None, _TEST_PATTERN}:
+    if pattern not in {None, _DISCOVERY_PATTERN}:
         return standard_tests
-    suite = loader.loadTestsFromNames(_direct_test_module_names())
+
+    suite = unittest.TestSuite()
+    for filename in _owned_test_files():
+        module_name = Path(filename).stem
+        suite.addTests(loader.loadTestsFromName(f"{__name__}.{module_name}"))
     if suite.countTestCases() == 0:
         raise RuntimeError("Workflow ownership discovered zero validation evidence")
     return suite
