@@ -35,6 +35,7 @@ RECEIPT_OBSERVATION_TYPE: Final = "v3.remote-effect-receipt"
 _PBS_NAME_DIRECTIVE: Final = re.compile(r"^#PBS -N [A-Za-z0-9][A-Za-z0-9._-]*$")
 _PBS_EXECUTION_COMMAND: Final = re.compile(r"^exec g16 [A-Za-z0-9][A-Za-z0-9._-]*$")
 _HOST_IDENTITY: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.:-]*$")
+_JOB_ID: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _semantic_mapping(value: Mapping[str, object]) -> dict[str, object]:
@@ -55,6 +56,15 @@ def _validate_host(value: str, field_name: str) -> str:
     require_text(value, field_name)
     if not _HOST_IDENTITY.fullmatch(value):
         raise ExecutionValueError(f"{field_name} must be an explicit host identity")
+    return value
+
+
+def _require_job_id(value: object) -> str:
+    """Apply the one frozen lexical rule at every job-identity entrance."""
+
+    require_text(value, "job_id")
+    if not isinstance(value, str) or not _JOB_ID.fullmatch(value):
+        raise ExecutionValueError("job_id has an invalid lexical form")
     return value
 
 
@@ -840,7 +850,7 @@ class RemoteEffectReceipt:
         if self.remote_workspace is not None:
             validate_posix_path(self.remote_workspace, "remote_workspace")
         if self.job_id is not None:
-            require_text(self.job_id, "job_id")
+            _require_job_id(self.job_id)
         if self.effect_state is EffectState.CONFIRMED_EFFECT and self.effect_kind is EffectKind.SUBMISSION:
             if self.job_id is None:
                 raise ExecutionValueError("confirmed submission evidence requires a job_id")
