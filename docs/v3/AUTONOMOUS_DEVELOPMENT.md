@@ -180,11 +180,14 @@ for their owned surfaces.
   dynamic node creation, attempt enumeration, implicit current-plan selection,
   scientific-condition policy, effectful API, new shared framework, scope
   expansion, frozen-contract conflict, or two same-class repair failures.
-- **Acceptance/validation:** Prove exact record/API inventory, deterministic
-  UUIDv5 replay, a finite combined Edge/Map DAG with lexical topological order
-  and Map-aware readiness, explicit Task/plan/Attempt closure, bounded Map and
-  closed terminal-state Condition with exact Edge/branch agreement and derived
-  complete branch selection, durable append-only decisions, exact store
+- **Acceptance/validation:** Prove exact record/API inventory, exact
+  definition-scoped local component IDs, deterministic UUIDv5 replay for the
+  complete WorkflowDefinition and decision authority records without circular
+  component identity computation, a finite combined Edge/Map DAG with lexical
+  topological order and Map-aware readiness, explicit Task/plan/Attempt
+  closure, bounded Map and closed terminal-state Condition with exact
+  Edge/branch agreement and derived complete branch selection, durable
+  append-only decisions, exact store
   create/reopen behavior, deterministic reopened projection, disjoint
   HumanGate filters that cannot activate paths, `UNKNOWN` no-retry, zero
   Core/effect behavior, dependency direction, and byte-identical

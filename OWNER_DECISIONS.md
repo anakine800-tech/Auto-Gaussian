@@ -144,13 +144,28 @@ only a proposal for the next separately gated action. Workflow never creates a
 root or recovery Attempt, claims Core `WINNER`, calls Execution, or crosses an
 effect boundary.
 
-Workflow definitions and completed branch or HumanGate decisions use
-schema-versioned, domain-separated deterministic identities and a small
-Workflow-owned append-only persistence surface. Exact replay is idempotent;
-the same identity with different content conflicts. A `WorkflowRunView` is a
-derived projection, not separately mutable state. Reopening the same exact
-definition, decisions, explicit Attempt bindings, and Core state produces the
-same view.
+`Node.node_id`, `Edge.edge_id`, `Map.map_id`, `Condition.condition_id`, and
+`HumanGate.human_gate_id` are non-empty local canonical identifiers scoped to
+one exact `WorkflowDefinition`. Each is immutable inside that definition and
+unique within its component namespace; all intra-definition references use
+these local identifiers. They are not complete-payload UUIDv5 identities and,
+alone, grant no cross-definition identity, persistence equivalence, authority,
+or effect. Edge-to-Condition and Condition-to-Edge references are ordinary
+intra-definition references; component identity computation is never circular.
+
+`WorkflowDefinition.workflow_definition_id` is a schema-versioned,
+domain-separated UUIDv5 over the complete canonical definition payload,
+including every local identifier and every component's complete semantics.
+Reusing a local identifier with changed component semantics therefore changes
+the definition identity. Completed `ConditionDecision` and
+`HumanGateDecision` records have separate domain-separated deterministic
+UUIDv5 identities that bind the exact WorkflowDefinition identity, frozen
+Core/run identities, referenced local component identifier, and complete
+decision payload. These canonical records use a small Workflow-owned
+append-only persistence surface. Exact replay is idempotent; the same authority
+identity with different content conflicts. A `WorkflowRunView` is a derived
+projection, not separately mutable state. Reopening the same exact definition,
+decisions, explicit Attempt bindings, and Core state produces the same view.
 
 A Workflow `HumanGate` is orchestration state only. It never substitutes for
 Scientific Approval, Batch Submit Approval, Exact Operational Confirmation,
