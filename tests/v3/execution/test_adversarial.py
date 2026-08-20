@@ -264,6 +264,383 @@ class PathBoundaryTests(ExecutionFixture):
 
 
 class ReceiptAndAuthorityTests(ExecutionFixture):
+    def _start_unknown_reconciliation_case(self):
+        snapshot, profile = self.snapshot()
+        source = execution.SyntheticRTWinAdapter(
+            fail_stage=execution.EffectKind.SUBMISSION,
+            ambiguous=True,
+        )
+        result = execution.execute_once(
+            self.store,
+            snapshot=snapshot,
+            current_profile=profile,
+            prepared_input_bytes=INPUT_BYTES,
+            pbs_template_bytes=TEMPLATE_BYTES,
+            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+            port=source,
+        )
+        self.assertIs(result.attempt_state, core.AttemptState.UNKNOWN)
+        return snapshot, source, result
+
+    def _assert_direct_reconciliation_workspace_matrix(
+        self,
+        effect_state: execution.EffectState,
+        expected_state: core.AttemptState,
+    ) -> None:
+        snapshot, source, result = self._start_unknown_reconciliation_case()
+        before = self.store.observations_for_attempt(snapshot.attempt_id)
+        before_calls = source.calls
+        job_id = (
+            "12345.synthetic"
+            if effect_state is execution.EffectState.CONFIRMED_EFFECT
+            else None
+        )
+        invalid_workspaces = (
+            "/home/user100/SDL/other/attempt-1",
+            "/home/user100/SDL/project-10/attempt-1",
+            "/home/user100/SDL/Project-1/attempt-1",
+        )
+        for remote_workspace in invalid_workspaces:
+            receipt = execution.RemoteEffectReceipt(
+                attempt_id=snapshot.attempt_id,
+                execution_snapshot_id=snapshot.execution_snapshot_id,
+                submission_intent_id=snapshot.submission_intent_id,
+                effect_sequence=len(result.receipts) + 1,
+                effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
+                effect_state=effect_state,
+                remote_workspace=remote_workspace,
+                job_id=job_id,
+                details={"source": "ordinary-constructor"},
+            )
+            with self.subTest(remote_workspace=remote_workspace), self.assertRaises(
+                execution.ExecutionValueError
+            ):
+                execution.reconcile_unknown_from_receipt(
+                    self.store, snapshot=snapshot, receipt=receipt
+                )
+            self.assertIs(
+                self.store.attempt_state(snapshot.attempt_id),
+                core.AttemptState.UNKNOWN,
+            )
+            self.assertEqual(
+                self.store.observations_for_attempt(snapshot.attempt_id), before
+            )
+            self.assertEqual(source.calls, before_calls)
+
+        exact = execution.RemoteEffectReceipt(
+            attempt_id=snapshot.attempt_id,
+            execution_snapshot_id=snapshot.execution_snapshot_id,
+            submission_intent_id=snapshot.submission_intent_id,
+            effect_sequence=len(result.receipts) + 1,
+            effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
+            effect_state=effect_state,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
+            job_id=job_id,
+            details={"source": "ordinary-constructor"},
+        )
+        self.assertIs(
+            execution.reconcile_unknown_from_receipt(
+                self.store, snapshot=snapshot, receipt=exact
+            ),
+            expected_state,
+        )
+        self.assertEqual(
+            len(self.store.observations_for_attempt(snapshot.attempt_id)),
+            len(before) + 1,
+        )
+        self.assertEqual(source.calls, before_calls)
+
+    def _assert_port_reconciliation_workspace_matrix(
+        self,
+        effect_state: execution.EffectState,
+        expected_state: core.AttemptState,
+    ) -> None:
+        snapshot, source, result = self._start_unknown_reconciliation_case()
+        before = self.store.observations_for_attempt(snapshot.attempt_id)
+        before_calls = source.calls
+        job_id = (
+            "12345.synthetic"
+            if effect_state is execution.EffectState.CONFIRMED_EFFECT
+            else None
+        )
+        invalid_workspaces = (
+            "/home/user100/SDL/other/attempt-1",
+            "/home/user100/SDL/project-10/attempt-1",
+            "/home/user100/SDL/Project-1/attempt-1",
+        )
+
+        for remote_workspace in invalid_workspaces:
+
+            class WorkspaceSpliceReconciler(execution.SyntheticRTWinAdapter):
+                def reconcile_submission(
+                    self,
+                    current: execution.ExecutionSnapshot,
+                    *,
+                    effect_sequence: int,
+                ) -> execution.RemoteEffectReceipt:
+                    return execution.RemoteEffectReceipt(
+                        attempt_id=current.attempt_id,
+                        execution_snapshot_id=current.execution_snapshot_id,
+                        submission_intent_id=current.submission_intent_id,
+                        effect_sequence=effect_sequence,
+                        effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
+                        effect_state=effect_state,
+                        remote_workspace=remote_workspace,
+                        job_id=job_id,
+                        details={"source": "ordinary-constructor"},
+                    )
+
+            reconciler = WorkspaceSpliceReconciler()
+            with self.subTest(remote_workspace=remote_workspace), self.assertRaises(
+                execution.ExecutionValueError
+            ):
+                execution.reconcile_unknown(
+                    self.store, snapshot=snapshot, port=reconciler
+                )
+            self.assertIs(
+                self.store.attempt_state(snapshot.attempt_id),
+                core.AttemptState.UNKNOWN,
+            )
+            self.assertEqual(
+                self.store.observations_for_attempt(snapshot.attempt_id), before
+            )
+            self.assertEqual(reconciler.calls, ())
+            self.assertEqual(reconciler.submission_calls, 0)
+            self.assertEqual(source.calls, before_calls)
+
+        exact = execution.SyntheticRTWinAdapter(
+            reconciliation_state=effect_state,
+            reconciliation_job_id=job_id,
+        )
+        self.assertIs(
+            execution.reconcile_unknown(self.store, snapshot=snapshot, port=exact),
+            expected_state,
+        )
+        self.assertEqual(
+            len(self.store.observations_for_attempt(snapshot.attempt_id)),
+            len(before) + 1,
+        )
+        self.assertEqual(exact.calls, (f"reconcile:{snapshot.attempt_id}",))
+        self.assertEqual(exact.submission_calls, 0)
+        self.assertEqual(source.calls, before_calls)
+
+    def test_direct_workspace_matrix_confirmed_effect(self) -> None:
+        self._assert_direct_reconciliation_workspace_matrix(
+            execution.EffectState.CONFIRMED_EFFECT,
+            core.AttemptState.SUBMITTED,
+        )
+
+    def test_direct_workspace_matrix_confirmed_no_effect(self) -> None:
+        self._assert_direct_reconciliation_workspace_matrix(
+            execution.EffectState.CONFIRMED_NO_EFFECT,
+            core.AttemptState.NOT_SUBMITTED,
+        )
+
+    def test_direct_workspace_matrix_possibly_effectful(self) -> None:
+        self._assert_direct_reconciliation_workspace_matrix(
+            execution.EffectState.POSSIBLY_EFFECTFUL,
+            core.AttemptState.UNKNOWN,
+        )
+
+    def test_port_workspace_matrix_confirmed_effect(self) -> None:
+        self._assert_port_reconciliation_workspace_matrix(
+            execution.EffectState.CONFIRMED_EFFECT,
+            core.AttemptState.SUBMITTED,
+        )
+
+    def test_port_workspace_matrix_confirmed_no_effect(self) -> None:
+        self._assert_port_reconciliation_workspace_matrix(
+            execution.EffectState.CONFIRMED_NO_EFFECT,
+            core.AttemptState.NOT_SUBMITTED,
+        )
+
+    def test_port_workspace_matrix_possibly_effectful(self) -> None:
+        self._assert_port_reconciliation_workspace_matrix(
+            execution.EffectState.POSSIBLY_EFFECTFUL,
+            core.AttemptState.UNKNOWN,
+        )
+
+    def test_job_identity_uses_one_strict_lexical_rule(self) -> None:
+        invalid = (
+            "",
+            "   ",
+            "12345.synthetic\n67890.synthetic",
+            "12345.synthetic 67890.synthetic",
+            "12345.synthetic;touch-x",
+            "$(touch-x)",
+        )
+        for job_id in invalid:
+            with self.subTest(job_id=job_id), self.assertRaises(
+                execution.ExecutionValueError
+            ):
+                execution.RemoteEffectReceipt(
+                    attempt_id="attempt-1",
+                    execution_snapshot_id="snapshot-1",
+                    submission_intent_id="intent-1",
+                    effect_sequence=1,
+                    effect_kind=execution.EffectKind.SUBMISSION,
+                    effect_state=execution.EffectState.CONFIRMED_EFFECT,
+                    remote_workspace="/home/user100/SDL/project-1/attempt-1",
+                    job_id=job_id,
+                )
+
+    def test_invalid_submit_job_identity_stays_unknown_and_never_retries(self) -> None:
+        snapshot, profile = self.snapshot()
+        adapter = execution.SyntheticRTWinAdapter(job_id="   ")
+
+        first = execution.execute_once(
+            self.store,
+            snapshot=snapshot,
+            current_profile=profile,
+            prepared_input_bytes=INPUT_BYTES,
+            pbs_template_bytes=TEMPLATE_BYTES,
+            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+            port=adapter,
+        )
+        calls = adapter.calls
+        second = execution.execute_once(
+            self.store,
+            snapshot=snapshot,
+            current_profile=profile,
+            prepared_input_bytes=INPUT_BYTES,
+            pbs_template_bytes=TEMPLATE_BYTES,
+            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+            port=adapter,
+        )
+
+        self.assertIs(first.attempt_state, core.AttemptState.UNKNOWN)
+        self.assertIs(second.attempt_state, core.AttemptState.UNKNOWN)
+        self.assertEqual(adapter.calls, calls)
+        self.assertEqual(adapter.submission_calls, 1)
+
+    def test_invalid_reconciliation_job_identity_stays_unknown(self) -> None:
+        snapshot, profile = self.snapshot()
+        failing = execution.SyntheticRTWinAdapter(
+            fail_stage=execution.EffectKind.SUBMISSION,
+            ambiguous=True,
+        )
+        execution.execute_once(
+            self.store,
+            snapshot=snapshot,
+            current_profile=profile,
+            prepared_input_bytes=INPUT_BYTES,
+            pbs_template_bytes=TEMPLATE_BYTES,
+            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+            port=failing,
+        )
+        before = self.store.observations_for_attempt(snapshot.attempt_id)
+        reconciler = execution.SyntheticRTWinAdapter(
+            reconciliation_state=execution.EffectState.CONFIRMED_EFFECT,
+            reconciliation_job_id="12345.synthetic\n67890.synthetic",
+        )
+
+        with self.assertRaises(execution.ExecutionValueError):
+            execution.reconcile_unknown(self.store, snapshot=snapshot, port=reconciler)
+
+        self.assertIs(
+            self.store.attempt_state(snapshot.attempt_id), core.AttemptState.UNKNOWN
+        )
+        self.assertEqual(
+            self.store.observations_for_attempt(snapshot.attempt_id), before
+        )
+
+    def test_conflicting_reconciliation_job_identity_stays_unknown(self) -> None:
+        snapshot, profile = self.snapshot()
+        result = execution.execute_once(
+            self.store,
+            snapshot=snapshot,
+            current_profile=profile,
+            prepared_input_bytes=INPUT_BYTES,
+            pbs_template_bytes=TEMPLATE_BYTES,
+            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+            port=execution.SyntheticRTWinAdapter(
+                fail_stage=execution.EffectKind.SUBMISSION,
+                ambiguous=True,
+            ),
+        )
+        journal = execution.ReceiptJournal(self.store)
+        known = execution.RemoteEffectReceipt(
+            attempt_id=snapshot.attempt_id,
+            execution_snapshot_id=snapshot.execution_snapshot_id,
+            submission_intent_id=snapshot.submission_intent_id,
+            effect_sequence=len(result.receipts) + 1,
+            effect_kind=execution.EffectKind.SUBMISSION,
+            effect_state=execution.EffectState.CONFIRMED_EFFECT,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
+            job_id="12345.synthetic",
+        )
+        journal.append(known)
+        conflicting = execution.RemoteEffectReceipt(
+            attempt_id=snapshot.attempt_id,
+            execution_snapshot_id=snapshot.execution_snapshot_id,
+            submission_intent_id=snapshot.submission_intent_id,
+            effect_sequence=len(result.receipts) + 2,
+            effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
+            effect_state=execution.EffectState.CONFIRMED_EFFECT,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
+            job_id="67890.synthetic",
+            details={"source": "synthetic-read-only"},
+        )
+        before = journal.receipts_for_attempt(snapshot.attempt_id)
+
+        with self.assertRaises(execution.ExecutionConflictError):
+            execution.reconcile_unknown_from_receipt(
+                self.store, snapshot=snapshot, receipt=conflicting
+            )
+
+        self.assertIs(
+            self.store.attempt_state(snapshot.attempt_id), core.AttemptState.UNKNOWN
+        )
+        self.assertEqual(journal.receipts_for_attempt(snapshot.attempt_id), before)
+
+    def test_missing_reconciliation_job_conflicts_with_known_job_identity(self) -> None:
+        snapshot, profile = self.snapshot()
+        result = execution.execute_once(
+            self.store,
+            snapshot=snapshot,
+            current_profile=profile,
+            prepared_input_bytes=INPUT_BYTES,
+            pbs_template_bytes=TEMPLATE_BYTES,
+            confirmed_execution_snapshot_id=snapshot.execution_snapshot_id,
+            port=execution.SyntheticRTWinAdapter(
+                fail_stage=execution.EffectKind.SUBMISSION,
+                ambiguous=True,
+            ),
+        )
+        journal = execution.ReceiptJournal(self.store)
+        known = execution.RemoteEffectReceipt(
+            attempt_id=snapshot.attempt_id,
+            execution_snapshot_id=snapshot.execution_snapshot_id,
+            submission_intent_id=snapshot.submission_intent_id,
+            effect_sequence=len(result.receipts) + 1,
+            effect_kind=execution.EffectKind.SUBMISSION,
+            effect_state=execution.EffectState.CONFIRMED_EFFECT,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
+            job_id="12345.synthetic",
+        )
+        journal.append(known)
+        absent = execution.RemoteEffectReceipt(
+            attempt_id=snapshot.attempt_id,
+            execution_snapshot_id=snapshot.execution_snapshot_id,
+            submission_intent_id=snapshot.submission_intent_id,
+            effect_sequence=len(result.receipts) + 2,
+            effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
+            effect_state=execution.EffectState.CONFIRMED_NO_EFFECT,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
+            details={"source": "synthetic-read-only"},
+        )
+        before = journal.receipts_for_attempt(snapshot.attempt_id)
+
+        with self.assertRaises(execution.ExecutionConflictError):
+            execution.reconcile_unknown_from_receipt(
+                self.store, snapshot=snapshot, receipt=absent
+            )
+
+        self.assertIs(
+            self.store.attempt_state(snapshot.attempt_id), core.AttemptState.UNKNOWN
+        )
+        self.assertEqual(journal.receipts_for_attempt(snapshot.attempt_id), before)
+
     def test_public_execution_record_fields_match_the_frozen_contract(self) -> None:
         expected = {
             execution.PreparedInputBinding: {
@@ -426,6 +803,7 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
             effect_sequence=len(result.receipts) + 1,
             effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
             effect_state=execution.EffectState.CONFIRMED_NO_EFFECT,
+            remote_workspace=snapshot.workspace_binding.remote_attempt_dir,
             details={"source": "synthetic-read-only"},
         )
         mutations = (
