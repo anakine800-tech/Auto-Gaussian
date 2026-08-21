@@ -317,21 +317,48 @@ class ResultProvenanceService:
     def _validate_attributed_result(
         outcome: ParseOutcome, envelope: OutputEnvelope
     ) -> None:
-        if outcome.result_kind != "gaussian-job-facts" or not outcome.facts:
+        if outcome.result_kind != "gaussian-job-facts":
+            return
+        gaussian_logs = tuple(
+            item
+            for item in envelope.artifacts
+            if item.artifact_kind == "gaussian-log"
+        )
+        if envelope.capture_completeness is CaptureCompleteness.PARTIAL:
+            if not (
+                outcome.parse_status is ParseStatus.PARTIAL
+                and not outcome.facts
+                and outcome.diagnostics == ("capture-partial",)
+            ):
+                raise ProvenanceConflictError(
+                    "an attributed Result contradicts the partial-capture matrix"
+                )
+            return
+        if len(gaussian_logs) != 1:
+            if not (
+                outcome.parse_status is ParseStatus.UNSUPPORTED
+                and not outcome.facts
+                and outcome.diagnostics
+                == ("unsupported-gaussian-log-cardinality",)
+            ):
+                raise ProvenanceConflictError(
+                    "an attributed Result contradicts Gaussian-log cardinality"
+                )
+            return
+        if outcome.parse_status is ParseStatus.PARTIAL or outcome.diagnostics == (
+            "unsupported-gaussian-log-cardinality",
+        ):
+            raise ProvenanceConflictError(
+                "a complete one-log envelope contradicts its attributed outcome"
+            )
+        if not outcome.facts:
             return
         source = outcome.facts["source_artifact"]
         if source["envelope_observation_id"] != envelope.observation_id:
             raise ProvenanceConflictError(
                 "attributed Result source binds another output envelope"
             )
-        artifact = next(
-            (
-                item
-                for item in envelope.artifacts
-                if item.logical_name == source["logical_name"]
-            ),
-            None,
-        )
+        artifact = gaussian_logs[0]
         if artifact is None or artifact.payload() != {
             key: source[key]
             for key in ("artifact_kind", "logical_name", "sha256", "size_bytes")

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
 from auto_g16.core import RecordConflictError, Result
@@ -83,6 +84,18 @@ def transcript(
         rows.append(changes.get(index, original))
     data = eol.join(rows)
     return data + eol if final_eol else data
+
+
+def frequency_section(mode_numbers: bytes) -> tuple[bytes, ...]:
+    return (
+        *LINES[17:21],
+        b" " + mode_numbers,
+        b" A1 A1 A1",
+        b" Frequencies -- 400.0 500.0 600.0",
+        b" Red. masses -- 4.0 5.0 6.0",
+        b" Frc consts -- 0.4 0.5 0.6",
+        b" IR Inten -- 40.0 50.0 60.0",
+    )
 
 
 def envelope(
@@ -362,6 +375,26 @@ class GaussianJobParserTests(unittest.TestCase):
             ("unparseable-frequency-block",),
         )
 
+    def test_frequency_mode_continuity_is_job_scoped(self) -> None:
+        restarted = parse(
+            transcript(insertions={27: frequency_section(b"1 2 3")})
+        )
+        self.assertEqual(restarted.facts, {})
+        self.assertEqual(
+            restarted.diagnostics,
+            ("unparseable-frequency-block",),
+        )
+        continued = parse(
+            transcript(insertions={27: frequency_section(b"4 5 6")})
+        )
+        self.assertEqual(continued.parse_status, ParseStatus.PARSED)
+        self.assertEqual(continued.facts["frequency_count"], 6)
+        self.assertEqual(len(continued.facts["frequency_blocks"]), 2)
+        self.assertEqual(
+            continued.facts["frequencies_cm-1"],
+            (-123.4, 200.0, 300.0, 400.0, 500.0, 600.0),
+        )
+
     def test_optimization_failure_ownership(self) -> None:
         numeric = parse(transcript(replacements={11: b" Maximum Force NaN 0.000450 YES"}))
         self.assertEqual(numeric.diagnostics, ("unparseable-numeric-token",))
@@ -523,6 +556,184 @@ class GaussianJobParserTests(unittest.TestCase):
             with self.assertRaisesRegex(ProvenanceConflictError, "another output envelope"):
                 service.record_parse_outcome(forged)
 
+    def test_record_and_reopen_attest_attributed_cardinality_matrix(self) -> None:
+        clean_data = transcript()
+        clean_envelope, clean_bytes = envelope(clean_data)
+        parsed = GaussianJobParser().parse(clean_envelope, clean_bytes)
+
+        matrix = (
+            (
+                "partial-zero",
+                envelope(
+                    clean_data,
+                    completeness=CaptureCompleteness.PARTIAL,
+                    artifacts=(("stdout", "stdout.txt", b"captured"),),
+                    source="partial-zero",
+                ),
+            ),
+            (
+                "partial-one",
+                envelope(
+                    clean_data,
+                    completeness=CaptureCompleteness.PARTIAL,
+                    source="partial-one",
+                ),
+            ),
+            (
+                "partial-many",
+                envelope(
+                    clean_data,
+                    completeness=CaptureCompleteness.PARTIAL,
+                    artifacts=(
+                        ("gaussian-log", "a.log", clean_data),
+                        ("gaussian-log", "b.log", clean_data),
+                    ),
+                    source="partial-many",
+                ),
+            ),
+            (
+                "complete-zero",
+                envelope(
+                    clean_data,
+                    artifacts=(("stdout", "stdout.txt", b"captured"),),
+                    source="complete-zero",
+                ),
+            ),
+            (
+                "complete-many",
+                envelope(
+                    clean_data,
+                    artifacts=(
+                        ("gaussian-log", "a.log", clean_data),
+                        ("gaussian-log", "b.log", clean_data),
+                    ),
+                    source="complete-many",
+                ),
+            ),
+        )
+        for label, (forged_envelope, supplied) in matrix:
+            natural = GaussianJobParser().parse(forged_envelope, supplied)
+            with self.subTest(label=label, seam="natural"), initialized_store() as store:
+                service = ResultProvenanceService(store)
+                service.record_input_binding(binding())
+                service.record_output_envelope(forged_envelope)
+                service.record_parse_outcome(natural)
+                service.current_view(natural.attempt_id)
+            payload = thaw(parsed.payload())
+            payload["envelope_observation_id"] = forged_envelope.observation_id
+            forged = ParseOutcome.from_payload(payload)
+            with self.subTest(label=label, seam="record"), initialized_store() as store:
+                service = ResultProvenanceService(store)
+                service.record_input_binding(binding())
+                service.record_output_envelope(forged_envelope)
+                with self.assertRaisesRegex(
+                    ProvenanceConflictError,
+                    "matrix|cardinality",
+                ):
+                    service.record_parse_outcome(forged)
+            with self.subTest(label=label, seam="reopen"), initialized_store() as store:
+                service = ResultProvenanceService(store)
+                service.record_input_binding(binding())
+                service.record_output_envelope(forged_envelope)
+                store.append_result(
+                    Result(
+                        result_id=forged.result_id,
+                        attempt_id=forged.attempt_id,
+                        result_type=PARSED_RESULT_TYPE,
+                        data=forged.payload(),
+                    )
+                )
+                with self.assertRaisesRegex(
+                    ProvenanceConflictError,
+                    "matrix|cardinality",
+                ):
+                    service.current_view(forged.attempt_id)
+
+    def test_attributed_final_energy_is_strict_float_on_build_and_reopen(self) -> None:
+        parsed = parse(transcript())
+        for bad, comparable in (
+            (True, 1.0),
+            (False, 0.0),
+            (1, 1.0),
+            (-1, -1.0),
+            (float("nan"), -75.0),
+            (float("inf"), -75.0),
+            (float("-inf"), -75.0),
+            (Decimal("-75.0"), -75.0),
+        ):
+            payload = thaw(parsed.payload())
+            payload["facts"]["scf_calculations"][-1][
+                "energy_hartree"
+            ] = comparable
+            payload["facts"]["final_energy_hartree"] = bad
+            with self.subTest(value=repr(bad)), self.assertRaises(
+                ResultBoundaryError
+            ):
+                ParseOutcome.from_payload(payload)
+
+        item, supplied = envelope(transcript())
+        valid = GaussianJobParser().parse(item, supplied)
+        forged_payload = thaw(valid.payload())
+        forged_payload["facts"]["scf_calculations"][-1][
+            "energy_hartree"
+        ] = 1.0
+        forged_payload["facts"]["final_energy_hartree"] = True
+        with initialized_store() as store:
+            service = ResultProvenanceService(store)
+            service.record_input_binding(binding())
+            service.record_output_envelope(item)
+            store.append_result(
+                Result(
+                    result_id=valid.result_id,
+                    attempt_id=valid.attempt_id,
+                    result_type=PARSED_RESULT_TYPE,
+                    data=forged_payload,
+                )
+            )
+            with self.assertRaisesRegex(
+                ResultBoundaryError,
+                "final_energy_hartree",
+            ):
+                service.current_view(valid.attempt_id)
+
+    def test_job_section_ends_exactly_at_terminal_with_trailing_blanks(self) -> None:
+        for eol in (b"\n", b"\r\n"):
+            raw = transcript(eol=eol) + eol + (b" \t" + eol)
+            item, supplied = envelope(raw, source=f"trailing-{len(eol)}")
+            parsed = GaussianJobParser().parse(item, supplied)
+            terminal_end = parsed.facts["termination_evidence"][0][
+                "source_span"
+            ]["end"]
+            self.assertEqual(parsed.parse_status, ParseStatus.PARSED)
+            self.assertEqual(parsed.facts["job_section"]["end"], terminal_end)
+            self.assertLess(terminal_end, len(raw))
+
+            payload = thaw(parsed.payload())
+            payload["facts"]["job_section"]["end"] = len(raw)
+            with self.subTest(eol=eol, seam="construction"), self.assertRaisesRegex(
+                ResultBoundaryError,
+                "terminal record",
+            ):
+                ParseOutcome.from_payload(payload)
+
+            with self.subTest(eol=eol, seam="reopen"), initialized_store() as store:
+                service = ResultProvenanceService(store)
+                service.record_input_binding(binding())
+                service.record_output_envelope(item)
+                store.append_result(
+                    Result(
+                        result_id=parsed.result_id,
+                        attempt_id=parsed.attempt_id,
+                        result_type=PARSED_RESULT_TYPE,
+                        data=payload,
+                    )
+                )
+                with self.assertRaisesRegex(
+                    ResultBoundaryError,
+                    "terminal record",
+                ):
+                    service.current_view(parsed.attempt_id)
+
     def test_span_schema_overlap_capture_identity_and_payload_conflict(self) -> None:
         data = transcript()
         item, supplied = envelope(data)
@@ -568,6 +779,10 @@ class GaussianJobParserTests(unittest.TestCase):
             ParseOutcome.from_payload(payload)
         payload = thaw(parsed.payload())
         payload["parser_version"] = "2.0.0"
+        with self.assertRaisesRegex(ResultBoundaryError, "unsupported parser tuple"):
+            ParseOutcome.from_payload(payload)
+        payload = thaw(parsed.payload())
+        payload["parser_name"] = "unauthorized-attributed-parser"
         with self.assertRaisesRegex(ResultBoundaryError, "unsupported parser tuple"):
             ParseOutcome.from_payload(payload)
         payload = thaw(parsed.payload())

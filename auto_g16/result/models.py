@@ -438,7 +438,12 @@ def _attributed_program_facts(value: Mapping[str, object]) -> None:
     _require_exact_keys(terminal[0], {"kind", "source_span"}, "termination item")
     if terminal[0]["kind"] != status:
         raise ResultBoundaryError("termination evidence kind does not match status")
-    all_spans.append((*_span(terminal[0]["source_span"], source, "termination span", job), 0))
+    terminal_span = _span(
+        terminal[0]["source_span"], source, "termination span", job
+    )
+    if job[1] != terminal_span[1]:
+        raise ResultBoundaryError("job section must end at the terminal record")
+    all_spans.append((*terminal_span, 0))
 
     for flag_name, collection_name, kind_order in (
         ("optimization_completed_marker", "optimization_completed_evidence", 1),
@@ -474,6 +479,8 @@ def _attributed_program_facts(value: Mapping[str, object]) -> None:
         previous = current
         all_spans.append((*current, 3))
     final_energy = value["final_energy_hartree"]
+    if final_energy is not None:
+        _finite_float(final_energy, "final_energy_hartree")
     if scf_values:
         if final_energy != scf_values[-1]:
             raise ResultBoundaryError("final_energy_hartree is not the last SCF fact")

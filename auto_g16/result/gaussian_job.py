@@ -346,7 +346,7 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             consumed(line)
             return "OPT_MAX_FORCE", None
         if _m("fh1", line):
-            return_state, last_mode = parent, None
+            return_state = parent
             consumed(line)
             return "FREQ_HEAD_2", None
         orientation = _m("orientation", line)
@@ -444,7 +444,10 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             if _m("blank", line): pass
             elif mode:
                 modes = tuple(int(v) for v in mode.group("v").split())
-                if any(b != a + 1 for a, b in zip(modes, modes[1:])): return _line_fail("unparseable-frequency-block", line)
+                if any(b != a + 1 for a, b in zip(modes, modes[1:])) or (
+                    last_mode is not None and modes[0] != last_mode + 1
+                ):
+                    return _line_fail("unparseable-frequency-block", line)
                 group_modes, group_start, state = modes, line.start, "FREQ_SYM"; consumed(line)
             elif _orphan(line, {"modes"}): return _line_fail("unparseable-orphan-anchor", line)
             else: return _line_fail("unparseable-frequency-block", line)
