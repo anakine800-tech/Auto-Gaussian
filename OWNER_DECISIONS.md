@@ -173,3 +173,48 @@ scientific acceptance, or Core `WINNER`. `UNKNOWN` blocks the affected path and
 creates no retry, replacement, child, approval, or effect authority. Recovery
 children remain governed by the existing Core and Approval contracts and are
 outside automatic Workflow behavior.
+
+## OD-12: Attributed Gaussian facts belong to Result
+
+Scientific validation must consume Result-owned, source-attributed facts; it
+must not become a second raw Gaussian parser. The existing
+`GaussianLogParser` contract (`auto-g16-v3-gaussian-log`, `1.0.0`,
+`gaussian-log-facts`) remains unchanged historical evidence, but its whole-log
+aggregate recognition is not sufficient scientific evidence because echoed
+user text can contain marker-like strings.
+
+The additive `GaussianJobParser` contract
+(`auto-g16-v3-gaussian-job`, `1.0.0`, `gaussian-job-facts`) owns deterministic
+exact-byte context recognition, source attribution, generic geometry blocks,
+and other scientific-neutral machine-output facts for exactly one structurally
+proven Gaussian job. It reuses the existing `ParseOutcome` schema version 1,
+Result identity tuple, and append-only provenance chain. Old and new outcomes
+coexist without migration, reinterpretation, backfill, or overwrite.
+
+Parser grammar is source-controlled, versioned, deterministic, and pure. Raw
+substring occurrence is never authority: route, title, comment, molecular
+specification, and other input-echo regions cannot create machine-output facts.
+The grammar's literal byte anchors, closed ASCII regexes, LF/CRLF tokenizer,
+finite-state transitions, diagnostic codes, and original-byte half-open spans
+are normative; an implementation cannot substitute text normalization or a
+heuristic context choice.
+For this parser tuple, diagnostics are also single-owner authority. Parsing is
+strictly left-to-right and fail-fast: `parsed` persists no diagnostic, while
+every terminal non-parsed outcome persists exactly one primary closed code.
+After a parent production has admitted a child production, that child owns its
+first failure; a parent block may not replace or accompany a more specific row
+or numeric failure. Exact valid anchors in an illegal state are orphans, while
+malformed lookalike prefixes are not. No diagnostic set, ranking pass, or later
+failure participates in Result identity.
+For a thermochemistry candidate, the current line must pass its exact
+structural production, canonical-key resolution, numeric grammar, and finite
+conversion before duplicate cardinality is evaluated against previously
+committed same-key evidence in that one supported job. A structural or numeric
+failure therefore owns the current line before duplicate checking; a fully
+valid second same-key occurrence instead owns
+`unparseable-duplicate-evidence` over the full current raw-byte line, whether
+its value equals or differs from the first occurrence.
+Structurally valid multiple jobs are unsupported; malformed, truncated, or
+ambiguous context fails closed. Result records attribution and generic facts
+only. It never decides whether a geometry is a minimum or grants scientific
+acceptance, execution authority, retry authority, or a live effect.

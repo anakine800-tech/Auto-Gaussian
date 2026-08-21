@@ -41,20 +41,24 @@ smoke, retry, cancellation, cleanup, or scientific-acceptance authority.
 
 ## Frozen Post-Core Task Contracts
 
-The current post-V30-3 sequence is:
+The current post-V30-4 scientific-validation sequence is:
 
-1. `V30-WF-CONTRACT-01`
-2. `V30-VAL-WF-01` (separate Owner Gate)
-3. `V30-4-IMPL-01` (separate Owner Gate)
-4. `V30-EXEC-02` (`WAIT`)
+1. `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01`
+2. `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` (separate Owner Gate)
+3. resume `V30-MIN-VALIDATE-CONTRACT-01`
+4. `V30-VAL-SCI-01` (separate Owner Gate)
+5. `V30-MIN-VALIDATE-IMPL-01` (separate Owner Gate)
+6. `V30-EXEC-02` (`WAIT`)
 
 The control structure remains serial at integration:
 
 ```text
 Integration Owner
-└── V30-WF-CONTRACT-01
-    -> V30-VAL-WF-01
-    -> V30-4-IMPL-01
+└── V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01
+    -> V30-RESULT-SECTION-ATTRIBUTION-IMPL-01
+    -> V30-MIN-VALIDATE-CONTRACT-01
+    -> V30-VAL-SCI-01
+    -> V30-MIN-VALIDATE-IMPL-01
 V30-EXEC-02 WAIT
 ```
 
@@ -197,6 +201,52 @@ for their owned surfaces.
   validation, and the independent Contract Owner Gate. Completion does not
   authorize publication, selector mutation, or implementation.
 
+### V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01
+
+- **Outcome:** Freeze the minimum additive Result-owned parser and fact schema
+  that can distinguish machine-emitted Gaussian job output from
+  user-controlled echo and attribute every downstream scientific evidence
+  group to exact bytes.
+- **Scope:** Contract authority only. Preserve `GaussianLogParser` v1 and
+  existing `gaussian-log-facts` history unchanged; add the public
+  `GaussianJobParser` tuple, exact-byte single-job grammar, strict attributed
+  facts/spans, all recognized generic geometry blocks, parser status matrix,
+  durable reopen checks, acceptance matrix, and narrow reuse adjudication.
+- **Explicit non-goals:** No Result or ScientificValidation implementation,
+  tests, selector mutation, Core/API/schema change, Execution/Approval/Workflow
+  change, multi-job selection, checkpoint dependence, scientific minimum/TS/
+  IRC decision, transport, SSH, RTwin/PBS/Gaussian, retry, deployment, or live
+  work.
+- **Dependencies:** `V30-RESULT-01` and V30-4 are integrated. The public
+  adversarial replay proving whole-log echo contamination is the root-cause
+  evidence. The failed one-section ScientificValidation candidates remain
+  immutable evidence and grant no implementation authority.
+- **Autonomy:** `OWNER-GUIDED`. Work may include only narrow parser/reuse
+  inspection, authority drafting, offline document consistency checks,
+  self-review, and the named independent adversarial contract review.
+- **Stop rules:** Stop if safe attribution requires a Core change, a change to
+  existing Result identity or `GaussianLogParser` v1 semantics, an Execution/
+  Approval/Workflow change, a nondeterministic heuristic, external rerun or
+  checkpoint authority, product/test/selector edits, scope expansion, or two
+  same-class repairs.
+- **Acceptance/validation:** Prove exact tuple-dispatched outer schema-v1
+  compatibility, unchanged historical reopen, the normative raw-byte
+  LF/CRLF tokenizer, literal/closed-regex FSM transitions and echo suppression,
+  the exact artifact/status matrix, one-primary-diagnostic fail-fast ownership,
+  disjoint orphan/block/row/numeric/EOF precedence, zero-based half-open spans
+  bound to one envelope artifact, strict store/reopen attestation,
+  thermochemistry structure/key/numeric/finite validation before a
+  prior-committed same-key duplicate check and the full-current-line duplicate
+  span,
+  complete ordered frequency and geometry blocks with malformed-block fail
+  closure, no cross-source splicing, identity conflict behavior, scientific
+  neutrality, and the full offset-asserting adversarial matrix in
+  `acceptance.md`.
+- **Handoff:** Freeze base/head/tree and exact authority-file scope, reuse
+  adjudication, P0-P3 findings, validation evidence, and the independent
+  Contract Review. Completion authorizes neither publication nor
+  `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01`.
+
 ### V30-EXEC-02
 
 - **Outcome:** Deliver the Owner-selected second execution/transport increment
@@ -218,5 +268,6 @@ for their owned surfaces.
 - **Handoff:** Report `WAIT`, dependency evidence present/missing, blocker, and
   Owner activation as the only next gate.
 
-Contract completion grants no automatic authority to open validation ownership,
-Workflow implementation, `V30-EXEC-02`, or live work.
+Contract completion grants no automatic authority to implement Result
+attribution, resume or implement ScientificValidation, activate
+`V30-VAL-SCI-01`, open `V30-EXEC-02`, or perform live work.
