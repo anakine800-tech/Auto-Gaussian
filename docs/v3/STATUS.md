@@ -1,12 +1,15 @@
 # Auto-G16 v3 Status
 
 - **Current phase:** The authoritative main at this closeout's start is
-  `717f5b12bc80d78ac92c5110d5a3f12901f10358`.
+  `95e8f89a3322a30e785ca2000fc1f0e237c2d5d8`.
   `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01` is CLOSED / FROZEN / INTEGRATED,
-  and the Result-attribution contract is active on main.
-  `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` is GATE-ELIGIBLE / NOT YET GO;
-  ScientificValidation implementation, `V30-EXEC-02`, and live work remain
-  unauthorized.
+  and `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` is CLOSED / INTEGRATED.
+  `GaussianJobParser` and `gaussian-job-facts` are active on main, so the
+  Result-attribution contract and implementation are closed. The historical
+  `GaussianLogParser` semantics and generic parser-version Result authority
+  are preserved. `V30-MIN-VALIDATE-CONTRACT-01` is GATE-ELIGIBLE / NOT YET GO;
+  ScientificValidation remains on HOLD pending a separate Owner resume gate.
+  `V30-VAL-SCI-01`, `V30-EXEC-02`, and live work remain unauthorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -83,14 +86,19 @@
   duplicate owns its full current raw-byte line. The failed one-section
   ScientificValidation workaround is closed; its candidates remain immutable
   failed evidence.
-- **Paused:** `V30-MIN-VALIDATE-CONTRACT-01` is HOLD and depends on Result
-  attribution implementation. `V30-MIN-VALIDATE-IMPL-01` and
-  `V30-VAL-SCI-01` are `NO-GO`.
+- **Closed / integrated:** `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` is
+  integrated in PR #84 on
+  `main@95e8f89a3322a30e785ca2000fc1f0e237c2d5d8`.
+  `GaussianJobParser` and `gaussian-job-facts` are active on main; historical
+  `GaussianLogParser` semantics and generic parser-version Result authority
+  remain preserved.
+- **Gate-eligible:** `V30-MIN-VALIDATE-CONTRACT-01` is GATE-ELIGIBLE / NOT YET
+  GO. ScientificValidation remains on HOLD pending a separate Owner resume
+  gate. `V30-MIN-VALIDATE-IMPL-01` and `V30-VAL-SCI-01` are `NO-GO`.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` Owner Implementation
-  Gate.
+- **Next gate:** `V30-MIN-VALIDATE-CONTRACT-01` Resume Owner Gate.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -99,7 +107,7 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` without its Owner
-  Implementation Gate, ScientificValidation contract resumption or implementation,
-  `V30-VAL-SCI-01`, `V30-EXEC-02`, production changes, deployment, live smoke,
-  and SSH/PBS/Gaussian operations remain unauthorized.
+- **Do not start:** `V30-MIN-VALIDATE-CONTRACT-01` without its Resume Owner
+  Gate, ScientificValidation implementation, `V30-VAL-SCI-01`, `V30-EXEC-02`,
+  production changes, deployment, live smoke, and SSH/PBS/Gaussian operations
+  remain unauthorized.
