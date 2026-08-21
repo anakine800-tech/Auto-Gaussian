@@ -216,6 +216,110 @@ live-effect authority:
 19. Synthetic artifacts require no live RTwin or PBS.
 20. Core API and schema remain unchanged.
 
+## V30-RESULT-SECTION-ATTRIBUTION: Additive Gaussian Job Facts
+
+**Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** These conditions
+extend Result additively and leave `GaussianLogParser` v1 and historical
+`gaussian-log-facts` outcomes unchanged. They grant no ScientificValidation,
+scientific-acceptance, execution, transport, retry, or live authority:
+
+1. `GaussianLogParser` remains exactly `auto-g16-v3-gaussian-log` / `1.0.0` /
+   `gaussian-log-facts`; existing stored v1 rows reopen byte-semantically
+   unchanged and receive no migration, reinterpretation, backfill, or update.
+2. The additive public `GaussianJobParser` is exactly
+   `auto-g16-v3-gaussian-job` / `1.0.0` / `gaussian-job-facts` and uses the
+   source-controlled grammar ID `auto-g16-v3-gaussian-job-grammar/1`.
+3. `ParseOutcome` retains outer schema version 1, exact fields, and Result
+   UUIDv5 identity over envelope, parser name, parser version, and result kind.
+   Old and new parser outcomes for one envelope coexist append-only with
+   distinct identities.
+4. Facts validation dispatches only on the complete exact parser tuple. The
+   new recursive facts schema is closed at version 1; unknown/missing keys,
+   type drift, bad enums, inconsistent derived values, or an unknown tuple
+   fails on construction and durable reopen.
+5. Exact unchanged bytes, envelope, parser tuple, and grammar reproduce the
+   same outcome identity and payload. A changed capture or parser version
+   produces a new identity; the same identity with different facts or spans
+   conflicts.
+6. A clean complete single Opt/Freq job with structurally valid transitions,
+   attributed terminal/optimization/stationary/frequency records, and complete
+   recognized geometry blocks produces `PARSED` facts deterministically.
+7. A partial OutputEnvelope produces `PARTIAL` and empty facts regardless of
+   recognizable prefixes. No complete OutputEnvelope produces `PARTIAL`.
+8. Two or more structurally proven jobs, including a genuine Link1 job,
+   produce `UNSUPPORTED` with no last/frequency/optimization/normal-job
+   selection.
+9. A complete capture with a truncated job boundary, malformed transition,
+   contradictory structure, no safely recognized job, or ambiguous context
+   produces `UNPARSEABLE`; ambiguous bytes never produce `PARSED`.
+10. Titles containing `Optimization completed` or `Stationary point found`
+    produce no marker facts. Mixed echo plus a real machine-output marker
+    attributes only the real marker.
+11. A title containing `Frequencies -- -123.4` produces no frequency block or
+    imaginary-frequency fact. A valid machine-output frequency block is
+    emitted with its exact source span and ordered finite values.
+12. Input, molecular specification, title, or comment echo containing `Normal
+    termination of Gaussian` or `Error termination` creates no terminal fact.
+    False echo termination before a genuine terminal record does not alter the
+    attributed program status.
+13. Fake `--Link1--`, `Entering Link 1`, or equivalent job text in an echo
+    region does not create a second job. A genuine structurally validated
+    Link1 transition does.
+14. An empty, malformed, non-finite, wrong-cardinality, truncated, overlapping,
+    or context-invalid recognized frequency block makes a complete capture
+    `UNPARSEABLE`; no good token or other block is selected as fallback.
+15. Frequency blocks are ordered by zero-based half-open byte span. The
+    top-level frequency tuple is their exact ordered concatenation; total and
+    imaginary counts agree and no scientific minimum rule is applied.
+16. Every complete recognized input- or standard-orientation block is emitted
+    in byte order with `angstrom` units, its exact span, contiguous one-based
+    centers, integer atomic numbers `0..118`, and finite Cartesian coordinates.
+17. A recognized malformed, truncated, mixed, non-contiguous, non-finite, or
+    incomplete orientation block makes a complete capture `UNPARSEABLE`; the
+    parser neither skips it nor falls back to another geometry.
+18. Atomic number `0` is preserved as a dummy-center Result fact. Result does
+    not infer an element or minimum; downstream ScientificValidation must treat
+    the dummy-containing geometry as unsupported.
+19. Every span is a zero-based half-open byte interval within the exact bound
+    Gaussian-log artifact. Every evidence span lies within the one job-section
+    span, repeated evidence is ordered, and impossible overlaps fail closed.
+20. A span bound to another envelope, artifact logical name/kind, SHA-256, or
+    size; outside the artifact or job section; reversed; empty; unordered; or
+    otherwise impossible fails before append and on reopen.
+21. `ResultProvenanceService` proves the exact same-Attempt envelope and
+    artifact tuple, span containment/order, exact parser-tuple validator, and
+    recomputed Result identity when recording and reopening attributed facts.
+22. A structurally valid persisted outcome whose evidence ID is reused with
+    different source spans conflicts under the existing append-only rule.
+23. A valid parsed error-termination job and a valid parsed normal-termination
+    job each expose exactly one context-attributed terminal item and zero of
+    the other kind. Missing, repeated, malformed, or contradictory terminal
+    structure is `UNPARSEABLE`, not a favorable status.
+24. SCF energy and thermochemistry values are finite, ordered, context-local
+    facts with attributed spans; raw echo or malformed values never become
+    authoritative facts.
+25. A new `gaussian-job-facts` outcome and an old `gaussian-log-facts` outcome
+    may coexist for the same exact envelope. ScientificValidation must reject
+    the old tuple as insufficient attributed evidence rather than converting
+    or merging it.
+26. A Result never splices a job section, marker, frequency, geometry,
+    termination, energy, or thermochemistry span across captures, envelopes,
+    artifacts, Attempts, parser versions, or result kinds.
+27. Grammar behavior is pure and deterministic from exact bytes. Locale,
+    decoding replacement, line-ending rewrite, filesystem order/mtime,
+    runtime process state, checkpoints, caller hints, and nondeterministic
+    heuristics cannot select a context or fact.
+28. Result exposes generic attributed facts only. It never labels a geometry a
+    minimum, emits `VALIDATED_MINIMUM` or `NOT_MINIMUM`, decides scientific
+    acceptance/rejection, or mutates Attempt state.
+29. Focused implementation evidence must cover all echo-injection, fake/genuine
+    Link1, status-matrix, malformed-block, all-geometry, span-forgery,
+    coexistence/reopen, identity-conflict, and cross-capture cases above using
+    synthetic exact bytes with no SSH, PBS, Gaussian, or live action.
+30. Core API/schema and the frozen Execution, Approval, and Workflow contracts
+    remain byte-identical; implementation requires a separate Owner Gate and
+    precedes resumption of the paused ScientificValidation contract.
+
 ## V30-WF-CONTRACT-01: Minimal Deterministic Workflow
 
 **Status: CONTRACT FROZEN; IMPLEMENTATION NOT AUTHORIZED.** The following are

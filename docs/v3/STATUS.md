@@ -1,9 +1,10 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-WF-ID-CLARIFY-01` docs-only Workflow identity contract
-  clarification. V30-4 is `NO-GO`; Workflow implementation remains
-  unauthorized pending clarified-contract integration and a separate
-  implementation Owner Gate.
+- **Current phase:** `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01`. The additive
+  Result contract freezes context-aware single-job facts and exact byte-source
+  attribution before minimum ScientificValidation may resume. Result parser
+  implementation, ScientificValidation implementation, `V30-EXEC-02`, and live
+  work remain unauthorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -56,29 +57,38 @@
 - **Closed:** `V30-AUTH-HYGIENE-01` is integrated on
   `main@d3a3626a9b93d5f744e71bfafa60e60e85b11fa1`; the residual v2/v3
   Project-versus-Attempt workspace wording ambiguity is closed.
-- **Contract frozen:** V30-WF-CONTRACT-01 fixes the minimal finite Workflow DAG,
+- **Closed / integrated:** V30-WF-CONTRACT-01 fixes the minimal finite Workflow DAG,
   bounded Map, terminal Attempt-state Condition, HumanGate, append-only
   decision persistence, deterministic replay, Core relationship, and
-  zero-effect boundary. It creates no Core/API/schema change and grants no
-  implementation or live authority.
+  zero-effect boundary; the clarified V30-4 implementation is integrated on
+  `main@2b89366de5e1b8ead53f480a29194c9dfb3c3185`. It creates no Core/API/schema
+  change and grants no live authority.
 - **Validation ownership integrated:** `V30-VAL-WF-01` is integrated on
   `main@999d8ffb823dc52298d6a882c96a9f663ce5e51e`; this does not authorize
   Workflow implementation.
-- **Clarification pending:** `V30-WF-ID-CLARIFY-01` distinguishes local
+- **Closed / integrated:** `V30-WF-ID-CLARIFY-01` distinguishes local
   definition-scoped component IDs from WorkflowDefinition and decision UUIDv5
-  authority records. V30-4 remains `NO-GO` until this clarification is
-  independently reviewed and integrated.
+  authority records. `V30-RTWIN-MIN-01` is also integrated as an offline
+  Execution slice; neither integration grants RTwin/PBS/Gaussian live authority.
+- **Contract frozen:** The additive `GaussianJobParser` contract keeps
+  `GaussianLogParser` v1 history unchanged and owns exact-byte context,
+  section-local machine facts, byte spans, and generic geometry blocks. The
+  failed one-section ScientificValidation workaround is closed; its candidates
+  remain immutable failed evidence.
+- **Paused:** `V30-MIN-VALIDATE-CONTRACT-01` depends on integrated Result
+  attribution. `V30-MIN-VALIDATE-IMPL-01` and `V30-VAL-SCI-01` are `NO-GO`.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** Independent `V30-WF-ID-CLARIFY-01` Review, followed by the
-  Integration Owner Gate. Only after clarified-contract integration may a
-  separate V30-4 implementation Owner Gate be considered.
+- **Next gate:** Independent
+  `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01` adversarial review. A passing
+  contract still requires a separate Publish Owner Gate and later a separate
+  Result-attribution implementation Owner Gate.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** Workflow validation-ownership changes without their
-  separate Owner Gate, V30-4 implementation, `V30-EXEC-02`, production
-  changes, deployment, live smoke, and SSH/PBS/Gaussian operations remain
-  unauthorized.
+- **Do not start:** Result-attribution implementation, ScientificValidation
+  contract resumption or implementation, `V30-VAL-SCI-01`, `V30-EXEC-02`,
+  production changes, deployment, live smoke, and SSH/PBS/Gaussian operations
+  remain unauthorized.

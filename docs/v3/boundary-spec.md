@@ -646,6 +646,242 @@ acceptance remain separate facts. Minimum, transition-state, IRC, workflow,
 and other scientific acceptance require a later independent review. Core API
 and schema remain unchanged.
 
+### Additive Gaussian job attribution contract
+
+This additive Result contract does not change the existing
+`GaussianLogParser` or any persisted `gaussian-log-facts` outcome. The legacy
+public tuple remains exactly:
+
+```text
+parser_name    = auto-g16-v3-gaussian-log
+parser_version = 1.0.0
+result_kind    = gaussian-log-facts
+```
+
+Those outcomes remain readable historical program facts, but are insufficient
+for ScientificValidation because their whole-log recognition cannot attribute
+marker-like bytes to machine output rather than user-controlled echo. They are
+never reinterpreted, migrated, backfilled, or rewritten as attributed facts.
+
+The additive public parser is `GaussianJobParser`, with exact tuple:
+
+```text
+parser_name    = auto-g16-v3-gaussian-job
+parser_version = 1.0.0
+result_kind    = gaussian-job-facts
+```
+
+`auto_g16.result` adds only the public `GaussianJobParser` export for this
+slice. It exposes the same pure parser shape as the existing parser:
+`parse(envelope: OutputEnvelope, artifact_bytes: Mapping[str, bytes]) ->
+ParseOutcome`, plus the three exact class-level tuple values above. Grammar,
+token, span, and schema-validation helpers remain private; facts are carried by
+the existing immutable `ParseOutcome` mapping rather than a second public
+persistence record.
+
+`GaussianJobParser` adds no Core record or identity primitive. `ParseOutcome`
+keeps outer `schema_version = 1`, its exact public fields, and the existing
+UUIDv5 identity over `(envelope_observation_id, parser_name, parser_version,
+result_kind)`. Validation dispatches by that complete exact parser tuple. The
+legacy tuple uses its unchanged closed facts validator; the new tuple uses the
+closed `gaussian-job-facts` schema below. Missing, unknown, mixed, or
+unsupported tuple members fail closed. Old and new outcomes may bind the same
+envelope and coexist append-only with distinct Result identities.
+
+#### Exact-byte grammar and capability boundary
+
+The new parser is pure and deterministic over exact artifact bytes already
+verified against one stored `OutputEnvelope`. Its source-controlled grammar ID
+is `auto-g16-v3-gaussian-job-grammar/1`; that ID is a mandatory
+`gaussian-job-facts` semantic field. A grammar change requires a new parser
+version and produces a different Result identity. Locale, filesystem state,
+mtime, line-ending conversion, lossy decoding, runtime probing, checkpoint
+files, process state, and caller hints do not select grammar or facts.
+
+Grammar version 1 is a byte-oriented, line-anchored state machine. It validates
+the ordered structural transitions among preamble, Gaussian banner/job entry,
+route and title echo, molecular-specification/input echo, machine-emitted job
+output, and terminal job record. A transition is accepted only when its entire
+source-controlled anchor sequence and ordering are present. Isolated marker
+strings, substring counts, or a caller-supplied section boundary cannot move
+the state machine. Text resembling `--Link1--`, `Entering Link 1`, termination,
+optimization, stationary-point, frequency, or orientation records while the
+machine is in an echo state remains user-controlled echo and creates no fact.
+An incomplete, contradictory, unsupported, or multiply plausible transition
+is structural ambiguity and cannot produce `PARSED`.
+
+Version 1 supports exactly one structurally proven Gaussian job. A complete
+artifact containing one valid job and one complete context parse is supported.
+Two or more structurally valid job entries, including a genuine Link1
+transition, are `UNSUPPORTED`; the parser never selects the last job or a job
+because it contains a frequency, optimization, or termination marker. A
+truncated, malformed, or ambiguous job/context boundary is `UNPARSEABLE` for a
+complete capture. No current whole-log scanner is a context-recognition
+authority for this parser.
+
+The status matrix is exact:
+
+| OutputEnvelope / grammar outcome | ParseStatus |
+| --- | --- |
+| `capture_completeness = partial` | `PARTIAL` only |
+| complete capture, exactly one supported job, all recognized structures complete | `PARSED` |
+| complete capture, two or more structurally valid jobs or genuine Link1 jobs | `UNSUPPORTED` |
+| complete capture, no safely recognized job, or malformed/truncated/ambiguous context or recognized block | `UNPARSEABLE` |
+
+A complete capture never produces `PARTIAL`. Only `PARSED` carries the closed
+facts payload; `PARTIAL`, `UNSUPPORTED`, and `UNPARSEABLE` carry empty facts
+and deterministic non-authoritative diagnostics. Ambiguous bytes never produce
+facts by choosing a favorable interpretation.
+
+#### Closed attributed facts schema
+
+For the new exact parser tuple, non-empty `facts` has
+`facts_schema_version = 1` and exactly these top-level semantics:
+
+```text
+facts_schema_version
+grammar_id
+source_artifact
+job_section
+program_status
+normal_termination_count
+error_termination_count
+termination_evidence
+optimization_completed_marker
+optimization_completed_evidence
+stationary_point_marker
+stationary_point_evidence
+scf_calculation_count
+scf_calculations
+final_energy_hartree
+frequency_count
+frequency_parse_complete
+imaginary_frequency_count
+frequencies_cm-1
+frequency_blocks
+thermochemistry
+geometry_blocks
+```
+
+The schema is closed recursively: missing keys, unknown keys, wrong scalar or
+container types, booleans used as integers, non-finite numbers, invalid enum
+values, inconsistent counts/aggregates, or version drift fail closed on
+construction and reopen. `source_artifact` binds exactly the stored
+`envelope_observation_id`, `artifact_kind = gaussian-log`, portable logical
+name, lowercase SHA-256, and non-negative byte size. Exactly one such artifact
+of kind `gaussian-log` is supported as the fact source. Other envelope
+artifacts remain part of the exact supplied-byte set and are verified but do
+not contribute facts. The parser verifies all supplied bytes against the
+envelope before recognition.
+
+`source_artifact` has exactly `envelope_observation_id`, `artifact_kind`,
+`logical_name`, `sha256`, and `size_bytes`. Every `source_span` has exactly
+those five binding fields plus `start` and `end`. A span is a zero-based
+half-open byte interval `[start, end)` with integer
+`0 <= start < end <= size_bytes`. `job_section` is one such full source span.
+Each termination, optimization, stationary-point, SCF, frequency-block,
+thermochemistry, and geometry-block item carries a source span equal in its
+five binding fields to `source_artifact` and contained by `job_section`.
+Repeated evidence is ordered by `(start, end)` and distinct block instances may
+not overlap; only the intentional containment of evidence by `job_section` is
+allowed. Cross-envelope, cross-artifact, out-of-range, reversed, duplicate,
+unordered, or otherwise impossible overlap fails closed.
+
+`ResultProvenanceService` validates these relationships both before append and
+while reopening stored outcomes: the exact envelope exists for the same
+Attempt, the named artifact tuple equals the stored envelope artifact, every
+span satisfies the closed interval/containment/order rules, the complete
+parser tuple dispatches to the correct schema, and the Result identity is
+recomputed. Existing Core append semantics make exact replay idempotent and
+make the same Result identity with any different payload or span a conflict.
+The service does not reconstruct bytes from spans and spans grant no execution
+or scientific authority.
+
+Termination, optimization-completed, stationary-point, SCF, frequency, and
+thermochemistry facts arise only from grammar-recognized machine-output
+records inside the exact job section. A raw occurrence in title, route,
+comment, input echo, molecular specification, or other non-machine-output
+context is ignored. `termination_evidence` items have exactly `kind`
+(`normal-termination` or `error-termination`) and `source_span`.
+Optimization and stationary evidence are ordered tuples of source spans.
+`scf_calculations` items have exactly `energy_hartree` and `source_span`.
+`thermochemistry` is a closed mapping over the existing seven allowlisted
+thermochemistry names; each present item has exactly `value_hartree` and
+`source_span`. Aggregates are exact projections of their attributed evidence:
+counts match item cardinality, booleans match empty/non-empty evidence,
+`final_energy_hartree` is the last attributed SCF value or null, and all finite
+numerical values preserve source order. `program_status` is derived only from
+the one recognized terminal record. A `PARSED` job has exactly one normal or
+error terminal item, never both; the corresponding count is one and the other
+is zero. Missing, repeated, malformed, or structurally contradictory terminal
+evidence makes a complete capture `UNPARSEABLE`.
+
+Each `frequency_blocks` item has exactly `source_span` and
+`frequencies_cm-1`, a non-empty ordered tuple of one to three finite values as
+required by the version-1 grammar. The top-level frequency tuple is the ordered
+concatenation of all blocks; count and imaginary count are derived exactly, and
+`frequency_parse_complete` is true for every `PARSED` outcome. A recognized
+empty group, invalid token, wrong block cardinality, truncation, overlap, or
+mixed context makes the complete capture `UNPARSEABLE`; no token is silently
+skipped. Result does not decide whether the frequency set proves a minimum.
+
+`geometry_blocks` contains every complete recognized machine-emitted
+orientation block in byte order, not merely the first, last, or most favorable
+one. Each block has exactly:
+
+```text
+orientation_kind = input-orientation | standard-orientation
+units             = angstrom
+source_span
+atoms
+```
+
+`atoms` is a non-empty ordered tuple. Centers are contiguous one-based
+integers; each atom has exactly `center`, integer `atomic_number` in `0..118`,
+and finite `x`, `y`, `z` Cartesian coordinates. `source_span` uses the exact
+closed mapping above. Atomic number `0` is preserved
+as an explicit dummy-center fact and is unsupported by downstream minimum
+validation; Result does not silently remove or reinterpret it. If any
+recognized orientation block is malformed, truncated, mixed, non-contiguous,
+non-finite, or incomplete, a complete capture is `UNPARSEABLE`; the parser
+never skips that block or falls back to another geometry. Result calls these
+generic geometry blocks and never labels one an optimized geometry or a
+minimum.
+
+#### Narrow reuse adjudication
+
+The reuse audit is limited to `auto_g16.result.GaussianLogParser`, the public
+Result models/service and their adjacent tests, plus the legacy
+`skills/auto-g16-rtwin-pbs/scripts/gaussian_log.py` grammar/token helpers and
+their adjacent tests.
+
+- **PORT:** the existing `OutputEnvelope` artifact verification,
+  `ParseOutcome` outer schema version 1, deterministic Result UUIDv5 tuple,
+  append-only Core Result persistence, exact replay/conflict behavior, and
+  same-Attempt provenance resolution.
+- **WRAP:** preserve `GaussianLogParser` v1 and its historical
+  `gaussian-log-facts` validator unchanged as a separate public parser tuple;
+  it is readable history, not attributed ScientificValidation evidence.
+- **EXTRACT:** finite D/E numeric-token conversion, SCF/thermochemistry field
+  conversion, frequency-token parsing, and orientation-row parsing only after
+  the new state machine has established an exact machine-output context. Each
+  extracted primitive needs new context-bound and malformed-token tests.
+- **REWRITE:** job/echo/context recognition, job multiplicity detection,
+  frequency-block assembly, all-geometry-block assembly, and byte-span
+  attribution. Existing implementations scan a whole log or select a last
+  orientation and therefore cannot safely distinguish user echo or preserve
+  complete attributed evidence.
+- **DROP:** whole-log substring counts, membership/rfind marker authority,
+  unscoped line regexes, last-job/last-orientation selection, silent malformed
+  block skipping, and any legacy minimum/TS classification in the new parser.
+- **DEFER:** multi-job/Link1 selection, checkpoint-derived geometry, scientific
+  minimum/TS/IRC classification, scientific acceptance, live recapture, and
+  Gaussian reruns.
+
+This additive contract changes no Core API/schema and reopens no Execution,
+Approval, or Workflow contract. It authorizes no ScientificValidation
+implementation, transport, PBS, Gaussian, deployment, retry, or live action.
+
 ## V30-WF-CONTRACT-01 Frozen Minimal Workflow Contract
 
 **Contract status: FROZEN; IMPLEMENTATION NOT AUTHORIZED.** The public package
