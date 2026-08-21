@@ -698,40 +698,274 @@ version and produces a different Result identity. Locale, filesystem state,
 mtime, line-ending conversion, lossy decoding, runtime probing, checkpoint
 files, process state, and caller hints do not select grammar or facts.
 
-Grammar version 1 is a byte-oriented, line-anchored state machine. It validates
-the ordered structural transitions among preamble, Gaussian banner/job entry,
-route and title echo, molecular-specification/input echo, machine-emitted job
-output, and terminal job record. A transition is accepted only when its entire
-source-controlled anchor sequence and ordering are present. Isolated marker
-strings, substring counts, or a caller-supplied section boundary cannot move
-the state machine. Text resembling `--Link1--`, `Entering Link 1`, termination,
-optimization, stationary-point, frequency, or orientation records while the
-machine is in an echo state remains user-controlled echo and creates no fact.
-An incomplete, contradictory, unsupported, or multiply plausible transition
-is structural ambiguity and cannot produce `PARSED`.
+The normative input domain is the original Gaussian-log artifact byte string
+`B[0:L]`. The parser derives every offset before decoding or normalization.
+Only LF (`0x0A`) and CRLF (`0x0D 0x0A`) terminate lines; CRLF is never rewritten
+to LF. Scanning left to right produces records `(line_start, content_end,
+line_end)`. For LF, `line_end = content_end + 1`; for CRLF,
+`line_end = content_end + 2`. The final unterminated line has
+`content_end = line_end = L`. Any other `0x0D` in a complete artifact is
+`UNPARSEABLE` with `unparseable-line-terminator`. A blank line has content
+matching exactly zero or more ASCII SPACE (`0x20`) or TAB (`0x09`) bytes.
+No `.strip()`, Unicode whitespace, decoded-character offset, normalized-LF
+offset, trimmed offset, or re-encoded offset participates.
 
-Version 1 supports exactly one structurally proven Gaussian job. A complete
-artifact containing one valid job and one complete context parse is supported.
-Two or more structurally valid job entries, including a genuine Link1
-transition, are `UNSUPPORTED`; the parser never selects the last job or a job
-because it contains a frequency, optimization, or termination marker. A
-truncated, malformed, or ambiguous job/context boundary is `UNPARSEABLE` for a
-complete capture. No current whole-log scanner is a context-recognition
-authority for this parser.
+Every normative source span is zero-based and half-open on `B`. A single-line
+evidence span is `[anchor.line_start, anchor.line_end)`; a multi-line block is
+`[first_grammar_line.line_start, final_grammar_line.line_end)`. Thus a span
+includes the final line terminator when present, including both CRLF bytes. If
+the final grammar line is the unterminated final line, its span ends at `L`.
+No other source-span convention is legal.
 
-The status matrix is exact:
+All grammar patterns below are ASCII byte regular expressions applied with
+full-match semantics (`\A...\Z`) to the raw line content, excluding its line
+terminator. The notation is closed as follows:
 
-| OutputEnvelope / grammar outcome | ParseStatus |
+```text
+HT0  = [\x20\x09]*
+HT1  = [\x20\x09]+
+UINT = [0-9]+
+INT  = [+-]?[0-9]+
+NUM  = [+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[EeDd][+-]?[0-9]+)?
+SYM  = [A-Za-z0-9?'+-]+
+```
+
+`NUM` therefore accepts leading signs, leading or trailing decimal points, and
+`E/e/D/d` exponents, but not hexadecimal, comma, whitespace-internal, NaN,
+Inf, or another `float()` extension. After ASCII conversion (`D/d` becomes
+`E/e`), every number must be finite; overflow or a non-finite value is a
+grammar failure. Integers are parsed in base ten and booleans are never
+integers.
+
+The exact line anchors are:
+
+```text
+BLANK               = \AHT0\Z
+JOB_START           = \A\x20Entering Gaussian System, Link 0=g16\Z
+OTHER_PROGRAM_START = \AHT1Entering Gaussian System, Link 0=g(?:03|09)HT0\Z
+SYMBOLIC_START      = \AHT1Symbolic Z-matrix:HT0\Z
+CHARGE_MULT         = \AHT1ChargeHT1=HT1INTHT1MultiplicityHT1=HT1[1-9][0-9]*HT0\Z
+GRAD_BOUNDARY       = \AHT1(?:Grad){2,}HT0\Z
+LINK1_LITERAL       = \AHT0--Link1--HT0\Z
+INTERNAL_JOB_STEP   = \AHT1ProceedingHT1toHT1internalHT1jobHT1stepHT1numberHT1[2-9][0-9]*\.HT0\Z
+UNSUPPORTED_ORIENTATION = \AHT1Z-Matrix orientation:HT0\Z
+NORMAL_TERMINAL     = \AHT1Normal termination of Gaussian 16(?:HT1atHT1[\x20-\x7e]+)?\.?HT0\Z
+ERROR_TERMINAL_A    = \AHT1ErrorHT1terminationHT1viaHT1Lnk1eHT1inHT1[\x21-\x7e]+HT1atHT1[\x20-\x7e]+\.HT0\Z
+ERROR_TERMINAL_B    = \AHT1ErrorHT1terminationHT1requestHT1processedHT1byHT1linkHT1[0-9]+\.HT0\Z
+```
+
+`HT0`, `HT1`, `INT`, and the other named fragments are text substitutions in
+these displayed patterns, not literal letters. `JOB_START` alone starts the
+supported job. `OTHER_PROGRAM_START` is the closed unsupported-program case.
+A genuine v1 multi-job boundary is `LINK1_LITERAL`, `INTERNAL_JOB_STEP`, or a
+second `JOB_START` encountered only after `MACHINE_BODY` has been entered. The
+same bytes in an input-echo state have zero effect. No naked `Entering Link 1`
+substring is a job boundary.
+
+The echo exit is also exact. `JOB_START` enters `INPUT_ECHO`; the unique ordered
+sequence `SYMBOLIC_START`, then `CHARGE_MULT`, then at least one intervening
+nonblank molecular-specification line, then `GRAD_BOUNDARY` enters
+`MACHINE_BODY`. Every byte from `JOB_START` through the full
+`GRAD_BOUNDARY` line is echo/control context and emits no scientific-neutral
+fact. A duplicate/out-of-order boundary anchor, a `GRAD_BOUNDARY` before the
+complete sequence, or more than one possible echo exit is
+`UNPARSEABLE`/`unparseable-echo-boundary`. Thus title, route, comment, or
+molecular-specification lines equal to optimization, stationary, frequency,
+termination, orientation, `LINK1_LITERAL`, or `JOB_START` are ignored while in
+an echo state; a spoofed boundary can only make the grammar fail closed. In
+this paragraph and the table below, *echo-boundary anchor* means exactly
+`SYMBOLIC_START`, `CHARGE_MULT`, or `GRAD_BOUNDARY`; it does not include
+`JOB_START`, `LINK1_LITERAL`, or `INTERNAL_JOB_STEP` while an echo state is
+active.
+
+The machine-output anchors are:
+
+```text
+SCF = \AHT1SCF Done:HT1E\([^\x0d\x0a()]+\)HT1=HT1NUMHT1A\.U\.(?:HT1afterHT1UINTHT1cycles)?HT0\Z
+
+OPT_HEADER = \AHT1ItemHT1ValueHT1ThresholdHT1Converged\?HT0\Z
+OPT_ROW_MAX_FORCE = \AHT1MaximumHT1ForceHT1NUMHT1NUMHT1(?:YES|NO)HT0\Z
+OPT_ROW_RMS_FORCE = \AHT1RMSHT1ForceHT1NUMHT1NUMHT1(?:YES|NO)HT0\Z
+OPT_ROW_MAX_DISP  = \AHT1MaximumHT1DisplacementHT1NUMHT1NUMHT1(?:YES|NO)HT0\Z
+OPT_ROW_RMS_DISP  = \AHT1RMSHT1DisplacementHT1NUMHT1NUMHT1(?:YES|NO)HT0\Z
+OPT_PREDICTED     = \AHT1PredictedHT1changeHT1inHT1Energy=HT0NUMHT0\Z
+OPT_DONE          = \AHT1Optimization completed\.HT0\Z
+STATIONARY        = \AHT1--HT1Stationary point found\.HT0\Z
+
+FREQ_HEAD_1 = \AHT1Harmonic frequencies \(cm\*\*-1\), IR intensities \(KM/Mole\), Raman scatteringHT0\Z
+FREQ_HEAD_2 = \AHT1activities \(A\*\*4/AMU\), depolarization ratios for plane and unpolarizedHT0\Z
+FREQ_HEAD_3 = \AHT1incident light, reduced masses \(AMU\), force constants \(mDyne/A\),HT0\Z
+FREQ_HEAD_4 = \AHT1and normal coordinates:HT0\Z
+MODE_NUMBERS = \AHT1UINT(?:HT1UINT){0,2}HT0\Z
+SYMMETRIES   = \AHT1SYM(?:HT1SYM){0,2}HT0\Z
+FREQUENCIES  = \AHT1FrequenciesHT1--HT1NUM(?:HT1NUM){0,2}HT0\Z
+RED_MASSES   = \AHT1Red\. massesHT1--HT1NUM(?:HT1NUM){0,2}HT0\Z
+FORCE_CONSTS = \AHT1Frc constsHT1--HT1NUM(?:HT1NUM){0,2}HT0\Z
+IR_INTEN     = \AHT1IR IntenHT1--HT1NUM(?:HT1NUM){0,2}HT0\Z
+
+ORIENTATION = \AHT1(?:Input|Standard) orientation:HT0\Z
+SEPARATOR   = \AHT1-{5,}HT0\Z
+GEOM_HEAD_1 = \AHT1CenterHT1AtomicHT1AtomicHT1Coordinates \(Angstroms\)HT0\Z
+GEOM_HEAD_2 = \AHT1NumberHT1NumberHT1TypeHT1XHT1YHT1ZHT0\Z
+ATOM_ROW    = \AHT1UINTHT1UINTHT1INTHT1NUMHT1NUMHT1NUMHT0\Z
+
+THERMO_ZERO_POINT = \AHT1Zero-point correction=HT0NUMHT1\(Hartree/Particle\)HT0\Z
+THERMO_ENERGY     = \AHT1Thermal correction to Energy=HT0NUMHT0\Z
+THERMO_ENTHALPY   = \AHT1Thermal correction to Enthalpy=HT0NUMHT0\Z
+THERMO_GIBBS      = \AHT1Thermal correction to Gibbs Free Energy=HT0NUMHT0\Z
+THERMO_SUM_ZPE    = \AHT1Sum of electronic and zero-point Energies=HT0NUMHT0\Z
+THERMO_SUM_H      = \AHT1Sum of electronic and thermal Enthalpies=HT0NUMHT0\Z
+THERMO_SUM_G      = \AHT1Sum of electronic and thermal Free Energies=HT0NUMHT0\Z
+```
+
+The table's phrase *unrelated line* is closed: it means a line that full-matches
+none of the named patterns above and triggers none of the prefix rules below.
+Only a state whose row explicitly says that unrelated lines stay may ignore
+such a line. Prefix testing is on raw content bytes after the initial `HT1`,
+not decoded or stripped text:
+
+| Raw literal prefix after `HT1` | If the line does not match its exact pattern in a legal owning state |
 | --- | --- |
-| `capture_completeness = partial` | `PARTIAL` only |
-| complete capture, exactly one supported job, all recognized structures complete | `PARSED` |
-| complete capture, two or more structurally valid jobs or genuine Link1 jobs | `UNSUPPORTED` |
-| complete capture, no safely recognized job, or malformed/truncated/ambiguous context or recognized block | `UNPARSEABLE` |
+| `Normal termination` or `Error termination` | `unparseable-terminal` |
+| `SCF Done:`, or any of the seven displayed thermochemistry labels through and including `=` | `unparseable-numeric-token` |
+| `Item`, `Maximum Force`, `RMS Force`, `Maximum Displacement`, `RMS Displacement`, `Predicted change in Energy=`, `Optimization completed`, or `-- Stationary point found` | `unparseable-optimization-block` |
+| `Harmonic frequencies`, `activities`, `incident light`, `and normal coordinates:`, `Frequencies`, `Red. masses`, `Frc consts`, or `IR Inten` | `unparseable-frequency-block` |
+| `Input orientation:`, `Standard orientation:`, `Z-Matrix orientation:`, `Center Atomic Atomic Coordinates`, or `Number Number Type X Y Z` | `unparseable-geometry-block` |
 
-A complete capture never produces `PARTIAL`. Only `PARSED` carries the closed
-facts payload; `PARTIAL`, `UNSUPPORTED`, and `UNPARSEABLE` carry empty facts
-and deterministic non-authoritative diagnostics. Ambiguous bytes never produce
-facts by choosing a favorable interpretation.
+An exact substate-only optimization or stationary pattern seen directly in
+`MACHINE_BODY` is `unparseable-orphan-evidence-anchor`. Exact
+`FREQ_HEAD_2`, `FREQ_HEAD_3`, `FREQ_HEAD_4`, `FREQUENCIES`, `RED_MASSES`,
+`FORCE_CONSTS`, or `IR_INTEN` seen there is the same orphan code. Separator,
+mode-number, symmetry, and atom-row-shaped lines have no standalone meaning in
+`MACHINE_BODY` and are unrelated there; after their owning state has begun,
+the state row decides them. These prefix/orphan rules apply only in
+`MACHINE_BODY` and `FREQUENCY_BODY` (including a line reprocessed into either
+state). They are disabled in `PREAMBLE`, `TERMINATED`, and throughout the three
+input-echo states, where the applicable state row alone decides the line. This
+makes a user-echoed malformed scientific label as non-evidentiary as a valid
+echoed label.
+
+The FSM and its failure behavior are normative. Named transitions within one
+state must be pairwise disjoint. If two named patterns match the same line, or
+an omitted transition would be needed, the complete capture is
+`UNPARSEABLE`/`unparseable-ambiguous-transition`; there is no priority, best
+match, nearest marker, or last useful block.
+
+| State | Accepted pattern and next state | Evidence/span | Any other relevant transition |
+| --- | --- | --- | --- |
+| `PREAMBLE` | `JOB_START -> INPUT_ECHO`; `OTHER_PROGRAM_START -> UNSUPPORTED` | none | other lines stay; EOF is `unparseable-job-start` |
+| `INPUT_ECHO` | first `SYMBOLIC_START -> INPUT_MOLECULE` | none | `CHARGE_MULT` or `GRAD_BOUNDARY` fails echo boundary; every other line stays and emits nothing |
+| `INPUT_MOLECULE` | first `CHARGE_MULT -> INPUT_MOLECULE_BOUND` | none | `SYMBOLIC_START` or `GRAD_BOUNDARY` fails echo boundary; every other line stays |
+| `INPUT_MOLECULE_BOUND` | after at least one nonblank intervening line, `GRAD_BOUNDARY -> MACHINE_BODY` | none | `SYMBOLIC_START` or `CHARGE_MULT`, or `GRAD_BOUNDARY` before a nonblank intervening line, fails echo boundary; every other line stays |
+| `MACHINE_BODY` | `SCF` stays; `OPT_HEADER -> OPT_MAX_FORCE`; `FREQ_HEAD_1 -> FREQ_HEAD_2_STATE`; `ORIENTATION -> GEOM_SEP_1`; a thermo line stays; legal terminal -> `TERMINATED`; multi-job anchor -> `LINK1_BOUNDARY`; `OTHER_PROGRAM_START` or `UNSUPPORTED_ORIENTATION -> UNSUPPORTED` | SCF/thermo/terminal lines use full-line spans | the closed prefix/orphan rules above apply; a repeated thermochemistry key is `unparseable-orphan-evidence-anchor`; any `SYMBOLIC_START`, `CHARGE_MULT`, or `GRAD_BOUNDARY` is `unparseable-echo-boundary`; unrelated lines stay |
+| `OPT_MAX_FORCE` | `OPT_ROW_MAX_FORCE -> OPT_RMS_FORCE` | none yet | anything else is `unparseable-optimization-block` |
+| `OPT_RMS_FORCE` | `OPT_ROW_RMS_FORCE -> OPT_MAX_DISP` | none yet | same failure |
+| `OPT_MAX_DISP` | `OPT_ROW_MAX_DISP -> OPT_RMS_DISP` | none yet | same failure |
+| `OPT_RMS_DISP` | `OPT_ROW_RMS_DISP -> OPT_AFTER_ROWS` | none yet | same failure |
+| `OPT_AFTER_ROWS` | optional one `OPT_PREDICTED` stays; `OPT_DONE -> OPT_STATIONARY`; any other line returns to `MACHINE_BODY` and is reprocessed once | `OPT_DONE` full-line span only on completion path | duplicate predicted fails; a complete non-converged table emits no marker evidence |
+| `OPT_STATIONARY` | `STATIONARY -> MACHINE_BODY` | `STATIONARY` full-line span | anything else fails block; neither naked marker is evidence |
+| `FREQ_HEAD_2_STATE` | `FREQ_HEAD_2 -> FREQ_HEAD_3_STATE` | block begins at `FREQ_HEAD_1.line_start` | anything else is `unparseable-frequency-block` |
+| `FREQ_HEAD_3_STATE` | `FREQ_HEAD_3 -> FREQ_HEAD_4_STATE` | none | same failure |
+| `FREQ_HEAD_4_STATE` | `FREQ_HEAD_4 -> FREQUENCY_BODY_EMPTY` | none | same failure |
+| `FREQUENCY_BODY_EMPTY` | blank lines stay; `MODE_NUMBERS -> FREQ_SYMMETRY` | none | every other line is `unparseable-frequency-block`; a recognized frequency section must contain a complete group |
+| `FREQUENCY_BODY` | blank/unrelated displacement lines stay; `MODE_NUMBERS -> FREQ_SYMMETRY`; a new `FREQ_HEAD_1 -> FREQ_HEAD_2_STATE`; `SCF`, `OPT_HEADER`, `ORIENTATION`, each thermo line, each legal terminal, each multi-job anchor, `OTHER_PROGRAM_START`, and `UNSUPPORTED_ORIENTATION` apply exactly as in `MACHINE_BODY` | none | orphan `FREQUENCIES`, `RED_MASSES`, `FORCE_CONSTS`, or `IR_INTEN` fails; echo-boundary anchors fail as in `MACHINE_BODY` |
+| `FREQ_SYMMETRY` | `SYMMETRIES` with same 1..3 cardinality -> `FREQ_VALUES` | none | anything else fails block |
+| `FREQ_VALUES` | `FREQUENCIES` with same cardinality -> `FREQ_RED_MASSES` | values retained | anything else fails block |
+| `FREQ_RED_MASSES` | `RED_MASSES` with same cardinality -> `FREQ_FORCE_CONSTS` | none | anything else fails block |
+| `FREQ_FORCE_CONSTS` | `FORCE_CONSTS` with same cardinality -> `FREQ_IR_INTEN` | none | anything else fails block |
+| `FREQ_IR_INTEN` | `IR_INTEN` with same cardinality -> `FREQUENCY_BODY` | frequency-block span is mode line through IR line | anything else fails block |
+| `GEOM_SEP_1` | `SEPARATOR -> GEOM_HEAD_1_STATE` | block begins at orientation heading | anything else is `unparseable-geometry-block` |
+| `GEOM_HEAD_1_STATE` | `GEOM_HEAD_1 -> GEOM_HEAD_2_STATE` | none | same failure |
+| `GEOM_HEAD_2_STATE` | `GEOM_HEAD_2 -> GEOM_SEP_2` | none | same failure |
+| `GEOM_SEP_2` | `SEPARATOR -> GEOM_ROWS` | none | same failure |
+| `GEOM_ROWS` | first/next `ATOM_ROW` stays; `SEPARATOR` after at least one row -> `MACHINE_BODY` | complete geometry span is heading through closing separator | malformed row, duplicate/noncontiguous center, or EOF fails block |
+| `TERMINATED` | `BLANK` stays; genuine multi-job anchor -> `LINK1_BOUNDARY`; `OTHER_PROGRAM_START -> UNSUPPORTED`; another legal terminal -> failure | none | second terminal is `unparseable-terminal`; any other line is `unparseable-trailing-content` |
+| `LINK1_BOUNDARY` | terminal classification | none | always `UNSUPPORTED`/`unsupported-multiple-job` |
+
+At EOF, `PREAMBLE` reports `unparseable-job-start`; any echo state reports
+`unparseable-echo-boundary`; an optimization, frequency (including
+`FREQUENCY_BODY_EMPTY`), or geometry substate
+reports its corresponding block code; `MACHINE_BODY` or `FREQUENCY_BODY`
+reports `unparseable-terminal`; and `TERMINATED` succeeds. A line with a
+recognized numeric field label but a token outside `NUM`, or a converted
+non-finite value, reports `unparseable-numeric-token`. A legal numeric token
+count/cardinality mismatch instead reports the owning block code. A malformed
+`Normal termination` or `Error termination` prefix in machine context reports
+`unparseable-terminal`.
+
+The exact optimization source spans are the `OPT_DONE` and `STATIONARY` full
+lines, but they become evidence only after the entire ordered convergence block
+has matched. Each frequency block span starts at its `MODE_NUMBERS.line_start`
+and ends at its `IR_INTEN.line_end`; mode numbers must be strictly increasing
+and contiguous across groups. Each geometry span starts at
+`ORIENTATION.line_start` and ends at the closing `SEPARATOR.line_end`.
+The literal `Input orientation:` heading maps only to
+`orientation_kind = input-orientation`; `Standard orientation:` maps only to
+`orientation_kind = standard-orientation`. `ATOM_ROW` fields map left to right
+to center, atomic number, atomic type, X, Y, and Z. Atomic type is parsed and
+discarded as non-authority. A center sequence other than exactly `1..N`, an
+atomic number outside `0..118`, or any invalid coordinate makes the owning
+geometry block `unparseable-geometry-block` (except a token outside `NUM`,
+which is `unparseable-numeric-token`).
+Recognized malformed or truncated blocks emit no partial block fact and make a
+complete capture `UNPARSEABLE`.
+
+One supported job span is exactly
+`[JOB_START.line_start, terminal.line_end)`, including both line terminators
+when present. A final unterminated terminal line ends at `L`. After the terminal
+line only `BLANK` lines are legal; another job/multi-job anchor is
+`UNSUPPORTED`, and any other byte content is `UNPARSEABLE`. A missing legal
+terminal, two legal terminals, or terminal-like text outside `MACHINE_BODY`
+cannot be accepted as one parsed job.
+
+Artifact verification precedes status selection. A supplied artifact-name set,
+type, size, or SHA mismatch raises `MalformedEnvelopeError` and is never
+converted into a `ParseStatus`. After exact verification, artifact cardinality
+is fixed:
+
+| CaptureCompleteness | Gaussian-log artifact count | Result |
+| --- | ---: | --- |
+| `PARTIAL` | 0 | `PARTIAL`, empty facts, `capture-partial` |
+| `PARTIAL` | 1 | `PARTIAL`, empty facts, `capture-partial` |
+| `PARTIAL` | >1 | `PARTIAL`, empty facts, `capture-partial` |
+| `COMPLETE` | 0 | `UNSUPPORTED`, empty facts, `unsupported-gaussian-log-cardinality` |
+| `COMPLETE` | 1 | run the exact grammar above |
+| `COMPLETE` | >1 | `UNSUPPORTED`, empty facts, `unsupported-gaussian-log-cardinality` |
+
+For one complete Gaussian-log artifact, exactly one supported job with a legal
+terminal and complete deterministic attribution is `PARSED`. A genuine Link1,
+second job, `OTHER_PROGRAM_START`, or `UNSUPPORTED_ORIENTATION` is
+`UNSUPPORTED`; these are the only deliberate version-1 capability-boundary
+patterns. Every other unmatched structural claim is malformed or ambiguous.
+Malformed, contradictory, incomplete, or ambiguous bytes are `UNPARSEABLE`. A complete
+capture never produces `PARTIAL`; uncertainty is not capture incompleteness.
+Only `PARSED` carries the closed facts payload.
+
+`PARSED` outcomes persist an empty diagnostics tuple. Non-`PARSED` outcomes
+persist exactly one diagnostic code and no prose. The
+closed codes are `capture-partial`, `unsupported-gaussian-log-cardinality`,
+`unsupported-program`, `unsupported-multiple-job`,
+`unsupported-valid-gaussian-grammar`, `unparseable-line-terminator`,
+`unparseable-job-start`, `unparseable-echo-boundary`,
+`unparseable-ambiguous-transition`, `unparseable-orphan-evidence-anchor`,
+`unparseable-optimization-block`, `unparseable-frequency-block`,
+`unparseable-geometry-block`, `unparseable-numeric-token`,
+`unparseable-terminal`, `unparseable-trailing-content`, and
+`unparseable-span`. Grammar processing stops at the earliest failing raw-byte
+offset. If failures share an offset, code order is the order just listed.
+`OTHER_PROGRAM_START` maps to `unsupported-program`; every genuine multi-job
+anchor maps to `unsupported-multiple-job`; and `UNSUPPORTED_ORIENTATION` maps
+to `unsupported-valid-gaussian-grammar`.
+Human-readable explanation may be emitted outside persisted semantics only.
+
+Given the same exact envelope, artifact bytes, and parser tuple, two conforming
+implementations must produce the same status, job span, evidence spans, facts,
+source ordering, singleton diagnostic code, payload, and Result identity.
+Evidence collections sort by `start`, then `end`, then the closed kind order
+`termination`, `optimization`, `stationary`, `scf`, `frequency`,
+`thermochemistry`, `geometry`. Frequency and geometry collections otherwise
+retain byte-source order. No set or implementation traversal order is a
+serialization authority.
 
 #### Closed attributed facts schema
 

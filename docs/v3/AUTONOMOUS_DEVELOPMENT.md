@@ -230,12 +230,14 @@ for their owned surfaces.
   checkpoint authority, product/test/selector edits, scope expansion, or two
   same-class repairs.
 - **Acceptance/validation:** Prove exact tuple-dispatched outer schema-v1
-  compatibility, unchanged historical reopen, deterministic grammar and echo
-  suppression, the exact status matrix, zero-based half-open spans bound to
-  one envelope artifact, strict store/reopen attestation, complete ordered
-  frequency and geometry blocks with malformed-block fail closure, no
-  cross-source splicing, identity conflict behavior, scientific neutrality,
-  and the full adversarial matrix in `acceptance.md`.
+  compatibility, unchanged historical reopen, the normative raw-byte
+  LF/CRLF tokenizer, literal/closed-regex FSM transitions and echo suppression,
+  the exact artifact/status matrix and diagnostic codes, zero-based half-open
+  spans bound to one envelope artifact, strict store/reopen attestation,
+  complete ordered frequency and geometry blocks with malformed-block fail
+  closure, no cross-source splicing, identity conflict behavior, scientific
+  neutrality, and the full offset-asserting adversarial matrix in
+  `acceptance.md`.
 - **Handoff:** Freeze base/head/tree and exact authority-file scope, reuse
   adjudication, P0-P3 findings, validation evidence, and the independent
   Contract Review. Completion authorizes neither publication nor

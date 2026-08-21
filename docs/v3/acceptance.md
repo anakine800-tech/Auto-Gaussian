@@ -319,6 +319,58 @@ scientific-acceptance, execution, transport, retry, or live authority:
 30. Core API/schema and the frozen Execution, Approval, and Workflow contracts
     remain byte-identical; implementation requires a separate Owner Gate and
     precedes resumption of the paused ScientificValidation contract.
+31. LF and CRLF fixtures tokenize without normalization. Every expected
+    `line_start`, `content_end`, `line_end`, job span, and evidence span is
+    hard-coded against the original fixture bytes; a final complete terminal
+    line without a terminator ends at artifact size and remains deterministic.
+32. The literal/regex anchors and FSM transition table in `boundary-spec.md`
+    are exhaustive authority. Two matching transitions, an omitted required
+    transition, a lone CR, or a spoofed/ambiguous echo boundary is
+    `UNPARSEABLE`; no implementation priority or heuristic resolves it.
+33. Artifact bytes are checked before the cardinality matrix. Name-set, type,
+    byte-size, or SHA mismatch raises `MalformedEnvelopeError`; partial capture
+    with zero/one/many Gaussian logs is `PARTIAL`, while complete capture with
+    zero/many is `UNSUPPORTED` and complete capture with one runs the grammar.
+34. A parsed payload has empty diagnostics. Every non-parsed payload has empty
+    facts and exactly one closed diagnostic code selected at the earliest raw
+    offset with the frozen tie order; free-form prose is not persisted.
+35. Two independent implementations given identical exact inputs produce the
+    same status, singleton diagnostic or empty diagnostics, job/evidence spans,
+    source ordering, facts, complete payload, and Result identity.
+
+The future implementation fixture matrix is mandatory and uses synthetic or
+release-cleared bytes only. Tests hard-code expected raw-byte offsets; deriving
+expected offsets by calling the parser under test is forbidden.
+
+| Fixture | Exact expected outcome |
+| --- | --- |
+| clean single Opt/Freq, LF | `PARSED`; exact LF job/evidence offsets; all geometry/frequency blocks |
+| byte-equivalent clean transcript, CRLF | `PARSED`; offsets include both CRLF bytes and differ mechanically from LF |
+| complete terminal line without final newline | `PARSED`; terminal and job end equal artifact size |
+| truncated terminal content | `UNPARSEABLE` / `unparseable-terminal` |
+| missing terminal | `UNPARSEABLE` / `unparseable-terminal` |
+| legal terminal followed by blank lines | unchanged `PARSED`; job span ends at terminal, not trailing blanks |
+| legal terminal followed by nonblank bytes | `UNPARSEABLE` / `unparseable-trailing-content` |
+| lone CR in complete artifact | `UNPARSEABLE` / `unparseable-line-terminator` |
+| echoed optimization/stationary/frequency/normal/error strings | `PARSED`; zero false evidence; real machine records alone contribute |
+| fake `--Link1--`, `JOB_START`, or `Entering Link 1` in echo | one job; zero multi-job effect |
+| genuine `LINK1_LITERAL` or `INTERNAL_JOB_STEP` in machine body | `UNSUPPORTED` / `unsupported-multiple-job` |
+| two genuine `JOB_START` records | `UNSUPPORTED` / `unsupported-multiple-job` |
+| complete capture, zero Gaussian logs | `UNSUPPORTED` / `unsupported-gaussian-log-cardinality` |
+| complete capture, one Gaussian log | exact grammar result |
+| complete capture, multiple Gaussian logs | `UNSUPPORTED` / `unsupported-gaussian-log-cardinality` |
+| partial capture, zero/one/multiple Gaussian logs | `PARTIAL` / `capture-partial`; empty facts |
+| artifact name-set/size/SHA mismatch | `MalformedEnvelopeError`, no ParseOutcome |
+| malformed or non-finite frequency number | `UNPARSEABLE` / `unparseable-numeric-token`; no frequency facts |
+| wrong-cardinality or truncated frequency state sequence | `UNPARSEABLE` / `unparseable-frequency-block`; no frequency facts |
+| malformed grammar-bearing SCF/thermo/optimization/frequency/geometry/terminal prefix in machine context | exact closed prefix-table diagnostic; no partial fact |
+| one and multiple valid orientation tables | `PARSED`; every table and exact heading-to-closing-separator span emitted |
+| truncated/malformed/noncontiguous orientation table | `UNPARSEABLE` / `unparseable-geometry-block`; no geometry facts |
+| same exact bytes parsed twice | byte-identical payload and Result identity |
+| old v1 and new parser on the same envelope | distinct append-only identities; old facts never treated as attributed |
+| changed parser version or capture | distinct Result identity |
+| forged cross-envelope/artifact/out-of-range/reordered/overlapping span | reject before append and again on reopen |
+| same Result ID with different spans | append conflict; no overwrite |
 
 ## V30-WF-CONTRACT-01: Minimal Deterministic Workflow
 

@@ -194,6 +194,10 @@ coexist without migration, reinterpretation, backfill, or overwrite.
 Parser grammar is source-controlled, versioned, deterministic, and pure. Raw
 substring occurrence is never authority: route, title, comment, molecular
 specification, and other input-echo regions cannot create machine-output facts.
+The grammar's literal byte anchors, closed ASCII regexes, LF/CRLF tokenizer,
+finite-state transitions, diagnostic codes, and original-byte half-open spans
+are normative; an implementation cannot substitute text normalization or a
+heuristic context choice.
 Structurally valid multiple jobs are unsupported; malformed, truncated, or
 ambiguous context fails closed. Result records attribution and generic facts
 only. It never decides whether a geometry is a minimum or grants scientific

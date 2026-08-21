@@ -3,8 +3,8 @@
 - **Current phase:** `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01`. The additive
   Result contract freezes context-aware single-job facts and exact byte-source
   attribution before minimum ScientificValidation may resume. Result parser
-  implementation, ScientificValidation implementation, `V30-EXEC-02`, and live
-  work remain unauthorized.
+  implementation (`V30-RESULT-SECTION-ATTRIBUTION-IMPL-01`), ScientificValidation
+  implementation, `V30-EXEC-02`, and live work remain unauthorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -71,24 +71,25 @@
   authority records. `V30-RTWIN-MIN-01` is also integrated as an offline
   Execution slice; neither integration grants RTwin/PBS/Gaussian live authority.
 - **Contract frozen:** The additive `GaussianJobParser` contract keeps
-  `GaussianLogParser` v1 history unchanged and owns exact-byte context,
-  section-local machine facts, byte spans, and generic geometry blocks. The
-  failed one-section ScientificValidation workaround is closed; its candidates
-  remain immutable failed evidence.
+  `GaussianLogParser` v1 history unchanged and owns a normative original-byte
+  LF/CRLF tokenizer, literal/closed-regex FSM, section-local machine facts,
+  half-open source spans, and generic geometry blocks. The failed one-section
+  ScientificValidation workaround is closed; its candidates remain immutable
+  failed evidence.
 - **Paused:** `V30-MIN-VALIDATE-CONTRACT-01` depends on integrated Result
   attribution. `V30-MIN-VALIDATE-IMPL-01` and `V30-VAL-SCI-01` are `NO-GO`.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
 - **Next gate:** Independent
-  `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01` adversarial review. A passing
-  contract still requires a separate Publish Owner Gate and later a separate
-  Result-attribution implementation Owner Gate.
+  `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01` exact-byte grammar successor
+  review. A passing contract still requires a separate Publish Owner Gate and
+  later a separate Result-attribution implementation Owner Gate.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** Result-attribution implementation, ScientificValidation
-  contract resumption or implementation, `V30-VAL-SCI-01`, `V30-EXEC-02`,
-  production changes, deployment, live smoke, and SSH/PBS/Gaussian operations
-  remain unauthorized.
+- **Do not start:** `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01`,
+  ScientificValidation contract resumption or implementation,
+  `V30-VAL-SCI-01`, `V30-EXEC-02`, production changes, deployment, live smoke,
+  and SSH/PBS/Gaussian operations remain unauthorized.
