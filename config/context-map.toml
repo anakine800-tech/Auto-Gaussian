@@ -91,7 +91,7 @@ focused_tests = [
 
 [[component]]
 id = "v30-scientific-validation"
-status = "contract-freeze-candidate"
+status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-13-minimum-validation-consumes-attributed-result-facts-only",
   "docs/v3/boundary-spec.md#v30-min-validate-contract-01-minimum-scientific-validation-contract",
