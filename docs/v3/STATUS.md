@@ -1,16 +1,17 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** The resumed `V30-MIN-VALIDATE-CONTRACT-01` contract freeze
-  is active from authoritative
-  `main@98b36950b1eae09ee26d7e8c27d1778a7626a22e`.
+- **Current phase:** `V30-MIN-VALIDATE-CONTRACT-01` is CLOSED / FROZEN /
+  INTEGRATED on authoritative
+  `main@96ee94c6e8df70d19de99e7e2982bf2d5a83d32f`; the minimum
+  ScientificValidation contract is active on main.
   `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01` is CLOSED / FROZEN / INTEGRATED,
   and `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` is CLOSED / INTEGRATED.
   `GaussianJobParser` and `gaussian-job-facts` are active on main, so the
-  Result-attribution contract and implementation are closed. The historical
-  `GaussianLogParser` semantics and generic parser-version Result authority
-  are preserved. The resumed lane is contract-only; ScientificValidation
-  implementation, `V30-VAL-SCI-01`, `V30-EXEC-02`, and live work remain
-  unauthorized.
+  Result-attribution dependency is satisfied. ScientificValidation must not
+  parse raw Gaussian output. The historical `GaussianLogParser` semantics and
+  generic parser-version Result authority are preserved. ScientificValidation
+  implementation remains unauthorized; `V30-VAL-SCI-01` is gate-eligible but
+  not yet GO, `V30-EXEC-02` remains waiting, and live work remains unauthorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -93,15 +94,31 @@
   `GaussianJobParser` and `gaussian-job-facts` are active on main; historical
   `GaussianLogParser` semantics and generic parser-version Result authority
   remain preserved.
-- **Contract freeze active:** `V30-MIN-VALIDATE-CONTRACT-01` is resumed against
-  the integrated attributed Result facts. Its previous failed candidates remain
-  immutable negative evidence. Product implementation and
-  `V30-VAL-SCI-01` remain `NO-GO`.
+- **Closed / frozen / integrated:** `V30-MIN-VALIDATE-CONTRACT-01` consumes the
+  integrated attributed Result facts and freezes exactly four machine
+  classifications: `VALIDATED_MINIMUM`, `NOT_MINIMUM`, `INCOMPLETE`, and
+  `UNSUPPORTED`. Its closed 15-code primary-reason vocabulary emits exactly one
+  reason under first-applicable precedence. Previous failed candidates remain
+  immutable negative evidence.
+- **Frozen v3.0 scientific policy:** Minimum validation covers ordinary
+  nonlinear systems only, requires `N >= 3`, rejects dummy atomic-number-0
+  centers, and requires exactly `3N - 6` modes. Every finite frequency below
+  `0.0` is imaginary: zero negatives yields `VALIDATED_MINIMUM`, one or more
+  yields `NOT_MINIMUM`, and error termination yields `INCOMPLETE`.
+  `ScientificAcceptance` remains separate immutable human authority.
+- **Deferred validation ownership:** `config/context-map.toml` is currently
+  unmapped by the canonical selector, so PR #86 and its exact-main validation
+  correctly fell closed once to `legacy-release / fail_closed=true`. This was
+  conservative integration evidence, not a contract blocker. No selector
+  repair is part of this closeout; `V30-VAL-SCI-01` must establish reviewed
+  routing for that path together with change-aware ownership for
+  `auto_g16/scientific_validation/**` and `tests/v3/scientific_validation/**`.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** Independent `V30-MIN-VALIDATE-CONTRACT-01` Contract Review,
-  followed only on `P0/P1/P2/P3 = 0/0/0/0` by its Publish Owner Gate.
+- **Next gate:** `V30-VAL-SCI-01` Owner Gate. ScientificValidation product
+  implementation and `V30-MIN-VALIDATE-IMPL-01` remain `NO-GO` until that
+  validation-ownership task is separately completed and integrated.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -110,6 +127,7 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** ScientificValidation implementation, `V30-VAL-SCI-01`,
-  `V30-EXEC-02`, production changes, deployment, live smoke, and
-  SSH/PBS/Gaussian operations remain unauthorized.
+- **Do not start:** ScientificValidation implementation,
+  `V30-MIN-VALIDATE-IMPL-01`, `V30-VAL-SCI-01`, `V30-EXEC-02`, Observe,
+  ReviewBundle, production changes, deployment, live smoke, and SSH/PBS/Gaussian
+  operations remain unauthorized.
