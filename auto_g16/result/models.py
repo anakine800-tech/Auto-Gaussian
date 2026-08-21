@@ -27,6 +27,18 @@ _ARTIFACT_KINDS = frozenset(
     {"gaussian-log", "stdout", "stderr", "checkpoint-manifest"}
 )
 _GAUSSIAN_RESULT_KIND = "gaussian-log-facts"
+_GAUSSIAN_JOB_RESULT_KIND = "gaussian-job-facts"
+_GAUSSIAN_LOG_TUPLE = (
+    "auto-g16-v3-gaussian-log",
+    "1.0.0",
+    _GAUSSIAN_RESULT_KIND,
+)
+_GAUSSIAN_JOB_TUPLE = (
+    "auto-g16-v3-gaussian-job",
+    "1.0.0",
+    _GAUSSIAN_JOB_RESULT_KIND,
+)
+_GAUSSIAN_JOB_GRAMMAR_ID = "auto-g16-v3-gaussian-job-grammar/1"
 _PROGRAM_FACT_KEYS = frozenset(
     {
         "program_status",
@@ -215,13 +227,9 @@ def _require_exact_keys(
         raise ResultBoundaryError(f"{name} has " + "; ".join(details))
 
 
-def _program_facts(value: Mapping[str, object], result_kind: str) -> None:
+def _legacy_program_facts(value: Mapping[str, object]) -> None:
     if not value:
         return
-    if result_kind != _GAUSSIAN_RESULT_KIND:
-        raise ResultBoundaryError(
-            "non-empty facts are supported only for gaussian-log-facts"
-        )
     _require_exact_keys(value, set(_PROGRAM_FACT_KEYS), "facts")
     if value["program_status"] not in _PROGRAM_STATUSES:
         raise ResultBoundaryError("facts.program_status is not a supported program fact")
@@ -287,6 +295,307 @@ def _program_facts(value: Mapping[str, object], result_kind: str) -> None:
         raise ResultBoundaryError(
             "facts.thermochemistry values must be finite floats"
         )
+
+
+_ATTRIBUTED_FACT_KEYS = frozenset(
+    {
+        "facts_schema_version",
+        "grammar_id",
+        "source_artifact",
+        "job_section",
+        "program_status",
+        "normal_termination_count",
+        "error_termination_count",
+        "termination_evidence",
+        "optimization_completed_marker",
+        "optimization_completed_evidence",
+        "stationary_point_marker",
+        "stationary_point_evidence",
+        "scf_calculation_count",
+        "scf_calculations",
+        "final_energy_hartree",
+        "frequency_count",
+        "frequency_parse_complete",
+        "imaginary_frequency_count",
+        "frequencies_cm-1",
+        "frequency_blocks",
+        "thermochemistry",
+        "geometry_blocks",
+    }
+)
+_SOURCE_KEYS = {
+    "envelope_observation_id",
+    "artifact_kind",
+    "logical_name",
+    "sha256",
+    "size_bytes",
+}
+_SPAN_KEYS = _SOURCE_KEYS | {"start", "end"}
+_ATTRIBUTED_DIAGNOSTICS = frozenset(
+    {
+        "capture-partial",
+        "unsupported-gaussian-log-cardinality",
+        "unsupported-program",
+        "unsupported-multiple-job",
+        "unsupported-valid-gaussian-grammar",
+        "unparseable-line-terminator",
+        "unparseable-job-start",
+        "unparseable-echo-boundary",
+        "unparseable-ambiguous-transition",
+        "unparseable-orphan-anchor",
+        "unparseable-malformed-prefix",
+        "unparseable-duplicate-evidence",
+        "unparseable-optimization-block",
+        "unparseable-frequency-block",
+        "unparseable-geometry-block",
+        "unparseable-geometry-row",
+        "unparseable-numeric-token",
+        "unparseable-terminal",
+        "unparseable-trailing-content",
+    }
+)
+
+
+def _finite_float(value: object, name: str) -> float:
+    if type(value) is not float or not isfinite(value):
+        raise ResultBoundaryError(f"{name} must be a finite float")
+    return value
+
+
+def _tuple(value: object, name: str) -> tuple[object, ...]:
+    if not isinstance(value, tuple):
+        raise ResultBoundaryError(f"{name} must be a tuple")
+    return value
+
+
+def _source(value: object) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ResultBoundaryError("facts.source_artifact must be a mapping")
+    _require_exact_keys(value, _SOURCE_KEYS, "facts.source_artifact")
+    _require_text(value["envelope_observation_id"], "source envelope_observation_id")
+    if value["artifact_kind"] != "gaussian-log":
+        raise ResultBoundaryError("source artifact_kind must be gaussian-log")
+    _require_logical_name(value["logical_name"], "source logical_name")
+    _require_sha256(value["sha256"], "source sha256")
+    _require_size(value["size_bytes"], "source size_bytes")
+    return value
+
+
+def _span(
+    value: object,
+    source: Mapping[str, object],
+    name: str,
+    job_bounds: tuple[int, int] | None = None,
+) -> tuple[int, int]:
+    if not isinstance(value, Mapping):
+        raise ResultBoundaryError(f"{name} must be a mapping")
+    _require_exact_keys(value, _SPAN_KEYS, name)
+    for key in _SOURCE_KEYS:
+        if value[key] != source[key]:
+            raise ResultBoundaryError(f"{name} does not bind the source artifact")
+    start, end = value["start"], value["end"]
+    if (
+        isinstance(start, bool)
+        or not isinstance(start, int)
+        or isinstance(end, bool)
+        or not isinstance(end, int)
+        or not 0 <= start < end <= source["size_bytes"]
+    ):
+        raise ResultBoundaryError(f"{name} is not a valid half-open byte span")
+    if job_bounds is not None and not (
+        job_bounds[0] <= start < end <= job_bounds[1]
+    ):
+        raise ResultBoundaryError(f"{name} lies outside the job section")
+    return start, end
+
+
+def _ordered_spans(spans: list[tuple[int, int, int]]) -> None:
+    ordered = sorted(spans)
+    if any(left[1] > right[0] for left, right in zip(ordered, ordered[1:])):
+        raise ResultBoundaryError("distinct attributed evidence spans overlap")
+
+
+def _attributed_program_facts(value: Mapping[str, object]) -> None:
+    _require_exact_keys(value, set(_ATTRIBUTED_FACT_KEYS), "facts")
+    if type(value["facts_schema_version"]) is not int or value["facts_schema_version"] != 1:
+        raise ResultBoundaryError("facts_schema_version must be 1")
+    if value["grammar_id"] != _GAUSSIAN_JOB_GRAMMAR_ID:
+        raise ResultBoundaryError("facts.grammar_id is not the frozen grammar")
+    source = _source(value["source_artifact"])
+    job = _span(value["job_section"], source, "facts.job_section")
+    status = value["program_status"]
+    if status not in {"normal-termination", "error-termination"}:
+        raise ResultBoundaryError("attributed program_status must be terminal")
+    normal = _require_size(value["normal_termination_count"], "normal count")
+    error = _require_size(value["error_termination_count"], "error count")
+    if (normal, error) != ((1, 0) if status == "normal-termination" else (0, 1)):
+        raise ResultBoundaryError("terminal counts do not match program_status")
+
+    all_spans: list[tuple[int, int, int]] = []
+    terminal = _tuple(value["termination_evidence"], "termination_evidence")
+    if len(terminal) != 1 or not isinstance(terminal[0], Mapping):
+        raise ResultBoundaryError("termination_evidence must contain exactly one item")
+    _require_exact_keys(terminal[0], {"kind", "source_span"}, "termination item")
+    if terminal[0]["kind"] != status:
+        raise ResultBoundaryError("termination evidence kind does not match status")
+    all_spans.append((*_span(terminal[0]["source_span"], source, "termination span", job), 0))
+
+    for flag_name, collection_name, kind_order in (
+        ("optimization_completed_marker", "optimization_completed_evidence", 1),
+        ("stationary_point_marker", "stationary_point_evidence", 2),
+    ):
+        flag = value[flag_name]
+        if type(flag) is not bool:
+            raise ResultBoundaryError(f"facts.{flag_name} must be boolean")
+        collection = _tuple(value[collection_name], collection_name)
+        if flag != bool(collection):
+            raise ResultBoundaryError(f"facts.{flag_name} disagrees with evidence")
+        previous: tuple[int, int] | None = None
+        for item in collection:
+            current = _span(item, source, collection_name, job)
+            if previous is not None and previous >= current:
+                raise ResultBoundaryError(f"{collection_name} is not ordered")
+            previous = current
+            all_spans.append((*current, kind_order))
+
+    scfs = _tuple(value["scf_calculations"], "scf_calculations")
+    if _require_size(value["scf_calculation_count"], "scf count") != len(scfs):
+        raise ResultBoundaryError("scf_calculation_count disagrees with evidence")
+    scf_values: list[float] = []
+    previous = None
+    for item in scfs:
+        if not isinstance(item, Mapping):
+            raise ResultBoundaryError("SCF evidence must be a mapping")
+        _require_exact_keys(item, {"energy_hartree", "source_span"}, "SCF item")
+        scf_values.append(_finite_float(item["energy_hartree"], "SCF energy"))
+        current = _span(item["source_span"], source, "SCF span", job)
+        if previous is not None and previous >= current:
+            raise ResultBoundaryError("SCF evidence is not ordered")
+        previous = current
+        all_spans.append((*current, 3))
+    final_energy = value["final_energy_hartree"]
+    if scf_values:
+        if final_energy != scf_values[-1]:
+            raise ResultBoundaryError("final_energy_hartree is not the last SCF fact")
+    elif final_energy is not None:
+        raise ResultBoundaryError("final energy exists without SCF evidence")
+
+    frequencies = _tuple(value["frequencies_cm-1"], "frequencies_cm-1")
+    for item in frequencies:
+        _finite_float(item, "frequency")
+    if _require_size(value["frequency_count"], "frequency count") != len(frequencies):
+        raise ResultBoundaryError("frequency_count disagrees with frequencies")
+    if value["frequency_parse_complete"] is not True:
+        raise ResultBoundaryError("parsed attributed frequencies must be complete")
+    if _require_size(value["imaginary_frequency_count"], "imaginary count") != sum(item < 0 for item in frequencies):
+        raise ResultBoundaryError("imaginary_frequency_count disagrees with frequencies")
+    blocks = _tuple(value["frequency_blocks"], "frequency_blocks")
+    flattened: list[float] = []
+    previous = None
+    for block in blocks:
+        if not isinstance(block, Mapping):
+            raise ResultBoundaryError("frequency block must be a mapping")
+        _require_exact_keys(block, {"source_span", "frequencies_cm-1"}, "frequency block")
+        group = _tuple(block["frequencies_cm-1"], "frequency block values")
+        if not 1 <= len(group) <= 3:
+            raise ResultBoundaryError("frequency block cardinality must be 1..3")
+        for item in group:
+            flattened.append(_finite_float(item, "frequency block value"))
+        current = _span(block["source_span"], source, "frequency block span", job)
+        if previous is not None and previous >= current:
+            raise ResultBoundaryError("frequency blocks are not ordered")
+        previous = current
+        all_spans.append((*current, 4))
+    if tuple(flattened) != frequencies:
+        raise ResultBoundaryError("top-level frequencies are not the block projection")
+
+    thermo = value["thermochemistry"]
+    if not isinstance(thermo, Mapping) or set(thermo) - _THERMOCHEMISTRY_FACT_KEYS:
+        raise ResultBoundaryError("thermochemistry has unsupported keys")
+    thermo_spans: list[tuple[int, int]] = []
+    for key, item in thermo.items():
+        if not isinstance(item, Mapping):
+            raise ResultBoundaryError(f"thermochemistry.{key} must be a mapping")
+        _require_exact_keys(item, {"value_hartree", "source_span"}, f"thermochemistry.{key}")
+        _finite_float(item["value_hartree"], f"thermochemistry.{key}.value_hartree")
+        current = _span(item["source_span"], source, f"thermochemistry.{key}.span", job)
+        thermo_spans.append(current)
+    for current in sorted(thermo_spans):
+        all_spans.append((*current, 5))
+
+    geometries = _tuple(value["geometry_blocks"], "geometry_blocks")
+    previous = None
+    for block in geometries:
+        if not isinstance(block, Mapping):
+            raise ResultBoundaryError("geometry block must be a mapping")
+        _require_exact_keys(block, {"orientation_kind", "units", "source_span", "atoms"}, "geometry block")
+        if block["orientation_kind"] not in {"input-orientation", "standard-orientation"} or block["units"] != "angstrom":
+            raise ResultBoundaryError("geometry block kind or units are invalid")
+        atoms = _tuple(block["atoms"], "geometry atoms")
+        if not atoms:
+            raise ResultBoundaryError("geometry atoms must be non-empty")
+        for index, atom in enumerate(atoms, start=1):
+            if not isinstance(atom, Mapping):
+                raise ResultBoundaryError("geometry atom must be a mapping")
+            _require_exact_keys(atom, {"center", "atomic_number", "x", "y", "z"}, "geometry atom")
+            if (
+                isinstance(atom["center"], bool)
+                or not isinstance(atom["center"], int)
+                or atom["center"] != index
+                or isinstance(atom["atomic_number"], bool)
+                or not isinstance(atom["atomic_number"], int)
+                or not 0 <= atom["atomic_number"] <= 118
+            ):
+                raise ResultBoundaryError("geometry center or atomic number is invalid")
+            for coordinate in ("x", "y", "z"):
+                _finite_float(atom[coordinate], f"geometry atom {coordinate}")
+        current = _span(block["source_span"], source, "geometry block span", job)
+        if previous is not None and previous >= current:
+            raise ResultBoundaryError("geometry blocks are not ordered")
+        previous = current
+        all_spans.append((*current, 6))
+    _ordered_spans(all_spans)
+
+
+def _program_facts(
+    value: Mapping[str, object],
+    parser_tuple: tuple[str, str, str],
+    status: ParseStatus,
+    diagnostics: tuple[str, ...],
+) -> None:
+    # Preserve the historical schema-v1 compatibility surface: old persisted
+    # gaussian-log-facts rows may carry their original parser name/version.
+    if parser_tuple[2] == _GAUSSIAN_RESULT_KIND:
+        _legacy_program_facts(value)
+        return
+    if parser_tuple != _GAUSSIAN_JOB_TUPLE:
+        raise ResultBoundaryError("parse outcome uses an unsupported parser tuple")
+    if status is ParseStatus.PARSED:
+        if not value or diagnostics:
+            raise ResultBoundaryError("parsed gaussian-job-facts require facts and no diagnostic")
+        _attributed_program_facts(value)
+        return
+    if value or len(diagnostics) != 1 or diagnostics[0] not in _ATTRIBUTED_DIAGNOSTICS:
+        raise ResultBoundaryError("non-parsed gaussian-job-facts require one closed diagnostic and empty facts")
+    expected = {
+        ParseStatus.PARTIAL: {"capture-partial"},
+        ParseStatus.UNSUPPORTED: {
+            "unsupported-gaussian-log-cardinality",
+            "unsupported-program",
+            "unsupported-multiple-job",
+            "unsupported-valid-gaussian-grammar",
+        },
+        ParseStatus.UNPARSEABLE: _ATTRIBUTED_DIAGNOSTICS
+        - {
+            "capture-partial",
+            "unsupported-gaussian-log-cardinality",
+            "unsupported-program",
+            "unsupported-multiple-job",
+            "unsupported-valid-gaussian-grammar",
+        },
+    }[status]
+    if diagnostics[0] not in expected:
+        raise ResultBoundaryError("diagnostic code does not match parse_status")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -532,9 +841,12 @@ class ParseOutcome:
         _require_text(self.parser_name, "parser_name")
         _require_text(self.parser_version, "parser_version")
         _require_text(self.result_kind, "result_kind")
-        if self.result_kind != _GAUSSIAN_RESULT_KIND:
+        if self.result_kind not in {
+            _GAUSSIAN_RESULT_KIND,
+            _GAUSSIAN_JOB_RESULT_KIND,
+        }:
             raise ResultBoundaryError(
-                "result_kind must be the supported gaussian-log-facts kind"
+                "result_kind must be a supported Result facts kind"
             )
         try:
             status = ParseStatus(self.parse_status)
@@ -544,12 +856,17 @@ class ParseOutcome:
             ) from exc
         object.__setattr__(self, "parse_status", status)
         facts = _freeze_mapping(self.facts, "facts")
-        _program_facts(facts, self.result_kind)
-        object.__setattr__(self, "facts", facts)
         diagnostics = tuple(self.diagnostics)
         if not all(isinstance(item, str) and item for item in diagnostics):
             raise ResultBoundaryError("diagnostics must contain non-empty strings")
         object.__setattr__(self, "diagnostics", diagnostics)
+        _program_facts(
+            facts,
+            (self.parser_name, self.parser_version, self.result_kind),
+            status,
+            diagnostics,
+        )
+        object.__setattr__(self, "facts", facts)
         if self.schema_version != 1:
             raise ResultBoundaryError("parse outcome schema_version must be 1")
 
