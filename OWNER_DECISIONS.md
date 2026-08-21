@@ -218,3 +218,43 @@ Structurally valid multiple jobs are unsupported; malformed, truncated, or
 ambiguous context fails closed. Result records attribution and generic facts
 only. It never decides whether a geometry is a minimum or grants scientific
 acceptance, execution authority, retry authority, or a live effect.
+
+## OD-13: Minimum validation consumes attributed Result facts only
+
+The v3.0 minimum validator belongs to the separate public
+`auto_g16.scientific_validation` layer. Its dependency direction is
+`ScientificValidation -> Result -> Core`; Core, Result, Approval, Execution,
+and Workflow never import it. ScientificValidation is post-Result scientific
+classification. It is not another Gaussian parser, execution-status owner,
+approval mechanism, retry authority, or human acceptance decision.
+
+The only supported Result tuple is `auto-g16-v3-gaussian-job` / `1.0.0` /
+`gaussian-job-facts`. ScientificValidation never opens a Gaussian file, reads
+raw output bytes, runs a Gaussian regex, reconstructs a missing fact, or merges
+evidence across Results, captures, envelopes, or Attempts. Historical
+`gaussian-log-facts` is readable Result history but is `UNSUPPORTED` for this
+scientific decision.
+
+One immutable outcome binds the exact CalculationPlan revision, Attempt,
+InputBinding, complete OutputEnvelope, ParseOutcome Result, and
+source-controlled validation policy/version. The four and only machine
+classifications are `VALIDATED_MINIMUM`, `NOT_MINIMUM`, `INCOMPLETE`, and
+`UNSUPPORTED`. The accepted optimization/stationary pair, final optimized
+geometry, and post-stationary frequency evidence are selected deterministically
+from Result-owned source spans; no favorable subset or nearest-looking fact is
+permitted.
+
+V3.0 supports only ordinary nonlinear minima with at least three non-dummy
+atoms and exactly `3*N - 6` attributed post-stationary frequencies. Fewer
+modes are `INCOMPLETE`; more modes, fewer than three atoms, or atomic number
+zero are `UNSUPPORTED`. Every finite frequency below zero is imaginary, with
+no tolerance: one or more negatives is `NOT_MINIMUM`, while exactly zero
+negatives on otherwise complete supported evidence is `VALIDATED_MINIMUM`.
+Error termination is `INCOMPLETE`.
+
+Human `ScientificAcceptance` is a separate immutable record and may bind only
+one exact `VALIDATED_MINIMUM` outcome. It never mutates Result, Attempt,
+CalculationPlan, or the validation outcome. Outcomes and acceptances use a
+small ScientificValidation-owned append-only persistence boundary, separate
+from Core and Result schemas. Exact replay is idempotent; conflicting content
+under one identity fails closed.

@@ -41,22 +41,18 @@ smoke, retry, cancellation, cleanup, or scientific-acceptance authority.
 
 ## Frozen Post-Core Task Contracts
 
-The current post-V30-4 scientific-validation sequence is:
+The current post-Result-attribution scientific-validation sequence is:
 
-1. `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01`
-2. `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` (separate Owner Gate)
-3. resume `V30-MIN-VALIDATE-CONTRACT-01`
-4. `V30-VAL-SCI-01` (separate Owner Gate)
-5. `V30-MIN-VALIDATE-IMPL-01` (separate Owner Gate)
-6. `V30-EXEC-02` (`WAIT`)
+1. freeze and integrate `V30-MIN-VALIDATE-CONTRACT-01`
+2. `V30-VAL-SCI-01` (separate Owner Gate)
+3. `V30-MIN-VALIDATE-IMPL-01` (separate Owner Gate)
+4. `V30-EXEC-02` (`WAIT`)
 
 The control structure remains serial at integration:
 
 ```text
 Integration Owner
-└── V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01
-    -> V30-RESULT-SECTION-ATTRIBUTION-IMPL-01
-    -> V30-MIN-VALIDATE-CONTRACT-01
+└── V30-MIN-VALIDATE-CONTRACT-01
     -> V30-VAL-SCI-01
     -> V30-MIN-VALIDATE-IMPL-01
 V30-EXEC-02 WAIT
@@ -246,6 +242,46 @@ for their owned surfaces.
   adjudication, P0-P3 findings, validation evidence, and the independent
   Contract Review. Completion authorizes neither publication nor
   `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01`.
+
+### V30-MIN-VALIDATE-CONTRACT-01
+
+- **Outcome:** Freeze the smallest post-Result boundary that classifies one
+  exact attributed Gaussian job as `VALIDATED_MINIMUM`, `NOT_MINIMUM`,
+  `INCOMPLETE`, or `UNSUPPORTED`, plus a separate immutable human
+  `ScientificAcceptance` for an exact validated outcome.
+- **Scope:** Authority documents and future context routing only. The future
+  public owner is `auto_g16.scientific_validation`, with focused tests under
+  `tests/v3/scientific_validation/`. It consumes only persisted Result-owned
+  `gaussian-job-facts` and binds one exact plan revision, Attempt,
+  InputBinding, complete envelope, ParseOutcome, and validation-policy version.
+- **Explicit non-goals:** No product/tests/selector implementation; no raw-log
+  access, Gaussian grammar, missing-fact reconstruction, Core/Result/Approval/
+  Execution/Workflow change, TS/IRC/connectivity, conformer, qRRHO, scientific
+  policy framework, Observe, ReviewBundle, Transport, SSH/RTwin/PBS/Gaussian,
+  deployment, or live work. `V30-EXEC-02` remains `WAIT`.
+- **Dependencies:** Result attribution contract and implementation are closed;
+  `GaussianJobParser` / `gaussian-job-facts` is active. Historical failed
+  one-section candidates are negative evidence only. Public Result facts and
+  their exact source spans are the sole Gaussian evidence authority.
+- **Autonomy:** `OWNER-GUIDED`. This lane may inspect current public Result
+  facts, draft only the six approved authority files, run lightweight document
+  and context checks, and freeze one candidate for independent review.
+- **Stop rules:** Stop if any decision needs raw Gaussian bytes, a new Result
+  fact/span or semantic change, a Core/API/schema change, upstream contract
+  reopening, selector/product/test edits, a nondeterministic heuristic, scope
+  expansion, or live authority.
+- **Acceptance/validation:** Prove the exact parser tuple and provenance chain;
+  equal ordered optimization/stationary evidence pairing; rightmost eligible
+  geometry before the final accepted optimization marker; the complete ordered
+  frequency-block suffix after its stationary marker; no cross-source splice;
+  nonlinear `3*N-6` support; zero negative-frequency tolerance; the exact four
+  outcomes; append-only deterministic identities/store replay; acceptance only
+  for exact `VALIDATED_MINIMUM`; and all eighteen mandatory adversarial cases
+  in `acceptance.md` without raw-output interpretation.
+- **Handoff:** Report exact base/head/tree/six-file scope, `PORT`/`DROP`/`DEFER`
+  disposition, P0-P3 findings, validation, remaining ambiguity, and the
+  independent Contract Review. Completion authorizes neither publication,
+  `V30-VAL-SCI-01`, implementation, nor live work.
 
 ### V30-EXEC-02
 

@@ -90,6 +90,26 @@ focused_tests = [
 ]
 
 [[component]]
+id = "v30-scientific-validation"
+status = "contract-freeze-candidate"
+required_sections = [
+  "OWNER_DECISIONS.md#od-13-minimum-validation-consumes-attributed-result-facts-only",
+  "docs/v3/boundary-spec.md#v30-min-validate-contract-01-minimum-scientific-validation-contract",
+  "docs/v3/acceptance.md#v30-min-validate-contract-01-minimum-scientific-validation",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-min-validate-contract-01",
+  "docs/v3/boundary-spec.md#additive-gaussian-job-attribution-contract",
+  "docs/v3/acceptance.md#v30-result-section-attribution-additive-gaussian-job-facts",
+]
+code_paths = [
+  "auto_g16/scientific_validation/",
+  "auto_g16/result/",
+]
+focused_tests = [
+  "tests/v3/scientific_validation/",
+  "tests/v3/result/",
+]
+
+[[component]]
 id = "v30-workflow"
 status = "contract-frozen"
 required_sections = [

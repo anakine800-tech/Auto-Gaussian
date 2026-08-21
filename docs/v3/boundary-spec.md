@@ -5,12 +5,17 @@ select implementation techniques.
 
 ## Dependency Direction
 
-`Skills -> Workflow -> Approval / Execution / Result -> Core`
+```text
+Skills -> Workflow -> Approval / Execution / Result -> Core
+Skills -> ScientificValidation -> Result -> Core
+```
 
 Skills compose workflows. Workflow may depend only on public Approval,
 Execution, Result, and Core surfaces; those layers must not import Workflow.
-Core must not depend on a Skill or any higher layer. Reverse imports across
-this direction are forbidden.
+ScientificValidation may depend only on public Result and Core surfaces; Core,
+Result, Approval, Execution, and Workflow must not import it. Core must not
+depend on a Skill or any higher layer. Reverse imports across these directions
+are forbidden.
 
 ## Core Objects
 
@@ -1261,6 +1266,226 @@ their adjacent tests.
 This additive contract changes no Core API/schema and reopens no Execution,
 Approval, or Workflow contract. It authorizes no ScientificValidation
 implementation, transport, PBS, Gaussian, deployment, retry, or live action.
+
+## V30-MIN-VALIDATE-CONTRACT-01 Minimum Scientific Validation Contract
+
+**Contract status: CONTRACT FREEZE CANDIDATE; IMPLEMENTATION NOT AUTHORIZED.**
+The future public package is `auto_g16.scientific_validation`, with focused
+tests under `tests/v3/scientific_validation/`. It owns post-Result scientific
+classification and human scientific acceptance only. It changes no Core or
+Result API/schema, imports no Approval, Execution, Workflow, Transport, or
+program adapter, and grants no implementation, selector, effect, retry, or live
+authority.
+
+### Public boundary and exact provenance
+
+The public inventory is limited to:
+
+```text
+MinimumValidationClassification
+MinimumValidationOutcome
+ScientificAcceptance
+SQLiteScientificValidationStore
+validate_minimum
+record_minimum_validation
+record_scientific_acceptance
+require_scientific_acceptance
+ScientificValidationError
+ScientificValidationConflictError
+ScientificValidationPersistenceIntegrityError
+```
+
+`MinimumValidationClassification` is exactly `VALIDATED_MINIMUM`,
+`NOT_MINIMUM`, `INCOMPLETE`, or `UNSUPPORTED`. Public records are immutable,
+keyword-only, and deeply closed over canonical semantic values. No warning,
+probability, partial-minimum, or caller-defined outcome exists.
+
+Every `MinimumValidationOutcome` closes this one authority chain:
+
+```text
+exact CalculationPlan ID and positive revision
+-> exact Attempt for that plan
+-> exact same-Attempt InputBinding Observation
+-> exact same-Attempt COMPLETE OutputEnvelope Observation
+-> exact same-envelope ParseOutcome.result_id
+-> exact source-controlled validation policy ID/version
+-> MinimumValidationOutcome
+```
+
+The mandatory outcome semantics are `schema_version`,
+`minimum_validation_outcome_id`, policy ID/version, plan ID/revision,
+Attempt ID, InputBinding observation ID, envelope observation ID,
+`parse_result_id`, exact parser tuple, exact source artifact identity and
+selected evidence for a supported attributed tuple (or canonical explicit
+absence for a non-parsed/unsupported outcome), accepted optimization and
+stationary spans, selected geometry block, selected post-stationary frequency
+blocks and values, classification, and a canonical closed reason-code tuple.
+There is no current/latest lookup, cross-capture, cross-envelope, cross-Result,
+cross-parser, or cross-Attempt evidence splice.
+
+The exact supported parser tuple is:
+
+```text
+parser_name    = auto-g16-v3-gaussian-job
+parser_version = 1.0.0
+result_kind    = gaussian-job-facts
+```
+
+The envelope must be complete and the ParseOutcome must bind that exact
+envelope and same Attempt. Every relied-upon span must bind the exact
+`source_artifact` mapping already closed by Result, including envelope ID,
+artifact kind and logical name, SHA-256, size, and job-section bounds. The
+validator consumes the persisted public records and facts only. It never opens
+an artifact, accepts artifact bytes, scans a file, applies a Gaussian regex,
+infers context from a substring, reparses output, or reconstructs a missing
+fact. `AttemptResultView`, filesystem state, mtime, and a latest parser are not
+authority.
+
+Legacy `auto-g16-v3-gaussian-log` / `1.0.0` / `gaussian-log-facts`, any unknown
+tuple, and a Result with `ParseStatus.UNSUPPORTED` classify `UNSUPPORTED`.
+`PARTIAL` or `UNPARSEABLE`, an incomplete envelope, missing provenance, an
+identity conflict, or missing required supported evidence classifies
+`INCOMPLETE`. No migration, conversion, merge, backfill, or raw-output fallback
+is permitted.
+
+### Deterministic attributed-evidence selection
+
+For a parsed supported tuple, ScientificValidation first requires exactly one
+normal terminal fact, no error terminal fact, and `program_status =
+normal-termination`. A context-attributed error termination is always
+`INCOMPLETE`, never `NOT_MINIMUM` or `VALIDATED_MINIMUM`.
+
+`optimization_completed_evidence` and `stationary_point_evidence` must be
+non-empty tuples of equal cardinality. They pair only by the same tuple index.
+For every index, the complete optimization span must precede its stationary
+span; each pair must precede the next pair. The accepted pair is the final
+pair. A missing, unequal, interleaved, or otherwise non-closing pair sequence is
+`INCOMPLETE`; no marker boolean repairs it.
+
+The final optimized geometry is the unique rightmost complete
+`geometry_blocks` item in source-byte order whose `source_span.end` is less
+than or equal to the accepted optimization-completed span's `start`. The block
+and every atom are reused exactly as Result persisted them. A tie, overlap, or
+absence is `INCOMPLETE`. No orientation preference, nearest-looking geometry,
+filename, checkpoint, raw-output scan, coordinate reconstruction, or earlier
+fallback participates.
+
+The minimum-validation frequency evidence is the entire ordered suffix of
+`frequency_blocks` whose `source_span.start` is greater than or equal to the
+accepted stationary span's `end`. Every such block and every value is included
+in byte order. A validator may not choose a favorable block or subset. Result's
+closed grammar already requires ordered non-overlapping complete blocks,
+continuous mode numbering, finite values, and an exact top-level projection;
+ScientificValidation neither regroups analyses nor recomputes those rules.
+Blocks before the accepted stationary evidence are not Hessian evidence for
+this decision. The selected suffix and its spans are bound into the outcome.
+
+These rules use only current `gaussian-job-facts` v1 fields and spans. They do
+not add or reinterpret a Result fact. If a conforming implementation cannot
+derive exactly these selections from those facts, it must stop rather than
+read Gaussian output.
+
+### V3.0 classification policy
+
+Let `N` be the atom count in the selected geometry. V3.0 supports only the
+ordinary nonlinear mode-count case and intentionally performs no geometric
+linearity calculation. `N < 3` or any atom with atomic number `0` is
+`UNSUPPORTED`. Otherwise the supported expected count is exactly `3*N - 6`.
+
+The observed count is the number of values in the selected complete
+post-stationary frequency-block suffix:
+
+```text
+observed < 3*N - 6  -> INCOMPLETE
+observed = 3*N - 6  -> supported for minimum classification
+observed > 3*N - 6  -> UNSUPPORTED
+```
+
+There is no linear-molecule angle, inertia, collinearity, or tolerance policy
+in v3.0. Linear-molecule support may be introduced only by a later additive
+policy version.
+
+For otherwise complete supported evidence, every finite frequency `< 0.0` is
+imaginary and every frequency `>= 0.0` is non-imaginary. There is no soft-mode,
+rounding, low-frequency, or human-override tolerance:
+
+```text
+negative count = 0  -> VALIDATED_MINIMUM
+negative count >= 1 -> NOT_MINIMUM
+```
+
+`-1e-12` is therefore imaginary and `0.0` is not. `NOT_MINIMUM` is used only
+for complete supported evidence; it is never an error, incomplete, or
+unsupported bucket.
+
+Classification precedence is deterministic. Broken provenance, incomplete
+capture, unparseable evidence, error termination, missing accepted marker pair,
+missing eligible geometry, or too few selected modes is `INCOMPLETE`.
+Structurally present evidence outside v3.0 support, including a legacy or
+unsupported parser tuple, dummy center, `N < 3`, or too many modes, is
+`UNSUPPORTED`. Only then do negative modes decide `NOT_MINIMUM` versus
+`VALIDATED_MINIMUM`.
+
+### Identity, acceptance, and persistence
+
+`MinimumValidationOutcome` uses a source-controlled namespace and a
+schema-versioned, domain-separated UUIDv5 over its complete canonical authority
+payload, including expanded selected evidence and classification. Exact replay
+has the same identity and payload. The same identity with different content is
+a conflict. A changed Result, plan revision, policy version, selected fact, or
+classification produces a new identity. Timestamps, serialization formatting,
+temporary paths, and opaque digests never decide authority by themselves.
+
+`ScientificAcceptance` is a separate immutable record containing its schema
+version and domain-separated deterministic ID, the exact persisted
+`minimum_validation_outcome_id`, expanded outcome identity/policy binding,
+reviewer identity, and canonical review evidence. It may be created only for
+an exact persisted `VALIDATED_MINIMUM`. No acceptance record exists for
+`NOT_MINIMUM`, `INCOMPLETE`, or `UNSUPPORTED`; refusing acceptance creates no
+promotion record. Acceptance never mutates Result, Attempt, CalculationPlan,
+or the validation outcome and grants no effect authority.
+
+`validate_minimum(core_store, input_binding, envelope, parse_outcome)` is pure
+and non-persisting. It validates the exact public Core/Result chain and returns
+one deterministic outcome without artifact bytes. `record_minimum_validation`
+appends that exact outcome. `record_scientific_acceptance` derives and appends
+an acceptance for an exact persisted validated outcome.
+`require_scientific_acceptance` replays the exact pair or fails closed; all four
+operations have zero Core transition and zero external effect.
+
+`SQLiteScientificValidationStore` owns schema version 1 separately from Core
+and Result. Its lifecycle is `create_new(path)`, `open_existing(path)`, and
+`close()`. Its minimum reads are `load_minimum_validation(outcome_id)`,
+`load_scientific_acceptance(acceptance_id)`,
+`minimum_validations_for_attempt(attempt_id)`, and
+`acceptances_for_outcome(outcome_id)`, with deterministic insertion order.
+Rows are append-only; exact replay is idempotent; conflicting replay fails;
+closed typed rows and unexpected schema objects are attested on reopen. There
+is no migration, update, delete, current pointer, raw-SQL public surface, Core
+table, or Result mutation. Fresh creation is no-overwrite, and reopen rejects
+terminal symlink/non-regular/replacement identity drift without resolving away
+the caller's terminal path.
+
+### Reuse disposition and non-goals
+
+- **PORT:** public immutable Core/Result records, exact Result identity and
+  provenance closure, `GaussianJobParser` tuple dispatch, attributed source
+  spans, closed geometry/frequency facts, append-only replay/conflict patterns,
+  and local SQLite file-integrity patterns.
+- **DROP:** every failed-candidate raw-byte scanner, one-section workaround,
+  terminal-orientation parser, whole-log aggregate assumption, duplicated
+  Gaussian grammar, favorable-block selection, empirical frequency tolerance,
+  legacy minimum/receipt/owner/hash-currentness authority, and any attempt to
+  repair or backfill Result evidence.
+- **DEFER:** linear-molecule policy, TS/IRC/connectivity, conformer ensembles,
+  qRRHO/thermochemistry policy, reaction barriers, excited/open-shell/metal
+  policy, Observe, ReviewBundle, generic scientific plugins, and all live work.
+
+This contract defines no implementation, selector ownership, transport,
+execution, retry, recovery, submission, Gaussian run, or scientific acceptance
+for a real artifact. `UNKNOWN` creates no retry or replacement authority. Any
+need for a new Result fact/span, raw-output interpretation, upstream contract
+change, or broader scientific policy is an Owner stop.
 
 ## V30-WF-CONTRACT-01 Frozen Minimal Workflow Contract
 
