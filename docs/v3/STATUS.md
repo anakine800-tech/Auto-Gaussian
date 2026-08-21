@@ -1,17 +1,19 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-MIN-VALIDATE-CONTRACT-01` is CLOSED / FROZEN /
-  INTEGRATED on authoritative
-  `main@96ee94c6e8df70d19de99e7e2982bf2d5a83d32f`; the minimum
-  ScientificValidation contract is active on main.
+- **Current phase:** `V30-VAL-SCI-01` is CLOSED / INTEGRATED on authoritative
+  `main@864260d57bac2acddbfa9f1a32be032c7e13c489`;
+  ScientificValidation validation ownership is active on main and the
+  `config/context-map.toml` routing gap is closed.
+  `V30-MIN-VALIDATE-CONTRACT-01` is CLOSED / FROZEN / INTEGRATED, and the
+  minimum ScientificValidation contract is active on main.
   `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01` is CLOSED / FROZEN / INTEGRATED,
   and `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` is CLOSED / INTEGRATED.
   `GaussianJobParser` and `gaussian-job-facts` are active on main, so the
   Result-attribution dependency is satisfied. ScientificValidation must not
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
-  generic parser-version Result authority are preserved. ScientificValidation
-  implementation remains unauthorized; `V30-VAL-SCI-01` is gate-eligible but
-  not yet GO, `V30-EXEC-02` remains waiting, and live work remains unauthorized.
+  generic parser-version Result authority are preserved.
+  `V30-MIN-VALIDATE-IMPL-01` is gate-eligible but not yet GO,
+  `V30-EXEC-02` remains waiting, and live work remains unauthorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -106,19 +108,17 @@
   `0.0` is imaginary: zero negatives yields `VALIDATED_MINIMUM`, one or more
   yields `NOT_MINIMUM`, and error termination yields `INCOMPLETE`.
   `ScientificAcceptance` remains separate immutable human authority.
-- **Deferred validation ownership:** `config/context-map.toml` is currently
-  unmapped by the canonical selector, so PR #86 and its exact-main validation
-  correctly fell closed once to `legacy-release / fail_closed=true`. This was
-  conservative integration evidence, not a contract blocker. No selector
-  repair is part of this closeout; `V30-VAL-SCI-01` must establish reviewed
-  routing for that path together with change-aware ownership for
-  `auto_g16/scientific_validation/**` and `tests/v3/scientific_validation/**`.
+- **Validation ownership integrated:** `V30-VAL-SCI-01` establishes reviewed
+  change-aware ownership for `auto_g16/scientific_validation/**` and
+  `tests/v3/scientific_validation/**`. `config/context-map.toml` is now owned
+  by the v3 control-document route; its earlier conservative
+  `legacy-release / fail_closed=true` fallback gap is closed.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** `V30-VAL-SCI-01` Owner Gate. ScientificValidation product
-  implementation and `V30-MIN-VALIDATE-IMPL-01` remain `NO-GO` until that
-  validation-ownership task is separately completed and integrated.
+- **Next gate:** `V30-MIN-VALIDATE-IMPL-01` Owner Implementation Gate.
+  ScientificValidation product implementation is gate-eligible but remains
+  `NO-GO` until that gate is explicitly opened.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -128,6 +128,6 @@
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
 - **Do not start:** ScientificValidation implementation,
-  `V30-MIN-VALIDATE-IMPL-01`, `V30-VAL-SCI-01`, `V30-EXEC-02`, Observe,
-  ReviewBundle, production changes, deployment, live smoke, and SSH/PBS/Gaussian
-  operations remain unauthorized.
+  `V30-MIN-VALIDATE-IMPL-01`, `V30-EXEC-02`, Observe, ReviewBundle, production
+  changes, deployment, live smoke, and SSH/PBS/Gaussian operations remain
+  unauthorized.
