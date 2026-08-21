@@ -822,28 +822,36 @@ The table's phrase *unrelated line* is closed: it means a line that full-matches
 none of the named patterns above and triggers none of the prefix rules below.
 Only a state whose row explicitly says that unrelated lines stay may ignore
 such a line. Prefix testing is on raw content bytes after the initial `HT1`,
-not decoded or stripped text:
+not decoded or stripped text. Outside an already admitted child production,
+the closed prefix families are:
 
-| Raw literal prefix after `HT1` | If the line does not match its exact pattern in a legal owning state |
+| Raw literal prefix after `HT1` | Diagnostic ownership when its exact production does not match |
 | --- | --- |
 | `Normal termination` or `Error termination` | `unparseable-terminal` |
-| `SCF Done:`, or any of the seven displayed thermochemistry labels through and including `=` | `unparseable-numeric-token` |
-| `Item`, `Maximum Force`, `RMS Force`, `Maximum Displacement`, `RMS Displacement`, `Predicted change in Energy=`, `Optimization completed`, or `-- Stationary point found` | `unparseable-optimization-block` |
-| `Harmonic frequencies`, `activities`, `incident light`, `and normal coordinates:`, `Frequencies`, `Red. masses`, `Frc consts`, or `IR Inten` | `unparseable-frequency-block` |
-| `Input orientation:`, `Standard orientation:`, `Z-Matrix orientation:`, `Center Atomic Atomic Coordinates`, or `Number Number Type X Y Z` | `unparseable-geometry-block` |
+| `SCF Done:`, or any of the seven displayed thermochemistry labels through and including `=` | `unparseable-numeric-token` only when every fixed literal/separator and the one numeric field slot is structurally present and that slot fails `NUM`/finite conversion; otherwise `unparseable-malformed-prefix` |
+| `Item`, `Maximum Force`, `RMS Force`, `Maximum Displacement`, `RMS Displacement`, `Predicted change in Energy=`, `Optimization completed`, or `-- Stationary point found` | `unparseable-malformed-prefix` |
+| `Harmonic frequencies`, `activities`, `incident light`, `and normal coordinates:`, `Frequencies`, `Red. masses`, `Frc consts`, or `IR Inten` | `unparseable-malformed-prefix` |
+| `Input orientation:`, `Standard orientation:`, `Z-Matrix orientation:`, `Center Atomic Atomic Coordinates`, or `Number Number Type X Y Z` | `unparseable-malformed-prefix` |
 
-An exact substate-only optimization or stationary pattern seen directly in
-`MACHINE_BODY` is `unparseable-orphan-evidence-anchor`. Exact
-`FREQ_HEAD_2`, `FREQ_HEAD_3`, `FREQ_HEAD_4`, `FREQUENCIES`, `RED_MASSES`,
-`FORCE_CONSTS`, or `IR_INTEN` seen there is the same orphan code. Separator,
-mode-number, symmetry, and atom-row-shaped lines have no standalone meaning in
-`MACHINE_BODY` and are unrelated there; after their owning state has begun,
-the state row decides them. These prefix/orphan rules apply only in
-`MACHINE_BODY` and `FREQUENCY_BODY` (including a line reprocessed into either
-state). They are disabled in `PREAMBLE`, `TERMINATED`, and throughout the three
-input-echo states, where the applicable state row alone decides the line. This
-makes a user-echoed malformed scientific label as non-evidentiary as a valid
-echoed label.
+`unparseable-orphan-anchor` applies only to an exact full-match of an
+otherwise valid named anchor in a state where that anchor is illegal. Thus an
+exact substate-only optimization or stationary pattern seen directly in
+`MACHINE_BODY` is an orphan; so is exact `FREQ_HEAD_2`, `FREQ_HEAD_3`,
+`FREQ_HEAD_4`, `FREQUENCIES`, `RED_MASSES`, `FORCE_CONSTS`, or `IR_INTEN` in
+that state. In an admitted optimization, frequency, or geometry child, another
+exact named anchor that is illegal in the current child state is likewise the
+child's state-legality failure with this orphan code. A merely similar or
+malformed prefix is never an orphan.
+Separator, mode-number, symmetry, and atom-row-shaped lines have no standalone
+meaning in `MACHINE_BODY` and are unrelated there; after their owning child
+state has begun, the child state decides them. Prefix-family rules apply only
+in `MACHINE_BODY` and `FREQUENCY_BODY` (including a line reprocessed into
+either state); child states instead apply their own structural productions.
+Exact-anchor orphan ownership also applies inside those child states. Both are
+disabled in `PREAMBLE`, `TERMINATED`, and throughout the three input-echo
+states, where the applicable state row alone decides the line. This makes a
+user-echoed malformed scientific label as non-evidentiary as a valid echoed
+label.
 
 The FSM and its failure behavior are normative. Named transitions within one
 state must be pairwise disjoint. If two named patterns match the same line, or
@@ -857,11 +865,11 @@ match, nearest marker, or last useful block.
 | `INPUT_ECHO` | first `SYMBOLIC_START -> INPUT_MOLECULE` | none | `CHARGE_MULT` or `GRAD_BOUNDARY` fails echo boundary; every other line stays and emits nothing |
 | `INPUT_MOLECULE` | first `CHARGE_MULT -> INPUT_MOLECULE_BOUND` | none | `SYMBOLIC_START` or `GRAD_BOUNDARY` fails echo boundary; every other line stays |
 | `INPUT_MOLECULE_BOUND` | after at least one nonblank intervening line, `GRAD_BOUNDARY -> MACHINE_BODY` | none | `SYMBOLIC_START` or `CHARGE_MULT`, or `GRAD_BOUNDARY` before a nonblank intervening line, fails echo boundary; every other line stays |
-| `MACHINE_BODY` | `SCF` stays; `OPT_HEADER -> OPT_MAX_FORCE`; `FREQ_HEAD_1 -> FREQ_HEAD_2_STATE`; `ORIENTATION -> GEOM_SEP_1`; a thermo line stays; legal terminal -> `TERMINATED`; multi-job anchor -> `LINK1_BOUNDARY`; `OTHER_PROGRAM_START` or `UNSUPPORTED_ORIENTATION -> UNSUPPORTED` | SCF/thermo/terminal lines use full-line spans | the closed prefix/orphan rules above apply; a repeated thermochemistry key is `unparseable-orphan-evidence-anchor`; any `SYMBOLIC_START`, `CHARGE_MULT`, or `GRAD_BOUNDARY` is `unparseable-echo-boundary`; unrelated lines stay |
-| `OPT_MAX_FORCE` | `OPT_ROW_MAX_FORCE -> OPT_RMS_FORCE` | none yet | anything else is `unparseable-optimization-block` |
-| `OPT_RMS_FORCE` | `OPT_ROW_RMS_FORCE -> OPT_MAX_DISP` | none yet | same failure |
-| `OPT_MAX_DISP` | `OPT_ROW_MAX_DISP -> OPT_RMS_DISP` | none yet | same failure |
-| `OPT_RMS_DISP` | `OPT_ROW_RMS_DISP -> OPT_AFTER_ROWS` | none yet | same failure |
+| `MACHINE_BODY` | `SCF` stays; `OPT_HEADER -> OPT_MAX_FORCE`; `FREQ_HEAD_1 -> FREQ_HEAD_2_STATE`; `ORIENTATION -> GEOM_SEP_1`; a thermo line stays; legal terminal -> `TERMINATED`; multi-job anchor -> `LINK1_BOUNDARY`; `OTHER_PROGRAM_START` or `UNSUPPORTED_ORIENTATION -> UNSUPPORTED` | SCF/thermo/terminal lines use full-line spans | the closed prefix/orphan rules above apply; a repeated thermochemistry key is `unparseable-duplicate-evidence`; any `SYMBOLIC_START`, `CHARGE_MULT`, or `GRAD_BOUNDARY` is `unparseable-echo-boundary`; unrelated lines stay |
+| `OPT_MAX_FORCE` | `OPT_ROW_MAX_FORCE -> OPT_RMS_FORCE` | none yet | child production precedence below selects numeric-token only for a structurally valid row with an invalid numeric field; every other mismatch is `unparseable-optimization-block` |
+| `OPT_RMS_FORCE` | `OPT_ROW_RMS_FORCE -> OPT_MAX_DISP` | none yet | same ownership rule |
+| `OPT_MAX_DISP` | `OPT_ROW_MAX_DISP -> OPT_RMS_DISP` | none yet | same ownership rule |
+| `OPT_RMS_DISP` | `OPT_ROW_RMS_DISP -> OPT_AFTER_ROWS` | none yet | same ownership rule |
 | `OPT_AFTER_ROWS` | optional one `OPT_PREDICTED` stays; `OPT_DONE -> OPT_STATIONARY`; any other line returns to `MACHINE_BODY` and is reprocessed once | `OPT_DONE` full-line span only on completion path | duplicate predicted fails; a complete non-converged table emits no marker evidence |
 | `OPT_STATIONARY` | `STATIONARY -> MACHINE_BODY` | `STATIONARY` full-line span | anything else fails block; neither naked marker is evidence |
 | `FREQ_HEAD_2_STATE` | `FREQ_HEAD_2 -> FREQ_HEAD_3_STATE` | block begins at `FREQ_HEAD_1.line_start` | anything else is `unparseable-frequency-block` |
@@ -869,16 +877,16 @@ match, nearest marker, or last useful block.
 | `FREQ_HEAD_4_STATE` | `FREQ_HEAD_4 -> FREQUENCY_BODY_EMPTY` | none | same failure |
 | `FREQUENCY_BODY_EMPTY` | blank lines stay; `MODE_NUMBERS -> FREQ_SYMMETRY` | none | every other line is `unparseable-frequency-block`; a recognized frequency section must contain a complete group |
 | `FREQUENCY_BODY` | blank/unrelated displacement lines stay; `MODE_NUMBERS -> FREQ_SYMMETRY`; a new `FREQ_HEAD_1 -> FREQ_HEAD_2_STATE`; `SCF`, `OPT_HEADER`, `ORIENTATION`, each thermo line, each legal terminal, each multi-job anchor, `OTHER_PROGRAM_START`, and `UNSUPPORTED_ORIENTATION` apply exactly as in `MACHINE_BODY` | none | orphan `FREQUENCIES`, `RED_MASSES`, `FORCE_CONSTS`, or `IR_INTEN` fails; echo-boundary anchors fail as in `MACHINE_BODY` |
-| `FREQ_SYMMETRY` | `SYMMETRIES` with same 1..3 cardinality -> `FREQ_VALUES` | none | anything else fails block |
-| `FREQ_VALUES` | `FREQUENCIES` with same cardinality -> `FREQ_RED_MASSES` | values retained | anything else fails block |
-| `FREQ_RED_MASSES` | `RED_MASSES` with same cardinality -> `FREQ_FORCE_CONSTS` | none | anything else fails block |
-| `FREQ_FORCE_CONSTS` | `FORCE_CONSTS` with same cardinality -> `FREQ_IR_INTEN` | none | anything else fails block |
-| `FREQ_IR_INTEN` | `IR_INTEN` with same cardinality -> `FREQUENCY_BODY` | frequency-block span is mode line through IR line | anything else fails block |
+| `FREQ_SYMMETRY` | `SYMMETRIES` with same 1..3 cardinality -> `FREQ_VALUES` | none | a structurally wrong line is `unparseable-frequency-block` |
+| `FREQ_VALUES` | `FREQUENCIES` with same cardinality -> `FREQ_RED_MASSES` | values retained | child production precedence below selects numeric-token only after valid prefix/separators/cardinality; every other mismatch is frequency-block |
+| `FREQ_RED_MASSES` | `RED_MASSES` with same cardinality -> `FREQ_FORCE_CONSTS` | none | same ownership rule |
+| `FREQ_FORCE_CONSTS` | `FORCE_CONSTS` with same cardinality -> `FREQ_IR_INTEN` | none | same ownership rule |
+| `FREQ_IR_INTEN` | `IR_INTEN` with same cardinality -> `FREQUENCY_BODY` | frequency-block span is mode line through IR line | same ownership rule |
 | `GEOM_SEP_1` | `SEPARATOR -> GEOM_HEAD_1_STATE` | block begins at orientation heading | anything else is `unparseable-geometry-block` |
 | `GEOM_HEAD_1_STATE` | `GEOM_HEAD_1 -> GEOM_HEAD_2_STATE` | none | same failure |
 | `GEOM_HEAD_2_STATE` | `GEOM_HEAD_2 -> GEOM_SEP_2` | none | same failure |
 | `GEOM_SEP_2` | `SEPARATOR -> GEOM_ROWS` | none | same failure |
-| `GEOM_ROWS` | first/next `ATOM_ROW` stays; `SEPARATOR` after at least one row -> `MACHINE_BODY` | complete geometry span is heading through closing separator | malformed row, duplicate/noncontiguous center, or EOF fails block |
+| `GEOM_ROWS` | first/next `ATOM_ROW` stays; `SEPARATOR` after at least one row -> `MACHINE_BODY` | complete geometry span is heading through closing separator | wrong row shape or valid-integer row constraint is `unparseable-geometry-row`; a structurally valid row with an invalid numeric field is numeric-token; malformed/missing closure or EOF is geometry-block |
 | `TERMINATED` | `BLANK` stays; genuine multi-job anchor -> `LINK1_BOUNDARY`; `OTHER_PROGRAM_START -> UNSUPPORTED`; another legal terminal -> failure | none | second terminal is `unparseable-terminal`; any other line is `unparseable-trailing-content` |
 | `LINK1_BOUNDARY` | terminal classification | none | always `UNSUPPORTED`/`unsupported-multiple-job` |
 
@@ -893,6 +901,90 @@ count/cardinality mismatch instead reports the owning block code. A malformed
 `Normal termination` or `Error termination` prefix in machine context reports
 `unparseable-terminal`.
 
+#### Primary diagnostic ownership and precedence
+
+`gaussian-job-facts` v1 has one primary diagnostic, never a diagnostic set.
+`PARSED` persists `diagnostics = ()`; every terminal `PARTIAL`, `UNSUPPORTED`,
+or `UNPARSEABLE` outcome persists a one-item tuple containing its single closed
+code. Parsing and child productions are strictly left-to-right fail-fast over
+original bytes and stop as soon as the active normative production can prove
+failure.
+No later byte is semantically examined for a competing failure, no second code
+is collected, and no parent production may translate an already-owned child
+failure into a broader code.
+
+Within an admitted production, ownership is evaluated in this exact order:
+
+1. current FSM/state legality;
+2. required structural line or row shape;
+3. closed field designation and field count;
+4. each designated numeric field in left-to-right byte order;
+5. required block closure or completeness.
+
+A later level is evaluated only after all earlier levels succeed. Entry through
+`OPT_HEADER`, `FREQ_HEAD_1`, or `ORIENTATION` admits the corresponding child;
+that child owns every subsequent failure until it either returns to
+`MACHINE_BODY`/`FREQUENCY_BODY` or terminates parsing. An exact valid named
+anchor in a state where it is illegal is owned immediately by
+`unparseable-orphan-anchor`. A malformed lookalike cannot be an orphan. Outside
+an admitted child, one of the closed raw-prefix families above is owned by
+`unparseable-malformed-prefix`, except the separately frozen terminal and
+structurally complete direct SCF/thermochemistry numeric cases.
+
+For diagnostic classification only, a raw field token is the maximal nonempty
+byte sequence matching `[^\x20\x09\x0d\x0a]+`; this does not widen any accepted
+line grammar. An optimization row has valid shape only when its exact label,
+two raw numeric-field slots, final `YES|NO`, HT separators, and field count are
+present. A frequency value row has valid shape only when its exact label,
+`HT1--HT1`, the already-required 1..3 field slots, HT separators, and exact
+cardinality are present. A geometry atom row has valid shape only when it has
+exactly six HT-separated raw field slots after initial `HT1`, in the frozen
+center/atomic-number/atomic-type/X/Y/Z order. Once shape succeeds, an invalid
+`UINT`/`INT`/`NUM` field or non-finite conversion is
+`unparseable-numeric-token`; the enclosing block emits nothing else. If more
+than one field is invalid, the field with the smallest token start owns the
+failure; equal starts use the displayed field order. Wrong row field count,
+missing or extra structural tokens, a noncontiguous but valid integer center,
+or an out-of-range but valid integer atomic number is
+`unparseable-geometry-row`, never numeric-token. Within `GEOM_ROWS`, a line
+whose content after initial `HT1` begins with `-` is a closure candidate:
+exact `SEPARATOR` closes only after at least one row, while any malformed
+separator or a separator before the first row is
+`unparseable-geometry-block`; it is never classified as an atom row.
+
+Consequently, `Frequencies -- NaN` in the legally required `FREQ_VALUES` state
+has valid prefix/separators/cardinality and is uniquely
+`unparseable-numeric-token`. A wrong frequency prefix, separator, or field
+count in that state is `unparseable-frequency-block`; valid numeric rows
+followed by a missing required continuation or closure are also frequency-block.
+A valid geometry opener followed by a wrong required header/separator is
+`unparseable-geometry-block`; a six-field row containing `NaN` is numeric-token;
+a five- or seven-field row is geometry-row; valid rows without a closing
+separator are geometry-block. In an optimization child, a structurally valid
+row with an invalid numeric slot is numeric-token, while a wrong row/marker
+sequence is optimization-block. An exact `STATIONARY` in an illegal state is
+orphan-anchor and cannot compete with an optimization code.
+
+EOF is a failure of the currently active production. EOF in an optimization,
+frequency, or geometry child is owned by its block code; EOF in an echo state
+is echo-boundary; EOF in `PREAMBLE` is job-start; and EOF in `MACHINE_BODY` or
+`FREQUENCY_BODY` is terminal. EOF never creates an orphan, row, or numeric
+failure. An earlier malformed geometry row therefore terminates parsing before
+any later malformed frequency token can have authority.
+
+The conformance failure position is the lowest original-byte position where
+that active production proves failure. A numeric failure owns its exact token
+span; a row-shape failure or exact orphan owns the full offending line span; a
+block/header failure owns the full offending structural line. At EOF, ordering
+position is `L`, while the non-zero conformance span is the full final
+successfully consumed grammar-bearing line under the existing half-open span
+rule. If no grammar-bearing line has been consumed, the conformance span is the
+explicit no-span value, never a zero-width interval. Matrix outcomes have the
+explicit no-position/no-span value because grammar is not run. The v1
+`diagnostics` payload remains a tuple of code strings and does not add a
+persisted position/span field; these positions are nevertheless normative for
+implementation conformance and first-failure selection.
+
 The exact optimization source spans are the `OPT_DONE` and `STATIONARY` full
 lines, but they become evidence only after the entire ordered convergence block
 has matched. Each frequency block span starts at its `MODE_NUMBERS.line_start`
@@ -903,10 +995,10 @@ The literal `Input orientation:` heading maps only to
 `orientation_kind = input-orientation`; `Standard orientation:` maps only to
 `orientation_kind = standard-orientation`. `ATOM_ROW` fields map left to right
 to center, atomic number, atomic type, X, Y, and Z. Atomic type is parsed and
-discarded as non-authority. A center sequence other than exactly `1..N`, an
-atomic number outside `0..118`, or any invalid coordinate makes the owning
-geometry block `unparseable-geometry-block` (except a token outside `NUM`,
-which is `unparseable-numeric-token`).
+discarded as non-authority. A center sequence other than exactly `1..N` or an
+atomic number outside `0..118` is `unparseable-geometry-row`. An integer or
+coordinate token outside its closed `INT`/`UINT`/`NUM` grammar, or a converted
+non-finite coordinate, is `unparseable-numeric-token` after row shape succeeds.
 Recognized malformed or truncated blocks emit no partial block fact and make a
 complete capture `UNPARSEABLE`.
 
@@ -942,25 +1034,44 @@ capture never produces `PARTIAL`; uncertainty is not capture incompleteness.
 Only `PARSED` carries the closed facts payload.
 
 `PARSED` outcomes persist an empty diagnostics tuple. Non-`PARSED` outcomes
-persist exactly one diagnostic code and no prose. The
-closed codes are `capture-partial`, `unsupported-gaussian-log-cardinality`,
-`unsupported-program`, `unsupported-multiple-job`,
-`unsupported-valid-gaussian-grammar`, `unparseable-line-terminator`,
-`unparseable-job-start`, `unparseable-echo-boundary`,
-`unparseable-ambiguous-transition`, `unparseable-orphan-evidence-anchor`,
-`unparseable-optimization-block`, `unparseable-frequency-block`,
-`unparseable-geometry-block`, `unparseable-numeric-token`,
-`unparseable-terminal`, `unparseable-trailing-content`, and
-`unparseable-span`. Grammar processing stops at the earliest failing raw-byte
-offset. If failures share an offset, code order is the order just listed.
-`OTHER_PROGRAM_START` maps to `unsupported-program`; every genuine multi-job
-anchor maps to `unsupported-multiple-job`; and `UNSUPPORTED_ORIENTATION` maps
-to `unsupported-valid-gaussian-grammar`.
-Human-readable explanation may be emitted outside persisted semantics only.
+persist exactly one diagnostic code and no prose. This table is the complete
+source-controlled vocabulary and single-owner production map:
+
+| Diagnostic code | Owning production | Entry precondition and exact failure | Forbidden competing codes |
+| --- | --- | --- | --- |
+| `capture-partial` | capture/cardinality matrix | verified envelope is `PARTIAL`, for 0, 1, or >1 Gaussian logs; grammar is not run | every grammar/unsupported code |
+| `unsupported-gaussian-log-cardinality` | capture/cardinality matrix | verified complete envelope has 0 or >1 Gaussian logs; grammar is not run | every grammar code |
+| `unsupported-program` | FSM capability boundary | exact `OTHER_PROGRAM_START` in a legal non-echo state | every unparseable/prefix code |
+| `unsupported-multiple-job` | FSM capability boundary | exact genuine multi-job anchor in `MACHINE_BODY`, `FREQUENCY_BODY`, or `TERMINATED` | orphan, prefix, trailing, and all block codes |
+| `unsupported-valid-gaussian-grammar` | FSM capability boundary | exact `UNSUPPORTED_ORIENTATION` in machine context | malformed-prefix, orphan, and geometry codes |
+| `unparseable-line-terminator` | raw line tokenizer | first lone `0x0D` in a complete artifact | every FSM/child code |
+| `unparseable-job-start` | `PREAMBLE` | EOF before exact `JOB_START` after all earlier bytes were legal preamble | all other EOF/anchor codes |
+| `unparseable-echo-boundary` | active echo state | exact out-of-order/duplicate echo-boundary anchor, or EOF before echo exit | orphan, malformed-prefix, and all evidence codes |
+| `unparseable-ambiguous-transition` | active FSM state | two named exact transitions match the same current line | either transition's specific code |
+| `unparseable-orphan-anchor` | active non-echo machine-output or child FSM state | exact otherwise-valid named anchor occurs where that exact anchor is illegal | malformed-prefix and every parent/child structural/numeric code |
+| `unparseable-malformed-prefix` | machine-context prefix dispatcher | closed grammar-bearing prefix resembles a production but neither matches an exact anchor nor has a complete direct numeric-line shape, before a child is admitted | orphan, all child block/row codes, and numeric-token unless the direct numeric-line shape is complete |
+| `unparseable-duplicate-evidence` | machine fact cardinality | a second exact thermochemistry key appears after the first was accepted | orphan, malformed-prefix, and numeric-token |
+| `unparseable-optimization-block` | admitted optimization child | required row/marker shape or sequence is wrong, duplicated, prematurely terminated, or incomplete at EOF | orphan and numeric-token after valid row shape |
+| `unparseable-frequency-block` | admitted frequency child | required header/prefix/separator/cardinality/continuation/closure is wrong or missing, including EOF | orphan and numeric-token after valid value-row shape |
+| `unparseable-geometry-block` | admitted geometry child except atom-row production | required table header/separator/closure is wrong or missing, including EOF | orphan, geometry-row, and numeric-token |
+| `unparseable-geometry-row` | `GEOM_ROWS` atom-row production | row has wrong field shape/count, or valid integers violate center contiguity or atomic-number range | geometry-block and numeric-token |
+| `unparseable-numeric-token` | admitted numeric-field production | structural shape, field designation, and cardinality succeeded, then the earliest designated token fails `UINT`/`INT`/`NUM` or finite conversion | malformed-prefix, orphan, block, and row codes |
+| `unparseable-terminal` | required terminal production | malformed terminal in `MACHINE_BODY`/`FREQUENCY_BODY`, repeated legal terminal in `TERMINATED`, or EOF in `MACHINE_BODY`/`FREQUENCY_BODY` before a legal terminal | malformed-prefix, orphan, block, and trailing-content |
+| `unparseable-trailing-content` | `TERMINATED` | first nonblank line after the one accepted terminal is neither a genuine multi-job nor supported-program boundary | terminal and all child codes |
+
+The first owned failure stops parsing; table order is descriptive and is never
+a ranking or tie-break mechanism. `OTHER_PROGRAM_START` therefore maps only to
+`unsupported-program`, every genuine multi-job anchor only to
+`unsupported-multiple-job`, and `UNSUPPORTED_ORIENTATION` only to
+`unsupported-valid-gaussian-grammar`. Invalid source-span bindings are rejected
+by `ResultProvenanceService` before append and on reopen; they do not create a
+second parser diagnostic or a legal `ParseOutcome`. Human-readable explanation
+may be emitted outside persisted semantics only.
 
 Given the same exact envelope, artifact bytes, and parser tuple, two conforming
 implementations must produce the same status, job span, evidence spans, facts,
-source ordering, singleton diagnostic code, payload, and Result identity.
+source ordering, primary failure position/span (or the same matrix no-position),
+singleton diagnostic code, payload, and Result identity.
 Evidence collections sort by `start`, then `end`, then the closed kind order
 `termination`, `optimization`, `stationary`, `scf`, `frequency`,
 `thermochemistry`, `geometry`. Frequency and geometry collections otherwise

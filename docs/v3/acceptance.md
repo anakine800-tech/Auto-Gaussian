@@ -332,11 +332,36 @@ scientific-acceptance, execution, transport, retry, or live authority:
     with zero/one/many Gaussian logs is `PARTIAL`, while complete capture with
     zero/many is `UNSUPPORTED` and complete capture with one runs the grammar.
 34. A parsed payload has empty diagnostics. Every non-parsed payload has empty
-    facts and exactly one closed diagnostic code selected at the earliest raw
-    offset with the frozen tie order; free-form prose is not persisted.
+    facts and exactly one closed primary diagnostic code selected by strict
+    left-to-right fail-fast production ownership; free-form prose is not
+    persisted and there is no diagnostic ranking/tie pass.
 35. Two independent implementations given identical exact inputs produce the
     same status, singleton diagnostic or empty diagnostics, job/evidence spans,
-    source ordering, facts, complete payload, and Result identity.
+    primary failure position/span (or matrix no-position), source ordering,
+    facts, complete payload, and Result identity.
+36. Once a legal parent opener admits an optimization, frequency, or geometry
+    child, that child owns the first subsequent failure. FSM legality precedes
+    row shape, field designation/count, left-to-right numeric fields, and block
+    closure; a parent block never replaces or accompanies a child row/numeric
+    diagnostic.
+37. `unparseable-orphan-anchor` requires an exact otherwise-valid named anchor
+    in an illegal non-echo FSM state. A malformed lookalike is never orphaned;
+    outside an admitted child it follows the closed malformed-prefix rule.
+38. In an active frequency value production, valid prefix/separators/count plus
+    `NaN` is uniquely `unparseable-numeric-token`; wrong prefix/separator/count
+    or missing continuation/closure is uniquely
+    `unparseable-frequency-block`.
+39. In `GEOM_ROWS`, wrong field count or valid-integer center/range violation is
+    `unparseable-geometry-row`; correct six-field shape plus the first invalid
+    numeric token is `unparseable-numeric-token`; wrong header/separator/closure
+    is `unparseable-geometry-block`.
+40. EOF is owned only by the active production: preamble, echo, optimization,
+    frequency, geometry, and required-terminal states select their one frozen
+    EOF code. EOF never synthesizes an orphan, row, or numeric failure.
+41. Capture/artifact validation and the cardinality matrix run before grammar.
+    A matrix `PARTIAL`/`UNSUPPORTED` outcome emits its one matrix code and does
+    not run grammar; artifact identity mismatch raises `MalformedEnvelopeError`
+    with no `ParseOutcome` diagnostic.
 
 The future implementation fixture matrix is mandatory and uses synthetic or
 release-cleared bytes only. Tests hard-code expected raw-byte offsets; deriving
@@ -361,11 +386,26 @@ expected offsets by calling the parser under test is forbidden.
 | complete capture, multiple Gaussian logs | `UNSUPPORTED` / `unsupported-gaussian-log-cardinality` |
 | partial capture, zero/one/multiple Gaussian logs | `PARTIAL` / `capture-partial`; empty facts |
 | artifact name-set/size/SHA mismatch | `MalformedEnvelopeError`, no ParseOutcome |
-| malformed or non-finite frequency number | `UNPARSEABLE` / `unparseable-numeric-token`; no frequency facts |
+| active valid-shape frequency row with malformed or non-finite numeric token | `UNPARSEABLE` / `unparseable-numeric-token`; no frequency facts |
 | wrong-cardinality or truncated frequency state sequence | `UNPARSEABLE` / `unparseable-frequency-block`; no frequency facts |
-| malformed grammar-bearing SCF/thermo/optimization/frequency/geometry/terminal prefix in machine context | exact closed prefix-table diagnostic; no partial fact |
+| active `FREQ_VALUES`, exact `Frequencies --` shape, token `NaN` | only `unparseable-numeric-token`; conformance span is the exact `NaN` token |
+| active `FREQ_VALUES`, wrong prefix/separator/cardinality | only `unparseable-frequency-block` |
+| exact `STATIONARY` in an illegal non-echo FSM state | only `unparseable-orphan-anchor`; conformance span is the full anchor line |
+| active optimization row with valid shape and numeric token `NaN` | only `unparseable-numeric-token` |
+| active optimization child with wrong required row/marker sequence | only `unparseable-optimization-block` |
+| `MACHINE_BODY` line ` -- Stationary point found` (missing the required period), before any child is admitted | only `unparseable-malformed-prefix`, never orphan |
+| fake anchor-like line while a required child structural line is active | only that child's block code, never orphan |
+| malformed grammar-bearing SCF/thermo/optimization/frequency/geometry/terminal prefix in machine context | its one exact closed prefix/direct-production diagnostic; no partial fact |
 | one and multiple valid orientation tables | `PARSED`; every table and exact heading-to-closing-separator span emitted |
-| truncated/malformed/noncontiguous orientation table | `UNPARSEABLE` / `unparseable-geometry-block`; no geometry facts |
+| valid geometry opener + malformed required header | only `unparseable-geometry-block` |
+| geometry row with five/seven fields | only `unparseable-geometry-row`; conformance span is the full row line |
+| six-field geometry row with coordinate `NaN` | only `unparseable-numeric-token` |
+| valid geometry rows followed by a separator-family line shorter than five hyphens | only `unparseable-geometry-block` |
+| valid geometry rows + EOF before closing separator | only `unparseable-geometry-block` |
+| noncontiguous center or atomic number outside `0..118` | only `unparseable-geometry-row` |
+| earlier malformed geometry row + later malformed frequency token | only the geometry diagnostic; later bytes have no authority |
+| one valid-shape line with multiple invalid numeric fields | only the leftmost invalid token; displayed field order breaks an equal-start tie |
+| EOF in `PREAMBLE` / echo / optimization / frequency / geometry / `MACHINE_BODY` | respectively job-start / echo-boundary / optimization-block / frequency-block / geometry-block / terminal; conformance span follows the frozen final-consumed-line/no-span rule |
 | same exact bytes parsed twice | byte-identical payload and Result identity |
 | old v1 and new parser on the same envelope | distinct append-only identities; old facts never treated as attributed |
 | changed parser version or capture | distinct Result identity |

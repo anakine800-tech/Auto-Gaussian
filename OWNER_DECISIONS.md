@@ -198,6 +198,14 @@ The grammar's literal byte anchors, closed ASCII regexes, LF/CRLF tokenizer,
 finite-state transitions, diagnostic codes, and original-byte half-open spans
 are normative; an implementation cannot substitute text normalization or a
 heuristic context choice.
+For this parser tuple, diagnostics are also single-owner authority. Parsing is
+strictly left-to-right and fail-fast: `parsed` persists no diagnostic, while
+every terminal non-parsed outcome persists exactly one primary closed code.
+After a parent production has admitted a child production, that child owns its
+first failure; a parent block may not replace or accompany a more specific row
+or numeric failure. Exact valid anchors in an illegal state are orphans, while
+malformed lookalike prefixes are not. No diagnostic set, ranking pass, or later
+failure participates in Result identity.
 Structurally valid multiple jobs are unsupported; malformed, truncated, or
 ambiguous context fails closed. Result records attribution and generic facts
 only. It never decides whether a geometry is a minimum or grants scientific
