@@ -125,6 +125,7 @@
       "exact_paths": [
         "AGENTS.md",
         "OWNER_DECISIONS.md",
+        "config/context-map.toml",
         "docs/development-handbook.md"
       ],
       "prefixes": [
@@ -230,6 +231,25 @@
       ],
       "lane": "affected",
       "tests": [
+        "tests.v3.result",
+        "tests.v3.core.test_store"
+      ],
+      "required_safety": [
+        "no-overwrite",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v30-scientific-validation",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/scientific_validation/",
+        "tests/v3/scientific_validation/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.scientific_validation",
         "tests.v3.result",
         "tests.v3.core.test_store"
       ],

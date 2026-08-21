@@ -66,6 +66,12 @@ APPROVAL_TESTS = [
 ]
 RESULT_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
 RESULT_TESTS = ["tests.v3.core.test_store", "tests.v3.result"]
+SCIENTIFIC_VALIDATION_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
+SCIENTIFIC_VALIDATION_TESTS = [
+    "tests.v3.core.test_store",
+    "tests.v3.result",
+    "tests.v3.scientific_validation",
+]
 WORKFLOW_SAFETY = ["approval-owner-separation", "unknown-no-automatic-retry"]
 # Workflow owns its future package tests; Core store anchors exact record/replay and
 # UNKNOWN invariants; Approval anchors HumanGate non-authority. The two legacy
@@ -266,8 +272,15 @@ class ValidationSelectorTests(unittest.TestCase):
             ("auto_g16/approval/service.py", "approval owner\n", "affected", False),
             ("auto_g16/execution/service.py", "execution owner\n", "affected", False),
             ("auto_g16/result/parser.py", "result owner\n", "affected", False),
+            (
+                "auto_g16/scientific_validation/service.py",
+                "scientific validation owner\n",
+                "affected",
+                False,
+            ),
             ("tests/v3/core/test_store.py", "core safety\n", "v3-full", False),
             ("docs/v3/STATUS.md", "closeout after\n", "v3-full", False),
+            ("config/context-map.toml", "status = 'contract-frozen'\n", "v3-full", False),
             (
                 ".github/workflows/offline-tests.yml",
                 WORKFLOW.read_text(encoding="utf-8") + "\n# control-plane candidate\n",
@@ -507,10 +520,12 @@ class ValidationSelectorTests(unittest.TestCase):
 
     def test_v3_control_docs_select_v3_full_deterministically(self) -> None:
         agents = change("M", "AGENTS.md")
+        context_map = change("M", "config/context-map.toml")
         handbook = change("M", "docs/development-handbook.md")
         status = change("M", "docs/v3/STATUS.md")
         decisions = {
             "agents only": self.select(agents),
+            "context map only": self.select(context_map),
             "handbook only": self.select(handbook),
             "status only": self.select(status),
             "exact closeout pair": self.select(handbook, status),
@@ -585,6 +600,113 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertEqual(result["tests"], tests)
                 self.assertEqual(result["safety_evidence"], safety)
                 self.assertFalse(result["fail_closed"])
+
+    def test_scientific_validation_route_owns_future_product_and_test_prefixes(self) -> None:
+        product = change("A", "auto_g16/scientific_validation/service.py")
+        tests = change("A", "tests/v3/scientific_validation/test_service.py")
+        decisions = {
+            "product only": self.select(product),
+            "tests only": self.select(tests),
+            "product then tests": self.select(product, tests),
+            "tests then product": self.select(tests, product),
+        }
+        for label, decision in decisions.items():
+            with self.subTest(label=label):
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(
+                    decision["matched_routes"], ["v30-scientific-validation"]
+                )
+                self.assertEqual(decision["tests"], SCIENTIFIC_VALIDATION_TESTS)
+                self.assertEqual(
+                    decision["safety_evidence"], SCIENTIFIC_VALIDATION_SAFETY
+                )
+                self.assertFalse(decision["fail_closed"])
+
+        for field in (
+            "changed_paths",
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(
+                decisions["product then tests"][field],
+                decisions["tests then product"][field],
+            )
+
+    def test_scientific_validation_and_result_union_is_deterministic(self) -> None:
+        scientific_validation = change(
+            "M", "auto_g16/scientific_validation/service.py"
+        )
+        result = change("M", "auto_g16/result/parser.py")
+        forward = self.select(scientific_validation, result)
+        reverse = self.select(result, scientific_validation)
+        for field in (
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(
+            forward["matched_routes"],
+            ["v30-result", "v30-scientific-validation"],
+        )
+        self.assertEqual(forward["tests"], SCIENTIFIC_VALIDATION_TESTS)
+        self.assertEqual(
+            forward["safety_evidence"], SCIENTIFIC_VALIDATION_SAFETY
+        )
+        self.assertFalse(forward["fail_closed"])
+
+    def test_scientific_validation_and_context_map_escalate_to_v3_full(self) -> None:
+        scientific_validation = change(
+            "M", "auto_g16/scientific_validation/service.py"
+        )
+        context_map = change("M", "config/context-map.toml")
+        forward = self.select(scientific_validation, context_map)
+        reverse = self.select(context_map, scientific_validation)
+        for field in (
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "v3-full")
+        self.assertEqual(
+            forward["matched_routes"],
+            ["v3-control-docs", "v30-scientific-validation"],
+        )
+        self.assertFalse(forward["fail_closed"])
+
+    def test_future_scientific_validation_route_does_not_require_current_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(root, {"README.md": "baseline\n"})
+            self.assertFalse((root / "auto_g16" / "scientific_validation").exists())
+            self.assertFalse((root / "tests" / "v3" / "scientific_validation").exists())
+            head = commit_files(
+                root,
+                {
+                    "auto_g16/scientific_validation/service.py": "SERVICE = 1\n",
+                    "tests/v3/scientific_validation/test_service.py": "TEST = 1\n",
+                },
+            )
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(decision["lane"], "affected")
+        self.assertEqual(
+            decision["matched_routes"], ["v30-scientific-validation"]
+        )
+        self.assertEqual(decision["tests"], SCIENTIFIC_VALIDATION_TESTS)
+        self.assertEqual(
+            decision["safety_evidence"], SCIENTIFIC_VALIDATION_SAFETY
+        )
+        self.assertFalse(decision["fail_closed"])
 
     def test_approval_route_owns_future_product_and_test_prefixes(self) -> None:
         product = change("A", "auto_g16/approval/service.py")
