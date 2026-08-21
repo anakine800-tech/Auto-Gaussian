@@ -362,6 +362,29 @@ scientific-acceptance, execution, transport, retry, or live authority:
     A matrix `PARTIAL`/`UNSUPPORTED` outcome emits its one matrix code and does
     not run grammar; artifact identity mismatch raises `MalformedEnvelopeError`
     with no `ParseOutcome` diagnostic.
+42. Each legal thermochemistry candidate is evaluated in the exact order
+    structure, canonical key, numeric lexical grammar, finite conversion,
+    duplicate check against previously committed same-key evidence, then
+    commit. A later stage is never evaluated after an earlier failure.
+43. A second structurally valid same-key line with `NaN`, `Inf`, or another
+    token outside the closed numeric grammar is only
+    `unparseable-numeric-token` at the exact bad token. A structurally malformed
+    second same-key candidate is only its existing structural diagnostic. In
+    both cases duplicate checking is never reached and the current line never
+    enters the committed seen-key set.
+44. A fully valid second occurrence of a previously committed canonical
+    thermochemistry key is only `unparseable-duplicate-evidence`, whether the
+    numeric value is equal or different. Its conformance span is the full
+    current duplicate line `[line_start,line_end)`, including LF or CRLF when
+    present and ending at artifact length for a final unterminated line. The
+    first occurrence remains the committed fact and the duplicate is not
+    committed.
+45. Duplicate tracking is scoped to the one supported Gaussian job represented
+    by one `GaussianJobParser` outcome. Canonical-key equality alone controls
+    it; raw spelling, display label, numeric value, whitespace, source span,
+    other jobs, captures, parser outcomes, Attempts, and repository history do
+    not. Malformed or numerically invalid candidates never create seen-key
+    state.
 
 The future implementation fixture matrix is mandatory and uses synthetic or
 release-cleared bytes only. Tests hard-code expected raw-byte offsets; deriving
@@ -405,6 +428,16 @@ expected offsets by calling the parser under test is forbidden.
 | noncontiguous center or atomic number outside `0..118` | only `unparseable-geometry-row` |
 | earlier malformed geometry row + later malformed frequency token | only the geometry diagnostic; later bytes have no authority |
 | one valid-shape line with multiple invalid numeric fields | only the leftmost invalid token; displayed field order breaks an equal-start tie |
+| first valid thermochemistry key + second same key with `NaN` | `UNPARSEABLE`; only `unparseable-numeric-token`; exact second-line `NaN` token span; duplicate check not reached |
+| first valid thermochemistry key + second same key with `Inf` | `UNPARSEABLE`; only `unparseable-numeric-token`; exact second-line `Inf` token span; duplicate check not reached |
+| first valid thermochemistry key + second structurally malformed same-key candidate | `UNPARSEABLE`; only the existing structural-production diagnostic; duplicate check not reached |
+| first valid thermochemistry key + identical fully valid second value | `UNPARSEABLE`; only `unparseable-duplicate-evidence`; full second-line span; second value not committed |
+| first valid thermochemistry key + different fully valid second value | `UNPARSEABLE`; only `unparseable-duplicate-evidence`; full second-line span; second value not committed |
+| first same-key candidate has an invalid numeric token + later valid same-key line | `UNPARSEABLE`; only the first `unparseable-numeric-token`; later line is not examined and no duplicate exists |
+| fully valid duplicate thermochemistry line terminated by LF | `UNPARSEABLE`; only `unparseable-duplicate-evidence`; span is the full current line including LF |
+| fully valid duplicate thermochemistry line terminated by CRLF | `UNPARSEABLE`; only `unparseable-duplicate-evidence`; span is the full current line including both CRLF bytes |
+| fully valid duplicate thermochemistry line is final and unterminated | `UNPARSEABLE`; only `unparseable-duplicate-evidence`; full current-line span ends at artifact size `L` |
+| two fully valid different canonical thermochemistry keys | no duplicate diagnostic; each is committed in byte order |
 | EOF in `PREAMBLE` / echo / optimization / frequency / geometry / `MACHINE_BODY` | respectively job-start / echo-boundary / optimization-block / frequency-block / geometry-block / terminal; conformance span follows the frozen final-consumed-line/no-span rule |
 | same exact bytes parsed twice | byte-identical payload and Result identity |
 | old v1 and new parser on the same envelope | distinct append-only identities; old facts never treated as attributed |

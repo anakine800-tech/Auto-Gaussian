@@ -972,6 +972,41 @@ is echo-boundary; EOF in `PREAMBLE` is job-start; and EOF in `MACHINE_BODY` or
 failure. An earlier malformed geometry row therefore terminates parsing before
 any later malformed frequency token can have authority.
 
+Thermochemistry cardinality is a local child check within its otherwise
+unchanged direct machine-fact production. Every candidate that is legal in the
+current FSM state runs this exact, non-reorderable pipeline:
+
+```text
+validate exact line structure
+-> resolve the already-frozen canonical thermochemistry fact key
+-> validate the current numeric token against NUM
+-> convert the current value and require it to be finite
+-> test that key against previously committed thermochemistry evidence
+-> commit key/value/source span when unseen
+```
+
+Only a current line that has passed the first four steps is eligible for the
+duplicate check. A structural failure owns its existing structural diagnostic;
+an invalid or non-finite current token owns `unparseable-numeric-token` and its
+exact token span, even when the same key was committed earlier. Such a line is
+never inserted into the seen-key set, and the outcome is `UNPARSEABLE`. If the
+current fully valid canonical key was already committed in this supported job,
+`unparseable-duplicate-evidence` owns the failure before the current evidence
+is committed, and the outcome is `UNPARSEABLE`. Equal and unequal repeated
+values are equally duplicates;
+identical evidence is not an idempotent replay inside one ParseOutcome.
+
+The duplicate check is scoped only to successfully committed earlier
+thermochemistry evidence in this one supported Gaussian job. Equality is the
+exact canonical fact key produced by the already-frozen mapping, never raw
+spelling, display label, value, whitespace, or span. It does not cross a job,
+capture, parser outcome, Attempt, or repository record. The duplicate
+conformance span is always the full current/second line
+`[line_start,line_end)`: it includes its LF or CRLF terminator, or ends at
+artifact length `L` when the current line is the final unterminated line. It
+never points to the first occurrence, both occurrences, a token-only span, or
+a zero-width position.
+
 The conformance failure position is the lowest original-byte position where
 that active production proves failure. A numeric failure owns its exact token
 span; a row-shape failure or exact orphan owns the full offending line span; a
@@ -1050,7 +1085,7 @@ source-controlled vocabulary and single-owner production map:
 | `unparseable-ambiguous-transition` | active FSM state | two named exact transitions match the same current line | either transition's specific code |
 | `unparseable-orphan-anchor` | active non-echo machine-output or child FSM state | exact otherwise-valid named anchor occurs where that exact anchor is illegal | malformed-prefix and every parent/child structural/numeric code |
 | `unparseable-malformed-prefix` | machine-context prefix dispatcher | closed grammar-bearing prefix resembles a production but neither matches an exact anchor nor has a complete direct numeric-line shape, before a child is admitted | orphan, all child block/row codes, and numeric-token unless the direct numeric-line shape is complete |
-| `unparseable-duplicate-evidence` | machine fact cardinality | a second exact thermochemistry key appears after the first was accepted | orphan, malformed-prefix, and numeric-token |
+| `unparseable-duplicate-evidence` | thermochemistry cardinality check | current FSM state legally admits the exact thermochemistry production; current structure, canonical-key resolution, numeric grammar, and finite conversion all succeed; prior committed evidence with that exact key exists; accepting the current fully valid evidence would make cardinality greater than one; authority span is the full current duplicate line `[line_start,line_end)` | numeric-token, the thermochemistry structural diagnostic, orphan-anchor, and every generic block diagnostic |
 | `unparseable-optimization-block` | admitted optimization child | required row/marker shape or sequence is wrong, duplicated, prematurely terminated, or incomplete at EOF | orphan and numeric-token after valid row shape |
 | `unparseable-frequency-block` | admitted frequency child | required header/prefix/separator/cardinality/continuation/closure is wrong or missing, including EOF | orphan and numeric-token after valid value-row shape |
 | `unparseable-geometry-block` | admitted geometry child except atom-row production | required table header/separator/closure is wrong or missing, including EOF | orphan, geometry-row, and numeric-token |

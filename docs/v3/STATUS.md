@@ -74,17 +74,22 @@
   `GaussianLogParser` v1 history unchanged and owns a normative original-byte
   LF/CRLF tokenizer, literal/closed-regex FSM, section-local machine facts,
   half-open source spans, generic geometry blocks, and strict single-primary
-  fail-fast diagnostic ownership. The failed one-section ScientificValidation
-  workaround is closed; its candidates remain immutable failed evidence.
+  fail-fast diagnostic ownership. Thermochemistry candidates validate
+  structure, canonical key, numeric grammar, and finite conversion before
+  duplicate cardinality against prior committed same-key evidence; a valid
+  duplicate owns its full current raw-byte line. The failed one-section
+  ScientificValidation workaround is closed; its candidates remain immutable
+  failed evidence.
 - **Paused:** `V30-MIN-VALIDATE-CONTRACT-01` depends on integrated Result
   attribution. `V30-MIN-VALIDATE-IMPL-01` and `V30-VAL-SCI-01` are `NO-GO`.
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
 - **Next gate:** Independent
-  `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01` diagnostic-precedence successor
-  review. A passing contract still requires a separate Publish Owner Gate and
-  later a separate Result-attribution implementation Owner Gate.
+  `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01`
+  thermochemistry-duplicate-precedence successor review. A passing contract
+  still requires a separate Publish Owner Gate and later a separate
+  Result-attribution implementation Owner Gate.
 - **CI monitoring:** GitHub `Z` timestamps are UTC; owner-facing reports convert
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness

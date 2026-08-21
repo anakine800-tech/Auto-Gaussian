@@ -235,6 +235,9 @@ for their owned surfaces.
   the exact artifact/status matrix, one-primary-diagnostic fail-fast ownership,
   disjoint orphan/block/row/numeric/EOF precedence, zero-based half-open spans
   bound to one envelope artifact, strict store/reopen attestation,
+  thermochemistry structure/key/numeric/finite validation before a
+  prior-committed same-key duplicate check and the full-current-line duplicate
+  span,
   complete ordered frequency and geometry blocks with malformed-block fail
   closure, no cross-source splicing, identity conflict behavior, scientific
   neutrality, and the full offset-asserting adversarial matrix in

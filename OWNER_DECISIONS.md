@@ -206,6 +206,14 @@ first failure; a parent block may not replace or accompany a more specific row
 or numeric failure. Exact valid anchors in an illegal state are orphans, while
 malformed lookalike prefixes are not. No diagnostic set, ranking pass, or later
 failure participates in Result identity.
+For a thermochemistry candidate, the current line must pass its exact
+structural production, canonical-key resolution, numeric grammar, and finite
+conversion before duplicate cardinality is evaluated against previously
+committed same-key evidence in that one supported job. A structural or numeric
+failure therefore owns the current line before duplicate checking; a fully
+valid second same-key occurrence instead owns
+`unparseable-duplicate-evidence` over the full current raw-byte line, whether
+its value equals or differs from the first occurrence.
 Structurally valid multiple jobs are unsupported; malformed, truncated, or
 ambiguous context fails closed. Result records attribution and generic facts
 only. It never decides whether a geometry is a minimum or grants scientific
