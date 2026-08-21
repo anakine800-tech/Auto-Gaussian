@@ -1,6 +1,7 @@
 """Public Auto-G16 v3 offline result provenance interface."""
 
 from .gaussian import GaussianLogParser
+from .gaussian_job import GaussianJobParser
 from .models import (
     INPUT_BINDING_OBSERVATION,
     NS_INPUT_BINDING,
@@ -28,6 +29,7 @@ __all__ = [
     "CaptureCompleteness",
     "CaptureStatus",
     "GaussianLogParser",
+    "GaussianJobParser",
     "INPUT_BINDING_OBSERVATION",
     "InputBinding",
     "MalformedEnvelopeError",

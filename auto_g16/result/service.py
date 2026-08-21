@@ -126,6 +126,7 @@ class ResultProvenanceService:
             raise ProvenanceConflictError(
                 "parse outcome must bind a stored same-Attempt output envelope"
             )
+        self._validate_attributed_result(outcome, envelope)
         if (
             envelope.capture_completeness is CaptureCompleteness.PARTIAL
             and outcome.parse_status is not ParseStatus.PARTIAL
@@ -157,6 +158,10 @@ class ResultProvenanceService:
                 "a Result binds an unknown or cross-Attempt output envelope"
             )
         by_id = {item.observation_id: item for item in envelopes}
+        for outcome in outcomes:
+            self._validate_attributed_result(
+                outcome, by_id[outcome.envelope_observation_id]
+            )
         if any(
             by_id[item.envelope_observation_id].capture_completeness
             is CaptureCompleteness.PARTIAL
@@ -306,6 +311,60 @@ class ResultProvenanceService:
         if plan.revision != binding.calculation_plan_revision:
             raise ProvenanceConflictError(
                 "input binding must name the exact CalculationPlan revision"
+            )
+
+    @staticmethod
+    def _validate_attributed_result(
+        outcome: ParseOutcome, envelope: OutputEnvelope
+    ) -> None:
+        if outcome.result_kind != "gaussian-job-facts":
+            return
+        gaussian_logs = tuple(
+            item
+            for item in envelope.artifacts
+            if item.artifact_kind == "gaussian-log"
+        )
+        if envelope.capture_completeness is CaptureCompleteness.PARTIAL:
+            if not (
+                outcome.parse_status is ParseStatus.PARTIAL
+                and not outcome.facts
+                and outcome.diagnostics == ("capture-partial",)
+            ):
+                raise ProvenanceConflictError(
+                    "an attributed Result contradicts the partial-capture matrix"
+                )
+            return
+        if len(gaussian_logs) != 1:
+            if not (
+                outcome.parse_status is ParseStatus.UNSUPPORTED
+                and not outcome.facts
+                and outcome.diagnostics
+                == ("unsupported-gaussian-log-cardinality",)
+            ):
+                raise ProvenanceConflictError(
+                    "an attributed Result contradicts Gaussian-log cardinality"
+                )
+            return
+        if outcome.parse_status is ParseStatus.PARTIAL or outcome.diagnostics == (
+            "unsupported-gaussian-log-cardinality",
+        ):
+            raise ProvenanceConflictError(
+                "a complete one-log envelope contradicts its attributed outcome"
+            )
+        if not outcome.facts:
+            return
+        source = outcome.facts["source_artifact"]
+        if source["envelope_observation_id"] != envelope.observation_id:
+            raise ProvenanceConflictError(
+                "attributed Result source binds another output envelope"
+            )
+        artifact = gaussian_logs[0]
+        if artifact is None or artifact.payload() != {
+            key: source[key]
+            for key in ("artifact_kind", "logical_name", "sha256", "size_bytes")
+        }:
+            raise ProvenanceConflictError(
+                "attributed Result source does not equal its envelope artifact"
             )
 
     def _parse_outcomes(self, attempt_id: str) -> tuple[ParseOutcome, ...]:
