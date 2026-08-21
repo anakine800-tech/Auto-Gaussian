@@ -242,7 +242,9 @@ classifications are `VALIDATED_MINIMUM`, `NOT_MINIMUM`, `INCOMPLETE`, and
 `UNSUPPORTED`. The accepted optimization/stationary pair, final optimized
 geometry, and post-stationary frequency evidence are selected deterministically
 from Result-owned source spans; no favorable subset or nearest-looking fact is
-permitted.
+permitted. Each outcome carries exactly one source-controlled primary reason
+code selected by the frozen validation order; an implementation cannot collect,
+rank, or reorder multiple reasons.
 
 V3.0 supports only ordinary nonlinear minima with at least three non-dummy
 atoms and exactly `3*N - 6` attributed post-stationary frequencies. Fewer

@@ -1319,9 +1319,9 @@ Attempt ID, InputBinding observation ID, envelope observation ID,
 selected evidence for a supported attributed tuple (or canonical explicit
 absence for a non-parsed/unsupported outcome), accepted optimization and
 stationary spans, selected geometry block, selected post-stationary frequency
-blocks and values, classification, and a canonical closed reason-code tuple.
-There is no current/latest lookup, cross-capture, cross-envelope, cross-Result,
-cross-parser, or cross-Attempt evidence splice.
+blocks and values, classification, and exactly one closed primary
+`reason_code`. There is no current/latest lookup, cross-capture, cross-envelope,
+cross-Result, cross-parser, or cross-Attempt evidence splice.
 
 The exact supported parser tuple is:
 
@@ -1426,11 +1426,40 @@ unsupported parser tuple, dummy center, `N < 3`, or too many modes, is
 `UNSUPPORTED`. Only then do negative modes decide `NOT_MINIMUM` versus
 `VALIDATED_MINIMUM`.
 
+Each outcome carries exactly one primary reason code. Validation evaluates the
+following ordered table top to bottom and stops at the first applicable row;
+later conditions are not collected as secondary reasons:
+
+| Order | First applicable condition | Classification | Exact reason code |
+| ---: | --- | --- | --- |
+| 1 | plan/Attempt/InputBinding/envelope/Result identity or same-source provenance cannot be closed | `INCOMPLETE` | `incomplete-provenance` |
+| 2 | envelope is not complete | `INCOMPLETE` | `incomplete-capture` |
+| 3 | parser tuple is legacy, unknown, or otherwise unsupported | `UNSUPPORTED` | `unsupported-result-tuple` |
+| 4 | supported tuple has `ParseStatus.UNSUPPORTED` | `UNSUPPORTED` | `unsupported-parse-status` |
+| 5 | supported tuple is partial, unparseable, or not parsed with closed facts | `INCOMPLETE` | `incomplete-parse` |
+| 6 | attributed program status is error termination | `INCOMPLETE` | `incomplete-error-termination` |
+| 7 | normal-terminal cardinality/status is missing or contradictory | `INCOMPLETE` | `incomplete-terminal-evidence` |
+| 8 | optimization/stationary evidence does not form the required final ordered pair | `INCOMPLETE` | `incomplete-marker-pair` |
+| 9 | no unique eligible final geometry exists | `INCOMPLETE` | `incomplete-final-geometry` |
+| 10 | selected geometry has `N < 3` | `UNSUPPORTED` | `unsupported-atom-cardinality` |
+| 11 | selected geometry contains atomic number `0` | `UNSUPPORTED` | `unsupported-dummy-center` |
+| 12 | selected post-stationary mode count is below `3*N - 6` | `INCOMPLETE` | `incomplete-mode-count` |
+| 13 | selected post-stationary mode count is above `3*N - 6` | `UNSUPPORTED` | `unsupported-mode-count` |
+| 14 | one or more selected frequencies are `< 0.0` | `NOT_MINIMUM` | `negative-frequency` |
+| 15 | every prior rule passes | `VALIDATED_MINIMUM` | `validated-minimum` |
+
+The table is the complete reason-code vocabulary for policy v1. Exactly one
+row owns every returned outcome; a tuple/set of multiple reasons, warning code,
+exception string, presentation message, or caller-selected reason is invalid.
+Thus simultaneous missing marker, geometry, and mode evidence is owned only by
+`incomplete-marker-pair`, the first applicable row.
+
 ### Identity, acceptance, and persistence
 
 `MinimumValidationOutcome` uses a source-controlled namespace and a
 schema-versioned, domain-separated UUIDv5 over its complete canonical authority
-payload, including expanded selected evidence and classification. Exact replay
+payload, including expanded selected evidence, classification, and the one
+primary reason code. Exact replay
 has the same identity and payload. The same identity with different content is
 a conflict. A changed Result, plan revision, policy version, selected fact, or
 classification produces a new identity. Timestamps, serialization formatting,

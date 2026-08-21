@@ -500,9 +500,12 @@ authority:
     `NOT_MINIMUM`, `INCOMPLETE`, and `UNSUPPORTED`. No probable, warning,
     partial, tolerance, or caller-defined class exists.
 14. One domain-separated UUIDv5 outcome binds the complete canonical chain,
-    selected expanded facts/spans, exact policy, classification, and closed
-    reason codes. Exact replay is identical; conflicting same-ID content fails;
-    changed Result or policy produces a new identity.
+    selected expanded facts/spans, exact policy, classification, and exactly
+    one primary reason code from the closed ordered table in
+    `boundary-spec.md`. The first applicable row owns the outcome; no secondary
+    reason collection or ordering choice exists. Exact replay is identical;
+    conflicting same-ID content fails; changed Result or policy produces a new
+    identity.
 15. ScientificValidation-owned schema-v1 SQLite persistence is append-only and
     separate from Core/Result. Create is fresh/no-overwrite, reopen is
     terminal-no-follow and replacement-safe, exact replay is idempotent,
@@ -547,8 +550,11 @@ Focused future evidence must also cover missing/unequal marker pairs, multiple
 eligible geometries, pre-stationary frequencies, the full post-stationary
 suffix, Result/source-span forgery, cross-source splicing, exact identity
 replay/conflict, acceptance replay/conflict, fresh/reopen file integrity, and
-durable order using synthetic records only. Contract completion stops at the
-Publish Owner Gate and does not authorize `V30-VAL-SCI-01` or implementation.
+durable order using synthetic records only. A combined missing marker,
+geometry, and mode case must produce only `incomplete-marker-pair`; changing
+the order or returning multiple reasons must fail contract tests. Contract
+completion stops at the Publish Owner Gate and does not authorize
+`V30-VAL-SCI-01` or implementation.
 
 ## V30-WF-CONTRACT-01: Minimal Deterministic Workflow
 
