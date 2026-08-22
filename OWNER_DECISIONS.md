@@ -42,11 +42,13 @@ retried automatically.
 
 ## OD-06: Transport targets
 
-Direct SSH is the v3.0 transport target, implemented behind a new thin
-`OpenSSHTransport`. It does not inherit the old single-use capability or
-private owner-chain architecture. The legacy RTwin path remains an adapter and
-a reuse source for existing operation. Live deployment always requires
-separate, explicit authorization.
+Direct SSH remains the long-term v3 transport target, implemented behind a new
+thin `OpenSSHTransport`. It does not inherit the old single-use capability or
+private owner-chain architecture. V30-A closes the first real composition with
+an RTwin-first adapter over the already reviewed execution port; OpenSSH is
+explicitly deferred until a later Owner gate. The legacy RTwin path remains an
+adapter and reuse source rather than v3 authority. Live deployment always
+requires separate, explicit authorization.
 
 ## OD-07: Safety semantics and governance implementation
 
@@ -106,11 +108,14 @@ changes rather than automatic scientific changes, but they require a newly
 resolved snapshot and a new exact confirmation.
 
 Each approval or confirmation is non-effectful by itself. Only the complete
-current chain followed by the explicit Core `WINNER` claim may reach an effect.
-`UNKNOWN` creates no retry authority. A child Attempt may reuse scientific
-approval only when it still binds the exact same CalculationPlan; it always
-requires new Batch Submit Approval membership, a new snapshot, and a new exact
-operational confirmation.
+current chain passed to the single Execution effect entrypoint may reach the
+Core claim. The Controller does not pre-claim. `execute_once(...)` owns
+`record_submission_intent(...)`; only its explicit `WINNER` branch may cross
+the first effect boundary, while `REPLAY` makes zero effect calls. `UNKNOWN`
+creates no retry authority. A child Attempt may reuse scientific approval only
+when it still binds the exact same CalculationPlan; it always requires new
+Batch Submit Approval membership, a new snapshot, and a new exact operational
+confirmation.
 
 ## OD-11: Minimal workflow is deterministic orchestration, not effect authority
 
@@ -383,3 +388,39 @@ No upstream package imports Review. The ScientificValidation public shape may
 be referenced during contract freeze, but Review implementation remains
 blocked until ScientificValidation implementation is integrated; no local stub
 or substitute record may fill that dependency.
+
+## OD-17: V30-A composition is RTwin-first and has one Execution effect owner
+
+The V30-A Controller is a composition role, not a new public package or effect
+owner. It must replay `validate_effect_authority(...)`, validate every exact
+non-effect input, and then call the existing public Execution
+`execute_once(...)` entrypoint. It must not call
+`record_submission_intent(...)` itself. `execute_once(...)` alone owns that
+Core claim and sequences it after all non-effect validation. Only `WINNER`
+crosses the first workspace or remote effect boundary; `REPLAY` makes zero
+adapter, filesystem, transport, scheduler, or Gaussian calls.
+
+This is an at-most-once effect seam, not a distributed atomic transaction.
+Once `WINNER` has been recorded, a crash, lost connection, malformed reply, or
+otherwise ambiguous remote outcome cannot roll the claim back and cannot
+authorize automatic retry. Durable `possibly_effectful` evidence and
+same-Attempt read-only reconciliation remain the only legal uncertain path.
+
+V30-A uses one RTwin/PBS adapter behind the already integrated public
+`ExecutionPort`. A separate read-only transport port acquires scheduler and
+fetch evidence. Process acquisition is deferred. The Controller maps acquired
+scheduler state into public Observe records; transport never records Observe
+authority.
+The Controller maps fetched bytes and exact capture metadata into public
+Result `OutputEnvelope`/`OutputArtifact` records and invokes the public Result
+parser; transport never creates a `ParseOutcome` or program fact. Direct
+`OpenSSHTransport`, qdel/cancellation, cleanup, deployment, and all live
+operations remain deferred to separate Owner gates.
+
+The new public surface is confined to `auto_g16.transport`, with tests under
+`tests/v3/transport/`. Existing Core, Approval, Workflow, Execution, Observe,
+Result, ScientificValidation, and Review public APIs and schemas remain
+unchanged. A complete synthetic composition test must prove the exact chain
+through `WINNER`, Observe, fetch, Result, ScientificValidation, ReviewBundle,
+and separate ScientificAcceptance while making no network, PBS, Gaussian, or
+other live call.

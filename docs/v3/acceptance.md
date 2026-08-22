@@ -965,6 +965,107 @@ V30-OBS-MIN-CONTRACT-01 stops after a new independent adversarial contract
 review. Completion authorizes neither publication, `V30-VAL-OBS-01`, Observe
 implementation, `V30-EXEC-02`, nor live work.
 
+## V30-EXEC-02-COMPOSITION-CONTRACT-01: RTwin-First V30-A Composition
+
+**Status: CONTRACT FREEZE CANDIDATE; IMPLEMENTATION AND LIVE WORK NOT
+AUTHORIZED.** The candidate passes only when all conditions below are proved
+by docs/context checks and a fresh independent adversarial contract review:
+
+1. The Controller completes pure `validate_effect_authority(...)` and every
+   non-effect validation, does not call `record_submission_intent(...)`, and
+   invokes the unchanged public `execute_once(...)` once.
+2. `execute_once(...)` alone owns the Core claim. `WINNER` alone crosses the
+   first effect boundary; `REPLAY` causes zero adapter, filesystem, transport,
+   scheduler, and Gaussian calls.
+3. The boundary is not described as a distributed transaction. Crash or
+   ambiguity after `WINNER` cannot roll back the claim or authorize retry;
+   possibly-effectful evidence yields `UNKNOWN` plus same-Attempt read-only
+   reconciliation only.
+4. V30-A is RTwin/PBS-first through an adapter implementing the unchanged
+   `ExecutionPort`. OpenSSH, live RTwin/PBS/Gaussian, qdel/cancellation,
+   cleanup, deployment, credentials, and remote smoke remain deferred.
+5. The new package is exactly `auto_g16.transport`, future tests are under
+   `tests/v3/transport/`, and no existing Core/Approval/Workflow/Execution/
+   Observe/Result/ScientificValidation/Review API or schema changes.
+6. The exact eight-symbol public inventory and every exact field/method
+   signature in `boundary-spec.md` are closed. Public records are frozen,
+   slotted, keyword-only, deeply immutable, and accept no raw command, shell,
+   callback, arbitrary root, or caller-selected executable.
+7. `ExactRemoteJobBinding.from_confirmed_receipt(...)` revalidates the public
+   ExecutionSnapshot and reconstructed receipt and rejects every mismatch in
+   Attempt, snapshot, submission intent, receipt, remote workspace, job, effect
+   kind, or confirmed-effect state.
+8. Scheduler acquisition is read-only and uses the exact closed Observe state
+   and freshness vocabularies. Exact not-found is `absent`; command, transport,
+   duplicate-record, or parse ambiguity is `unknown`; slow/running is not
+   failure. Scheduler evidence grants no reconciliation, retry, or completion.
+9. The Controller, not Transport, maps one exact scheduler record into public
+   `AttemptObservation` and calls `record_attempt_observation(...)`. Transport
+   never writes Core/Observe. Process acquisition remains deferred.
+10. One fetch request is finite, non-empty, ordered, and duplicate-free. It
+    accepts only portable single-component allowlisted names; absolute,
+    separator, dot/parent, shell, glob, symlink/reparse, recursive, and
+    implicit-all-file requests fail closed.
+11. Every fetched artifact proves the exact remote Attempt workspace, regular
+    source stability across bounded before/read/after checks, exact immutable
+    bytes/digest/size, and fresh no-follow descriptor-relative atomic local
+    materialization. Replacement, short read, drift, escape, or existing target
+    causes zero overwrite and zero cleanup.
+12. One complete capture contains every required request exactly once. A
+    non-empty exact prefix may be partial; zero stable artifacts produces no
+    Result envelope. Capture status/completeness equals the public Result
+    vocabulary exactly.
+13. Transport schema-v1 UUIDv5 identities use the exact namespace, domain, and
+    canonical arrays frozen in `boundary-spec.md`. Exact replay keeps identity;
+    changed source bytes, binding, timestamp, sequence, status, completeness,
+    or artifact metadata changes identity; same-ID/different-payload conflicts.
+14. `RTWinExecutionAdapter` advertises `rtwin-pbs-v1` and exposes only the
+    unchanged `ExecutionPort` effect/reconciliation methods.
+    `RTWinReadAdapter` exposes only exact scheduler read and exact output fetch,
+    and both revalidate the current snapshot plus confirmed receipt on every
+    call.
+15. Read adapter construction is non-effectful. It cannot submit, cancel,
+    delete, clean up, mutate Core, resolve `UNKNOWN`, or create authority.
+16. The Controller verifies fetched bytes, builds public Result
+    `OutputArtifact`/`OutputEnvelope`, and records through existing Result
+    services. Transport does not import Result, create `ParseOutcome`, parse
+    Gaussian bytes, select facts, or make scientific conclusions.
+17. After Transport implementation is integrated, the separately gated
+    test-local synthetic Controller proves the exact approval,
+    Execution WINNER, scheduler Observe, fetch, OutputEnvelope,
+    GaussianJobParser, ScientificValidation, ReviewBundle, and separate
+    ScientificAcceptance chain without defining a product Controller API.
+18. Exact composition replay returns Core `REPLAY` with no additional adapter
+    calls. A post-WINNER ambiguous submit yields durable `UNKNOWN` and no second
+    qsub, child, alternative profile/workspace, or automatic retry.
+19. The composition matrix rejects cross-Attempt, cross-snapshot,
+    cross-receipt, cross-workspace, cross-job, capture/InputBinding, and Result
+    provenance splices before downstream authority.
+20. Network, subprocess, real qsub/qdel, Gaussian, unauthorized remote
+    mutation, cleanup, and retry spies remain at zero in all contract and
+    synthetic composition tests.
+21. Reuse adjudication is complete: public v3 APIs are PORTed, narrow safety
+    primitives/tests EXTRACTed, legacy RTwin running behavior WRAPped, typed
+    boundaries REWRITTEN for the stated legacy-coupling reason, old governance
+    DROPped, and OpenSSH/process/live capabilities DEFERred.
+22. `V30-VAL-TRANSPORT-01` remains the required change-aware ownership gate;
+    no selector mutation or Transport implementation is included in this
+    authority candidate.
+
+The later implementation matrix must cover: exact binding happy path; every
+binding-field mismatch; scheduler queued/running/held/exiting/terminal/absent/
+unknown; malformed and duplicate qstat; stable complete and partial fetch;
+request traversal/symlink/replacement/short-read/digest drift/existing target;
+capture and scheduler identity replay/conflict; Controller mapping equality;
+`WINNER` exactly one call; `REPLAY` zero calls; post-WINNER ambiguity;
+same-Attempt reconciliation; full Result/parser/ScientificValidation/Review
+chain; all cross-splice attacks; and zero live-call spies.
+
+V30-EXEC-02-COMPOSITION-CONTRACT-01 stops after independent review and
+repository publication. Completion authorizes neither
+`V30-VAL-TRANSPORT-01`, Transport implementation, product Controller code,
+OpenSSH, live work, nor V30-A execution.
+
 ## v3.0: Closed-Shell Minimum
 
 A real closed-shell minimum completes:

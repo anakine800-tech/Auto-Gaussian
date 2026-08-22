@@ -24,6 +24,13 @@ InputBinding and OutputEnvelope, but it does not import Execution or reconstruct
 a snapshot. Core, Result, ScientificValidation, Approval, Execution, and
 Workflow must not import Review.
 
+The V30-A Controller is an application composition role, not a new public
+package or authority layer. The future `auto_g16.transport` package may depend
+only on public Execution records/ports and standard-library facilities. It
+does not import Observe, Result, ScientificValidation, or Review. The
+Controller translates transport read evidence into those layers through their
+existing public APIs; no upstream package imports Transport.
+
 ## Core Objects
 
 - `Project`: durable workspace identity and collection boundary.
@@ -142,9 +149,11 @@ exact CalculationPlan
 -> Batch Submit Approval membership for the exact Attempt and plan
 -> exact ExecutionSnapshot
 -> current Exact Operational Confirmation
--> record_submission_intent(exact Attempt, exact submission intent)
--> explicit Core WINNER
--> effect
+-> Controller validates the complete current chain
+-> execute_once(exact snapshot and bytes)
+   -> record_submission_intent(exact Attempt, exact submission intent)
+   -> explicit Core WINNER
+   -> first effect
 ```
 
 No item in this chain may stand in for another. An approval record, a
@@ -254,17 +263,18 @@ or retry authority.
 
 ### Effect gate, replay, and invalidation
 
-Immediately before an effect, the Controller must replay the exact current
-Scientific Approval, exact Batch Submit Approval member, and exact Operational
-Confirmation against the same Attempt, plan, and snapshot. Missing,
+Immediately before invoking Execution, the Controller must replay the exact
+current Scientific Approval, exact Batch Submit Approval member, and exact
+Operational Confirmation against the same Attempt, plan, and snapshot. Missing,
 conflicting, malformed, stale, cross-Attempt, cross-plan, or cross-snapshot
-evidence fails closed before the Core claim and before every external effect.
+evidence fails closed before `execute_once(...)`, the Core claim, and every
+external effect. The Controller must not pre-claim submission intent.
 
 Approval alone performs no Core transition, workspace mutation, upload,
 submission, retry, reconciliation, cancellation, cleanup, or deletion.
 Confirmation alone is also non-effectful. Even a complete approval chain makes
-zero submission effect unless the exact Core submission-intent claim returns
-`WINNER`; `REPLAY` and every non-winner path make zero effect calls.
+zero submission effect unless the claim owned inside `execute_once(...)`
+returns `WINNER`; `REPLAY` and every non-winner path make zero effect calls.
 
 Exact replay of unchanged approval evidence is deterministic and idempotent;
 the same evidence identity with different content conflicts. Approval evidence
@@ -462,12 +472,25 @@ Effects use this explicit order:
 resolve profile/resources/input
 → create ExecutionSnapshot
 → obtain exact operational confirmation
-→ claim Core submission intent
+→ Controller validates exact Approval authority and all other non-effect inputs
+→ Controller calls execute_once without pre-claiming
+→ execute_once revalidates snapshot/profile/bytes/port
+→ execute_once claims Core submission intent
+→ WINNER only
 → allocate/verify attempt workspaces
 → materialize/upload input and PBS bytes
 → invoke adapter submission effect at most once
 → record exact outcome/receipt
 ```
+
+`execute_once(...)` is the single Execution effect entrypoint and owns
+`record_submission_intent(...)`. The Controller, Approval, Workflow, and
+Transport layers must not claim on its behalf. This boundary is deliberately
+at-most-once rather than a distributed transaction: after `WINNER`, a process
+crash or ambiguous remote reply cannot roll the claim back and cannot authorize
+another effect attempt. It records durable evidence, leaves the Attempt
+`UNKNOWN` when effect status is ambiguous, and permits only same-Attempt
+read-only reconciliation.
 
 Each effect preserves containment, no-follow, fresh/no-overwrite, exact-byte,
 and endpoint-identity checks. At most one `qsub` call is permitted for the
@@ -507,9 +530,11 @@ remains `UNKNOWN`.
 `UNKNOWN` never authorizes an automatic retry, another `qsub`, alternate
 profile or workspace, bypass or replacement Attempt, cleanup, cancellation,
 or `qdel`. This slice validates `Mac -> RTwin -> Server` first with a synthetic
-offline adapter. Live RTwin requires separate Owner authorization;
-`V30-EXEC-02` OpenSSH remains `WAIT` and must later reuse this public execution
-port. ExecutionSnapshot and transport/effect behavior remain outside Core.
+offline adapter. The later V30-EXEC-02 composition contract preserves this
+public port and selects an RTwin-first real adapter for V30-A. Live RTwin still
+requires separate Owner authorization; OpenSSH is deferred and must later
+reuse this public execution port. ExecutionSnapshot and transport/effect
+behavior remain outside Core.
 
 ## V30-RESULT-01 Frozen Result Provenance Contract
 
@@ -2474,6 +2499,300 @@ Result owns parsed facts; ScientificValidation owns scientific classification.
 The dependency direction is `Observe -> Core`; upstream layers never import
 Observe. Contract integration alone authorizes neither selector ownership nor
 implementation.
+
+## V30-EXEC-02-COMPOSITION-CONTRACT-01 RTwin-First Composition Contract
+
+**Contract status: FREEZE CANDIDATE; IMPLEMENTATION AND LIVE WORK NOT
+AUTHORIZED.** This additive contract opens only the offline V30-EXEC-02
+composition boundary. It does not alter any public Core, Approval, Workflow,
+Execution, Observe, Result, ScientificValidation, or Review API/schema. The new
+public package is `auto_g16.transport`, with future focused tests under
+`tests/v3/transport/`. Transport may depend on public Execution only. The
+Controller is a composition role and receives no new public package in this
+slice.
+
+### Single effect owner and RTwin-first boundary
+
+The Controller must finish pure `validate_effect_authority(...)` replay and all
+other non-effect validation, then call the existing public `execute_once(...)`
+without first claiming Core submission intent. `execute_once(...)` remains the
+single effect entrypoint, owns `record_submission_intent(...)`, and calls an
+RTwin adapter only after `WINNER`. `REPLAY` makes zero local-workspace,
+transport, scheduler, or Gaussian calls. The RTwin implementation conforms to
+the unchanged public `ExecutionPort`; it does not add another submit method or
+bypass the existing receipt journal.
+
+This sequencing is at-most-once, not distributed atomicity. A crash,
+disconnect, timeout, or malformed reply after `WINNER` cannot undo the claim.
+Any outcome that may have crossed a remote seam records
+`possibly_effectful`, leaves the Attempt `UNKNOWN`, and permits only the
+existing same-Attempt read-only reconciliation. It never invokes `qsub` again,
+creates a child, changes a workspace/profile, or grants retry authority.
+
+V30-A selects `Mac -> RTwin -> PBS server` as its first real adapter path. The
+existing `legacy_rtwin_pbs` running path is wrapped behind the v3 port and is
+never allowed to own Core state, Approval, receipt lineage, or a v3 capability.
+Direct `OpenSSHTransport` remains deferred. This contract and its later
+implementation are offline-only; live RTwin, PBS, Gaussian, `qsub`, `qdel`,
+deployment, cancellation, cleanup, and remote mutation require later explicit
+Owner authorization.
+
+### Exact minimum Transport public inventory
+
+The future `auto_g16.transport` export set is exactly:
+
+```text
+TransportBoundaryError
+ExactRemoteJobBinding
+SchedulerReadEvidence
+ExactArtifactRequest
+FetchedArtifact
+FetchedOutputCapture
+RTWinExecutionAdapter
+RTWinReadAdapter
+```
+
+`TransportBoundaryError` inherits `ValueError` and owns malformed, stale,
+cross-Attempt, cross-snapshot, cross-receipt, unstable-read, and unsafe-path
+failures at this boundary. Public records are frozen, slotted, keyword-only,
+and deeply immutable. Public functions/classes accept no arbitrary command,
+shell fragment, callback, remote root, or caller-selected executable.
+
+`ExactRemoteJobBinding` has exactly these six fields:
+
+```text
+attempt_id: str
+execution_snapshot_id: str
+submission_intent_id: str
+remote_effect_receipt_id: str
+remote_workspace: str
+job_id: str
+```
+
+`ExactRemoteJobBinding.from_confirmed_receipt(snapshot, receipt)` first calls
+public `assert_execution_snapshot_identity(snapshot)`, reconstructs the public
+`RemoteEffectReceipt` from its semantic payload, and accepts only
+`confirmed_effect` submission or submission-reconciliation evidence. Attempt,
+snapshot, submission intent, exact remote Attempt workspace, and non-empty job
+ID must all equal the current snapshot/receipt. A caller cannot construct an
+authority-bearing binding from strings alone: the record has `init=False` and
+the verified classmethod is its only public constructor.
+
+`SchedulerReadEvidence` has exactly these ten fields:
+
+```text
+binding: ExactRemoteJobBinding
+source_identity: str
+observed_at_utc: str
+freshness: str
+state: str
+evidence_sha256: str
+evidence_size_bytes: int
+schema_version: int = 1
+source_kind: str = "scheduler"
+progress_position: None = None
+```
+
+The record has `init=False` and is created only by
+`SchedulerReadEvidence.from_acquisition(binding, *, evidence_bytes,
+observed_at_utc, freshness, state)`. That classmethod requires non-empty exact
+immutable evidence bytes and derives the digest, size, source kind, progress,
+and source identity; none is accepted as caller authority.
+
+Its closed state vocabulary equals Observe scheduler state exactly:
+`queued`, `running`, `held`, `exiting`, `terminal`, `absent`, or `unknown`.
+Freshness is `fresh`, `stale`, or `unknown`. A successful exact qstat record is
+mapped by this closed PBS-state table: `Q/W -> queued`, `R/B -> running`,
+`H/S -> held`, `E/T -> exiting`, and `C/F/X -> terminal`. Any other raw state
+is `unknown`. An exact scheduler
+not-found response maps to `absent`; command, transport, duplicate-record, or
+parse ambiguity maps to `unknown`, never failure. A scheduler read is not
+reconciliation, Gaussian completion, scientific success, or retry authority.
+The Controller creates an existing public `AttemptObservation` by copying the
+exact attempt, source identity, timestamp, freshness, state, and `None`
+progress, then calls `record_attempt_observation(...)`. Transport does not
+write Core or Observe records. Process acquisition remains deferred.
+
+`ExactArtifactRequest` has exactly these four fields:
+
+```text
+artifact_kind: str
+logical_name: str
+remote_relative_name: str
+required: bool
+```
+
+The tuple supplied to one fetch is finite, non-empty, ordered by logical name,
+and duplicate-free. Names are portable single components: no absolute path,
+separator, dot component, parent traversal, shell syntax, glob, or symlink is
+accepted. The v1 required artifact is one Gaussian log derived from the exact
+prepared-input basename; optional stdout/stderr may be named explicitly.
+Artifact kind is exactly `gaussian-log`, `stdout`, or `stderr` in v1.
+Checkpoint bytes, recursive directories, arbitrary caller paths, and implicit
+"all files" discovery are outside this contract.
+
+`FetchedArtifact` has exactly these four fields:
+
+```text
+request: ExactArtifactRequest
+content: bytes
+sha256: str
+size_bytes: int
+```
+
+Its public constructor is exactly
+`FetchedArtifact(*, request: ExactArtifactRequest, content: bytes)`; `sha256`
+and `size_bytes` are `init=False` derived fields.
+
+The adapter accepts an artifact only when the exact remote Attempt workspace
+and regular source file are stable across bounded before/read/after identity,
+size, and SHA-256 checks. Local materialization is fresh, no-follow,
+descriptor-relative, atomic, and no-overwrite. Source stability is adapter
+validation, not a caller-supplied boolean. Digest and size are recomputed from
+exact immutable bytes. Replacement, symlink/reparse, escape, short read,
+digest drift, or target existence fails closed with zero overwrite or cleanup.
+
+`FetchedOutputCapture` has exactly these ten fields:
+
+```text
+binding: ExactRemoteJobBinding
+input_binding_observation_id: str
+capture_source_id: str
+capture_sequence: int
+capture_status: str
+capture_completeness: str
+artifacts: tuple[FetchedArtifact, ...]
+capture_manifest_sha256: str
+captured_at_utc: str
+schema_version: int = 1
+```
+
+Its public constructor accepts only `binding`,
+`input_binding_observation_id`, `capture_sequence`, `capture_status`,
+`capture_completeness`, `artifacts`, and `captured_at_utc` as keyword arguments.
+`capture_source_id`, `capture_manifest_sha256`, and `schema_version` are
+derived/constant `init=False` fields.
+
+Capture status is exactly `captured`, `capture-in-progress`,
+`capture-interrupted`, or `capture-error`; completeness is exactly `partial`
+or `complete`. Only `captured + complete` is complete; `capture-in-progress`,
+`capture-interrupted`, and `capture-error` require `partial`. `complete`
+requires every required request to have one stable fetched artifact. A capture
+containing at least one exact stable artifact may remain `partial`; zero stable
+artifacts returns a transport failure and creates no Result envelope. The
+manifest digest covers the ordered Result-compatible artifact metadata, not
+paths or mutable timestamps.
+
+The transport UUID namespace root is
+`6e54140f-f4e7-5482-a6c1-8f5729e3c112`. Schema-versioned, domain-separated
+UUIDv5 identities use compact UTF-8 JSON arrays with `allow_nan=False`.
+`scheduler-read` binds the complete remote job binding, timestamp, freshness,
+state, and exact acquired-evidence digest/size. `output-capture` binds the
+complete remote job binding, InputBinding observation ID, capture sequence,
+status/completeness, ordered artifact metadata, manifest digest, and capture
+timestamp. Exact replay keeps identity; any semantic change changes identity;
+same identity with different semantics fails closed. These transport evidence
+identities are audit/source bindings, never approval or effect authority.
+
+`RTWinExecutionAdapter()` and `RTWinReadAdapter()` have no public constructor
+arguments; creation is non-effectful, and package-private driver/clock seams
+may be replaced only by tests without entering the public API.
+`RTWinExecutionAdapter` implements the unchanged public `ExecutionPort` and
+advertises adapter contract version `rtwin-pbs-v1`. It wraps only exact
+Attempt-specific allocate, exact-byte transfer, single qsub, and read-only
+submission-reconciliation operations. `RTWinReadAdapter` exposes exactly:
+
+```text
+read_scheduler(
+    snapshot: ExecutionSnapshot,
+    receipt: RemoteEffectReceipt,
+) -> SchedulerReadEvidence
+
+fetch_exact_output(
+    snapshot: ExecutionSnapshot,
+    receipt: RemoteEffectReceipt,
+    *,
+    input_binding_observation_id: str,
+    requests: tuple[ExactArtifactRequest, ...],
+    capture_sequence: int,
+) -> FetchedOutputCapture
+```
+
+Both read methods revalidate the current snapshot and confirmed receipt through
+`ExactRemoteJobBinding` on every call. Construction/configuration is
+non-effectful and package-owned; public construction accepts no raw command or
+authority token. The read adapter cannot submit, cancel, delete, clean up,
+mutate Core, or resolve an ambiguous submission by itself.
+
+### Observe, Result, and full synthetic composition
+
+The Controller owns the mapping seam. It records scheduler evidence through
+the existing public Observe constructor/service only after exact binding
+validation. It verifies every fetched byte against `FetchedArtifact`, builds
+public Result `OutputArtifact` values, then builds and records one public
+`OutputEnvelope` with exactly the capture's Attempt, InputBinding observation,
+ExecutionSnapshot, source ID, sequence, status/completeness, ordered metadata,
+manifest digest, and timestamp. `OutputEnvelope`, `ParseOutcome`,
+`GaussianJobParser`, capture cardinality, program facts, and parsing remain
+Result-owned. Transport neither imports Result nor parses Gaussian bytes.
+
+After Transport implementation is integrated, one separately gated mandatory
+full synthetic composition test under `tests/v3/transport/` uses a test-local
+Controller and only public APIs. It proves:
+
+```text
+CalculationPlan
+-> Scientific Approval
+-> exact finite Batch Submit Approval member
+-> ExecutionSnapshot
+-> Exact Operational Confirmation
+-> pure validate_effect_authority
+-> execute_once owns Core claim
+-> WINNER and exactly one synthetic qsub seam
+-> scheduler evidence -> Observe record
+-> exact fetched bytes -> Result OutputEnvelope
+-> GaussianJobParser -> ParseOutcome
+-> MinimumValidationOutcome persistence
+-> ReviewBundle
+-> separate explicit ScientificAcceptance
+```
+
+The test must also replay the same call to obtain `REPLAY` with zero additional
+adapter calls; inject a post-WINNER ambiguous submission and prove `UNKNOWN`
+with zero automatic retry; reject cross-Attempt/snapshot/receipt/workspace/job,
+unstable fetch, capture/InputBinding splice, and Result provenance splice; and
+use network/subprocess/qsub/qdel/Gaussian spies that remain at zero. The
+test-local Controller is composition evidence only, not a product API. It must
+not depend on unmerged Transport bytes. Product Controller/orchestration code,
+live transport, and real credentials remain outside this contract.
+
+### Narrow reuse adjudication and follow-on ownership
+
+- **PORT:** existing public `ExecutionPort`, `execute_once`, snapshot identity
+  verifier, `RemoteEffectReceipt`, Observe records/services, Result provenance
+  records/services, `GaussianJobParser`, ScientificValidation, and Review APIs.
+- **EXTRACT:** strict qstat present/absent/unknown classification, finite timeout
+  and stable-read rules, descriptor/no-follow exact-copy checks, and adjacent
+  adversarial tests from the reviewed RTwin/direct implementations.
+- **WRAP:** the existing `legacy_rtwin_pbs` RTwin/PBS running path behind
+  `RTWinExecutionAdapter` and `RTWinReadAdapter`; its internal dictionaries and
+  commands are not the new public ABI or authority.
+- **REWRITE:** typed transport records, exact snapshot/receipt wrappers, and
+  Result-compatible capture mapping. Existing code mixes CLI parsing, mutable
+  dictionaries, legacy project-level state, and owner/capability governance, so
+  directly porting it would preserve the wrong authority and API.
+- **DROP:** legacy owner/receipt/capability/hash-lineage authority, non-empty
+  project as a v3 rule, qdel/cancellation, deletion/cleanup, implicit latest
+  discovery, parser/scientific policy, and automatic retry.
+- **DEFER:** OpenSSH, process and Gaussian-phase acquisition, checkpoint fetch,
+  rich telemetry/stall diagnosis, deployment, credentials, production smoke,
+  and every live operation.
+
+Before Transport implementation, a separate `V30-VAL-TRANSPORT-01` must add
+change-aware ownership for `auto_g16/transport/**` and
+`tests/v3/transport/**`. Until then those paths remain intentionally
+fail-closed. This contract candidate stops after independent adversarial
+review and publication gates; it grants no implementation or live authority.
 
 ## Context Boundaries
 
