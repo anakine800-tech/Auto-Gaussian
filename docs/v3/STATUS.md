@@ -120,6 +120,19 @@
   `FROZEN / INTEGRATED / PUBLIC SHAPE COMPLETE`. The later separately
   authorized `V30-MIN-VALIDATE-IMPL-01` is now `CLOSED / INTEGRATED`; the
   public-shape closeout itself granted no implementation authority.
+- **ReviewBundle contract candidate:** `V30-REVIEW-MIN-CONTRACT-01` freezes a
+  future `auto_g16.review` projection over exact persisted Core, Result, and
+  ScientificValidation authority. Its exact public inventory is
+  `ReviewAcceptanceState`, `ReviewBundle`, `ReviewBundleError`,
+  `build_review_bundle`, and `render_review_bundle_json`. The candidate creates
+  no scientific fact, current/latest selection, acceptance, persistence,
+  viewer action, execution authority, or live effect. Its InputBinding,
+  OutputEnvelope, and ParseOutcome projections explicitly include their exact
+  validated public `observation_id`, `observation_id`, and `result_id`; the
+  same closed mappings bind deterministic bundle identity and rendering.
+  Product implementation remains `WAIT` until ScientificValidation
+  implementation is integrated and separate Review contract publication,
+  validation-ownership, and implementation gates are approved.
 - **Frozen v3.0 scientific policy:** Minimum validation covers ordinary
   nonlinear systems only, requires `N >= 3`, rejects dummy atomic-number-0
   centers, and requires exactly `3N - 6` modes. Every finite frequency below

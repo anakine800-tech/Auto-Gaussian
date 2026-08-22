@@ -341,3 +341,45 @@ transport, profile-hash, and lineage governance is not v3 Observe authority.
 Existing Gaussian parsers remain Result authority and are not ported into
 Observe. Any future live acquisition or incremental Gaussian phase recognizer
 requires its own later contract and effect/read boundary.
+
+## OD-16: ReviewBundle is a deterministic projection, not authority
+
+The minimum v3.0 human-review surface belongs to the public
+`auto_g16.review` package, with focused tests under `tests/v3/review/`. It is a
+pure, immutable projection over exact persisted Core, Result, and
+ScientificValidation authority. It creates no scientific fact, chooses no
+current or favorable evidence, grants no acceptance or execution authority,
+and performs no persistence or external effect.
+
+One `ReviewBundle` closes the exact CalculationPlan and Attempt, InputBinding,
+ExecutionSnapshot identity, OutputEnvelope, ParseOutcome, selected geometry
+and complete selected frequency evidence, MinimumValidationOutcome and its one
+primary reason, plus an explicitly supplied finite set of
+ScientificAcceptance identities. The builder replays these public records and
+rejects cross-plan, cross-Attempt, cross-envelope, cross-Result, or
+cross-outcome splicing. Acceptance state is only a deterministic projection of
+the exact outcome and the explicit acceptance set; there is no latest/current
+selection and no acceptance operation in the Review layer.
+
+The bundle has a domain-separated deterministic UUIDv5 identity over its
+complete canonical projection payload. The only minimum renderer is
+deterministic JSON of that exact typed bundle. Rendering adds no timestamp,
+filesystem path, viewer state, prose interpretation, or hidden evidence.
+GaussView and other external viewers may later wrap an explicitly exported
+geometry projection under their own separate authority, but are not imported,
+invoked, or treated as ReviewBundle authority.
+
+The InputBinding, OutputEnvelope, and ParseOutcome projections explicitly
+include their existing derived public authority references
+(`observation_id`, `observation_id`, and `result_id`, respectively). The
+builder obtains and verifies those IDs from the exact typed public records; it
+accepts no caller-supplied replacement. Each projection has one closed key set,
+and the same complete mapping binds both ReviewBundle identity and
+deterministic rendering. These references make the exact reviewed authority
+chain visible without making Review a second identity or authority owner.
+
+Review depends only on public Core, Result, and ScientificValidation surfaces.
+No upstream package imports Review. The ScientificValidation public shape may
+be referenced during contract freeze, but Review implementation remains
+blocked until ScientificValidation implementation is integrated; no local stub
+or substitute record may fill that dependency.
