@@ -281,6 +281,27 @@
       "fail_closed": false
     },
     {
+      "id": "v30-observe",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/observe/",
+        "tests/v3/observe/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v3.core.test_store",
+        "tests.v3.observe"
+      ],
+      "required_safety": [
+        "no-overwrite",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
       "id": "legacy-touch",
       "exact_paths": [],
       "prefixes": [
