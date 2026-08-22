@@ -400,6 +400,15 @@ Core claim and sequences it after all non-effect validation. Only `WINNER`
 crosses the first workspace or remote effect boundary; `REPLAY` makes zero
 adapter, filesystem, transport, scheduler, or Gaussian calls.
 
+Official composition never calls `execute_once(...)` after Approval replay has
+observed a non-`PLANNED` Attempt. A valid concurrency test lets two Controllers
+finish pure authority replay against the same still-`PLANNED` Attempt before a
+barrier; their concurrent `execute_once(...)` calls yield one `WINNER` and one
+`REPLAY`, with the replaying port receiving zero calls. Any later invocation
+must first replay current Approval, fail there because the Attempt is no longer
+`PLANNED`, and make zero Execution or adapter calls. Bypassing that pure gate to
+obtain a sequential `REPLAY` is invalid Controller composition.
+
 This is an at-most-once effect seam, not a distributed atomic transaction.
 Once `WINNER` has been recorded, a crash, lost connection, malformed reply, or
 otherwise ambiguous remote outcome cannot roll the claim back and cannot
@@ -416,6 +425,14 @@ Result `OutputEnvelope`/`OutputArtifact` records and invokes the public Result
 parser; transport never creates a `ParseOutcome` or program fact. Direct
 `OpenSSHTransport`, qdel/cancellation, cleanup, deployment, and all live
 operations remain deferred to separate Owner gates.
+
+RTwin operations use one source-controlled, versioned, digest-attested private
+operation table. Executables and endpoint/runtime bindings come only from the
+exact resolved snapshot/profile; argv, operation token, cwd, environment,
+timeouts, output caps, and `shell=False` are fixed by the Transport contract.
+No caller command, shell text, retry, secret, or mutable environment is part of
+the operation surface. Fetch returns bounded immutable bytes and metadata
+only; it writes no local output target.
 
 The new public surface is confined to `auto_g16.transport`, with tests under
 `tests/v3/transport/`. Existing Core, Approval, Workflow, Execution, Observe,

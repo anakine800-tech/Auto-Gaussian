@@ -185,7 +185,7 @@ focused_tests = ["tests/test_execution_batch.py", "tests/test_idempotent_executi
 
 [[component]]
 id = "transport"
-status = "contract-freeze-candidate"
+status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-06-transport-targets",
   "OWNER_DECISIONS.md#od-17-v30-a-composition-is-rtwin-first-and-has-one-execution-effect-owner",

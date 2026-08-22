@@ -1,8 +1,12 @@
 # Auto-G16 v3 Status
 
 - **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01` is the active
-  Owner-guided offline authority freeze; Transport implementation and live work
-  remain unauthorized. `V30-MIN-VALIDATE-IMPL-01` is
+  Owner-guided offline authority freeze. Its exact authority content is frozen
+  and eligible for integration only after the successor independent review is
+  `PASS`; when that content is present on authoritative main, the contract is
+  `CLOSED / FROZEN / INTEGRATED` without another status edit. Transport
+  implementation and live work remain unauthorized.
+  `V30-MIN-VALIDATE-IMPL-01` is
   `CLOSED / INTEGRATED`, and the ScientificValidation implementation is active
   on authoritative main.
   `V30-MIN-VALIDATE-CONTRACT-01` and
@@ -16,9 +20,8 @@
   Result-attribution dependency is satisfied. ScientificValidation must not
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
   generic parser-version Result authority are preserved.
-  `V30-EXEC-02-COMPOSITION-CONTRACT-01` is the active Owner-guided authority
-  freeze on `main@3dce3d3e4ba14d3009c1b28a9928277dda548507`; Transport product
-  implementation remains unauthorized, and live work remains unauthorized.
+  Transport product implementation remains unauthorized, and live work remains
+  unauthorized.
 - **Observe contract and implementation integrated:**
   `V30-OBS-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`. It freezes only read-only exact-Attempt
@@ -161,10 +164,11 @@
   Transport implementation, and live operations remain `NO-GO`.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** `V30-EXEC-02-COMPOSITION-CONTRACT-01` Independent Contract
-  Review. After contract integration, the next separate gate is
-  `V30-VAL-TRANSPORT-01`; Transport implementation still requires its own
-  Owner gate, followed by a test-only
+- **Next gate:** before integration, the exact contract candidate requires its
+  successor `V30-EXEC-02-COMPOSITION-CONTRACT-01` Independent Contract Review.
+  After contract integration, the next separate gate is
+  `V30-VAL-TRANSPORT-01`; Transport implementation still requires its own Owner
+  gate, followed by a test-only
   `V30-A-SYNTHETIC-COMPOSITION-01`, before another read-only V30-A readiness
   audit.
 - **CI authority:** Under the current branch-protection and code-scanning

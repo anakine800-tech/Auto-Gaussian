@@ -2502,9 +2502,11 @@ implementation.
 
 ## V30-EXEC-02-COMPOSITION-CONTRACT-01 RTwin-First Composition Contract
 
-**Contract status: FREEZE CANDIDATE; IMPLEMENTATION AND LIVE WORK NOT
-AUTHORIZED.** This additive contract opens only the offline V30-EXEC-02
-composition boundary. It does not alter any public Core, Approval, Workflow,
+**Contract status: FROZEN; IMPLEMENTATION NOT AUTHORIZED.** This exact
+authority content is eligible for integration only after its successor
+independent review is `PASS`; once present on authoritative main it is active
+without another wording change. This additive contract opens only the offline
+V30-EXEC-02 composition boundary. It does not alter any public Core, Approval, Workflow,
 Execution, Observe, Result, ScientificValidation, or Review API/schema. The new
 public package is `auto_g16.transport`, with future focused tests under
 `tests/v3/transport/`. Transport may depend on public Execution only. The
@@ -2521,6 +2523,16 @@ RTwin adapter only after `WINNER`. `REPLAY` makes zero local-workspace,
 transport, scheduler, or Gaussian calls. The RTwin implementation conforms to
 the unchanged public `ExecutionPort`; it does not add another submit method or
 bypass the existing receipt journal.
+
+Official composition requires Approval replay while the Attempt is still
+`PLANNED`. The concurrency proof has two Controllers complete that pure replay
+before one barrier, then call `execute_once(...)` concurrently: exactly one
+returns `WINNER` and reaches its port, while the other returns `REPLAY` and its
+port receives zero calls. Sequential replay is not an official composition
+path. A later Controller observes the non-`PLANNED` Attempt during
+`validate_effect_authority(...)`, fails before `execute_once(...)`, and makes
+zero Execution/adapter calls. Directly calling Execution after skipping that
+pure replay is invalid Controller behavior even if Core would return `REPLAY`.
 
 This sequencing is at-most-once, not distributed atomicity. A crash,
 disconnect, timeout, or malformed reply after `WINNER` cannot undo the claim.
@@ -2593,20 +2605,46 @@ source_kind: str = "scheduler"
 progress_position: None = None
 ```
 
-The record has `init=False` and is created only by
-`SchedulerReadEvidence.from_acquisition(binding, *, evidence_bytes,
-observed_at_utc, freshness, state)`. That classmethod requires non-empty exact
-immutable evidence bytes and derives the digest, size, source kind, progress,
-and source identity; none is accepted as caller authority.
+The record has `init=False` and only the package-private qstat classifier may
+construct it. Public callers supply neither `state`, `freshness`, timestamp,
+digest, size, nor source identity. `RTWinReadAdapter.read_scheduler(...)`
+captures bounded raw stdout/stderr plus completion metadata, derives every
+field through the fixed classifier below, and returns the closed record.
 
 Its closed state vocabulary equals Observe scheduler state exactly:
 `queued`, `running`, `held`, `exiting`, `terminal`, `absent`, or `unknown`.
-Freshness is `fresh`, `stale`, or `unknown`. A successful exact qstat record is
-mapped by this closed PBS-state table: `Q/W -> queued`, `R/B -> running`,
-`H/S -> held`, `E/T -> exiting`, and `C/F/X -> terminal`. Any other raw state
-is `unknown`. An exact scheduler
-not-found response maps to `absent`; command, transport, duplicate-record, or
-parse ambiguity maps to `unknown`, never failure. A scheduler read is not
+Freshness is `fresh`, `stale`, or `unknown`, but a new live acquisition derives
+only `fresh` for an exact completed response or `unknown` for an uncertain
+response; it never accepts caller-selected `stale`. The exact inner operation
+is executable token `qstat`, argv `("-f", binding.job_id)`, cwd equal
+to `binding.remote_workspace`, environment exactly
+`{"LANG": "C", "LC_ALL": "C", "PYTHONNOUSERSITE": "1",
+"PYTHONUTF8": "1"}`, `shell=False`, timeout 30 seconds, stdout cap 262144
+bytes, and stderr cap 65536 bytes. The adapter must receive process completion
+and EOF on both streams within those caps. Overflow, timeout, missing EOF,
+decode failure, or transport failure is `unknown/unknown`; no truncation is
+classified as evidence.
+
+Raw streams are strict UTF-8 with no NUL or CR. A present response requires
+return code 0, empty stderr, and exactly one stdout record. Its first line is
+exactly `Job Id: <binding.job_id>`; stdout ends in exactly one LF and has no
+blank line. Every remaining line is exactly four spaces, one ASCII field name
+matching `[A-Za-z_][A-Za-z0-9_.-]*`, ` = `, and one nonempty value. Duplicate
+field names, extra preamble/trailer, or any line outside that grammar is
+malformed. Exactly one `job_state` value is
+required and mapped by this closed table: `Q/W -> queued`, `R/B -> running`,
+`H/S -> held`, `E/T -> exiting`, and `C/F/X -> terminal`; any other one-byte
+uppercase state maps to `unknown` with `fresh` evidence. An absent response is
+only return code 153, empty stdout, and stderr exactly
+`qstat: Unknown Job Id <binding.job_id>\n`; it maps to `absent/fresh`. Every
+other return-code/stream/grammar combination maps to `unknown/unknown`.
+
+The evidence digest/size cover one fixed acquisition byte array:
+`[stdout_bytes, stderr_bytes, returncode_or_null, eof_stdout, eof_stderr,
+completion_status]` encoded by the canonical grammar below. Completion status
+is exactly `completed`, `timeout`, or `transport-error`; present/absent require
+`completed`, while either other value is `unknown/unknown` regardless of
+partial streams. A scheduler read is not
 reconciliation, Gaussian completion, scientific success, or retry authority.
 The Controller creates an existing public `AttemptObservation` by copying the
 exact attempt, source identity, timestamp, freshness, state, and `None`
@@ -2622,14 +2660,17 @@ remote_relative_name: str
 required: bool
 ```
 
-The tuple supplied to one fetch is finite, non-empty, ordered by logical name,
-and duplicate-free. Names are portable single components: no absolute path,
-separator, dot component, parent traversal, shell syntax, glob, or symlink is
-accepted. The v1 required artifact is one Gaussian log derived from the exact
-prepared-input basename; optional stdout/stderr may be named explicitly.
-Artifact kind is exactly `gaussian-log`, `stdout`, or `stderr` in v1.
-Checkpoint bytes, recursive directories, arbitrary caller paths, and implicit
-"all files" discovery are outside this contract.
+The tuple supplied to one fetch is finite, non-empty, contains at most
+`MAX_ARTIFACT_REQUESTS = 4` entries, preserves the caller-supplied order as
+authority, and is duplicate-free by both `(artifact_kind, logical_name)` and
+`remote_relative_name`. Transport never sorts or discovers requests. Names
+are portable single components: no absolute path, separator, dot component,
+parent traversal, shell syntax, glob, or symlink is accepted. The v1 required
+artifact is one Gaussian log derived from the exact prepared-input basename;
+optional stdout/stderr may be named explicitly. Artifact kind is exactly
+`gaussian-log`, `stdout`, or `stderr` in v1. Checkpoint bytes, recursive
+directories, arbitrary caller paths, and implicit "all files" discovery are
+outside this contract.
 
 `FetchedArtifact` has exactly these four fields:
 
@@ -2646,13 +2687,17 @@ and `size_bytes` are `init=False` derived fields.
 
 The adapter accepts an artifact only when the exact remote Attempt workspace
 and regular source file are stable across bounded before/read/after identity,
-size, and SHA-256 checks. Local materialization is fresh, no-follow,
-descriptor-relative, atomic, and no-overwrite. Source stability is adapter
-validation, not a caller-supplied boolean. Digest and size are recomputed from
-exact immutable bytes. Replacement, symlink/reparse, escape, short read,
-digest drift, or target existence fails closed with zero overwrite or cleanup.
+size, and SHA-256 checks. V1 is byte-return-only: it performs no local output
+materialization, accepts no local target path, and writes no fetched file.
+Source stability is adapter validation, not a caller-supplied boolean. Digest
+and size are recomputed from exact immutable bytes. Replacement,
+symlink/reparse, escape, short read, or digest drift fails closed with zero
+overwrite or cleanup. `MAX_FETCH_ARTIFACT_BYTES = 134217728` and
+`MAX_FETCH_CAPTURE_BYTES = 268435456`; the adapter rejects an impossible
+request before reading where size metadata is available and aborts while
+reading before either cap can be exceeded. It never returns truncated bytes.
 
-`FetchedOutputCapture` has exactly these ten fields:
+`FetchedOutputCapture` has exactly these twelve fields:
 
 ```text
 binding: ExactRemoteJobBinding
@@ -2661,7 +2706,9 @@ capture_source_id: str
 capture_sequence: int
 capture_status: str
 capture_completeness: str
+requests: tuple[ExactArtifactRequest, ...]
 artifacts: tuple[FetchedArtifact, ...]
+missing_requests: tuple[ExactArtifactRequest, ...]
 capture_manifest_sha256: str
 captured_at_utc: str
 schema_version: int = 1
@@ -2669,30 +2716,141 @@ schema_version: int = 1
 
 Its public constructor accepts only `binding`,
 `input_binding_observation_id`, `capture_sequence`, `capture_status`,
-`capture_completeness`, `artifacts`, and `captured_at_utc` as keyword arguments.
-`capture_source_id`, `capture_manifest_sha256`, and `schema_version` are
-derived/constant `init=False` fields.
+`capture_completeness`, `requests`, `artifacts`, `missing_requests`, and
+`captured_at_utc` as keyword arguments. `capture_source_id`,
+`capture_manifest_sha256`, and `schema_version` are derived/constant
+`init=False` fields.
 
 Capture status is exactly `captured`, `capture-in-progress`,
 `capture-interrupted`, or `capture-error`; completeness is exactly `partial`
-or `complete`. Only `captured + complete` is complete; `capture-in-progress`,
-`capture-interrupted`, and `capture-error` require `partial`. `complete`
-requires every required request to have one stable fetched artifact. A capture
-containing at least one exact stable artifact may remain `partial`; zero stable
-artifacts returns a transport failure and creates no Result envelope. The
-manifest digest covers the ordered Result-compatible artifact metadata, not
-paths or mutable timestamps.
+or `complete`. `requests` is the complete exact ordered request tuple.
+`artifacts` must correspond one-for-one, in the same order, to a prefix of
+`requests`; `missing_requests` must be the exact remaining suffix. `complete`
+is legal only for `captured`, an empty missing tuple, and an artifact for every
+request in exact order. `partial` is legal only when `artifacts` is a non-empty
+exact prefix and `missing_requests` is the non-empty exact suffix;
+`capture-in-progress`, `capture-interrupted`, and `capture-error` require
+`partial`. Reordering, an interior hole, duplicate, extra artifact, or a
+request absent from the partition fails closed. Zero stable artifacts returns
+a transport failure and creates no Result envelope. The manifest digest covers
+the complete ordered request tuple, ordered Result-compatible successful
+artifact metadata, and exact missing suffix; it does not cover paths outside
+the requests or mutable timestamps.
+
+Transport never allocates or infers capture history. Before fetch, the
+Controller reads the Result-owned append-only envelope history for the exact
+Attempt: sequence is `1` when no envelope exists and otherwise
+`max(capture_sequence) + 1`. It supplies that exact positive integer to
+Transport and subsequently appends the mapped envelope through Result. Result
+remains the sequence/conflict authority; a concurrent duplicate or conflicting
+sequence fails closed. Transport never chooses a latest/current capture and
+cannot replace history.
+
+### Canonical transport evidence identity
 
 The transport UUID namespace root is
-`6e54140f-f4e7-5482-a6c1-8f5729e3c112`. Schema-versioned, domain-separated
-UUIDv5 identities use compact UTF-8 JSON arrays with `allow_nan=False`.
-`scheduler-read` binds the complete remote job binding, timestamp, freshness,
-state, and exact acquired-evidence digest/size. `output-capture` binds the
-complete remote job binding, InputBinding observation ID, capture sequence,
-status/completeness, ordered artifact metadata, manifest digest, and capture
-timestamp. Exact replay keeps identity; any semantic change changes identity;
-same identity with different semantics fails closed. These transport evidence
-identities are audit/source bindings, never approval or effect authority.
+`6e54140f-f4e7-5482-a6c1-8f5729e3c112`. Per-domain namespaces are
+`uuid5(root, "scheduler-read") =
+b863c565-aa1b-5ea9-8c9e-170dc7af33c6` and
+`uuid5(root, "output-capture") =
+8ea6ba6d-0365-5493-9bda-87f4be9f23a8`. Evidence IDs are
+`uuid5(domain_namespace, canonical_bytes.decode("ascii"))`.
+
+Canonical encoding accepts only null, boolean, integer, string, raw bytes,
+array/tuple, and object. Float is forbidden. Tags are exact: null `n;`; false
+`b0;`; true `b1;`; integer `i<base10>;`; string
+`s<UTF-8-byte-count>:<UTF-8-bytes>`; raw bytes
+`y<raw-byte-count>:<lowercase-hex>`; array `a<count>:` followed by member
+encodings; object `o<count>:` followed by key/value encodings with string keys
+sorted by their UTF-8 bytes. Integers have no plus sign or leading zero except
+`0`. Strings reject NUL, CR, and LF and use shortest-form UTF-8. The complete
+canonical document is ASCII/UTF-8 with no BOM, whitespace, or trailing newline.
+
+The exact schema-v1 scheduler identity name array is:
+
+```text
+["auto-g16-transport/scheduler-read", 1, binding_payload,
+ observed_at_utc, freshness, state, evidence_sha256, evidence_size_bytes]
+```
+
+`binding_payload` is the exact six-key object named by the six
+`ExactRemoteJobBinding` fields above. A request payload is the exact four-key
+object named by `ExactArtifactRequest`. Successful artifact metadata is the
+exact four-key object `{artifact_kind, logical_name, sha256, size_bytes}`
+derived from its request and fetched bytes; mutable paths/content/timestamps
+are excluded because the complete request tuple and byte digest/size are bound
+separately.
+
+The acquisition digest input is exactly
+`[stdout_bytes, stderr_bytes, returncode_or_null, eof_stdout, eof_stderr,
+completion_status]` under the
+same grammar. `evidence_size_bytes` is the sum of original stdout and stderr
+byte counts. The exact schema-v1 capture manifest array is:
+
+```text
+["auto-g16-transport/capture-manifest", 1,
+ ordered_request_payloads, ordered_successful_artifact_metadata,
+ ordered_missing_request_payloads]
+```
+
+`capture_manifest_sha256` is lowercase SHA-256 of those canonical manifest
+bytes. The exact schema-v1 capture identity name array is:
+
+```text
+["auto-g16-transport/output-capture", 1, binding_payload,
+ input_binding_observation_id, capture_sequence, capture_status,
+ capture_completeness, ordered_request_payloads,
+ ordered_successful_artifact_metadata, ordered_missing_request_payloads,
+ capture_manifest_sha256, captured_at_utc]
+```
+
+The normative fixture uses binding `{attempt_id: "attempt-1",
+execution_snapshot_id: "snapshot-1", submission_intent_id: "intent-1",
+remote_effect_receipt_id: "receipt-1", remote_workspace:
+"/srv/p/attempt-1", job_id: "123.server"}`. For qstat stdout
+`Job Id: 123.server\n    job_state = R\n`, empty stderr, return code 0, and
+both EOF flags true, and completion status `completed`, the exact acquisition
+bytes are:
+
+```text
+a6:y37:4a6f622049643a203132332e7365727665720a202020206a6f625f7374617465203d20520ay0:i0;b1;b1;s9:completed
+```
+
+Their SHA-256 is
+`664e69c9fa7687ddb0b54d38d11eafeff8a4b93d07fb7a97a51263ddf45191b5`,
+their stream-size field is `37`, and the scheduler name bytes are:
+
+```text
+a8:s33:auto-g16-transport/scheduler-readi1;o6:s10:attempt_ids9:attempt-1s21:execution_snapshot_ids10:snapshot-1s6:job_ids10:123.servers24:remote_effect_receipt_ids9:receipt-1s16:remote_workspaces16:/srv/p/attempt-1s20:submission_intent_ids8:intent-1s27:2026-08-23T00:00:00.000000Zs5:freshs7:runnings64:664e69c9fa7687ddb0b54d38d11eafeff8a4b93d07fb7a97a51263ddf45191b5i37;
+```
+
+The scheduler source ID is
+`1a30e48e-fa53-5eb8-b186-cc7b4ea5f996`.
+
+For one required `gaussian-log` request with logical/remote name `job.log`
+and immutable content `Normal termination\n` (SHA-256
+`d66fc1aad228af405f4e1d2e5faaf681bd9db338e6810f82ef5a74f9a685c618`,
+19 bytes), the complete manifest bytes are:
+
+```text
+a5:s35:auto-g16-transport/capture-manifesti1;a1:o4:s13:artifact_kinds12:gaussian-logs12:logical_names7:job.logs20:remote_relative_names7:job.logs8:requiredb1;a1:o4:s13:artifact_kinds12:gaussian-logs12:logical_names7:job.logs6:sha256s64:d66fc1aad228af405f4e1d2e5faaf681bd9db338e6810f82ef5a74f9a685c618s10:size_bytesi19;a0:
+```
+
+The manifest SHA-256 is
+`1636f90c920537ebc491e0c7a173377a66db2cef4c28d488d435dd537e43a25f`.
+At timestamp `2026-08-23T00:01:00.000000Z`, InputBinding observation
+`input-observation-1`, sequence 1, `captured/complete`, the capture name bytes
+are:
+
+```text
+a12:s33:auto-g16-transport/output-capturei1;o6:s10:attempt_ids9:attempt-1s21:execution_snapshot_ids10:snapshot-1s6:job_ids10:123.servers24:remote_effect_receipt_ids9:receipt-1s16:remote_workspaces16:/srv/p/attempt-1s20:submission_intent_ids8:intent-1s19:input-observation-1i1;s8:captureds8:completea1:o4:s13:artifact_kinds12:gaussian-logs12:logical_names7:job.logs20:remote_relative_names7:job.logs8:requiredb1;a1:o4:s13:artifact_kinds12:gaussian-logs12:logical_names7:job.logs6:sha256s64:d66fc1aad228af405f4e1d2e5faaf681bd9db338e6810f82ef5a74f9a685c618s10:size_bytesi19;a0:s64:1636f90c920537ebc491e0c7a173377a66db2cef4c28d488d435dd537e43a25fs27:2026-08-23T00:01:00.000000Z
+```
+
+The capture source ID is
+`337f05ea-7f62-581b-b1bf-46af0914bd6c`. Exact replay keeps identity;
+any authority-semantic change changes identity; same ID with different payload
+fails closed. These evidence identities are audit/source bindings, never
+approval or effect authority.
 
 `RTWinExecutionAdapter()` and `RTWinReadAdapter()` have no public constructor
 arguments; creation is non-effectful, and package-private driver/clock seams
@@ -2724,6 +2882,113 @@ non-effectful and package-owned; public construction accepts no raw command or
 authority token. The read adapter cannot submit, cancel, delete, clean up,
 mutate Core, or resolve an ambiguous submission by itself.
 
+### Source-controlled RTwin operation construction
+
+The private operation table version is exactly
+`auto-g16-rtwin-operation-table/1`. Its immutable entries are:
+
+| operation | token | argv template | timeout seconds | stdout cap | stderr cap |
+| --- | --- | --- | ---: | ---: | ---: |
+| allocate | `mkdir-attempt` | `()` | 30 | 65536 | 65536 |
+| stage | `stage-exact-bytes` | `("{logical_name}", "{sha256}", "{size_bytes}")` | 900 | 65536 | 65536 |
+| qsub | `qsub` | `("{pbs_basename}",)` | 30 | 65536 | 65536 |
+| qstat | `qstat` | `("-f", "{job_id}")` | 30 | 262144 | 65536 |
+| fetch | `fetch-exact-bytes` | `("{remote_relative_name}",)` | 900 | 0 | 65536 |
+
+Every operation has `shell=False`, no retry, exact cwd equal to the remote
+Attempt workspace, and environment exactly `LANG=C`, `LC_ALL=C`,
+`PYTHONNOUSERSITE=1`, and `PYTHONUTF8=1`. The allocate operation is one fixed
+driver primitive that creates the fresh remote Attempt directory no-follow and
+treats the target workspace as its logical cwd; its argv is empty and it
+accepts no parent/root or command string. Stage runs exactly twice in prepared
+input then PBS-template order; each argv is
+`(<logical_name>, <lowercase_sha256>, <base10_size_bytes>)` and exact bytes
+travel on the bounded binary input channel. Qsub argv is exactly
+`(<one prepared PBS script basename>,)`; qstat argv is the exact tuple frozen
+above; fetch argv is exactly `(<one requested remote_relative_name>,)` for each
+request in authoritative order and returns content on its bounded binary result
+channel, never stdout or a local path. Operation tokens are executable names
+and are not repeated inside argv. All text operations require process
+completion and EOF within their caps; fetch additionally enforces the artifact
+and total-capture caps before returning. Any timeout, overflow, missing EOF,
+malformed completion, or possibly-effectful ambiguity fails closed under the
+existing Execution uncertainty rules. No operation token or argv fragment is
+caller supplied.
+
+Allocate, stage, and qsub substitute only values from the current
+identity-closed `ExecutionSnapshot`: exact remote Attempt workspace, the two
+exact prepared artifact bindings/bytes, and the PBS basename. Qstat and fetch
+substitute only fields from `ExactRemoteJobBinding` plus the validated ordered
+`ExactArtifactRequest` tuple. The package-private driver accepts those typed
+records and byte channels, never a free path, command string, environment, or
+prebuilt argv.
+
+Under the canonical grammar above, the complete table object contains keys
+`version`, `cwd_policy`, `shell`, `env`, `limits`, and `operations`; limits are
+exactly request count 4, per-artifact bytes 134217728, and total-capture bytes
+268435456; operations are the five table rows in displayed order. Its canonical
+byte size is `1040` and SHA-256 is
+`3502638017454526cdbfee01de47a543a9870c9c57697e4373732cb7909a71d1`.
+The exact object shape used for that digest is:
+
+```text
+{
+  "version": "auto-g16-rtwin-operation-table/1",
+  "cwd_policy": "exact-remote-attempt-workspace",
+  "shell": false,
+  "env": {"LANG": "C", "LC_ALL": "C", "PYTHONNOUSERSITE": "1",
+          "PYTHONUTF8": "1"},
+  "limits": {"max_artifact_requests": 4,
+             "max_artifact_bytes": 134217728,
+             "max_capture_bytes": 268435456},
+  "operations": [
+    {"name": "allocate", "token": "mkdir-attempt", "argv_template": [],
+     "timeout_seconds": 30, "stdout_cap": 65536, "stderr_cap": 65536},
+    {"name": "stage", "token": "stage-exact-bytes",
+     "argv_template": ["{logical_name}", "{sha256}", "{size_bytes}"],
+     "timeout_seconds": 900, "stdout_cap": 65536, "stderr_cap": 65536},
+    {"name": "qsub", "token": "qsub",
+     "argv_template": ["{pbs_basename}"], "timeout_seconds": 30,
+     "stdout_cap": 65536, "stderr_cap": 65536},
+    {"name": "qstat", "token": "qstat",
+     "argv_template": ["-f", "{job_id}"], "timeout_seconds": 30,
+     "stdout_cap": 262144, "stderr_cap": 65536},
+    {"name": "fetch", "token": "fetch-exact-bytes",
+     "argv_template": ["{remote_relative_name}"],
+     "timeout_seconds": 900, "stdout_cap": 0, "stderr_cap": 65536}
+  ]
+}
+```
+
+The adapter accepts only an identity-closed current `ExecutionSnapshot` whose
+resolved profile selects `legacy_rtwin_pbs` and whose effect-relevant
+`platform_paths` contains these exact required Transport keys; Transport
+consults no other platform-path key: `rtwin_root`, `known_hosts`,
+`mac_ssh_executable`, `mac_scp_executable`, `rtwin_ssh_executable`,
+`rtwin_scp_executable`, `rtwin_bridge_executable`, `server_python_executable`,
+`server_qsub_executable`, and `server_qstat_executable`. The first two preserve
+their existing meanings; every executable value is an absolute canonical path
+to the implementation selected for the corresponding fixed token. The
+operation table bytes live under runtime-content name
+`auto-g16-rtwin-operation-table/1`; wrapper implementation bytes live under
+runtime-content name `rtwin-pbs-v1`; executable byte identities use names
+`mac-ssh`, `mac-scp`, `rtwin-ssh`, `rtwin-scp`, `rtwin-bridge`, `server-python`,
+`server-qsub`, and `server-qstat`. These exact runtime-content identities and
+the table digest/size must all appear in the snapshot's existing
+`runtime_identities` and are re-attested before an
+operation. The adapter calls public `assert_execution_snapshot_identity(...)`
+and relies on `resolved_server_profile.effective_config_sha256` for the
+already-closed SSH config/known-host content; it neither opens configuration
+files nor reads private profile internals.
+
+These existing resolved profile mappings carry executable/configuration
+identity only, never argv fragments, shell text, mutable environment,
+credential material, private keys, passwords, tokens, or secret contents.
+Host aliases and credential lookup remain driver-private and must match the
+attested resolved profile target/config identity; they are not evidence
+fields. If any table/runtime binding drifts, the adapter rejects before a port
+call. No Core or Execution schema/API change is implied.
+
 ### Observe, Result, and full synthetic composition
 
 The Controller owns the mapping seam. It records scheduler evidence through
@@ -2737,8 +3002,10 @@ manifest digest, and timestamp. `OutputEnvelope`, `ParseOutcome`,
 Result-owned. Transport neither imports Result nor parses Gaussian bytes.
 
 After Transport implementation is integrated, one separately gated mandatory
-full synthetic composition test under `tests/v3/transport/` uses a test-local
-Controller and only public APIs. It proves:
+full synthetic composition test under `tests/v3/transport/` uses two test-local
+Controllers and only public APIs. Both complete pure Approval replay while the
+Attempt is still `PLANNED`, synchronize at a barrier, and then call
+`execute_once(...)` concurrently. It proves:
 
 ```text
 CalculationPlan
@@ -2757,14 +3024,18 @@ CalculationPlan
 -> separate explicit ScientificAcceptance
 ```
 
-The test must also replay the same call to obtain `REPLAY` with zero additional
-adapter calls; inject a post-WINNER ambiguous submission and prove `UNKNOWN`
-with zero automatic retry; reject cross-Attempt/snapshot/receipt/workspace/job,
-unstable fetch, capture/InputBinding splice, and Result provenance splice; and
-use network/subprocess/qsub/qdel/Gaussian spies that remain at zero. The
-test-local Controller is composition evidence only, not a product API. It must
-not depend on unmerged Transport bytes. Product Controller/orchestration code,
-live transport, and real credentials remain outside this contract.
+Exactly one concurrent call obtains `WINNER` and exactly one obtains `REPLAY`;
+the replaying port receives zero calls. A later Controller must be rejected by
+pure Approval before calling `execute_once(...)`, also with zero port calls;
+calling Execution directly after skipping Approval is expressly not official
+composition evidence. The test also injects a post-WINNER ambiguous submission
+and proves `UNKNOWN` with zero automatic retry; rejects cross-Attempt/snapshot/
+receipt/workspace/job, unstable fetch, capture/InputBinding splice, and Result
+provenance splice; and uses network/subprocess/qsub/qdel/Gaussian spies that
+remain at zero. The test-local Controller is composition evidence only, not a
+product API. It must not depend on unmerged Transport bytes. Product
+Controller/orchestration code, live transport, and real credentials remain
+outside this contract.
 
 ### Narrow reuse adjudication and follow-on ownership
 
