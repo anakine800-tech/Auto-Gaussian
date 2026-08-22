@@ -1,7 +1,12 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-VAL-SCI-01` is CLOSED / INTEGRATED on authoritative
-  `main@864260d57bac2acddbfa9f1a32be032c7e13c489`;
+- **Current phase:** `V30-MIN-VALIDATE-PUBLIC-SHAPE-CLOSEOUT-01` has one exact
+  authority candidate from
+  `main@f07809d406860c13e0d8d4be4d01eb156a6f901e`. Before that content is
+  present on authoritative main, publication/integration remains pending; when
+  it is present on authoritative main, the task is
+  `CLOSED / FROZEN / INTEGRATED`. The content closes the remaining record,
+  service, policy, and identity shape. `V30-VAL-SCI-01` is CLOSED / INTEGRATED;
   ScientificValidation validation ownership is active on main and the
   `config/context-map.toml` routing gap is closed.
   `V30-MIN-VALIDATE-CONTRACT-01` is CLOSED / FROZEN / INTEGRATED, and the
@@ -12,7 +17,8 @@
   Result-attribution dependency is satisfied. ScientificValidation must not
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
   generic parser-version Result authority are preserved.
-  `V30-MIN-VALIDATE-IMPL-01` is gate-eligible but not yet GO,
+  `V30-MIN-VALIDATE-IMPL-01` remains `NO-GO` until this public-shape closeout
+  is integrated and a separate Owner Implementation Gate is opened,
   `V30-EXEC-02` remains waiting, and live work remains unauthorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
@@ -102,6 +108,13 @@
   `UNSUPPORTED`. Its closed 15-code primary-reason vocabulary emits exactly one
   reason under first-applicable precedence. Previous failed candidates remain
   immutable negative evidence.
+- **Public-shape closeout:** The exact two-record fields/types, four service
+  signatures, store signatures, three-error hierarchy, source-controlled
+  policy constants, UUIDv5 domains, and tagged canonical encoding are frozen
+  by `V30-MIN-VALIDATE-PUBLIC-SHAPE-CLOSEOUT-01`. When this exact authority
+  content is present on main, ScientificValidation is
+  `FROZEN / INTEGRATED / PUBLIC SHAPE COMPLETE`; implementation remains
+  unauthorized pending its separate Owner gate.
 - **Frozen v3.0 scientific policy:** Minimum validation covers ordinary
   nonlinear systems only, requires `N >= 3`, rejects dummy atomic-number-0
   centers, and requires exactly `3N - 6` modes. Every finite frequency below
@@ -116,9 +129,11 @@
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** `V30-MIN-VALIDATE-IMPL-01` Owner Implementation Gate.
-  ScientificValidation product implementation is gate-eligible but remains
-  `NO-GO` until that gate is explicitly opened.
+- **Next gate:** Before public-shape integration, the
+  `V30-MIN-VALIDATE-PUBLIC-SHAPE-CLOSEOUT-01` Publish Owner Gate. Once the exact
+  closeout is integrated and its exact-main gate passes, the next gate is the
+  `V30-MIN-VALIDATE-IMPL-01` Owner Implementation Gate. ScientificValidation
+  product implementation remains `NO-GO` until that separate gate is opened.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or

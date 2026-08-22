@@ -260,3 +260,40 @@ CalculationPlan, or the validation outcome. Outcomes and acceptances use a
 small ScientificValidation-owned append-only persistence boundary, separate
 from Core and Result schemas. Exact replay is idempotent; conflicting content
 under one identity fails closed.
+
+## OD-14: Minimum-validation public shape is closed before implementation
+
+The public `auto_g16.scientific_validation` inventory remains exactly the
+eleven names frozen by OD-13 and the v3 boundary specification. No public
+policy, span, geometry, evidence, protocol, or service class is added.
+
+Schema version `1`, validation policy ID
+`auto-g16-v3-minimum-validation`, and policy version `1.0.0` are fixed
+source-controlled values and are never caller-selectable. The namespace root
+is `f4617d31-5b90-5c79-888a-9b9ccec5e612`; the only identity domains are
+`minimum-validation-outcome` and `scientific-acceptance`, with each domain
+namespace derived by UUIDv5 from
+`auto_g16.scientific_validation/v1/<domain>`.
+
+`MinimumValidationOutcome` and `ScientificAcceptance` are frozen immutable,
+slotted, keyword-only, service-created records. Their exact public fields and
+the exact signatures of `validate_minimum`, `record_minimum_validation`,
+`record_scientific_acceptance`, and `require_scientific_acceptance` are owned
+by `docs/v3/boundary-spec.md`. Outcome identity binds every authority field,
+including the complete selected Result mappings and frequency values.
+Acceptance identity binds one exact persisted validated outcome plus reviewer
+identity and canonical review evidence. Multiple explicit acceptances may
+coexist; no latest/current selection exists.
+
+Identity uses the frozen tagged canonical-value encoding: distinct tags for
+null, boolean, integer, finite float, string, mapping, and sequence; lexical
+mapping-key order; sequence order preservation; and compact UTF-8 canonical
+JSON. Unsupported values, non-finite floats, container cycles, malformed
+replay, and same-ID/different-payload replay fail closed. ScientificValidation
+extracts this algorithm locally and must not import Workflow or any private
+Core encoding.
+
+This decision changes no scientific policy and introduces no raw Gaussian
+interpretation. ScientificValidation continues to depend only on public Result
+and Core records, owns its separate append-only store, and makes no Core,
+Result, Approval, Execution, or Workflow API/schema change.
