@@ -1,34 +1,29 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-MIN-VALIDATE-PUBLIC-SHAPE-CLOSEOUT-01` has one exact
-  authority candidate from
-  `main@f07809d406860c13e0d8d4be4d01eb156a6f901e`. Before that content is
-  present on authoritative main, publication/integration remains pending; when
-  it is present on authoritative main, the task is
-  `CLOSED / FROZEN / INTEGRATED`. The content closes the remaining record,
-  service, policy, and identity shape. `V30-VAL-SCI-01` is CLOSED / INTEGRATED;
-  ScientificValidation validation ownership is active on main and the
-  `config/context-map.toml` routing gap is closed.
-  `V30-MIN-VALIDATE-CONTRACT-01` is CLOSED / FROZEN / INTEGRATED, and the
-  minimum ScientificValidation contract is active on main.
+- **Current phase:** `V30-MIN-VALIDATE-IMPL-01` is `CLOSED / INTEGRATED`, and
+  the ScientificValidation implementation is active on authoritative main.
+  `V30-MIN-VALIDATE-CONTRACT-01` and
+  `V30-MIN-VALIDATE-PUBLIC-SHAPE-CLOSEOUT-01` remain
+  `CLOSED / FROZEN / INTEGRATED`; `V30-VAL-SCI-01` remains
+  `CLOSED / INTEGRATED`, ScientificValidation validation ownership is active,
+  and the `config/context-map.toml` routing gap remains closed.
   `V30-RESULT-SECTION-ATTRIBUTION-CONTRACT-01` is CLOSED / FROZEN / INTEGRATED,
   and `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01` is CLOSED / INTEGRATED.
   `GaussianJobParser` and `gaussian-job-facts` are active on main, so the
   Result-attribution dependency is satisfied. ScientificValidation must not
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
   generic parser-version Result authority are preserved.
-  `V30-MIN-VALIDATE-IMPL-01` remains `NO-GO` until this public-shape closeout
-  is integrated and a separate Owner Implementation Gate is opened,
   `V30-EXEC-02` remains waiting, and live work remains unauthorized.
-- **Observe contract candidate:** `V30-OBS-MIN-CONTRACT-01` has one bounded
-  authority candidate from
-  `main@c05226f6384b3302d9b48336d892cfa92115ea75`. Before that exact content is
-  present on authoritative main, publication/integration remains pending; when
-  present on authoritative main, the task is `CLOSED / FROZEN / INTEGRATED`.
-  The candidate freezes only read-only exact-Attempt source observations,
-  append-only Core persistence, deterministic per-axis projection, explicit
-  `unknown`, and zero retry/effect/scientific authority. Observe product code
-  and selector ownership remain unauthorized.
+- **Observe contract integrated:** `V30-OBS-MIN-CONTRACT-01` is
+  `CLOSED / FROZEN / INTEGRATED`. It freezes only read-only exact-Attempt
+  source observations, append-only Core persistence, deterministic per-axis
+  projection, explicit `unknown`, and zero retry/effect/scientific authority.
+  Observe product code remains unauthorized; `V30-VAL-OBS-01` is its next
+  validation-ownership gate and candidate path.
+- **ReviewBundle contract candidate:** `V30-REVIEW-MIN-CONTRACT-01` remains a
+  candidate awaiting integration. It grants no ReviewBundle implementation or
+  presentation authority before its separate integration and implementation
+  gates.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -122,8 +117,9 @@
   policy constants, UUIDv5 domains, and tagged canonical encoding are frozen
   by `V30-MIN-VALIDATE-PUBLIC-SHAPE-CLOSEOUT-01`. When this exact authority
   content is present on main, ScientificValidation is
-  `FROZEN / INTEGRATED / PUBLIC SHAPE COMPLETE`; implementation remains
-  unauthorized pending its separate Owner gate.
+  `FROZEN / INTEGRATED / PUBLIC SHAPE COMPLETE`. The later separately
+  authorized `V30-MIN-VALIDATE-IMPL-01` is now `CLOSED / INTEGRATED`; the
+  public-shape closeout itself granted no implementation authority.
 - **ReviewBundle contract candidate:** `V30-REVIEW-MIN-CONTRACT-01` freezes a
   future `auto_g16.review` projection over exact persisted Core, Result, and
   ScientificValidation authority. Its exact public inventory is
@@ -151,11 +147,10 @@
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** Before public-shape integration, the
-  `V30-MIN-VALIDATE-PUBLIC-SHAPE-CLOSEOUT-01` Publish Owner Gate. Once the exact
-  closeout is integrated and its exact-main gate passes, the next gate is the
-  `V30-MIN-VALIDATE-IMPL-01` Owner Implementation Gate. ScientificValidation
-  product implementation remains `NO-GO` until that separate gate is opened.
+- **Next gate:** `V30-VAL-OBS-01` is the next Observe validation-ownership gate
+  and candidate path. `V30-REVIEW-MIN-CONTRACT-01` remains a separate
+  contract candidate awaiting integration; neither state authorizes its
+  product implementation.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -164,10 +159,8 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** ScientificValidation implementation,
-  `V30-MIN-VALIDATE-IMPL-01`, `V30-EXEC-02`, Observe implementation,
-  ReviewBundle, production changes, deployment, live smoke, and
-  SSH/PBS/Gaussian operations remain unauthorized. Before Observe contract
-  integration its next gate is the `V30-OBS-MIN-CONTRACT-01` Publish Owner
-  Gate; after exact-main contract closeout the next Observe gate is the
-  separate `V30-VAL-OBS-01` validation-ownership Owner Gate.
+- **Do not start:** `V30-EXEC-02`, Observe implementation, ReviewBundle
+  implementation, production changes, deployment, live smoke, and
+  SSH/PBS/Gaussian operations remain unauthorized. Observe must first pass the
+  separate `V30-VAL-OBS-01` validation-ownership Owner Gate; ReviewBundle must
+  first integrate its contract candidate and pass its own later gates.
