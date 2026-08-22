@@ -1,7 +1,14 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-MIN-VALIDATE-IMPL-01` is `CLOSED / INTEGRATED`, and
-  the ScientificValidation implementation is active on authoritative main.
+- **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01` is the active
+  Owner-guided offline authority freeze. Its exact authority content is frozen
+  and eligible for integration only after the successor independent review is
+  `PASS`; when that content is present on authoritative main, the contract is
+  `CLOSED / FROZEN / INTEGRATED` without another status edit. Transport
+  implementation and live work remain unauthorized.
+  `V30-MIN-VALIDATE-IMPL-01` is
+  `CLOSED / INTEGRATED`, and the ScientificValidation implementation is active
+  on authoritative main.
   `V30-MIN-VALIDATE-CONTRACT-01` and
   `V30-MIN-VALIDATE-PUBLIC-SHAPE-CLOSEOUT-01` remain
   `CLOSED / FROZEN / INTEGRATED`; `V30-VAL-SCI-01` remains
@@ -13,7 +20,8 @@
   Result-attribution dependency is satisfied. ScientificValidation must not
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
   generic parser-version Result authority are preserved.
-  `V30-EXEC-02` remains waiting, and live work remains unauthorized.
+  Transport product implementation remains unauthorized, and live work remains
+  unauthorized.
 - **Observe contract and implementation integrated:**
   `V30-OBS-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`. It freezes only read-only exact-Attempt
@@ -148,12 +156,21 @@
   `tests/v3/scientific_validation/**`. `config/context-map.toml` is now owned
   by the v3 control-document route; its earlier conservative
   `legacy-release / fail_closed=true` fallback gap is closed.
-- **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
+- **Active contract freeze:** `V30-EXEC-02-COMPOSITION-CONTRACT-01` freezes the
+  RTwin-first V30-A composition boundary. The Controller validates the complete
+  current approval chain and calls `execute_once(...)` without pre-claiming;
+  that Execution entrypoint alone owns `record_submission_intent(...)`, and
+  only `WINNER` enters the first effect boundary. OpenSSH, process acquisition,
+  Transport implementation, and live operations remain `NO-GO`.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** ScientificValidation, minimal Observe, and minimal ReviewBundle
-  are all integrated. `V30-A-READINESS-01` is the next gate and is a read-only
-  integration audit; it grants no live authority.
+- **Next gate:** before integration, the exact contract candidate requires its
+  successor `V30-EXEC-02-COMPOSITION-CONTRACT-01` Independent Contract Review.
+  After contract integration, the next separate gate is
+  `V30-VAL-TRANSPORT-01`; Transport implementation still requires its own Owner
+  gate, followed by a test-only
+  `V30-A-SYNTHETIC-COMPOSITION-01`, before another read-only V30-A readiness
+  audit.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -162,5 +179,6 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** `V30-EXEC-02`, production changes, deployment, live smoke,
-  and SSH/PBS/Gaussian operations remain unauthorized.
+- **Do not start:** Transport or Controller implementation, OpenSSH, production
+  changes, deployment, live smoke, and SSH/PBS/Gaussian operations remain
+  unauthorized.

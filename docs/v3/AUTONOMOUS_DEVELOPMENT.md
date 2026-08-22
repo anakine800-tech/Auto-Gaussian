@@ -41,21 +41,24 @@ smoke, retry, cancellation, cleanup, or scientific-acceptance authority.
 
 ## Frozen Post-Core Task Contracts
 
-The current post-Result-attribution scientific-validation sequence is:
+The current post-foundation execution/composition sequence is:
 
-1. freeze and integrate `V30-MIN-VALIDATE-CONTRACT-01`
-2. `V30-VAL-SCI-01` (separate Owner Gate)
-3. `V30-MIN-VALIDATE-IMPL-01` (separate Owner Gate)
-4. `V30-EXEC-02` (`WAIT`)
+1. freeze and integrate `V30-EXEC-02-COMPOSITION-CONTRACT-01`
+2. `V30-VAL-TRANSPORT-01` (separate Owner Gate)
+3. V30-EXEC-02 Transport implementation (separate Owner Gate)
+4. `V30-A-SYNTHETIC-COMPOSITION-01` test-only integration after Transport main
+5. `V30-A-READINESS-01` repeat audit before any live gate
 
 The control structure remains serial at integration:
 
 ```text
 Integration Owner
-└── V30-MIN-VALIDATE-CONTRACT-01
-    -> V30-VAL-SCI-01
-    -> V30-MIN-VALIDATE-IMPL-01
-V30-EXEC-02 WAIT
+└── V30-EXEC-02-COMPOSITION-CONTRACT-01
+    -> V30-VAL-TRANSPORT-01
+    -> V30-EXEC-02 implementation
+    -> V30-A-SYNTHETIC-COMPOSITION-01
+    -> V30-A-READINESS-01
+Live remains NO-GO
 ```
 
 At most three independent workstreams may be active concurrently. Integration
@@ -258,7 +261,9 @@ for their owned surfaces.
   access, Gaussian grammar, missing-fact reconstruction, Core/Result/Approval/
   Execution/Workflow change, TS/IRC/connectivity, conformer, qRRHO, scientific
   policy framework, Observe, ReviewBundle, Transport, SSH/RTwin/PBS/Gaussian,
-  deployment, or live work. `V30-EXEC-02` remains `WAIT`.
+  deployment, or live work. `V30-EXEC-02` remained `WAIT` during this completed
+  scientific-validation freeze; OD-17 now separately activates only its
+  offline composition contract.
 - **Dependencies:** Result attribution contract and implementation are closed;
   `GaussianJobParser` / `gaussian-job-facts` is active. Historical failed
   one-section candidates are negative evidence only. Public Result facts and
@@ -285,25 +290,44 @@ for their owned surfaces.
 
 ### V30-EXEC-02
 
-- **Outcome:** Deliver the Owner-selected second execution/transport increment
-  against the already validated public boundary; its concrete behavior is
-  intentionally not guessed here.
-- **Scope:** `WAIT`. No breakdown or modification is allowed until the RTwin
-  validation evidence and the exact follow-on scope are reviewed.
-- **Explicit non-goals:** No implementation, delegation, speculative adapter or
-  transport design, live operation, or boundary change while waiting.
-- **Dependencies:** A separately authorized RTwin validation of the
-  execution/transport public boundary, completion of its review, and explicit
-  Owner activation with an exact contract.
-- **Autonomy:** `OWNER-GUIDED`; `WAIT`.
-- **Stop rules:** Any activity before all dependencies are satisfied is a stop;
-  after activation, all `OWNER-GUIDED` and general stop rules apply.
-- **Acceptance/validation:** None while `WAIT`. The activation gate must name
-  outcome, paths, acceptance, offline evidence, any separately approved live
-  evidence, and review owner before work begins.
-- **Handoff:** Report `WAIT`, dependency evidence present/missing, blocker, and
-  Owner activation as the only next gate.
+- **Outcome:** Freeze the RTwin-first V30-A composition boundary without product
+  implementation. The Controller performs pure approval replay, never
+  pre-claims, and invokes the unchanged `execute_once(...)`; that single
+  Execution entrypoint owns the Core claim and permits only `WINNER` to cross
+  the first effect seam. Freeze read-only scheduler evidence, exact output
+  fetch, Observe mapping, Result-owned envelope/parser boundaries, and one full
+  synthetic composition test.
+- **Scope:** Authority files only:
+  `OWNER_DECISIONS.md`, `docs/v3/boundary-spec.md`,
+  `docs/v3/acceptance.md`, `docs/v3/AUTONOMOUS_DEVELOPMENT.md`,
+  `docs/v3/STATUS.md`, and `config/context-map.toml`. Use the minimum subset;
+  a seventh path is forbidden. No product, test, selector, workflow, or live
+  mutation is part of this contract freeze.
+- **Explicit non-goals:** No existing Core/Approval/Workflow/Execution/Observe/
+  Result/ScientificValidation/Review API or schema change; no product
+  Controller; no OpenSSH; no process/Gaussian-phase acquisition; no qdel,
+  cancellation, cleanup, deployment, credentials, live RTwin/PBS/Gaussian, or
+  V30-A run.
+- **Dependencies:** Integrated Core, Approval, Workflow, Execution, Observe,
+  Result, ScientificValidation, and Review public surfaces plus OD-17. The
+  legacy RTwin path remains a WRAP/reuse source rather than v3 authority.
+- **Autonomy:** `OWNER-GUIDED`; composition contract freeze is active. Transport
+  implementation remains `NO-GO` until this contract and the separate
+  `V30-VAL-TRANSPORT-01` ownership gate are integrated.
+- **Stop rules:** Stop for a seventh path, upstream public/schema change,
+  alternate WINNER owner, distributed-transaction claim, retry from UNKNOWN,
+  unclosed transport type/identity/fetch semantics, selector/product mutation,
+  OpenSSH or live requirement, or any new scientific policy.
+- **Acceptance/validation:** Prove every numbered condition in
+  `acceptance.md#v30-exec-02-composition-contract-01-rtwin-first-v30-a-composition`,
+  exact context routing, docs/anchors/TOML consistency, complete narrow reuse
+  disposition, and independent adversarial contract review with
+  `P0/P1/P2/P3 = 0/0/0/0`.
+- **Handoff:** Report exact base/head/tree/scope, reuse disposition, validation,
+  P0-P3, blockers, and the independent Contract Review. Completion authorizes
+  neither publication, `V30-VAL-TRANSPORT-01`, product implementation, nor live
+  work.
 
-Contract completion grants no automatic authority to implement Result
-attribution, resume or implement ScientificValidation, activate
-`V30-VAL-SCI-01`, open `V30-EXEC-02`, or perform live work.
+Contract completion grants no automatic authority to activate
+`V30-VAL-TRANSPORT-01`, implement Transport or a Controller, open OpenSSH, or
+perform live work.
