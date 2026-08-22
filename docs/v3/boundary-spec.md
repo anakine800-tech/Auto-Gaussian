@@ -1793,14 +1793,88 @@ scientific_acceptances: tuple[Mapping[str, object], ...]
 Every mapping is a deeply immutable canonical semantic copy of the named
 public record. `calculation_plan` has exactly `calculation_plan_id`, `task_id`,
 `revision`, and complete `intent`; `attempt` has exactly `attempt_id`,
-`task_id`, and `ordinal`. InputBinding, OutputEnvelope, ParseOutcome,
-MinimumValidationOutcome, and ScientificAcceptance mappings preserve every
-public field of their exact typed source records, using enum values and the
-complete expanded mappings already frozen by their owner. No path, raw output,
-artifact bytes, mtime, newly generated display timestamp, viewer state, or
-private object is a bundle field. The exact persisted OutputEnvelope
-`captured_at_utc` remains part of that upstream record and is neither replaced
-nor interpreted as currentness.
+`task_id`, and `ordinal`. MinimumValidationOutcome and ScientificAcceptance
+mappings preserve every public field of their exact typed source records,
+using enum values and the complete expanded mappings already frozen by their
+owner.
+
+The InputBinding projection has exactly these 11 keys and no others:
+
+```text
+schema_version
+observation_id
+attempt_id
+calculation_plan_id
+calculation_plan_revision
+prepared_input_binding_id
+execution_snapshot_id
+input_format
+logical_name
+sha256
+size_bytes
+```
+
+`observation_id` is obtained from and must equal the exact validated typed
+`InputBinding.observation_id`; the builder accepts no independent replacement
+ID. Every other value comes from that same typed InputBinding.
+
+The OutputEnvelope projection has exactly these 12 keys and no others:
+
+```text
+schema_version
+observation_id
+attempt_id
+input_binding_observation_id
+execution_snapshot_id
+capture_source_id
+capture_sequence
+capture_status
+capture_completeness
+artifacts
+capture_manifest_sha256
+captured_at_utc
+```
+
+`observation_id` is obtained from and must equal the exact validated typed
+`OutputEnvelope.observation_id`; the builder accepts no independent replacement
+ID. `capture_status` and `capture_completeness` are their exact public enum
+values. `artifacts` preserves the normalized typed-record order, and every
+artifact mapping has exactly `artifact_kind`, `logical_name`, `sha256`, and
+`size_bytes`. Artifact paths, mtimes, local source paths, and an added
+capture/currentness field are forbidden. The exact persisted `captured_at_utc`
+remains part of the upstream record and is neither replaced nor interpreted as
+currentness.
+
+The ParseOutcome projection has exactly these 10 keys and no others:
+
+```text
+schema_version
+result_id
+attempt_id
+envelope_observation_id
+parser_name
+parser_version
+result_kind
+parse_status
+facts
+diagnostics
+```
+
+`result_id` is obtained from and must equal the exact validated typed
+`ParseOutcome.result_id`; the builder accepts no independent replacement ID.
+`parse_status` is its exact public enum value, `facts` is the already-frozen
+public semantic mapping from that typed ParseOutcome, and `diagnostics`
+preserves exact tuple order. Raw output, artifact bytes, parser-local prose,
+and latest/current markers are forbidden.
+
+These three mappings do not use `payload()` verbatim because those public
+payload helpers intentionally omit the corresponding derived authority ID.
+The builder starts with the complete typed public semantic fields, adds the
+typed record's derived public ID, and fails closed if reconstruction/replay
+does not reproduce that ID. No additional record-kind discriminator is added;
+the enclosing ReviewBundle field determines the record type. No path, raw
+output, artifact bytes, mtime, newly generated display timestamp, viewer state,
+or private object is a bundle field.
 
 The selected geometry and frequencies are byte-semantic copies of the exact
 `selected_geometry_block`, `selected_frequency_blocks`, and
@@ -1876,6 +1950,14 @@ Execution helper. Exact replay gives the same ID; any projected source,
 selected evidence, reason, classification, acceptance set, or acceptance-state
 change gives a new ID. Unsupported values, non-finite numbers, cycles, or a
 forged/stale identity fail closed.
+
+The exact InputBinding, OutputEnvelope, and ParseOutcome mappings specified
+above are the same semantic values used by both ReviewBundle UUIDv5 identity
+and deterministic JSON rendering; Review maintains no separate identity-only
+or render-only projection. Consequently, adding, removing, or changing one of
+their derived authority IDs changes ReviewBundle identity. Caller mapping
+insertion order does not change identity because canonical mapping keys are
+ordered lexically.
 
 The only public renderer is:
 

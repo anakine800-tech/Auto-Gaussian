@@ -684,6 +684,48 @@ selector change, external-viewer action, or live effect:
     integrated. `V30-VAL-REVIEW-01` and Review implementation require separate
     Owner Gates.
 
+The projected-record key assertions are exact and set-based:
+
+1. InputBinding projection keys equal exactly the 11-key set
+   `schema_version`, `observation_id`, `attempt_id`, `calculation_plan_id`,
+   `calculation_plan_revision`, `prepared_input_binding_id`,
+   `execution_snapshot_id`, `input_format`, `logical_name`, `sha256`, and
+   `size_bytes`.
+2. OutputEnvelope projection keys equal exactly the 12-key set
+   `schema_version`, `observation_id`, `attempt_id`,
+   `input_binding_observation_id`, `execution_snapshot_id`,
+   `capture_source_id`, `capture_sequence`, `capture_status`,
+   `capture_completeness`, `artifacts`, `capture_manifest_sha256`, and
+   `captured_at_utc`.
+3. Every OutputArtifact projection keys equal exactly `artifact_kind`,
+   `logical_name`, `sha256`, and `size_bytes`.
+4. ParseOutcome projection keys equal exactly the 10-key set
+   `schema_version`, `result_id`, `attempt_id`, `envelope_observation_id`,
+   `parser_name`, `parser_version`, `result_kind`, `parse_status`, `facts`, and
+   `diagnostics`.
+
+No projected mapping may omit or add a key. Independent adversarial review and
+future contract tests must additionally prove all of the following:
+
+1. InputBinding `payload()` omitting `observation_id` cannot cause the
+   projection to omit it.
+2. OutputEnvelope `payload()` omitting `observation_id` cannot cause the
+   projection to omit it.
+3. ParseOutcome `payload()` omitting `result_id` cannot cause the projection to
+   omit it.
+4. A forged or replaced derived authority ID is rejected rather than copied.
+5. The same exact typed record always yields a byte-equivalent projected
+   mapping.
+6. Mapping insertion order cannot change ReviewBundle identity.
+7. Enum `repr` or member name cannot replace the exact public enum value.
+8. Artifact path, mtime, local source path, or currentness cannot enter the
+   projection.
+9. Raw Gaussian output or artifact bytes cannot enter the ParseOutcome
+   projection.
+10. ReviewBundle identity and deterministic rendering consume exactly the same
+    projected semantic mappings, including all three derived public authority
+    IDs.
+
 Focused future tests must include exact replay under reordered mappings,
 every cross-splice axis in condition 5, mismatched ExecutionSnapshot IDs,
 incomplete/unsupported/not-minimum bundles, all three acceptance states,

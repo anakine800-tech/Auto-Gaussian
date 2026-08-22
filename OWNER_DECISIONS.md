@@ -325,6 +325,15 @@ GaussView and other external viewers may later wrap an explicitly exported
 geometry projection under their own separate authority, but are not imported,
 invoked, or treated as ReviewBundle authority.
 
+The InputBinding, OutputEnvelope, and ParseOutcome projections explicitly
+include their existing derived public authority references
+(`observation_id`, `observation_id`, and `result_id`, respectively). The
+builder obtains and verifies those IDs from the exact typed public records; it
+accepts no caller-supplied replacement. Each projection has one closed key set,
+and the same complete mapping binds both ReviewBundle identity and
+deterministic rendering. These references make the exact reviewed authority
+chain visible without making Review a second identity or authority owner.
+
 Review depends only on public Core, Result, and ScientificValidation surfaces.
 No upstream package imports Review. The ScientificValidation public shape may
 be referenced during contract freeze, but Review implementation remains
