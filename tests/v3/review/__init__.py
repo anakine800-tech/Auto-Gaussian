@@ -1,4 +1,4 @@
-"""Fail-closed deterministic discovery for ReviewBundle evidence."""
+"""Review-owned deterministic test aggregation."""
 
 from __future__ import annotations
 
@@ -6,7 +6,22 @@ from pathlib import Path
 import unittest
 
 
-_PATTERN = "test*.py"
+class ReviewTestDiscoveryError(RuntimeError):
+    pass
+
+
+def _owned_modules() -> tuple[str, ...]:
+    root = Path(__file__).resolve().parent
+    modules: list[str] = []
+    for candidate in root.iterdir():
+        if not candidate.name.startswith("test") or candidate.suffix != ".py":
+            continue
+        if candidate.parent != root or candidate.is_symlink() or not candidate.is_file():
+            raise ReviewTestDiscoveryError(
+                "Review test ownership requires direct regular Python modules"
+            )
+        modules.append(f"{__name__}.{candidate.stem}")
+    return tuple(sorted(modules))
 
 
 def load_tests(
@@ -14,19 +29,14 @@ def load_tests(
     standard_tests: unittest.TestSuite,
     pattern: str | None,
 ) -> unittest.TestSuite:
-    if pattern not in {None, _PATTERN}:
+    if pattern not in {None, "test*.py"}:
         return standard_tests
-    directory = Path(__file__).resolve().parent
-    candidates = sorted(directory.glob(_PATTERN), key=lambda item: item.name)
-    if any(item.is_symlink() or not item.is_file() for item in candidates):
-        raise RuntimeError("ReviewBundle test evidence must be regular files")
-    if not candidates:
-        if pattern == _PATTERN:
+    modules = _owned_modules()
+    if not modules:
+        if pattern == "test*.py":
             return standard_tests
-        raise RuntimeError("ReviewBundle ownership discovered zero test modules")
-    suite = loader.loadTestsFromNames(
-        [f"{__name__}.{item.stem}" for item in candidates]
-    )
+        raise ReviewTestDiscoveryError("Review test ownership has no modules")
+    suite = loader.loadTestsFromNames(modules)
     if suite.countTestCases() == 0:
-        raise RuntimeError("ReviewBundle ownership discovered zero tests")
+        raise ReviewTestDiscoveryError("Review test ownership has no cases")
     return suite
