@@ -26,9 +26,8 @@
 - **ReviewBundle contract integrated:** `V30-REVIEW-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`, and the ReviewBundle contract is active on
   main. `V30-VAL-REVIEW-01` is `CLOSED / INTEGRATED`, and Review validation
-  ownership is active on main. `V30-REVIEW-MIN-IMPL-01` is authorized under
-  standing delegation as the current implementation path and is not yet
-  integrated.
+  ownership is active on main. `V30-REVIEW-MIN-IMPL-01` is
+  `CLOSED / INTEGRATED`, and ReviewBundle is active on main.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -136,8 +135,8 @@
   validated public `observation_id`, `observation_id`, and `result_id`; the
   same closed mappings bind deterministic bundle identity and rendering.
   `V30-VAL-REVIEW-01` is `CLOSED / INTEGRATED`, Review validation ownership is
-  active on main, and `V30-REVIEW-MIN-IMPL-01` is authorized under standing
-  delegation but is not yet integrated.
+  active on main, and `V30-REVIEW-MIN-IMPL-01` is `CLOSED / INTEGRATED`.
+  ReviewBundle is active on main.
 - **Frozen v3.0 scientific policy:** Minimum validation covers ordinary
   nonlinear systems only, requires `N >= 3`, rejects dummy atomic-number-0
   centers, and requires exactly `3N - 6` modes. Every finite frequency below
@@ -152,8 +151,9 @@
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Current implementation path:** `V30-REVIEW-MIN-IMPL-01` is authorized
-  under standing delegation and is not yet integrated.
+- **Next gate:** ScientificValidation, minimal Observe, and minimal ReviewBundle
+  are all integrated. `V30-A-READINESS-01` is the next gate and is a read-only
+  integration audit; it grants no live authority.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
