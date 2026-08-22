@@ -2012,7 +2012,9 @@ uses exact `YYYY-MM-DDTHH:MM:SS.ffffffZ` UTC syntax, must denote a real UTC
 instant, and is evidence only; it is not used to reorder persisted history.
 `freshness` is exactly `fresh`, `stale`, or `unknown` and remains the source
 acquisition owner's classification. Observe does not recompute it from ambient
-time.
+time. Freshness is independent of `state`: a closed known state does not become
+`unknown` merely because its evidence is stale, and explicit state `unknown`
+may itself carry `fresh`, `stale`, or `unknown` freshness.
 
 The closed state matrix is:
 
@@ -2109,9 +2111,15 @@ Non-Observe observation types are ignored. Every matching Observe record is
 decoded with exact fields and its identity is recomputed before projection;
 one malformed, cross-Attempt, or identity-inconsistent matching record fails
 the whole projection closed. For each `source_kind`, the last appended valid
-record wins even when it is stale or `unknown`. `observation_count` counts all
-validated matching Observe records. The same persisted history always yields
-the same projection.
+record wins. Its `state` and `freshness` are projected independently: a newer
+stale `running` or `queued` record remains respectively `running` or `queued`,
+while a newer explicit state `unknown` remains unknown whether fresh or stale.
+When an axis has no usable persisted Observe record, its projection slot is
+`None`, which is the projection's no-evidence UNKNOWN case; it must not be
+confused with the known source state `absent`. Malformed matching evidence
+still fails the whole projection closed rather than being silently converted to
+unknown. `observation_count` counts all validated matching Observe records. The
+same persisted history always yields the same projection.
 
 ### Authority, replay, and failure boundaries
 
@@ -2125,10 +2133,13 @@ path, reads a Gaussian log, invokes qstat/ps, opens SSH, or calls a program.
 `process=absent` does not imply failure; `gaussian=termination` does not encode
 normal versus error termination and does not create a Result. A repeated or
 unchanged `progress_position`, stale sample, slow job, or nonterminal state is
-not failure. `unknown` is explicit and replaces older optimistic projection
-for its axis. None of these states changes Core Attempt state or authorizes
-retry, replacement, child creation, submission, cancellation, cleanup,
-execution, parsing, validation, or acceptance.
+not failure. Stale known evidence preserves its latest durable known state and
+marks freshness separately; it is neither `unknown` nor `failed`. Explicit
+state `unknown` replaces an older optimistic state for its axis, while absence
+of any usable axis evidence remains `None`/UNKNOWN. None of these states or
+freshness values changes Core Attempt state or authorizes retry, replacement,
+child creation, submission, cancellation, cleanup, execution, parsing,
+validation, or acceptance.
 
 ### Narrow reuse adjudication and non-goals
 
@@ -2137,17 +2148,19 @@ check, append-order query, idempotent exact replay, conflict rejection, and
 durable reopen behavior.
 
 **EXTRACT:** only the neutral scheduler lifecycle vocabulary and strict
-present/absent/unknown, stale-to-unknown, and process present/absent/unknown
-semantics evidenced by the legacy direct qstat/read-only tests. These are
-re-expressed as v3 data semantics, not as legacy authority objects.
+present/absent/unknown and process present/absent/unknown distinctions evidenced
+by the legacy direct qstat/read-only tests. The legacy stale-to-unknown coupling
+is not ported; v3 preserves typed state and freshness as independent evidence
+axes.
 
 **WRAP:** exact Core Attempt binding and Core Observation persistence behind
 the two small public Observe service functions.
 
 **REWRITE:** the compact typed Observe record and deterministic per-axis
-projection. The legacy monitor cannot reasonably be ported because it mixes
-remote acquisition and v2 owner/receipt/capability/profile/hash-lineage
-governance with projection and live operational policy.
+projection. The legacy monitor cannot reasonably be ported because it couples
+freshness and acquisition outcomes to remote acquisition, v2
+owner/receipt/capability/profile/hash-lineage governance, projection, and live
+operational policy instead of preserving independent typed evidence axes.
 
 **DROP:** legacy owner chains, receipts, capabilities, profile/hash-lineage
 authority, caller path fallbacks, qsub/qdel/cancellation/retry behavior,

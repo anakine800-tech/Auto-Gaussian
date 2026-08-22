@@ -317,20 +317,22 @@ position. Its deterministic UUIDv5 identity binds that complete payload.
 
 The current projection is derived only from the complete persisted matching
 Observation history in Core append order. The last appended valid sample for
-each source axis is exposed, including `unknown` or stale evidence; an older
-optimistic value is never carried forward over a newer unknown sample.
-Observation time is displayed evidence, not a caller-selectable ordering
-override. Reopening the same history produces the same projection. Exact replay
-is idempotent, while malformed matching evidence or same-ID/different-payload
-history fails closed.
+each source axis is exposed. Freshness and observed state are independent:
+known state remains known when its evidence is stale, while explicit
+`unknown` remains unknown whether its evidence is fresh or stale. An older
+optimistic value is never carried forward over a newer explicit unknown sample,
+but staleness alone never converts a known state to unknown. Observation time
+is displayed evidence, not a caller-selectable ordering override. Reopening the
+same history produces the same projection. Exact replay is idempotent, while
+malformed matching evidence or same-ID/different-payload history fails closed.
 
 Scheduler terminal or absent evidence is not Gaussian completion; process
 absence is not failure; a Gaussian phase or coarse progress position is not a
 Result or scientific conclusion. Queued, held, running, exiting, unchanged,
-slow, stale, absent, and unknown evidence never creates failure, retry,
-replacement, recovery-child, submission, cancellation, cleanup, execution, or
-scientific-acceptance authority. Observe performs no transport, scheduler,
-filesystem, Gaussian, or Core-state effect.
+slow, stale-known, absent, and explicit unknown evidence never creates failure,
+retry, replacement, recovery-child, submission, cancellation, cleanup,
+execution, or scientific-acceptance authority. Observe performs no transport,
+scheduler, filesystem, Gaussian, or Core-state effect.
 
 Legacy direct/qstat and RTwin monitoring code remains a reuse/history source.
 Its strict present/absent/unknown distinctions and neutral scheduler/process

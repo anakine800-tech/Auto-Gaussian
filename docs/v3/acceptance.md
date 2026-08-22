@@ -762,8 +762,12 @@ mutation, Core/API/schema change, transport, or live observation:
 9. Scheduler, process, and Gaussian records are projected independently. The
    last appended valid record per axis wins; wall-clock order and caller input
    order cannot replace Core append order.
-10. A newer stale or `unknown` sample replaces an older fresh/known sample for
-    that axis. Projection never carries an optimistic older value forward.
+10. Freshness and observed state are independent axes. The last appended valid
+    record replaces the earlier record, but a known `state` remains known when
+    `freshness=stale`; staleness alone never becomes state `unknown`. Explicit
+    state `unknown` remains unknown with either fresh or stale evidence. With no
+    usable record for an axis, its `None` slot is the no-evidence UNKNOWN case
+    and is distinct from a known source state `absent`.
 11. Queued, held, running, exiting, repeated progress, unchanged position,
     stale evidence, and a slow or long-running job are observations, not
     failures.
@@ -789,14 +793,32 @@ mutation, Core/API/schema change, transport, or live observation:
     qsub/qdel, deployment, Result/scientific policy, ReviewBundle, `EXEC-02`,
     and all live work.
 
+The freshness/state contract cases are exact:
+
+| Latest usable axis evidence | Projected meaning |
+| --- | --- |
+| scheduler `running` + `stale` | known `running`, stale; not `unknown` or failed |
+| scheduler `queued` + `stale` | known `queued`, stale; not `unknown` or failed |
+| explicit state `unknown` + `fresh` | unknown state with fresh evidence |
+| explicit state `unknown` + `stale` | unknown state with stale evidence |
+| no usable record for the axis | `None`, the no-evidence UNKNOWN projection |
+| same known state with freshness changed only | state is preserved; freshness and record identity change |
+
+Every row grants zero failure, retry, replacement, recovery-child, submission,
+qsub, qdel, cancellation, cleanup, or other effect authority. A malformed
+matching record still fails projection closed and is not silently reclassified
+as unknown.
+
 The later implementation acceptance matrix must use only synthetic Core
 records and must include: one event for each closed state; mixed-axis append
 order; same-time different-source records; timestamp reversal; exact replay;
 identity conflict; missing/cross Attempt; malformed old and latest rows;
-durable reopen; stale/unknown replacing known; non-Observe coexistence; slow
-running and unchanged progress; scheduler terminal/process absent/Gaussian
-termination separation; and a zero-call effect spy. No live fixture is
-permitted.
+durable reopen; `running+stale`; `queued+stale`; explicit `unknown+fresh` and
+`unknown+stale`; no-evidence UNKNOWN; freshness-only change preserving known
+state; non-Observe coexistence; slow running and unchanged progress; scheduler
+terminal/process absent/Gaussian termination separation; stale-known producing
+neither failure nor retry/effect authority; and a zero-call effect spy. No live
+fixture is permitted.
 
 V30-OBS-MIN-CONTRACT-01 stops after a new independent adversarial contract
 review. Completion authorizes neither publication, `V30-VAL-OBS-01`, Observe
