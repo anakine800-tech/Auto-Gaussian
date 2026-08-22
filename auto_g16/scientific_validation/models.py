@@ -576,6 +576,14 @@ _REASON_CLASSIFICATIONS: Final = {
     "negative-frequency": MinimumValidationClassification.NOT_MINIMUM,
     "validated-minimum": MinimumValidationClassification.VALIDATED_MINIMUM,
 }
+_SOURCE_ARTIFACT_FIELDS: Final = {
+    "envelope_observation_id",
+    "artifact_kind",
+    "logical_name",
+    "sha256",
+    "size_bytes",
+}
+_SOURCE_SPAN_FIELDS: Final = _SOURCE_ARTIFACT_FIELDS | {"start", "end"}
 
 
 def _semantic_integrity(message: str) -> NoReturn:
@@ -588,7 +596,7 @@ def _assert_source_span(
     *,
     name: str,
 ) -> tuple[int, int]:
-    if not isinstance(span, Mapping) or set(span) != set(source) | {"start", "end"}:
+    if not isinstance(span, Mapping) or set(span) != _SOURCE_SPAN_FIELDS:
         _semantic_integrity(f"{name} does not bind the exact source artifact")
     if any(span[key] != value for key, value in source.items()):
         _semantic_integrity(f"{name} source authority is spliced")
@@ -601,9 +609,42 @@ def _assert_source_span(
         or not isinstance(end, int)
         or start < 0
         or end <= start
+        or end > source["size_bytes"]
     ):
         _semantic_integrity(f"{name} has invalid source bounds")
     return start, end
+
+
+def _assert_source_artifact(
+    source: Mapping[str, object],
+    *,
+    envelope_observation_id: str,
+) -> None:
+    if set(source) != _SOURCE_ARTIFACT_FIELDS:
+        _semantic_integrity("source artifact does not have its exact closed fields")
+    if source["envelope_observation_id"] != envelope_observation_id:
+        _semantic_integrity("source artifact names a different envelope")
+    try:
+        _text(source["envelope_observation_id"], "source envelope_observation_id")
+        logical_name = _text(source["logical_name"], "source logical_name")
+    except ScientificValidationError as exc:
+        raise ScientificValidationPersistenceIntegrityError(
+            "source artifact text fields are malformed"
+        ) from exc
+    if source["artifact_kind"] != "gaussian-log":
+        _semantic_integrity("source artifact is not a Gaussian log")
+    if logical_name in {".", ".."} or "/" in logical_name or "\\" in logical_name:
+        _semantic_integrity("source logical name is not a portable leaf")
+    digest = source["sha256"]
+    if (
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        _semantic_integrity("source artifact SHA-256 is malformed")
+    size = source["size_bytes"]
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        _semantic_integrity("source artifact size is malformed")
 
 
 def _assert_minimum_validation_semantics(
@@ -649,6 +690,10 @@ def _assert_minimum_validation_semantics(
     job_section = record.job_section
     if source is None or job_section is None:
         _semantic_integrity("attributed outcome is missing source authority")
+    _assert_source_artifact(
+        source,
+        envelope_observation_id=record.envelope_observation_id,
+    )
     job_start, job_end = _assert_source_span(
         job_section, source, name="job_section"
     )
@@ -683,6 +728,13 @@ def _assert_minimum_validation_semantics(
     geometry = record.selected_geometry_block
     if geometry is None:
         _semantic_integrity("classified outcome is missing selected geometry")
+    if set(geometry) != {"orientation_kind", "units", "source_span", "atoms"}:
+        _semantic_integrity("selected geometry does not have its exact closed fields")
+    if geometry["orientation_kind"] not in {
+        "input-orientation",
+        "standard-orientation",
+    } or geometry["units"] != "angstrom":
+        _semantic_integrity("selected geometry kind or units are malformed")
     geometry_span = geometry.get("source_span")
     geometry_start, geometry_end = _assert_source_span(
         geometry_span, source, name="selected_geometry_block.source_span"
@@ -690,12 +742,40 @@ def _assert_minimum_validation_semantics(
     if not (job_start <= geometry_start < geometry_end <= opt_start):
         _semantic_integrity("selected geometry is outside its frozen source boundary")
     atoms = geometry.get("atoms")
-    if not isinstance(atoms, tuple):
+    if not isinstance(atoms, tuple) or not atoms:
         _semantic_integrity("selected geometry atoms are not an immutable sequence")
+    for index, atom in enumerate(atoms, start=1):
+        if not isinstance(atom, Mapping) or set(atom) != {
+            "center",
+            "atomic_number",
+            "x",
+            "y",
+            "z",
+        }:
+            _semantic_integrity("selected geometry atom has invalid closed fields")
+        center = atom["center"]
+        atomic_number = atom["atomic_number"]
+        if (
+            isinstance(center, bool)
+            or not isinstance(center, int)
+            or center != index
+            or isinstance(atomic_number, bool)
+            or not isinstance(atomic_number, int)
+            or not 0 <= atomic_number <= 118
+        ):
+            _semantic_integrity("selected geometry center or atomic number is invalid")
+        if any(
+            type(atom[coordinate]) is not float
+            or not isfinite(atom[coordinate])  # type: ignore[arg-type]
+            for coordinate in ("x", "y", "z")
+        ):
+            _semantic_integrity("selected geometry coordinates are malformed")
 
     frequencies: list[float] = []
     prior_end = stat_end
     for index, block in enumerate(record.selected_frequency_blocks):
+        if set(block) != {"source_span", "frequencies_cm-1"}:
+            _semantic_integrity("selected frequency block has invalid closed fields")
         span = block.get("source_span")
         start, end = _assert_source_span(
             span, source, name=f"selected_frequency_blocks[{index}].source_span"
@@ -704,7 +784,7 @@ def _assert_minimum_validation_semantics(
             _semantic_integrity("selected frequency suffix is not ordered after stationary evidence")
         prior_end = end
         values = block.get("frequencies_cm-1")
-        if not isinstance(values, tuple) or any(
+        if not isinstance(values, tuple) or not 1 <= len(values) <= 3 or any(
             type(item) is not float or not isfinite(item) for item in values
         ):
             _semantic_integrity("selected frequency block values are malformed")
@@ -720,14 +800,7 @@ def _assert_minimum_validation_semantics(
             MinimumValidationClassification.UNSUPPORTED,
             "unsupported-atom-cardinality",
         )
-    elif any(
-        not isinstance(atom, Mapping)
-        or isinstance(atom.get("atomic_number"), bool)
-        or not isinstance(atom.get("atomic_number"), int)
-        for atom in atoms
-    ):
-        _semantic_integrity("selected geometry atom identity is malformed")
-    elif any(atom["atomic_number"] == 0 for atom in atoms):
+    elif any(atom["atomic_number"] == 0 for atom in atoms):  # type: ignore[index]
         expected = (
             MinimumValidationClassification.UNSUPPORTED,
             "unsupported-dummy-center",

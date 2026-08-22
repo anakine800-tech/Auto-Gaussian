@@ -277,6 +277,77 @@ class ScientificValidationStoreTests(unittest.TestCase):
         with self.assertRaises(ScientificValidationPersistenceIntegrityError):
             store.load_minimum_validation(forged_id)
 
+    def test_recomputed_identity_cannot_smuggle_malformed_selected_evidence(self) -> None:
+        def geometry(payload: dict[str, object]) -> dict[str, object]:
+            return payload["selected_geometry_block"]  # type: ignore[return-value]
+
+        def atom(payload: dict[str, object]) -> dict[str, object]:
+            return geometry(payload)["atoms"][0]  # type: ignore[index,return-value]
+
+        def frequency(payload: dict[str, object]) -> dict[str, object]:
+            return payload["selected_frequency_blocks"][0]  # type: ignore[index,return-value]
+
+        attacks: tuple[
+            tuple[str, Callable[[dict[str, object]], None]], ...
+        ] = (
+            ("atomic-number", lambda payload: atom(payload).__setitem__("atomic_number", -1)),
+            ("geometry-keys", lambda payload: geometry(payload).__setitem__("extra", True)),
+            ("center-order", lambda payload: atom(payload).__setitem__("center", 2)),
+            (
+                "orientation",
+                lambda payload: geometry(payload).__setitem__(
+                    "orientation_kind", "z-matrix-orientation"
+                ),
+            ),
+            ("units", lambda payload: geometry(payload).__setitem__("units", "bohr")),
+            ("coordinate-type", lambda payload: atom(payload).__setitem__("x", 0)),
+            (
+                "geometry-span",
+                lambda payload: geometry(payload)["source_span"].__setitem__(  # type: ignore[union-attr]
+                    "end", 101
+                ),
+            ),
+            (
+                "source-artifact",
+                lambda payload: payload["source_artifact"].__setitem__(  # type: ignore[union-attr]
+                    "sha256", "not-a-digest"
+                ),
+            ),
+            (
+                "source-splice",
+                lambda payload: payload["source_artifact"].__setitem__(  # type: ignore[union-attr]
+                    "sha256", "d" * 64
+                ),
+            ),
+            (
+                "frequency-shape",
+                lambda payload: frequency(payload).__setitem__(
+                    "frequencies_cm-1", []
+                ),
+            ),
+            (
+                "frequency-source",
+                lambda payload: frequency(payload)["source_span"].__setitem__(  # type: ignore[union-attr]
+                    "sha256", "d" * 64
+                ),
+            ),
+        )
+        for ordinal, (name, attack) in enumerate(attacks):
+            with self.subTest(name=name):
+                path = Path(self.temporary.name) / f"attack-{ordinal}.sqlite3"
+                store = SQLiteScientificValidationStore.create_new(path)
+                outcome = record_minimum_validation(store, self.outcome())
+                forged_id = self._rewrite_outcome_row(
+                    store,
+                    outcome.minimum_validation_outcome_id,
+                    attack,
+                )
+                with self.assertRaises(
+                    ScientificValidationPersistenceIntegrityError
+                ):
+                    store.load_minimum_validation(forged_id)
+                store.close()
+
 
 if __name__ == "__main__":
     unittest.main()
