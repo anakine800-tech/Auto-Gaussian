@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+import json
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+
+from auto_g16.scientific_validation.models import _identity
 
 from auto_g16.scientific_validation import (
     MinimumValidationClassification as Classification,
@@ -34,6 +38,43 @@ class ScientificValidationStoreTests(unittest.TestCase):
         )
         self.addCleanup(core.close)
         return validate_minimum(core, binding, envelope, parse_outcome)
+
+    @staticmethod
+    def _reidentify(payload: dict[str, object]) -> None:
+        authority = {
+            key: value
+            for key, value in payload.items()
+            if key != "minimum_validation_outcome_id"
+        }
+        payload["minimum_validation_outcome_id"] = _identity(
+            "minimum-validation-outcome", authority
+        )
+
+    def _rewrite_outcome_row(
+        self,
+        store: SQLiteScientificValidationStore,
+        outcome_id: str,
+        mutate: Callable[[dict[str, object]], None],
+    ) -> str:
+        row = store._connection.execute(  # type: ignore[attr-defined]
+            "SELECT payload_json FROM minimum_validations "
+            "WHERE minimum_validation_outcome_id = ?",
+            (outcome_id,),
+        ).fetchone()
+        payload = json.loads(row[0])
+        mutate(payload)
+        self._reidentify(payload)
+        forged_id = payload["minimum_validation_outcome_id"]
+        store._connection.execute(  # type: ignore[attr-defined]
+            "UPDATE minimum_validations SET minimum_validation_outcome_id = ?, "
+            "payload_json = ? WHERE minimum_validation_outcome_id = ?",
+            (
+                forged_id,
+                json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                outcome_id,
+            ),
+        )
+        return forged_id  # type: ignore[return-value]
 
     def test_exact_replay_is_idempotent_and_durable_order_survives_reopen(self) -> None:
         store = SQLiteScientificValidationStore.create_new(self.path)
@@ -194,6 +235,47 @@ class ScientificValidationStoreTests(unittest.TestCase):
         connection.close()
         with self.assertRaises(ScientificValidationPersistenceIntegrityError):
             SQLiteScientificValidationStore.open_existing(other)
+
+    def test_recomputed_identity_cannot_authorize_contradictory_semantics(self) -> None:
+        store = SQLiteScientificValidationStore.create_new(self.path)
+        self.addCleanup(store.close)
+        outcome = record_minimum_validation(store, self.outcome())
+
+        def contradict_reason(payload: dict[str, object]) -> None:
+            payload["reason_code"] = "negative-frequency"
+
+        forged_id = self._rewrite_outcome_row(
+            store,
+            outcome.minimum_validation_outcome_id,
+            contradict_reason,
+        )
+        with self.assertRaises(ScientificValidationPersistenceIntegrityError):
+            store.load_minimum_validation(forged_id)
+        with self.assertRaises(ScientificValidationPersistenceIntegrityError):
+            record_scientific_acceptance(
+                store,
+                minimum_validation_outcome_id=forged_id,
+                reviewer_id="reviewer-1",
+                review_evidence={"decision": "accept"},
+            )
+
+    def test_recomputed_identity_cannot_splice_selected_frequency_projection(self) -> None:
+        store = SQLiteScientificValidationStore.create_new(self.path)
+        self.addCleanup(store.close)
+        outcome = record_minimum_validation(store, self.outcome())
+
+        def contradict_projection(payload: dict[str, object]) -> None:
+            payload["selected_frequencies_cm1"] = [-1.0, 200.0, 300.0]
+            payload["classification"] = Classification.NOT_MINIMUM.value
+            payload["reason_code"] = "negative-frequency"
+
+        forged_id = self._rewrite_outcome_row(
+            store,
+            outcome.minimum_validation_outcome_id,
+            contradict_projection,
+        )
+        with self.assertRaises(ScientificValidationPersistenceIntegrityError):
+            store.load_minimum_validation(forged_id)
 
 
 if __name__ == "__main__":

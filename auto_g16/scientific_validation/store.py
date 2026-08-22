@@ -17,6 +17,7 @@ from .models import (
     ScientificValidationConflictError,
     ScientificValidationError,
     ScientificValidationPersistenceIntegrityError,
+    _assert_minimum_validation_semantics,
     _payload_text,
 )
 
@@ -73,6 +74,7 @@ def _decode_outcome(payload_text: object) -> MinimumValidationOutcome:
         raise ScientificValidationPersistenceIntegrityError(
             "minimum validation row is not canonical"
         )
+    _assert_minimum_validation_semantics(record)
     return record
 
 

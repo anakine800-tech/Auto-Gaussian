@@ -21,6 +21,7 @@ from .models import (
     MinimumValidationOutcome,
     ScientificAcceptance,
     ScientificValidationError,
+    _assert_minimum_validation_semantics,
 )
 from .store import SQLiteScientificValidationStore
 
@@ -465,6 +466,7 @@ def record_scientific_acceptance(
             "store must be a SQLiteScientificValidationStore"
         )
     outcome = store.load_minimum_validation(minimum_validation_outcome_id)
+    _assert_minimum_validation_semantics(outcome)
     if outcome.classification is not MinimumValidationClassification.VALIDATED_MINIMUM:
         raise ScientificValidationError(
             "ScientificAcceptance requires a persisted VALIDATED_MINIMUM"
@@ -489,6 +491,7 @@ def require_scientific_acceptance(
             "store must be a SQLiteScientificValidationStore"
         )
     outcome = store.load_minimum_validation(minimum_validation_outcome_id)
+    _assert_minimum_validation_semantics(outcome)
     acceptance = store.load_scientific_acceptance(scientific_acceptance_id)
     expected = (
         outcome.minimum_validation_outcome_id,

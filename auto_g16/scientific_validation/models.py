@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import json
 from math import isfinite
-from typing import Final
+from typing import Final, NoReturn
 from uuid import UUID, uuid5
 
 
@@ -552,3 +552,209 @@ def _payload_text(record: MinimumValidationOutcome | ScientificAcceptance) -> st
         separators=(",", ":"),
         sort_keys=True,
     )
+
+
+_SUPPORTED_RESULT_TUPLE: Final = (
+    "auto-g16-v3-gaussian-job",
+    "1.0.0",
+    "gaussian-job-facts",
+)
+_REASON_CLASSIFICATIONS: Final = {
+    "incomplete-provenance": MinimumValidationClassification.INCOMPLETE,
+    "incomplete-capture": MinimumValidationClassification.INCOMPLETE,
+    "unsupported-result-tuple": MinimumValidationClassification.UNSUPPORTED,
+    "unsupported-parse-status": MinimumValidationClassification.UNSUPPORTED,
+    "incomplete-parse": MinimumValidationClassification.INCOMPLETE,
+    "incomplete-error-termination": MinimumValidationClassification.INCOMPLETE,
+    "incomplete-terminal-evidence": MinimumValidationClassification.INCOMPLETE,
+    "incomplete-marker-pair": MinimumValidationClassification.INCOMPLETE,
+    "incomplete-final-geometry": MinimumValidationClassification.INCOMPLETE,
+    "unsupported-atom-cardinality": MinimumValidationClassification.UNSUPPORTED,
+    "unsupported-dummy-center": MinimumValidationClassification.UNSUPPORTED,
+    "incomplete-mode-count": MinimumValidationClassification.INCOMPLETE,
+    "unsupported-mode-count": MinimumValidationClassification.UNSUPPORTED,
+    "negative-frequency": MinimumValidationClassification.NOT_MINIMUM,
+    "validated-minimum": MinimumValidationClassification.VALIDATED_MINIMUM,
+}
+
+
+def _semantic_integrity(message: str) -> NoReturn:
+    raise ScientificValidationPersistenceIntegrityError(message)
+
+
+def _assert_source_span(
+    span: object,
+    source: Mapping[str, object],
+    *,
+    name: str,
+) -> tuple[int, int]:
+    if not isinstance(span, Mapping) or set(span) != set(source) | {"start", "end"}:
+        _semantic_integrity(f"{name} does not bind the exact source artifact")
+    if any(span[key] != value for key, value in source.items()):
+        _semantic_integrity(f"{name} source authority is spliced")
+    start = span["start"]
+    end = span["end"]
+    if (
+        isinstance(start, bool)
+        or not isinstance(start, int)
+        or isinstance(end, bool)
+        or not isinstance(end, int)
+        or start < 0
+        or end <= start
+    ):
+        _semantic_integrity(f"{name} has invalid source bounds")
+    return start, end
+
+
+def _assert_minimum_validation_semantics(
+    record: MinimumValidationOutcome,
+) -> None:
+    """Replay policy-v1 semantics that are closed by one persisted outcome."""
+
+    expected_classification = _REASON_CLASSIFICATIONS.get(record.reason_code)
+    if expected_classification is None or record.classification is not expected_classification:
+        _semantic_integrity(
+            "minimum validation classification and primary reason disagree"
+        )
+
+    parser_tuple = (record.parser_name, record.parser_version, record.result_kind)
+    if record.reason_code == "unsupported-result-tuple":
+        if parser_tuple == _SUPPORTED_RESULT_TUPLE:
+            _semantic_integrity("unsupported tuple reason names the supported tuple")
+    elif record.reason_code not in {"incomplete-provenance", "incomplete-capture"}:
+        if parser_tuple != _SUPPORTED_RESULT_TUPLE:
+            _semantic_integrity("supported-policy reason names an unsupported tuple")
+
+    absent_evidence = (
+        record.source_artifact is None,
+        record.job_section is None,
+        record.accepted_optimization_span is None,
+        record.accepted_stationary_span is None,
+        record.selected_geometry_block is None,
+        not record.selected_frequency_blocks,
+        not record.selected_frequencies_cm1,
+    )
+    if record.reason_code in {
+        "incomplete-provenance",
+        "incomplete-capture",
+        "unsupported-result-tuple",
+        "unsupported-parse-status",
+        "incomplete-parse",
+    }:
+        if not all(absent_evidence):
+            _semantic_integrity("pre-fact outcome contains selected Result evidence")
+        return
+
+    source = record.source_artifact
+    job_section = record.job_section
+    if source is None or job_section is None:
+        _semantic_integrity("attributed outcome is missing source authority")
+    job_start, job_end = _assert_source_span(
+        job_section, source, name="job_section"
+    )
+
+    if record.reason_code in {
+        "incomplete-error-termination",
+        "incomplete-terminal-evidence",
+        "incomplete-marker-pair",
+    }:
+        if not all(absent_evidence[2:]):
+            _semantic_integrity("pre-pair outcome contains selected Result evidence")
+        return
+
+    optimization = record.accepted_optimization_span
+    stationary = record.accepted_stationary_span
+    if optimization is None or stationary is None:
+        _semantic_integrity("post-pair outcome is missing accepted marker spans")
+    opt_start, opt_end = _assert_source_span(
+        optimization, source, name="accepted_optimization_span"
+    )
+    stat_start, stat_end = _assert_source_span(
+        stationary, source, name="accepted_stationary_span"
+    )
+    if not (job_start <= opt_start < opt_end <= stat_start < stat_end <= job_end):
+        _semantic_integrity("accepted marker pair is not ordered inside job section")
+
+    if record.reason_code == "incomplete-final-geometry":
+        if record.selected_geometry_block is not None or not all(absent_evidence[5:]):
+            _semantic_integrity("missing-geometry outcome contains selected evidence")
+        return
+
+    geometry = record.selected_geometry_block
+    if geometry is None:
+        _semantic_integrity("classified outcome is missing selected geometry")
+    geometry_span = geometry.get("source_span")
+    geometry_start, geometry_end = _assert_source_span(
+        geometry_span, source, name="selected_geometry_block.source_span"
+    )
+    if not (job_start <= geometry_start < geometry_end <= opt_start):
+        _semantic_integrity("selected geometry is outside its frozen source boundary")
+    atoms = geometry.get("atoms")
+    if not isinstance(atoms, tuple):
+        _semantic_integrity("selected geometry atoms are not an immutable sequence")
+
+    frequencies: list[float] = []
+    prior_end = stat_end
+    for index, block in enumerate(record.selected_frequency_blocks):
+        span = block.get("source_span")
+        start, end = _assert_source_span(
+            span, source, name=f"selected_frequency_blocks[{index}].source_span"
+        )
+        if start < prior_end or end > job_end:
+            _semantic_integrity("selected frequency suffix is not ordered after stationary evidence")
+        prior_end = end
+        values = block.get("frequencies_cm-1")
+        if not isinstance(values, tuple) or any(
+            type(item) is not float or not isfinite(item) for item in values
+        ):
+            _semantic_integrity("selected frequency block values are malformed")
+        frequencies.extend(values)
+    if tuple(frequencies) != record.selected_frequencies_cm1:
+        _semantic_integrity(
+            "selected frequency projection contradicts selected frequency blocks"
+        )
+
+    atom_count = len(atoms)
+    if atom_count < 3:
+        expected = (
+            MinimumValidationClassification.UNSUPPORTED,
+            "unsupported-atom-cardinality",
+        )
+    elif any(
+        not isinstance(atom, Mapping)
+        or isinstance(atom.get("atomic_number"), bool)
+        or not isinstance(atom.get("atomic_number"), int)
+        for atom in atoms
+    ):
+        _semantic_integrity("selected geometry atom identity is malformed")
+    elif any(atom["atomic_number"] == 0 for atom in atoms):
+        expected = (
+            MinimumValidationClassification.UNSUPPORTED,
+            "unsupported-dummy-center",
+        )
+    else:
+        expected_modes = 3 * atom_count - 6
+        if len(frequencies) < expected_modes:
+            expected = (
+                MinimumValidationClassification.INCOMPLETE,
+                "incomplete-mode-count",
+            )
+        elif len(frequencies) > expected_modes:
+            expected = (
+                MinimumValidationClassification.UNSUPPORTED,
+                "unsupported-mode-count",
+            )
+        elif any(item < 0.0 for item in frequencies):
+            expected = (
+                MinimumValidationClassification.NOT_MINIMUM,
+                "negative-frequency",
+            )
+        else:
+            expected = (
+                MinimumValidationClassification.VALIDATED_MINIMUM,
+                "validated-minimum",
+            )
+    if (record.classification, record.reason_code) != expected:
+        _semantic_integrity(
+            "minimum validation outcome contradicts frozen first-applicable policy"
+        )
