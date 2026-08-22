@@ -25,8 +25,9 @@
   `main@301c97d2e664ffbdea79764aae264b97e0e53552`.
 - **ReviewBundle contract integrated:** `V30-REVIEW-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`, and the ReviewBundle contract is active on
-  main. `V30-VAL-REVIEW-01` is the next Review validation-ownership gate and
-  candidate path; ReviewBundle implementation waits for that ownership to be
+  main. `V30-VAL-REVIEW-01` is `CLOSED / INTEGRATED`, and Review validation
+  ownership is active on main. `V30-REVIEW-MIN-IMPL-01` is authorized under
+  standing delegation as the current implementation path and is not yet
   integrated.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
@@ -134,8 +135,9 @@
   OutputEnvelope, and ParseOutcome projections explicitly include their exact
   validated public `observation_id`, `observation_id`, and `result_id`; the
   same closed mappings bind deterministic bundle identity and rendering.
-  Product implementation remains `WAIT` until `V30-VAL-REVIEW-01` validation
-  ownership is integrated and its separate implementation gate is approved.
+  `V30-VAL-REVIEW-01` is `CLOSED / INTEGRATED`, Review validation ownership is
+  active on main, and `V30-REVIEW-MIN-IMPL-01` is authorized under standing
+  delegation but is not yet integrated.
 - **Frozen v3.0 scientific policy:** Minimum validation covers ordinary
   nonlinear systems only, requires `N >= 3`, rejects dummy atomic-number-0
   centers, and requires exactly `3N - 6` modes. Every finite frequency below
@@ -150,9 +152,8 @@
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** `V30-VAL-REVIEW-01` is the next Review validation-ownership
-  gate and candidate path. ReviewBundle implementation remains waiting until
-  its validation ownership is integrated.
+- **Current implementation path:** `V30-REVIEW-MIN-IMPL-01` is authorized
+  under standing delegation and is not yet integrated.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -161,6 +162,5 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** `V30-EXEC-02`, ReviewBundle implementation before
-  `V30-VAL-REVIEW-01` integration, production changes, deployment, live smoke,
+- **Do not start:** `V30-EXEC-02`, production changes, deployment, live smoke,
   and SSH/PBS/Gaussian operations remain unauthorized.
