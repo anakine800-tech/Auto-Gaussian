@@ -998,10 +998,12 @@ fresh independent adversarial contract review:
    signature in `boundary-spec.md` are closed. Public records are frozen,
    slotted, keyword-only, deeply immutable, and accept no raw command, shell,
    callback, arbitrary root, or caller-selected executable.
-7. `ExactRemoteJobBinding.from_confirmed_receipt(...)` revalidates the public
-   ExecutionSnapshot and reconstructed receipt and rejects every mismatch in
-   Attempt, snapshot, submission intent, receipt, remote workspace, job, effect
-   kind, or confirmed-effect state.
+7. `ExactRemoteJobBinding.from_persisted_receipt(...)` accepts only the current
+   snapshot, public `ReceiptJournal`, exact persisted receipt ID, and current
+   public `ServerProfile`. It resolves exact config, scans only the exact
+   Attempt journal, requires exactly one durable receipt ID, and rejects absent,
+   duplicate, malformed, same-ID/different-payload, unpersisted/forged, or any
+   Attempt/snapshot/intent/workspace/job/effect mismatch before read authority.
 8. Scheduler acquisition is read-only, state/freshness is classifier-derived
    rather than caller-selected, and the exact qstat executable token, argv,
    workspace cwd, fixed environment, `shell=False`, timeout, byte caps, EOF
@@ -1040,8 +1042,9 @@ fresh independent adversarial contract review:
 14. `RTWinExecutionAdapter` advertises `rtwin-pbs-v1` and exposes only the
     unchanged `ExecutionPort` effect/reconciliation methods.
     `RTWinReadAdapter` exposes only exact scheduler read and exact output fetch,
-    and both revalidate the current snapshot plus confirmed receipt on every
-    call.
+    and both receive the already-attested persisted binding plus current public
+    profile, revalidate snapshot/binding, publicly resolve the profile, and
+    reject complete semantic/ID/effective-digest drift before every driver call.
 15. Read adapter construction is non-effectful. It cannot submit, cancel,
     delete, clean up, mutate Core, resolve `UNKNOWN`, or create authority.
     Both adapters use the exact source-controlled operation table and exact
@@ -1049,6 +1052,9 @@ fresh independent adversarial contract review:
     timeouts, byte caps, EOF, `shell=False`, and no-retry behavior are package
     authority; caller command text and secrets are impossible inputs. Table,
     executable, wrapper, and config identity drift rejects before a port call.
+    Effect-side configuration remains owned by existing public
+    `execute_once(..., current_profile=...)`; no private helper, global config,
+    secret, or credential handle becomes authority/evidence.
 16. The Controller verifies fetched bytes, builds public Result
     `OutputArtifact`/`OutputEnvelope`, and records through existing Result
     services. Transport does not import Result, create `ParseOutcome`, parse
@@ -1077,8 +1083,11 @@ fresh independent adversarial contract review:
     no selector mutation or Transport implementation is included in this
     authority candidate.
 
-The later implementation matrix must cover: exact binding happy path; every
-binding-field mismatch; operation-table/runtime-binding drift; exact qstat argv,
+The later implementation matrix must cover: exact persisted-binding happy path;
+unpersisted forged receipt; absent/duplicate/malformed receipt; same receipt ID
+with different durable payload; every binding-field mismatch; current-profile
+exact replay and semantic/ID/effective-digest drift; operation-table/runtime-
+binding drift; exact qstat argv,
 cwd/env/shell/caps/EOF; scheduler queued/running/held/exiting/terminal/absent/
 unknown; malformed and duplicate qstat; stable complete and partial fetch;
 request traversal/symlink/replacement/short-read/digest/size/cap overflow;

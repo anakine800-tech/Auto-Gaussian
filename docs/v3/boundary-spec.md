@@ -2581,14 +2581,38 @@ remote_workspace: str
 job_id: str
 ```
 
-`ExactRemoteJobBinding.from_confirmed_receipt(snapshot, receipt)` first calls
-public `assert_execution_snapshot_identity(snapshot)`, reconstructs the public
-`RemoteEffectReceipt` from its semantic payload, and accepts only
-`confirmed_effect` submission or submission-reconciliation evidence. Attempt,
-snapshot, submission intent, exact remote Attempt workspace, and non-empty job
-ID must all equal the current snapshot/receipt. A caller cannot construct an
-authority-bearing binding from strings alone: the record has `init=False` and
-the verified classmethod is its only public constructor.
+The only public constructor is exactly:
+
+```text
+ExactRemoteJobBinding.from_persisted_receipt(
+    snapshot: ExecutionSnapshot,
+    journal: ReceiptJournal,
+    *,
+    remote_effect_receipt_id: str,
+    current_profile: ServerProfile,
+) -> ExactRemoteJobBinding
+```
+
+It calls public `assert_execution_snapshot_identity(snapshot)`, then public
+`resolve_server_profile(current_profile)` and requires complete semantic
+equality, `resolved_server_profile_id`, and `effective_config_sha256` equality
+with `snapshot.resolved_server_profile`. It calls public
+`journal.receipts_for_attempt(snapshot.attempt_id)` and selects by the exact
+non-empty receipt ID. Exactly one durable receipt must have that ID. Absence,
+duplicate IDs, malformed stored evidence, or the same record ID with different
+durable semantic payload fails closed. The selected receipt must be
+`confirmed_effect` submission or submission-reconciliation evidence and must
+exactly match the snapshot's Attempt, snapshot ID, submission intent, remote
+Attempt workspace, and non-empty job ID. A transient or caller-created
+`RemoteEffectReceipt` is never an input and grants no read authority. The
+record has `init=False`; callers cannot construct it from strings alone.
+
+`ServerProfile` is existing public non-secret mutable configuration. Its
+public resolver already closes ordered config bytes, strict host-key policy,
+target/jump topology, platform paths, and runtime contents. Secrets and
+credential handles remain out-of-band driver mechanics and are never snapshot,
+binding, receipt, or evidence authority. No private Execution identity/config
+helper or unspecified process-global configuration is used.
 
 `SchedulerReadEvidence` has exactly these ten fields:
 
@@ -2863,12 +2887,14 @@ submission-reconciliation operations. `RTWinReadAdapter` exposes exactly:
 ```text
 read_scheduler(
     snapshot: ExecutionSnapshot,
-    receipt: RemoteEffectReceipt,
+    binding: ExactRemoteJobBinding,
+    current_profile: ServerProfile,
 ) -> SchedulerReadEvidence
 
 fetch_exact_output(
     snapshot: ExecutionSnapshot,
-    receipt: RemoteEffectReceipt,
+    binding: ExactRemoteJobBinding,
+    current_profile: ServerProfile,
     *,
     input_binding_observation_id: str,
     requests: tuple[ExactArtifactRequest, ...],
@@ -2876,11 +2902,25 @@ fetch_exact_output(
 ) -> FetchedOutputCapture
 ```
 
-Both read methods revalidate the current snapshot and confirmed receipt through
-`ExactRemoteJobBinding` on every call. Construction/configuration is
-non-effectful and package-owned; public construction accepts no raw command or
-authority token. The read adapter cannot submit, cancel, delete, clean up,
-mutate Core, or resolve an ambiguous submission by itself.
+Both read methods call public `assert_execution_snapshot_identity(snapshot)`,
+require every binding field to equal that snapshot, resolve the supplied
+current public profile, and require complete resolved-profile semantic/ID/
+effective-digest equality before any driver call. The already-attested binding
+must have been created by `from_persisted_receipt(...)`; no receipt object or
+receipt payload is accepted here. A package-private convenience may receive a
+journal plus receipt ID and invoke that same public constructor internally,
+but it cannot create a second public read signature or skip durable lookup.
+Construction/configuration is non-effectful and package-owned; public
+construction accepts no raw command or authority token. The read adapter cannot
+submit, cancel, delete, clean up, mutate Core, or resolve an ambiguous
+submission by itself.
+
+On the effect side, `RTWinExecutionAdapter` receives no additional config API:
+the existing public `execute_once(..., current_profile=..., port=...)` already
+calls `resolve_server_profile(current_profile)` and rejects drift before the
+Core claim/port seam. The adapter relies on that frozen public preflight plus
+the exact snapshot runtime bindings below; it does not read a global profile or
+reimplement Execution profile identity.
 
 ### Source-controlled RTwin operation construction
 
@@ -3016,6 +3056,8 @@ CalculationPlan
 -> pure validate_effect_authority
 -> execute_once owns Core claim
 -> WINNER and exactly one synthetic qsub seam
+-> public ReceiptJournal lookup by exact persisted receipt ID
+-> ExactRemoteJobBinding with current-profile replay
 -> scheduler evidence -> Observe record
 -> exact fetched bytes -> Result OutputEnvelope
 -> GaussianJobParser -> ParseOutcome
@@ -3031,9 +3073,12 @@ calling Execution directly after skipping Approval is expressly not official
 composition evidence. The test also injects a post-WINNER ambiguous submission
 and proves `UNKNOWN` with zero automatic retry; rejects cross-Attempt/snapshot/
 receipt/workspace/job, unstable fetch, capture/InputBinding splice, and Result
-provenance splice; and uses network/subprocess/qsub/qdel/Gaussian spies that
-remain at zero. The test-local Controller is composition evidence only, not a
-product API. It must not depend on unmerged Transport bytes. Product
+provenance splice. It also rejects a forged unpersisted receipt, duplicate or
+same-record-ID/different-payload durable receipts, and current profile
+semantic/identity/effective-digest drift before any driver call. Network/
+subprocess/qsub/qdel/Gaussian spies remain at zero. The test-local Controller
+is composition evidence only, not a product API. It must not depend on
+unmerged Transport bytes. Product
 Controller/orchestration code, live transport, and real credentials remain
 outside this contract.
 

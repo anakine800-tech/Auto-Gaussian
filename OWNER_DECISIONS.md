@@ -434,6 +434,15 @@ No caller command, shell text, retry, secret, or mutable environment is part of
 the operation surface. Fetch returns bounded immutable bytes and metadata
 only; it writes no local output target.
 
+Read authority begins only from a public `ReceiptJournal` lookup by exact
+persisted receipt ID for the exact Attempt; a caller-created or unpersisted
+`RemoteEffectReceipt` grants nothing. Exactly one durable confirmed submission
+or reconciliation receipt must close against the current snapshot. Every read
+also receives the current public non-secret `ServerProfile`, resolves it through
+the public Execution resolver, and requires complete semantic/identity/effective
+digest equality with the snapshot before any driver call. Secrets remain
+out-of-band mechanics, never snapshot, receipt, binding, or evidence authority.
+
 The new public surface is confined to `auto_g16.transport`, with tests under
 `tests/v3/transport/`. Existing Core, Approval, Workflow, Execution, Observe,
 Result, ScientificValidation, and Review public APIs and schemas remain
