@@ -1269,7 +1269,7 @@ implementation, transport, PBS, Gaussian, deployment, retry, or live action.
 
 ## V30-MIN-VALIDATE-CONTRACT-01 Minimum Scientific Validation Contract
 
-**Contract status: CONTRACT FREEZE CANDIDATE; IMPLEMENTATION NOT AUTHORIZED.**
+**Contract status: FROZEN / INTEGRATED; IMPLEMENTATION NOT AUTHORIZED.**
 The future public package is `auto_g16.scientific_validation`, with focused
 tests under `tests/v3/scientific_validation/`. It owns post-Result scientific
 classification and human scientific acceptance only. It changes no Core or
@@ -1299,6 +1299,220 @@ ScientificValidationPersistenceIntegrityError
 `NOT_MINIMUM`, `INCOMPLETE`, or `UNSUPPORTED`. Public records are immutable,
 keyword-only, and deeply closed over canonical semantic values. No warning,
 probability, partial-minimum, or caller-defined outcome exists.
+
+### Exact public shape and identity constants
+
+The source-controlled schema version is exactly `1`, validation policy ID is
+exactly `auto-g16-v3-minimum-validation`, and validation policy version is
+exactly `1.0.0`. These values are implicit and are not caller-selectable or
+additional public exports.
+
+The ScientificValidation UUID namespace root is exactly
+`f4617d31-5b90-5c79-888a-9b9ccec5e612`. The only identity domains and their
+derived namespaces are:
+
+```text
+minimum-validation-outcome  6b963167-a628-5135-ad33-a38383cbf137
+scientific-acceptance        333f02d6-ee57-53e6-bd43-3e02a7046e85
+```
+
+Each domain namespace is derived exactly as:
+
+```python
+uuid5(
+    SCIENTIFIC_VALIDATION_NAMESPACE,
+    "auto_g16.scientific_validation/v1/" + domain,
+)
+```
+
+Canonical semantic nodes are tagged by exact runtime type as follows; Boolean
+and integer are distinct, and the integer case excludes Boolean values:
+
+```text
+None          ["null", null]
+bool          ["boolean", value]
+int           ["integer", value]
+finite float  ["float", value]
+str           ["string", value]
+mapping       ["mapping", [[key, canonical(value)], ...]]
+sequence      ["sequence", [canonical(item), ...]]
+```
+
+Mapping keys are strings sorted lexically; sequence order is preserved.
+Unsupported types, non-finite floats, and container cycles fail closed.
+Canonical bytes are exactly:
+
+```python
+json.dumps(
+    canonical_node,
+    ensure_ascii=False,
+    allow_nan=False,
+    separators=(",", ":"),
+    sort_keys=False,
+).encode("utf-8")
+```
+
+The UUIDv5 name is the UTF-8 text of that encoding applied to:
+
+```python
+{
+    "schema_version": 1,
+    "domain": domain,
+    "authority": complete_record_authority_payload,
+}
+```
+
+ScientificValidation extracts this reviewed algorithm into its own private
+implementation. It does not import Workflow, Core private encoding, or private
+identity helpers, and it never substitutes `repr`, `pickle`, `hash`, ordinary
+unsorted dictionary JSON, or platform-dependent serialization.
+
+`MinimumValidationOutcome` is exactly
+`@dataclass(frozen=True, slots=True, kw_only=True, init=False)` with these and
+only these public fields:
+
+```python
+schema_version: int
+minimum_validation_outcome_id: str  # init=False; deterministic UUIDv5
+validation_policy_id: str
+validation_policy_version: str
+calculation_plan_id: str
+calculation_plan_revision: int
+attempt_id: str
+input_binding_observation_id: str
+envelope_observation_id: str
+parse_result_id: str
+parser_name: str
+parser_version: str
+result_kind: str
+source_artifact: Mapping[str, object] | None
+job_section: Mapping[str, object] | None
+accepted_optimization_span: Mapping[str, object] | None
+accepted_stationary_span: Mapping[str, object] | None
+selected_geometry_block: Mapping[str, object] | None
+selected_frequency_blocks: tuple[Mapping[str, object], ...]
+selected_frequencies_cm1: tuple[float, ...]
+classification: MinimumValidationClassification
+reason_code: str
+```
+
+Schema and policy fields equal the fixed values above. Every ID is a non-empty
+canonical string and `calculation_plan_revision` is a positive non-boolean
+integer. Parser fields preserve the exact supplied `ParseOutcome` tuple.
+Populated mappings and sequences are deeply immutable canonical semantic
+copies of persisted Result facts, never bytes or reparsed evidence. When
+evidence is unavailable at the first-applicable classification stage, an
+optional mapping is `None` and each selected-frequency tuple is empty; no
+placeholder mapping is invented. Populated `selected_frequencies_cm1` is
+exactly the ordered concatenation of all populated
+`selected_frequency_blocks`. A populated geometry block preserves its complete
+Result-owned orientation kind, units, source span, and atoms.
+
+`minimum_validation_outcome_id` binds every field above except itself, using
+`classification.value` in the authority payload. Exact replay has the same ID
+and record; any authority-field change creates a new ID; same ID with different
+payload raises `ScientificValidationConflictError`.
+
+`ScientificAcceptance` is exactly
+`@dataclass(frozen=True, slots=True, kw_only=True, init=False)` with these and
+only these public fields:
+
+```python
+schema_version: int
+scientific_acceptance_id: str  # init=False; deterministic UUIDv5
+minimum_validation_outcome_id: str
+validation_policy_id: str
+validation_policy_version: str
+calculation_plan_id: str
+calculation_plan_revision: int
+attempt_id: str
+parse_result_id: str
+classification: MinimumValidationClassification
+reviewer_id: str
+review_evidence: Mapping[str, object]
+```
+
+All expanded outcome-binding fields exactly equal the persisted referenced
+outcome, whose classification must be `VALIDATED_MINIMUM`. `reviewer_id` is a
+non-empty canonical string. `review_evidence` is a non-empty deeply immutable
+mapping whose nested values are limited to `None`, exact booleans, exact
+integers, finite floats, strings, mappings with non-empty string keys, and
+finite sequences of those values. Bytes, paths, datetimes, callables,
+non-finite floats, cycles, and arbitrary objects fail closed. Reviewer identity
+and review evidence participate in acceptance identity, so multiple explicit
+acceptances for one outcome are legal and no current/latest pointer exists.
+
+The exact public service signatures are:
+
+```python
+validate_minimum(
+    core_store: SQLiteRuntimeStore,
+    input_binding: InputBinding,
+    envelope: OutputEnvelope,
+    parse_outcome: ParseOutcome,
+) -> MinimumValidationOutcome
+
+record_minimum_validation(
+    store: SQLiteScientificValidationStore,
+    outcome: MinimumValidationOutcome,
+) -> MinimumValidationOutcome
+
+record_scientific_acceptance(
+    store: SQLiteScientificValidationStore,
+    *,
+    minimum_validation_outcome_id: str,
+    reviewer_id: str,
+    review_evidence: Mapping[str, object],
+) -> ScientificAcceptance
+
+require_scientific_acceptance(
+    store: SQLiteScientificValidationStore,
+    *,
+    minimum_validation_outcome_id: str,
+    scientific_acceptance_id: str,
+) -> tuple[MinimumValidationOutcome, ScientificAcceptance]
+```
+
+The validator accepts no policy argument and is pure except for read-only Core
+lookups that close CalculationPlan and Attempt relationships.
+`record_minimum_validation` appends the supplied exact outcome and returns the
+typed replay. `record_scientific_acceptance` loads the exact persisted outcome,
+requires `VALIDATED_MINIMUM`, derives and appends the expanded acceptance, and
+returns it. `require_scientific_acceptance` loads both exact IDs, replays all
+expanded bindings, and returns the typed pair; absence, mismatch, malformed
+content, or ineligibility fails closed. None of these operations chooses a
+latest acceptance.
+
+The exact public store signatures are:
+
+```python
+SQLiteScientificValidationStore.create_new(
+    path: str | Path,
+) -> SQLiteScientificValidationStore
+
+SQLiteScientificValidationStore.open_existing(
+    path: str | Path,
+) -> SQLiteScientificValidationStore
+
+close() -> None
+load_minimum_validation(outcome_id: str) -> MinimumValidationOutcome
+load_scientific_acceptance(acceptance_id: str) -> ScientificAcceptance
+minimum_validations_for_attempt(
+    attempt_id: str,
+) -> tuple[MinimumValidationOutcome, ...]
+acceptances_for_outcome(
+    outcome_id: str,
+) -> tuple[ScientificAcceptance, ...]
+```
+
+The store exposes no raw SQL, connection, cursor, update, delete, migration,
+or current/latest pointer. `ScientificValidationError` inherits `ValueError`
+and owns semantic, provenance, and eligibility violations;
+`ScientificValidationConflictError` and
+`ScientificValidationPersistenceIntegrityError` inherit
+`ScientificValidationError` and respectively own immutable identity replay
+conflicts and database/schema/reopen/path/row integrity failures. There is no
+fourth public error class.
 
 Every `MinimumValidationOutcome` closes this one authority chain:
 

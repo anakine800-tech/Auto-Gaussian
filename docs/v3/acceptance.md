@@ -447,7 +447,7 @@ expected offsets by calling the parser under test is forbidden.
 
 ## V30-MIN-VALIDATE-CONTRACT-01: Minimum Scientific Validation
 
-**Status: CONTRACT FREEZE CANDIDATE; IMPLEMENTATION NOT AUTHORIZED.** These
+**Status: CONTRACT FROZEN / INTEGRATED; IMPLEMENTATION NOT AUTHORIZED.** These
 conditions freeze the minimum post-Result nonlinear-minimum and human
 acceptance boundary. They grant no product, selector, Core/Result/Approval/
 Execution/Workflow change, Observe, ReviewBundle, `V30-EXEC-02`, or live
@@ -522,6 +522,44 @@ authority:
 18. Two conforming implementations presented with the same closed Result and
     policy choose the same marker pair, geometry, complete post-stationary
     frequency suffix, classification, identity, and acceptance eligibility.
+
+The public-shape closeout adds no public inventory and must satisfy all of the
+following before implementation may be authorized:
+
+1. Both public records have the one exact field/type inventory frozen in
+   `boundary-spec.md`; neither an implementation nor caller can add an
+   authority-bearing field.
+2. Each deterministic identity field is `init=False` and is recomputed from
+   every other authority field through the exact frozen UUIDv5 domain.
+3. Schema version `1`, policy ID `auto-g16-v3-minimum-validation`, and policy
+   version `1.0.0` are source-controlled and not caller-selectable.
+4. Timestamp, path, temporary location, formatting, and opaque digest
+   currentness do not enter authority identity.
+5. Tagged canonical encoding distinguishes Boolean from integer values,
+   rejects unsupported or non-finite values, and cannot depend on mapping
+   insertion order.
+6. Finite-float encoding and the complete canonical payload are deterministic
+   on every supported Python minor.
+7. Any selected evidence, policy, classification, or primary-reason change
+   changes outcome identity; same-ID/different-payload replay conflicts.
+8. `ScientificAcceptance` can bind only an exact persisted
+   `VALIDATED_MINIMUM`; every other classification rejects before append.
+9. Multiple reviewer acceptances remain separate explicit identities;
+   `require_scientific_acceptance` requires both exact IDs and never chooses a
+   latest/current record.
+10. The four exact service signatures accept no artifact bytes, raw output,
+    filesystem path, caller policy, parser callback, or latest-view selector.
+11. The canonical-value algorithm is privately extracted without importing
+    Workflow or private Core/Result identity helpers.
+12. ScientificValidation persistence remains separate from Core and Result,
+    with no upstream table, migration, API, or schema change.
+13. The only public errors are the exact three-class hierarchy frozen in
+    `boundary-spec.md`; a fourth error class fails the inventory check.
+14. Both contract headings contain no candidate wording and retain
+    `IMPLEMENTATION NOT AUTHORIZED` until the separate implementation gate.
+15. The closeout changes no scientific policy, Result fact, parser grammar,
+    validation precedence, effect, retry, Observe, ReviewBundle, or live
+    boundary.
 
 The independent adversarial review must answer these exact cases explicitly:
 
