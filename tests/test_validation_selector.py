@@ -99,6 +99,17 @@ OBSERVE_TESTS = [
     "tests.v3.core.test_store",
     "tests.v3.observe",
 ]
+REVIEW_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
+# Review is a pure projection over public Core, Result, and
+# ScientificValidation authority. ExecutionSnapshot identity reaches it through
+# exact Result provenance, so the baseline route intentionally does not import
+# or select the Execution package.
+REVIEW_TESTS = [
+    "tests.v3.core.test_store",
+    "tests.v3.result",
+    "tests.v3.review",
+    "tests.v3.scientific_validation",
+]
 
 
 def change(status: str, *paths: str) -> dict[str, object]:
@@ -979,6 +990,128 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(decision["tests"], OBSERVE_TESTS)
         self.assertTrue(decision["tests"])
         self.assertEqual(decision["safety_evidence"], OBSERVE_SAFETY)
+        self.assertFalse(decision["fail_closed"])
+
+    def test_review_route_owns_future_product_and_test_prefixes(self) -> None:
+        product = change("A", "auto_g16/review/service.py")
+        tests = change("A", "tests/v3/review/test_service.py")
+        decisions = {
+            "product only": self.select(product),
+            "tests only": self.select(tests),
+            "product then tests": self.select(product, tests),
+            "tests then product": self.select(tests, product),
+        }
+        for label, decision in decisions.items():
+            with self.subTest(label=label):
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(decision["matched_routes"], ["v30-review"])
+                self.assertEqual(decision["tests"], REVIEW_TESTS)
+                self.assertEqual(decision["safety_evidence"], REVIEW_SAFETY)
+                self.assertFalse(decision["fail_closed"])
+                self.assertNotIn("tests.v3.execution", decision["tests"])
+
+        for field in (
+            "changed_paths",
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(
+                decisions["product then tests"][field],
+                decisions["tests then product"][field],
+            )
+
+    def test_review_upstream_route_unions_are_deterministic_and_closed(self) -> None:
+        review = change("M", "auto_g16/review/service.py")
+        cases = (
+            (
+                "scientific validation",
+                change("M", "auto_g16/scientific_validation/service.py"),
+                ["v30-review", "v30-scientific-validation"],
+                REVIEW_TESTS,
+                REVIEW_SAFETY,
+            ),
+            (
+                "result",
+                change("M", "auto_g16/result/parser.py"),
+                ["v30-result", "v30-review"],
+                REVIEW_TESTS,
+                REVIEW_SAFETY,
+            ),
+            (
+                "core store",
+                change("M", "auto_g16/core/store.py"),
+                ["core-store", "v30-review"],
+                sorted({*REVIEW_TESTS, "tests.v3.core.test_models"}),
+                [
+                    "at-most-one-submission",
+                    "no-overwrite",
+                    "reconciliation",
+                    "unknown-no-automatic-retry",
+                ],
+            ),
+            (
+                "execution",
+                change("M", "auto_g16/execution/service.py"),
+                ["v30-execution", "v30-review"],
+                sorted({*EXEC_TESTS, *REVIEW_TESTS}),
+                EXEC_SAFETY,
+            ),
+        )
+        for label, upstream, routes, tests, safety in cases:
+            with self.subTest(label=label):
+                forward = self.select(review, upstream)
+                reverse = self.select(upstream, review)
+                for field in (
+                    "lane",
+                    "tests",
+                    "matched_routes",
+                    "safety_evidence",
+                    "fail_closed",
+                ):
+                    self.assertEqual(forward[field], reverse[field])
+                self.assertEqual(forward["lane"], "affected")
+                self.assertEqual(forward["matched_routes"], routes)
+                self.assertEqual(forward["tests"], tests)
+                self.assertEqual(forward["safety_evidence"], safety)
+                self.assertFalse(forward["fail_closed"])
+
+    def test_review_never_weakens_unmapped_or_self_protection(self) -> None:
+        review = change("M", "auto_g16/review/service.py")
+        cases = (
+            ("unmapped", change("A", "unmapped/future_surface.py")),
+            ("manifest", change("M", "config/validation-selection.json")),
+            ("selector tests", change("M", "tests/test_validation_selector.py")),
+        )
+        for label, protected in cases:
+            with self.subTest(label=label):
+                decision = self.select(review, protected)
+                self.assertEqual(decision["lane"], "legacy-release")
+                self.assertTrue(decision["fail_closed"])
+                self.assertEqual(decision["tests"], [])
+
+    def test_future_review_route_does_not_require_current_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(root, {"README.md": "baseline\n"})
+            self.assertFalse((root / "auto_g16" / "review").exists())
+            self.assertFalse((root / "tests" / "v3" / "review").exists())
+            head = commit_files(
+                root,
+                {
+                    "auto_g16/review/service.py": "REVIEW_SERVICE = 1\n",
+                    "tests/v3/review/test_service.py": "REVIEW_TEST = 1\n",
+                },
+            )
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(decision["lane"], "affected")
+        self.assertEqual(decision["matched_routes"], ["v30-review"])
+        self.assertEqual(decision["tests"], REVIEW_TESTS)
+        self.assertTrue(decision["tests"])
+        self.assertEqual(decision["safety_evidence"], REVIEW_SAFETY)
         self.assertFalse(decision["fail_closed"])
 
     def test_approval_and_core_store_close_required_safety_evidence(self) -> None:

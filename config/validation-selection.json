@@ -302,6 +302,26 @@
       "fail_closed": false
     },
     {
+      "id": "v30-review",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/review/",
+        "tests/v3/review/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.review",
+        "tests.v3.scientific_validation",
+        "tests.v3.result",
+        "tests.v3.core.test_store"
+      ],
+      "required_safety": [
+        "no-overwrite",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
       "id": "legacy-touch",
       "exact_paths": [],
       "prefixes": [
