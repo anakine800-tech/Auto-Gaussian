@@ -14,13 +14,15 @@
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
   generic parser-version Result authority are preserved.
   `V30-EXEC-02` remains waiting, and live work remains unauthorized.
-- **Observe contract integrated:** `V30-OBS-MIN-CONTRACT-01` is
+- **Observe contract and implementation integrated:**
+  `V30-OBS-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`. It freezes only read-only exact-Attempt
   source observations, append-only Core persistence, deterministic per-axis
   projection, explicit `unknown`, and zero retry/effect/scientific authority.
   `V30-VAL-OBS-01` is `CLOSED / INTEGRATED`, and Observe validation ownership
-  is active on main. `V30-OBS-MIN-IMPL-01` is authorized under the standing
-  delegation and is not yet integrated.
+  is active on main. `V30-OBS-MIN-IMPL-01` is `CLOSED / INTEGRATED`, and the
+  minimal Observe implementation is active on
+  `main@301c97d2e664ffbdea79764aae264b97e0e53552`.
 - **ReviewBundle contract integrated:** `V30-REVIEW-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`, and the ReviewBundle contract is active on
   main. `V30-VAL-REVIEW-01` is the next Review validation-ownership gate and
@@ -149,9 +151,8 @@
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
 - **Next gate:** `V30-VAL-REVIEW-01` is the next Review validation-ownership
-  gate and candidate path. `V30-OBS-MIN-IMPL-01` is authorized under the
-  standing delegation and remains not yet integrated. ReviewBundle
-  implementation remains waiting until its validation ownership is integrated.
+  gate and candidate path. ReviewBundle implementation remains waiting until
+  its validation ownership is integrated.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
