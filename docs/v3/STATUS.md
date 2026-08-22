@@ -20,6 +20,15 @@
   `V30-MIN-VALIDATE-IMPL-01` remains `NO-GO` until this public-shape closeout
   is integrated and a separate Owner Implementation Gate is opened,
   `V30-EXEC-02` remains waiting, and live work remains unauthorized.
+- **Observe contract candidate:** `V30-OBS-MIN-CONTRACT-01` has one bounded
+  authority candidate from
+  `main@c05226f6384b3302d9b48336d892cfa92115ea75`. Before that exact content is
+  present on authoritative main, publication/integration remains pending; when
+  present on authoritative main, the task is `CLOSED / FROZEN / INTEGRATED`.
+  The candidate freezes only read-only exact-Attempt source observations,
+  append-only Core persistence, deterministic per-axis projection, explicit
+  `unknown`, and zero retry/effect/scientific authority. Observe product code
+  and selector ownership remain unauthorized.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -156,6 +165,9 @@
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
 - **Do not start:** ScientificValidation implementation,
-  `V30-MIN-VALIDATE-IMPL-01`, `V30-EXEC-02`, Observe, ReviewBundle, production
-  changes, deployment, live smoke, and SSH/PBS/Gaussian operations remain
-  unauthorized.
+  `V30-MIN-VALIDATE-IMPL-01`, `V30-EXEC-02`, Observe implementation,
+  ReviewBundle, production changes, deployment, live smoke, and
+  SSH/PBS/Gaussian operations remain unauthorized. Before Observe contract
+  integration its next gate is the `V30-OBS-MIN-CONTRACT-01` Publish Owner
+  Gate; after exact-main contract closeout the next Observe gate is the
+  separate `V30-VAL-OBS-01` validation-ownership Owner Gate.
