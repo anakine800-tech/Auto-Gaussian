@@ -51,6 +51,32 @@ EXEC_TESTS = [
     "tests.v3.core.test_store",
     "tests.v3.execution",
 ]
+TRANSPORT_SAFETY = [
+    "approval-owner-separation",
+    "at-most-one-submission",
+    "no-overwrite",
+    "reconciliation",
+    "still-applicable-descriptor-capability",
+    "timeout-slow-running-is-not-failure",
+    "unknown-no-automatic-retry",
+]
+# Transport owns both the ExecutionPort mechanics and the scheduler/fetch
+# read-side boundary. The selected set therefore closes the existing Execution
+# safety evidence and adds only the owned Transport tests plus the public
+# Observe consumer needed for scheduler projection.
+TRANSPORT_TESTS = [
+    "tests.test_direct_one_hop_transport",
+    "tests.test_direct_qstat_acquisition",
+    "tests.test_execution_authorization",
+    "tests.test_legacy_descriptor_mutation_capability",
+    "tests.test_legacy_root_authority_contract",
+    "tests.test_live_approval_effect_time_replay",
+    "tests.test_resource_monitor_efficiency",
+    "tests.v3.core.test_store",
+    "tests.v3.execution",
+    "tests.v3.observe",
+    "tests.v3.transport",
+]
 APPROVAL_SAFETY = [
     "approval-owner-separation",
     "at-most-one-submission",
@@ -298,6 +324,7 @@ class ValidationSelectorTests(unittest.TestCase):
             ("auto_g16/core/store.py", "affected store\n", "affected", False),
             ("auto_g16/approval/service.py", "approval owner\n", "affected", False),
             ("auto_g16/execution/service.py", "execution owner\n", "affected", False),
+            ("auto_g16/transport/rtwin.py", "transport owner\n", "affected", False),
             ("auto_g16/result/parser.py", "result owner\n", "affected", False),
             (
                 "auto_g16/scientific_validation/service.py",
@@ -579,15 +606,128 @@ class ValidationSelectorTests(unittest.TestCase):
                 decisions["reversed closeout pair"][field],
             )
 
-    def test_future_transport_remains_fail_closed_until_v3_evidence_exists(self) -> None:
-        result = self.select(change("A", "auto_g16/transport/openssh.py"))
-        self.assertEqual(result["lane"], "legacy-release")
-        self.assertTrue(result["fail_closed"])
-        self.assertEqual(result["tests"], [])
-        self.assertEqual(
-            result["safety_evidence"],
-            EXEC_SAFETY,
+    def test_transport_route_owns_future_product_and_test_prefixes(self) -> None:
+        product = change("A", "auto_g16/transport/rtwin.py")
+        tests = change("A", "tests/v3/transport/test_rtwin.py")
+        decisions = {
+            "product only": self.select(product),
+            "tests only": self.select(tests),
+            "product then tests": self.select(product, tests),
+            "tests then product": self.select(tests, product),
+        }
+        for label, decision in decisions.items():
+            with self.subTest(label=label):
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(decision["matched_routes"], ["v30-transport"])
+                self.assertEqual(decision["tests"], TRANSPORT_TESTS)
+                self.assertEqual(decision["safety_evidence"], TRANSPORT_SAFETY)
+                self.assertFalse(decision["fail_closed"])
+
+        for field in (
+            "changed_paths",
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(
+                decisions["product then tests"][field],
+                decisions["tests then product"][field],
+            )
+
+    def test_transport_upstream_route_unions_are_deterministic_and_closed(self) -> None:
+        transport = change("M", "auto_g16/transport/rtwin.py")
+        cases = (
+            (
+                "core store",
+                change("M", "auto_g16/core/store.py"),
+                ["core-store", "v30-transport"],
+                sorted({*TRANSPORT_TESTS, "tests.v3.core.test_models"}),
+            ),
+            (
+                "approval",
+                change("M", "auto_g16/approval/service.py"),
+                ["v30-approval", "v30-transport"],
+                sorted({*TRANSPORT_TESTS, *APPROVAL_TESTS}),
+            ),
+            (
+                "workflow",
+                change("M", "auto_g16/workflow/service.py"),
+                ["v30-transport", "v30-workflow"],
+                sorted({*TRANSPORT_TESTS, *WORKFLOW_TESTS}),
+            ),
+            (
+                "execution",
+                change("M", "auto_g16/execution/service.py"),
+                ["v30-execution", "v30-transport"],
+                TRANSPORT_TESTS,
+            ),
+            (
+                "observe",
+                change("M", "auto_g16/observe/service.py"),
+                ["v30-observe", "v30-transport"],
+                TRANSPORT_TESTS,
+            ),
+            (
+                "result",
+                change("M", "auto_g16/result/parser.py"),
+                ["v30-result", "v30-transport"],
+                sorted({*TRANSPORT_TESTS, *RESULT_TESTS}),
+            ),
         )
+        for label, upstream, routes, tests in cases:
+            with self.subTest(label=label):
+                forward = self.select(transport, upstream)
+                reverse = self.select(upstream, transport)
+                for field in (
+                    "lane",
+                    "tests",
+                    "matched_routes",
+                    "safety_evidence",
+                    "fail_closed",
+                ):
+                    self.assertEqual(forward[field], reverse[field])
+                self.assertEqual(forward["lane"], "affected")
+                self.assertEqual(forward["matched_routes"], routes)
+                self.assertEqual(forward["tests"], tests)
+                self.assertEqual(forward["safety_evidence"], TRANSPORT_SAFETY)
+                self.assertFalse(forward["fail_closed"])
+
+    def test_transport_never_weakens_unmapped_or_self_protection(self) -> None:
+        transport = change("M", "auto_g16/transport/rtwin.py")
+        cases = (
+            ("unmapped", change("A", "unmapped/future_surface.py")),
+            ("manifest", change("M", "config/validation-selection.json")),
+            ("selector tests", change("M", "tests/test_validation_selector.py")),
+        )
+        for label, protected in cases:
+            with self.subTest(label=label):
+                decision = self.select(transport, protected)
+                self.assertEqual(decision["lane"], "legacy-release")
+                self.assertTrue(decision["fail_closed"])
+                self.assertEqual(decision["tests"], [])
+
+    def test_future_transport_route_does_not_require_current_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(root, {"README.md": "baseline\n"})
+            self.assertFalse((root / "auto_g16" / "transport").exists())
+            self.assertFalse((root / "tests" / "v3" / "transport").exists())
+            head = commit_files(
+                root,
+                {
+                    "auto_g16/transport/rtwin.py": "RTWIN_ADAPTER = 1\n",
+                    "tests/v3/transport/test_rtwin.py": "TRANSPORT_TEST = 1\n",
+                },
+            )
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(decision["lane"], "affected")
+        self.assertEqual(decision["matched_routes"], ["v30-transport"])
+        self.assertEqual(decision["tests"], TRANSPORT_TESTS)
+        self.assertEqual(decision["safety_evidence"], TRANSPORT_SAFETY)
+        self.assertFalse(decision["fail_closed"])
 
     def test_execution_and_result_routes_own_product_and_test_prefixes(self) -> None:
         cases = (
