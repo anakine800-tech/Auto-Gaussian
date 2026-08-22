@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, fields
+from types import SimpleNamespace
 import unittest
 
 import auto_g16.observe as observe
@@ -151,6 +152,33 @@ class AttemptObservationTests(unittest.TestCase):
                 state="running",
                 progress_position=None,
                 extra="not allowed",
+            )
+
+    def test_projection_axes_accept_only_exact_observations_or_none(self) -> None:
+        scheduler = self.sample()
+        projection = observe.AttemptObservationProjection(
+            attempt_id="attempt-1",
+            scheduler=scheduler,
+            process=None,
+            gaussian=None,
+            observation_count=1,
+        )
+        self.assertEqual(projection.scheduler, scheduler)
+        self.assertIsNone(projection.process)
+        self.assertIsNone(projection.gaussian)
+
+        duck = SimpleNamespace(
+            attempt_id="attempt-1",
+            source_kind="scheduler",
+            observation_id=scheduler.observation_id,
+        )
+        with self.assertRaises(observe.ObserveBoundaryError):
+            observe.AttemptObservationProjection(
+                attempt_id="attempt-1",
+                scheduler=duck,  # type: ignore[arg-type]
+                process=None,
+                gaussian=None,
+                observation_count=1,
             )
 
 

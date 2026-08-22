@@ -165,6 +165,10 @@ class AttemptObservationProjection:
             observation = getattr(self, source_kind)
             if observation is None:
                 continue
+            if type(observation) is not AttemptObservation:
+                raise ObserveBoundaryError(
+                    "projection axes must contain exact AttemptObservation records"
+                )
             if (
                 observation.attempt_id != self.attempt_id
                 or observation.source_kind != source_kind
