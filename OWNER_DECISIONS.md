@@ -297,3 +297,47 @@ This decision changes no scientific policy and introduces no raw Gaussian
 interpretation. ScientificValidation continues to depend only on public Result
 and Core records, owns its separate append-only store, and makes no Core,
 Result, Approval, Execution, or Workflow API/schema change.
+
+## OD-15: Minimal Observe is read-only exact-Attempt evidence projection
+
+The v3.0 Observe layer belongs to the public `auto_g16.observe` package, with
+focused tests under `tests/v3/observe/`. It records what was observed about one
+exact existing Core `Attempt`; it does not decide what the controller should do
+next. Core continues to own Attempt state and append-only Observation history,
+Execution owns effects, Workflow owns orchestration, Result owns attributed
+program facts, and ScientificValidation owns scientific classification.
+
+Observe reuses the existing public Core `Observation`, `SQLiteRuntimeStore`,
+`append_observation`, and `observations_for_attempt` boundary without a Core
+schema or API change. One Observe record is one immutable source-axis sample:
+`scheduler`, `process`, or `gaussian`. It binds the exact Attempt, exact source
+evidence identity, canonical UTC observation time, source-owned freshness,
+closed source-specific state, and optional nonnegative Gaussian progress
+position. Its deterministic UUIDv5 identity binds that complete payload.
+
+The current projection is derived only from the complete persisted matching
+Observation history in Core append order. The last appended valid sample for
+each source axis is exposed. Freshness and observed state are independent:
+known state remains known when its evidence is stale, while explicit
+`unknown` remains unknown whether its evidence is fresh or stale. An older
+optimistic value is never carried forward over a newer explicit unknown sample,
+but staleness alone never converts a known state to unknown. Observation time
+is displayed evidence, not a caller-selectable ordering override. Reopening the
+same history produces the same projection. Exact replay is idempotent, while
+malformed matching evidence or same-ID/different-payload history fails closed.
+
+Scheduler terminal or absent evidence is not Gaussian completion; process
+absence is not failure; a Gaussian phase or coarse progress position is not a
+Result or scientific conclusion. Queued, held, running, exiting, unchanged,
+slow, stale-known, absent, and explicit unknown evidence never creates failure,
+retry, replacement, recovery-child, submission, cancellation, cleanup,
+execution, or scientific-acceptance authority. Observe performs no transport,
+scheduler, filesystem, Gaussian, or Core-state effect.
+
+Legacy direct/qstat and RTwin monitoring code remains a reuse/history source.
+Its strict present/absent/unknown distinctions and neutral scheduler/process
+state vocabulary may be extracted, but its owner, receipt, capability,
+transport, profile-hash, and lineage governance is not v3 Observe authority.
+Existing Gaussian parsers remain Result authority and are not ported into
+Observe. Any future live acquisition or incremental Gaussian phase recognizer
+requires its own later contract and effect/read boundary.
