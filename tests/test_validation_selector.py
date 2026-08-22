@@ -83,6 +83,22 @@ WORKFLOW_TESTS = [
     "tests.v3.core.test_store",
     "tests.v3.workflow",
 ]
+OBSERVE_SAFETY = [
+    "no-overwrite",
+    "timeout-slow-running-is-not-failure",
+    "unknown-no-automatic-retry",
+]
+# Observe owns typed read-only projections over Core Observation history. Core
+# anchors exact Attempt binding, append-only replay, and UNKNOWN/no-retry; the
+# two acquisition tests are the existing slow/running-is-not-failure carriers.
+# The whole Execution package is intentionally excluded because the frozen
+# Observe contract imports Core only and owns no effect behavior.
+OBSERVE_TESTS = [
+    "tests.test_direct_qstat_acquisition",
+    "tests.test_resource_monitor_efficiency",
+    "tests.v3.core.test_store",
+    "tests.v3.observe",
+]
 
 
 def change(status: str, *paths: str) -> dict[str, object]:
@@ -278,6 +294,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 "affected",
                 False,
             ),
+            ("auto_g16/observe/service.py", "observe owner\n", "affected", False),
             ("tests/v3/core/test_store.py", "core safety\n", "v3-full", False),
             ("docs/v3/STATUS.md", "closeout after\n", "v3-full", False),
             ("config/context-map.toml", "status = 'contract-frozen'\n", "v3-full", False),
@@ -856,6 +873,112 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(decision["matched_routes"], ["v30-workflow"])
         self.assertEqual(decision["tests"], WORKFLOW_TESTS)
         self.assertEqual(decision["safety_evidence"], WORKFLOW_SAFETY)
+        self.assertFalse(decision["fail_closed"])
+
+    def test_observe_route_owns_future_product_and_test_prefixes(self) -> None:
+        product = change("A", "auto_g16/observe/service.py")
+        tests = change("A", "tests/v3/observe/test_service.py")
+        decisions = {
+            "product only": self.select(product),
+            "tests only": self.select(tests),
+            "product then tests": self.select(product, tests),
+            "tests then product": self.select(tests, product),
+        }
+        for label, decision in decisions.items():
+            with self.subTest(label=label):
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(decision["matched_routes"], ["v30-observe"])
+                self.assertEqual(decision["tests"], OBSERVE_TESTS)
+                self.assertEqual(decision["safety_evidence"], OBSERVE_SAFETY)
+                self.assertFalse(decision["fail_closed"])
+
+        for field in (
+            "changed_paths",
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(
+                decisions["product then tests"][field],
+                decisions["tests then product"][field],
+            )
+
+    def test_observe_and_core_store_union_is_deterministic_and_closed(self) -> None:
+        observe = change("M", "auto_g16/observe/service.py")
+        core_store = change("M", "auto_g16/core/store.py")
+        forward = self.select(observe, core_store)
+        reverse = self.select(core_store, observe)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(forward["matched_routes"], ["core-store", "v30-observe"])
+        self.assertEqual(
+            forward["tests"],
+            sorted({*OBSERVE_TESTS, "tests.v3.core.test_models"}),
+        )
+        self.assertEqual(
+            forward["safety_evidence"],
+            [
+                "at-most-one-submission",
+                "no-overwrite",
+                "reconciliation",
+                "timeout-slow-running-is-not-failure",
+                "unknown-no-automatic-retry",
+            ],
+        )
+        self.assertFalse(forward["fail_closed"])
+
+    def test_observe_and_execution_union_is_deterministic_and_closed(self) -> None:
+        observe = change("M", "auto_g16/observe/service.py")
+        execution = change("M", "auto_g16/execution/service.py")
+        forward = self.select(observe, execution)
+        reverse = self.select(execution, observe)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(
+            forward["matched_routes"], ["v30-execution", "v30-observe"]
+        )
+        self.assertEqual(forward["tests"], sorted({*EXEC_TESTS, "tests.v3.observe"}))
+        self.assertEqual(forward["safety_evidence"], EXEC_SAFETY)
+        self.assertFalse(forward["fail_closed"])
+
+    def test_observe_never_weakens_unmapped_or_self_protection(self) -> None:
+        observe = change("M", "auto_g16/observe/service.py")
+        cases = (
+            ("unmapped", change("A", "unmapped/future_surface.py")),
+            ("manifest", change("M", "config/validation-selection.json")),
+            ("selector tests", change("M", "tests/test_validation_selector.py")),
+        )
+        for label, protected in cases:
+            with self.subTest(label=label):
+                decision = self.select(observe, protected)
+                self.assertEqual(decision["lane"], "legacy-release")
+                self.assertTrue(decision["fail_closed"])
+                self.assertEqual(decision["tests"], [])
+
+    def test_future_observe_route_does_not_require_current_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(root, {"README.md": "baseline\n"})
+            self.assertFalse((root / "auto_g16" / "observe").exists())
+            self.assertFalse((root / "tests" / "v3" / "observe").exists())
+            head = commit_files(
+                root,
+                {
+                    "auto_g16/observe/service.py": "OBSERVE_SERVICE = 1\n",
+                    "tests/v3/observe/test_service.py": "OBSERVE_TEST = 1\n",
+                },
+            )
+            decision = SELECTOR.compute_selection(root, base, head)
+
+        self.assertEqual(decision["lane"], "affected")
+        self.assertEqual(decision["matched_routes"], ["v30-observe"])
+        self.assertEqual(decision["tests"], OBSERVE_TESTS)
+        self.assertTrue(decision["tests"])
+        self.assertEqual(decision["safety_evidence"], OBSERVE_SAFETY)
         self.assertFalse(decision["fail_closed"])
 
     def test_approval_and_core_store_close_required_safety_evidence(self) -> None:
