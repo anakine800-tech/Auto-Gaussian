@@ -149,6 +149,28 @@ focused_tests = [
 ]
 
 [[component]]
+id = "v30-review"
+status = "contract-frozen"
+required_sections = [
+  "OWNER_DECISIONS.md#od-16-reviewbundle-is-a-deterministic-projection-not-authority",
+  "docs/v3/boundary-spec.md#v30-review-min-contract-01-minimum-reviewbundle-contract",
+  "docs/v3/acceptance.md#v30-review-min-contract-01-minimum-deterministic-reviewbundle",
+  "docs/v3/STATUS.md#auto-g16-v3-status",
+]
+code_paths = [
+  "auto_g16/review/",
+  "auto_g16/scientific_validation/",
+  "auto_g16/result/",
+  "auto_g16/core/",
+]
+focused_tests = [
+  "tests/v3/review/",
+  "tests/v3/scientific_validation/",
+  "tests/v3/result/",
+  "tests/v3/core/test_store.py",
+]
+
+[[component]]
 id = "execution-safety"
 status = "reuse-source"
 required_sections = [

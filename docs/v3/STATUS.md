@@ -18,12 +18,14 @@
   `CLOSED / FROZEN / INTEGRATED`. It freezes only read-only exact-Attempt
   source observations, append-only Core persistence, deterministic per-axis
   projection, explicit `unknown`, and zero retry/effect/scientific authority.
-  Observe product code remains unauthorized; `V30-VAL-OBS-01` is its next
-  validation-ownership gate and candidate path.
-- **ReviewBundle contract candidate:** `V30-REVIEW-MIN-CONTRACT-01` remains a
-  candidate awaiting integration. It grants no ReviewBundle implementation or
-  presentation authority before its separate integration and implementation
-  gates.
+  `V30-VAL-OBS-01` is `CLOSED / INTEGRATED`, and Observe validation ownership
+  is active on main. `V30-OBS-MIN-IMPL-01` is authorized under the standing
+  delegation and is not yet integrated.
+- **ReviewBundle contract integrated:** `V30-REVIEW-MIN-CONTRACT-01` is
+  `CLOSED / FROZEN / INTEGRATED`, and the ReviewBundle contract is active on
+  main. `V30-VAL-REVIEW-01` is the next Review validation-ownership gate and
+  candidate path; ReviewBundle implementation waits for that ownership to be
+  integrated.
 - **Completed:** Phase 0 and Phase 0.6 owner decisions are confirmed.
 - **Completed:** The minimal documentation control plane is materialized on the
   isolated documentation branch.
@@ -120,6 +122,18 @@
   `FROZEN / INTEGRATED / PUBLIC SHAPE COMPLETE`. The later separately
   authorized `V30-MIN-VALIDATE-IMPL-01` is now `CLOSED / INTEGRATED`; the
   public-shape closeout itself granted no implementation authority.
+- **ReviewBundle contract integrated:** `V30-REVIEW-MIN-CONTRACT-01` freezes an
+  `auto_g16.review` projection over exact persisted Core, Result, and
+  ScientificValidation authority. Its exact public inventory is
+  `ReviewAcceptanceState`, `ReviewBundle`, `ReviewBundleError`,
+  `build_review_bundle`, and `render_review_bundle_json`. The contract creates
+  no scientific fact, current/latest selection, acceptance, persistence,
+  viewer action, execution authority, or live effect. Its InputBinding,
+  OutputEnvelope, and ParseOutcome projections explicitly include their exact
+  validated public `observation_id`, `observation_id`, and `result_id`; the
+  same closed mappings bind deterministic bundle identity and rendering.
+  Product implementation remains `WAIT` until `V30-VAL-REVIEW-01` validation
+  ownership is integrated and its separate implementation gate is approved.
 - **Frozen v3.0 scientific policy:** Minimum validation covers ordinary
   nonlinear systems only, requires `N >= 3`, rejects dummy atomic-number-0
   centers, and requires exactly `3N - 6` modes. Every finite frequency below
@@ -134,10 +148,10 @@
 - **Wait:** `V30-EXEC-02 = WAIT`; no work is authorized.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** `V30-VAL-OBS-01` is the next Observe validation-ownership gate
-  and candidate path. `V30-REVIEW-MIN-CONTRACT-01` remains a separate
-  contract candidate awaiting integration; neither state authorizes its
-  product implementation.
+- **Next gate:** `V30-VAL-REVIEW-01` is the next Review validation-ownership
+  gate and candidate path. `V30-OBS-MIN-IMPL-01` is authorized under the
+  standing delegation and remains not yet integrated. ReviewBundle
+  implementation remains waiting until its validation ownership is integrated.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -146,8 +160,6 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** `V30-EXEC-02`, Observe implementation, ReviewBundle
-  implementation, production changes, deployment, live smoke, and
-  SSH/PBS/Gaussian operations remain unauthorized. Observe must first pass the
-  separate `V30-VAL-OBS-01` validation-ownership Owner Gate; ReviewBundle must
-  first integrate its contract candidate and pass its own later gates.
+- **Do not start:** `V30-EXEC-02`, ReviewBundle implementation before
+  `V30-VAL-REVIEW-01` integration, production changes, deployment, live smoke,
+  and SSH/PBS/Gaussian operations remain unauthorized.
