@@ -115,6 +115,16 @@
   content is present on main, ScientificValidation is
   `FROZEN / INTEGRATED / PUBLIC SHAPE COMPLETE`; implementation remains
   unauthorized pending its separate Owner gate.
+- **ReviewBundle contract candidate:** `V30-REVIEW-MIN-CONTRACT-01` freezes a
+  future `auto_g16.review` projection over exact persisted Core, Result, and
+  ScientificValidation authority. Its exact public inventory is
+  `ReviewAcceptanceState`, `ReviewBundle`, `ReviewBundleError`,
+  `build_review_bundle`, and `render_review_bundle_json`. The candidate creates
+  no scientific fact, current/latest selection, acceptance, persistence,
+  viewer action, execution authority, or live effect. Product implementation
+  remains `WAIT` until ScientificValidation implementation is integrated and
+  separate Review contract publication, validation-ownership, and
+  implementation gates are approved.
 - **Frozen v3.0 scientific policy:** Minimum validation covers ordinary
   nonlinear systems only, requires `N >= 3`, rejects dummy atomic-number-0
   centers, and requires exactly `3N - 6` modes. Every finite frequency below

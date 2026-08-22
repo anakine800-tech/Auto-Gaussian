@@ -297,3 +297,36 @@ This decision changes no scientific policy and introduces no raw Gaussian
 interpretation. ScientificValidation continues to depend only on public Result
 and Core records, owns its separate append-only store, and makes no Core,
 Result, Approval, Execution, or Workflow API/schema change.
+
+## OD-15: ReviewBundle is a deterministic projection, not authority
+
+The minimum v3.0 human-review surface belongs to the public
+`auto_g16.review` package, with focused tests under `tests/v3/review/`. It is a
+pure, immutable projection over exact persisted Core, Result, and
+ScientificValidation authority. It creates no scientific fact, chooses no
+current or favorable evidence, grants no acceptance or execution authority,
+and performs no persistence or external effect.
+
+One `ReviewBundle` closes the exact CalculationPlan and Attempt, InputBinding,
+ExecutionSnapshot identity, OutputEnvelope, ParseOutcome, selected geometry
+and complete selected frequency evidence, MinimumValidationOutcome and its one
+primary reason, plus an explicitly supplied finite set of
+ScientificAcceptance identities. The builder replays these public records and
+rejects cross-plan, cross-Attempt, cross-envelope, cross-Result, or
+cross-outcome splicing. Acceptance state is only a deterministic projection of
+the exact outcome and the explicit acceptance set; there is no latest/current
+selection and no acceptance operation in the Review layer.
+
+The bundle has a domain-separated deterministic UUIDv5 identity over its
+complete canonical projection payload. The only minimum renderer is
+deterministic JSON of that exact typed bundle. Rendering adds no timestamp,
+filesystem path, viewer state, prose interpretation, or hidden evidence.
+GaussView and other external viewers may later wrap an explicitly exported
+geometry projection under their own separate authority, but are not imported,
+invoked, or treated as ReviewBundle authority.
+
+Review depends only on public Core, Result, and ScientificValidation surfaces.
+No upstream package imports Review. The ScientificValidation public shape may
+be referenced during contract freeze, but Review implementation remains
+blocked until ScientificValidation implementation is integrated; no local stub
+or substitute record may fill that dependency.
