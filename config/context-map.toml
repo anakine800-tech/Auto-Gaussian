@@ -150,7 +150,7 @@ focused_tests = [
 
 [[component]]
 id = "v30-review"
-status = "contract-candidate"
+status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-16-reviewbundle-is-a-deterministic-projection-not-authority",
   "docs/v3/boundary-spec.md#v30-review-min-contract-01-minimum-reviewbundle-contract",
