@@ -18,7 +18,6 @@ import auto_g16.review as review
 import auto_g16.scientific_validation as scientific_validation
 import auto_g16.transport as transport
 import auto_g16.workflow as workflow
-from auto_g16.transport._driver import _TextResult
 from tests.v3.execution.test_execution import INPUT_BYTES, TEMPLATE_BYTES
 
 from ._fixtures import FakeDriver, NOW, TransportFixture, found, qstat, response
@@ -75,6 +74,10 @@ class V30ASyntheticCompositionTests(TransportFixture):
 
     def setUp(self) -> None:
         super().setUp()
+        process_patcher = mock.patch("subprocess.Popen")
+        self.process_spy = process_patcher.start()
+        self.addCleanup(process_patcher.stop)
+        self.addCleanup(self.process_spy.assert_not_called)
         self.approval_store = approval.SQLiteApprovalStore(
             self.temporary / "approval.sqlite3"
         )
@@ -328,13 +331,11 @@ class V30ASyntheticCompositionTests(TransportFixture):
             except BaseException as exc:  # pragma: no cover - reported below
                 errors.append(exc)
 
-        with mock.patch("auto_g16.transport._driver.subprocess.Popen") as process_spy:
-            threads = [threading.Thread(target=controller, args=(index,)) for index in range(2)]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join()
-            process_spy.assert_not_called()
+        threads = [threading.Thread(target=controller, args=(index,)) for index in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
 
         self.assertEqual(errors, [])
         self.assertCountEqual(
@@ -495,6 +496,71 @@ class V30ASyntheticCompositionTests(TransportFixture):
         self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED)
         self.assertEqual(stale_driver.text_calls, [])
 
+        scientific, _batch, confirmation = authorities
+        self.store.store_task(
+            core.Task(
+                task_id="task-2",
+                workflow_run_id="run-1",
+                task_kind="gaussian-minimum",
+            )
+        )
+        self.store.store_calculation_plan(
+            core.CalculationPlan(
+                calculation_plan_id="plan-2",
+                task_id="task-2",
+                revision=1,
+                intent={"job": "other minimum"},
+            )
+        )
+        self.store.create_attempt(
+            core.Attempt(attempt_id="attempt-2", task_id="task-2", ordinal=1)
+        )
+        other_scientific = approval.ScientificApproval.for_plan(
+            self.store,
+            self.store.load_calculation_plan("plan-2"),
+            displayed_semantic_meaning={"job": "other minimum"},
+            reviewer_id="scientific-reviewer",
+            reviewer_evidence={"decision": "approve other exact meaning"},
+        )
+        wrong_member_batch = approval.BatchSubmitApproval.for_existing_attempts(
+            self.store,
+            [("attempt-2", other_scientific)],
+            reviewer_id="batch-reviewer",
+            reviewer_evidence={"scope": ["attempt-2"]},
+        )
+        self.approval_store.store_batch_submit_approval(wrong_member_batch)
+        batch_driver = FakeDriver(text_results=execution_successes())
+        with self.assertRaises(approval.ApprovalScopeError):
+            self._validate_authority(
+                self.store,
+                snapshot,
+                (scientific, wrong_member_batch, confirmation),
+            )
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED)
+        self.assertEqual(batch_driver.text_calls, [])
+
+        other_profile = self.profile(deployment_id="other-deployment")
+        other_snapshot, _ = self.transport_snapshot(profile=other_profile)
+        stale_confirmation = approval.ExactOperationalConfirmation.for_snapshot(
+            self.store,
+            other_snapshot,
+            confirmer_id="operator",
+            confirmer_evidence={"displayed": "different execution snapshot"},
+        )
+        self.approval_store.store_operational_confirmation(stale_confirmation)
+        stale_confirmation = self.approval_store.load_current_operational_confirmation(
+            stale_confirmation.operational_confirmation_id, other_snapshot
+        )
+        confirmation_driver = FakeDriver(text_results=execution_successes())
+        with self.assertRaises(approval.StaleApprovalError):
+            self._validate_authority(
+                self.store,
+                snapshot,
+                (scientific, authorities[1], stale_confirmation),
+            )
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED)
+        self.assertEqual(confirmation_driver.text_calls, [])
+
         self.assertIs(
             self.store.record_submission_intent(
                 snapshot.attempt_id, snapshot.submission_intent_id
@@ -522,7 +588,8 @@ class V30ASyntheticCompositionTests(TransportFixture):
         self._workflow_ready(self.store)
         self._validate_authority(self.store, snapshot, authorities)
         responses = list(execution_successes())
-        responses[-1] = _TextResult(
+        responses[-1] = replace(
+            responses[-1],
             stdout=b"",
             stderr=b"",
             returncode=None,
@@ -599,18 +666,91 @@ class V30ASyntheticCompositionTests(TransportFixture):
             )
 
         binding = self._binding_from_submission(runtime_store, snapshot, profile)
-        drifted_profile = copy.deepcopy(profile)
-        drifted_profile.config_files[0] = ("ssh_config", b"changed")
-        profile_driver = FakeDriver(text_results=(qstat(b""),))
+        receipts = journal.receipts_for_attempt(snapshot.attempt_id)
+        persisted_cross_receipt = next(
+            item
+            for item in receipts
+            if item.effect_kind is not execution.EffectKind.SUBMISSION
+        )
         with self.assertRaises(transport.TransportBoundaryError):
-            self.read_adapter(profile_driver).read_scheduler(
-                snapshot, binding, drifted_profile
+            transport.ExactRemoteJobBinding.from_persisted_receipt(
+                snapshot,
+                journal,
+                remote_effect_receipt_id=(
+                    persisted_cross_receipt.remote_effect_receipt_id
+                ),
+                current_profile=profile,
+                transport_store=self.transport_store,
             )
-        self.assertEqual(profile_driver.text_calls, [])
+
+        submission = next(
+            item
+            for item in receipts
+            if item.effect_kind is execution.EffectKind.SUBMISSION
+            and item.effect_state is execution.EffectState.CONFIRMED_EFFECT
+        )
+        before_receipts = journal.receipts_for_attempt(snapshot.attempt_id)
+        journal.append(submission)
+        self.assertEqual(journal.receipts_for_attempt(snapshot.attempt_id), before_receipts)
+        conflicting_duplicate = execution.RemoteEffectReceipt(
+            attempt_id=submission.attempt_id,
+            execution_snapshot_id=submission.execution_snapshot_id,
+            submission_intent_id=submission.submission_intent_id,
+            effect_sequence=submission.effect_sequence,
+            effect_kind=execution.EffectKind.SUBMISSION_RECONCILIATION,
+            effect_state=execution.EffectState.CONFIRMED_EFFECT,
+            remote_workspace=submission.remote_workspace,
+            job_id=submission.job_id,
+            details={"source": "conflicting durable evidence"},
+        )
+        self.assertEqual(
+            conflicting_duplicate.remote_effect_receipt_id,
+            submission.remote_effect_receipt_id,
+        )
+        with self.assertRaises(execution.ExecutionConflictError):
+            journal.append(conflicting_duplicate)
+        self.assertEqual(journal.receipts_for_attempt(snapshot.attempt_id), before_receipts)
+
+        frozen_profile = snapshot.resolved_server_profile
+        drifted_profiles: list[execution.ServerProfile] = []
+        semantic_drift = copy.deepcopy(profile)
+        semantic_drift.target_host = "10.0.0.51"
+        drifted_profiles.append(semantic_drift)
+        identity_drift = copy.deepcopy(profile)
+        identity_drift.server_profile_id = "profile-transport-other"
+        drifted_profiles.append(identity_drift)
+        digest_drift = copy.deepcopy(profile)
+        digest_drift.config_files[0] = ("ssh_config", b"changed")
+        drifted_profiles.append(digest_drift)
+        resolved_drifts = tuple(
+            execution.resolve_server_profile(item) for item in drifted_profiles
+        )
+        self.assertNotEqual(
+            resolved_drifts[0].semantic_payload(), frozen_profile.semantic_payload()
+        )
+        self.assertNotEqual(
+            resolved_drifts[1].resolved_server_profile_id,
+            frozen_profile.resolved_server_profile_id,
+        )
+        self.assertNotEqual(
+            resolved_drifts[2].effective_config_sha256,
+            frozen_profile.effective_config_sha256,
+        )
+        for drifted_profile in drifted_profiles:
+            profile_driver = FakeDriver(text_results=(qstat(b""),))
+            with self.assertRaises(transport.TransportBoundaryError):
+                self.read_adapter(profile_driver).read_scheduler(
+                    snapshot, binding, drifted_profile
+                )
+            self.assertEqual(profile_driver.text_calls, [])
 
         for field_name, forged_value in (
+            ("transport_store_id", "store-other"),
+            ("store_instance_id", "store-instance-other"),
             ("attempt_id", "attempt-other"),
             ("execution_snapshot_id", "snapshot-other"),
+            ("submission_intent_id", "intent-other"),
+            ("remote_effect_receipt_id", "receipt-other"),
             ("remote_workspace", "/home/user100/SDL/project-1/attempt-other"),
             ("job_id", "999.server"),
         ):
@@ -706,6 +846,12 @@ class V30ASyntheticCompositionTests(TransportFixture):
         parse_outcome = result.GaussianJobParser().parse(envelope, artifact_bytes)
         self.assertIs(parse_outcome.parse_status, result.ParseStatus.PARTIAL)
         provenance.record_parse_outcome(parse_outcome)
+        parse_splice = replace(
+            parse_outcome,
+            envelope_observation_id="output-envelope-other",
+        )
+        with self.assertRaises(result.ProvenanceConflictError):
+            provenance.record_parse_outcome(parse_splice)
         minimum = scientific_validation.record_minimum_validation(
             self.validation_store,
             scientific_validation.validate_minimum(
