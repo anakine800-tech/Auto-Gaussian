@@ -1287,17 +1287,19 @@ This narrow clarification is accepted only when all of the following hold:
    token. It accepts ASCII LF, rejects NUL and CR, and round-trips as exactly
    one POSIX argv element with byte-for-byte source equality.
 3. The normative 12-byte source-quoting fixture, its exact 18-byte quoted
-   form, both SHA-256 values, and the full 12540-byte production-source
+   form, both SHA-256 values, and the full 13904-byte production-source
    round-trip match `boundary-spec.md`.
 4. The production source is exact ASCII
    `auto-g16-v3-rtwin-bootstrap-v1.py`: it begins and ends with the frozen
-   bytes, contains 170 LF and zero CR/NUL, has size `12540`, and has SHA-256
-   `724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f`.
+   bytes, contains 190 LF and zero CR/NUL, has size `13904`, and has SHA-256
+   `056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952`.
    Any source-byte, line-ending, size, or digest drift rejects.
-5. The superseded `b`-repeated digest/`2048` source fixture rejects. The
-   active runtime, workspace, artifact, job, and receipt canonical vectors and
-   UUIDs recompute from the exact production-source identity, and both
-   source-dependent request wire vectors match their revised digests.
+5. The superseded `b`-repeated digest/`2048` source fixture and the prior
+   12540-byte/170-LF source identity with SHA-256
+   `724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f`
+   reject. The active runtime, workspace, artifact, job, and receipt canonical
+   vectors and UUIDs recompute from the exact production-source identity, and
+   both source-dependent request wire vectors match their revised digests.
 6. No manifest/profile/operation/caller value is interpolated into the fixed
    source or Python `-c` argument. Mutable operation data enters only through
    the one bounded canonical AGV3 stdin frame.
@@ -1314,6 +1316,11 @@ This narrow clarification is accepted only when all of the following hold:
     `docs/v3/boundary-spec.md`, and `docs/v3/acceptance.md`; lightweight
     authority checks pass and fresh independent review reports
     `P0/P1/P2/P3 = 0/0/0/0` before publication.
+11. Bootstrap protocol remains exactly `auto-g16-v3-rtwin-bootstrap/1` because
+    the AGV3 framing, seven request/response schemas, operation table, and
+    trust semantics are unchanged. The 13904-byte successor only implements
+    already-frozen cap and postlaunch-attestation behavior; it adds no
+    operation, channel, trust root, or caller-controlled source authority.
 
 ## v3.0: Closed-Shell Minimum
 
