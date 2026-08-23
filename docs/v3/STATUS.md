@@ -1,15 +1,16 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01` is
-  `CLOSED / FROZEN / INTEGRATED`; `V30-VAL-TRANSPORT-01` is
+- **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01`,
+  `V30-TRANSPORT-BOOTSTRAP-CHAIN-03`,
+  `V30-TRANSPORT-BOOTSTRAP-SOURCE-CLARIFY-01`, and
+  `V30-TRANSPORT-BOOTSTRAP-SOURCE-IDENTITY-CLOSEOUT-01` are
+  `CLOSED / FROZEN / INTEGRATED`. `V30-VAL-TRANSPORT-01` is
   `CLOSED / INTEGRATED`, and Transport change-aware ownership is active as
-  `affected / fail_closed=false`.
-  `V30-TRANSPORT-BOOTSTRAP-CHAIN-03` is the active Owner-guided docs-only
-  closeout. It freezes Transport-owned durable physical authority, bootstrap
-  trust, and replacement-safe command/executable seams. When this exact
-  authority content is present on authoritative main after independent review,
-  that task is `CLOSED / FROZEN / INTEGRATED` and the successor offline
-  Transport implementation is gate-eligible without another status edit.
+  `affected / fail_closed=false`. `V30-RTWIN-REAL-01` and
+  `V30-ACQUIRE-FETCH-MIN-01` are `CLOSED / INTEGRATED`; the reviewed
+  `TransportStore`, fixed bootstrap trust/source chain, scheduler acquisition,
+  and exact fetch capability are active on authoritative main. Product-level
+  synthetic composition is the next gate and has not started.
   `V30-MIN-VALIDATE-IMPL-01` is
   `CLOSED / INTEGRATED`, and the ScientificValidation implementation is active
   on authoritative main.
@@ -24,8 +25,9 @@
   Result-attribution dependency is satisfied. ScientificValidation must not
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
   generic parser-version Result authority are preserved.
-  This docs candidate performs no Transport product implementation. OpenSSH,
-  deployment, retry, qdel/delete/cleanup, and live work remain unauthorized.
+  This status closeout performs no product or contract mutation. The remaining
+  EXEC-02 work and OpenSSH are deferred; deployment, retry,
+  qdel/delete/cleanup, and live work remain unauthorized.
 - **Observe contract and implementation integrated:**
   `V30-OBS-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`. It freezes only read-only exact-Attempt
@@ -160,7 +162,7 @@
   `tests/v3/scientific_validation/**`. `config/context-map.toml` is now owned
   by the v3 control-document route; its earlier conservative
   `legacy-release / fail_closed=true` fallback gap is closed.
-- **Active Transport trust closeout:**
+- **Transport trust and implementation integrated:**
   `V30-TRANSPORT-BOOTSTRAP-CHAIN-03` preserves the independent append-only
   `TransportStore`, one-time nonce plus exact store/instance identities,
   persisted workspace/artifact/job/receipt physical bindings, and practical
@@ -176,21 +178,25 @@
   `e49136e23c564cc9e0d9d97b905e43c45db73adc`, and
   `44db04180af8222c6e4619accfab0049e89bd3e0` remain immutable negative
   evidence. The last lacked exact seven-operation request/response schemas and
-  one realizable fetch response channel; this successor closes both. The
-  closeout preserves the integrated
+  one realizable fetch response channel; the integrated successor closes both.
+  `V30-TRANSPORT-BOOTSTRAP-SOURCE-CLARIFY-01` separates fixed source bytes from
+  variable tokens, and
+  `V30-TRANSPORT-BOOTSTRAP-SOURCE-IDENTITY-CLOSEOUT-01` closes the exact
+  integrated source identity without changing bootstrap protocol v1.
+  `V30-RTWIN-REAL-01` and `V30-ACQUIRE-FETCH-MIN-01` implement the reviewed
+  RTwin-first adapter, durable Transport bindings, read-only scheduler
+  acquisition, and exact output fetch on main. The integration preserves the
   RTwin-first composition contract: the Controller validates the current
   approval chain and calls `execute_once(...)` without pre-claiming; that
   entrypoint alone owns `record_submission_intent(...)`, and only `WINNER`
   enters the first effect boundary.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate before integration:** independent review and integration of exact
-  `V30-TRANSPORT-BOOTSTRAP-CHAIN-03` authority. **When this exact authority
-  content is present on authoritative main:** the task self-resolves to
-  `CLOSED / FROZEN / INTEGRATED`, and the next gate is the successor narrow
-  offline Transport implementation; no status-only follow-up is required.
-  Product-level synthetic composition evidence and a read-only
-  `V30-A-READINESS-01` audit remain downstream.
+- **Next gate:** `V30-A-SYNTHETIC-COMPOSITION-01`; it is not started. A
+  read-only `V30-A-READINESS-01` audit remains downstream and V30-A live
+  execution remains `NO-GO`. This wording is self-resolving before and after
+  the status-only merge because it describes already-integrated product and
+  authority state rather than a candidate branch.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -200,5 +206,6 @@
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
 - **Do not start under this docs task:** product mutation or synthetic
-  composition. OpenSSH, production changes, deployment, live smoke, and real
-  SSH/RTwin/PBS/Gaussian operations remain unauthorized.
+  composition. The remaining EXEC-02 work and OpenSSH remain deferred;
+  production changes, deployment, live smoke, and real SSH/RTwin/PBS/Gaussian
+  operations remain unauthorized.
