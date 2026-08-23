@@ -12,15 +12,19 @@ from auto_g16.transport._bridge import _build_rtwin_command
 from auto_g16.transport._canonical import canonical_json_bytes
 from auto_g16.transport._driver import (
     _MANIFEST_NAME,
+    _RESOURCE_DESCRIPTOR_NAME,
     _Invocation,
     _SubprocessRTWinDriver,
     _attest_local,
     _operation,
     _parse_deployment_manifest,
+    _parse_resource_descriptor,
+    _render_qsub_argv,
     _resolve_deployment_authority,
+    _resource_enactment,
 )
 
-from ._fixtures import TransportFixture
+from ._fixtures import RESOURCE_DESCRIPTOR_BYTES, TransportFixture
 
 
 class ManifestAndCommandTests(TransportFixture):
@@ -31,7 +35,7 @@ class ManifestAndCommandTests(TransportFixture):
             "mac_ssh", "mac_scp", "rtwin_ssh", "rtwin_scp", "rtwin_remote_shell",
             "server_remote_shell", "server_python", "server_qsub", "server_qstat",
         })
-        self.assertEqual(manifest.bootstrap_protocol, "auto-g16-v3-rtwin-bootstrap/1")
+        self.assertEqual(manifest.bootstrap_protocol, "auto-g16-v3-rtwin-bootstrap/2")
         self.assertEqual(manifest.trust_roots["rtwin_remote_shell"].shell_grammar, "powershell-v1")
 
     def test_noncanonical_manifest_and_root_inventory_reject(self) -> None:
@@ -53,6 +57,37 @@ class ManifestAndCommandTests(TransportFixture):
         with self.assertRaises(transport.TransportBoundaryError):
             _resolve_deployment_authority(snapshot, profile)
 
+    def test_resource_descriptor_and_exact_synthetic_argv_are_closed(self) -> None:
+        profile = self.profile()
+        snapshot, _ = self.transport_snapshot(profile=profile)
+        dialect = _parse_resource_descriptor(RESOURCE_DESCRIPTOR_BYTES)
+        self.assertFalse(dialect.live_capable)
+        authority = _resolve_deployment_authority(snapshot, profile)
+        enactment = _resource_enactment(snapshot, authority)
+        self.assertEqual(enactment.payload(), {
+            "execution_snapshot_id": snapshot.execution_snapshot_id,
+            "resolved_resource_request_id": snapshot.resolved_resource_request.resolved_resource_request_id,
+            "cores": 8, "memory_mb": 12_288, "walltime_seconds": 3_600,
+            "queue": "simple",
+            "scheduler_dialect_id": "auto-g16-v3-pbs-resource-enactment/synthetic-test/1",
+        })
+        self.assertEqual(_render_qsub_argv(enactment, "job.pbs"), (
+            "--auto-g16-synthetic-cores", "8",
+            "--auto-g16-synthetic-memory-mb", "12288",
+            "--auto-g16-synthetic-walltime-seconds", "3600",
+            "--auto-g16-synthetic-queue", "simple", "job.pbs",
+        ))
+        with self.assertRaises(transport.TransportBoundaryError):
+            _parse_resource_descriptor(RESOURCE_DESCRIPTOR_BYTES.replace(b"synthetic-test", b"unknown-dial"))
+        runtime_contents = dict(profile.runtime_contents)
+        runtime_contents[_RESOURCE_DESCRIPTOR_NAME] = RESOURCE_DESCRIPTOR_BYTES.replace(b"synthetic-test", b"unknown-dial")
+        with self.assertRaises(transport.TransportBoundaryError):
+            _resolve_deployment_authority(snapshot, replace(profile, runtime_contents=runtime_contents))
+        runtime_contents = dict(profile.runtime_contents)
+        del runtime_contents[_RESOURCE_DESCRIPTOR_NAME]
+        with self.assertRaises(transport.TransportBoundaryError):
+            _resolve_deployment_authority(snapshot, replace(profile, runtime_contents=runtime_contents))
+
     def test_local_executable_attestation_rejects_symlink_and_mutation(self) -> None:
         profile = self.profile()
         manifest = _parse_deployment_manifest(profile.runtime_contents[_MANIFEST_NAME])
@@ -71,6 +106,7 @@ class ManifestAndCommandTests(TransportFixture):
         profile = self.profile()
         snapshot, _ = self.transport_snapshot(profile=profile)
         authority = _resolve_deployment_authority(snapshot, profile)
+        authority = replace(authority, resource_dialect=replace(authority.resource_dialect, live_capable=True))
         command = _build_rtwin_command(snapshot, authority.manifest)
         self.assertEqual(command[0], authority.manifest.trust_roots["mac_ssh"].path)
         self.assertIn("UseShellExecute=$false", command[-1])
@@ -179,16 +215,32 @@ class DriverBoundaryTests(TransportFixture):
         profile = self.profile()
         snapshot, _ = self.transport_snapshot(profile=profile)
         authority = _resolve_deployment_authority(snapshot, profile)
+        authority = replace(authority, resource_dialect=replace(authority.resource_dialect, live_capable=True))
         root = authority.manifest.trust_roots["mac_ssh"]
         os.chmod(root.path, 0o600)
         invocation = type("Invocation", (), {
             "operation": _operation("ALLOCATE_WORKSPACE"),
-            "request": {"binding": {}, "operation": "ALLOCATE_WORKSPACE", "payload": {}, "protocol": "auto-g16-v3-rtwin-bootstrap/1"},
+            "request": {"binding": {}, "operation": "ALLOCATE_WORKSPACE", "payload": {}, "protocol": "auto-g16-v3-rtwin-bootstrap/2"},
             "authority": authority,
         })()
         with patch("subprocess.Popen") as popen, self.assertRaises(transport.TransportBoundaryError):
             _SubprocessRTWinDriver().invoke_text(snapshot, invocation)
         popen.assert_not_called()
+
+    def test_synthetic_resource_dialect_rejects_before_process_creation(self) -> None:
+        profile = self.profile()
+        snapshot, _ = self.transport_snapshot(profile=profile)
+        authority = _resolve_deployment_authority(snapshot, profile)
+        invocation = _Invocation(
+            operation=_operation("SUBMIT_QSUB_ONCE"), argv=("synthetic",),
+            cwd=snapshot.workspace_binding.remote_attempt_dir,
+            request={"binding": {}, "operation": "SUBMIT_QSUB_ONCE", "payload": {}, "protocol": "auto-g16-v3-rtwin-bootstrap/2"},
+            authority=authority,
+        )
+        with patch("subprocess.Popen") as popen:
+            result = _SubprocessRTWinDriver().invoke_text(snapshot, invocation)
+        popen.assert_not_called()
+        self.assertEqual(result.completion_status, "transport-error")
 
 
 if __name__ == "__main__":

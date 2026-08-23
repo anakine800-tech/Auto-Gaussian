@@ -10,14 +10,15 @@ from typing import Final, Mapping
 
 from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
 
-_BOOTSTRAP_PROTOCOL: Final = "auto-g16-v3-rtwin-bootstrap/1"
-_BOOTSTRAP_SOURCE_NAME: Final = "auto-g16-v3-rtwin-bootstrap-v1.py"
+_BOOTSTRAP_PROTOCOL: Final = "auto-g16-v3-rtwin-bootstrap/2"
+_BOOTSTRAP_SOURCE_NAME: Final = "auto-g16-v3-rtwin-bootstrap-v2.py"
 _FRAME_MAGIC: Final = b"AGV3"
 _TOKEN = re.compile(r"^[A-Za-z0-9_:.\\/ -]+$")
 
 _BOOTSTRAP_SOURCE: Final = r'''from __future__ import annotations
 import base64,hashlib,json,os,re,stat,struct,subprocess,sys
-MAGIC=b"AGV3"; PROTOCOL="auto-g16-v3-rtwin-bootstrap/1"; FILE_CAP=134217728
+MAGIC=b"AGV3"; PROTOCOL="auto-g16-v3-rtwin-bootstrap/2"; FILE_CAP=134217728
+DIALECT="auto-g16-v3-pbs-resource-enactment/synthetic-test/1"
 OPS={"ALLOCATE_WORKSPACE","STAGE_EXACT_FILE","SUBMIT_QSUB_ONCE","QUERY_SCHEDULER","STAT_EXACT_FILE","FETCH_EXACT_FILE","RECONCILE_SUBMISSION"}
 PORTABLE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$"); JOB=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ENV={"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
@@ -166,11 +167,21 @@ def main():
             finally: os.close(af)
             return respond(op,result)
         if op=="SUBMIT_QSUB_ONCE":
-            if set(b)!=submitted or set(p)!={"pbs_basename"} or not PORTABLE.fullmatch(p["pbs_basename"]): die("invalid-request")
+            if set(b)!=submitted or set(p)!={"pbs_basename","resource_enactment"} or not PORTABLE.fullmatch(p["pbs_basename"]): die("invalid-request")
+            r=p["resource_enactment"]
+            if not isinstance(r,dict) or set(r)!={"execution_snapshot_id","resolved_resource_request_id","cores","memory_mb","walltime_seconds","queue","scheduler_dialect_id"}: die("invalid-request")
+            if type(r["execution_snapshot_id"]) is not str or not r["execution_snapshot_id"] or r["execution_snapshot_id"]!=b["execution_snapshot_id"] or type(r["resolved_resource_request_id"]) is not str or not r["resolved_resource_request_id"]: die("invalid-request")
+            if any(type(r[k]) is not int or r[k]<1 for k in ("cores","memory_mb","walltime_seconds")): die("invalid-request")
+            if r["queue"] is not None and (type(r["queue"]) is not str or not PORTABLE.fullmatch(r["queue"])): die("invalid-request")
+            if r["scheduler_dialect_id"]!=DIALECT: die("unknown-resource-dialect")
             attest_artifact(fd,b,"prepared-input",b["prepared_input_artifact_physical_token_base64"])
             pbs_name=attest_artifact(fd,b,"pbs-template",b["pbs_template_artifact_physical_token_base64"])
             if pbs_name!=p["pbs_basename"]: die("artifact-drift")
-            completed=run_exact(roots["server_qsub"],[p["pbs_basename"]],fd,65536,65536)
+            args=["--auto-g16-synthetic-cores",str(r["cores"]),"--auto-g16-synthetic-memory-mb",str(r["memory_mb"]),"--auto-g16-synthetic-walltime-seconds",str(r["walltime_seconds"])]
+            if r["queue"] is not None: args.extend(["--auto-g16-synthetic-queue",r["queue"]])
+            args.append(p["pbs_basename"])
+            die("non-production-resource-dialect")
+            completed=run_exact(roots["server_qsub"],args,fd,65536,65536)
             if completed.returncode!=0 or completed.stderr: die("qsub-failed")
             try: job=completed.stdout.decode("ascii").strip()
             except UnicodeDecodeError: die("invalid-job-id")
@@ -208,9 +219,9 @@ main()
 '''
 _BOOTSTRAP_SOURCE_BYTES: Final = _BOOTSTRAP_SOURCE.encode("utf-8")
 _BOOTSTRAP_SOURCE_SHA256: Final = sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest()
-_BOOTSTRAP_SOURCE_SIZE: Final = 13904
-_BOOTSTRAP_SOURCE_LF_COUNT: Final = 190
-_BOOTSTRAP_SOURCE_EXPECTED_SHA256: Final = "056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952"
+_BOOTSTRAP_SOURCE_SIZE: Final = 15195
+_BOOTSTRAP_SOURCE_LF_COUNT: Final = 201
+_BOOTSTRAP_SOURCE_EXPECTED_SHA256: Final = "3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3"
 if (
     len(_BOOTSTRAP_SOURCE_BYTES) != _BOOTSTRAP_SOURCE_SIZE
     or _BOOTSTRAP_SOURCE_SHA256 != _BOOTSTRAP_SOURCE_EXPECTED_SHA256

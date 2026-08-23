@@ -23,22 +23,25 @@ from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_can
 _FIXED_ENV: Final = {"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
 _MANIFEST_NAME: Final = "transport-deployment-manifest-v1.json"
 _MANIFEST_SCHEMA: Final = "auto-g16-v3-transport-deployment-manifest/1"
-_TABLE_NAME: Final = "auto-g16-rtwin-operation-table/1"
+_RESOURCE_DESCRIPTOR_NAME: Final = "pbs-resource-enactment-v1.json"
+_RESOURCE_DESCRIPTOR_SCHEMA: Final = "auto-g16-v3-pbs-resource-enactment/1"
+_SYNTHETIC_RESOURCE_DIALECT: Final = "auto-g16-v3-pbs-resource-enactment/synthetic-test/1"
+_TABLE_NAME: Final = "auto-g16-rtwin-operation-table/2"
 _TABLE_OBJECT: Final = {
     "version":_TABLE_NAME,"cwd_policy":"exact-remote-attempt-workspace","shell":False,"env":_FIXED_ENV,
     "limits":{"max_artifact_requests":4,"max_artifact_bytes":134217728,"max_capture_bytes":268435456},
     "operations":[
         {"name":"ALLOCATE_WORKSPACE","token":"allocate-workspace","argv_template":[],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":65536,"stderr_cap":65536},
         {"name":"STAGE_EXACT_FILE","token":"stage-exact-file","argv_template":["{logical_name}","{sha256}","{size_bytes}"],"timeout_seconds":900,"stdin_cap":179306496,"stdout_cap":65536,"stderr_cap":65536},
-        {"name":"SUBMIT_QSUB_ONCE","token":"submit-qsub-once","argv_template":["{pbs_basename}"],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":65536,"stderr_cap":65536},
+        {"name":"SUBMIT_QSUB_ONCE","token":"submit-qsub-once","argv_template":["{scheduler_dialect_id}","{cores}","{memory_mb}","{walltime_seconds}","{queue}","{pbs_basename}"],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":65536,"stderr_cap":65536},
         {"name":"QUERY_SCHEDULER","token":"query-scheduler","argv_template":["-f","{job_id}"],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":524288,"stderr_cap":65536},
         {"name":"STAT_EXACT_FILE","token":"stat-exact-file","argv_template":["{remote_relative_name}"],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":65536,"stderr_cap":65536},
         {"name":"FETCH_EXACT_FILE","token":"fetch-exact-file","argv_template":["{remote_relative_name}"],"timeout_seconds":900,"stdin_cap":65536,"stdout_cap":179306496,"stderr_cap":65536},
         {"name":"RECONCILE_SUBMISSION","token":"reconcile-submission","argv_template":[],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":262144,"stderr_cap":65536},
     ]}
 _OPERATION_TABLE_BYTES: Final = canonical_json_bytes(_TABLE_OBJECT)
-_OPERATION_TABLE_SHA256: Final = "6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6"
-if len(_OPERATION_TABLE_BYTES)!=1490 or sha256(_OPERATION_TABLE_BYTES).hexdigest()!=_OPERATION_TABLE_SHA256: raise RuntimeError("source-controlled operation table drifted")
+_OPERATION_TABLE_SHA256: Final = "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af"
+if len(_OPERATION_TABLE_BYTES)!=1570 or sha256(_OPERATION_TABLE_BYTES).hexdigest()!=_OPERATION_TABLE_SHA256: raise RuntimeError("source-controlled operation table drifted")
 
 @dataclass(frozen=True,slots=True)
 class _Operation:
@@ -52,8 +55,21 @@ class _TrustRoot:
 class _DeploymentManifest:
     bootstrap_protocol:str; deployment_id:str; schema:str; trust_roots:Mapping[str,_TrustRoot]; raw_bytes:bytes; sha256:str; size_bytes:int
 @dataclass(frozen=True,slots=True)
+class _ResourceDialect:
+    dialect_id:str; raw_bytes:bytes; sha256:str; size_bytes:int; live_capable:bool
+@dataclass(frozen=True,slots=True)
+class _ResourceEnactment:
+    execution_snapshot_id:str; resolved_resource_request_id:str; cores:int; memory_mb:int; walltime_seconds:int; queue:str|None; scheduler_dialect_id:str
+    def __post_init__(self)->None:
+        for value,name in ((self.execution_snapshot_id,"execution snapshot"),(self.resolved_resource_request_id,"resource request"),(self.scheduler_dialect_id,"resource dialect")): _text(value,name)
+        if any(type(value) is not int or value<1 for value in (self.cores,self.memory_mb,self.walltime_seconds)): raise TransportBoundaryError("resource enactment integer is invalid")
+        if self.queue is not None and (not isinstance(self.queue,str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",self.queue) is None): raise TransportBoundaryError("resource enactment queue is invalid")
+        if self.scheduler_dialect_id!=_SYNTHETIC_RESOURCE_DIALECT: raise TransportBoundaryError("resource dialect is not source-controlled")
+    def payload(self)->dict[str,object]:
+        return {"execution_snapshot_id":self.execution_snapshot_id,"resolved_resource_request_id":self.resolved_resource_request_id,"cores":self.cores,"memory_mb":self.memory_mb,"walltime_seconds":self.walltime_seconds,"queue":self.queue,"scheduler_dialect_id":self.scheduler_dialect_id}
+@dataclass(frozen=True,slots=True)
 class _DeploymentAuthority:
-    manifest:_DeploymentManifest; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int
+    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int
 @dataclass(frozen=True,slots=True,kw_only=True)
 class _Invocation:
     operation:_Operation; argv:tuple[str,...]; cwd:str; request:Mapping[str,object]; authority:_DeploymentAuthority
@@ -105,19 +121,45 @@ def _parse_deployment_manifest(raw:bytes)->_DeploymentManifest:
         roots[name]=_TrustRoot(name,mode,_text(item["deployment_identity"],f"{name}.deployment_identity"),digest,size,path,platform,grammar)
     return _DeploymentManifest(_BOOTSTRAP_PROTOCOL,_text(value["deployment_id"],"deployment_id"),_MANIFEST_SCHEMA,MappingProxyType(roots),raw,sha256(raw).hexdigest(),len(raw))
 
+def _parse_resource_descriptor(raw:bytes)->_ResourceDialect:
+    value=strict_canonical_json(raw,"resource enactment descriptor")
+    if not isinstance(value,dict) or set(value)!={"schema","dialect"} or value.get("schema")!=_RESOURCE_DESCRIPTOR_SCHEMA:
+        raise TransportBoundaryError("resource enactment descriptor shape/version is invalid")
+    dialect=_text(value.get("dialect"),"resource dialect")
+    if dialect!=_SYNTHETIC_RESOURCE_DIALECT:
+        raise TransportBoundaryError("resource dialect is not source-controlled")
+    return _ResourceDialect(dialect,raw,sha256(raw).hexdigest(),len(raw),False)
+
+def _resource_enactment(snapshot:ExecutionSnapshot,authority:_DeploymentAuthority)->_ResourceEnactment:
+    if authority.execution_snapshot_id!=snapshot.execution_snapshot_id: raise TransportBoundaryError("resource authority belongs to another snapshot")
+    request=snapshot.resolved_resource_request
+    values=(request.cores,request.memory_mb,request.walltime_seconds)
+    if any(type(value) is not int or value<1 for value in values): raise TransportBoundaryError("snapshot resource value is invalid")
+    queue=request.queue
+    if queue is not None and (not isinstance(queue,str) or not queue or queue!=queue.strip() or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",queue) is None): raise TransportBoundaryError("snapshot queue is invalid")
+    return _ResourceEnactment(snapshot.execution_snapshot_id,request.resolved_resource_request_id,request.cores,request.memory_mb,request.walltime_seconds,queue,authority.resource_dialect.dialect_id)
+
+def _render_qsub_argv(enactment:_ResourceEnactment,pbs_basename:str)->tuple[str,...]:
+    if not isinstance(enactment,_ResourceEnactment) or not isinstance(pbs_basename,str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",pbs_basename) is None: raise TransportBoundaryError("qsub render input is invalid")
+    if enactment.scheduler_dialect_id!=_SYNTHETIC_RESOURCE_DIALECT: raise TransportBoundaryError("resource dialect is not source-controlled")
+    argv=["--auto-g16-synthetic-cores",str(enactment.cores),"--auto-g16-synthetic-memory-mb",str(enactment.memory_mb),"--auto-g16-synthetic-walltime-seconds",str(enactment.walltime_seconds)]
+    if enactment.queue is not None: argv.extend(["--auto-g16-synthetic-queue",enactment.queue])
+    argv.append(pbs_basename); return tuple(argv)
+
 def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:ServerProfile)->_DeploymentAuthority:
     try: assert_execution_snapshot_identity(snapshot); current=resolve_server_profile(current_profile)
     except Exception as exc: raise TransportBoundaryError("current profile cannot be resolved") from exc
     frozen=snapshot.resolved_server_profile
     if current!=frozen or current.semantic_payload()!=frozen.semantic_payload() or current.resolved_server_profile_id!=frozen.resolved_server_profile_id or current.effective_config_sha256!=frozen.effective_config_sha256: raise TransportBoundaryError("current profile differs from snapshot")
-    try: raw=current_profile.runtime_contents[_MANIFEST_NAME]; manifest_identity=frozen.runtime_identities[_MANIFEST_NAME]; table_identity=frozen.runtime_identities[_TABLE_NAME]; source_identity=frozen.runtime_identities[_BOOTSTRAP_SOURCE_NAME]
+    try: raw=current_profile.runtime_contents[_MANIFEST_NAME]; descriptor_raw=current_profile.runtime_contents[_RESOURCE_DESCRIPTOR_NAME]; manifest_identity=frozen.runtime_identities[_MANIFEST_NAME]; descriptor_identity=frozen.runtime_identities[_RESOURCE_DESCRIPTOR_NAME]; table_identity=frozen.runtime_identities[_TABLE_NAME]; source_identity=frozen.runtime_identities[_BOOTSTRAP_SOURCE_NAME]
     except KeyError as exc: raise TransportBoundaryError("required Transport runtime content is missing") from exc
     if manifest_identity!={"sha256":sha256(raw).hexdigest(),"size_bytes":len(raw)}: raise TransportBoundaryError("manifest differs from snapshot")
-    if table_identity!={"sha256":_OPERATION_TABLE_SHA256,"size_bytes":1490}: raise TransportBoundaryError("operation table differs from source")
+    if descriptor_identity!={"sha256":sha256(descriptor_raw).hexdigest(),"size_bytes":len(descriptor_raw)}: raise TransportBoundaryError("resource descriptor differs from snapshot")
+    if table_identity!={"sha256":_OPERATION_TABLE_SHA256,"size_bytes":1570}: raise TransportBoundaryError("operation table differs from source")
     expected_source={"sha256":sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(),"size_bytes":len(_BOOTSTRAP_SOURCE_BYTES)}
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
-    manifest=_parse_deployment_manifest(raw)
-    return _DeploymentAuthority(manifest,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"])
+    manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw)
+    return _DeploymentAuthority(manifest,dialect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"])
 
 def _attest_local(root:_TrustRoot)->tuple[int,int]:
     flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
@@ -225,6 +267,8 @@ class _SubprocessRTWinDriver:
                 try: stream.close()
                 except OSError: pass
     def _run(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->tuple[bytes,bytes,int|None,str,bool,bool]:
+        if not invocation.authority.resource_dialect.live_capable:
+            return b"",b"",None,"transport-error",False,False
         roots=invocation.authority.manifest.trust_roots
         before={name:_attest_local(roots[name]) for name in ("mac_ssh","mac_scp")}
         request=_encode_request_frame(invocation.request,cap=invocation.operation.stdin_cap)
@@ -277,4 +321,4 @@ def _is_fetch_result_closed(value:object)->bool:
     if value.status!="found": return not value.content and all(item is None for item in values)
     return type(value.before_identity) is str and type(value.after_identity) is str and type(value.before_size) is int and type(value.after_size) is int and type(value.before_sha256) is str and type(value.after_sha256) is str
 
-__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RTWinDriver","_SubprocessRTWinDriver","_TextResult","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_resolve_deployment_authority"]
+__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_TextResult","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]

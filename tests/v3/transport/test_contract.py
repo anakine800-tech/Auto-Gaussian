@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import patch
 
 import auto_g16.transport as transport
+import auto_g16.execution as execution
 from auto_g16.transport._bridge import (
     _BOOTSTRAP_PROTOCOL,
     _BOOTSTRAP_SOURCE,
@@ -27,7 +28,7 @@ from auto_g16.transport._bridge import (
     _powershell_quote_v1,
 )
 from auto_g16.transport._canonical import canonical_json_bytes
-from auto_g16.transport._driver import _OPERATION_TABLE_BYTES, _OPERATION_TABLE_SHA256
+from auto_g16.transport._driver import _OPERATION_TABLE_BYTES, _OPERATION_TABLE_SHA256, _validate_result
 
 from ._fixtures import TransportFixture
 
@@ -63,16 +64,16 @@ class TransportContractTests(unittest.TestCase):
         self.assertEqual(tuple(inspect.signature(transport.RTWinReadAdapter).parameters), ("transport_store",))
 
     def test_operation_table_and_fixed_bootstrap_are_source_controlled(self) -> None:
-        self.assertEqual(len(_OPERATION_TABLE_BYTES), 1490)
+        self.assertEqual(len(_OPERATION_TABLE_BYTES), 1570)
         self.assertEqual(sha256(_OPERATION_TABLE_BYTES).hexdigest(), _OPERATION_TABLE_SHA256)
-        self.assertEqual(_OPERATION_TABLE_SHA256, "6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6")
-        self.assertEqual(_BOOTSTRAP_SOURCE_NAME, "auto-g16-v3-rtwin-bootstrap-v1.py")
+        self.assertEqual(_OPERATION_TABLE_SHA256, "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af")
+        self.assertEqual(_BOOTSTRAP_SOURCE_NAME, "auto-g16-v3-rtwin-bootstrap-v2.py")
         self.assertEqual(_BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE.encode("utf-8"))
-        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 13904)
-        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 190)
+        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 15195)
+        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 201)
         self.assertNotIn(b"\r", _BOOTSTRAP_SOURCE_BYTES)
         self.assertNotIn(b"\x00", _BOOTSTRAP_SOURCE_BYTES)
-        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952")
+        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3")
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.startswith(b"from __future__ import annotations\n"))
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.endswith(b"main()\n"))
         self.assertNotIn("eval(", _BOOTSTRAP_SOURCE)
@@ -97,6 +98,9 @@ class TransportContractTests(unittest.TestCase):
         self.assertIn('if before.st_size>FILE_CAP: die("artifact-too-large")', _BOOTSTRAP_SOURCE)
         self.assertIn('if type(p["size_bytes"]) is not int or p["size_bytes"]<0 or p["size_bytes"]>FILE_CAP', _BOOTSTRAP_SOURCE)
         self.assertIn('content=decode64_bounded(p["content_base64"],FILE_CAP)', _BOOTSTRAP_SOURCE)
+        self.assertIn('set(p)!={"pbs_basename","resource_enactment"}', _BOOTSTRAP_SOURCE)
+        self.assertIn('set(r)!={"execution_snapshot_id","resolved_resource_request_id","cores","memory_mb","walltime_seconds","queue","scheduler_dialect_id"}', _BOOTSTRAP_SOURCE)
+        self.assertLess(_BOOTSTRAP_SOURCE.index('die("non-production-resource-dialect")'), _BOOTSTRAP_SOURCE.index('completed=run_exact(roots["server_qsub"],args'))
 
     def test_bootstrap_rejects_nonexecutables_and_postlaunch_replacement(self) -> None:
         tree = ast.parse(_BOOTSTRAP_SOURCE)
@@ -182,35 +186,79 @@ class TransportContractTests(unittest.TestCase):
             "binding": {
                 "attempt_id": "attempt-1", "execution_snapshot_id": "snapshot-1",
                 "remote_workspace": "/srv/p/attempt-1",
-                "runtime_attestation_id": "55823409-18d5-5ec8-8cd1-95fc2070fcfa",
+                "runtime_attestation_id": "26153064-bd77-505b-b785-b97f5255f7a8",
                 "store_instance_id": "28c10d1a-9f8f-5ce6-84d1-555175c0fcde",
                 "submission_intent_id": "intent-1",
                 "transport_store_id": "108c8d43-2ea9-5658-9607-ade4cbbeac85",
             },
             "operation": "ALLOCATE_WORKSPACE", "payload": {},
-            "protocol": "auto-g16-v3-rtwin-bootstrap/1",
+            "protocol": "auto-g16-v3-rtwin-bootstrap/2",
         }
         fetch = {
             "binding": {
                 **allocate["binding"],
-                "job_authority_id": "51eef369-a569-53e2-8c44-2d22e20057f7",
+                "job_authority_id": "382c7632-b0f4-5c61-baa9-e35f8cce1527",
                 "job_id": "123.server",
-                "receipt_binding_id": "e824ab64-5fcf-5014-be1a-b53ad70f8cce",
+                "receipt_binding_id": "1183cdad-9dc5-53d9-8d35-32a4fc01dd8c",
                 "remote_effect_receipt_id": "receipt-1",
-                "workspace_authority_id": "ceff0991-4089-5c97-90b5-199c00467e67",
+                "workspace_authority_id": "a91afb55-a950-56f1-83de-31a36954ad25",
                 "workspace_physical_token_base64": "d29ya3NwYWNlLXRva2VuLXYx",
             },
             "operation": "FETCH_EXACT_FILE",
             "payload": {"expected_file_physical_token_base64": "YXJ0aWZhY3QtdG9rZW4tdjE=", "expected_size_bytes": 19, "remote_relative_name": "job.log"},
-            "protocol": "auto-g16-v3-rtwin-bootstrap/1",
+            "protocol": "auto-g16-v3-rtwin-bootstrap/2",
         }
         for value, size, digest in (
-            (allocate, 420, "dd01886713ad2a41e45ae60ba85fd0a88fa42666d7a9db661c4a0ab2e748fe5e"),
-            (fetch, 844, "4e57b3c5b1a71fc8fdee3ac29c963cf94bcc30c8d64125420388fae9ba6a331b"),
+            (allocate, 420, "c2556e89b3598eb375bc821a9e650c155b39729cf9b003e82b5ee5418d2dadb0"),
+            (fetch, 844, "6e0ad4e5f7ab99d6376959d2a55b6c36443f7bf10286bfc58d21bbebc00fd4a7"),
         ):
             raw = canonical_json_bytes(value)
             self.assertEqual(len(raw), size)
             self.assertEqual(sha256(raw).hexdigest(), digest)
+
+    def test_qsub_v2_wire_vectors_and_response_are_exact(self) -> None:
+        request = {
+            "binding": {
+                "attempt_id": "attempt-1", "execution_snapshot_id": "snapshot-1",
+                "pbs_template_artifact_authority_id": "pbs-artifact-1",
+                "pbs_template_artifact_physical_token_base64": "cGJzLXRva2VuLTE=",
+                "prepared_input_artifact_authority_id": "input-artifact-1",
+                "prepared_input_artifact_physical_token_base64": "aW5wdXQtdG9rZW4tMQ==",
+                "remote_workspace": "/srv/p/attempt-1", "runtime_attestation_id": "runtime-1",
+                "store_instance_id": "instance-1", "submission_intent_id": "intent-1",
+                "transport_store_id": "store-1", "workspace_authority_id": "workspace-1",
+                "workspace_physical_token_base64": "d29ya3NwYWNlLTE=",
+            },
+            "operation": "SUBMIT_QSUB_ONCE",
+            "payload": {"pbs_basename": "job.pbs", "resource_enactment": {
+                "cores": 8, "execution_snapshot_id": "snapshot-1", "memory_mb": 12288,
+                "queue": "simple", "resolved_resource_request_id": "resource-request-1",
+                "scheduler_dialect_id": "auto-g16-v3-pbs-resource-enactment/synthetic-test/1",
+                "walltime_seconds": 3600,
+            }},
+            "protocol": "auto-g16-v3-rtwin-bootstrap/2",
+        }
+        response = {"operation": "SUBMIT_QSUB_ONCE", "protocol": "auto-g16-v3-rtwin-bootstrap/2", "result": {"job_id": "123.server"}, "status": "ok"}
+        for value, size, digest in (
+            (request, 958, "73c94b0942724b8627016de958bcea247098a5b68b47a3baf0f8c0b9dd8253ad"),
+            (response, 123, "c1a9556d75c9f0fc390ed89100a1241c1fc44abb6d1f2b568a476445672fa2d3"),
+        ):
+            raw = canonical_json_bytes(value)
+            self.assertEqual((len(raw), sha256(raw).hexdigest()), (size, digest))
+        _validate_result("SUBMIT_QSUB_ONCE", response["result"])
+        with self.assertRaises(transport.TransportBoundaryError):
+            _validate_result("SUBMIT_QSUB_ONCE", {"job_id": "123.server", "argv": []})
+
+    def test_pbs_template_resource_directives_remain_forbidden(self) -> None:
+        for directive in (b"#PBS -l mem=1gb\n", b"#PBS -q other\n"):
+            with self.subTest(directive=directive):
+                with self.assertRaises(execution.ExecutionValueError):
+                    execution.PbsTemplateBinding(
+                        logical_name="job.pbs",
+                        template_bytes=b"#!/bin/bash\n" + directive + b"exec g16 input.gjf\n",
+                        template_contract_version="pbs-template-v1",
+                        prepared_input_logical_name="input.gjf",
+                    )
 
     def test_cmd_grammar_is_deterministic_but_rejects_metacharacters(self) -> None:
         self.assertEqual(_cmd_quote_v1(r"C:\RTWIN\ssh.exe"), '"C:\\RTWIN\\ssh.exe"')
