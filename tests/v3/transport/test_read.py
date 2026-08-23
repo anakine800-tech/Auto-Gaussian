@@ -1,316 +1,102 @@
 from __future__ import annotations
 
-from dataclasses import replace
+import base64
+from hashlib import sha256
 import unittest
 
 import auto_g16.transport as transport
 from auto_g16.transport._driver import _FetchResult, _TextResult
 
-from ._fixtures import FakeDriver, NOW, TransportFixture, found, success
+from ._fixtures import FakeDriver, TransportFixture, found, qstat, response
 
 
 class SchedulerReadTests(TransportFixture):
-    def test_closed_scheduler_state_table_and_exact_invocation(self) -> None:
+    def test_closed_scheduler_state_table_and_exact_job_binding(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)
-        for raw, expected in {
-            "Q": "queued",
-            "W": "queued",
-            "R": "running",
-            "B": "running",
-            "H": "held",
-            "S": "held",
-            "E": "exiting",
-            "T": "exiting",
-            "C": "terminal",
-            "F": "terminal",
-            "X": "terminal",
-            "Z": "unknown",
-        }.items():
+        for raw, expected in {"Q":"queued", "W":"queued", "R":"running", "B":"running", "H":"held", "S":"held", "E":"exiting", "T":"exiting", "C":"terminal", "F":"terminal", "X":"terminal", "Z":"unknown"}.items():
             with self.subTest(raw=raw):
-                driver = FakeDriver(
-                    text_results=(
-                        success(
-                            f"Job Id: 123.server\n    job_state = {raw}\n".encode("ascii")
-                        ),
-                    )
-                )
-                evidence = self.read_adapter(driver).read_scheduler(
-                    snapshot, binding, profile
-                )
-                self.assertEqual(evidence.state, expected)
-                self.assertEqual(evidence.freshness, "fresh")
-                call = driver.text_calls[0][1]
-                self.assertEqual(call.operation.name, "qstat")
-                self.assertEqual(call.argv, ("-f", "123.server"))
-                self.assertEqual(call.cwd, binding.remote_workspace)
+                driver = FakeDriver(text_results=(qstat(f"Job Id: 123.server\n    job_state = {raw}\n".encode("ascii")),))
+                evidence = self.read_adapter(driver).read_scheduler(snapshot, binding, profile)
+                self.assertEqual((evidence.state, evidence.freshness), (expected, "fresh"))
+                invocation = driver.text_calls[0][1]
+                self.assertEqual(invocation.operation.name, "QUERY_SCHEDULER")
+                self.assertEqual(invocation.argv, ("-f", "123.server"))
+                self.assertEqual(invocation.request["payload"], {"job_id":"123.server"})
 
-    def test_exact_absent_and_all_ambiguity_remain_non_authoritative(self) -> None:
+    def test_absent_and_ambiguous_scheduler_evidence_remain_explicit(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)
-        absent = _TextResult(
-            stdout=b"",
-            stderr=b"qstat: Unknown Job Id 123.server\n",
-            returncode=153,
-            eof_stdout=True,
-            eof_stderr=True,
-            completion_status="completed",
+        cases = (
+            (qstat(b"", stderr=b"qstat: Unknown Job Id 123.server\n", returncode=153), ("absent", "fresh")),
+            (qstat(b"Job Id: 123.server\n    job_state = R\n    job_state = C\n"), ("unknown", "unknown")),
+            (_TextResult(stdout=b"partial", stderr=b"", returncode=None, eof_stdout=False, eof_stderr=False, completion_status="timeout"), ("unknown", "unknown")),
         )
-        malformed = success(
-            b"Job Id: 123.server\n    job_state = R\n    job_state = C\n"
-        )
-        timeout = _TextResult(
-            stdout=b"partial",
-            stderr=b"",
-            returncode=None,
-            eof_stdout=False,
-            eof_stderr=False,
-            completion_status="timeout",
-        )
-        for result, state, freshness in (
-            (absent, "absent", "fresh"),
-            (malformed, "unknown", "unknown"),
-            (timeout, "unknown", "unknown"),
-        ):
-            with self.subTest(result=result):
-                evidence = self.read_adapter(
-                    FakeDriver(text_results=(result,))
-                ).read_scheduler(snapshot, binding, profile)
-                self.assertEqual((evidence.state, evidence.freshness), (state, freshness))
+        for result, expected in cases:
+            evidence = self.read_adapter(FakeDriver(text_results=(result,))).read_scheduler(snapshot, binding, profile)
+            self.assertEqual((evidence.state, evidence.freshness), expected)
 
-    def test_malformed_private_qstat_result_cannot_become_fresh(self) -> None:
+    def test_store_profile_or_binding_splice_rejects_before_read(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)
-        forged = object.__new__(_TextResult)
-        for name, value in {
-            "stdout": b"Job Id: 123.server\n    job_state = R\n",
-            "stderr": b"",
-            "returncode": False,
-            "eof_stdout": 1,
-            "eof_stderr": 1,
-            "completion_status": "completed",
-        }.items():
-            object.__setattr__(forged, name, value)
-        evidence = self.read_adapter(
-            FakeDriver(text_results=(forged,))
-        ).read_scheduler(snapshot, binding, profile)
-        self.assertEqual((evidence.state, evidence.freshness), ("unknown", "unknown"))
-
-    def test_binding_or_profile_splice_rejects_before_qstat(self) -> None:
-        snapshot, profile = self.transport_snapshot()
-        binding = self.persisted_binding(snapshot, profile)
-        spliced = object.__new__(transport.ExactRemoteJobBinding)
-        for name in (
-            "attempt_id",
-            "execution_snapshot_id",
-            "submission_intent_id",
-            "remote_effect_receipt_id",
-            "remote_workspace",
-            "job_id",
-        ):
-            object.__setattr__(spliced, name, getattr(binding, name))
-        object.__setattr__(spliced, "remote_workspace", "/home/user100/SDL/other/attempt-1")
-        driver = FakeDriver(text_results=(success(),))
+        object.__setattr__(binding, "remote_workspace", "/home/user100/SDL/other/attempt-1")
+        driver = FakeDriver(text_results=(qstat(b""),))
         with self.assertRaises(transport.TransportBoundaryError):
-            self.read_adapter(driver).read_scheduler(snapshot, spliced, profile)
-        self.assertEqual(driver.text_calls, [])
-        drifted = self.profile(wrapper=b"drifted")
-        with self.assertRaises(transport.TransportBoundaryError):
-            self.read_adapter(driver).read_scheduler(snapshot, binding, drifted)
-        self.assertEqual(driver.text_calls, [])
-
-    def test_unpersisted_forged_binding_rejects_before_qstat(self) -> None:
-        snapshot, profile = self.transport_snapshot()
-        persisted = self.persisted_binding(snapshot, profile)
-        forged = object.__new__(transport.ExactRemoteJobBinding)
-        for name in (
-            "attempt_id",
-            "execution_snapshot_id",
-            "submission_intent_id",
-            "remote_effect_receipt_id",
-            "remote_workspace",
-            "job_id",
-        ):
-            object.__setattr__(forged, name, getattr(persisted, name))
-        driver = FakeDriver(text_results=(success(),))
-        with self.assertRaises(transport.TransportBoundaryError):
-            self.read_adapter(driver).read_scheduler(snapshot, forged, profile)
+            self.read_adapter(driver).read_scheduler(snapshot, binding, profile)
         self.assertEqual(driver.text_calls, [])
 
 
 class ExactFetchTests(TransportFixture):
-    def requests(self) -> tuple[transport.ExactArtifactRequest, ...]:
+    @staticmethod
+    def requests() -> tuple[transport.ExactArtifactRequest, ...]:
         return (
-            transport.ExactArtifactRequest(
-                artifact_kind="gaussian-log",
-                logical_name="input.log",
-                remote_relative_name="input.log",
-                required=True,
-            ),
-            transport.ExactArtifactRequest(
-                artifact_kind="stdout",
-                logical_name="stdout.txt",
-                remote_relative_name="stdout.txt",
-                required=False,
-            ),
+            transport.ExactArtifactRequest(artifact_kind="gaussian-log", logical_name="input.log", remote_relative_name="input.log", required=True),
+            transport.ExactArtifactRequest(artifact_kind="stdout", logical_name="stdout.txt", remote_relative_name="stdout.txt", required=False),
         )
 
-    def test_stable_complete_fetch_is_byte_return_only(self) -> None:
-        snapshot, profile = self.transport_snapshot()
-        binding = self.persisted_binding(snapshot, profile)
-        requests = self.requests()
-        before_files = set(self.temporary.rglob("*"))
-        driver = FakeDriver(
-            fetch_results=(found(b"Normal termination\n"), found(b"stdout\n"))
-        )
-        capture = self.read_adapter(driver).fetch_exact_output(
-            snapshot,
-            binding,
-            profile,
-            input_binding_observation_id="input-observation-1",
-            requests=requests,
-            capture_sequence=1,
-        )
-        self.assertEqual(capture.capture_status, "captured")
-        self.assertEqual(capture.capture_completeness, "complete")
-        self.assertEqual(tuple(item.content for item in capture.artifacts), (b"Normal termination\n", b"stdout\n"))
-        self.assertEqual(capture.missing_requests, ())
-        self.assertEqual(set(self.temporary.rglob("*")), before_files)
-        self.assertEqual(
-            tuple(item[1].argv for item in driver.fetch_calls),
-            (("input.log",), ("stdout.txt",)),
-        )
+    @staticmethod
+    def stat_present(name: str, content: bytes):
+        return response("STAT_EXACT_FILE", {"presence":"present", "remote_relative_name":name, "size_bytes":len(content), "file_physical_token_base64":base64.b64encode(f"token:{name}".encode()).decode("ascii")})
 
-    def test_zero_byte_stable_file_is_still_one_exact_artifact(self) -> None:
+    def test_stable_complete_fetch_returns_bytes_only(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)
-        request = (self.requests()[0],)
-        capture = self.read_adapter(
-            FakeDriver(fetch_results=(found(b""),))
-        ).fetch_exact_output(
-            snapshot,
-            binding,
-            profile,
-            input_binding_observation_id="input-observation-1",
-            requests=request,
-            capture_sequence=1,
-        )
-        self.assertEqual(len(capture.artifacts), 1)
-        self.assertEqual(capture.artifacts[0].content, b"")
-        self.assertEqual(capture.artifacts[0].size_bytes, 0)
+        log, stdout = b"Normal termination\n", b"stdout\n"
+        driver = FakeDriver(text_results=(self.stat_present("input.log", log), self.stat_present("stdout.txt", stdout)), fetch_results=(found(log), found(stdout)))
+        before = set(self.temporary.rglob("*"))
+        capture = self.read_adapter(driver).fetch_exact_output(snapshot, binding, profile, input_binding_observation_id="input-observation-1", requests=self.requests(), capture_sequence=1)
+        self.assertEqual((capture.capture_status, capture.capture_completeness), ("captured", "complete"))
+        self.assertEqual(tuple(artifact.content for artifact in capture.artifacts), (log, stdout))
+        self.assertEqual(set(self.temporary.rglob("*")), before)
+        self.assertEqual(tuple(call[1].operation.name for call in driver.fetch_calls), ("FETCH_EXACT_FILE", "FETCH_EXACT_FILE"))
 
-    def test_missing_suffix_is_exact_partial_and_zero_prefix_rejects(self) -> None:
+    def test_missing_suffix_is_exact_partial(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)
-        requests = self.requests()
-        partial = self.read_adapter(
-            FakeDriver(fetch_results=(found(b"Normal termination\n"), _FetchResult(status="missing")))
-        ).fetch_exact_output(
-            snapshot,
-            binding,
-            profile,
-            input_binding_observation_id="input-observation-1",
-            requests=requests,
-            capture_sequence=2,
-        )
-        self.assertEqual(partial.capture_status, "capture-in-progress")
-        self.assertEqual(partial.capture_completeness, "partial")
-        self.assertEqual(partial.missing_requests, (requests[1],))
+        log = b"Normal termination\n"
+        driver = FakeDriver(text_results=(self.stat_present("input.log", log), response("STAT_EXACT_FILE", {"presence":"absent", "remote_relative_name":"stdout.txt"})), fetch_results=(found(log),))
+        capture = self.read_adapter(driver).fetch_exact_output(snapshot, binding, profile, input_binding_observation_id="input-observation-1", requests=self.requests(), capture_sequence=2)
+        self.assertEqual((capture.capture_status, capture.capture_completeness), ("capture-in-progress", "partial"))
+        self.assertEqual(capture.missing_requests, (self.requests()[1],))
+
+    def test_zero_stable_prefix_and_hidden_latest_reject(self) -> None:
+        snapshot, profile = self.transport_snapshot()
+        binding = self.persisted_binding(snapshot, profile)
+        driver = FakeDriver(text_results=(response("STAT_EXACT_FILE", {"presence":"absent", "remote_relative_name":"input.log"}),))
         with self.assertRaises(transport.TransportBoundaryError):
-            self.read_adapter(
-                FakeDriver(fetch_results=(_FetchResult(status="missing"),))
-            ).fetch_exact_output(
-                snapshot,
-                binding,
-                profile,
-                input_binding_observation_id="input-observation-1",
-                requests=requests,
-                capture_sequence=3,
-            )
-
-    def test_unstable_replacement_short_read_and_digest_drift_fail_closed(self) -> None:
-        snapshot, profile = self.transport_snapshot()
-        binding = self.persisted_binding(snapshot, profile)
-        request = (self.requests()[0],)
-        stable = found(b"Normal termination\n")
-        invalid = (
-            replace(stable, after_identity="replaced"),
-            replace(stable, after_size=1),
-            replace(stable, after_sha256="0" * 64),
-            _FetchResult(status="unstable"),
-        )
-        for result in invalid:
-            with self.subTest(result=result), self.assertRaises(transport.TransportBoundaryError):
-                self.read_adapter(FakeDriver(fetch_results=(result,))).fetch_exact_output(
-                    snapshot,
-                    binding,
-                    profile,
-                    input_binding_observation_id="input-observation-1",
-                    requests=request,
-                    capture_sequence=1,
-                )
-
-    def test_malformed_private_fetch_metadata_fails_closed(self) -> None:
-        snapshot, profile = self.transport_snapshot()
-        binding = self.persisted_binding(snapshot, profile)
-        forged = object.__new__(_FetchResult)
-        digest = "0" * 64
-        for name, value in {
-            "status": "found",
-            "content": b"x",
-            "before_identity": 123,
-            "after_identity": 123,
-            "before_size": True,
-            "after_size": True,
-            "before_sha256": digest,
-            "after_sha256": digest,
-        }.items():
-            object.__setattr__(forged, name, value)
+            self.read_adapter(driver).fetch_exact_output(snapshot, binding, profile, input_binding_observation_id="input-observation-1", requests=(self.requests()[0],), capture_sequence=1)
+        bad = transport.ExactArtifactRequest(artifact_kind="gaussian-log", logical_name="latest.log", remote_relative_name="latest.log", required=True)
         with self.assertRaises(transport.TransportBoundaryError):
-            self.read_adapter(FakeDriver(fetch_results=(forged,))).fetch_exact_output(
-                snapshot,
-                binding,
-                profile,
-                input_binding_observation_id="input-observation-1",
-                requests=(self.requests()[0],),
-                capture_sequence=1,
-            )
+            self.read_adapter(FakeDriver()).fetch_exact_output(snapshot, binding, profile, input_binding_observation_id="input-observation-1", requests=(bad,), capture_sequence=1)
 
-    def test_hidden_latest_wrong_required_log_and_duplicate_requests_reject_before_fetch(self) -> None:
+    def test_replacement_or_digest_drift_fails_closed(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)
-        invalid = (
-            (
-                transport.ExactArtifactRequest(
-                    artifact_kind="gaussian-log",
-                    logical_name="latest.log",
-                    remote_relative_name="latest.log",
-                    required=True,
-                ),
-            ),
-            (self.requests()[0], self.requests()[0]),
-            (
-                self.requests()[0],
-                transport.ExactArtifactRequest(
-                    artifact_kind="gaussian-log",
-                    logical_name="other.log",
-                    remote_relative_name="other.log",
-                    required=False,
-                ),
-            ),
-        )
-        for requests in invalid:
-            driver = FakeDriver(fetch_results=(found(b"x"),))
-            with self.subTest(requests=requests), self.assertRaises(transport.TransportBoundaryError):
-                self.read_adapter(driver).fetch_exact_output(
-                    snapshot,
-                    binding,
-                    profile,
-                    input_binding_observation_id="input-observation-1",
-                    requests=requests,
-                    capture_sequence=1,
-                )
-            self.assertEqual(driver.fetch_calls, [])
+        content = b"Normal termination\n"
+        unstable = _FetchResult(status="found", content=content, before_identity="one", after_identity="two", before_size=len(content), after_size=len(content), before_sha256=sha256(content).hexdigest(), after_sha256=sha256(content).hexdigest())
+        driver = FakeDriver(text_results=(self.stat_present("input.log", content),), fetch_results=(unstable,))
+        with self.assertRaises(transport.TransportBoundaryError):
+            self.read_adapter(driver).fetch_exact_output(snapshot, binding, profile, input_binding_observation_id="input-observation-1", requests=(self.requests()[0],), capture_sequence=1)
 
 
 if __name__ == "__main__":

@@ -7,12 +7,14 @@ from .models import (
     FetchedArtifact,
     FetchedOutputCapture,
     SchedulerReadEvidence,
+    TransportStore,
 )
 from .rtwin import RTWinExecutionAdapter, RTWinReadAdapter
 
 
 __all__ = [
     "TransportBoundaryError",
+    "TransportStore",
     "ExactRemoteJobBinding",
     "SchedulerReadEvidence",
     "ExactArtifactRequest",
