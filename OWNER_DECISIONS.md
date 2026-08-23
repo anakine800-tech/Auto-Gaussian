@@ -556,3 +556,31 @@ mechanical evidence. It does not claim to defeat malicious root, a compromised
 OS/kernel or deployment authority, or a fully compromised same-UID controller.
 This decision preserves the WINNER seam, RTwin-first selection, OpenSSH
 deferral, no retry/qdel/delete/cleanup, and the no-live boundary.
+
+## OD-20: Fixed bootstrap source is code authority, not a variable shell token
+
+The exact source-controlled loader owned by
+`auto-g16-v3-rtwin-bootstrap/1` is one fixed protocol constant, distinct from
+manifest-, profile-, operation-, and caller-controlled tokens. Variable tokens
+continue to reject NUL, CR, and LF and may enter the remote operation only as
+closed AGV3 stdin data. They are never interpolated into shell/Python source,
+an executable/module name, or the `-c` argument.
+
+The fixed bootstrap source may contain ASCII LF so it remains readable and
+auditable Python. It rejects CR and NUL, uses LF-only line endings, has one
+frozen source size/SHA-256 identity, and changes only through a reviewed
+bootstrap protocol/source update. The launcher remains exact manifest
+`server_python`, fixed `-I -S -B -c`, then that one exact source word. A
+deterministic POSIX single-quote encoder preserves the source bytes—including
+LF and literal single quotes—as one shell word; no variable value is ever
+concatenated into it. This narrow exception does not make LF legal in any
+manifest field, path, identity, filename, operation, option, argv value, or
+AGV3 metadata string.
+
+The mutable operation boundary remains the sole bounded canonical AGV3 frame
+on stdin. The source contains only the closed parser, validation, and dispatch
+implementation; it cannot evaluate request source, load a caller-selected
+module, or expose generic `RUN`, `EXEC`, `SHELL`, `PYTHON`, or `SCRIPT`.
+This clarification changes no trust root, manifest, TransportStore, WINNER,
+ExecutionPort, upstream public API/schema, retry, OpenSSH, deployment, or live
+authority.
