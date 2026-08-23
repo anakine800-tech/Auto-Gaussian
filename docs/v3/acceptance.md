@@ -1102,7 +1102,7 @@ spies.
 V30-EXEC-02-COMPOSITION-CONTRACT-01 is integrated. It authorizes no product
 Controller, OpenSSH, live work, or V30-A execution.
 
-## V30-TRANSPORT-TRUST-MODEL-02: Durable Physical Authority and Bootstrap Trust
+## V30-TRANSPORT-BOOTSTRAP-CHAIN-03: Deployment Manifest and Closed Command Chain
 
 **Status: FROZEN CANDIDATE; IMPLEMENTATION NOT AUTHORIZED BY THIS DOCUMENT.**
 When this exact authority content is present on authoritative main after
@@ -1159,66 +1159,92 @@ Transport implementation is gate-eligible. Acceptance requires:
     output is not inserted into the staged-artifact table. Cross-Attempt,
     cross-snapshot, cross-job, cross-workspace, replacement, short read, digest
     drift, or hidden latest/current selection rejects.
-14. `server_python_executable` plus its approved OS/deployment manifest is the
-    pre-start trust root. It neither self-authenticates nor attests its own
-    pre-launch integrity; downstream messages cannot upgrade that root.
-15. No dynamic Python/source/agent/operation-table upload, arbitrary module
-    load, `eval`, `exec`, callback, script/bytecode, caller command, or caller
-    operation is accepted. The bootstrap processes only the closed data-only
-    vocabulary and may attest downstream protocol/runtime data only.
-16. Every used executable has exact deployment-manifest path, physical identity,
-    regular/executable type, owner/ACL/permissions, digest/size, deployment
-    identity/version, and signing evidence or explicit `not-available`. No PATH,
-    relative path, symlink/reparse, or mutable alias is accepted.
-17. Exact absolute-path execution is permitted after strict prelaunch manifest
-    attestation. Practical immediate postlaunch and post-completion
-    reattestation detects ordinary replacement; descriptor execution and a new
-    native wrapper are neither required nor authorized.
-18. Prelaunch drift makes zero process call. Postlaunch drift makes evidence
-    unusable and preserves `UNKNOWN` when effect may have crossed. No claim is
-    made against malicious same-UID/root/kernel/deployment actors.
-19. First-hop Mac/RTwin execution uses structured argv, `shell=False`, and the
-    exact Windows CRT/`CommandLineToArgvW` quoting/round-trip contract. The
-    exact POSIX token encoder preserves empty strings, spaces, apostrophes, and
-    metacharacters as single tokens and rejects NUL/CR/LF. `cmd.exe`,
-    PowerShell, batch parsing, PATH, and caller shell text are impossible.
-20. All channels are separately bounded and require completion plus EOF.
+14. The only deployment-manifest source is exact current-profile runtime content
+    `transport-deployment-manifest-v1.json`. Public profile resolution, complete
+    snapshot resolved-profile equality, and exact `runtime_identities` byte
+    identity all pass before parse or driver call. No parameter, alias, global,
+    fallback, or latest/current manifest exists.
+15. Manifest bytes satisfy the exact UTF-8 canonical JSON plus one-LF grammar,
+    exact four-key top level, exact constants, non-empty deployment ID, exact
+    seven-key entry shape, and complete nine-root name/mode/platform/digest/
+    size/grammar matrix. The 2753-byte normative vector and its SHA-256/runtime
+    identity replay exactly.
+16. Deployment/OS and that manifest are final pre-start authority. Configured
+    RTwin and server remote shells plus `server_python` do not authenticate
+    themselves before interpreting/starting; later checks detect drift only.
+17. The real command chain includes both remote shells. Local `shell=False`
+    removes only a local shell. Manifest selection is exactly `powershell-v1`
+    or `cmd-v1` plus server `posix-sh-v1`; unknown, inferred, or fallback grammar
+    fails closed.
+18. `powershell-v1` uses exact literal-path type/reparse/size/SHA checks and the
+    frozen ProcessStartInfo/CRT structured launcher. `cmd-v1` token quoting is
+    exact but its nine-root compatibility check deterministically rejects before
+    RTwin child launch because no trusted SHA-256 primitive exists. No tenth
+    helper root appears silently.
+19. The fixed runtime content `auto-g16-v3-rtwin-bootstrap-v1.py` runs only
+    under exact manifest `server_python` with fixed `-I -S -B -c`; it consumes
+    the exact AGV3 framed,
+    canonical, capped packet, exact per-operation schemas, canonical padded
+    base64 binary encoding, and seven operation enums. Caller source, module,
+    executable, command, shell fragment, generic operation, extra bytes, or
+    missing EOF rejects.
+20. After deployment-trusted start, `server_python` may detect self drift and
+    attest exact absolute qsub/qstat path/type/size/digest before structured argv;
+    those checks never establish pre-start trust. Mac executables are directly
+    attested; RTwin executable attestation is owned only by the declared shell.
+    Prelaunch drift gives zero call and postlaunch effect ambiguity gives
+    `UNKNOWN` without retry.
+21. All channels are separately bounded and require completion plus EOF.
     Overflow, extra bytes, truncation, timeout, malformed completion, or
     ambiguous qsub produces fail-closed/`UNKNOWN` behavior with zero retry.
-21. The physical-binding envelope changes neither the frozen operation-table
-    v1 token/argv/digest nor the unchanged public `ExecutionPort` and receipt
-    APIs. It is data evidence, not a capability or approval mechanism.
-22. Concurrent Controllers still yield at most one `WINNER` and at most one
+22. The physical-binding envelope uses the exact seven-operation table v1,
+    1352-byte canonical vector and digest. It changes neither the unchanged
+    public `ExecutionPort` nor receipt APIs and is data evidence, not a
+    capability or approval mechanism.
+23. Concurrent Controllers still yield at most one `WINNER` and at most one
     qsub; `REPLAY` makes zero port/driver calls. All pure Approval failures
     remain before claim/effect.
-23. RTwin-first, Result-owned Gaussian parsing/capture, Observe read-only
+24. RTwin-first, Result-owned Gaussian parsing/capture, Observe read-only
     projection, and the full synthetic composition requirements remain intact.
     Transport performs no raw scientific interpretation.
-24. `V30-VAL-TRANSPORT-01` remains active with `affected / fail_closed=false`;
+25. `V30-VAL-TRANSPORT-01` remains active with `affected / fail_closed=false`;
     exact scope is the five authority files and there is no selector, product,
     test, context-map, deployment, or live mutation.
-25. OpenSSH, process/Gaussian-phase acquisition, qdel, deletion, cleanup,
+26. OpenSSH, process/Gaussian-phase acquisition, qdel, deletion, cleanup,
     deployment, automatic retry, and every live RTwin/SSH/PBS/Gaussian effect
     remain deferred.
-26. Threat-model tests explicitly prove ordinary clone/move/alias/replacement
+27. Threat-model tests explicitly prove ordinary clone/move/alias/replacement
     rejection while documenting that malicious same-UID/root/kernel/filesystem/
     deployment compromise is excluded and uncloneability is not claimed.
-27. Create-new uses one non-caller-selectable 32-byte OS-CSPRNG nonce; reopen
+28. Create-new uses one non-caller-selectable 32-byte OS-CSPRNG nonce; reopen
     preserves it. Exact logical store ID and physical instance ID bind approved
     root/path, file identity, and parent chain and appear in meta, every store
     record, `ExactRemoteJobBinding`, scheduler identity, and capture identity.
-28. The exact store/store-instance and five evidence-domain canonical arrays,
+29. The exact store/store-instance and five evidence-domain canonical arrays,
     namespace UUIDs, nonce/file/parent fixture, canonical byte vectors, and
-    UUID outputs match `boundary-spec.md`. The abbreviated codec-only executable
-    fixture is rejected by semantic manifest validation; a complete valid
-    eleven-field eight-executable manifest fixture passes.
-29. Reuse adjudication remains explicit: append-only SQLite/path primitives are
+    UUID outputs match `boundary-spec.md`. The superseded abbreviated executable
+    fixture and dependent IDs reject; the complete nine-root manifest and active
+    manifest-bound identity vectors pass.
+30. Wrong manifest name; missing manifest/root/field; extra root/field; wrong
+    schema/protocol/platform/mode/grammar; duplicate JSON key; BOM; noncanonical
+    JSON; missing/extra LF; NaN/Infinity; bad SHA; bool/zero/negative size;
+    relative path; profile drift; changed post-snapshot bytes; or runtime identity
+    mismatch all reject before any process call.
+31. PowerShell literal/quote/CRT round trips cover empty, spaces, apostrophes,
+    backslashes, metacharacters, and NUL/CR/LF rejection. Cmd safe-token quoting
+    and forbidden-token tests end in deterministic deployment incompatibility,
+    never PowerShell/certutil/bridge fallback. POSIX quote vectors replay exactly.
+32. TransportStore runtime rows bind the exact manifest name/identity,
+    deployment ID, bootstrap protocol, operation table, bootstrap source,
+    resolved profile and snapshot; linked rows reject cross-profile/deployment
+    replay. The store remains physical evidence, not manifest authority.
+33. Reuse adjudication remains explicit: append-only SQLite/path primitives are
     PORTed/EXTRACTed; existing RTwin operation mechanics remain WRAPped; store,
     physical-binding and data-only protocol glue are REWRITTEN because legacy
     code couples them to v2 governance/dynamic command behavior; owner/
     capability/hash-currentness/retry/cleanup are DROPped; native wrapper,
     OpenSSH, deployment and live are DEFERred.
-30. Exact scope remains the five authority files, worktree is clean, and fresh
+34. Exact scope remains the five authority files, worktree is clean, and fresh
     independent adversarial review reports `P0/P1/P2/P3 = 0/0/0/0` before
     publication.
 
@@ -1228,10 +1254,13 @@ replacement across process restart; forged/stale/cross-store tokens; first-
 append and receipt-binding conflicts; CSPRNG/non-caller nonce; clone/move/
 hardlink/parent-chain replacement; cross-store IDs in scheduler/capture;
 dynamic-agent/module/eval/exec upload spies; bootstrap self-attestation absent;
-complete and abbreviated manifest vectors; every executable/path/ACL/digest/
-deployment/signing drift; pre/post launch replacement; Windows CRT and POSIX
-quote round trips; bounded channel/EOF failures; `UNKNOWN` without retry; and
-zero native-wrapper/live/qdel/delete/cleanup spies.
+complete nine-root manifest plus every manifest negative in condition 30;
+current-profile/snapshot/runtime-identity closure; configured PowerShell path/
+type/reparse/size/digest drift; cmd incompatibility without fallback; exact
+server shell/bootstrap source/frame/operation enum; qsub/qstat drift; Windows
+CRT, PowerShell, cmd, and POSIX quote vectors; pre/post launch replacement;
+bounded channel/EOF failures; `UNKNOWN` without retry; and zero tenth-root/
+native-wrapper/live/qdel/delete/cleanup spies.
 
 ## v3.0: Closed-Shell Minimum
 
