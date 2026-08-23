@@ -2940,7 +2940,144 @@ It accepts no independent manifest bytes. The existing public
 the adapter repeats the same public profile closure before any driver call and
 does not read a global profile or reimplement Execution profile identity.
 
-### Source-controlled RTwin operation construction
+### Snapshot-derived PBS resource enactment
+
+`ExecutionSnapshot.resolved_resource_request` is the sole scheduler-resource
+authority. Transport derives a private `ResourceEnactment` mechanical value
+with exactly `execution_snapshot_id`, `resolved_resource_request_id`, `cores`,
+`memory_mb`, `walltime_seconds`, `queue`, and `scheduler_dialect_id`. The first
+six values replay the identity-closed snapshot exactly; the dialect is selected
+only by current-profile runtime content named
+`pbs-resource-enactment-v1.json`. The canonical descriptor is UTF-8 canonical
+JSON plus one LF with exactly `schema` and `dialect`, where `schema` is
+`auto-g16-v3-pbs-resource-enactment/1`. It contains no resource value,
+executable, argv, option, format string, shell text, or credential.
+
+`SUBMIT_QSUB_ONCE` protocol `/2` carries only the exact PBS basename and the
+closed nested resource-enactment object. It carries no rendered argv. The fixed
+Transport adapter validates that value against the current identity-closed
+snapshot/profile before framing. The fixed bootstrap validates exact key sets,
+types, IDs, positive non-boolean integer
+resources, optional portable queue, and a closed dialect identifier. A
+source-controlled renderer then derives qsub argv solely from dialect, cores,
+memory MB, walltime seconds, optional queue, and PBS basename; the exact
+manifest-bound qsub executable is invoked with `shell=False`. Any mismatch,
+unknown/missing dialect, unrepresentable walltime, queue substitution, extra
+token, or caller-supplied argv rejects before qsub.
+The bootstrap neither reconstructs nor independently authenticates an
+ExecutionSnapshot; equality with snapshot authority is owned by the adapter
+before the bounded request crosses the transport boundary.
+
+The one offline dialect is exactly
+`auto-g16-v3-pbs-resource-enactment/synthetic-test/1`. It is deliberately not
+a scheduler dialect and renders the exact non-production vector
+`(--auto-g16-synthetic-cores, <cores>, --auto-g16-synthetic-memory-mb,
+<memory_mb>, --auto-g16-synthetic-walltime-seconds, <walltime_seconds>,
+[--auto-g16-synthetic-queue, <queue>], <pbs_basename>)`. The live subprocess
+driver and fixed bootstrap reject execution of this dialect before process/qsub
+creation. Its pure renderer is test evidence only. It proves deterministic
+binding without guessing PBS Pro, Torque, OpenPBS, or deployment syntax. A
+production dialect remains `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` until exact
+non-secret deployment evidence supports a separately reviewed source renderer.
+
+`queue = null` emits no queue pair; an explicit queue is never replaced.
+Walltime uses integer seconds without floating point or rounding. Memory comes
+from exact `memory_mb`, never Gaussian `%mem`; cores come from exact `cores`,
+never `%nprocshared`. PBS template resource directives remain forbidden.
+Descriptor drift changes the resolved profile and snapshot and therefore
+requires new exact Operational Confirmation. `REPLAY` performs zero qsub and
+`UNKNOWN` never authorizes a second qsub.
+
+Because request and operation-table semantics change, the successor identities
+are `auto-g16-v3-rtwin-bootstrap/2`,
+`auto-g16-rtwin-operation-table/2`, and
+`auto-g16-v3-rtwin-bootstrap-v2.py`. Protocol `/1` and its exact vectors remain
+immutable historical evidence. Protocol `/2` keeps the same seven operations,
+AGV3 framing, bounded channels, nine deployment trust roots, physical
+bindings, no-shell execution, and no-retry semantics. The v2 table changes
+only the submit row's declared argv authority to the exact ordered inputs
+`scheduler_dialect_id`, `cores`, `memory_mb`, `walltime_seconds`, `queue`, and
+`pbs_basename`; final argv is renderer output, never request data.
+
+The exact synthetic descriptor bytes are
+`{"dialect":"auto-g16-v3-pbs-resource-enactment/synthetic-test/1","schema":"auto-g16-v3-pbs-resource-enactment/1"}\n`:
+114 bytes with SHA-256
+`9327ef2f0e11f5292daa7af22c00276bc504e2ffb31c2fdb585642fec1cd462c`.
+The exact canonical table-v2 bytes are 1570 bytes with SHA-256
+`14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af`.
+They equal the historical table object except `version` is `/2` and submit
+`argv_template` is exactly
+`["{scheduler_dialect_id}","{cores}","{memory_mb}","{walltime_seconds}","{queue}","{pbs_basename}"]`.
+For submit only, those markers declare closed renderer inputs rather than
+caller/final argv. All other table rows and fields replay byte-for-byte.
+
+For protocol `/2`, the exact `SUBMIT_QSUB_ONCE` binding keys remain the `/1`
+submitted set: `transport_store_id`, `store_instance_id`,
+`runtime_attestation_id`, `attempt_id`, `execution_snapshot_id`,
+`submission_intent_id`, `remote_workspace`, `workspace_authority_id`,
+`workspace_physical_token_base64`,
+`prepared_input_artifact_authority_id`,
+`prepared_input_artifact_physical_token_base64`,
+`pbs_template_artifact_authority_id`, and
+`pbs_template_artifact_physical_token_base64`. Its payload has exactly two
+keys: `pbs_basename` and `resource_enactment`. The nested object has exactly
+seven keys: `execution_snapshot_id`, `resolved_resource_request_id`, `cores`,
+`memory_mb`, `walltime_seconds`, `queue`, and `scheduler_dialect_id`.
+Nested `execution_snapshot_id` equals the binding value; the request/resource
+ID and four resource values equal the current snapshot. All IDs and dialect
+are non-empty closed strings, cores/memory/walltime are positive non-boolean
+integers, and queue alone may be JSON `null`; otherwise it is one portable
+name. Extra, missing, bool-as-int, alias, or mismatched values reject.
+
+The exact canonical `/2` qsub request vector is 958 bytes with SHA-256
+`73c94b0942724b8627016de958bcea247098a5b68b47a3baf0f8c0b9dd8253ad`:
+
+```json
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","pbs_template_artifact_authority_id":"pbs-artifact-1","pbs_template_artifact_physical_token_base64":"cGJzLXRva2VuLTE=","prepared_input_artifact_authority_id":"input-artifact-1","prepared_input_artifact_physical_token_base64":"aW5wdXQtdG9rZW4tMQ==","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"runtime-1","store_instance_id":"instance-1","submission_intent_id":"intent-1","transport_store_id":"store-1","workspace_authority_id":"workspace-1","workspace_physical_token_base64":"d29ya3NwYWNlLTE="},"operation":"SUBMIT_QSUB_ONCE","payload":{"pbs_basename":"job.pbs","resource_enactment":{"cores":8,"execution_snapshot_id":"snapshot-1","memory_mb":12288,"queue":"simple","resolved_resource_request_id":"resource-request-1","scheduler_dialect_id":"auto-g16-v3-pbs-resource-enactment/synthetic-test/1","walltime_seconds":3600}},"protocol":"auto-g16-v3-rtwin-bootstrap/2"}
+```
+
+The other six operation request/response schemas replay `/1` exactly except
+their top-level protocol literal is `/2`. The `/2` current runtime-content set
+has exactly four required names: `transport-deployment-manifest-v1.json`,
+`auto-g16-rtwin-operation-table/2`,
+`auto-g16-v3-rtwin-bootstrap-v2.py`, and
+`pbs-resource-enactment-v1.json`. The manifest schema stays `/1` but its
+`bootstrap_protocol` is exactly `/2`. TransportStore schema-v1 is unchanged:
+its runtime row records the resolved-profile identity plus manifest, table-v2,
+and source-v2 identities; the dialect descriptor is already transitively bound
+by that resolved-profile identity and is reverified directly against the
+snapshot runtime identity on every authority resolution. It is not duplicated
+as a second mutable store authority.
+
+The `/2` `SUBMIT_QSUB_ONCE` response also replays `/1` exactly except its
+top-level protocol literal is `/2`: top-level keys are exactly `operation`,
+`protocol`, `result`, and `status`; operation echoes `SUBMIT_QSUB_ONCE`, status
+is `ok`, and result contains exactly one strict normalized PBS `job_id`. It
+contains no resource, dialect, renderer, argv, executable, environment, or
+other echo/evidence field. The exact canonical response is 123 bytes with
+SHA-256 `c1a9556d75c9f0fc390ed89100a1241c1fc44abb6d1f2b568a476445672fa2d3`:
+
+```json
+{"operation":"SUBMIT_QSUB_ONCE","protocol":"auto-g16-v3-rtwin-bootstrap/2","result":{"job_id":"123.server"},"status":"ok"}
+```
+
+The exact fixed successor source is
+`auto-g16-v3-rtwin-bootstrap-v2.py`: 15195 UTF-8/ASCII bytes, exactly 201 LF,
+zero CR/NUL, and SHA-256
+`3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3`.
+It starts with `from __future__ import annotations\n`, ends with `main()\n`,
+and contains the closed request validation, synthetic vector construction, and
+pre-qsub non-production rejection above. Any source name, byte, line-ending,
+size, count, or digest drift rejects during profile/snapshot resolution.
+
+### Historical bootstrap /1 source-controlled operation construction
+
+This subsection and its `/1` table, basename-only qsub, three-content runtime
+inventory, bootstrap-source vector, and wire vectors are immutable historical
+evidence for the integrated predecessor. Once the resource-enactment successor
+is present, the `/2` rules above are current and override every `/1` statement
+for executable Transport resolution; implementations must not satisfy both or
+reinterpret `/1`.
 
 The private operation table version is exactly
 `auto-g16-rtwin-operation-table/1`. Its immutable entries are:
@@ -3071,7 +3208,7 @@ attested resolved profile target/config identity; they are not evidence
 fields. If any table/runtime binding drifts, the adapter rejects before a port
 call. No Core or Execution schema/API change is implied.
 
-### Canonical deployment manifest
+### Historical bootstrap /1 canonical deployment-manifest vector
 
 The only manifest authority is the immutable bytes at
 `ServerProfile.runtime_contents["transport-deployment-manifest-v1.json"]`.
@@ -3148,7 +3285,7 @@ and its exact resolved-profile runtime identity is
 exact bytes, call public `resolve_server_profile`, and require that exact
 mapping under the fixed logical name before and after snapshot construction.
 
-### Fixed bootstrap and remote-shell grammars
+### Historical bootstrap /1 fixed source and remote-shell grammars
 
 The real trust chain is controller -> exact `mac_ssh` -> Windows OpenSSH
 server -> manifest-declared RTwin remote shell -> exact `rtwin_ssh` -> server
@@ -3466,6 +3603,14 @@ outside this contract.
 contract grants no live authority.
 
 ## V30-TRANSPORT-BOOTSTRAP-CHAIN-03 Physical and Bootstrap Authority Closeout
+
+This integrated section freezes the TransportStore, physical-binding, threat
+model, and trust-chain semantics retained by resource-enactment `/2`. Its
+protocol/table/source names and exact canonical runtime vectors describe the
+historical `/1` integration only. For the executable successor, the `/2`
+runtime inventory and attestation handling under
+`Snapshot-derived PBS resource enactment` are authoritative; no SQLite schema
+or public store API changes.
 
 **Contract status: FROZEN CANDIDATE; IMPLEMENTATION NOT AUTHORIZED BY THIS
 DOCUMENT.** This additive closeout preserves the physical-authority decisions

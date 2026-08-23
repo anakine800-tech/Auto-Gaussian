@@ -12,10 +12,13 @@
   and exact fetch capability are active on authoritative main.
   `V30-A-SYNTHETIC-COMPOSITION-01` is `CLOSED / INTEGRATED`; its product-level
   synthetic composition and adversarial matrix are active on authoritative
-  main. The read-only `V30-A-READINESS-01` audit passes when this exact status
-  content and the integrated composition evidence are present on authoritative
-  main after exact-main validation. V30-A live execution remains `NO-GO`
-  pending a separate Owner Live Gate.
+  main. The previous read-only `V30-A-READINESS-01` remains valid as OFFLINE
+  evidence, but its live-readiness conclusion is superseded by the valid
+  resource-enactment P1: the current qsub seam does not yet prove enactment of
+  snapshot cores, memory, walltime, and queue. Therefore
+  `V30-EXEC-RESOURCE-ENACTMENT-CONTRACT-01` is the active next task,
+  V30-A OFFLINE readiness remains `PASS`, V30-A LIVE readiness is `BLOCKED`,
+  and live execution remains `NO-GO`.
   `V30-MIN-VALIDATE-IMPL-01` is
   `CLOSED / INTEGRATED`, and the ScientificValidation implementation is active
   on authoritative main.
@@ -195,6 +198,12 @@
   approval chain and calls `execute_once(...)` without pre-claiming; that
   entrypoint alone owns `record_submission_intent(...)`, and only `WINNER`
   enters the first effect boundary.
+- **Resource enactment:** `V30-EXEC-RESOURCE-ENACTMENT-CONTRACT-01` freezes the
+  snapshot-only scheduler-resource authority, closed dialect descriptor,
+  structured qsub rendering, protocol/table v2 successor, and exact
+  REPLAY/UNKNOWN behavior. Product implementation follows only after fresh
+  independent contract review. Production dialect finalization remains
+  `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT`; no dialect is guessed.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
 - **Readiness:** `V30-A-SYNTHETIC-COMPOSITION-01` is `CLOSED / INTEGRATED`.
@@ -203,8 +212,10 @@
   `UNKNOWN` with no automatic retry, exact scheduler/fetch/capture bindings,
   and zero live effects. When this exact status content is present on
   authoritative main after exact-main validation, the read-only
-  `V30-A-READINESS-01` audit is `PASS` and V30-A is eligible only for a separate
-  Owner Live Gate. OpenSSH and live execution remain deferred.
+  `V30-A-READINESS-01` remains `PASS` for the prior OFFLINE chain. LIVE
+  readiness is now `BLOCKED` until scheduler resource enactment is integrated,
+  affected synthetic composition evidence is rerun, and readiness is
+  re-evaluated. OpenSSH and live execution remain deferred.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or

@@ -594,3 +594,71 @@ with size `13904`, exactly 190 LF, zero CR/NUL, and SHA-256
 implements already-frozen cap and postlaunch-attestation requirements; it adds
 no operation, authority, channel, or caller-controlled code. Therefore this is
 an explicit reviewed source-identity update, not a protocol-version change.
+
+## OD-21: Scheduler resources are snapshot authority enacted by a closed dialect renderer
+
+`ExecutionSnapshot.resolved_resource_request` is the only semantic authority
+for scheduler cores, memory in integer MB, walltime in integer seconds, and an
+optional explicit queue. A PBS template, caller qsub argument, environment,
+ServerProfile resource default, Gaussian `%nprocshared`/`%mem`, scheduler
+default, or legacy resource-governance record cannot override, fill, or replace
+those values. `PbsTemplateBinding` continues to reject caller-controlled
+`#PBS -l`, `#PBS -q`, and equivalent resource directives.
+
+Transport derives one private mechanical resource-enactment value from the
+identity-closed snapshot. It repeats the exact snapshot and resolved-resource
+request IDs and exact four resource values, then adds only the scheduler
+dialect ID selected by current-profile runtime content named exactly
+`pbs-resource-enactment-v1.json`. That canonical JSON content has the closed
+two-key schema `auto-g16-v3-pbs-resource-enactment/1` plus one closed dialect
+identifier. It contains no executable, argv, option, template, format string,
+shell text, resource value, credential, or scientific authority. Its bytes are
+already included in `ResolvedServerProfile.runtime_identities`; changing the
+dialect therefore requires a new resolved profile, ExecutionSnapshot, and
+exact Operational Confirmation without changing the public Execution API.
+
+`SUBMIT_QSUB_ONCE` carries the closed resource-enactment value as data. The
+Transport adapter first identity-checks the current snapshot/profile and proves
+the derived value equals that snapshot exactly before constructing the request.
+The fixed server bootstrap validates the request's exact closed schema and
+internal field types, selects one source-controlled renderer solely by the
+dialect ID, and deterministically renders the final structured argv from that
+ID, the exact resource data, and the exact PBS basename. The bootstrap does not
+claim independent access to or reconstruction of the ExecutionSnapshot. It then invokes the
+manifest-bound qsub executable with `shell=False`. There is no caller argv,
+shell/eval/template evaluation, PATH lookup, queue fallback, float conversion,
+walltime rounding down, or implicit scheduler-default satisfaction.
+
+An explicit queue must render exactly or submission fails closed; null queue
+emits no queue selector. Walltime conversion uses exact integer arithmetic and
+fails if the selected dialect cannot represent the exact seconds. Memory is
+rendered from exact integer `memory_mb`, never Gaussian `%mem`; cores are
+rendered from exact integer `cores`, never `%nprocshared`. A derived argv is
+mechanical review evidence only and cannot become a second mutable authority.
+Any snapshot/resource/dialect/payload mismatch rejects before qsub.
+
+Because the closed request schema and operation-table semantics change, this
+successor uses bootstrap protocol `auto-g16-v3-rtwin-bootstrap/2`, operation
+table `auto-g16-rtwin-operation-table/2`, and a new exact fixed bootstrap
+source identity. It retains the same seven operations, one AGV3 frame in each
+direction, trust-root inventory, bounded channels, and no-shell/no-retry trust
+semantics. Protocol `/1` remains immutable historical evidence and is not
+silently reinterpreted.
+
+No production dialect is inferred from generic PBS, Torque, PBS Pro, or
+OpenPBS knowledge. Historical repository/live artifacts prove that the legacy
+deployment accepted PBS-script resources in `nodes=1:ppn`, integer-GB memory,
+and `HH:MM:SS` walltime form, but do not prove a current structured-qsub queue
+or resource-option dialect. They are reuse evidence only. Until exact
+non-secret deployment evidence closes a production dialect, the live path is
+`NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` and no qsub may occur. Offline synthetic
+evidence may use one closed, clearly non-production renderer that is rejected
+by the live subprocess driver; it must not make a production dialect appear
+resolved.
+
+This decision changes no public Core, Approval, Workflow, Execution, Observe,
+Result, ScientificValidation, or Review API/schema. It creates no resource
+planner, adaptive allocation, automatic queue choice, retry, qdel, cleanup,
+deployment, credential, host-key, OpenSSH, or live authority. `WINNER` remains
+the sole first-effect sequencing gate; `REPLAY` performs zero qsub and
+`UNKNOWN` never authorizes a second qsub.
