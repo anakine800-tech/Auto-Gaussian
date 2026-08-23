@@ -1322,6 +1322,14 @@ This narrow clarification is accepted only when all of the following hold:
     already-frozen cap and postlaunch-attestation behavior; it adds no
     operation, channel, trust root, or caller-controlled source authority.
 
+The `/1` conditions above remain immutable historical acceptance evidence.
+For an executable resource-enactment successor, protocol/table/source `/2`,
+the exact four-content runtime closure, and the `/2` qsub schema/vector in
+`boundary-spec.md#snapshot-derived-pbs-resource-enactment` supersede only the
+corresponding `/1` protocol-specific conditions. All retained trust, physical
+binding, cap, no-shell, WINNER/REPLAY/UNKNOWN, and no-retry conditions continue
+unchanged.
+
 ## `V30-EXEC-RESOURCE-ENACTMENT-CONTRACT-01`
 
 This resource-enactment contract is accepted only when all of the following
@@ -1341,6 +1349,9 @@ hold:
    basename only. Caller argv, argv fragments, shell, eval, format strings,
    executable selection, environment overrides, and fallback defaults are
    impossible or rejected.
+   The payload keys are exactly `pbs_basename` and `resource_enactment`; the
+   nested seven-key object, queue-null exception, binding equality rules, and
+   958-byte canonical request vector replay exactly.
 6. The bootstrap selects only a source-controlled renderer and invokes the
    exact manifest-bound qsub executable with `shell=False`.
 7. Null queue emits no selector; an explicit queue renders exactly or rejects.
