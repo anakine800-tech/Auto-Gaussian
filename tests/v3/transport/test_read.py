@@ -36,6 +36,13 @@ class SchedulerReadTests(TransportFixture):
             evidence = self.read_adapter(FakeDriver(text_results=(result,))).read_scheduler(snapshot, binding, profile)
             self.assertEqual((evidence.state, evidence.freshness), expected)
 
+    def test_postlaunch_qstat_executable_drift_remains_unknown(self) -> None:
+        snapshot, profile = self.transport_snapshot()
+        binding = self.persisted_binding(snapshot, profile)
+        drift = _TextResult(stdout=b"", stderr=b"", returncode=None, eof_stdout=False, eof_stderr=False, completion_status="transport-error")
+        evidence = self.read_adapter(FakeDriver(text_results=(drift,))).read_scheduler(snapshot, binding, profile)
+        self.assertEqual((evidence.state, evidence.freshness), ("unknown", "unknown"))
+
     def test_store_profile_or_binding_splice_rejects_before_read(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)

@@ -77,6 +77,30 @@ class ManifestAndCommandTests(TransportFixture):
         self.assertIn("Get-FileHash", command[-1])
         self.assertNotIn("qsub", command[:-1])
 
+    def test_outer_ssh_targets_final_rtwin_hop_and_only_earlier_hops_proxy(self) -> None:
+        profile = self.profile(jump_topology=[
+            ("proxy.example", 2201, "proxy-user"),
+            ("rtwin.example", 2202, "rtwin-user"),
+        ])
+        snapshot, _ = self.transport_snapshot(profile=profile)
+        authority = _resolve_deployment_authority(snapshot, profile)
+        command = _build_rtwin_command(snapshot, authority.manifest)
+        self.assertEqual(command[:11], (
+            authority.manifest.trust_roots["mac_ssh"].path,
+            "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+            "-p", "2202", "-J", "proxy-user@proxy.example:2201",
+            "--", "rtwin-user@rtwin.example",
+        ))
+        self.assertIn("-p 22 user100@10.0.0.50", command[-1])
+
+    def test_empty_rtwin_hop_rejects_before_process(self) -> None:
+        profile = self.profile(jump_topology=[])
+        snapshot, _ = self.transport_snapshot(profile=profile)
+        authority = _resolve_deployment_authority(snapshot, profile)
+        with patch("subprocess.Popen") as popen, self.assertRaises(transport.TransportBoundaryError):
+            _build_rtwin_command(snapshot, authority.manifest)
+        popen.assert_not_called()
+
     def test_cmd_manifest_fails_before_any_process(self) -> None:
         profile = self.profile(windows_grammar="cmd-v1")
         snapshot, _ = self.transport_snapshot(profile=profile)

@@ -54,7 +54,7 @@ class RTWinExecutionTests(TransportFixture):
         self.assertEqual(len(driver.text_calls), calls)
         self.assertEqual(tuple(call[1].operation.name for call in driver.text_calls).count("SUBMIT_QSUB_ONCE"), 1)
 
-    def test_ambiguous_qsub_becomes_unknown_and_never_retries(self) -> None:
+    def test_postlaunch_qsub_drift_or_ambiguity_becomes_unknown_and_never_retries(self) -> None:
         snapshot, profile = self.transport_snapshot()
         results = list(execution_successes())
         results[-1] = _TextResult(stdout=b"", stderr=b"", returncode=None, eof_stdout=False, eof_stderr=False, completion_status="transport-error")

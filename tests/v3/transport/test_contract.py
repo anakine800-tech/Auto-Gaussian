@@ -4,8 +4,11 @@ from dataclasses import fields, is_dataclass
 import ast
 from hashlib import sha256
 import inspect
+import os
 from pathlib import Path
 import shlex
+import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -65,16 +68,71 @@ class TransportContractTests(unittest.TestCase):
         self.assertEqual(_OPERATION_TABLE_SHA256, "6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6")
         self.assertEqual(_BOOTSTRAP_SOURCE_NAME, "auto-g16-v3-rtwin-bootstrap-v1.py")
         self.assertEqual(_BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE.encode("utf-8"))
-        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 12540)
-        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 170)
+        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 13904)
+        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 190)
         self.assertNotIn(b"\r", _BOOTSTRAP_SOURCE_BYTES)
         self.assertNotIn(b"\x00", _BOOTSTRAP_SOURCE_BYTES)
-        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f")
+        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952")
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.startswith(b"from __future__ import annotations\n"))
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.endswith(b"main()\n"))
         self.assertNotIn("eval(", _BOOTSTRAP_SOURCE)
         self.assertNotIn("exec(", _BOOTSTRAP_SOURCE)
         self.assertNotIn("qdel", _BOOTSTRAP_SOURCE)
+
+    def test_bootstrap_caps_reads_and_reattests_executables_after_launch(self) -> None:
+        tree = ast.parse(_BOOTSTRAP_SOURCE)
+        functions = {node.name:node for node in tree.body if isinstance(node,ast.FunctionDef)}
+        read_source = ast.get_source_segment(_BOOTSTRAP_SOURCE, functions["read_bounded"])
+        identity_source = ast.get_source_segment(_BOOTSTRAP_SOURCE, functions["regular_identity"])
+        run_source = ast.get_source_segment(_BOOTSTRAP_SOURCE, functions["run_exact"])
+        self.assertIsNotNone(read_source)
+        self.assertIsNotNone(identity_source)
+        self.assertIsNotNone(run_source)
+        self.assertLess(read_source.index("expected_size>FILE_CAP"), read_source.index("os.read"))
+        self.assertIn("st_mode&0o111==0", identity_source)
+        self.assertEqual(run_source.count("regular_identity("), 2)
+        self.assertLess(run_source.index("before=regular_identity"), run_source.index("subprocess.run"))
+        self.assertLess(run_source.index("subprocess.run"), run_source.index("after=regular_identity"))
+        self.assertIn('if before!=after: die("runtime-drift")', run_source)
+        self.assertIn('if before.st_size>FILE_CAP: die("artifact-too-large")', _BOOTSTRAP_SOURCE)
+        self.assertIn('if type(p["size_bytes"]) is not int or p["size_bytes"]<0 or p["size_bytes"]>FILE_CAP', _BOOTSTRAP_SOURCE)
+        self.assertIn('content=decode64_bounded(p["content_base64"],FILE_CAP)', _BOOTSTRAP_SOURCE)
+
+    def test_bootstrap_rejects_nonexecutables_and_postlaunch_replacement(self) -> None:
+        tree = ast.parse(_BOOTSTRAP_SOURCE)
+        namespace: dict[str, object] = {}
+        definitions = ast.Module(body=tree.body[:-1], type_ignores=[])
+        exec(compile(definitions, "<fixed-bootstrap-test>", "exec"), namespace)
+        regular_identity = namespace["regular_identity"]
+        read_bounded = namespace["read_bounded"]
+        run_exact = namespace["run_exact"]
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "qsub"
+            executable.write_bytes(b"fixed-qsub")
+            executable.chmod(0o600)
+            with self.assertRaises(SystemExit):
+                regular_identity(str(executable), 10, sha256(b"fixed-qsub").hexdigest())
+            executable.chmod(0o700)
+            oversized_fd = os.open(executable, os.O_RDONLY)
+            try:
+                with patch("os.read") as read, self.assertRaises(SystemExit):
+                    read_bounded(oversized_fd, 134_217_729, "artifact-too-large")
+                read.assert_not_called()
+            finally:
+                os.close(oversized_fd)
+            root = {"path":str(executable), "expected_size_bytes":10, "expected_sha256":sha256(b"fixed-qsub").hexdigest()}
+            cwd_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            def replace_after_launch(*_args, **_kwargs):
+                replacement = Path(directory) / "replacement"
+                replacement.write_bytes(b"fixed-qsub")
+                replacement.chmod(0o700)
+                os.replace(replacement, executable)
+                return subprocess.CompletedProcess([], 0, stdout=b"123.server\n", stderr=b"")
+            try:
+                with patch("subprocess.run", side_effect=replace_after_launch), self.assertRaises(SystemExit):
+                    run_exact(root, ["job.pbs"], cwd_fd, 65536, 65536)
+            finally:
+                os.close(cwd_fd)
 
     def test_posix_variable_and_fixed_source_quoting_are_separate(self) -> None:
         self.assertEqual(shlex.split(_posix_quote_v1("")), [""])
@@ -124,7 +182,7 @@ class TransportContractTests(unittest.TestCase):
             "binding": {
                 "attempt_id": "attempt-1", "execution_snapshot_id": "snapshot-1",
                 "remote_workspace": "/srv/p/attempt-1",
-                "runtime_attestation_id": "e42ac09e-e7da-50a3-b03f-54a5199d1686",
+                "runtime_attestation_id": "55823409-18d5-5ec8-8cd1-95fc2070fcfa",
                 "store_instance_id": "28c10d1a-9f8f-5ce6-84d1-555175c0fcde",
                 "submission_intent_id": "intent-1",
                 "transport_store_id": "108c8d43-2ea9-5658-9607-ade4cbbeac85",
@@ -135,11 +193,11 @@ class TransportContractTests(unittest.TestCase):
         fetch = {
             "binding": {
                 **allocate["binding"],
-                "job_authority_id": "fcea1641-0bd5-5892-a66d-f0984eb6bfba",
+                "job_authority_id": "51eef369-a569-53e2-8c44-2d22e20057f7",
                 "job_id": "123.server",
-                "receipt_binding_id": "cb3c8a2a-fa8e-5562-be86-e6b49959ee22",
+                "receipt_binding_id": "e824ab64-5fcf-5014-be1a-b53ad70f8cce",
                 "remote_effect_receipt_id": "receipt-1",
-                "workspace_authority_id": "c3e44fc0-1907-542b-8ff9-2acf63034d60",
+                "workspace_authority_id": "ceff0991-4089-5c97-90b5-199c00467e67",
                 "workspace_physical_token_base64": "d29ya3NwYWNlLXRva2VuLXYx",
             },
             "operation": "FETCH_EXACT_FILE",
@@ -147,8 +205,8 @@ class TransportContractTests(unittest.TestCase):
             "protocol": "auto-g16-v3-rtwin-bootstrap/1",
         }
         for value, size, digest in (
-            (allocate, 420, "3ae2f4631874b71c0a023439f51d3a877c87f5f11dd6ba187ccf4ca2c2d81c2a"),
-            (fetch, 844, "6bf99083230b68c89593eff76fc93d8458459a87e39695b358a5c71f3f56c9bc"),
+            (allocate, 420, "dd01886713ad2a41e45ae60ba85fd0a88fa42666d7a9db661c4a0ab2e748fe5e"),
+            (fetch, 844, "4e57b3c5b1a71fc8fdee3ac29c963cf94bcc30c8d64125420388fae9ba6a331b"),
         ):
             raw = canonical_json_bytes(value)
             self.assertEqual(len(raw), size)

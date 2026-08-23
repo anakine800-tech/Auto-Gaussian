@@ -17,7 +17,7 @@ _TOKEN = re.compile(r"^[A-Za-z0-9_:.\\/ -]+$")
 
 _BOOTSTRAP_SOURCE: Final = r'''from __future__ import annotations
 import base64,hashlib,json,os,re,stat,struct,subprocess,sys
-MAGIC=b"AGV3"; PROTOCOL="auto-g16-v3-rtwin-bootstrap/1"
+MAGIC=b"AGV3"; PROTOCOL="auto-g16-v3-rtwin-bootstrap/1"; FILE_CAP=134217728
 OPS={"ALLOCATE_WORKSPACE","STAGE_EXACT_FILE","SUBMIT_QSUB_ONCE","QUERY_SCHEDULER","STAT_EXACT_FILE","FETCH_EXACT_FILE","RECONCILE_SUBMISSION"}
 PORTABLE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$"); JOB=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ENV={"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
@@ -28,6 +28,11 @@ def decode64(value):
     try: raw=base64.b64decode(value.encode("ascii"),validate=True)
     except Exception: die("invalid-base64")
     if base64.b64encode(raw).decode("ascii")!=value: die("invalid-base64")
+    return raw
+def decode64_bounded(value,cap):
+    if type(value) is not str or len(value)>4*((cap+2)//3): die("invalid-base64")
+    raw=decode64(value)
+    if len(raw)>cap: die("invalid-base64")
     return raw
 def encode64(value): return base64.b64encode(value).decode("ascii")
 def read_frame():
@@ -48,18 +53,20 @@ def respond(operation,result):
 def regular_identity(path,expected_size,expected_digest):
     try:
         before=os.lstat(path)
-        if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_size!=expected_size: die("runtime-drift")
+        if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_mode&0o111==0 or before.st_size!=expected_size: die("runtime-drift")
         flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0); fd=os.open(path,flags)
         try:
             opened=os.fstat(fd); digest=hashlib.sha256(); remaining=opened.st_size
+            if not stat.S_ISREG(opened.st_mode) or opened.st_mode&0o111==0: die("runtime-drift")
             while remaining:
                 chunk=os.read(fd,min(65536,remaining))
                 if not chunk: die("runtime-drift")
                 digest.update(chunk); remaining-=len(chunk)
             named=os.lstat(path)
-            if (opened.st_dev,opened.st_ino)!=(named.st_dev,named.st_ino) or digest.hexdigest()!=expected_digest: die("runtime-drift")
+            if not stat.S_ISREG(named.st_mode) or named.st_mode&0o111==0 or (opened.st_dev,opened.st_ino)!=(named.st_dev,named.st_ino) or digest.hexdigest()!=expected_digest: die("runtime-drift")
         finally: os.close(fd)
     except OSError: die("runtime-drift")
+    return opened.st_dev,opened.st_ino
 def token(value):
     raw=decode64(value)
     if not 1<=len(raw)<=4096: die("invalid-token")
@@ -93,11 +100,7 @@ def attest_artifact(fd,b,kind,identity):
     value=artifact_from_token(identity,b,kind); name=value[3]
     flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0); af=os.open(name,flags,dir_fd=fd)
     try:
-        s=os.fstat(af); digest=hashlib.sha256(); remaining=s.st_size
-        while remaining:
-            chunk=os.read(af,min(65536,remaining))
-            if not chunk: die("artifact-drift")
-            digest.update(chunk); remaining-=len(chunk)
+        s=os.fstat(af); content,digest=read_bounded(af,s.st_size,"artifact-drift")
         payload={"artifact_kind":kind,"logical_name":name,"sha256":digest.hexdigest(),"size_bytes":s.st_size}
         if value[4]!=payload["sha256"] or value[5]!=payload["size_bytes"] or value[6]!=s.st_dev or value[7]!=s.st_ino or token(identity)!=artifact_token(af,b,payload): die("artifact-drift")
     finally: os.close(af)
@@ -111,8 +114,22 @@ def manifest():
         item=roots[name]; regular_identity(item["path"],item["expected_size_bytes"],item["expected_sha256"])
     if os.path.abspath(sys.executable)!=roots["server_python"]["path"]: die("server-python-path-drift")
     return roots
-def run_exact(path,args,cwd_fd,capout,caperr):
+def read_bounded(fd,expected_size,label):
+    if type(expected_size) is not int or expected_size<0 or expected_size>FILE_CAP: die(label)
+    content=bytearray(); digest=hashlib.sha256(); remaining=expected_size
+    while remaining:
+        amount=min(65536,remaining)
+        if len(content)+amount>FILE_CAP: die(label)
+        chunk=os.read(fd,amount)
+        if not chunk: die(label)
+        content.extend(chunk); digest.update(chunk); remaining-=len(chunk)
+    if os.read(fd,1): die(label)
+    return bytes(content),digest
+def run_exact(root,args,cwd_fd,capout,caperr):
+    path=root["path"]; before=regular_identity(path,root["expected_size_bytes"],root["expected_sha256"])
     completed=subprocess.run([path,*args],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,cwd=f"/proc/self/fd/{cwd_fd}",env=ENV,shell=False,timeout=30,check=False)
+    after=regular_identity(path,root["expected_size_bytes"],root["expected_sha256"])
+    if before!=after: die("runtime-drift")
     if len(completed.stdout)>capout or len(completed.stderr)>caperr: die("child-output-overflow")
     return completed
 def main():
@@ -134,13 +151,18 @@ def main():
         fd=fds[2]
         if op=="STAGE_EXACT_FILE":
             if set(b)!=stage or set(p)!={"artifact_kind","logical_name","remote_relative_name","sha256","size_bytes","content_base64"} or p["artifact_kind"] not in {"prepared-input","pbs-template"} or p["logical_name"]!=p["remote_relative_name"] or not PORTABLE.fullmatch(p["logical_name"]): die("invalid-request")
-            content=decode64(p["content_base64"])
+            if type(p["size_bytes"]) is not int or p["size_bytes"]<0 or p["size_bytes"]>FILE_CAP: die("invalid-content")
+            content=decode64_bounded(p["content_base64"],FILE_CAP)
             if len(content)!=p["size_bytes"] or hashlib.sha256(content).hexdigest()!=p["sha256"]: die("invalid-content")
-            flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0); af=os.open(p["logical_name"],flags,0o400,dir_fd=fd)
+            flags=os.O_RDWR|os.O_CREAT|os.O_EXCL|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0); af=os.open(p["logical_name"],flags,0o400,dir_fd=fd)
             try:
                 pos=0
                 while pos<len(content): pos+=os.write(af,content[pos:])
-                os.fsync(af); result={k:p[k] for k in ("artifact_kind","logical_name","remote_relative_name","sha256","size_bytes")}; result["artifact_physical_token_base64"]=encode64(artifact_token(af,b,p))
+                os.fsync(af); written=os.fstat(af)
+                if written.st_size>FILE_CAP: die("invalid-content")
+                os.lseek(af,0,os.SEEK_SET); reread,digest=read_bounded(af,written.st_size,"invalid-content")
+                if reread!=content or digest.hexdigest()!=p["sha256"]: die("invalid-content")
+                result={k:p[k] for k in ("artifact_kind","logical_name","remote_relative_name","sha256","size_bytes")}; result["artifact_physical_token_base64"]=encode64(artifact_token(af,b,p))
             finally: os.close(af)
             return respond(op,result)
         if op=="SUBMIT_QSUB_ONCE":
@@ -148,7 +170,7 @@ def main():
             attest_artifact(fd,b,"prepared-input",b["prepared_input_artifact_physical_token_base64"])
             pbs_name=attest_artifact(fd,b,"pbs-template",b["pbs_template_artifact_physical_token_base64"])
             if pbs_name!=p["pbs_basename"]: die("artifact-drift")
-            completed=run_exact(roots["server_qsub"]["path"],[p["pbs_basename"]],fd,65536,65536)
+            completed=run_exact(roots["server_qsub"],[p["pbs_basename"]],fd,65536,65536)
             if completed.returncode!=0 or completed.stderr: die("qsub-failed")
             try: job=completed.stdout.decode("ascii").strip()
             except UnicodeDecodeError: die("invalid-job-id")
@@ -156,7 +178,7 @@ def main():
             return respond(op,{"job_id":job})
         if op=="QUERY_SCHEDULER":
             if set(b)!=query or set(p)!={"job_id"} or p["job_id"]!=b.get("job_id") or not JOB.fullmatch(p["job_id"]): die("invalid-request")
-            completed=run_exact(roots["server_qstat"]["path"],["-f",p["job_id"]],fd,262144,65536)
+            completed=run_exact(roots["server_qstat"],["-f",p["job_id"]],fd,262144,65536)
             return respond(op,{"stdout_base64":encode64(completed.stdout),"stderr_base64":encode64(completed.stderr),"returncode":completed.returncode,"eof_stdout":True,"eof_stderr":True,"completion_status":"completed"})
         if op in {"STAT_EXACT_FILE","FETCH_EXACT_FILE"}:
             if set(b)!=query: die("invalid-binding")
@@ -168,17 +190,15 @@ def main():
                 if op=="STAT_EXACT_FILE": return respond(op,{"presence":"absent","remote_relative_name":name})
                 die("artifact-not-found",44)
             try:
-                before=os.fstat(af); content=b""
-                while len(content)<before.st_size:
-                    chunk=os.read(af,min(65536,before.st_size-len(content)))
-                    if not chunk: die("short-read")
-                    content+=chunk
+                before=os.fstat(af)
+                if before.st_size>FILE_CAP: die("artifact-too-large")
+                content,digest=read_bounded(af,before.st_size,"short-read")
                 after=os.fstat(af); physical=canonical(["auto-g16-fetched-file-token/1",b["workspace_authority_id"],name,before.st_dev,before.st_ino,before.st_size])
                 if (before.st_dev,before.st_ino,before.st_size)!=(after.st_dev,after.st_ino,after.st_size): die("unstable-file")
             finally: os.close(af)
             if op=="STAT_EXACT_FILE": return respond(op,{"presence":"present","remote_relative_name":name,"size_bytes":len(content),"file_physical_token_base64":encode64(physical)})
             if set(p)!={"remote_relative_name","expected_size_bytes","expected_file_physical_token_base64"} or p["expected_size_bytes"]!=len(content) or token(p["expected_file_physical_token_base64"])!=physical: die("file-drift")
-            return respond(op,{"remote_relative_name":name,"size_bytes":len(content),"sha256":hashlib.sha256(content).hexdigest(),"content_base64":encode64(content),"file_physical_token_base64":encode64(physical),"eof":True})
+            return respond(op,{"remote_relative_name":name,"size_bytes":len(content),"sha256":digest.hexdigest(),"content_base64":encode64(content),"file_physical_token_base64":encode64(physical),"eof":True})
         if op=="RECONCILE_SUBMISSION":
             if set(b)!=submitted or set(p)!={"effect_sequence"} or type(p["effect_sequence"]) is not int or p["effect_sequence"]<1: die("invalid-request")
             return respond(op,{"effect_state":"possibly_effectful"})
@@ -188,9 +208,9 @@ main()
 '''
 _BOOTSTRAP_SOURCE_BYTES: Final = _BOOTSTRAP_SOURCE.encode("utf-8")
 _BOOTSTRAP_SOURCE_SHA256: Final = sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest()
-_BOOTSTRAP_SOURCE_SIZE: Final = 12540
-_BOOTSTRAP_SOURCE_LF_COUNT: Final = 170
-_BOOTSTRAP_SOURCE_EXPECTED_SHA256: Final = "724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f"
+_BOOTSTRAP_SOURCE_SIZE: Final = 13904
+_BOOTSTRAP_SOURCE_LF_COUNT: Final = 190
+_BOOTSTRAP_SOURCE_EXPECTED_SHA256: Final = "056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952"
 if (
     len(_BOOTSTRAP_SOURCE_BYTES) != _BOOTSTRAP_SOURCE_SIZE
     or _BOOTSTRAP_SOURCE_SHA256 != _BOOTSTRAP_SOURCE_EXPECTED_SHA256
@@ -276,9 +296,11 @@ def _build_rtwin_command(snapshot: object, manifest: object) -> tuple[str, ...]:
     script=("$ErrorActionPreference='Stop';function Test-AutoG16([string]$p,[long]$s,[string]$h){$f=Get-Item -LiteralPath $p -Force;if($f.PSIsContainer -or (($f.Attributes -band [IO.FileAttributes]::ReparsePoint)-ne 0) -or $f.Length-ne$s){exit 97};$x=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant();if($x-ne$h){exit 97}};"
             f"Test-AutoG16 {ssh} {roots['rtwin_ssh'].expected_size_bytes} '{roots['rtwin_ssh'].expected_sha256}';Test-AutoG16 {scp} {roots['rtwin_scp'].expected_size_bytes} '{roots['rtwin_scp'].expected_sha256}';"
             "$p=New-Object System.Diagnostics.Process;$p.StartInfo.UseShellExecute=$false;"+f"$p.StartInfo.FileName={ssh};$p.StartInfo.Arguments={_powershell_quote_fixed_launcher_v1(arguments)};"+"$p.StartInfo.RedirectStandardInput=$true;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true;$p.Start()|Out-Null;$i=[Console]::OpenStandardInput().CopyToAsync($p.StandardInput.BaseStream);$o=$p.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput());$e=$p.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError());$i.GetAwaiter().GetResult();$p.StandardInput.Close();$p.WaitForExit();$o.GetAwaiter().GetResult();$e.GetAwaiter().GetResult();exit $p.ExitCode")
-    command=[roots["mac_ssh"].path,"-o","BatchMode=yes","-o","IdentitiesOnly=yes"]
     jump=target["jump_topology"]
-    if jump: command.extend(["-J",",".join(f"{x['user']}@{x['host']}:{x['port']}" for x in jump)])
-    command.extend(["--",f"{snapshot.resolved_server_profile.remote_user}@{target['destination_host']}",script]); return tuple(command)
+    if not jump: raise TransportBoundaryError("RTwin hop is required")
+    rtwin=jump[-1]; proxies=jump[:-1]
+    command=[roots["mac_ssh"].path,"-o","BatchMode=yes","-o","IdentitiesOnly=yes","-p",str(rtwin["port"])]
+    if proxies: command.extend(["-J",",".join(f"{x['user']}@{x['host']}:{x['port']}" for x in proxies)])
+    command.extend(["--",f"{rtwin['user']}@{rtwin['host']}",script]); return tuple(command)
 
 __all__=["_BOOTSTRAP_PROTOCOL","_BOOTSTRAP_SOURCE","_BOOTSTRAP_SOURCE_BYTES","_BOOTSTRAP_SOURCE_NAME","_BOOTSTRAP_SOURCE_SHA256","_build_rtwin_command","_cmd_quote_v1","_crt_quote","_decode_response_frame","_encode_request_frame","_posix_quote_bootstrap_source_v1","_posix_quote_v1","_powershell_quote_fixed_launcher_v1","_powershell_quote_v1"]

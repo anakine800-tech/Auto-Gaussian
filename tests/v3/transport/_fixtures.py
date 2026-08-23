@@ -134,7 +134,7 @@ class TransportFixture(ExecutionFixture):
         self.transport_store = transport.TransportStore.create_new(self.transport_database, approved_root=store_root)
         self.addCleanup(self.transport_store.close)
 
-    def profile(self, *, deployment_id: str = "synthetic-rtwin-deployment-v1", windows_grammar: str = "powershell-v1") -> execution.ServerProfile:
+    def profile(self, *, deployment_id: str = "synthetic-rtwin-deployment-v1", windows_grammar: str = "powershell-v1", jump_topology: list[tuple[str, int, str]] | None = None) -> execution.ServerProfile:
         executable_bytes = {"mac-ssh": b"mac ssh executable bytes", "mac-scp": b"mac scp executable bytes"}
         executable_paths = {name: self.temporary / name for name in executable_bytes}
         for name, path in executable_paths.items():
@@ -144,7 +144,7 @@ class TransportFixture(ExecutionFixture):
         return execution.ServerProfile(
             server_profile_id="profile-transport-1", profile_revision=11, transport_kind="legacy_rtwin_pbs",
             target_host="10.0.0.50", target_port=22, remote_user="user100",
-            jump_topology=[("100.64.0.1", 22, "rtwin-user")], host_key_policy="strict",
+            jump_topology=[("100.64.0.1", 22, "rtwin-user")] if jump_topology is None else jump_topology, host_key_policy="strict",
             batch_mode=True, identities_only=True, remote_root=execution.LEGACY_REMOTE_ROOT,
             platform_paths={"rtwin_root": r"C:\RTWIN", "known_hosts": "/etc/ssh/ssh_known_hosts"},
             config_files=[("ssh_config", b"Host RTwin\n  HostName 100.64.0.1\n")],
