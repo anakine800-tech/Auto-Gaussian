@@ -3049,6 +3049,18 @@ by that resolved-profile identity and is reverified directly against the
 snapshot runtime identity on every authority resolution. It is not duplicated
 as a second mutable store authority.
 
+The `/2` `SUBMIT_QSUB_ONCE` response also replays `/1` exactly except its
+top-level protocol literal is `/2`: top-level keys are exactly `operation`,
+`protocol`, `result`, and `status`; operation echoes `SUBMIT_QSUB_ONCE`, status
+is `ok`, and result contains exactly one strict normalized PBS `job_id`. It
+contains no resource, dialect, renderer, argv, executable, environment, or
+other echo/evidence field. The exact canonical response is 123 bytes with
+SHA-256 `c1a9556d75c9f0fc390ed89100a1241c1fc44abb6d1f2b568a476445672fa2d3`:
+
+```json
+{"operation":"SUBMIT_QSUB_ONCE","protocol":"auto-g16-v3-rtwin-bootstrap/2","result":{"job_id":"123.server"},"status":"ok"}
+```
+
 ### Historical bootstrap /1 source-controlled operation construction
 
 This subsection and its `/1` table, basename-only qsub, three-content runtime

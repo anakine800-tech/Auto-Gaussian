@@ -1351,7 +1351,9 @@ hold:
    impossible or rejected.
    The payload keys are exactly `pbs_basename` and `resource_enactment`; the
    nested seven-key object, queue-null exception, binding equality rules, and
-   958-byte canonical request vector replay exactly.
+   958-byte canonical request vector replay exactly. The `/2` response has no
+   new channel: its exact four-key envelope and one-key `{job_id}` result plus
+   123-byte canonical response vector replay exactly.
 6. The bootstrap selects only a source-controlled renderer and invokes the
    exact manifest-bound qsub executable with `shell=False`.
 7. Null queue emits no selector; an explicit queue renders exactly or rejects.
