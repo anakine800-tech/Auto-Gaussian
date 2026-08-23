@@ -3184,18 +3184,41 @@ PowerShell, certutil, a bridge, or another hasher would be a tenth trust root
 and requires a new Owner contract; Transport never falls back. This is the
 frozen meaning of “if the selected grammar cannot attest safely, fail closed.”
 
-The server shell is exactly `posix-sh-v1`. Its only token encoder is:
+The server shell is exactly `posix-sh-v1`. It has two deliberately separate
+encoders with the same byte-preserving single-quote construction:
 
 ```text
-quote(token) = "'" + token.replace("'", "'\"'\"'") + "'"
-command = " ".join(quote(token) for token in fixed_tokens)
+quote_variable(token) = "'" + token.replace("'", "'\"'\"'") + "'"
+quote_bootstrap_source(source) = "'" + source.replace("'", "'\"'\"'") + "'"
+
+command = " ".join([
+  quote_variable(server_python), quote_variable("-I"), quote_variable("-S"),
+  quote_variable("-B"), quote_variable("-c"),
+  quote_bootstrap_source(EXACT_BOOTSTRAP_SOURCE),
+  quote_variable(manifest_base64),
+])
 ```
 
-NUL/CR/LF reject and an empty token becomes `''`. The one launcher is exact
-manifest `server_python` with fixed flags `-I -S -B -c` and the exact
-source-controlled `auto-g16-v3-rtwin-bootstrap-v1.py` runtime-content bytes.
-Changing that source
-semantically requires a new bootstrap protocol version. The source reads one
+Every variable token rejects NUL, CR, and LF; an empty variable token becomes
+`''`. The exact bootstrap source is not a variable token. It permits ASCII LF
+but rejects NUL and CR, uses LF-only line endings, and is passed as exactly one
+shell word. POSIX single quotes keep embedded LF literal, and a source literal
+`'` uses the deterministic close/escaped-quote/reopen sequence above. Decoding
+either quoted form reproduces the exact input bytes. No variable value is
+concatenated into the quoted source, and source LF cannot terminate the one
+quoted shell word or create another command.
+
+The one launcher is exact manifest `server_python` with fixed flags
+`-I -S -B -c` and exact source-controlled
+`auto-g16-v3-rtwin-bootstrap-v1.py` bytes. That constant is ASCII, begins
+`from __future__ import annotations\n`, ends `main()\n`, contains exactly 170
+LF bytes and no CR/NUL, has exact size `12540`, and has SHA-256
+`724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f`.
+The implementation test computes size/digest from the exact source constant;
+no hand-maintained alternate source or digest is accepted. The earlier
+synthetic placeholder digest `b` repeated 64 times with size `2048` is
+superseded and must fail runtime-content closure. Changing any source byte
+requires a reviewed bootstrap protocol/source update. The source reads one
 request frame from stdin and writes one response frame to stdout. Both frames
 are ASCII magic `AGV3`, one unsigned 64-bit big-endian length, then exactly that
 many canonical JSON bytes containing one trailing LF, followed by EOF. The
@@ -3212,6 +3235,20 @@ inside the response result. Diagnostics are never parsed as state, job, token,
 retry, or scientific authority. Extra frames/bytes, unknown keys/enum/status,
 noncanonical JSON, overflow, truncation, nonempty bootstrap stderr, or missing
 EOF rejects.
+
+The normative source-quoting fixture is the 12-byte ASCII source represented
+as `alpha'\nbeta\n`, with SHA-256
+`6053f05b9d4ccfee917933fbaf678ce477573102c2c6b62eaaa3d0290d8dcfb7`.
+`quote_bootstrap_source` produces exactly the 18 bytes represented as
+`'alpha'"'"'\nbeta\n'`, with SHA-256
+`582f76adb6db7219ffaea960e5b01ee95939b0600c002c92d0601199369e9735`.
+A POSIX `shlex`-equivalent grammar must decode that complete quoted word to
+exactly one argv element whose bytes equal the 12-byte source; zero or two
+elements, line-ending normalization, quote loss, or command separation
+rejects. The production-source test performs the same one-element byte-exact
+round trip for all 12540 source bytes. Replacing any variable token with a
+value containing LF/CR/NUL rejects before launcher construction; replacing
+the fixed source with CR/NUL also rejects, while LF is preserved.
 
 Binary values use RFC 4648 standard base64 with required padding and canonical
 decode/re-encode equality. Tokens decode to `1..4096` bytes. Content decoded
@@ -3288,10 +3325,10 @@ ever accepted.
 The active identity fixture below supplies four normative canonical JSON
 vectors, each shown as its one line; counted bytes include the final LF. The
 allocate request is 420 bytes with SHA-256
-`a6b2fc01b61b6a338a488990c62de75e726cb1a8036fdb587786b7e99bbb805c`:
+`3ae2f4631874b71c0a023439f51d3a877c87f5f11dd6ba187ccf4ca2c2d81c2a`:
 
 ```json
-{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"79d4b458-3057-5afe-9332-6aab3ed04976","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85"},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"e42ac09e-e7da-50a3-b03f-54a5199d1686","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85"},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
 ```
 
 Its response is 202 bytes with SHA-256
@@ -3302,10 +3339,10 @@ Its response is 202 bytes with SHA-256
 ```
 
 The fetch request is 844 bytes with SHA-256
-`0ffb3127106e686a90292322d0644d3ea9222549930eb0999461659e60fd9c3e`:
+`6bf99083230b68c89593eff76fc93d8458459a87e39695b358a5c71f3f56c9bc`:
 
 ```json
-{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","job_authority_id":"e04636fb-9f61-51d7-922a-136e0bc02f49","job_id":"123.server","receipt_binding_id":"ff072c6e-21b1-50d4-95b7-22d62287f2ef","remote_effect_receipt_id":"receipt-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"79d4b458-3057-5afe-9332-6aab3ed04976","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85","workspace_authority_id":"34827613-ea23-5b28-96d4-54b317c0e642","workspace_physical_token_base64":"d29ya3NwYWNlLXRva2VuLXYx"},"operation":"FETCH_EXACT_FILE","payload":{"expected_file_physical_token_base64":"YXJ0aWZhY3QtdG9rZW4tdjE=","expected_size_bytes":19,"remote_relative_name":"job.log"},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","job_authority_id":"fcea1641-0bd5-5892-a66d-f0984eb6bfba","job_id":"123.server","receipt_binding_id":"cb3c8a2a-fa8e-5562-be86-e6b49959ee22","remote_effect_receipt_id":"receipt-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"e42ac09e-e7da-50a3-b03f-54a5199d1686","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85","workspace_authority_id":"c3e44fc0-1907-542b-8ff9-2acf63034d60","workspace_physical_token_base64":"d29ya3NwYWNlLXRva2VuLXYx"},"operation":"FETCH_EXACT_FILE","payload":{"expected_file_physical_token_base64":"YXJ0aWZhY3QtdG9rZW4tdjE=","expected_size_bytes":19,"remote_relative_name":"job.log"},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
 ```
 
 Its response is 341 bytes with SHA-256
@@ -3804,35 +3841,36 @@ superseded receipt_binding_id:
 
 The active complete-manifest fixture uses the normative manifest identity
 above, operation-table digest/size above, bootstrap-source name
-`auto-g16-v3-rtwin-bootstrap-v1.py`, digest `b` repeated
-64 times and size `2048`, effective-config digest `a` repeated 64 times, and
-the same remaining literal inputs. Its exact current canonical vectors are:
+`auto-g16-v3-rtwin-bootstrap-v1.py`, the exact source digest
+`724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f`
+and size `12540`, effective-config digest `a` repeated 64 times, and the same
+remaining literal inputs. Its exact current canonical vectors are:
 
 ```text
 runtime-attestation bytes:
-a17:s38:auto-g16-transport/runtime-attestationi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes10:snapshot-1s9:profile-1s64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas37:transport-deployment-manifest-v1.jsons64:70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983ai2753;s29:synthetic-rtwin-deployment-v1s29:auto-g16-v3-rtwin-bootstrap/1s64:6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6i1490;s33:auto-g16-v3-rtwin-bootstrap-v1.pys64:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbi2048;
+a17:s38:auto-g16-transport/runtime-attestationi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes10:snapshot-1s9:profile-1s64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas37:transport-deployment-manifest-v1.jsons64:70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983ai2753;s29:synthetic-rtwin-deployment-v1s29:auto-g16-v3-rtwin-bootstrap/1s64:6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6i1490;s33:auto-g16-v3-rtwin-bootstrap-v1.pys64:724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2fi12540;
 runtime_attestation_id:
-79d4b458-3057-5afe-9332-6aab3ed04976
+e42ac09e-e7da-50a3-b03f-54a5199d1686
 
 workspace-physical bytes:
-a10:s37:auto-g16-transport/workspace-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s16:/srv/p/attempt-1y18:776f726b73706163652d746f6b656e2d7631
+a10:s37:auto-g16-transport/workspace-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:e42ac09e-e7da-50a3-b03f-54a5199d1686s9:attempt-1s10:snapshot-1s8:intent-1s16:/srv/p/attempt-1y18:776f726b73706163652d746f6b656e2d7631
 workspace_authority_id:
-34827613-ea23-5b28-96d4-54b317c0e642
+c3e44fc0-1907-542b-8ff9-2acf63034d60
 
 artifact-physical bytes:
-a15:s36:auto-g16-transport/artifact-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:34827613-ea23-5b28-96d4-54b317c0e642s36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s14:prepared-inputs7:job.gjfs7:job.gjfs64:ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddi123;y17:61727469666163742d746f6b656e2d7631
+a15:s36:auto-g16-transport/artifact-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:c3e44fc0-1907-542b-8ff9-2acf63034d60s36:e42ac09e-e7da-50a3-b03f-54a5199d1686s9:attempt-1s10:snapshot-1s8:intent-1s14:prepared-inputs7:job.gjfs7:job.gjfs64:ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddi123;y17:61727469666163742d746f6b656e2d7631
 artifact_authority_id:
-6f581297-da45-5943-aa37-6fbab8befbf4
+d716e8fa-09b3-5afb-920b-42647adaa65c
 
 job-physical bytes:
-a10:s31:auto-g16-transport/job-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:34827613-ea23-5b28-96d4-54b317c0e642s36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s10:123.server
+a10:s31:auto-g16-transport/job-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:c3e44fc0-1907-542b-8ff9-2acf63034d60s36:e42ac09e-e7da-50a3-b03f-54a5199d1686s9:attempt-1s10:snapshot-1s8:intent-1s10:123.server
 job_authority_id:
-e04636fb-9f61-51d7-922a-136e0bc02f49
+fcea1641-0bd5-5892-a66d-f0984eb6bfba
 
 receipt-binding bytes:
-a11:s34:auto-g16-transport/receipt-bindingi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:e04636fb-9f61-51d7-922a-136e0bc02f49s36:34827613-ea23-5b28-96d4-54b317c0e642s9:attempt-1s10:snapshot-1s8:intent-1s9:receipt-1s10:123.server
+a11:s34:auto-g16-transport/receipt-bindingi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:fcea1641-0bd5-5892-a66d-f0984eb6bfbas36:c3e44fc0-1907-542b-8ff9-2acf63034d60s9:attempt-1s10:snapshot-1s8:intent-1s9:receipt-1s10:123.server
 receipt_binding_id:
-ff072c6e-21b1-50d4-95b7-22d62287f2ef
+cb3c8a2a-fa8e-5562-be86-e6b49959ee22
 ```
 
 The `payload` column is the exact canonical encoding of the corresponding
@@ -3943,20 +3981,22 @@ manifest-selected PowerShell/cmd and server POSIX shell grammars are the only
 remote-shell interpretation and are never auto-detected or bypassed.
 
 If the RTwin-to-server POSIX hop unavoidably accepts one command string,
-Transport constructs it solely from its fixed token tuple with this exact
-encoder:
+Transport constructs it solely from the exact launcher tuple with the two
+class-specific encoders frozen above. For every variable launcher token:
 
 ```text
-quote(token) = "'" + token.replace("'", "'\"'\"'") + "'"
-command = " ".join(quote(token) for token in fixed_tokens)
+quote_variable(token) = "'" + token.replace("'", "'\"'\"'") + "'"
 ```
 
-Tokens containing NUL, CR, or LF reject. Empty tokens encode as `''`. The
-caller can supply no command token or shell fragment. Where an argv/subsystem
-form exists it is preferred and no command string is built. All stdin/stdout/
-stderr/control channels are separately bounded, require process completion and
-EOF, and reject overflow, truncation, extra bytes, timeout, or unstable
-completion. No retry follows any uncertain result.
+Variable tokens containing NUL, CR, or LF reject and empty tokens encode as
+`''`. Only the exact digest/size-closed protocol source uses
+`quote_bootstrap_source`, which rejects NUL/CR but preserves LF and literal
+single quotes as one word. The caller can supply no command token, source, or
+shell fragment. Where an argv/subsystem form exists it is preferred and no
+command string is built. All stdin/stdout/stderr/control channels are
+separately bounded, require process completion and EOF, and reject overflow,
+truncation, extra bytes, timeout, or unstable completion. No retry follows any
+uncertain result.
 
 ### Frozen adversarial implementation matrix
 
