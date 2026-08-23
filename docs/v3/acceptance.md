@@ -1240,7 +1240,9 @@ Transport implementation is gate-eligible. Acceptance requires:
 31. PowerShell literal/quote/CRT round trips cover empty, spaces, apostrophes,
     backslashes, metacharacters, and NUL/CR/LF rejection. Cmd safe-token quoting
     and forbidden-token tests end in deterministic deployment incompatibility,
-    never PowerShell/certutil/bridge fallback. POSIX quote vectors replay exactly.
+    never PowerShell/certutil/bridge fallback. POSIX variable-token vectors
+    reject NUL/CR/LF, while the separate fixed-source vector preserves LF and
+    rejects NUL/CR; both replay exactly as one shell word.
 32. TransportStore runtime rows bind the exact manifest name/identity,
     deployment ID, bootstrap protocol, operation table, bootstrap source,
     resolved profile and snapshot; linked rows reject cross-profile/deployment
@@ -1268,10 +1270,50 @@ server shell/bootstrap source/frame/operation enum; exact seven request-binding/
 payload and response-result schemas; all conditional stat/reconciliation
 cardinalities; allocate/fetch wire vectors; missing/extra/wrong-type keys;
 base64/size/digest/token/EOF mismatch; qsub/qstat drift; Windows CRT,
-PowerShell, cmd, and POSIX quote vectors; pre/post launch replacement; bounded
+PowerShell, cmd, POSIX variable-token, and fixed-source quote vectors; pre/post
+launch replacement; bounded
 stdin/stdout/diagnostic-stderr and EOF failures; extra/multiple response frames;
 `UNKNOWN` without retry; and zero tenth-root/native-wrapper/live/qdel/delete/
 cleanup spies.
+
+## `V30-TRANSPORT-BOOTSTRAP-SOURCE-CLARIFY-01`
+
+This narrow clarification is accepted only when all of the following hold:
+
+1. Variable POSIX launcher tokens reject NUL, CR, and LF before command
+   construction; empty tokens and literal apostrophes still round-trip through
+   the frozen single-word encoder.
+2. The fixed protocol-owned bootstrap source is not treated as a variable
+   token. It accepts ASCII LF, rejects NUL and CR, and round-trips as exactly
+   one POSIX argv element with byte-for-byte source equality.
+3. The normative 12-byte source-quoting fixture, its exact 18-byte quoted
+   form, both SHA-256 values, and the full 12540-byte production-source
+   round-trip match `boundary-spec.md`.
+4. The production source is exact ASCII
+   `auto-g16-v3-rtwin-bootstrap-v1.py`: it begins and ends with the frozen
+   bytes, contains 170 LF and zero CR/NUL, has size `12540`, and has SHA-256
+   `724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f`.
+   Any source-byte, line-ending, size, or digest drift rejects.
+5. The superseded `b`-repeated digest/`2048` source fixture rejects. The
+   active runtime, workspace, artifact, job, and receipt canonical vectors and
+   UUIDs recompute from the exact production-source identity, and both
+   source-dependent request wire vectors match their revised digests.
+6. No manifest/profile/operation/caller value is interpolated into the fixed
+   source or Python `-c` argument. Mutable operation data enters only through
+   the one bounded canonical AGV3 stdin frame.
+7. Attempts to insert LF into a variable path, manifest field, filename,
+   operation, option, or argv value reject; attempts to use source LF as a
+   command separator, add a second argv element, or append shell text reject.
+8. Caller source/module/eval/exec, generic operation, alternate source,
+   source fallback, CRLF normalization, missing/extra source LF, and a second
+   mutable channel all reject without process/effect authority.
+9. All previously frozen manifest, shell-chain, TransportStore, physical
+   binding, WINNER, RTwin-first, OpenSSH-deferred, no-retry/qdel/delete/
+   cleanup, upstream API/schema, and no-live decisions remain unchanged.
+10. The candidate changes exactly `OWNER_DECISIONS.md`,
+    `docs/v3/boundary-spec.md`, and `docs/v3/acceptance.md`; lightweight
+    authority checks pass and fresh independent review reports
+    `P0/P1/P2/P3 = 0/0/0/0` before publication.
 
 ## v3.0: Closed-Shell Minimum
 
