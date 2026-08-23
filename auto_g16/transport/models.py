@@ -351,12 +351,13 @@ class TransportStore:
             return rows
 
     def _runtime(self, snapshot: ExecutionSnapshot, authority: object) -> dict[str, object]:
+        from ._bridge import _BOOTSTRAP_SOURCE_NAME
         from ._driver import _MANIFEST_NAME, _OPERATION_TABLE_SHA256, _OPERATION_TABLE_BYTES
         manifest = authority.manifest
-        payload_value = ["auto-g16-transport/runtime-attestation",1,self.transport_store_id,self.store_instance_id,snapshot.execution_snapshot_id,authority.resolved_server_profile_id,authority.effective_config_sha256,_MANIFEST_NAME,manifest.sha256,manifest.size_bytes,manifest.deployment_id,manifest.bootstrap_protocol,_OPERATION_TABLE_SHA256,len(_OPERATION_TABLE_BYTES),"auto-g16-v3-rtwin-bootstrap-v1.py",authority.bootstrap_source_sha256,authority.bootstrap_source_size_bytes]
+        payload_value = ["auto-g16-transport/runtime-attestation",1,self.transport_store_id,self.store_instance_id,snapshot.execution_snapshot_id,authority.resolved_server_profile_id,authority.effective_config_sha256,_MANIFEST_NAME,manifest.sha256,manifest.size_bytes,manifest.deployment_id,manifest.bootstrap_protocol,_OPERATION_TABLE_SHA256,len(_OPERATION_TABLE_BYTES),_BOOTSTRAP_SOURCE_NAME,authority.bootstrap_source_sha256,authority.bootstrap_source_size_bytes]
         payload = canonical_bytes(payload_value); identity = physical_id("runtime-attestation", payload_value)
         columns=("runtime_attestation_id","schema_version","transport_store_id","store_instance_id","execution_snapshot_id","resolved_server_profile_id","effective_config_sha256","deployment_manifest_name","deployment_manifest_sha256","deployment_manifest_size_bytes","deployment_id","bootstrap_protocol","operation_table_sha256","operation_table_size_bytes","bootstrap_source_name","bootstrap_source_sha256","bootstrap_source_size_bytes","payload")
-        values=(identity,1,self.transport_store_id,self.store_instance_id,snapshot.execution_snapshot_id,authority.resolved_server_profile_id,authority.effective_config_sha256,_MANIFEST_NAME,manifest.sha256,manifest.size_bytes,manifest.deployment_id,manifest.bootstrap_protocol,_OPERATION_TABLE_SHA256,len(_OPERATION_TABLE_BYTES),"auto-g16-v3-rtwin-bootstrap-v1.py",authority.bootstrap_source_sha256,authority.bootstrap_source_size_bytes,payload)
+        values=(identity,1,self.transport_store_id,self.store_instance_id,snapshot.execution_snapshot_id,authority.resolved_server_profile_id,authority.effective_config_sha256,_MANIFEST_NAME,manifest.sha256,manifest.size_bytes,manifest.deployment_id,manifest.bootstrap_protocol,_OPERATION_TABLE_SHA256,len(_OPERATION_TABLE_BYTES),_BOOTSTRAP_SOURCE_NAME,authority.bootstrap_source_sha256,authority.bootstrap_source_size_bytes,payload)
         self._insert("transport_runtime_attestation",columns,values,identity,payload)
         return {"runtime_attestation_id":identity,"transport_store_id":self.transport_store_id,"store_instance_id":self.store_instance_id}
 

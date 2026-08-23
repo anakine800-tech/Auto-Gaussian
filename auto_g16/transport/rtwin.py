@@ -11,7 +11,7 @@ from typing import Callable, Final, Mapping
 from auto_g16.execution import ConfirmedNoEffectError, EffectKind, EffectState, ExecutionSnapshot, PossiblyEffectfulError, RemoteEffectReceipt, ServerProfile
 
 from ._canonical import TransportBoundaryError, canonical_bytes, strict_canonical_json
-from ._driver import _BOOTSTRAP_PROTOCOL, _DeploymentAuthority, _FetchResult, _Invocation, _RTWinDriver, _SubprocessRTWinDriver, _TextResult, _is_fetch_result_closed, _is_text_result_closed, _operation, _resolve_deployment_authority
+from ._driver import _BOOTSTRAP_PROTOCOL, _DeploymentAuthority, _FetchResult, _Invocation, _RTWinDriver, _SubprocessRTWinDriver, _TextResult, _is_fetch_result_closed, _is_text_result_closed, _operation, _render_qsub_argv, _resolve_deployment_authority, _resource_enactment
 from .models import MAX_FETCH_ARTIFACT_BYTES, MAX_FETCH_CAPTURE_BYTES, ExactArtifactRequest, ExactRemoteJobBinding, FetchedArtifact, FetchedOutputCapture, SchedulerReadEvidence, TransportStore, _assert_binding_matches_snapshot, _validate_requests
 
 _JOB_ID: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -100,7 +100,9 @@ class RTWinExecutionAdapter:
             workspace=self._store._workspace(snapshot); prepared=self._store._artifact(workspace["workspace_authority_id"],"prepared-input"); pbs=self._store._artifact(workspace["workspace_authority_id"],"pbs-template")
         except Exception as exc: raise ConfirmedNoEffectError(EffectKind.SUBMISSION,"exact staged authority is unavailable") from exc
         binding={**_workspace_binding(snapshot,runtime,workspace),"prepared_input_artifact_authority_id":prepared["artifact_authority_id"],"prepared_input_artifact_physical_token_base64":_b64(prepared["artifact_physical_token"]),"pbs_template_artifact_authority_id":pbs["artifact_authority_id"],"pbs_template_artifact_physical_token_base64":_b64(pbs["artifact_physical_token"])}
-        operation=_operation("SUBMIT_QSUB_ONCE"); invocation=_Invocation(operation=operation,argv=(snapshot.pbs_template_binding.logical_name,),cwd=snapshot.workspace_binding.remote_attempt_dir,request=_request(operation.name,binding,{"pbs_basename":snapshot.pbs_template_binding.logical_name}),authority=authority)
+        operation=_operation("SUBMIT_QSUB_ONCE"); enactment=_resource_enactment(snapshot,authority); pbs_basename=snapshot.pbs_template_binding.logical_name
+        payload={"pbs_basename":pbs_basename,"resource_enactment":enactment.payload()}
+        invocation=_Invocation(operation=operation,argv=_render_qsub_argv(enactment,pbs_basename),cwd=snapshot.workspace_binding.remote_attempt_dir,request=_request(operation.name,binding,payload),authority=authority)
         try: result=_result_object(_invoke_text(self._driver,snapshot,invocation)); job=result["job_id"]
         except Exception as exc: raise PossiblyEffectfulError(EffectKind.SUBMISSION,"qsub-outcome-ambiguous") from exc
         if not isinstance(job,str) or _JOB_ID.fullmatch(job) is None: raise PossiblyEffectfulError(EffectKind.SUBMISSION,"qsub-job-id-invalid")

@@ -1370,6 +1370,9 @@ hold:
     for this closed request/table change. The seven operations, AGV3 framing,
     trust roots, bounded channels, physical bindings, and no-retry semantics
     remain unchanged.
+    The exact bootstrap-v2 name, 15195 bytes, 201 LF, zero CR/NUL, and SHA-256
+    `3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3`
+    replay exactly.
 12. The only offline renderer is visibly synthetic, has a closed exact vector,
     and both live subprocess driver and bootstrap execution reject it before
     process/qsub creation. Its 114-byte descriptor and digest plus the

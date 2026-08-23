@@ -18,6 +18,8 @@ from auto_g16.transport._driver import (
     _Invocation,
     _MANIFEST_NAME,
     _OPERATION_TABLE_BYTES,
+    _RESOURCE_DESCRIPTOR_NAME,
+    _SYNTHETIC_RESOURCE_DIALECT,
     _TABLE_NAME,
     _resolve_deployment_authority,
 )
@@ -26,6 +28,10 @@ from tests.v3.execution.test_execution import ExecutionFixture, INPUT_BYTES, TEM
 
 NOW = "2026-08-23T00:00:00.000000Z"
 LATER = "2026-08-23T00:01:00.000000Z"
+RESOURCE_DESCRIPTOR_BYTES = canonical_json_bytes({
+    "schema": "auto-g16-v3-pbs-resource-enactment/1",
+    "dialect": _SYNTHETIC_RESOURCE_DIALECT,
+})
 
 
 def _manifest_bytes(
@@ -148,13 +154,13 @@ class TransportFixture(ExecutionFixture):
             batch_mode=True, identities_only=True, remote_root=execution.LEGACY_REMOTE_ROOT,
             platform_paths={"rtwin_root": r"C:\RTWIN", "known_hosts": "/etc/ssh/ssh_known_hosts"},
             config_files=[("ssh_config", b"Host RTwin\n  HostName 100.64.0.1\n")],
-            runtime_contents={_MANIFEST_NAME: manifest, _TABLE_NAME: _OPERATION_TABLE_BYTES, _BOOTSTRAP_SOURCE_NAME: _BOOTSTRAP_SOURCE_BYTES},
+            runtime_contents={_MANIFEST_NAME: manifest, _TABLE_NAME: _OPERATION_TABLE_BYTES, _BOOTSTRAP_SOURCE_NAME: _BOOTSTRAP_SOURCE_BYTES, _RESOURCE_DESCRIPTOR_NAME: RESOURCE_DESCRIPTOR_BYTES},
         )
 
-    def transport_snapshot(self, *, profile: execution.ServerProfile | None = None) -> tuple[execution.ExecutionSnapshot, execution.ServerProfile]:
+    def transport_snapshot(self, *, profile: execution.ServerProfile | None = None, prepared_bytes: bytes = INPUT_BYTES, cores: int = 8, memory_mb: int = 12_288, walltime_seconds: int = 3_600, queue: str | None = "simple") -> tuple[execution.ExecutionSnapshot, execution.ServerProfile]:
         actual_profile = profile or self.profile()
-        prepared = execution.PreparedInputBinding(attempt_id="attempt-1", calculation_plan_id="plan-1", calculation_plan_revision=3, input_format="gaussian-gjf", logical_name="input.gjf", prepared_bytes=INPUT_BYTES)
-        resource = execution.ResolvedResourceRequest(resource_spec=self.store.load_resource_spec("resources-1"), cores=8, memory_mb=12_288, walltime_seconds=3_600, queue="simple")
+        prepared = execution.PreparedInputBinding(attempt_id="attempt-1", calculation_plan_id="plan-1", calculation_plan_revision=3, input_format="gaussian-gjf", logical_name="input.gjf", prepared_bytes=prepared_bytes)
+        resource = execution.ResolvedResourceRequest(resource_spec=self.store.load_resource_spec("resources-1"), cores=cores, memory_mb=memory_mb, walltime_seconds=walltime_seconds, queue=queue)
         workspace = execution.WorkspaceBinding(project=self.store.load_project("project-1"), attempt_id="attempt-1", local_approved_root=str(self.local_root), local_attempt_dir=str(self.local_project / "attempt-1"), rtwin_approved_root=r"C:\RTWIN", rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1", remote_approved_root=execution.LEGACY_REMOTE_ROOT, remote_attempt_dir="/home/user100/SDL/project-1/attempt-1")
         template = execution.PbsTemplateBinding(logical_name="job.pbs", template_bytes=TEMPLATE_BYTES, template_contract_version="pbs-template-v1", prepared_input_logical_name="input.gjf")
         snapshot = execution.prepare_execution_snapshot(self.store, attempt_id="attempt-1", calculation_plan_id="plan-1", resource_spec_id="resources-1", prepared_input_binding=prepared, resolved_resource_request=resource, resolved_server_profile=execution.resolve_server_profile(actual_profile), workspace_binding=workspace, pbs_template_binding=template, adapter_contract_version="rtwin-pbs-v1")
@@ -182,4 +188,4 @@ class TransportFixture(ExecutionFixture):
         return RTWinReadAdapter._from_driver(driver, transport_store=self.transport_store, clock=lambda: timestamp)
 
 
-__all__ = ["FakeDriver", "LATER", "NOW", "TransportFixture", "found", "qstat", "response"]
+__all__ = ["FakeDriver", "LATER", "NOW", "RESOURCE_DESCRIPTOR_BYTES", "TransportFixture", "found", "qstat", "response"]
