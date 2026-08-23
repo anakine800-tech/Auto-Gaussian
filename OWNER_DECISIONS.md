@@ -463,6 +463,15 @@ identity or a second physical object for one logical binding fails closed.
 The store grants no Core transition, submission, retry, read, or scientific
 authority by itself.
 
+The store provides clone/replacement detection, not uncloneability. Creation
+uses one non-caller-selectable 32-byte OS-CSPRNG nonce and binds exact
+`transport_store_id` plus `store_instance_id` to the approved lexical root/
+path, physical database file identity, and ordered parent identity chain. Those
+IDs close every TransportStore record and public remote-job binding. The threat
+model excludes a malicious same-UID process, root/administrator, kernel or
+filesystem compromise, and compromised deployment/bootstrap authority; no
+ordinary SQLite/path contract can honestly defeat those actors.
+
 The trusted remote agent allocates a fresh workspace and returns its opaque
 physical token only after descriptor-relative, no-follow verification. Every
 later stage, qsub, qstat, reconciliation, and fetch supplies that persisted
@@ -472,21 +481,25 @@ receives a post-write token which is reattested before qsub or fetch. A path
 check followed by an ordinary pathname mutation, an in-memory-only allocation
 set, or a token that disappears at process restart is not sufficient.
 
-The preinstalled, source-controlled `server_python_executable` and its remote
-OS/deployment ownership form the explicit bootstrap trust anchor. It cannot
-self-authenticate before startup and no such claim is made. After startup, and
-before any workspace, qsub, qstat, or fetch operation, it attests the installed
-agent bytes, exact operation table, resolved runtime bindings, and all
-executables used by that operation against the current snapshot. Dynamic
-remote agent upload or execution is forbidden. This decision authorizes no
-deployment, credential authority, host-key change, or live operation.
+The preinstalled `server_python_executable` and its remote OS/deployment
+manifest are themselves the explicit bootstrap trust anchor. It neither
+self-authenticates nor attests its own pre-launch integrity. It accepts only the
+closed data-only operation vocabulary and may attest downstream protocol/
+runtime data after startup. Dynamic remote source/agent upload, `eval`, `exec`,
+arbitrary module loading, or caller-selected operation is forbidden. This
+decision authorizes no deployment, credential authority, host-key change, or
+live operation.
 
-Local command construction is replacement-safe too. Every used local SSH/SCP/
-bridge executable is opened no-follow, identity checked from the held
-descriptor, and kept descriptor/lock-bound through the child lifetime. When a
-POSIX remote-command string cannot be eliminated, it is produced only by the
-frozen single-token quoting algorithm; caller shell text is never accepted.
-Every channel remains bounded and requires completion plus EOF. These rules do
-not change the WINNER seam, the unchanged `ExecutionPort` or receipt APIs,
-RTwin-first selection, OpenSSH deferral, or the prohibitions on retry, qdel,
-deletion, cleanup, deployment, and live work.
+Executable trust comes from the exact approved deployment manifest: absolute
+path, physical identity, regular/executable type, owner/ACL/permissions,
+digest, and deployment identity/version/signing evidence where available. No
+PATH lookup, symlink, reparse point, or caller executable is accepted. Exact
+OS/deployment-trusted absolute-path execution is permitted; descriptor
+execution and a new native wrapper are not required. Transport performs strict
+prelaunch and practical postlaunch reattestation but does not claim to close
+TOCTOU against an excluded same-UID actor. Local/RTwin first-hop argv and any
+unavoidable POSIX command string use their exact frozen parser/quoting rules;
+caller shell text is never accepted. Every channel remains bounded and requires
+completion plus EOF. These rules do not change the WINNER seam, unchanged
+`ExecutionPort`/receipt APIs, RTwin-first selection, OpenSSH deferral, or the
+prohibitions on retry, qdel, deletion, cleanup, deployment, and live work.

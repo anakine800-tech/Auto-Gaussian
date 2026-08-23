@@ -4,7 +4,7 @@
   `CLOSED / FROZEN / INTEGRATED`; `V30-VAL-TRANSPORT-01` is
   `CLOSED / INTEGRATED`, and Transport change-aware ownership is active as
   `affected / fail_closed=false`.
-  `V30-TRANSPORT-PERSISTENCE-TRUST-01` is the active Owner-guided docs-only
+  `V30-TRANSPORT-TRUST-MODEL-02` is the active Owner-guided docs-only
   closeout. It freezes Transport-owned durable physical authority, bootstrap
   trust, and replacement-safe command/executable seams. When this exact
   authority content is present on authoritative main after independent review,
@@ -161,18 +161,26 @@
   by the v3 control-document route; its earlier conservative
   `legacy-release / fail_closed=true` fallback gap is closed.
 - **Active Transport trust closeout:**
-  `V30-TRANSPORT-PERSISTENCE-TRUST-01` adds one independent append-only
-  `TransportStore`, persisted workspace/artifact/job/receipt physical bindings,
-  explicit preinstalled bootstrap trust, no dynamic agent upload/execution,
-  and descriptor-bound executable/remote command safety. It preserves the
-  integrated RTwin-first composition contract: the Controller validates the
-  current approval chain and calls `execute_once(...)` without pre-claiming;
-  that entrypoint alone owns `record_submission_intent(...)`, and only
-  `WINNER` enters the first effect boundary.
+  `V30-TRANSPORT-TRUST-MODEL-02` adds one independent append-only
+  `TransportStore`, one-time nonce plus exact store/instance identities,
+  persisted workspace/artifact/job/receipt physical bindings, and practical
+  descriptor-relative/no-follow replacement detection under an explicit threat
+  model. The preinstalled `server_python_executable` and approved deployment
+  manifest are the bootstrap root; the executable does not self-attest, accepts
+  only the closed data-only vocabulary, and no dynamic source/agent/module is
+  uploaded or executed. Every used executable is bound by its deployment
+  manifest and exact absolute path with strict prelaunch and practical
+  postlaunch checks; descriptor execution and a native wrapper are not required.
+  Commit `798d3559d7c5ee6211a0b29977310f8adb871a5f` remains immutable negative
+  evidence for the superseded overclaims. The closeout preserves the integrated
+  RTwin-first composition contract: the Controller validates the current
+  approval chain and calls `execute_once(...)` without pre-claiming; that
+  entrypoint alone owns `record_submission_intent(...)`, and only `WINNER`
+  enters the first effect boundary.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
 - **Next gate:** independent review and integration of exact
-  `V30-TRANSPORT-PERSISTENCE-TRUST-01` authority. Once integrated, the successor
+  `V30-TRANSPORT-TRUST-MODEL-02` authority. Once integrated, the successor
   narrow offline Transport repair is gate-eligible, followed by the required
   product-level synthetic composition evidence and a read-only
   `V30-A-READINESS-01` audit.

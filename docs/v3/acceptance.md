@@ -1102,27 +1102,34 @@ spies.
 V30-EXEC-02-COMPOSITION-CONTRACT-01 is integrated. It authorizes no product
 Controller, OpenSSH, live work, or V30-A execution.
 
-## V30-TRANSPORT-PERSISTENCE-TRUST-01: Durable Physical Authority and Bootstrap Trust
+## V30-TRANSPORT-TRUST-MODEL-02: Durable Physical Authority and Bootstrap Trust
 
 **Status: FROZEN CANDIDATE; IMPLEMENTATION NOT AUTHORIZED BY THIS DOCUMENT.**
 When this exact authority content is present on authoritative main after
 independent review, the task is `CLOSED / FROZEN / INTEGRATED` and offline
 Transport implementation is gate-eligible. Acceptance requires:
 
-1. The only new public symbol is `TransportStore`; its explicit create/open/
-   `close()` lifecycle plus both adapter constructor signatures exactly match
-   `boundary-spec.md`. No generic public SQL/token/authority API appears.
+1. The only new public symbol is `TransportStore`; its explicit create/open
+   methods require both `path` and keyword-only `approved_root`, its `close()`
+   lifecycle plus both adapter constructor signatures exactly match
+   `boundary-spec.md`. `ExactRemoteJobBinding` adds exactly
+   `transport_store_id` and `store_instance_id`; no generic public SQL/token/
+   authority API appears.
 2. The store is Transport-owned, independent SQLite schema v1. Core and
    Execution schemas/APIs remain byte-unchanged; the store alone grants zero
    Core transition, receipt, effect, read, retry, or scientific authority.
-3. Create and reopen reject terminal symlinks, non-regular targets, path
-   replacement, unexpected schema objects, missing append-only triggers,
-   malformed rows, wrong application/user/schema identity, and device/inode
-   drift without pathname fallback or overwrite.
+3. Create and reopen require an independently supplied approved root, require
+   the store path to be its strict descendant, walk from that descriptor
+   no-follow, and reject parent/terminal symlink or reparse, non-regular
+   targets, path/root/
+   parent-chain replacement, unexpected schema objects, missing append-only
+   triggers, malformed rows, wrong application/user/schema identity, and file
+   identity drift without pathname fallback or overwrite.
 4. The exact six-table schema, constraints, foreign bindings, append-only
    triggers, meta identity, and PRAGMAs equal the frozen contract.
-5. Runtime, workspace, artifact, job, and receipt-binding UUIDv5 identities use
-   the exact five domains and complete canonical arrays. Exact replay is
+5. Store, store-instance, runtime, workspace, artifact, job, and receipt-binding
+   UUIDv5 identities use the exact seven domains and complete canonical arrays.
+   Exact replay is
    idempotent; same-ID/different-payload and natural-binding conflicts leave the
    database unchanged and fail closed.
 6. Trigger suppression, trigger mutation, zero-row insert, multi-row insert,
@@ -1152,27 +1159,29 @@ Transport implementation is gate-eligible. Acceptance requires:
     output is not inserted into the staged-artifact table. Cross-Attempt,
     cross-snapshot, cross-job, cross-workspace, replacement, short read, digest
     drift, or hidden latest/current selection rejects.
-14. `server_python_executable` plus remote OS/deployment ownership is explicitly
-    the pre-start trust anchor. The contract makes no self-authentication claim
-    before startup and authorizes no deployment or credential decision.
-15. No dynamic Python, source, agent, or operation-table bytes are uploaded or
-    executed. The already-installed agent must attest its actual bytes, exact
-    operation table, resolved runtime/config bindings, and all executable
-    identities before every operation request.
-16. Missing/drifted bootstrap, agent, wrapper, operation table, profile, or any
-    actually used SSH/SCP/Python/qsub/qstat executable rejects before the
-    operation call. Runtime attestation exact replay persists across reopen.
-17. Every local executable is no-follow opened, regular-file checked, hashed
-    through its held descriptor, and descriptor/lock-bound through process
-    completion and EOF. Descriptor execution unsupported, replacement after
-    digest, or identity drift fails closed; no pathname reopen fallback exists.
-18. Every remote executable is equivalently opened, attested, and held by the
-    trusted installed agent. All used Mac and RTwin SSH/SCP executables are
-    covered, not just the outer bridge.
-19. The exact POSIX token encoder preserves empty strings, spaces, apostrophes,
-    and metacharacters as single tokens and rejects NUL/CR/LF. Caller command
-    text/shell fragments are impossible inputs; argv/subsystem form is used
-    when available.
+14. `server_python_executable` plus its approved OS/deployment manifest is the
+    pre-start trust root. It neither self-authenticates nor attests its own
+    pre-launch integrity; downstream messages cannot upgrade that root.
+15. No dynamic Python/source/agent/operation-table upload, arbitrary module
+    load, `eval`, `exec`, callback, script/bytecode, caller command, or caller
+    operation is accepted. The bootstrap processes only the closed data-only
+    vocabulary and may attest downstream protocol/runtime data only.
+16. Every used executable has exact deployment-manifest path, physical identity,
+    regular/executable type, owner/ACL/permissions, digest/size, deployment
+    identity/version, and signing evidence or explicit `not-available`. No PATH,
+    relative path, symlink/reparse, or mutable alias is accepted.
+17. Exact absolute-path execution is permitted after strict prelaunch manifest
+    attestation. Practical immediate postlaunch and post-completion
+    reattestation detects ordinary replacement; descriptor execution and a new
+    native wrapper are neither required nor authorized.
+18. Prelaunch drift makes zero process call. Postlaunch drift makes evidence
+    unusable and preserves `UNKNOWN` when effect may have crossed. No claim is
+    made against malicious same-UID/root/kernel/deployment actors.
+19. First-hop Mac/RTwin execution uses structured argv, `shell=False`, and the
+    exact Windows CRT/`CommandLineToArgvW` quoting/round-trip contract. The
+    exact POSIX token encoder preserves empty strings, spaces, apostrophes, and
+    metacharacters as single tokens and rejects NUL/CR/LF. `cmd.exe`,
+    PowerShell, batch parsing, PATH, and caller shell text are impossible.
 20. All channels are separately bounded and require completion plus EOF.
     Overflow, extra bytes, truncation, timeout, malformed completion, or
     ambiguous qsub produces fail-closed/`UNKNOWN` behavior with zero retry.
@@ -1191,14 +1200,38 @@ Transport implementation is gate-eligible. Acceptance requires:
 25. OpenSSH, process/Gaussian-phase acquisition, qdel, deletion, cleanup,
     deployment, automatic retry, and every live RTwin/SSH/PBS/Gaussian effect
     remain deferred.
+26. Threat-model tests explicitly prove ordinary clone/move/alias/replacement
+    rejection while documenting that malicious same-UID/root/kernel/filesystem/
+    deployment compromise is excluded and uncloneability is not claimed.
+27. Create-new uses one non-caller-selectable 32-byte OS-CSPRNG nonce; reopen
+    preserves it. Exact logical store ID and physical instance ID bind approved
+    root/path, file identity, and parent chain and appear in meta, every store
+    record, `ExactRemoteJobBinding`, scheduler identity, and capture identity.
+28. The exact store/store-instance and five evidence-domain canonical arrays,
+    namespace UUIDs, nonce/file/parent fixture, canonical byte vectors, and
+    UUID outputs match `boundary-spec.md`. The abbreviated codec-only executable
+    fixture is rejected by semantic manifest validation; a complete valid
+    eleven-field eight-executable manifest fixture passes.
+29. Reuse adjudication remains explicit: append-only SQLite/path primitives are
+    PORTed/EXTRACTed; existing RTwin operation mechanics remain WRAPped; store,
+    physical-binding and data-only protocol glue are REWRITTEN because legacy
+    code couples them to v2 governance/dynamic command behavior; owner/
+    capability/hash-currentness/retry/cleanup are DROPped; native wrapper,
+    OpenSSH, deployment and live are DEFERred.
+30. Exact scope remains the five authority files, worktree is clean, and fresh
+    independent adversarial review reports `P0/P1/P2/P3 = 0/0/0/0` before
+    publication.
 
 Mandatory adversarial evidence includes all prior Transport and composition
 tests plus store path/schema/trigger/reopen conflict; workspace and artifact
 replacement across process restart; forged/stale/cross-store tokens; first-
-append and receipt-binding conflicts; dynamic-agent upload spy; bootstrap and
-each executable drift; descriptor digest-to-exec replacement; complete POSIX
-quote vectors; bounded channel/EOF failures; `UNKNOWN` without retry; and zero
-live/qdel/delete/cleanup spies.
+append and receipt-binding conflicts; CSPRNG/non-caller nonce; clone/move/
+hardlink/parent-chain replacement; cross-store IDs in scheduler/capture;
+dynamic-agent/module/eval/exec upload spies; bootstrap self-attestation absent;
+complete and abbreviated manifest vectors; every executable/path/ACL/digest/
+deployment/signing drift; pre/post launch replacement; Windows CRT and POSIX
+quote round trips; bounded channel/EOF failures; `UNKNOWN` without retry; and
+zero native-wrapper/live/qdel/delete/cleanup spies.
 
 ## v3.0: Closed-Shell Minimum
 
