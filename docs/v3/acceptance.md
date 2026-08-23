@@ -967,11 +967,9 @@ implementation, `V30-EXEC-02`, nor live work.
 
 ## V30-EXEC-02-COMPOSITION-CONTRACT-01: RTwin-First V30-A Composition
 
-**Status: FROZEN; IMPLEMENTATION NOT AUTHORIZED.** This exact authority content
-may integrate only after its successor independent review is `PASS`; once on
-authoritative main it remains frozen without another status edit. The contract
-passes only when all conditions below are proved by docs/context checks and a
-fresh independent adversarial contract review:
+**Status: CLOSED / FROZEN / INTEGRATED.** The trust closeout below is the
+active successor authority. The composition contract remains satisfied only
+while all conditions below continue to hold:
 
 1. The Controller completes pure `validate_effect_authority(...)` and every
    non-effect validation, does not call `record_submission_intent(...)`, and
@@ -994,16 +992,18 @@ fresh independent adversarial contract review:
 5. The new package is exactly `auto_g16.transport`, future tests are under
    `tests/v3/transport/`, and no existing Core/Approval/Workflow/Execution/
    Observe/Result/ScientificValidation/Review API or schema changes.
-6. The exact eight-symbol public inventory and every exact field/method
+6. The exact nine-symbol public inventory and every exact field/method
    signature in `boundary-spec.md` are closed. Public records are frozen,
    slotted, keyword-only, deeply immutable, and accept no raw command, shell,
    callback, arbitrary root, or caller-selected executable.
 7. `ExactRemoteJobBinding.from_persisted_receipt(...)` accepts only the current
-   snapshot, public `ReceiptJournal`, exact persisted receipt ID, and current
-   public `ServerProfile`. It resolves exact config, scans only the exact
-   Attempt journal, requires exactly one durable receipt ID, and rejects absent,
-   duplicate, malformed, same-ID/different-payload, unpersisted/forged, or any
-   Attempt/snapshot/intent/workspace/job/effect mismatch before read authority.
+   snapshot, public `ReceiptJournal`, exact persisted receipt ID, current
+   public `ServerProfile`, and the shared `TransportStore`. It resolves exact
+   config, scans only the exact Attempt journal and matching Transport job/
+   receipt rows, requires exactly one durable receipt ID, and rejects absent,
+   duplicate, malformed, same-ID/different-payload, unpersisted/forged, store
+   swap, or any Attempt/snapshot/intent/workspace/job/effect mismatch before
+   read authority.
 8. Scheduler acquisition is read-only, state/freshness is classifier-derived
    rather than caller-selected, and the exact qstat executable token, argv,
    workspace cwd, fixed environment, `shell=False`, timeout, byte caps, EOF
@@ -1039,8 +1039,9 @@ fresh independent adversarial contract review:
     identity; changed source bytes, binding, timestamp, sequence, status,
     completeness, request/missing partition, or artifact metadata changes
     identity; same-ID/different-payload conflicts.
-14. `RTWinExecutionAdapter` advertises `rtwin-pbs-v1` and exposes only the
-    unchanged `ExecutionPort` effect/reconciliation methods.
+14. `RTWinExecutionAdapter` requires one shared `TransportStore`, advertises
+    `rtwin-pbs-v1`, and exposes only the unchanged `ExecutionPort` effect/
+    reconciliation methods.
     `RTWinReadAdapter` exposes only exact scheduler read and exact output fetch,
     and both receive the already-attested persisted binding plus current public
     profile, revalidate snapshot/binding, publicly resolve the profile, and
@@ -1079,9 +1080,9 @@ fresh independent adversarial contract review:
     primitives/tests EXTRACTed, legacy RTwin running behavior WRAPped, typed
     boundaries REWRITTEN for the stated legacy-coupling reason, old governance
     DROPped, and OpenSSH/process/live capabilities DEFERred.
-22. `V30-VAL-TRANSPORT-01` remains the required change-aware ownership gate;
-    no selector mutation or Transport implementation is included in this
-    authority candidate.
+22. `V30-VAL-TRANSPORT-01` is integrated; Transport product/test paths route
+    `affected / fail_closed=false`. No selector mutation or product
+    implementation is included in this authority closeout.
 
 The later implementation matrix must cover: exact persisted-binding happy path;
 unpersisted forged receipt; absent/duplicate/malformed receipt; same receipt ID
@@ -1098,10 +1099,106 @@ post-WINNER ambiguity; same-Attempt reconciliation; full Result/parser/
 ScientificValidation/Review chain; all cross-splice attacks; and zero live-call
 spies.
 
-V30-EXEC-02-COMPOSITION-CONTRACT-01 stops after independent review and
-repository publication. Completion authorizes neither
-`V30-VAL-TRANSPORT-01`, Transport implementation, product Controller code,
-OpenSSH, live work, nor V30-A execution.
+V30-EXEC-02-COMPOSITION-CONTRACT-01 is integrated. It authorizes no product
+Controller, OpenSSH, live work, or V30-A execution.
+
+## V30-TRANSPORT-PERSISTENCE-TRUST-01: Durable Physical Authority and Bootstrap Trust
+
+**Status: FROZEN CANDIDATE; IMPLEMENTATION NOT AUTHORIZED BY THIS DOCUMENT.**
+When this exact authority content is present on authoritative main after
+independent review, the task is `CLOSED / FROZEN / INTEGRATED` and offline
+Transport implementation is gate-eligible. Acceptance requires:
+
+1. The only new public symbol is `TransportStore`; its explicit create/open/
+   `close()` lifecycle plus both adapter constructor signatures exactly match
+   `boundary-spec.md`. No generic public SQL/token/authority API appears.
+2. The store is Transport-owned, independent SQLite schema v1. Core and
+   Execution schemas/APIs remain byte-unchanged; the store alone grants zero
+   Core transition, receipt, effect, read, retry, or scientific authority.
+3. Create and reopen reject terminal symlinks, non-regular targets, path
+   replacement, unexpected schema objects, missing append-only triggers,
+   malformed rows, wrong application/user/schema identity, and device/inode
+   drift without pathname fallback or overwrite.
+4. The exact six-table schema, constraints, foreign bindings, append-only
+   triggers, meta identity, and PRAGMAs equal the frozen contract.
+5. Runtime, workspace, artifact, job, and receipt-binding UUIDv5 identities use
+   the exact five domains and complete canonical arrays. Exact replay is
+   idempotent; same-ID/different-payload and natural-binding conflicts leave the
+   database unchanged and fail closed.
+6. Trigger suppression, trigger mutation, zero-row insert, multi-row insert,
+   schema reopen drift, and durable conflict after reopen all reject.
+7. A workspace row binds exact Attempt, snapshot, submission intent, logical
+   remote workspace, runtime attestation, and non-empty opaque physical token.
+   Process restart cannot erase or substitute that authority.
+8. Fresh allocation starts from the approved-root descriptor, walks/creates
+   descriptor-relative and no-follow, rejects existing/replaced/symlink/escape
+   targets, and persists a token only after stable final reattestation.
+9. Every stage, qsub, qstat, reconciliation, and fetch loads the exact persisted
+   workspace token and the remote agent reattests it descriptor-relatively
+   before operation. There is no check-then-pathname fallback.
+10. Each exact staged artifact is fresh/no-overwrite, verified by exact bytes,
+    digest and size, assigned a post-write physical token, persisted, and
+    reattested before qsub. Either token replacement or cross-workspace splice
+    prevents qsub.
+11. Job authority is append-only and unique per physical workspace. The later
+    receipt-binding row can be created only from the exact public durable
+    confirmed receipt and exact job/workspace record. Receipt replay is
+    idempotent; mismatch or store swap rejects read authority.
+12. A store failure after a possibly effectful allocation/stage/qsub remains
+    possibly effectful/`UNKNOWN`; it never retries the operation, re-arms the
+    Attempt, changes workspace, or creates cleanup authority.
+13. Generated output fetch uses the persisted workspace token and one
+    operation-local reattested read token with stable bounded bytes; evolving
+    output is not inserted into the staged-artifact table. Cross-Attempt,
+    cross-snapshot, cross-job, cross-workspace, replacement, short read, digest
+    drift, or hidden latest/current selection rejects.
+14. `server_python_executable` plus remote OS/deployment ownership is explicitly
+    the pre-start trust anchor. The contract makes no self-authentication claim
+    before startup and authorizes no deployment or credential decision.
+15. No dynamic Python, source, agent, or operation-table bytes are uploaded or
+    executed. The already-installed agent must attest its actual bytes, exact
+    operation table, resolved runtime/config bindings, and all executable
+    identities before every operation request.
+16. Missing/drifted bootstrap, agent, wrapper, operation table, profile, or any
+    actually used SSH/SCP/Python/qsub/qstat executable rejects before the
+    operation call. Runtime attestation exact replay persists across reopen.
+17. Every local executable is no-follow opened, regular-file checked, hashed
+    through its held descriptor, and descriptor/lock-bound through process
+    completion and EOF. Descriptor execution unsupported, replacement after
+    digest, or identity drift fails closed; no pathname reopen fallback exists.
+18. Every remote executable is equivalently opened, attested, and held by the
+    trusted installed agent. All used Mac and RTwin SSH/SCP executables are
+    covered, not just the outer bridge.
+19. The exact POSIX token encoder preserves empty strings, spaces, apostrophes,
+    and metacharacters as single tokens and rejects NUL/CR/LF. Caller command
+    text/shell fragments are impossible inputs; argv/subsystem form is used
+    when available.
+20. All channels are separately bounded and require completion plus EOF.
+    Overflow, extra bytes, truncation, timeout, malformed completion, or
+    ambiguous qsub produces fail-closed/`UNKNOWN` behavior with zero retry.
+21. The physical-binding envelope changes neither the frozen operation-table
+    v1 token/argv/digest nor the unchanged public `ExecutionPort` and receipt
+    APIs. It is data evidence, not a capability or approval mechanism.
+22. Concurrent Controllers still yield at most one `WINNER` and at most one
+    qsub; `REPLAY` makes zero port/driver calls. All pure Approval failures
+    remain before claim/effect.
+23. RTwin-first, Result-owned Gaussian parsing/capture, Observe read-only
+    projection, and the full synthetic composition requirements remain intact.
+    Transport performs no raw scientific interpretation.
+24. `V30-VAL-TRANSPORT-01` remains active with `affected / fail_closed=false`;
+    exact scope is the five authority files and there is no selector, product,
+    test, context-map, deployment, or live mutation.
+25. OpenSSH, process/Gaussian-phase acquisition, qdel, deletion, cleanup,
+    deployment, automatic retry, and every live RTwin/SSH/PBS/Gaussian effect
+    remain deferred.
+
+Mandatory adversarial evidence includes all prior Transport and composition
+tests plus store path/schema/trigger/reopen conflict; workspace and artifact
+replacement across process restart; forged/stale/cross-store tokens; first-
+append and receipt-binding conflicts; dynamic-agent upload spy; bootstrap and
+each executable drift; descriptor digest-to-exec replacement; complete POSIX
+quote vectors; bounded channel/EOF failures; `UNKNOWN` without retry; and zero
+live/qdel/delete/cleanup spies.
 
 ## v3.0: Closed-Shell Minimum
 

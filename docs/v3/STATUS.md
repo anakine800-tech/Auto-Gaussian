@@ -1,11 +1,15 @@
 # Auto-G16 v3 Status
 
-- **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01` is the active
-  Owner-guided offline authority freeze. Its exact authority content is frozen
-  and eligible for integration only after the successor independent review is
-  `PASS`; when that content is present on authoritative main, the contract is
-  `CLOSED / FROZEN / INTEGRATED` without another status edit. Transport
-  implementation and live work remain unauthorized.
+- **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01` is
+  `CLOSED / FROZEN / INTEGRATED`; `V30-VAL-TRANSPORT-01` is
+  `CLOSED / INTEGRATED`, and Transport change-aware ownership is active as
+  `affected / fail_closed=false`.
+  `V30-TRANSPORT-PERSISTENCE-TRUST-01` is the active Owner-guided docs-only
+  closeout. It freezes Transport-owned durable physical authority, bootstrap
+  trust, and replacement-safe command/executable seams. When this exact
+  authority content is present on authoritative main after independent review,
+  that task is `CLOSED / FROZEN / INTEGRATED` and the successor offline
+  Transport implementation is gate-eligible without another status edit.
   `V30-MIN-VALIDATE-IMPL-01` is
   `CLOSED / INTEGRATED`, and the ScientificValidation implementation is active
   on authoritative main.
@@ -20,8 +24,8 @@
   Result-attribution dependency is satisfied. ScientificValidation must not
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
   generic parser-version Result authority are preserved.
-  Transport product implementation remains unauthorized, and live work remains
-  unauthorized.
+  This docs candidate performs no Transport product implementation. OpenSSH,
+  deployment, retry, qdel/delete/cleanup, and live work remain unauthorized.
 - **Observe contract and implementation integrated:**
   `V30-OBS-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`. It freezes only read-only exact-Attempt
@@ -156,21 +160,22 @@
   `tests/v3/scientific_validation/**`. `config/context-map.toml` is now owned
   by the v3 control-document route; its earlier conservative
   `legacy-release / fail_closed=true` fallback gap is closed.
-- **Active contract freeze:** `V30-EXEC-02-COMPOSITION-CONTRACT-01` freezes the
-  RTwin-first V30-A composition boundary. The Controller validates the complete
+- **Active Transport trust closeout:**
+  `V30-TRANSPORT-PERSISTENCE-TRUST-01` adds one independent append-only
+  `TransportStore`, persisted workspace/artifact/job/receipt physical bindings,
+  explicit preinstalled bootstrap trust, no dynamic agent upload/execution,
+  and descriptor-bound executable/remote command safety. It preserves the
+  integrated RTwin-first composition contract: the Controller validates the
   current approval chain and calls `execute_once(...)` without pre-claiming;
-  that Execution entrypoint alone owns `record_submission_intent(...)`, and
-  only `WINNER` enters the first effect boundary. OpenSSH, process acquisition,
-  Transport implementation, and live operations remain `NO-GO`.
+  that entrypoint alone owns `record_submission_intent(...)`, and only
+  `WINNER` enters the first effect boundary.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** before integration, the exact contract candidate requires its
-  successor `V30-EXEC-02-COMPOSITION-CONTRACT-01` Independent Contract Review.
-  After contract integration, the next separate gate is
-  `V30-VAL-TRANSPORT-01`; Transport implementation still requires its own Owner
-  gate, followed by a test-only
-  `V30-A-SYNTHETIC-COMPOSITION-01`, before another read-only V30-A readiness
-  audit.
+- **Next gate:** independent review and integration of exact
+  `V30-TRANSPORT-PERSISTENCE-TRUST-01` authority. Once integrated, the successor
+  narrow offline Transport repair is gate-eligible, followed by the required
+  product-level synthetic composition evidence and a read-only
+  `V30-A-READINESS-01` audit.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -179,6 +184,6 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start:** Transport or Controller implementation, OpenSSH, production
-  changes, deployment, live smoke, and SSH/PBS/Gaussian operations remain
-  unauthorized.
+- **Do not start under this docs task:** product mutation or synthetic
+  composition. OpenSSH, production changes, deployment, live smoke, and real
+  SSH/RTwin/PBS/Gaussian operations remain unauthorized.

@@ -450,3 +450,43 @@ unchanged. A complete synthetic composition test must prove the exact chain
 through `WINNER`, Observe, fetch, Result, ScientificValidation, ReviewBundle,
 and separate ScientificAcceptance while making no network, PBS, Gaussian, or
 other live call.
+
+## OD-18: Transport persists physical authority and starts from an explicit trust anchor
+
+Transport owns one independent append-only SQLite `TransportStore`. It is
+separate from Core and Execution persistence and is shared by the RTwin effect
+and read adapters. It durably binds the exact Attempt, ExecutionSnapshot,
+submission intent, logical remote Attempt workspace, opaque remote physical
+workspace token, staged artifact identities and physical tokens, and the later
+exact job/receipt association. Exact replay is idempotent; a conflicting
+identity or a second physical object for one logical binding fails closed.
+The store grants no Core transition, submission, retry, read, or scientific
+authority by itself.
+
+The trusted remote agent allocates a fresh workspace and returns its opaque
+physical token only after descriptor-relative, no-follow verification. Every
+later stage, qsub, qstat, reconciliation, and fetch supplies that persisted
+token; the agent reopens from its approved root and reattests every component
+descriptor-relatively before the operation. Each staged artifact similarly
+receives a post-write token which is reattested before qsub or fetch. A path
+check followed by an ordinary pathname mutation, an in-memory-only allocation
+set, or a token that disappears at process restart is not sufficient.
+
+The preinstalled, source-controlled `server_python_executable` and its remote
+OS/deployment ownership form the explicit bootstrap trust anchor. It cannot
+self-authenticate before startup and no such claim is made. After startup, and
+before any workspace, qsub, qstat, or fetch operation, it attests the installed
+agent bytes, exact operation table, resolved runtime bindings, and all
+executables used by that operation against the current snapshot. Dynamic
+remote agent upload or execution is forbidden. This decision authorizes no
+deployment, credential authority, host-key change, or live operation.
+
+Local command construction is replacement-safe too. Every used local SSH/SCP/
+bridge executable is opened no-follow, identity checked from the held
+descriptor, and kept descriptor/lock-bound through the child lifetime. When a
+POSIX remote-command string cannot be eliminated, it is produced only by the
+frozen single-token quoting algorithm; caller shell text is never accepted.
+Every channel remains bounded and requires completion plus EOF. These rules do
+not change the WINNER seam, the unchanged `ExecutionPort` or receipt APIs,
+RTwin-first selection, OpenSSH deferral, or the prohibitions on retry, qdel,
+deletion, cleanup, deployment, and live work.
