@@ -584,3 +584,13 @@ module, or expose generic `RUN`, `EXEC`, `SHELL`, `PYTHON`, or `SCRIPT`.
 This clarification changes no trust root, manifest, TransportStore, WINNER,
 ExecutionPort, upstream public API/schema, retry, OpenSSH, deployment, or live
 authority.
+
+The reviewed source-identity successor may change the fixed source bytes while
+retaining bootstrap protocol `auto-g16-v3-rtwin-bootstrap/1` only when the AGV3
+frame, all seven closed request/response schemas, operation table, and trust
+semantics remain byte-for-byte or semantically unchanged. The source successor
+with size `13904`, exactly 190 LF, zero CR/NUL, and SHA-256
+`056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952`
+implements already-frozen cap and postlaunch-attestation requirements; it adds
+no operation, authority, channel, or caller-controlled code. Therefore this is
+an explicit reviewed source-identity update, not a protocol-version change.
