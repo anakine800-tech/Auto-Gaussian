@@ -2940,6 +2940,77 @@ It accepts no independent manifest bytes. The existing public
 the adapter repeats the same public profile closure before any driver call and
 does not read a global profile or reimplement Execution profile identity.
 
+### Snapshot-derived PBS resource enactment
+
+`ExecutionSnapshot.resolved_resource_request` is the sole scheduler-resource
+authority. Transport derives a private `ResourceEnactment` mechanical value
+with exactly `execution_snapshot_id`, `resolved_resource_request_id`, `cores`,
+`memory_mb`, `walltime_seconds`, `queue`, and `scheduler_dialect_id`. The first
+six values replay the identity-closed snapshot exactly; the dialect is selected
+only by current-profile runtime content named
+`pbs-resource-enactment-v1.json`. The canonical descriptor is UTF-8 canonical
+JSON plus one LF with exactly `schema` and `dialect`, where `schema` is
+`auto-g16-v3-pbs-resource-enactment/1`. It contains no resource value,
+executable, argv, option, format string, shell text, or credential.
+
+`SUBMIT_QSUB_ONCE` protocol `/2` carries only the exact PBS basename and the
+closed nested resource-enactment object. It carries no rendered argv. The fixed
+Transport adapter validates that value against the current identity-closed
+snapshot/profile before framing. The fixed bootstrap validates exact key sets,
+types, IDs, positive non-boolean integer
+resources, optional portable queue, and a closed dialect identifier. A
+source-controlled renderer then derives qsub argv solely from dialect, cores,
+memory MB, walltime seconds, optional queue, and PBS basename; the exact
+manifest-bound qsub executable is invoked with `shell=False`. Any mismatch,
+unknown/missing dialect, unrepresentable walltime, queue substitution, extra
+token, or caller-supplied argv rejects before qsub.
+The bootstrap neither reconstructs nor independently authenticates an
+ExecutionSnapshot; equality with snapshot authority is owned by the adapter
+before the bounded request crosses the transport boundary.
+
+The one offline dialect is exactly
+`auto-g16-v3-pbs-resource-enactment/synthetic-test/1`. It is deliberately not
+a scheduler dialect and renders the exact non-production vector
+`(--auto-g16-synthetic-cores, <cores>, --auto-g16-synthetic-memory-mb,
+<memory_mb>, --auto-g16-synthetic-walltime-seconds, <walltime_seconds>,
+[--auto-g16-synthetic-queue, <queue>], <pbs_basename>)`. The live subprocess
+driver and fixed bootstrap reject execution of this dialect before process/qsub
+creation. Its pure renderer is test evidence only. It proves deterministic
+binding without guessing PBS Pro, Torque, OpenPBS, or deployment syntax. A
+production dialect remains `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` until exact
+non-secret deployment evidence supports a separately reviewed source renderer.
+
+`queue = null` emits no queue pair; an explicit queue is never replaced.
+Walltime uses integer seconds without floating point or rounding. Memory comes
+from exact `memory_mb`, never Gaussian `%mem`; cores come from exact `cores`,
+never `%nprocshared`. PBS template resource directives remain forbidden.
+Descriptor drift changes the resolved profile and snapshot and therefore
+requires new exact Operational Confirmation. `REPLAY` performs zero qsub and
+`UNKNOWN` never authorizes a second qsub.
+
+Because request and operation-table semantics change, the successor identities
+are `auto-g16-v3-rtwin-bootstrap/2`,
+`auto-g16-rtwin-operation-table/2`, and
+`auto-g16-v3-rtwin-bootstrap-v2.py`. Protocol `/1` and its exact vectors remain
+immutable historical evidence. Protocol `/2` keeps the same seven operations,
+AGV3 framing, bounded channels, nine deployment trust roots, physical
+bindings, no-shell execution, and no-retry semantics. The v2 table changes
+only the submit row's declared argv authority to the exact ordered inputs
+`scheduler_dialect_id`, `cores`, `memory_mb`, `walltime_seconds`, `queue`, and
+`pbs_basename`; final argv is renderer output, never request data.
+
+The exact synthetic descriptor bytes are
+`{"dialect":"auto-g16-v3-pbs-resource-enactment/synthetic-test/1","schema":"auto-g16-v3-pbs-resource-enactment/1"}\n`:
+114 bytes with SHA-256
+`9327ef2f0e11f5292daa7af22c00276bc504e2ffb31c2fdb585642fec1cd462c`.
+The exact canonical table-v2 bytes are 1570 bytes with SHA-256
+`14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af`.
+They equal the historical table object except `version` is `/2` and submit
+`argv_template` is exactly
+`["{scheduler_dialect_id}","{cores}","{memory_mb}","{walltime_seconds}","{queue}","{pbs_basename}"]`.
+For submit only, those markers declare closed renderer inputs rather than
+caller/final argv. All other table rows and fields replay byte-for-byte.
+
 ### Source-controlled RTwin operation construction
 
 The private operation table version is exactly

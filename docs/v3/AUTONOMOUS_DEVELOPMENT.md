@@ -413,3 +413,41 @@ Controller, open OpenSSH, or perform live work.
   trust root, dynamic remote code requirement, inability to persist/replay
   physical authority without retry, deployment/live requirement, sixth file,
   or unresolved P0/P1.
+
+### `V30-EXEC-RESOURCE-ENACTMENT-CONTRACT-01`
+
+- **Outcome:** Close the gap between snapshot-bound scheduler resources and the
+  actual qsub invocation through one closed, deterministic, source-controlled
+  dialect renderer.
+- **Authority:** `OWNER-GUIDED`, followed by bounded autonomous implementation
+  only after fresh independent contract review reaches `0/0/0/0`.
+- **Contract scope:** `OWNER_DECISIONS.md`, `docs/v3/boundary-spec.md`,
+  `docs/v3/acceptance.md`, this file, `docs/v3/STATUS.md`, and
+  `config/context-map.toml` only.
+- **Implementation scope:** Transport-owned bootstrap/driver/adapter code and
+  `tests/v3/transport/**` only. No upstream public API/schema change.
+- **Source authority:** Exact snapshot `ResolvedResourceRequest`; neither PBS
+  bytes, Gaussian `%mem`/`%nprocshared`, caller argv, environment, profile
+  defaults, scheduler defaults, nor legacy governance may replace it.
+- **Dialect:** Fixed runtime content `pbs-resource-enactment-v1.json` selects a
+  closed source renderer. Production dialect evidence remains unresolved until
+  read-only deployment preflight. One explicitly synthetic renderer is allowed
+  offline and must be rejected before any live subprocess starts.
+- **Protocol:** Successor bootstrap `/2`, table `/2`, and bootstrap-v2 source;
+  same seven operations, framing, trust roots, caps, physical bindings,
+  WINNER/REPLAY/UNKNOWN, and no-retry rules.
+- **Validation:** Focused Transport, exact resource/dialect/request vectors,
+  affected selector evidence once, synthetic composition deltas, and fresh
+  independent adversarial review.
+- **Reuse:** PORT resource/validation/no-shell primitives; EXTRACT neutral
+  historical deployment facts only; WRAP RTwin/PBS mechanics; REWRITE the
+  enactment seam because v3 currently omits resources and v2 governance is not
+  authority; DROP caller/free-form/default and v2 authority; DEFER planner,
+  telemetry, adaptive resources, multi-node policy, OpenSSH, qdel, and live.
+- **Stop rules:** Stop for a required upstream public API/schema change, new
+  retry/effect authority, production dialect guess, trust-model change, or live
+  evidence required to choose semantics. Dialect finalization alone may stop as
+  `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` while offline implementation proceeds.
+- **Non-goals:** No live RTwin/SSH/PBS/Gaussian, qsub/qstat, deployment,
+  credentials, host-key acceptance, qdel/delete/cleanup, automatic retry,
+  resource planning, or scientific interpretation.

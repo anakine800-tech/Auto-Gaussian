@@ -1322,6 +1322,64 @@ This narrow clarification is accepted only when all of the following hold:
     already-frozen cap and postlaunch-attestation behavior; it adds no
     operation, channel, trust root, or caller-controlled source authority.
 
+## `V30-EXEC-RESOURCE-ENACTMENT-CONTRACT-01`
+
+This resource-enactment contract is accepted only when all of the following
+hold:
+
+1. The exact identity-closed `ResolvedResourceRequest` inside the current
+   `ExecutionSnapshot` is the sole authority for cores, integer MB, integer
+   walltime seconds, and optional queue.
+2. The private derived enactment repeats exact snapshot/resource IDs and all
+   four values; changing any one rejects before qsub.
+3. Current-profile canonical runtime content named exactly
+   `pbs-resource-enactment-v1.json` has only the frozen schema and one closed
+   dialect ID, and its bytes close through the resolved profile and snapshot.
+4. Missing, unknown, malformed, aliased, or drifted dialect content rejects.
+   No production dialect is inferred from generic scheduler knowledge.
+5. `SUBMIT_QSUB_ONCE` carries the closed nested resource object and PBS
+   basename only. Caller argv, argv fragments, shell, eval, format strings,
+   executable selection, environment overrides, and fallback defaults are
+   impossible or rejected.
+6. The bootstrap selects only a source-controlled renderer and invokes the
+   exact manifest-bound qsub executable with `shell=False`.
+7. Null queue emits no selector; an explicit queue renders exactly or rejects.
+   No queue substitution or inference occurs.
+8. Walltime uses exact integer arithmetic without rounding; memory comes from
+   `memory_mb`; cores come from `cores`. Gaussian `%mem` and `%nprocshared`
+   neither authorize nor rewrite scheduler resources.
+9. Caller PBS `#PBS -l`, `#PBS -q`, and equivalent resource directives remain
+   rejected by `PbsTemplateBinding`.
+10. Rendered qsub argv is deterministic only from dialect, exact resource
+    request, and PBS basename and matches the exact reviewed vector. It is
+    mechanical evidence, not persisted mutable authority.
+11. Protocol `/2`, table `/2`, and fixed bootstrap-v2 source replace `/1` only
+    for this closed request/table change. The seven operations, AGV3 framing,
+    trust roots, bounded channels, physical bindings, and no-retry semantics
+    remain unchanged.
+12. The only offline renderer is visibly synthetic, has a closed exact vector,
+    and both live subprocess driver and bootstrap execution reject it before
+    process/qsub creation. Its 114-byte descriptor and digest plus the
+    1570-byte table-v2 vector and digest replay exactly. It cannot satisfy
+    production live readiness.
+13. Existing historical PBS artifacts are reuse evidence only. Until exact
+    deployment evidence freezes a production dialect, the live path reports
+    `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` and performs zero qsub.
+14. Snapshot/resource/dialect splicing, queue/memory/time/core drift, request ID
+    mismatch, and unexpected renderer tokens fail closed. `REPLAY` yields zero
+    qsub; `UNKNOWN` never produces a second qsub.
+15. No public Core/Approval/Workflow/Execution/Observe/Result/
+    ScientificValidation/Review API or schema changes, and no planner,
+    telemetry, retry, qdel, cleanup, deployment, OpenSSH, or live effect occurs.
+16. Narrow reuse is recorded as PORT existing resource and no-shell primitives,
+    EXTRACT only neutral deployment facts, WRAP the RTwin qsub mechanics,
+    REWRITE the resource renderer because current v3 omits enactment and legacy
+    governance is not authority, DROP legacy/free-form/default authority, and
+    DEFER planning/telemetry/adaptive/multi-node policy.
+17. Focused and affected evidence, exact negative vectors, static/diff/
+    sensitive checks, and fresh independent contract and implementation review
+    each close at `P0/P1/P2/P3 = 0/0/0/0` before integration.
+
 ## v3.0: Closed-Shell Minimum
 
 A real closed-shell minimum completes:
