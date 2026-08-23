@@ -2945,15 +2945,15 @@ does not read a global profile or reimplement Execution profile identity.
 The private operation table version is exactly
 `auto-g16-rtwin-operation-table/1`. Its immutable entries are:
 
-| operation | token | argv template | timeout seconds | stdout cap | stderr cap |
-| --- | --- | --- | ---: | ---: | ---: |
-| `ALLOCATE_WORKSPACE` | `allocate-workspace` | `()` | 30 | 65536 | 65536 |
-| `STAGE_EXACT_FILE` | `stage-exact-file` | `("{logical_name}", "{sha256}", "{size_bytes}")` | 900 | 65536 | 65536 |
-| `SUBMIT_QSUB_ONCE` | `submit-qsub-once` | `("{pbs_basename}",)` | 30 | 65536 | 65536 |
-| `QUERY_SCHEDULER` | `query-scheduler` | `("-f", "{job_id}")` | 30 | 262144 | 65536 |
-| `STAT_EXACT_FILE` | `stat-exact-file` | `("{remote_relative_name}",)` | 30 | 65536 | 65536 |
-| `FETCH_EXACT_FILE` | `fetch-exact-file` | `("{remote_relative_name}",)` | 900 | 0 | 65536 |
-| `RECONCILE_SUBMISSION` | `reconcile-submission` | `()` | 30 | 262144 | 65536 |
+| operation | token | argv template | timeout seconds | stdin cap | stdout cap | stderr cap |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `ALLOCATE_WORKSPACE` | `allocate-workspace` | `()` | 30 | 65536 | 65536 | 65536 |
+| `STAGE_EXACT_FILE` | `stage-exact-file` | `("{logical_name}", "{sha256}", "{size_bytes}")` | 900 | 179306496 | 65536 | 65536 |
+| `SUBMIT_QSUB_ONCE` | `submit-qsub-once` | `("{pbs_basename}",)` | 30 | 65536 | 65536 | 65536 |
+| `QUERY_SCHEDULER` | `query-scheduler` | `("-f", "{job_id}")` | 30 | 65536 | 524288 | 65536 |
+| `STAT_EXACT_FILE` | `stat-exact-file` | `("{remote_relative_name}",)` | 30 | 65536 | 65536 | 65536 |
+| `FETCH_EXACT_FILE` | `fetch-exact-file` | `("{remote_relative_name}",)` | 900 | 65536 | 179306496 | 65536 |
+| `RECONCILE_SUBMISSION` | `reconcile-submission` | `()` | 30 | 65536 | 262144 | 65536 |
 
 Every operation has `shell=False` at the final server operation/executable
 seam, no retry, exact cwd equal to the remote Attempt workspace, and environment
@@ -2967,15 +2967,19 @@ input then PBS-template order; each argv is
 travel in the framed data packet. Qsub argv is exactly
 `(<one prepared PBS script basename>,)`; qstat argv is the exact tuple frozen
 above; stat/fetch argv is exactly `(<one requested remote_relative_name>,)` for
-each request in authoritative order, and fetch returns content on its bounded
-binary result channel, never stdout or a local path. Reconciliation has no argv
-and consumes only the exact binding data packet. Operation tokens are enum data,
-not executable names or shell text. All text operations require process
-completion and EOF within their caps; fetch additionally enforces the artifact
-and total-capture caps before returning. Any timeout, overflow, missing EOF,
-malformed completion, or possibly-effectful ambiguity fails closed under the
-existing Execution uncertainty rules. No operation token or argv fragment is
-caller supplied.
+each request in authoritative order. Reconciliation has no argv and consumes
+only the exact binding data packet. Operation tokens are enum data, not
+executable names or shell text. The `stdin_cap` and `stdout_cap` columns bound
+the complete outer AGV3 request and response frames respectively. The inner
+qstat raw stdout/stderr limits remain 262144/65536 bytes; their base64 fields
+fit the 524288-byte outer response cap. A fetch returns its exact raw bytes only
+as canonical base64 inside the one bounded stdout response frame described
+below, never through an unspecified side channel or a local path. Every
+operation requires process completion and EOF within all caps; fetch additionally
+enforces the raw artifact and total-capture caps before encoding. Any timeout,
+overflow, missing EOF, malformed completion, or possibly-effectful ambiguity
+fails closed under the existing Execution uncertainty rules. No operation
+token or argv fragment is caller supplied.
 
 Allocate, stage, and qsub substitute only values from the current
 identity-closed `ExecutionSnapshot`: exact remote Attempt workspace, the two
@@ -2992,8 +2996,8 @@ Under the canonical grammar above, the complete table object contains keys
 exactly request count 4, per-artifact bytes 134217728, and total-capture bytes
 268435456; operations are the seven table rows in displayed order. Canonical
 table bytes use the manifest JSON rules below, including one trailing LF. Their
-byte size is `1352` and SHA-256 is
-`8f6a5b83b79f13aecf2ef49b1b7f7f90db680f484e5a9e3c652aabf19f437913`.
+byte size is `1490` and SHA-256 is
+`6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6`.
 The exact object shape used for that digest is:
 
 ```text
@@ -3008,24 +3012,29 @@ The exact object shape used for that digest is:
              "max_capture_bytes": 268435456},
   "operations": [
     {"name": "ALLOCATE_WORKSPACE", "token": "allocate-workspace", "argv_template": [],
-     "timeout_seconds": 30, "stdout_cap": 65536, "stderr_cap": 65536},
+     "timeout_seconds": 30, "stdin_cap": 65536,
+     "stdout_cap": 65536, "stderr_cap": 65536},
     {"name": "STAGE_EXACT_FILE", "token": "stage-exact-file",
      "argv_template": ["{logical_name}", "{sha256}", "{size_bytes}"],
-     "timeout_seconds": 900, "stdout_cap": 65536, "stderr_cap": 65536},
+     "timeout_seconds": 900, "stdin_cap": 179306496,
+     "stdout_cap": 65536, "stderr_cap": 65536},
     {"name": "SUBMIT_QSUB_ONCE", "token": "submit-qsub-once",
      "argv_template": ["{pbs_basename}"], "timeout_seconds": 30,
+     "stdin_cap": 65536,
      "stdout_cap": 65536, "stderr_cap": 65536},
     {"name": "QUERY_SCHEDULER", "token": "query-scheduler",
      "argv_template": ["-f", "{job_id}"], "timeout_seconds": 30,
-     "stdout_cap": 262144, "stderr_cap": 65536},
+     "stdin_cap": 65536, "stdout_cap": 524288, "stderr_cap": 65536},
     {"name": "STAT_EXACT_FILE", "token": "stat-exact-file",
      "argv_template": ["{remote_relative_name}"],
-     "timeout_seconds": 30, "stdout_cap": 65536, "stderr_cap": 65536},
+     "timeout_seconds": 30, "stdin_cap": 65536,
+     "stdout_cap": 65536, "stderr_cap": 65536},
     {"name": "FETCH_EXACT_FILE", "token": "fetch-exact-file",
      "argv_template": ["{remote_relative_name}"],
-     "timeout_seconds": 900, "stdout_cap": 0, "stderr_cap": 65536},
+     "timeout_seconds": 900, "stdin_cap": 65536,
+     "stdout_cap": 179306496, "stderr_cap": 65536},
     {"name": "RECONCILE_SUBMISSION", "token": "reconcile-submission",
-     "argv_template": [], "timeout_seconds": 30,
+     "argv_template": [], "timeout_seconds": 30, "stdin_cap": 65536,
      "stdout_cap": 262144, "stderr_cap": 65536}
   ]
 }
@@ -3187,27 +3196,132 @@ manifest `server_python` with fixed flags `-I -S -B -c` and the exact
 source-controlled `auto-g16-v3-rtwin-bootstrap-v1.py` runtime-content bytes.
 Changing that source
 semantically requires a new bootstrap protocol version. The source reads one
-framed packet from stdin: ASCII magic `AGV3`, one unsigned 64-bit big-endian
-length, then exactly that many canonical JSON bytes and EOF. The packet keys are
-exactly `binding`, `operation`, `payload`, and `protocol`; protocol is
-`auto-g16-v3-rtwin-bootstrap/1`, operation is one of the seven exact table
-enums, and binding/payload schemas are selected only by that enum. Caps come
-from the frozen table. Extra bytes, unknown keys/enum, noncanonical JSON,
-overflow, truncation, or missing EOF reject.
+request frame from stdin and writes one response frame to stdout. Both frames
+are ASCII magic `AGV3`, one unsigned 64-bit big-endian length, then exactly that
+many canonical JSON bytes containing one trailing LF, followed by EOF. The
+length counts the JSON bytes including that LF, not the 12-byte header. Request
+keys are exactly `binding`, `operation`, `payload`, and `protocol`; response
+keys are exactly `operation`, `protocol`, `result`, and `status`. Protocol is
+exactly `auto-g16-v3-rtwin-bootstrap/1`, response operation must echo the
+request enum, and every accepted response has status exactly `ok`. The table's
+`stdin_cap`/`stdout_cap` include the complete header and JSON bytes. There is
+one frame, one stdout response channel, and no second binary or authority
+channel. Bootstrap-process stderr is diagnostic-only, capped by the table, and
+must be empty for an accepted authority response; inner qstat stderr is data
+inside the response result. Diagnostics are never parsed as state, job, token,
+retry, or scientific authority. Extra frames/bytes, unknown keys/enum/status,
+noncanonical JSON, overflow, truncation, nonempty bootstrap stderr, or missing
+EOF rejects.
 
-Binary values in binding/payload use RFC 4648 standard base64 with required
-padding and canonical decode/re-encode equality. `binding` is the exact closed
-store/snapshot/Attempt/intent/workspace/job plus physical-token mapping required
-by that operation. Payload keys are exactly: `{}` for allocation;
-`{logical_name,remote_relative_name,sha256,size_bytes,content_base64}` for stage;
-`{pbs_basename}` for qsub; `{job_id}` for qstat; `{remote_relative_name}` for
-stat/fetch; and `{effect_sequence}` for reconciliation. Each field also obeys
-its already-frozen lexical/identity rule. Responses use the same magic/length/
-canonical-JSON/EOF frame and operation-specific closed result schema; fetched
-bytes use the same canonical base64 and all original-byte caps apply before
-encoding; the encoded field length must equal `4 * ceil(original_size / 3)` and
-the enclosing frame cap is derived from that exact bound plus its fixed JSON
-overhead. Thus variable artifact bytes are data, never Python or shell source.
+Binary values use RFC 4648 standard base64 with required padding and canonical
+decode/re-encode equality. Tokens decode to `1..4096` bytes. Content decoded
+size and lowercase SHA-256 must equal the separately bound fields. Integers are
+non-boolean; sizes are non-negative and `effect_sequence` is positive, while
+`returncode` is a signed process integer. Every string obeys its frozen lexical
+rule. The exact per-operation request schemas are:
+
+| operation | exact `binding` keys | exact `payload` keys |
+| --- | --- | --- |
+| `ALLOCATE_WORKSPACE` | `transport_store_id`, `store_instance_id`, `runtime_attestation_id`, `attempt_id`, `execution_snapshot_id`, `submission_intent_id`, `remote_workspace` | none (`{}`) |
+| `STAGE_EXACT_FILE` | all allocation binding keys plus `workspace_authority_id`, `workspace_physical_token_base64` | `artifact_kind`, `logical_name`, `remote_relative_name`, `sha256`, `size_bytes`, `content_base64` |
+| `SUBMIT_QSUB_ONCE` | all stage binding keys plus `prepared_input_artifact_authority_id`, `prepared_input_artifact_physical_token_base64`, `pbs_template_artifact_authority_id`, `pbs_template_artifact_physical_token_base64` | `pbs_basename` |
+| `QUERY_SCHEDULER` | all stage binding keys plus `job_authority_id`, `receipt_binding_id`, `remote_effect_receipt_id`, `job_id` | `job_id` |
+| `STAT_EXACT_FILE` | all query binding keys | `remote_relative_name` |
+| `FETCH_EXACT_FILE` | all query binding keys | `remote_relative_name`, `expected_size_bytes`, `expected_file_physical_token_base64` |
+| `RECONCILE_SUBMISSION` | all qsub binding keys | `effect_sequence` |
+
+“All ... keys plus” is exact set union, never optional inheritance. For stage,
+`artifact_kind` is exactly `prepared-input` or `pbs-template`; the other fields
+equal the current snapshot artifact, and decoded content equals its exact
+prepared bytes. For qsub, the two artifact IDs/tokens are distinct, already
+persisted under the same workspace, and correspond respectively to those two
+kinds. Qstat payload `job_id` equals binding `job_id`. Stat/fetch use the one
+exact portable request component. Fetch expected size/token equal the
+immediately preceding same-binding stat result. Reconciliation binds the same
+workspace and two staged artifacts as qsub and the exact positive receipt
+sequence; it never takes a caller job ID.
+
+Field types/cardinality are closed as follows. Every `*_id` is one non-empty
+string copied exactly from the already identity-checked snapshot/store/receipt
+row named by that field; it is never discovered or recomputed remotely.
+`remote_workspace` is one absolute normalized POSIX path equal to the snapshot,
+while each basename/logical/relative name is one non-empty portable component
+under its existing grammar. Every `*_sha256` is one lowercase 64-hex string.
+Every `*_size_bytes` is one non-negative non-boolean integer; stage sizes also
+obey the snapshot's stricter prepared-artifact rule. `effect_sequence` is one
+positive non-boolean integer. `returncode` is one signed non-boolean integer.
+Every `*_base64` is one canonical string; content may decode to zero bytes only
+where the bound artifact permits it, while each physical token decodes to
+`1..4096` bytes. Every EOF member is the JSON boolean `true`. No field is null,
+repeated, optional, defaulted, or accepted under an alias except the two
+explicit conditional result schemas below.
+
+The exact successful response result schemas are:
+
+| operation | exact `result` keys and closed values |
+| --- | --- |
+| `ALLOCATE_WORKSPACE` | `remote_workspace`, `workspace_physical_token_base64`; workspace echoes the request and token is newly created by the trusted agent |
+| `STAGE_EXACT_FILE` | `artifact_kind`, `logical_name`, `remote_relative_name`, `sha256`, `size_bytes`, `artifact_physical_token_base64`; semantic fields echo the request and token is the post-write reattested object |
+| `SUBMIT_QSUB_ONCE` | `job_id`; one strict normalized PBS job ID |
+| `QUERY_SCHEDULER` | `stdout_base64`, `stderr_base64`, `returncode`, `eof_stdout`, `eof_stderr`, `completion_status`; EOF values are exactly `true`, completion is exactly `completed`, and decoded streams remain within 262144/65536 bytes |
+| `STAT_EXACT_FILE` | when present: `presence`, `remote_relative_name`, `size_bytes`, `file_physical_token_base64`, with presence `present`; when absent: only `presence`, `remote_relative_name`, with presence `absent` |
+| `FETCH_EXACT_FILE` | `remote_relative_name`, `size_bytes`, `sha256`, `content_base64`, `file_physical_token_base64`, `eof`; name/size/token echo the request, token is unchanged after read, digest covers decoded bytes, and `eof` is exactly `true` |
+| `RECONCILE_SUBMISSION` | `effect_state`, `job_id` for `confirmed_effect`; only `effect_state` for `confirmed_no_effect` or `possibly_effectful`; states are those exact strings and only confirmed effect carries one strict job ID |
+
+A protocol/operation failure returns no accepted authority frame. In
+particular, qsub timeout, lost response, malformed job ID, or any ambiguity is
+handled by Execution as possibly effectful/`UNKNOWN`; it is never converted to
+an alternate `ok` response or retried. Stat `absent` is a completed exact
+observation, not a transport failure. Query's raw nonzero return code remains
+data for the existing fixed classifier. Reconciliation does not turn
+`confirmed_no_effect` into same-Attempt resubmission authority.
+
+The maximum raw artifact is 134217728 bytes, so its canonical base64 is at most
+178956972 bytes. For stage/fetch the header and all fixed non-content JSON are
+bounded to at most 65536 bytes; their exact 179306496-byte outer cap therefore
+contains the largest legal frame without truncation. Qstat's two inner stream
+caps encode to at most 436912 base64 bytes and its 524288-byte outer cap covers
+the complete framed result. Other schemas fit their displayed caps. A cap is
+checked before allocation, while reading, and at EOF; no truncated response is
+ever accepted.
+
+The active identity fixture below supplies four normative canonical JSON
+vectors, each shown as its one line; counted bytes include the final LF. The
+allocate request is 420 bytes with SHA-256
+`a6b2fc01b61b6a338a488990c62de75e726cb1a8036fdb587786b7e99bbb805c`:
+
+```json
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"79d4b458-3057-5afe-9332-6aab3ed04976","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85"},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
+```
+
+Its response is 202 bytes with SHA-256
+`ae29cd3e8300a6b90441c431cef7a0d00786c9f5c676ea1a8be6bacdd95f660c`:
+
+```json
+{"operation":"ALLOCATE_WORKSPACE","protocol":"auto-g16-v3-rtwin-bootstrap/1","result":{"remote_workspace":"/srv/p/attempt-1","workspace_physical_token_base64":"d29ya3NwYWNlLXRva2VuLXYx"},"status":"ok"}
+```
+
+The fetch request is 844 bytes with SHA-256
+`0ffb3127106e686a90292322d0644d3ea9222549930eb0999461659e60fd9c3e`:
+
+```json
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","job_authority_id":"e04636fb-9f61-51d7-922a-136e0bc02f49","job_id":"123.server","receipt_binding_id":"ff072c6e-21b1-50d4-95b7-22d62287f2ef","remote_effect_receipt_id":"receipt-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"79d4b458-3057-5afe-9332-6aab3ed04976","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85","workspace_authority_id":"34827613-ea23-5b28-96d4-54b317c0e642","workspace_physical_token_base64":"d29ya3NwYWNlLXRva2VuLXYx"},"operation":"FETCH_EXACT_FILE","payload":{"expected_file_physical_token_base64":"YXJ0aWZhY3QtdG9rZW4tdjE=","expected_size_bytes":19,"remote_relative_name":"job.log"},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
+```
+
+Its response is 341 bytes with SHA-256
+`300f841ea40e23c6d03f668b3a5fc9e2fcd2478a20321f870fbe3022a0804e35`:
+
+```json
+{"operation":"FETCH_EXACT_FILE","protocol":"auto-g16-v3-rtwin-bootstrap/1","result":{"content_base64":"Tm9ybWFsIHRlcm1pbmF0aW9uCg==","eof":true,"file_physical_token_base64":"YXJ0aWZhY3QtdG9rZW4tdjE=","remote_relative_name":"job.log","sha256":"d66fc1aad228af405f4e1d2e5faaf681bd9db338e6810f82ef5a74f9a685c618","size_bytes":19},"status":"ok"}
+```
+
+Tests replay all four vectors and reject a missing/extra binding, payload,
+result, or top-level key; wrong echoed operation/protocol/status; an illegal
+conditional result shape; noncanonical/badly padded base64; a boolean integer;
+size/digest/token/EOF mismatch; extra/multiple stdout frames; authority data on
+stderr; stdout/stderr/request cap overflow; missing EOF; and fetch bytes that
+do not reproduce the exact original content. Thus variable artifact bytes are
+closed data, never Python or shell source.
 
 The fixed loader accepts no module name, import path, callback, executable,
 argv, source, script, shell fragment, or generic `RUN`, `EXEC`, `SHELL`,
@@ -3311,17 +3425,19 @@ contract grants no live authority.
 
 **Contract status: FROZEN CANDIDATE; IMPLEMENTATION NOT AUTHORIZED BY THIS
 DOCUMENT.** This additive closeout preserves the physical-authority decisions
-and resolves the bootstrap/deployment trust-chain findings
-findings without changing Core, Execution, receipt, Approval, Workflow,
+and resolves the bootstrap/deployment trust-chain findings without changing
+Core, Execution, receipt, Approval, Workflow,
 Observe, Result, ScientificValidation, or Review APIs/schemas. When this exact
 authority content is present on authoritative main after independent review,
 the task is `CLOSED / FROZEN / INTEGRATED` and the successor offline Transport
 implementation is gate-eligible. `V30-VAL-TRANSPORT-01` is already integrated;
 Transport product paths use `affected / fail_closed=false` validation.
-Commits `798d3559d7c5ee6211a0b29977310f8adb871a5f` and
-`e49136e23c564cc9e0d9d97b905e43c45db73adc` remain immutable failed evidence;
-this successor is the separately budgeted bootstrap/deployment trust-chain
-repair.
+Commits `798d3559d7c5ee6211a0b29977310f8adb871a5f`,
+`e49136e23c564cc9e0d9d97b905e43c45db73adc`, and
+`44db04180af8222c6e4619accfab0049e89bd3e0` remain immutable failed evidence.
+The last lacked exact per-operation request/response schemas and a realizable
+single fetch response channel; this successor closes that remaining bootstrap
+protocol defect class.
 
 ### Public surface and ownership
 
@@ -3694,29 +3810,29 @@ the same remaining literal inputs. Its exact current canonical vectors are:
 
 ```text
 runtime-attestation bytes:
-a17:s38:auto-g16-transport/runtime-attestationi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes10:snapshot-1s9:profile-1s64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas37:transport-deployment-manifest-v1.jsons64:70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983ai2753;s29:synthetic-rtwin-deployment-v1s29:auto-g16-v3-rtwin-bootstrap/1s64:8f6a5b83b79f13aecf2ef49b1b7f7f90db680f484e5a9e3c652aabf19f437913i1352;s33:auto-g16-v3-rtwin-bootstrap-v1.pys64:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbi2048;
+a17:s38:auto-g16-transport/runtime-attestationi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes10:snapshot-1s9:profile-1s64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas37:transport-deployment-manifest-v1.jsons64:70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983ai2753;s29:synthetic-rtwin-deployment-v1s29:auto-g16-v3-rtwin-bootstrap/1s64:6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6i1490;s33:auto-g16-v3-rtwin-bootstrap-v1.pys64:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbi2048;
 runtime_attestation_id:
-42e3dd26-758d-5c67-b3d9-07f10cd19b78
+79d4b458-3057-5afe-9332-6aab3ed04976
 
 workspace-physical bytes:
-a10:s37:auto-g16-transport/workspace-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:42e3dd26-758d-5c67-b3d9-07f10cd19b78s9:attempt-1s10:snapshot-1s8:intent-1s16:/srv/p/attempt-1y18:776f726b73706163652d746f6b656e2d7631
+a10:s37:auto-g16-transport/workspace-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s16:/srv/p/attempt-1y18:776f726b73706163652d746f6b656e2d7631
 workspace_authority_id:
-cb4a4e1f-c94d-531a-95a2-fda7f0831d00
+34827613-ea23-5b28-96d4-54b317c0e642
 
 artifact-physical bytes:
-a15:s36:auto-g16-transport/artifact-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:cb4a4e1f-c94d-531a-95a2-fda7f0831d00s36:42e3dd26-758d-5c67-b3d9-07f10cd19b78s9:attempt-1s10:snapshot-1s8:intent-1s14:prepared-inputs7:job.gjfs7:job.gjfs64:ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddi123;y17:61727469666163742d746f6b656e2d7631
+a15:s36:auto-g16-transport/artifact-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:34827613-ea23-5b28-96d4-54b317c0e642s36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s14:prepared-inputs7:job.gjfs7:job.gjfs64:ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddi123;y17:61727469666163742d746f6b656e2d7631
 artifact_authority_id:
-afe19e18-a32a-53ed-b5a4-88537ab06444
+6f581297-da45-5943-aa37-6fbab8befbf4
 
 job-physical bytes:
-a10:s31:auto-g16-transport/job-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:cb4a4e1f-c94d-531a-95a2-fda7f0831d00s36:42e3dd26-758d-5c67-b3d9-07f10cd19b78s9:attempt-1s10:snapshot-1s8:intent-1s10:123.server
+a10:s31:auto-g16-transport/job-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:34827613-ea23-5b28-96d4-54b317c0e642s36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s10:123.server
 job_authority_id:
-d835f99f-6339-5edd-88b9-30471838e0ae
+e04636fb-9f61-51d7-922a-136e0bc02f49
 
 receipt-binding bytes:
-a11:s34:auto-g16-transport/receipt-bindingi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:d835f99f-6339-5edd-88b9-30471838e0aes36:cb4a4e1f-c94d-531a-95a2-fda7f0831d00s9:attempt-1s10:snapshot-1s8:intent-1s9:receipt-1s10:123.server
+a11:s34:auto-g16-transport/receipt-bindingi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:e04636fb-9f61-51d7-922a-136e0bc02f49s36:34827613-ea23-5b28-96d4-54b317c0e642s9:attempt-1s10:snapshot-1s8:intent-1s9:receipt-1s10:123.server
 receipt_binding_id:
-9b89dac0-0ce3-5eb7-bc08-4e5fc7b1e280
+ff072c6e-21b1-50d4-95b7-22d62287f2ef
 ```
 
 The `payload` column is the exact canonical encoding of the corresponding

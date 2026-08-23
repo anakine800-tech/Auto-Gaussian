@@ -535,6 +535,14 @@ owned by bootstrap protocol `auto-g16-v3-rtwin-bootstrap/1`. That fixed source
 is not caller code: it reads one canonical length-bounded data packet and
 dispatches only the frozen operation enum. No arbitrary `RUN`, `EXEC`, `SHELL`,
 `PYTHON`, `SCRIPT`, module, callback, source, executable, or command is accepted.
+Each of the seven operations has one exact request binding/payload schema and
+one exact response result schema, including closed conditional cardinality for
+stat and reconciliation. The only authority-bearing response path is one
+bounded AGV3 frame on the nested process's stdout; bootstrap stderr is capped
+diagnostic-only and must be empty for an accepted response. Stage and fetch
+carry exact bytes as bounded canonical base64 in those frames. There is no
+unspecified binary side channel, stdout truncation, caller-selected status, or
+implementation-defined physical/job/result object.
 After deployment-trusted startup, server Python may detect drift in itself and
 attest the exact qsub/qstat paths before structured-argv execution, but none of
 those checks creates or proves its pre-start trust. Manifest authority answers

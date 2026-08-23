@@ -172,20 +172,25 @@
   its own pre-start trust; it may only detect post-start drift and process the
   fixed bootstrap plus closed data packets. The Windows grammar is explicit,
   never detected or silently changed, and the POSIX inner shell is also a named
-  deployment root. Commits `798d3559d7c5ee6211a0b29977310f8adb871a5f`
-  and `e49136e23c564cc9e0d9d97b905e43c45db73adc` remain immutable negative
-  evidence. The closeout preserves the integrated
+  deployment root. Commits `798d3559d7c5ee6211a0b29977310f8adb871a5f`,
+  `e49136e23c564cc9e0d9d97b905e43c45db73adc`, and
+  `44db04180af8222c6e4619accfab0049e89bd3e0` remain immutable negative
+  evidence. The last lacked exact seven-operation request/response schemas and
+  one realizable fetch response channel; this successor closes both. The
+  closeout preserves the integrated
   RTwin-first composition contract: the Controller validates the current
   approval chain and calls `execute_once(...)` without pre-claiming; that
   entrypoint alone owns `record_submission_intent(...)`, and only `WINNER`
   enters the first effect boundary.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** independent review and integration of exact
-  `V30-TRANSPORT-BOOTSTRAP-CHAIN-03` authority. Once integrated, the successor
-  narrow offline Transport repair is gate-eligible, followed by the required
-  product-level synthetic composition evidence and a read-only
-  `V30-A-READINESS-01` audit.
+- **Next gate before integration:** independent review and integration of exact
+  `V30-TRANSPORT-BOOTSTRAP-CHAIN-03` authority. **When this exact authority
+  content is present on authoritative main:** the task self-resolves to
+  `CLOSED / FROZEN / INTEGRATED`, and the next gate is the successor narrow
+  offline Transport implementation; no status-only follow-up is required.
+  Product-level synthetic composition evidence and a read-only
+  `V30-A-READINESS-01` audit remain downstream.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or

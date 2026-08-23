@@ -1182,23 +1182,30 @@ Transport implementation is gate-eligible. Acceptance requires:
     RTwin child launch because no trusted SHA-256 primitive exists. No tenth
     helper root appears silently.
 19. The fixed runtime content `auto-g16-v3-rtwin-bootstrap-v1.py` runs only
-    under exact manifest `server_python` with fixed `-I -S -B -c`; it consumes
-    the exact AGV3 framed,
-    canonical, capped packet, exact per-operation schemas, canonical padded
-    base64 binary encoding, and seven operation enums. Caller source, module,
-    executable, command, shell fragment, generic operation, extra bytes, or
-    missing EOF rejects.
+    under exact manifest `server_python` with fixed `-I -S -B -c`. For all
+    seven operation enums, the exact request top-level, binding, and payload
+    key sets plus the exact response top-level/result schemas and conditional
+    cardinalities match `boundary-spec.md`; no implementation must invent an
+    authority field. The four normative allocate/fetch JSON byte vectors,
+    sizes, digests, operation/protocol echo, padded base64, and negative schema
+    matrix replay exactly. Caller source, module, executable, command, shell
+    fragment, generic operation, extra bytes, or missing EOF rejects.
 20. After deployment-trusted start, `server_python` may detect self drift and
     attest exact absolute qsub/qstat path/type/size/digest before structured argv;
     those checks never establish pre-start trust. Mac executables are directly
     attested; RTwin executable attestation is owned only by the declared shell.
     Prelaunch drift gives zero call and postlaunch effect ambiguity gives
     `UNKNOWN` without retry.
-21. All channels are separately bounded and require completion plus EOF.
-    Overflow, extra bytes, truncation, timeout, malformed completion, or
-    ambiguous qsub produces fail-closed/`UNKNOWN` behavior with zero retry.
+21. Each request is one bounded AGV3 frame on stdin and each accepted response
+    is one bounded AGV3 frame on nested-process stdout; there is no unspecified
+    binary side channel. Bootstrap stderr is capped diagnostic-only and must be
+    empty for an accepted response. Exact per-operation stdin/stdout caps cover
+    stage/fetch base64 expansion and qstat inner-stream expansion. Overflow,
+    extra/multiple frames, authority data on stderr, truncation, timeout,
+    malformed completion, or ambiguous qsub produces fail-closed/`UNKNOWN`
+    behavior with zero retry.
 22. The physical-binding envelope uses the exact seven-operation table v1,
-    1352-byte canonical vector and digest. It changes neither the unchanged
+    1490-byte canonical vector and digest. It changes neither the unchanged
     public `ExecutionPort` nor receipt APIs and is data evidence, not a
     capability or approval mechanism.
 23. Concurrent Controllers still yield at most one `WINNER` and at most one
@@ -1257,10 +1264,14 @@ dynamic-agent/module/eval/exec upload spies; bootstrap self-attestation absent;
 complete nine-root manifest plus every manifest negative in condition 30;
 current-profile/snapshot/runtime-identity closure; configured PowerShell path/
 type/reparse/size/digest drift; cmd incompatibility without fallback; exact
-server shell/bootstrap source/frame/operation enum; qsub/qstat drift; Windows
-CRT, PowerShell, cmd, and POSIX quote vectors; pre/post launch replacement;
-bounded channel/EOF failures; `UNKNOWN` without retry; and zero tenth-root/
-native-wrapper/live/qdel/delete/cleanup spies.
+server shell/bootstrap source/frame/operation enum; exact seven request-binding/
+payload and response-result schemas; all conditional stat/reconciliation
+cardinalities; allocate/fetch wire vectors; missing/extra/wrong-type keys;
+base64/size/digest/token/EOF mismatch; qsub/qstat drift; Windows CRT,
+PowerShell, cmd, and POSIX quote vectors; pre/post launch replacement; bounded
+stdin/stdout/diagnostic-stderr and EOF failures; extra/multiple response frames;
+`UNKNOWN` without retry; and zero tenth-root/native-wrapper/live/qdel/delete/
+cleanup spies.
 
 ## v3.0: Closed-Shell Minimum
 

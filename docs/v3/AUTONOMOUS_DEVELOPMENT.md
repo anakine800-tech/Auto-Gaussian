@@ -345,9 +345,11 @@ Controller, open OpenSSH, or perform live work.
   `docs/v3/boundary-spec.md`, `docs/v3/acceptance.md`,
   `docs/v3/AUTONOMOUS_DEVELOPMENT.md`, and `docs/v3/STATUS.md`. No context-map,
   selector, product, or test mutation.
-- **Failed evidence:** `798d3559d7c5ee6211a0b29977310f8adb871a5f`
-  and `e49136e23c564cc9e0d9d97b905e43c45db73adc` remain immutable negative
-  evidence; this is a new bootstrap/deployment trust-chain defect class.
+- **Failed evidence:** `798d3559d7c5ee6211a0b29977310f8adb871a5f`,
+  `e49136e23c564cc9e0d9d97b905e43c45db73adc`, and
+  `44db04180af8222c6e4619accfab0049e89bd3e0` remain immutable negative
+  evidence; the last lacked closed per-operation response/binding schemas and
+  one realizable fetch response channel.
 - **Public shape:** Add only `TransportStore.create_new(path, *, approved_root)`,
   `TransportStore.open_existing(path, *, approved_root)`, and `close()`; add
   exact `transport_store_id` and `store_instance_id` bindings to Transport
@@ -379,7 +381,10 @@ Controller, open OpenSSH, or perform live work.
   quoting when unavoidable. Descriptor execution and a new native wrapper are
   not required; strict prelaunch and practical postlaunch reattestation do not
   overclaim TOCTOU protection against excluded actors. Channels stay bounded
-  through completion and EOF.
+  through completion and EOF. Every operation uses one exact AGV3 request frame
+  on stdin and one exact AGV3 response frame on stdout with an operation-specific
+  closed binding/payload/result schema; stderr is capped diagnostic-only, and
+  no unspecified binary/authority channel exists.
 - **Command chain:** Freeze the real Mac OpenSSH -> Windows OpenSSH server ->
   declared `powershell-v1` or `cmd-v1` remote shell -> RTwin OpenSSH -> server
   OpenSSH -> `posix-sh-v1` -> `server_python` chain. Local `shell=False` removes
