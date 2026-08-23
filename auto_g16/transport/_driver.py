@@ -257,6 +257,9 @@ class _SubprocessRTWinDriver:
         if status!="completed" or code!=0 or stderr or not eofout or not eoferr: return _FetchResult(status="transport-error")
         try:
             result=_decode_response_frame(stdout,operation=invocation.operation.name,cap=invocation.operation.stdout_cap); _validate_result(invocation.operation.name,result); content=_canonical_b64(result["content_base64"]); token=result["file_physical_token_base64"]
+            payload=invocation.request["payload"]
+            if not isinstance(payload,Mapping): raise ValueError
+            if result["remote_relative_name"]!=payload.get("remote_relative_name") or result["size_bytes"]!=payload.get("expected_size_bytes") or token!=payload.get("expected_file_physical_token_base64"): raise ValueError
             if result["size_bytes"]!=len(content) or result["sha256"]!=sha256(content).hexdigest(): raise ValueError
             return _FetchResult(status="found",content=content,before_identity=token,after_identity=token,before_size=len(content),after_size=len(content),before_sha256=result["sha256"],after_sha256=result["sha256"])
         except Exception: return _FetchResult(status="unstable")

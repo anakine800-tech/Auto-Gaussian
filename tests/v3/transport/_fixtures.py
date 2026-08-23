@@ -100,7 +100,7 @@ def qstat(stdout: bytes, *, stderr: bytes = b"", returncode: int = 0):
     return _TextResult(stdout=stdout, stderr=stderr, returncode=returncode, eof_stdout=True, eof_stderr=True, completion_status="completed")
 
 
-def found(content: bytes, identity: str = "dev:1:ino:2") -> _FetchResult:
+def found(content: bytes, identity: str = "ZmlsZS10b2tlbi12MQ==") -> _FetchResult:
     digest = sha256(content).hexdigest()
     return _FetchResult(status="found", content=content, before_identity=identity, after_identity=identity, before_size=len(content), after_size=len(content), before_sha256=digest, after_sha256=digest)
 

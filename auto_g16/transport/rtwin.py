@@ -156,12 +156,15 @@ class RTWinReadAdapter:
             except Exception: status="capture-interrupted"; break
             if stat_result.get("presence")=="absent": status="capture-in-progress"; break
             if set(stat_result)!={"presence","remote_relative_name","size_bytes","file_physical_token_base64"} or stat_result["presence"]!="present" or stat_result["remote_relative_name"]!=request.remote_relative_name: raise TransportBoundaryError("stat result is malformed")
+            announced_size=stat_result["size_bytes"]; announced_token=stat_result["file_physical_token_base64"]
+            if type(announced_size) is not int or announced_size<0 or announced_size>MAX_FETCH_ARTIFACT_BYTES or total+announced_size>MAX_FETCH_CAPTURE_BYTES: raise TransportBoundaryError("announced capture exceeds cap")
+            if type(announced_token) is not str: raise TransportBoundaryError("stat file identity is malformed")
             fetch_op=_operation("FETCH_EXACT_FILE"); payload={"remote_relative_name":request.remote_relative_name,"expected_size_bytes":stat_result["size_bytes"],"expected_file_physical_token_base64":stat_result["file_physical_token_base64"]}; fetch_inv=_Invocation(operation=fetch_op,argv=(request.remote_relative_name,),cwd=binding.remote_workspace,request=_request(fetch_op.name,closed,payload),authority=authority)
             try: result=self._driver.invoke_fetch(snapshot,fetch_inv)
             except Exception: result=_FetchResult(status="transport-error")
             if not _is_fetch_result_closed(result) or result.status!="found": status="capture-interrupted"; break
             content=result.content; digest=sha256(content).hexdigest()
-            if result.before_identity!=result.after_identity or result.before_size!=len(content) or result.after_size!=len(content) or result.before_sha256!=digest or result.after_sha256!=digest: raise TransportBoundaryError("fetched source changed")
+            if result.before_identity!=announced_token or result.after_identity!=announced_token or result.before_size!=announced_size or result.after_size!=announced_size or result.before_size!=len(content) or result.before_sha256!=digest or result.after_sha256!=digest: raise TransportBoundaryError("fetched source changed")
             if len(content)>MAX_FETCH_ARTIFACT_BYTES or total+len(content)>MAX_FETCH_CAPTURE_BYTES: raise TransportBoundaryError("fetched capture exceeds cap")
             total+=len(content); artifacts.append(FetchedArtifact(request=request,content=content))
         if not artifacts: raise TransportBoundaryError("zero stable artifacts cannot create capture")

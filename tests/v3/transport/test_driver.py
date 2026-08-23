@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import base64
+from hashlib import sha256
 import os
 import unittest
 from unittest.mock import patch
 
 import auto_g16.transport as transport
 from auto_g16.transport._bridge import _build_rtwin_command
+from auto_g16.transport._canonical import canonical_json_bytes
 from auto_g16.transport._driver import (
     _MANIFEST_NAME,
+    _Invocation,
     _SubprocessRTWinDriver,
     _attest_local,
     _operation,
@@ -83,6 +87,36 @@ class ManifestAndCommandTests(TransportFixture):
 
 
 class DriverBoundaryTests(TransportFixture):
+    def test_fetch_response_must_match_exact_request_identity(self) -> None:
+        profile = self.profile()
+        snapshot, _ = self.transport_snapshot(profile=profile)
+        authority = _resolve_deployment_authority(snapshot, profile)
+        content = b"exact bytes"
+        result = {
+            "remote_relative_name":"input.log",
+            "size_bytes":len(content),
+            "sha256":sha256(content).hexdigest(),
+            "content_base64":base64.b64encode(content).decode("ascii"),
+            "file_physical_token_base64":"cmVzcG9uc2UtdG9rZW4=",
+            "eof":True,
+        }
+        envelope = canonical_json_bytes({"operation":"FETCH_EXACT_FILE", "protocol":"auto-g16-v3-rtwin-bootstrap/1", "result":result, "status":"ok"})
+        framed = b"AGV3" + len(envelope).to_bytes(8, "big") + envelope
+        invocation = _Invocation(
+            operation=_operation("FETCH_EXACT_FILE"),
+            argv=("input.log",),
+            cwd=snapshot.workspace_binding.remote_attempt_dir,
+            request={"payload":{
+                "remote_relative_name":"input.log",
+                "expected_size_bytes":len(content),
+                "expected_file_physical_token_base64":"cmVxdWVzdC10b2tlbg==",
+            }},
+            authority=authority,
+        )
+        driver = _SubprocessRTWinDriver()
+        with patch.object(driver, "_run", return_value=(framed,b"",0,"completed",True,True)):
+            self.assertEqual(driver.invoke_fetch(snapshot, invocation).status, "unstable")
+
     def test_stream_cap_is_enforced_during_read(self) -> None:
         class Process:
             def __init__(self) -> None:

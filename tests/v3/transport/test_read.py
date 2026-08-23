@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import base64
 from hashlib import sha256
 import unittest
 
 import auto_g16.transport as transport
 from auto_g16.transport._driver import _FetchResult, _TextResult
+from auto_g16.transport.models import MAX_FETCH_ARTIFACT_BYTES
 
 from ._fixtures import FakeDriver, TransportFixture, found, qstat, response
 
@@ -56,7 +56,7 @@ class ExactFetchTests(TransportFixture):
 
     @staticmethod
     def stat_present(name: str, content: bytes):
-        return response("STAT_EXACT_FILE", {"presence":"present", "remote_relative_name":name, "size_bytes":len(content), "file_physical_token_base64":base64.b64encode(f"token:{name}".encode()).decode("ascii")})
+        return response("STAT_EXACT_FILE", {"presence":"present", "remote_relative_name":name, "size_bytes":len(content), "file_physical_token_base64":"ZmlsZS10b2tlbi12MQ=="})
 
     def test_stable_complete_fetch_returns_bytes_only(self) -> None:
         snapshot, profile = self.transport_snapshot()
@@ -95,6 +95,31 @@ class ExactFetchTests(TransportFixture):
         content = b"Normal termination\n"
         unstable = _FetchResult(status="found", content=content, before_identity="one", after_identity="two", before_size=len(content), after_size=len(content), before_sha256=sha256(content).hexdigest(), after_sha256=sha256(content).hexdigest())
         driver = FakeDriver(text_results=(self.stat_present("input.log", content),), fetch_results=(unstable,))
+        with self.assertRaises(transport.TransportBoundaryError):
+            self.read_adapter(driver).fetch_exact_output(snapshot, binding, profile, input_binding_observation_id="input-observation-1", requests=(self.requests()[0],), capture_sequence=1)
+
+    def test_announced_oversize_rejects_before_fetch(self) -> None:
+        snapshot, profile = self.transport_snapshot()
+        binding = self.persisted_binding(snapshot, profile)
+        result = response("STAT_EXACT_FILE", {
+            "presence":"present",
+            "remote_relative_name":"input.log",
+            "size_bytes":MAX_FETCH_ARTIFACT_BYTES + 1,
+            "file_physical_token_base64":"ZmlsZS10b2tlbi12MQ==",
+        })
+        driver = FakeDriver(text_results=(result,))
+        with self.assertRaises(transport.TransportBoundaryError):
+            self.read_adapter(driver).fetch_exact_output(snapshot, binding, profile, input_binding_observation_id="input-observation-1", requests=(self.requests()[0],), capture_sequence=1)
+        self.assertEqual(driver.fetch_calls, [])
+
+    def test_fetch_identity_must_match_preceding_stat(self) -> None:
+        snapshot, profile = self.transport_snapshot()
+        binding = self.persisted_binding(snapshot, profile)
+        content = b"Normal termination\n"
+        driver = FakeDriver(
+            text_results=(self.stat_present("input.log", content),),
+            fetch_results=(found(content, identity="ZGlmZmVyZW50LXRva2Vu"),),
+        )
         with self.assertRaises(transport.TransportBoundaryError):
             self.read_adapter(driver).fetch_exact_output(snapshot, binding, profile, input_binding_observation_id="input-observation-1", requests=(self.requests()[0],), capture_sequence=1)
 
