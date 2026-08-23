@@ -450,3 +450,109 @@ unchanged. A complete synthetic composition test must prove the exact chain
 through `WINNER`, Observe, fetch, Result, ScientificValidation, ReviewBundle,
 and separate ScientificAcceptance while making no network, PBS, Gaussian, or
 other live call.
+
+## OD-18: Transport persists physical authority and starts from an explicit trust anchor
+
+Transport owns one independent append-only SQLite `TransportStore`. It is
+separate from Core and Execution persistence and is shared by the RTwin effect
+and read adapters. It durably binds the exact Attempt, ExecutionSnapshot,
+submission intent, logical remote Attempt workspace, opaque remote physical
+workspace token, staged artifact identities and physical tokens, and the later
+exact job/receipt association. Exact replay is idempotent; a conflicting
+identity or a second physical object for one logical binding fails closed.
+The store grants no Core transition, submission, retry, read, or scientific
+authority by itself.
+
+The store provides clone/replacement detection, not uncloneability. Creation
+uses one non-caller-selectable 32-byte OS-CSPRNG nonce and binds exact
+`transport_store_id` plus `store_instance_id` to the approved lexical root/
+path, physical database file identity, and ordered parent identity chain. Those
+IDs close every TransportStore record and public remote-job binding. The threat
+model excludes a malicious same-UID process, root/administrator, kernel or
+filesystem compromise, and compromised deployment/bootstrap authority; no
+ordinary SQLite/path contract can honestly defeat those actors.
+
+The trusted remote agent allocates a fresh workspace and returns its opaque
+physical token only after descriptor-relative, no-follow verification. Every
+later stage, qsub, qstat, reconciliation, and fetch supplies that persisted
+token; the agent reopens from its approved root and reattests every component
+descriptor-relatively before the operation. Each staged artifact similarly
+receives a post-write token which is reattested before qsub or fetch. A path
+check followed by an ordinary pathname mutation, an in-memory-only allocation
+set, or a token that disappears at process restart is not sufficient.
+
+The preinstalled `server_python` manifest root and remote OS/deployment boundary
+provide its pre-start trust. It neither authenticates itself nor proves its own
+pre-launch integrity. It accepts only the fixed protocol-owned bootstrap source
+and closed data-only operation vocabulary and may attest downstream protocol/
+runtime data after startup. Dynamic/caller source or agent upload, `eval`,
+`exec`, arbitrary module loading, or caller-selected operation is forbidden.
+This decision authorizes no deployment, credential authority, host-key change,
+or live operation.
+
+Executable trust comes from the exact approved deployment manifest: absolute
+path, platform, attestation mode, deployment identity, required digest/size,
+and the exact remote-shell grammar/null matrix. Runtime attestation then checks
+physical identity, regular/executable type, no-follow path, and deployment-owned
+permission conditions where its mode requires them. No PATH lookup, symlink,
+reparse point, or caller executable is accepted. Exact
+OS/deployment-trusted absolute-path execution is permitted; descriptor
+execution and a new native wrapper are not required. Transport performs strict
+prelaunch and practical postlaunch reattestation but does not claim to close
+TOCTOU against an excluded same-UID actor. Local/RTwin first-hop argv and any
+unavoidable POSIX command string use their exact frozen parser/quoting rules;
+caller shell text is never accepted. Every channel remains bounded and requires
+completion plus EOF. These rules do not change the WINNER seam, unchanged
+`ExecutionPort`/receipt APIs, RTwin-first selection, OpenSSH deferral, or the
+prohibitions on retry, qdel, deletion, cleanup, deployment, and live work.
+
+## OD-19: Deployment manifest closes the fixed bootstrap and remote-shell chain
+
+The canonical runtime content named exactly
+`transport-deployment-manifest-v1.json` is the final pre-start Transport trust
+authority inside the v3.0 threat model. Transport obtains those bytes only from
+the current `ServerProfile`, resolves that profile through the existing public
+Execution boundary, requires exact equality with the current
+`ExecutionSnapshot.resolved_server_profile`, and requires the manifest byte
+identity to equal the same fixed entry in `runtime_identities`. There is no
+second manifest input, alias, fallback, latest lookup, or global manifest. A
+byte change therefore requires a new resolved profile, snapshot, and exact
+operational confirmation without any Execution API/schema change.
+
+The manifest has one exact canonical JSON schema and exactly nine trust roots:
+Mac SSH/SCP, RTwin SSH/SCP, the configured RTwin remote shell, the configured
+server POSIX shell, server Python, qsub, and qstat. The remote shells are
+deployment roots because they necessarily interpret the first remote command;
+local `shell=False` removes only an additional local shell. The manifest chooses
+exactly `powershell-v1` or `cmd-v1` for RTwin and `posix-sh-v1` for the server;
+there is no detection or fallback. Under this nine-root model,
+`powershell-v1` owns the frozen hash/size/file launcher. `cmd-v1` has a frozen
+quoting grammar but is operationally incompatible and fails closed because the
+shell has no trusted SHA-256 primitive and adding one would create a tenth root.
+
+The exact trusted server Python may run one fixed source-controlled loader
+owned by bootstrap protocol `auto-g16-v3-rtwin-bootstrap/1`. That fixed source
+is not caller code: it reads one canonical length-bounded data packet and
+dispatches only the frozen operation enum. No arbitrary `RUN`, `EXEC`, `SHELL`,
+`PYTHON`, `SCRIPT`, module, callback, source, executable, or command is accepted.
+Each of the seven operations has one exact request binding/payload schema and
+one exact response result schema, including closed conditional cardinality for
+stat and reconciliation. The only authority-bearing response path is one
+bounded AGV3 frame on the nested process's stdout; bootstrap stderr is capped
+diagnostic-only and must be empty for an accepted response. Stage and fetch
+carry exact bytes as bounded canonical base64 in those frames. There is no
+unspecified binary side channel, stdout truncation, caller-selected status, or
+implementation-defined physical/job/result object.
+After deployment-trusted startup, server Python may detect drift in itself and
+attest the exact qsub/qstat paths before structured-argv execution, but none of
+those checks creates or proves its pre-start trust. Manifest authority answers
+which deployment components are trusted; `TransportStore` separately records
+which physical workspace/artifact/job objects were used and never becomes
+deployment authority.
+
+The fixed trust chain is Deployment/OS -> manifest -> configured remote shells
+and executables -> fixed bootstrap -> closed data protocol -> Transport
+mechanical evidence. It does not claim to defeat malicious root, a compromised
+OS/kernel or deployment authority, or a fully compromised same-UID controller.
+This decision preserves the WINNER seam, RTwin-first selection, OpenSSH
+deferral, no retry/qdel/delete/cleanup, and the no-live boundary.

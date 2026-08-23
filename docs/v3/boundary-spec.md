@@ -2502,10 +2502,8 @@ implementation.
 
 ## V30-EXEC-02-COMPOSITION-CONTRACT-01 RTwin-First Composition Contract
 
-**Contract status: FROZEN; IMPLEMENTATION NOT AUTHORIZED.** This exact
-authority content is eligible for integration only after its successor
-independent review is `PASS`; once present on authoritative main it is active
-without another wording change. This additive contract opens only the offline
+**Contract status: CLOSED / FROZEN / INTEGRATED.** The physical-authority trust
+closeout below is the active successor authority. This additive contract opens only the offline
 V30-EXEC-02 composition boundary. It does not alter any public Core, Approval, Workflow,
 Execution, Observe, Result, ScientificValidation, or Review API/schema. The new
 public package is `auto_g16.transport`, with future focused tests under
@@ -2551,10 +2549,12 @@ Owner authorization.
 
 ### Exact minimum Transport public inventory
 
-The future `auto_g16.transport` export set is exactly:
+The frozen `auto_g16.transport` export set for the successor implementation is
+exactly:
 
 ```text
 TransportBoundaryError
+TransportStore
 ExactRemoteJobBinding
 SchedulerReadEvidence
 ExactArtifactRequest
@@ -2565,14 +2565,18 @@ RTWinReadAdapter
 ```
 
 `TransportBoundaryError` inherits `ValueError` and owns malformed, stale,
-cross-Attempt, cross-snapshot, cross-receipt, unstable-read, and unsafe-path
-failures at this boundary. Public records are frozen, slotted, keyword-only,
-and deeply immutable. Public functions/classes accept no arbitrary command,
-shell fragment, callback, remote root, or caller-selected executable.
+cross-Attempt, cross-snapshot, cross-receipt, unstable-read, unsafe-path, and
+persistence-integrity failures at this boundary. `TransportStore` is the only
+public persistence owner added by the trust closeout below. Public records are
+frozen, slotted, keyword-only, and deeply immutable. Public functions/classes
+accept no arbitrary command, shell fragment, callback, remote root, or caller-
+selected executable.
 
-`ExactRemoteJobBinding` has exactly these six fields:
+`ExactRemoteJobBinding` has exactly these eight fields:
 
 ```text
+transport_store_id: str
+store_instance_id: str
 attempt_id: str
 execution_snapshot_id: str
 submission_intent_id: str
@@ -2590,6 +2594,7 @@ ExactRemoteJobBinding.from_persisted_receipt(
     *,
     remote_effect_receipt_id: str,
     current_profile: ServerProfile,
+    transport_store: TransportStore,
 ) -> ExactRemoteJobBinding
 ```
 
@@ -2605,7 +2610,11 @@ durable semantic payload fails closed. The selected receipt must be
 exactly match the snapshot's Attempt, snapshot ID, submission intent, remote
 Attempt workspace, and non-empty job ID. A transient or caller-created
 `RemoteEffectReceipt` is never an input and grants no read authority. The
-record has `init=False`; callers cannot construct it from strings alone.
+supplied `TransportStore` must also contain the unique exact job/receipt record
+and its linked workspace physical token frozen below. It copies
+`transport_store_id` and `store_instance_id` only from the attested singleton
+meta row and requires the same two IDs on every linked store record. The record
+has `init=False`; callers cannot construct it from strings alone.
 
 `ServerProfile` is existing public non-secret mutable configuration. Its
 public resolver already closes ordered config bytes, strict host-key policy,
@@ -2797,7 +2806,7 @@ The exact schema-v1 scheduler identity name array is:
  observed_at_utc, freshness, state, evidence_sha256, evidence_size_bytes]
 ```
 
-`binding_payload` is the exact six-key object named by the six
+`binding_payload` is the exact eight-key object named by the eight
 `ExactRemoteJobBinding` fields above. A request payload is the exact four-key
 object named by `ExactArtifactRequest`. Successful artifact metadata is the
 exact four-key object `{artifact_kind, logical_name, sha256, size_bytes}`
@@ -2828,7 +2837,9 @@ bytes. The exact schema-v1 capture identity name array is:
  capture_manifest_sha256, captured_at_utc]
 ```
 
-The normative fixture uses binding `{attempt_id: "attempt-1",
+The normative fixture uses binding `{transport_store_id:
+"108c8d43-2ea9-5658-9607-ade4cbbeac85", store_instance_id:
+"28c10d1a-9f8f-5ce6-84d1-555175c0fcde", attempt_id: "attempt-1",
 execution_snapshot_id: "snapshot-1", submission_intent_id: "intent-1",
 remote_effect_receipt_id: "receipt-1", remote_workspace:
 "/srv/p/attempt-1", job_id: "123.server"}`. For qstat stdout
@@ -2845,11 +2856,11 @@ Their SHA-256 is
 their stream-size field is `37`, and the scheduler name bytes are:
 
 ```text
-a8:s33:auto-g16-transport/scheduler-readi1;o6:s10:attempt_ids9:attempt-1s21:execution_snapshot_ids10:snapshot-1s6:job_ids10:123.servers24:remote_effect_receipt_ids9:receipt-1s16:remote_workspaces16:/srv/p/attempt-1s20:submission_intent_ids8:intent-1s27:2026-08-23T00:00:00.000000Zs5:freshs7:runnings64:664e69c9fa7687ddb0b54d38d11eafeff8a4b93d07fb7a97a51263ddf45191b5i37;
+a8:s33:auto-g16-transport/scheduler-readi1;o8:s10:attempt_ids9:attempt-1s21:execution_snapshot_ids10:snapshot-1s6:job_ids10:123.servers24:remote_effect_receipt_ids9:receipt-1s16:remote_workspaces16:/srv/p/attempt-1s17:store_instance_ids36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes20:submission_intent_ids8:intent-1s18:transport_store_ids36:108c8d43-2ea9-5658-9607-ade4cbbeac85s27:2026-08-23T00:00:00.000000Zs5:freshs7:runnings64:664e69c9fa7687ddb0b54d38d11eafeff8a4b93d07fb7a97a51263ddf45191b5i37;
 ```
 
 The scheduler source ID is
-`1a30e48e-fa53-5eb8-b186-cc7b4ea5f996`.
+`90232e65-d755-5ed7-8c65-0ca18c1f104b`.
 
 For one required `gaussian-log` request with logical/remote name `job.log`
 and immutable content `Normal termination\n` (SHA-256
@@ -2867,18 +2878,21 @@ At timestamp `2026-08-23T00:01:00.000000Z`, InputBinding observation
 are:
 
 ```text
-a12:s33:auto-g16-transport/output-capturei1;o6:s10:attempt_ids9:attempt-1s21:execution_snapshot_ids10:snapshot-1s6:job_ids10:123.servers24:remote_effect_receipt_ids9:receipt-1s16:remote_workspaces16:/srv/p/attempt-1s20:submission_intent_ids8:intent-1s19:input-observation-1i1;s8:captureds8:completea1:o4:s13:artifact_kinds12:gaussian-logs12:logical_names7:job.logs20:remote_relative_names7:job.logs8:requiredb1;a1:o4:s13:artifact_kinds12:gaussian-logs12:logical_names7:job.logs6:sha256s64:d66fc1aad228af405f4e1d2e5faaf681bd9db338e6810f82ef5a74f9a685c618s10:size_bytesi19;a0:s64:1636f90c920537ebc491e0c7a173377a66db2cef4c28d488d435dd537e43a25fs27:2026-08-23T00:01:00.000000Z
+a12:s33:auto-g16-transport/output-capturei1;o8:s10:attempt_ids9:attempt-1s21:execution_snapshot_ids10:snapshot-1s6:job_ids10:123.servers24:remote_effect_receipt_ids9:receipt-1s16:remote_workspaces16:/srv/p/attempt-1s17:store_instance_ids36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes20:submission_intent_ids8:intent-1s18:transport_store_ids36:108c8d43-2ea9-5658-9607-ade4cbbeac85s19:input-observation-1i1;s8:captureds8:completea1:o4:s13:artifact_kinds12:gaussian-logs12:logical_names7:job.logs20:remote_relative_names7:job.logs8:requiredb1;a1:o4:s13:artifact_kinds12:gaussian-logs12:logical_names7:job.logs6:sha256s64:d66fc1aad228af405f4e1d2e5faaf681bd9db338e6810f82ef5a74f9a685c618s10:size_bytesi19;a0:s64:1636f90c920537ebc491e0c7a173377a66db2cef4c28d488d435dd537e43a25fs27:2026-08-23T00:01:00.000000Z
 ```
 
 The capture source ID is
-`337f05ea-7f62-581b-b1bf-46af0914bd6c`. Exact replay keeps identity;
+`a7bc80d8-d7b0-59cc-b68e-617bce8b5168`. Exact replay keeps identity;
 any authority-semantic change changes identity; same ID with different payload
 fails closed. These evidence identities are audit/source bindings, never
 approval or effect authority.
 
-`RTWinExecutionAdapter()` and `RTWinReadAdapter()` have no public constructor
-arguments; creation is non-effectful, and package-private driver/clock seams
-may be replaced only by tests without entering the public API.
+The only public adapter constructors are
+`RTWinExecutionAdapter(*, transport_store: TransportStore,
+current_profile: ServerProfile)` and
+`RTWinReadAdapter(*, transport_store: TransportStore)`. Construction is
+non-effectful, and package-private driver/clock seams may be replaced only by
+tests without entering the public API.
 `RTWinExecutionAdapter` implements the unchanged public `ExecutionPort` and
 advertises adapter contract version `rtwin-pbs-v1`. It wraps only exact
 Attempt-specific allocate, exact-byte transfer, single qsub, and read-only
@@ -2906,54 +2920,66 @@ Both read methods call public `assert_execution_snapshot_identity(snapshot)`,
 require every binding field to equal that snapshot, resolve the supplied
 current public profile, and require complete resolved-profile semantic/ID/
 effective-digest equality before any driver call. The already-attested binding
-must have been created by `from_persisted_receipt(...)`; no receipt object or
-receipt payload is accepted here. A package-private convenience may receive a
+must have been created by `from_persisted_receipt(...)` using the same open
+`TransportStore`; no receipt object, receipt payload, physical token, or
+alternate store is accepted here. A package-private convenience may receive a
 journal plus receipt ID and invoke that same public constructor internally,
-but it cannot create a second public read signature or skip durable lookup.
+but it cannot create a second public read signature or skip either durable
+lookup.
 Construction/configuration is non-effectful and package-owned; public
 construction accepts no raw command or authority token. The read adapter cannot
 submit, cancel, delete, clean up, mutate Core, or resolve an ambiguous
 submission by itself.
 
-On the effect side, `RTWinExecutionAdapter` receives no additional config API:
-the existing public `execute_once(..., current_profile=..., port=...)` already
-calls `resolve_server_profile(current_profile)` and rejects drift before the
-Core claim/port seam. The adapter relies on that frozen public preflight plus
-the exact snapshot runtime bindings below; it does not read a global profile or
-reimplement Execution profile identity.
+On the effect side, `TransportStore` is persistence rather than configuration.
+The execution adapter retains the exact current public `ServerProfile` only so
+each port call can resolve it again, compare the complete resolved value with
+the supplied snapshot, and obtain the one fixed manifest runtime-content entry.
+It accepts no independent manifest bytes. The existing public
+`execute_once(..., current_profile=..., port=...)` preflight remains unchanged;
+the adapter repeats the same public profile closure before any driver call and
+does not read a global profile or reimplement Execution profile identity.
 
 ### Source-controlled RTwin operation construction
 
 The private operation table version is exactly
 `auto-g16-rtwin-operation-table/1`. Its immutable entries are:
 
-| operation | token | argv template | timeout seconds | stdout cap | stderr cap |
-| --- | --- | --- | ---: | ---: | ---: |
-| allocate | `mkdir-attempt` | `()` | 30 | 65536 | 65536 |
-| stage | `stage-exact-bytes` | `("{logical_name}", "{sha256}", "{size_bytes}")` | 900 | 65536 | 65536 |
-| qsub | `qsub` | `("{pbs_basename}",)` | 30 | 65536 | 65536 |
-| qstat | `qstat` | `("-f", "{job_id}")` | 30 | 262144 | 65536 |
-| fetch | `fetch-exact-bytes` | `("{remote_relative_name}",)` | 900 | 0 | 65536 |
+| operation | token | argv template | timeout seconds | stdin cap | stdout cap | stderr cap |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `ALLOCATE_WORKSPACE` | `allocate-workspace` | `()` | 30 | 65536 | 65536 | 65536 |
+| `STAGE_EXACT_FILE` | `stage-exact-file` | `("{logical_name}", "{sha256}", "{size_bytes}")` | 900 | 179306496 | 65536 | 65536 |
+| `SUBMIT_QSUB_ONCE` | `submit-qsub-once` | `("{pbs_basename}",)` | 30 | 65536 | 65536 | 65536 |
+| `QUERY_SCHEDULER` | `query-scheduler` | `("-f", "{job_id}")` | 30 | 65536 | 524288 | 65536 |
+| `STAT_EXACT_FILE` | `stat-exact-file` | `("{remote_relative_name}",)` | 30 | 65536 | 65536 | 65536 |
+| `FETCH_EXACT_FILE` | `fetch-exact-file` | `("{remote_relative_name}",)` | 900 | 65536 | 179306496 | 65536 |
+| `RECONCILE_SUBMISSION` | `reconcile-submission` | `()` | 30 | 65536 | 262144 | 65536 |
 
-Every operation has `shell=False`, no retry, exact cwd equal to the remote
-Attempt workspace, and environment exactly `LANG=C`, `LC_ALL=C`,
+Every operation has `shell=False` at the final server operation/executable
+seam, no retry, exact cwd equal to the remote Attempt workspace, and environment
+exactly `LANG=C`, `LC_ALL=C`,
 `PYTHONNOUSERSITE=1`, and `PYTHONUTF8=1`. The allocate operation is one fixed
 driver primitive that creates the fresh remote Attempt directory no-follow and
 treats the target workspace as its logical cwd; its argv is empty and it
 accepts no parent/root or command string. Stage runs exactly twice in prepared
 input then PBS-template order; each argv is
 `(<logical_name>, <lowercase_sha256>, <base10_size_bytes>)` and exact bytes
-travel on the bounded binary input channel. Qsub argv is exactly
+travel in the framed data packet. Qsub argv is exactly
 `(<one prepared PBS script basename>,)`; qstat argv is the exact tuple frozen
-above; fetch argv is exactly `(<one requested remote_relative_name>,)` for each
-request in authoritative order and returns content on its bounded binary result
-channel, never stdout or a local path. Operation tokens are executable names
-and are not repeated inside argv. All text operations require process
-completion and EOF within their caps; fetch additionally enforces the artifact
-and total-capture caps before returning. Any timeout, overflow, missing EOF,
-malformed completion, or possibly-effectful ambiguity fails closed under the
-existing Execution uncertainty rules. No operation token or argv fragment is
-caller supplied.
+above; stat/fetch argv is exactly `(<one requested remote_relative_name>,)` for
+each request in authoritative order. Reconciliation has no argv and consumes
+only the exact binding data packet. Operation tokens are enum data, not
+executable names or shell text. The `stdin_cap` and `stdout_cap` columns bound
+the complete outer AGV3 request and response frames respectively. The inner
+qstat raw stdout/stderr limits remain 262144/65536 bytes; their base64 fields
+fit the 524288-byte outer response cap. A fetch returns its exact raw bytes only
+as canonical base64 inside the one bounded stdout response frame described
+below, never through an unspecified side channel or a local path. Every
+operation requires process completion and EOF within all caps; fetch additionally
+enforces the raw artifact and total-capture caps before encoding. Any timeout,
+overflow, missing EOF, malformed completion, or possibly-effectful ambiguity
+fails closed under the existing Execution uncertainty rules. No operation
+token or argv fragment is caller supplied.
 
 Allocate, stage, and qsub substitute only values from the current
 identity-closed `ExecutionSnapshot`: exact remote Attempt workspace, the two
@@ -2962,13 +2988,16 @@ substitute only fields from `ExactRemoteJobBinding` plus the validated ordered
 `ExactArtifactRequest` tuple. The package-private driver accepts those typed
 records and byte channels, never a free path, command string, environment, or
 prebuilt argv.
+This table field does not deny the two explicitly modeled SSH remote shells;
+it forbids the fixed bootstrap from invoking another shell for an operation.
 
 Under the canonical grammar above, the complete table object contains keys
 `version`, `cwd_policy`, `shell`, `env`, `limits`, and `operations`; limits are
 exactly request count 4, per-artifact bytes 134217728, and total-capture bytes
-268435456; operations are the five table rows in displayed order. Its canonical
-byte size is `1040` and SHA-256 is
-`3502638017454526cdbfee01de47a543a9870c9c57697e4373732cb7909a71d1`.
+268435456; operations are the seven table rows in displayed order. Canonical
+table bytes use the manifest JSON rules below, including one trailing LF. Their
+byte size is `1490` and SHA-256 is
+`6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6`.
 The exact object shape used for that digest is:
 
 ```text
@@ -2982,52 +3011,325 @@ The exact object shape used for that digest is:
              "max_artifact_bytes": 134217728,
              "max_capture_bytes": 268435456},
   "operations": [
-    {"name": "allocate", "token": "mkdir-attempt", "argv_template": [],
-     "timeout_seconds": 30, "stdout_cap": 65536, "stderr_cap": 65536},
-    {"name": "stage", "token": "stage-exact-bytes",
-     "argv_template": ["{logical_name}", "{sha256}", "{size_bytes}"],
-     "timeout_seconds": 900, "stdout_cap": 65536, "stderr_cap": 65536},
-    {"name": "qsub", "token": "qsub",
-     "argv_template": ["{pbs_basename}"], "timeout_seconds": 30,
+    {"name": "ALLOCATE_WORKSPACE", "token": "allocate-workspace", "argv_template": [],
+     "timeout_seconds": 30, "stdin_cap": 65536,
      "stdout_cap": 65536, "stderr_cap": 65536},
-    {"name": "qstat", "token": "qstat",
+    {"name": "STAGE_EXACT_FILE", "token": "stage-exact-file",
+     "argv_template": ["{logical_name}", "{sha256}", "{size_bytes}"],
+     "timeout_seconds": 900, "stdin_cap": 179306496,
+     "stdout_cap": 65536, "stderr_cap": 65536},
+    {"name": "SUBMIT_QSUB_ONCE", "token": "submit-qsub-once",
+     "argv_template": ["{pbs_basename}"], "timeout_seconds": 30,
+     "stdin_cap": 65536,
+     "stdout_cap": 65536, "stderr_cap": 65536},
+    {"name": "QUERY_SCHEDULER", "token": "query-scheduler",
      "argv_template": ["-f", "{job_id}"], "timeout_seconds": 30,
-     "stdout_cap": 262144, "stderr_cap": 65536},
-    {"name": "fetch", "token": "fetch-exact-bytes",
+     "stdin_cap": 65536, "stdout_cap": 524288, "stderr_cap": 65536},
+    {"name": "STAT_EXACT_FILE", "token": "stat-exact-file",
      "argv_template": ["{remote_relative_name}"],
-     "timeout_seconds": 900, "stdout_cap": 0, "stderr_cap": 65536}
+     "timeout_seconds": 30, "stdin_cap": 65536,
+     "stdout_cap": 65536, "stderr_cap": 65536},
+    {"name": "FETCH_EXACT_FILE", "token": "fetch-exact-file",
+     "argv_template": ["{remote_relative_name}"],
+     "timeout_seconds": 900, "stdin_cap": 65536,
+     "stdout_cap": 179306496, "stderr_cap": 65536},
+    {"name": "RECONCILE_SUBMISSION", "token": "reconcile-submission",
+     "argv_template": [], "timeout_seconds": 30, "stdin_cap": 65536,
+     "stdout_cap": 262144, "stderr_cap": 65536}
   ]
 }
 ```
 
 The adapter accepts only an identity-closed current `ExecutionSnapshot` whose
-resolved profile selects `legacy_rtwin_pbs` and whose effect-relevant
-`platform_paths` contains these exact required Transport keys; Transport
-consults no other platform-path key: `rtwin_root`, `known_hosts`,
-`mac_ssh_executable`, `mac_scp_executable`, `rtwin_ssh_executable`,
-`rtwin_scp_executable`, `rtwin_bridge_executable`, `server_python_executable`,
-`server_qsub_executable`, and `server_qstat_executable`. The first two preserve
-their existing meanings; every executable value is an absolute canonical path
-to the implementation selected for the corresponding fixed token. The
-operation table bytes live under runtime-content name
-`auto-g16-rtwin-operation-table/1`; wrapper implementation bytes live under
-runtime-content name `rtwin-pbs-v1`; executable byte identities use names
-`mac-ssh`, `mac-scp`, `rtwin-ssh`, `rtwin-scp`, `rtwin-bridge`, `server-python`,
-`server-qsub`, and `server-qstat`. These exact runtime-content identities and
-the table digest/size must all appear in the snapshot's existing
-`runtime_identities` and are re-attested before an
-operation. The adapter calls public `assert_execution_snapshot_identity(...)`
-and relies on `resolved_server_profile.effective_config_sha256` for the
-already-closed SSH config/known-host content; it neither opens configuration
-files nor reads private profile internals.
+resolved profile selects `legacy_rtwin_pbs`. The fixed runtime-content names
+are exactly `transport-deployment-manifest-v1.json`,
+`auto-g16-rtwin-operation-table/1`, and
+`auto-g16-v3-rtwin-bootstrap-v1.py`; the latter is the one
+fixed bootstrap-source/bridge content owned by protocol
+`auto-g16-v3-rtwin-bootstrap/1`. Exact byte identities for all three must appear
+in the snapshot's existing `runtime_identities`. Executable and remote-shell
+paths come only from the manifest; Transport does not choose between those
+values and duplicate `platform_paths` values. Existing `rtwin_root` and
+`known_hosts` profile/config semantics remain bound by the resolved profile but
+are not an alternate manifest.
 
-These existing resolved profile mappings carry executable/configuration
-identity only, never argv fragments, shell text, mutable environment,
+The adapter calls public `assert_execution_snapshot_identity(...)`, obtains the
+exact manifest bytes only from the retained/current public `ServerProfile`,
+calls public `resolve_server_profile(...)`, and requires complete equality with
+the snapshot's resolved profile plus exact manifest `bytes_identity` equality
+with `runtime_identities["transport-deployment-manifest-v1.json"]`. Missing,
+renamed, duplicated-by-alias, or changed bytes reject before parsing or any
+driver call. It relies on `effective_config_sha256` for the already-closed SSH
+config/known-host content and neither opens configuration files nor reads
+private Execution internals.
+
+These existing resolved profile mappings carry configuration and exact runtime
+content identity only, never argv fragments, mutable environment,
 credential material, private keys, passwords, tokens, or secret contents.
 Host aliases and credential lookup remain driver-private and must match the
 attested resolved profile target/config identity; they are not evidence
 fields. If any table/runtime binding drifts, the adapter rejects before a port
 call. No Core or Execution schema/API change is implied.
+
+### Canonical deployment manifest
+
+The only manifest authority is the immutable bytes at
+`ServerProfile.runtime_contents["transport-deployment-manifest-v1.json"]`.
+Transport first resolves the current profile and closes it exactly against the
+snapshot as above; it then requires the manifest byte identity
+`{"sha256": lowercase_sha256, "size_bytes": positive_integer}` to equal that
+exact fixed `runtime_identities` entry. No manifest parameter, alias, fallback,
+ambient file, global singleton, latest/current lookup, or stored TransportStore
+row may replace those bytes.
+
+Manifest bytes are UTF-8 without BOM and are exactly one JSON object encoded by:
+
+```text
+json.dumps(
+    object,
+    ensure_ascii=False,
+    allow_nan=False,
+    separators=(",", ":"),
+    sort_keys=True,
+).encode("utf-8") + b"\n"
+```
+
+Parsing rejects duplicate keys, nonfinite numbers, invalid UTF-8, missing or
+extra LF, and any byte sequence unequal to canonical replay. The top-level keys
+are exactly `bootstrap_protocol`, `deployment_id`, `schema`, and
+`trust_roots`. Constants are exactly
+`auto-g16-v3-transport-deployment-manifest/1` and
+`auto-g16-v3-rtwin-bootstrap/1`; `deployment_id` is a non-empty canonical
+deployment-owned string, never ambiently discovered or generated per Attempt.
+It and every other manifest string reject NUL, CR, and LF.
+
+`trust_roots` has exactly `mac_ssh`, `mac_scp`, `rtwin_ssh`,
+`rtwin_scp`, `rtwin_remote_shell`, `server_remote_shell`,
+`server_python`, `server_qsub`, and `server_qstat`. Every value has exactly
+`attestation_mode`, `deployment_identity`, `expected_sha256`,
+`expected_size_bytes`, `path`, `platform`, and `shell_grammar`.
+`deployment_identity` is non-empty; paths are absolute and platform-native;
+platform is exactly `macos`, `windows`, or `posix`; a present digest is
+lowercase 64-hex; and a present size is a positive non-boolean integer.
+
+The exact per-name matrix is:
+
+| root | platform | attestation mode | digest/size | shell grammar |
+| --- | --- | --- | --- | --- |
+| `mac_ssh` | `macos` | `controller-file-v1` | required | null |
+| `mac_scp` | `macos` | `controller-file-v1` | required | null |
+| `rtwin_ssh` | `windows` | `rtwin-shell-file-v1` | required | null |
+| `rtwin_scp` | `windows` | `rtwin-shell-file-v1` | required | null |
+| `rtwin_remote_shell` | `windows` | `deployment-root-v1` | null | exactly `powershell-v1` or `cmd-v1` |
+| `server_remote_shell` | `posix` | `deployment-root-v1` | null | `posix-sh-v1` |
+| `server_python` | `posix` | `server-self-check-v1` | required | null |
+| `server_qsub` | `posix` | `server-python-file-v1` | required | null |
+| `server_qstat` | `posix` | `server-python-file-v1` | required | null |
+
+No tenth root, missing root, extra field, alternative mode, null outside the
+two shell rows, or grammar inference is valid. Shell rows are deployment trust
+roots and do not authenticate themselves before interpreting the first remote
+command. `server_python` likewise starts from deployment trust; its
+`server-self-check-v1` is post-start drift detection, not trust creation.
+
+The complete normative synthetic manifest is the following single line plus
+one LF:
+
+```json
+{"bootstrap_protocol":"auto-g16-v3-rtwin-bootstrap/1","deployment_id":"synthetic-rtwin-deployment-v1","schema":"auto-g16-v3-transport-deployment-manifest/1","trust_roots":{"mac_scp":{"attestation_mode":"controller-file-v1","deployment_identity":"synthetic-macos-openssh-9.8p1","expected_sha256":"2222222222222222222222222222222222222222222222222222222222222222","expected_size_bytes":1049600,"path":"/usr/bin/scp","platform":"macos","shell_grammar":null},"mac_ssh":{"attestation_mode":"controller-file-v1","deployment_identity":"synthetic-macos-openssh-9.8p1","expected_sha256":"1111111111111111111111111111111111111111111111111111111111111111","expected_size_bytes":1048576,"path":"/usr/bin/ssh","platform":"macos","shell_grammar":null},"rtwin_remote_shell":{"attestation_mode":"deployment-root-v1","deployment_identity":"synthetic-windows-powershell-5.1","expected_sha256":null,"expected_size_bytes":null,"path":"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe","platform":"windows","shell_grammar":"powershell-v1"},"rtwin_scp":{"attestation_mode":"rtwin-shell-file-v1","deployment_identity":"synthetic-windows-openssh-9.5p1","expected_sha256":"4444444444444444444444444444444444444444444444444444444444444444","expected_size_bytes":1110000,"path":"C:\\Windows\\System32\\OpenSSH\\scp.exe","platform":"windows","shell_grammar":null},"rtwin_ssh":{"attestation_mode":"rtwin-shell-file-v1","deployment_identity":"synthetic-windows-openssh-9.5p1","expected_sha256":"3333333333333333333333333333333333333333333333333333333333333333","expected_size_bytes":1100000,"path":"C:\\Windows\\System32\\OpenSSH\\ssh.exe","platform":"windows","shell_grammar":null},"server_python":{"attestation_mode":"server-self-check-v1","deployment_identity":"synthetic-server-python-3.13","expected_sha256":"5555555555555555555555555555555555555555555555555555555555555555","expected_size_bytes":1200000,"path":"/usr/bin/python3","platform":"posix","shell_grammar":null},"server_qstat":{"attestation_mode":"server-python-file-v1","deployment_identity":"synthetic-pbs-2024.1","expected_sha256":"7777777777777777777777777777777777777777777777777777777777777777","expected_size_bytes":140000,"path":"/usr/bin/qstat","platform":"posix","shell_grammar":null},"server_qsub":{"attestation_mode":"server-python-file-v1","deployment_identity":"synthetic-pbs-2024.1","expected_sha256":"6666666666666666666666666666666666666666666666666666666666666666","expected_size_bytes":130000,"path":"/usr/bin/qsub","platform":"posix","shell_grammar":null},"server_remote_shell":{"attestation_mode":"deployment-root-v1","deployment_identity":"synthetic-posix-sh-v1","expected_sha256":null,"expected_size_bytes":null,"path":"/bin/sh","platform":"posix","shell_grammar":"posix-sh-v1"}}}
+```
+
+Its exact byte count is `2753`, SHA-256 is
+`70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983a`,
+and its exact resolved-profile runtime identity is
+`{"sha256":
+"70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983a",
+"size_bytes": 2753}`. Tests construct a current `ServerProfile` with these
+exact bytes, call public `resolve_server_profile`, and require that exact
+mapping under the fixed logical name before and after snapshot construction.
+
+### Fixed bootstrap and remote-shell grammars
+
+The real trust chain is controller -> exact `mac_ssh` -> Windows OpenSSH
+server -> manifest-declared RTwin remote shell -> exact `rtwin_ssh` -> server
+OpenSSH server -> manifest-declared `posix-sh-v1` shell -> exact
+`server_python` -> exact qsub/qstat or descriptor-relative file operation.
+Local `shell=False` removes only an additional controller shell.
+The two OpenSSH server services are part of their host OS/deployment boundary,
+not caller-selected executables or extra runtime manifest roots; changing their
+deployment/security authority is outside this offline contract.
+
+`mac_ssh` and `mac_scp` are opened no-follow and compared with their
+manifest path, regular/executable type, size, digest, and deployment-owned
+permission conditions before absolute-path structured-argv launch. The
+deployment-trusted RTwin shell performs `rtwin-shell-file-v1` for RTwin
+SSH/SCP. For `powershell-v1`, manifest strings reject NUL/CR/LF and are
+single-quoted with each `'` replaced by `''`. One fixed script sets
+`ErrorActionPreference=Stop`, uses `Get-Item -LiteralPath` to reject
+containers/reparse links and compare exact length, then
+`Get-FileHash -LiteralPath ... -Algorithm SHA256` and ordinal-lowercase digest
+equality. It launches the exact path through
+`System.Diagnostics.ProcessStartInfo` with `UseShellExecute=false`; the
+`Arguments` string is produced only by the frozen Windows CRT encoder already
+specified below, and process completion/EOF remain bounded.
+
+`cmd-v1` recognizes only manifest/fixed-launcher tokens matching
+`[A-Za-z0-9_:.\\/ -]+`; its deterministic token encoder surrounds each token
+with `"` and rejects `"`, `%`, `!`, `^`, `&`, `|`, `<`, `>`,
+`(`, `)`, NUL, CR, or LF. The nine-root model intentionally contains no
+cmd builtin capable of exact SHA-256 verification of an arbitrary executable.
+Therefore a `cmd-v1` deployment parses deterministically but fails
+`rtwin-shell-file-v1` compatibility with zero RTwin child invocation. Adding
+PowerShell, certutil, a bridge, or another hasher would be a tenth trust root
+and requires a new Owner contract; Transport never falls back. This is the
+frozen meaning of “if the selected grammar cannot attest safely, fail closed.”
+
+The server shell is exactly `posix-sh-v1`. Its only token encoder is:
+
+```text
+quote(token) = "'" + token.replace("'", "'\"'\"'") + "'"
+command = " ".join(quote(token) for token in fixed_tokens)
+```
+
+NUL/CR/LF reject and an empty token becomes `''`. The one launcher is exact
+manifest `server_python` with fixed flags `-I -S -B -c` and the exact
+source-controlled `auto-g16-v3-rtwin-bootstrap-v1.py` runtime-content bytes.
+Changing that source
+semantically requires a new bootstrap protocol version. The source reads one
+request frame from stdin and writes one response frame to stdout. Both frames
+are ASCII magic `AGV3`, one unsigned 64-bit big-endian length, then exactly that
+many canonical JSON bytes containing one trailing LF, followed by EOF. The
+length counts the JSON bytes including that LF, not the 12-byte header. Request
+keys are exactly `binding`, `operation`, `payload`, and `protocol`; response
+keys are exactly `operation`, `protocol`, `result`, and `status`. Protocol is
+exactly `auto-g16-v3-rtwin-bootstrap/1`, response operation must echo the
+request enum, and every accepted response has status exactly `ok`. The table's
+`stdin_cap`/`stdout_cap` include the complete header and JSON bytes. There is
+one frame, one stdout response channel, and no second binary or authority
+channel. Bootstrap-process stderr is diagnostic-only, capped by the table, and
+must be empty for an accepted authority response; inner qstat stderr is data
+inside the response result. Diagnostics are never parsed as state, job, token,
+retry, or scientific authority. Extra frames/bytes, unknown keys/enum/status,
+noncanonical JSON, overflow, truncation, nonempty bootstrap stderr, or missing
+EOF rejects.
+
+Binary values use RFC 4648 standard base64 with required padding and canonical
+decode/re-encode equality. Tokens decode to `1..4096` bytes. Content decoded
+size and lowercase SHA-256 must equal the separately bound fields. Integers are
+non-boolean; sizes are non-negative and `effect_sequence` is positive, while
+`returncode` is a signed process integer. Every string obeys its frozen lexical
+rule. The exact per-operation request schemas are:
+
+| operation | exact `binding` keys | exact `payload` keys |
+| --- | --- | --- |
+| `ALLOCATE_WORKSPACE` | `transport_store_id`, `store_instance_id`, `runtime_attestation_id`, `attempt_id`, `execution_snapshot_id`, `submission_intent_id`, `remote_workspace` | none (`{}`) |
+| `STAGE_EXACT_FILE` | all allocation binding keys plus `workspace_authority_id`, `workspace_physical_token_base64` | `artifact_kind`, `logical_name`, `remote_relative_name`, `sha256`, `size_bytes`, `content_base64` |
+| `SUBMIT_QSUB_ONCE` | all stage binding keys plus `prepared_input_artifact_authority_id`, `prepared_input_artifact_physical_token_base64`, `pbs_template_artifact_authority_id`, `pbs_template_artifact_physical_token_base64` | `pbs_basename` |
+| `QUERY_SCHEDULER` | all stage binding keys plus `job_authority_id`, `receipt_binding_id`, `remote_effect_receipt_id`, `job_id` | `job_id` |
+| `STAT_EXACT_FILE` | all query binding keys | `remote_relative_name` |
+| `FETCH_EXACT_FILE` | all query binding keys | `remote_relative_name`, `expected_size_bytes`, `expected_file_physical_token_base64` |
+| `RECONCILE_SUBMISSION` | all qsub binding keys | `effect_sequence` |
+
+“All ... keys plus” is exact set union, never optional inheritance. For stage,
+`artifact_kind` is exactly `prepared-input` or `pbs-template`; the other fields
+equal the current snapshot artifact, and decoded content equals its exact
+prepared bytes. For qsub, the two artifact IDs/tokens are distinct, already
+persisted under the same workspace, and correspond respectively to those two
+kinds. Qstat payload `job_id` equals binding `job_id`. Stat/fetch use the one
+exact portable request component. Fetch expected size/token equal the
+immediately preceding same-binding stat result. Reconciliation binds the same
+workspace and two staged artifacts as qsub and the exact positive receipt
+sequence; it never takes a caller job ID.
+
+Field types/cardinality are closed as follows. Every `*_id` is one non-empty
+string copied exactly from the already identity-checked snapshot/store/receipt
+row named by that field; it is never discovered or recomputed remotely.
+`remote_workspace` is one absolute normalized POSIX path equal to the snapshot,
+while each basename/logical/relative name is one non-empty portable component
+under its existing grammar. Every `*_sha256` is one lowercase 64-hex string.
+Every `*_size_bytes` is one non-negative non-boolean integer; stage sizes also
+obey the snapshot's stricter prepared-artifact rule. `effect_sequence` is one
+positive non-boolean integer. `returncode` is one signed non-boolean integer.
+Every `*_base64` is one canonical string; content may decode to zero bytes only
+where the bound artifact permits it, while each physical token decodes to
+`1..4096` bytes. Every EOF member is the JSON boolean `true`. No field is null,
+repeated, optional, defaulted, or accepted under an alias except the two
+explicit conditional result schemas below.
+
+The exact successful response result schemas are:
+
+| operation | exact `result` keys and closed values |
+| --- | --- |
+| `ALLOCATE_WORKSPACE` | `remote_workspace`, `workspace_physical_token_base64`; workspace echoes the request and token is newly created by the trusted agent |
+| `STAGE_EXACT_FILE` | `artifact_kind`, `logical_name`, `remote_relative_name`, `sha256`, `size_bytes`, `artifact_physical_token_base64`; semantic fields echo the request and token is the post-write reattested object |
+| `SUBMIT_QSUB_ONCE` | `job_id`; one strict normalized PBS job ID |
+| `QUERY_SCHEDULER` | `stdout_base64`, `stderr_base64`, `returncode`, `eof_stdout`, `eof_stderr`, `completion_status`; EOF values are exactly `true`, completion is exactly `completed`, and decoded streams remain within 262144/65536 bytes |
+| `STAT_EXACT_FILE` | when present: `presence`, `remote_relative_name`, `size_bytes`, `file_physical_token_base64`, with presence `present`; when absent: only `presence`, `remote_relative_name`, with presence `absent` |
+| `FETCH_EXACT_FILE` | `remote_relative_name`, `size_bytes`, `sha256`, `content_base64`, `file_physical_token_base64`, `eof`; name/size/token echo the request, token is unchanged after read, digest covers decoded bytes, and `eof` is exactly `true` |
+| `RECONCILE_SUBMISSION` | `effect_state`, `job_id` for `confirmed_effect`; only `effect_state` for `confirmed_no_effect` or `possibly_effectful`; states are those exact strings and only confirmed effect carries one strict job ID |
+
+A protocol/operation failure returns no accepted authority frame. In
+particular, qsub timeout, lost response, malformed job ID, or any ambiguity is
+handled by Execution as possibly effectful/`UNKNOWN`; it is never converted to
+an alternate `ok` response or retried. Stat `absent` is a completed exact
+observation, not a transport failure. Query's raw nonzero return code remains
+data for the existing fixed classifier. Reconciliation does not turn
+`confirmed_no_effect` into same-Attempt resubmission authority.
+
+The maximum raw artifact is 134217728 bytes, so its canonical base64 is at most
+178956972 bytes. For stage/fetch the header and all fixed non-content JSON are
+bounded to at most 65536 bytes; their exact 179306496-byte outer cap therefore
+contains the largest legal frame without truncation. Qstat's two inner stream
+caps encode to at most 436912 base64 bytes and its 524288-byte outer cap covers
+the complete framed result. Other schemas fit their displayed caps. A cap is
+checked before allocation, while reading, and at EOF; no truncated response is
+ever accepted.
+
+The active identity fixture below supplies four normative canonical JSON
+vectors, each shown as its one line; counted bytes include the final LF. The
+allocate request is 420 bytes with SHA-256
+`a6b2fc01b61b6a338a488990c62de75e726cb1a8036fdb587786b7e99bbb805c`:
+
+```json
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"79d4b458-3057-5afe-9332-6aab3ed04976","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85"},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
+```
+
+Its response is 202 bytes with SHA-256
+`ae29cd3e8300a6b90441c431cef7a0d00786c9f5c676ea1a8be6bacdd95f660c`:
+
+```json
+{"operation":"ALLOCATE_WORKSPACE","protocol":"auto-g16-v3-rtwin-bootstrap/1","result":{"remote_workspace":"/srv/p/attempt-1","workspace_physical_token_base64":"d29ya3NwYWNlLXRva2VuLXYx"},"status":"ok"}
+```
+
+The fetch request is 844 bytes with SHA-256
+`0ffb3127106e686a90292322d0644d3ea9222549930eb0999461659e60fd9c3e`:
+
+```json
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","job_authority_id":"e04636fb-9f61-51d7-922a-136e0bc02f49","job_id":"123.server","receipt_binding_id":"ff072c6e-21b1-50d4-95b7-22d62287f2ef","remote_effect_receipt_id":"receipt-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"79d4b458-3057-5afe-9332-6aab3ed04976","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85","workspace_authority_id":"34827613-ea23-5b28-96d4-54b317c0e642","workspace_physical_token_base64":"d29ya3NwYWNlLXRva2VuLXYx"},"operation":"FETCH_EXACT_FILE","payload":{"expected_file_physical_token_base64":"YXJ0aWZhY3QtdG9rZW4tdjE=","expected_size_bytes":19,"remote_relative_name":"job.log"},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
+```
+
+Its response is 341 bytes with SHA-256
+`300f841ea40e23c6d03f668b3a5fc9e2fcd2478a20321f870fbe3022a0804e35`:
+
+```json
+{"operation":"FETCH_EXACT_FILE","protocol":"auto-g16-v3-rtwin-bootstrap/1","result":{"content_base64":"Tm9ybWFsIHRlcm1pbmF0aW9uCg==","eof":true,"file_physical_token_base64":"YXJ0aWZhY3QtdG9rZW4tdjE=","remote_relative_name":"job.log","sha256":"d66fc1aad228af405f4e1d2e5faaf681bd9db338e6810f82ef5a74f9a685c618","size_bytes":19},"status":"ok"}
+```
+
+Tests replay all four vectors and reject a missing/extra binding, payload,
+result, or top-level key; wrong echoed operation/protocol/status; an illegal
+conditional result shape; noncanonical/badly padded base64; a boolean integer;
+size/digest/token/EOF mismatch; extra/multiple stdout frames; authority data on
+stderr; stdout/stderr/request cap overflow; missing EOF; and fetch bytes that
+do not reproduce the exact original content. Thus variable artifact bytes are
+closed data, never Python or shell source.
+
+The fixed loader accepts no module name, import path, callback, executable,
+argv, source, script, shell fragment, or generic `RUN`, `EXEC`, `SHELL`,
+`PYTHON`, or `SCRIPT` operation. After deployment-trusted startup,
+`server_python` may compare its own path/size/digest to the manifest to detect
+drift and may open/stat/hash exact qsub/qstat paths before structured-argv
+launch. None of those post-start checks proves the manifest, remote shell,
+server OpenSSH service, OS, or deployment boundary.
 
 ### Observe, Result, and full synthetic composition
 
@@ -3086,29 +3388,601 @@ outside this contract.
 
 - **PORT:** existing public `ExecutionPort`, `execute_once`, snapshot identity
   verifier, `RemoteEffectReceipt`, Observe records/services, Result provenance
-  records/services, `GaussianJobParser`, ScientificValidation, and Review APIs.
+  records/services, `GaussianJobParser`, ScientificValidation, Review APIs,
+  public `resolve_server_profile`, and existing `runtime_contents` ->
+  `runtime_identities` byte binding.
 - **EXTRACT:** strict qstat present/absent/unknown classification, finite timeout
-  and stable-read rules, descriptor/no-follow exact-copy checks, and adjacent
+  and stable-read rules, append-only SQLite/schema-attestation patterns,
+  descriptor-relative/no-follow exact-copy and file-identity checks,
+  duplicate-key/canonical-JSON checks, fixed PowerShell/CRT/POSIX quoting
+  encoders, and adjacent
   adversarial tests from the reviewed RTwin/direct implementations.
 - **WRAP:** the existing `legacy_rtwin_pbs` RTwin/PBS running path behind
   `RTWinExecutionAdapter` and `RTWinReadAdapter`; its internal dictionaries and
   commands are not the new public ABI or authority.
-- **REWRITE:** typed transport records, exact snapshot/receipt wrappers, and
-  Result-compatible capture mapping. Existing code mixes CLI parsing, mutable
-  dictionaries, legacy project-level state, and owner/capability governance, so
-  directly porting it would preserve the wrong authority and API.
+- **REWRITE:** typed transport records, `TransportStore`, store-instance and
+  physical-token binding, closed data-only remote protocol glue, exact
+  profile-bound nine-root manifest validation, the fixed remote-shell/bootstrap
+  command chain, exact snapshot/receipt wrappers, and Result-compatible capture
+  mapping. Existing
+  code mixes CLI parsing, dynamic command/source behavior, mutable dictionaries,
+  legacy project-level state, and owner/capability governance, so directly
+  porting it would preserve the wrong authority, trust model, and API.
 - **DROP:** legacy owner/receipt/capability/hash-lineage authority, non-empty
   project as a v3 rule, qdel/cancellation, deletion/cleanup, implicit latest
-  discovery, parser/scientific policy, and automatic retry.
+  discovery, the superseded independent executable inventory/manifest input,
+  bootstrap self-attestation, dynamic remote agent execution,
+  parser/scientific policy, and automatic retry.
 - **DEFER:** OpenSSH, process and Gaussian-phase acquisition, checkpoint fetch,
-  rich telemetry/stall diagnosis, deployment, credentials, production smoke,
-  and every live operation.
+  native executable wrapper, rich telemetry/stall diagnosis, deployment,
+  credentials, production smoke, and every live operation.
 
-Before Transport implementation, a separate `V30-VAL-TRANSPORT-01` must add
-change-aware ownership for `auto_g16/transport/**` and
-`tests/v3/transport/**`. Until then those paths remain intentionally
-fail-closed. This contract candidate stops after independent adversarial
-review and publication gates; it grants no implementation or live authority.
+`V30-VAL-TRANSPORT-01` is integrated and owns `auto_g16/transport/**` and
+`tests/v3/transport/**` through `affected / fail_closed=false`. The composition
+contract grants no live authority.
+
+## V30-TRANSPORT-BOOTSTRAP-CHAIN-03 Physical and Bootstrap Authority Closeout
+
+**Contract status: FROZEN CANDIDATE; IMPLEMENTATION NOT AUTHORIZED BY THIS
+DOCUMENT.** This additive closeout preserves the physical-authority decisions
+and resolves the bootstrap/deployment trust-chain findings without changing
+Core, Execution, receipt, Approval, Workflow,
+Observe, Result, ScientificValidation, or Review APIs/schemas. When this exact
+authority content is present on authoritative main after independent review,
+the task is `CLOSED / FROZEN / INTEGRATED` and the successor offline Transport
+implementation is gate-eligible. `V30-VAL-TRANSPORT-01` is already integrated;
+Transport product paths use `affected / fail_closed=false` validation.
+Commits `798d3559d7c5ee6211a0b29977310f8adb871a5f`,
+`e49136e23c564cc9e0d9d97b905e43c45db73adc`, and
+`44db04180af8222c6e4619accfab0049e89bd3e0` remain immutable failed evidence.
+The last lacked exact per-operation request/response schemas and a realizable
+single fetch response channel; this successor closes that remaining bootstrap
+protocol defect class.
+
+### Public surface and ownership
+
+The exact Transport export inventory above expands from eight symbols to nine
+by adding `TransportStore`; the not-yet-integrated Transport
+`ExactRemoteJobBinding` expands only by its two store identity fields. No
+already-integrated upstream public record changes. The store's exact public
+lifecycle is:
+
+```text
+TransportStore.create_new(
+    path: str | os.PathLike[str],
+    *,
+    approved_root: str | os.PathLike[str],
+) -> TransportStore
+TransportStore.open_existing(
+    path: str | os.PathLike[str],
+    *,
+    approved_root: str | os.PathLike[str],
+) -> TransportStore
+TransportStore.close() -> None
+```
+
+There is no public generic `put`, SQL, token, transaction, migration, delete,
+or authority-query method. Package-private adapter methods append and replay
+the exact rows below. `RTWinExecutionAdapter` and `RTWinReadAdapter` each
+require one `transport_store: TransportStore` keyword argument and must share
+the same durable database for one Attempt. An already-closed store, wrong store
+schema/identity, or store swap fails before any driver call.
+
+`TransportStore` is owned entirely by `auto_g16.transport`. It is independent
+of the Core SQLite store and Execution `ReceiptJournal`; it adds no table,
+migration, or method to either owner. It persists physical operation evidence
+only. A valid row cannot claim Core `WINNER`, confirm an effect, authorize a
+read, create a receipt, resolve `UNKNOWN`, retry, cancel, delete, or grant
+scientific authority.
+
+### Exact threat model
+
+This closeout detects accidental or unprivileged copy, alias, replacement,
+path/root drift, stale reopen, and cross-store evidence splicing. It provides
+store-instance binding and clone/replacement detection within that model; it
+does **not** claim cryptographic uncloneability or protection from a malicious
+same-UID process, root/administrator, kernel/filesystem compromise, or a
+compromised deployment/bootstrap trust root. Those actors can copy database
+bytes, forge ordinary filesystem metadata, replace trusted executables, or
+interfere after an OS path check. Such compromise is outside this offline
+product boundary and requires host/deployment/security authority, not a hidden
+Transport capability scheme.
+
+Within the model, create-new obtains a non-caller-selectable 32-byte nonce from
+the operating-system CSPRNG exactly once, persists it before returning the
+store, and never regenerates it on reopen. Store instance evidence also closes
+the physical database file identity, approved lexical store path/root, and the
+ordered physical identity chain from approved root through the database parent.
+This is the strongest supported local clone/replacement evidence, not a promise
+against an excluded actor that can control the same UID or kernel.
+
+### Exact SQLite schema-v1
+
+The database uses `PRAGMA application_id = 1093879636` (`A3GT`),
+`user_version = 1`,
+`foreign_keys = ON`, `trusted_schema = OFF`, and `synchronous = FULL`.
+Its application objects are exactly these six tables plus package-owned
+BEFORE-UPDATE and BEFORE-DELETE abort triggers for every table:
+
+```text
+transport_meta(
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  schema_identity BLOB NOT NULL,
+  transport_store_id TEXT NOT NULL UNIQUE,
+  store_instance_id TEXT NOT NULL UNIQUE,
+  creation_nonce BLOB NOT NULL CHECK(length(creation_nonce) = 32),
+  approved_store_root TEXT NOT NULL,
+  approved_store_path TEXT NOT NULL,
+  store_file_identity BLOB NOT NULL,
+  parent_identity_chain BLOB NOT NULL
+)
+
+transport_runtime_attestation(
+  runtime_attestation_id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  transport_store_id TEXT NOT NULL,
+  store_instance_id TEXT NOT NULL,
+  execution_snapshot_id TEXT NOT NULL,
+  resolved_server_profile_id TEXT NOT NULL,
+  effective_config_sha256 TEXT NOT NULL,
+  deployment_manifest_name TEXT NOT NULL,
+  deployment_manifest_sha256 TEXT NOT NULL,
+  deployment_manifest_size_bytes INTEGER NOT NULL,
+  deployment_id TEXT NOT NULL,
+  bootstrap_protocol TEXT NOT NULL,
+  operation_table_sha256 TEXT NOT NULL,
+  operation_table_size_bytes INTEGER NOT NULL,
+  bootstrap_source_name TEXT NOT NULL,
+  bootstrap_source_sha256 TEXT NOT NULL,
+  bootstrap_source_size_bytes INTEGER NOT NULL,
+  payload BLOB NOT NULL
+)
+
+transport_workspace_authority(
+  workspace_authority_id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  transport_store_id TEXT NOT NULL,
+  store_instance_id TEXT NOT NULL,
+  runtime_attestation_id TEXT NOT NULL
+    REFERENCES transport_runtime_attestation(runtime_attestation_id),
+  attempt_id TEXT NOT NULL,
+  execution_snapshot_id TEXT NOT NULL,
+  submission_intent_id TEXT NOT NULL,
+  remote_workspace TEXT NOT NULL,
+  workspace_physical_token BLOB NOT NULL,
+  payload BLOB NOT NULL,
+  UNIQUE(attempt_id, execution_snapshot_id, submission_intent_id,
+         remote_workspace)
+)
+
+transport_artifact_authority(
+  artifact_authority_id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  transport_store_id TEXT NOT NULL,
+  store_instance_id TEXT NOT NULL,
+  workspace_authority_id TEXT NOT NULL
+    REFERENCES transport_workspace_authority(workspace_authority_id),
+  runtime_attestation_id TEXT NOT NULL
+    REFERENCES transport_runtime_attestation(runtime_attestation_id),
+  attempt_id TEXT NOT NULL,
+  execution_snapshot_id TEXT NOT NULL,
+  submission_intent_id TEXT NOT NULL,
+  artifact_kind TEXT NOT NULL,
+  logical_name TEXT NOT NULL,
+  remote_relative_name TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  artifact_physical_token BLOB NOT NULL,
+  payload BLOB NOT NULL,
+  UNIQUE(workspace_authority_id, artifact_kind, logical_name),
+  UNIQUE(workspace_authority_id, remote_relative_name)
+)
+
+transport_job_authority(
+  job_authority_id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  transport_store_id TEXT NOT NULL,
+  store_instance_id TEXT NOT NULL,
+  workspace_authority_id TEXT NOT NULL UNIQUE
+    REFERENCES transport_workspace_authority(workspace_authority_id),
+  runtime_attestation_id TEXT NOT NULL
+    REFERENCES transport_runtime_attestation(runtime_attestation_id),
+  attempt_id TEXT NOT NULL,
+  execution_snapshot_id TEXT NOT NULL,
+  submission_intent_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  payload BLOB NOT NULL
+)
+
+transport_receipt_binding(
+  receipt_binding_id TEXT PRIMARY KEY,
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  transport_store_id TEXT NOT NULL,
+  store_instance_id TEXT NOT NULL,
+  job_authority_id TEXT NOT NULL UNIQUE
+    REFERENCES transport_job_authority(job_authority_id),
+  workspace_authority_id TEXT NOT NULL
+    REFERENCES transport_workspace_authority(workspace_authority_id),
+  attempt_id TEXT NOT NULL,
+  execution_snapshot_id TEXT NOT NULL,
+  submission_intent_id TEXT NOT NULL,
+  remote_effect_receipt_id TEXT NOT NULL UNIQUE,
+  job_id TEXT NOT NULL,
+  payload BLOB NOT NULL
+)
+```
+
+The exact append-only trigger names are
+`transport_meta_no_update`, `transport_meta_no_delete`,
+`transport_runtime_attestation_no_update`,
+`transport_runtime_attestation_no_delete`,
+`transport_workspace_authority_no_update`,
+`transport_workspace_authority_no_delete`,
+`transport_artifact_authority_no_update`,
+`transport_artifact_authority_no_delete`,
+`transport_job_authority_no_update`, `transport_job_authority_no_delete`,
+`transport_receipt_binding_no_update`, and
+`transport_receipt_binding_no_delete`; each executes `RAISE(ABORT, ...)` before
+its named operation. `transport_meta` has exactly one `singleton = 1` row.
+`schema_identity` binds the ordered SQL object inventory and schema-v1 DDL;
+the remaining exact fields bind the logical store, one physical instance, its
+one-time nonce, approved lexical root/path, file identity, and ordered parent
+identity chain. Every evidence row repeats exact `transport_store_id` and
+`store_instance_id`; a cross-store row rejects even if every other field and
+payload byte is copied. Every foreign identity is
+replayed in application code and by foreign keys where applicable. On every
+open, the store attests application/user versions, the exact meta row, every
+table/column/index/foreign-key/trigger definition, and rejects unexpected
+application objects, missing append-only triggers, malformed rows, identity
+drift, natural-key conflicts, or foreign-binding mismatch. Every adapter read
+or append repeats schema/meta attestation inside one `BEGIN IMMEDIATE`
+transaction before using rows; it never relies only on the constructor-time
+check or an unlocked check-then-use interval.
+
+Each runtime row requires manifest name exactly
+`transport-deployment-manifest-v1.json`, bootstrap protocol exactly
+`auto-g16-v3-rtwin-bootstrap/1`, and manifest digest/size/deployment ID exactly
+from canonical bytes already closed against the current snapshot. Its operation
+table and bootstrap-source identities equal the two other fixed runtime-content
+entries. No row supplies or overrides manifest bytes; it only records the
+already-validated deployment/profile identity for cross-profile replay checks.
+
+The caller supplies both one path and its independently deployment-approved
+local store root; the persisted root cannot approve itself on reopen. Transport
+normalizes both to absolute lexical paths without `resolve()` or `realpath()`,
+requires the path to be a strict descendant of that root, opens the approved
+root descriptor, and walks the relative parent chain descriptor-relative and
+no-follow. Every component must be an expected directory; symlink/reparse,
+root escape, replacement, or chain mismatch rejects.
+The ordered parent identities are captured from held descriptors. An existing
+terminal symlink or non-regular file rejects. Create-new uses no-follow
+`O_CREAT | O_EXCL`; reopen records the terminal file identity before SQLite
+open and reattests the same lexical file and parent chain immediately after
+open. No pathname fallback, overwrite, replacement, or migration is allowed.
+The strongest practical pre/post SQLite transaction check reattests approved
+root, parent chain, path, regular-file type, and file identity before and after
+every transaction. Exact reopen remains durable and idempotent within the
+threat model. This does not claim an atomic path/SQLite capability or eliminate
+TOCTOU against an excluded malicious same-UID/root/kernel actor.
+
+### Store identity and replay
+
+Store identities reuse the frozen Transport namespace root
+`6e54140f-f4e7-5482-a6c1-8f5729e3c112`, canonical tagged encoding, and
+`uuid5(domain_namespace, canonical_bytes.decode("ascii"))`. New domain
+namespaces are exactly:
+
+```text
+transport-store     -> 08b51475-e12f-5c8a-9c29-ac1a50c4778d
+store-instance      -> 10b04ccd-414d-502e-a23b-8347087797fd
+runtime-attestation -> 4fd2e62a-471b-5cdf-a41c-c73cd15df6be
+workspace-physical  -> cf5d20c0-dcf7-5017-b550-a4b86d2e2315
+artifact-physical   -> 1bb613c9-3d29-584e-a061-ba3bf03589b5
+job-physical        -> d82d6457-637e-5262-8741-d721d2b5057f
+receipt-binding     -> 26685dd2-091e-5476-9556-1b6416d6a200
+```
+
+`creation_nonce` is exactly 32 raw bytes. The canonical POSIX physical file
+identity is `['posix-file', st_dev, st_ino, 'regular']`. Each canonical parent
+entry is `[absolute_lexical_component_path, st_dev, st_ino, 'directory']`;
+`parent_identity_chain` is the ordered non-empty array beginning with the
+approved root and ending with the database's direct parent. Equivalent Windows
+implementation uses `['windows-file', volume_serial_number,
+file_id_128_hex, 'regular']` and parent entries with `directory`; reparse points
+reject. One store uses exactly one platform form and cannot change form on
+reopen.
+
+The complete schema-v1 identity-name arrays are exactly:
+
+```text
+["auto-g16-transport/store", 1,
+ approved_store_root, approved_store_path]
+
+["auto-g16-transport/store-instance", 1,
+ transport_store_id, creation_nonce, approved_store_root,
+ approved_store_path, store_file_identity, parent_identity_chain]
+
+["auto-g16-transport/runtime-attestation", 1,
+ transport_store_id, store_instance_id,
+ execution_snapshot_id, resolved_server_profile_id,
+ effective_config_sha256, deployment_manifest_name,
+ deployment_manifest_sha256, deployment_manifest_size_bytes,
+ deployment_id, bootstrap_protocol, operation_table_sha256,
+ operation_table_size_bytes, bootstrap_source_name, bootstrap_source_sha256,
+ bootstrap_source_size_bytes]
+
+["auto-g16-transport/workspace-physical", 1,
+ transport_store_id, store_instance_id,
+ runtime_attestation_id, attempt_id, execution_snapshot_id,
+ submission_intent_id, remote_workspace, workspace_physical_token]
+
+["auto-g16-transport/artifact-physical", 1,
+ transport_store_id, store_instance_id,
+ workspace_authority_id, runtime_attestation_id, attempt_id,
+ execution_snapshot_id, submission_intent_id, artifact_kind, logical_name,
+ remote_relative_name, sha256, size_bytes, artifact_physical_token]
+
+["auto-g16-transport/job-physical", 1,
+ transport_store_id, store_instance_id,
+ workspace_authority_id, runtime_attestation_id, attempt_id,
+ execution_snapshot_id, submission_intent_id, job_id]
+
+["auto-g16-transport/receipt-binding", 1,
+ transport_store_id, store_instance_id,
+ job_authority_id, workspace_authority_id, attempt_id,
+ execution_snapshot_id, submission_intent_id,
+ remote_effect_receipt_id, job_id]
+```
+
+`transport_store_id` is the deterministic logical identity of one approved
+root/path pair. `store_instance_id` is the identity of one creation at that
+pair and binds the one-time nonce plus then-current physical file/parent chain.
+A byte-for-byte database clone at another path, another file identity, or
+another parent chain cannot satisfy both IDs within the threat model. Reopen at
+the same approved path and physical identity preserves both IDs. Neither ID is
+a secret or an unforgeable capability.
+
+The normative store fixture uses approved root
+`/var/lib/auto-g16/transport`, approved path
+`/var/lib/auto-g16/transport/store.sqlite3`, nonce bytes
+`000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f`,
+file identity `['posix-file', 42, 9001, 'regular']`, and parent chain
+`[['/var/lib/auto-g16/transport', 42, 8001, 'directory']]`. That nonce is a
+deterministic test fixture only; production creation must use the OS CSPRNG.
+The exact canonical bytes and UUIDs are:
+
+```text
+transport-store bytes:
+a4:s24:auto-g16-transport/storei1;s27:/var/lib/auto-g16/transports41:/var/lib/auto-g16/transport/store.sqlite3
+transport_store_id:
+108c8d43-2ea9-5658-9607-ade4cbbeac85
+
+store-instance bytes:
+a8:s33:auto-g16-transport/store-instancei1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85y32:000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1fs27:/var/lib/auto-g16/transports41:/var/lib/auto-g16/transport/store.sqlite3a4:s10:posix-filei42;i9001;s7:regulara1:a4:s27:/var/lib/auto-g16/transporti42;i8001;s9:directory
+store_instance_id:
+28c10d1a-9f8f-5ce6-84d1-555175c0fcde
+```
+
+The following superseded identity-codec fixture is retained only as readable
+negative evidence from failed candidate `e49136e23c564cc9e0d9d97b905e43c45db73adc`.
+It uses `snapshot-1`, `profile-1`,
+`attempt-1`, `intent-1`, remote workspace `/srv/p/attempt-1`, job
+`123.server`, receipt `receipt-1`, workspace token `workspace-token-v1`, and
+prepared-input token `artifact-token-v1`. Its fixed nested raw-byte executable
+payload preserves the earlier codec vector with digest
+`4e31987b253d5d9edb353074f91ad39c0544f5f18ec8571da45af457faa85451`.
+It is not current authority or deployment-manifest evidence; the semantic
+manifest validator must reject that abbreviated four-field payload and its
+dependent IDs. The superseded bytes were:
+
+```text
+superseded runtime-attestation bytes:
+a13:s38:auto-g16-transport/runtime-attestationi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes10:snapshot-1s9:profile-1s64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas64:3502638017454526cdbfee01de47a543a9870c9c57697e4373732cb7909a71d1i1040;s64:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbi2048;y889:61333a7334303a6175746f2d6731362d7472616e73706f72742f65786563757461626c652d6964656e74697469657369313b61383a61343a73373a6d61632d7373687331303a2f782f6d61632d7373687336343a6363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636369313b61343a73373a6d61632d7363707331303a2f782f6d61632d7363707336343a6363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636369323b61343a73393a727477696e2d7373687331323a2f782f727477696e2d7373687336343a6363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636369333b61343a73393a727477696e2d7363707331323a2f782f727477696e2d7363707336343a6363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636369343b61343a7331323a727477696e2d6272696467657331353a2f782f727477696e2d6272696467657336343a6363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636369353b61343a7331333a7365727665722d707974686f6e7331363a2f782f7365727665722d707974686f6e7336343a6363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636369363b61343a7331313a7365727665722d717375627331343a2f782f7365727665722d717375627336343a6363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636369373b61343a7331323a7365727665722d71737461747331353a2f782f7365727665722d71737461747336343a6363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636369383bs64:4e31987b253d5d9edb353074f91ad39c0544f5f18ec8571da45af457faa85451
+superseded runtime_attestation_id:
+d497b2fa-c567-5c44-bb49-1ec01586d4cd
+
+superseded workspace-physical bytes:
+a10:s37:auto-g16-transport/workspace-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:d497b2fa-c567-5c44-bb49-1ec01586d4cds9:attempt-1s10:snapshot-1s8:intent-1s16:/srv/p/attempt-1y18:776f726b73706163652d746f6b656e2d7631
+superseded workspace_authority_id:
+8bc410b7-b0ed-5050-bc53-b75126610f45
+
+superseded artifact-physical bytes:
+a15:s36:auto-g16-transport/artifact-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:8bc410b7-b0ed-5050-bc53-b75126610f45s36:d497b2fa-c567-5c44-bb49-1ec01586d4cds9:attempt-1s10:snapshot-1s8:intent-1s14:prepared-inputs7:job.gjfs7:job.gjfs64:ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddi123;y17:61727469666163742d746f6b656e2d7631
+superseded artifact_authority_id:
+c140b8e0-93e2-566d-b1c6-d0e6b0d86522
+
+superseded job-physical bytes:
+a10:s31:auto-g16-transport/job-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:8bc410b7-b0ed-5050-bc53-b75126610f45s36:d497b2fa-c567-5c44-bb49-1ec01586d4cds9:attempt-1s10:snapshot-1s8:intent-1s10:123.server
+superseded job_authority_id:
+12ae30ec-eaa5-516f-9967-4a4987b86f9d
+
+superseded receipt-binding bytes:
+a11:s34:auto-g16-transport/receipt-bindingi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:12ae30ec-eaa5-516f-9967-4a4987b86f9ds36:8bc410b7-b0ed-5050-bc53-b75126610f45s9:attempt-1s10:snapshot-1s8:intent-1s9:receipt-1s10:123.server
+superseded receipt_binding_id:
+3e51a223-b74b-5f9a-946d-3c4e0b419a39
+```
+
+The active complete-manifest fixture uses the normative manifest identity
+above, operation-table digest/size above, bootstrap-source name
+`auto-g16-v3-rtwin-bootstrap-v1.py`, digest `b` repeated
+64 times and size `2048`, effective-config digest `a` repeated 64 times, and
+the same remaining literal inputs. Its exact current canonical vectors are:
+
+```text
+runtime-attestation bytes:
+a17:s38:auto-g16-transport/runtime-attestationi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes10:snapshot-1s9:profile-1s64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas37:transport-deployment-manifest-v1.jsons64:70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983ai2753;s29:synthetic-rtwin-deployment-v1s29:auto-g16-v3-rtwin-bootstrap/1s64:6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6i1490;s33:auto-g16-v3-rtwin-bootstrap-v1.pys64:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbi2048;
+runtime_attestation_id:
+79d4b458-3057-5afe-9332-6aab3ed04976
+
+workspace-physical bytes:
+a10:s37:auto-g16-transport/workspace-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s16:/srv/p/attempt-1y18:776f726b73706163652d746f6b656e2d7631
+workspace_authority_id:
+34827613-ea23-5b28-96d4-54b317c0e642
+
+artifact-physical bytes:
+a15:s36:auto-g16-transport/artifact-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:34827613-ea23-5b28-96d4-54b317c0e642s36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s14:prepared-inputs7:job.gjfs7:job.gjfs64:ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddi123;y17:61727469666163742d746f6b656e2d7631
+artifact_authority_id:
+6f581297-da45-5943-aa37-6fbab8befbf4
+
+job-physical bytes:
+a10:s31:auto-g16-transport/job-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:34827613-ea23-5b28-96d4-54b317c0e642s36:79d4b458-3057-5afe-9332-6aab3ed04976s9:attempt-1s10:snapshot-1s8:intent-1s10:123.server
+job_authority_id:
+e04636fb-9f61-51d7-922a-136e0bc02f49
+
+receipt-binding bytes:
+a11:s34:auto-g16-transport/receipt-bindingi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:e04636fb-9f61-51d7-922a-136e0bc02f49s36:34827613-ea23-5b28-96d4-54b317c0e642s9:attempt-1s10:snapshot-1s8:intent-1s9:receipt-1s10:123.server
+receipt_binding_id:
+ff072c6e-21b1-50d4-95b7-22d62287f2ef
+```
+
+The `payload` column is the exact canonical encoding of the corresponding
+array. Physical tokens are immutable raw bytes, length `1..4096`; Transport
+does not parse, synthesize, shorten, or treat them as secrets. The trusted
+remote agent alone creates and reattests them. Same identity plus byte-identical
+payload is an idempotent replay. Same identity/different payload, a different
+identity for one natural binding, a duplicate job for one workspace, or a
+receipt/job mismatch is a `TransportBoundaryError` and leaves the database
+unchanged. Append uses one immediate transaction; zero-row or multi-row
+trigger interference, suppressed insert, mutation, or post-insert mismatch
+fails closed. Failure after a possibly effectful remote operation remains
+possibly effectful/`UNKNOWN`; it never causes automatic replay of that
+operation.
+
+The runtime row repeats the exact manifest name, byte identity, deployment ID,
+bootstrap protocol, operation-table identity, and fixed bootstrap-source
+identity from the current resolved profile/snapshot. It stores no second
+manifest projection and no independently caller-supplied executable inventory.
+Every workspace/artifact/job/receipt row links that runtime row, preventing
+cross-profile or cross-deployment replay while keeping deployment trust and
+physical-object evidence separate.
+
+`transport_artifact_authority` stores only the two effect-side staged artifacts.
+Its `artifact_kind` is exactly `prepared-input` or `pbs-template`; its logical
+and remote-relative names, digest, and size must equal the corresponding exact
+`ExecutionSnapshot` prepared-artifact binding. Generated Gaussian output is
+not inserted into this table because output may grow across legal captures.
+
+The effect adapter appends runtime attestation before the operation, workspace
+authority immediately after fresh allocation, artifact authority immediately
+after each exact staged write, and job authority after strict qsub extraction
+or confirmed same-Attempt reconciliation. Once the public ReceiptJournal has
+durably appended the matching confirmed receipt,
+`ExactRemoteJobBinding.from_persisted_receipt(...)` appends/replays the exact
+receipt-binding row before returning. This split preserves the unchanged
+ExecutionPort and receipt APIs while making process restart safe.
+
+### Replacement-safe remote physical authority
+
+The installed remote agent begins from the approved root descriptor. Fresh
+allocation walks and creates every Attempt-workspace component descriptor-
+relative and no-follow, then returns the opaque workspace token only after the
+new final directory is reattested. Existing targets, symlink/reparse points,
+replacement, escape, or inability to obtain a stable token fail closed.
+
+Every later stage, qsub, qstat, reconciliation, and fetch request carries the
+exact persisted workspace token in the package-controlled physical-binding
+envelope `auto-g16-rtwin-physical-binding/1`. The agent reopens from the root,
+walks no-follow, compares the complete physical token, and performs the
+operation relative to the still-held final descriptor. There is no
+`resolve/check -> pathname mutation` fallback. Process restart is irrelevant:
+the token is loaded from `TransportStore`, not an in-memory allocation set.
+
+After a stage write, the agent returns an artifact token only after fresh
+no-follow create, exact-byte digest/size verification, fsync as supported, and
+descriptor reattestation. Qsub requires the exact two persisted staged
+artifacts and reattests their tokens from the held workspace descriptor before
+invocation. Fetch requires the persisted workspace token; for generated output
+the agent creates one operation-local read token from bounded before/read/after
+descriptor evidence and returns it with the exact bytes for adapter validation.
+That evolving output token is not inserted into the staged-artifact table.
+Cross-workspace, cross-Attempt, cross-snapshot, stale, replaced, or unpersisted
+workspace/staged tokens reject before effect/read.
+
+The physical-binding envelope is typed fixed data, not argv, a capability, or
+an authority shortcut. The exact seven-operation table v1 tokens, argv
+templates, limits, and digest are frozen above. A token never authorizes a new Attempt,
+retry, qdel, delete, cleanup, profile change, or scientific conclusion.
+
+### Bootstrap trust and fixed command construction
+
+The exact manifest-bound `server_python` root is preinstalled and trusted by
+deployment before it starts. It neither proves the manifest nor establishes its
+own pre-start integrity. The configured RTwin and server remote shells likewise
+start as explicit deployment roots. Their exact role, nine-root inventory, and
+grammar-specific launchers are frozen in “Canonical deployment manifest” and
+“Fixed bootstrap and remote-shell grammars” above; no universal pre-bootstrap
+file verifier is claimed.
+
+After start, the exact fixed bootstrap source accepts the seven operation enums,
+physical-binding envelope, and bounded framed data only. No caller source,
+module, bytecode, callback, command, shell fragment, executable, or operation is
+uploaded or selected. The server process may detect drift in its own manifest
+entry and attest exact qsub/qstat before absolute-path structured-argv launch;
+RTwin executable checks remain owned by the deployment-trusted declared RTwin
+shell. Missing/drifted evidence rejects with zero next operation. This grants
+neither credential nor host-key authority; secrets remain out-of-band.
+
+Controller Mac executables and post-bootstrap server executables use strict
+prelaunch and practical postlaunch reattestation. Prelaunch drift causes zero
+process call. Postlaunch drift makes evidence unusable and, if an effect may
+have crossed, preserves `UNKNOWN` with no retry. This is replacement detection
+inside the stated model, not a TOCTOU guarantee against excluded actors.
+Descriptor execution and a native wrapper are neither required nor authorized.
+
+The controller launches Mac OpenSSH by structured argv with local
+`shell=False`; that does not remove either remote shell. Whenever Windows
+`CreateProcess` serialization is required inside the frozen PowerShell
+launcher, its parser contract is the Microsoft CRT/`CommandLineToArgvW`
+backslash-and-double-quote grammar. The exact encoder leaves a nonempty
+argument containing no space, tab, or `"` unchanged; otherwise it surrounds the
+argument with `"`, doubles every run of backslashes immediately before a
+literal `"`, prefixes that quote with one additional backslash, doubles
+trailing backslashes before the closing `"`, and encodes an empty argument as
+`""`. NUL is rejected. Tests round-trip every fixed nested SSH token. The
+manifest-selected PowerShell/cmd and server POSIX shell grammars are the only
+remote-shell interpretation and are never auto-detected or bypassed.
+
+If the RTwin-to-server POSIX hop unavoidably accepts one command string,
+Transport constructs it solely from its fixed token tuple with this exact
+encoder:
+
+```text
+quote(token) = "'" + token.replace("'", "'\"'\"'") + "'"
+command = " ".join(quote(token) for token in fixed_tokens)
+```
+
+Tokens containing NUL, CR, or LF reject. Empty tokens encode as `''`. The
+caller can supply no command token or shell fragment. Where an argv/subsystem
+form exists it is preferred and no command string is built. All stdin/stdout/
+stderr/control channels are separately bounded, require process completion and
+EOF, and reject overflow, truncation, extra bytes, timeout, or unstable
+completion. No retry follows any uncertain result.
+
+### Frozen adversarial implementation matrix
+
+Implementation must prove: create/reopen store; terminal-symlink and
+replacement rejection; exact schema/object/trigger attestation; durable replay;
+same-ID conflict; natural-binding conflict; trigger suppression/mutation;
+workspace allocation replacement; component symlink/escape; process restart
+between allocate/stage/qsub/read; stale or forged workspace token; both staged
+artifact tokens; artifact replacement before qsub; job/receipt exact binding;
+cross-store and cross-Attempt/snapshot/intent/workspace/job splicing; dynamic
+caller source/module/command spies zero; every canonical manifest negative;
+profile/snapshot/runtime-content mismatch; fixed bootstrap source/operation
+table/frame drift; PowerShell file/hash/launcher drift; cmd incompatibility with
+zero fallback; server shell/Python/qsub/qstat drift; digest-to-exec replacement;
+PowerShell/CRT/cmd/POSIX quote vectors including empty, spaces, apostrophe,
+metacharacters, and NUL/CR/LF rejection; bounded-channel overflow/EOF/timeout;
+qsub at most
+once; post-WINNER ambiguity to `UNKNOWN`; restart without automatic retry;
+exact qstat/fetch after reopen; generated-output read-token stability; and zero
+qdel/delete/cleanup/live calls.
+
+The five already-reviewed product blobs outside the eventual narrow repair
+delta remain byte-identical unless an independently reviewed implementation
+finding proves a change uniquely required by this contract. OpenSSH, process
+and Gaussian-phase acquisition, deployment, credentials, qdel, deletion,
+cleanup, automatic retry, and every live operation remain deferred.
 
 ## Context Boundaries
 
