@@ -3211,14 +3211,21 @@ quoted shell word or create another command.
 The one launcher is exact manifest `server_python` with fixed flags
 `-I -S -B -c` and exact source-controlled
 `auto-g16-v3-rtwin-bootstrap-v1.py` bytes. That constant is ASCII, begins
-`from __future__ import annotations\n`, ends `main()\n`, contains exactly 170
-LF bytes and no CR/NUL, has exact size `12540`, and has SHA-256
-`724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f`.
+`from __future__ import annotations\n`, ends `main()\n`, contains exactly 190
+LF bytes and no CR/NUL, has exact size `13904`, and has SHA-256
+`056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952`.
 The implementation test computes size/digest from the exact source constant;
 no hand-maintained alternate source or digest is accepted. The earlier
-synthetic placeholder digest `b` repeated 64 times with size `2048` is
-superseded and must fail runtime-content closure. Changing any source byte
-requires a reviewed bootstrap protocol/source update. The source reads one
+synthetic placeholder digest `b` repeated 64 times with size `2048` and the
+prior 12540-byte/170-LF source identity with SHA-256
+`724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f`
+are superseded and must fail runtime-content
+closure. This reviewed successor implements only the already-frozen channel
+caps and postlaunch attestation. Protocol remains exactly
+`auto-g16-v3-rtwin-bootstrap/1` because the AGV3 frame, seven closed schemas,
+operation table, and trust semantics are unchanged; any change to those
+protocol semantics still requires a reviewed protocol version. The source
+reads one
 request frame from stdin and writes one response frame to stdout. Both frames
 are ASCII magic `AGV3`, one unsigned 64-bit big-endian length, then exactly that
 many canonical JSON bytes containing one trailing LF, followed by EOF. The
@@ -3246,7 +3253,7 @@ A POSIX `shlex`-equivalent grammar must decode that complete quoted word to
 exactly one argv element whose bytes equal the 12-byte source; zero or two
 elements, line-ending normalization, quote loss, or command separation
 rejects. The production-source test performs the same one-element byte-exact
-round trip for all 12540 source bytes. Replacing any variable token with a
+round trip for all 13904 source bytes. Replacing any variable token with a
 value containing LF/CR/NUL rejects before launcher construction; replacing
 the fixed source with CR/NUL also rejects, while LF is preserved.
 
@@ -3325,10 +3332,10 @@ ever accepted.
 The active identity fixture below supplies four normative canonical JSON
 vectors, each shown as its one line; counted bytes include the final LF. The
 allocate request is 420 bytes with SHA-256
-`3ae2f4631874b71c0a023439f51d3a877c87f5f11dd6ba187ccf4ca2c2d81c2a`:
+`dd01886713ad2a41e45ae60ba85fd0a88fa42666d7a9db661c4a0ab2e748fe5e`:
 
 ```json
-{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"e42ac09e-e7da-50a3-b03f-54a5199d1686","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85"},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"55823409-18d5-5ec8-8cd1-95fc2070fcfa","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85"},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
 ```
 
 Its response is 202 bytes with SHA-256
@@ -3339,10 +3346,10 @@ Its response is 202 bytes with SHA-256
 ```
 
 The fetch request is 844 bytes with SHA-256
-`6bf99083230b68c89593eff76fc93d8458459a87e39695b358a5c71f3f56c9bc`:
+`4e57b3c5b1a71fc8fdee3ac29c963cf94bcc30c8d64125420388fae9ba6a331b`:
 
 ```json
-{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","job_authority_id":"fcea1641-0bd5-5892-a66d-f0984eb6bfba","job_id":"123.server","receipt_binding_id":"cb3c8a2a-fa8e-5562-be86-e6b49959ee22","remote_effect_receipt_id":"receipt-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"e42ac09e-e7da-50a3-b03f-54a5199d1686","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85","workspace_authority_id":"c3e44fc0-1907-542b-8ff9-2acf63034d60","workspace_physical_token_base64":"d29ya3NwYWNlLXRva2VuLXYx"},"operation":"FETCH_EXACT_FILE","payload":{"expected_file_physical_token_base64":"YXJ0aWZhY3QtdG9rZW4tdjE=","expected_size_bytes":19,"remote_relative_name":"job.log"},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
+{"binding":{"attempt_id":"attempt-1","execution_snapshot_id":"snapshot-1","job_authority_id":"51eef369-a569-53e2-8c44-2d22e20057f7","job_id":"123.server","receipt_binding_id":"e824ab64-5fcf-5014-be1a-b53ad70f8cce","remote_effect_receipt_id":"receipt-1","remote_workspace":"/srv/p/attempt-1","runtime_attestation_id":"55823409-18d5-5ec8-8cd1-95fc2070fcfa","store_instance_id":"28c10d1a-9f8f-5ce6-84d1-555175c0fcde","submission_intent_id":"intent-1","transport_store_id":"108c8d43-2ea9-5658-9607-ade4cbbeac85","workspace_authority_id":"ceff0991-4089-5c97-90b5-199c00467e67","workspace_physical_token_base64":"d29ya3NwYWNlLXRva2VuLXYx"},"operation":"FETCH_EXACT_FILE","payload":{"expected_file_physical_token_base64":"YXJ0aWZhY3QtdG9rZW4tdjE=","expected_size_bytes":19,"remote_relative_name":"job.log"},"protocol":"auto-g16-v3-rtwin-bootstrap/1"}
 ```
 
 Its response is 341 bytes with SHA-256
@@ -3842,35 +3849,35 @@ superseded receipt_binding_id:
 The active complete-manifest fixture uses the normative manifest identity
 above, operation-table digest/size above, bootstrap-source name
 `auto-g16-v3-rtwin-bootstrap-v1.py`, the exact source digest
-`724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2f`
-and size `12540`, effective-config digest `a` repeated 64 times, and the same
+`056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952`
+and size `13904`, effective-config digest `a` repeated 64 times, and the same
 remaining literal inputs. Its exact current canonical vectors are:
 
 ```text
 runtime-attestation bytes:
-a17:s38:auto-g16-transport/runtime-attestationi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes10:snapshot-1s9:profile-1s64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas37:transport-deployment-manifest-v1.jsons64:70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983ai2753;s29:synthetic-rtwin-deployment-v1s29:auto-g16-v3-rtwin-bootstrap/1s64:6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6i1490;s33:auto-g16-v3-rtwin-bootstrap-v1.pys64:724869c6767c1570075812832d57c94e8c9e17ae2d4cd1d9f8781b0796671d2fi12540;
+a17:s38:auto-g16-transport/runtime-attestationi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes10:snapshot-1s9:profile-1s64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaas37:transport-deployment-manifest-v1.jsons64:70be894f90c8fd42f417b517ba426db80cba436062c044e834079cb7d340983ai2753;s29:synthetic-rtwin-deployment-v1s29:auto-g16-v3-rtwin-bootstrap/1s64:6b9c1f8574bb3541a884ca1532aae0d12a54d52cb158c8f8a9521f2421dc4cc6i1490;s33:auto-g16-v3-rtwin-bootstrap-v1.pys64:056e27cab0a00e305c5e5acc7f5673e7d196dd0dc27516c31ec2cb95d6b58952i13904;
 runtime_attestation_id:
-e42ac09e-e7da-50a3-b03f-54a5199d1686
+55823409-18d5-5ec8-8cd1-95fc2070fcfa
 
 workspace-physical bytes:
-a10:s37:auto-g16-transport/workspace-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:e42ac09e-e7da-50a3-b03f-54a5199d1686s9:attempt-1s10:snapshot-1s8:intent-1s16:/srv/p/attempt-1y18:776f726b73706163652d746f6b656e2d7631
+a10:s37:auto-g16-transport/workspace-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:55823409-18d5-5ec8-8cd1-95fc2070fcfas9:attempt-1s10:snapshot-1s8:intent-1s16:/srv/p/attempt-1y18:776f726b73706163652d746f6b656e2d7631
 workspace_authority_id:
-c3e44fc0-1907-542b-8ff9-2acf63034d60
+ceff0991-4089-5c97-90b5-199c00467e67
 
 artifact-physical bytes:
-a15:s36:auto-g16-transport/artifact-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:c3e44fc0-1907-542b-8ff9-2acf63034d60s36:e42ac09e-e7da-50a3-b03f-54a5199d1686s9:attempt-1s10:snapshot-1s8:intent-1s14:prepared-inputs7:job.gjfs7:job.gjfs64:ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddi123;y17:61727469666163742d746f6b656e2d7631
+a15:s36:auto-g16-transport/artifact-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:ceff0991-4089-5c97-90b5-199c00467e67s36:55823409-18d5-5ec8-8cd1-95fc2070fcfas9:attempt-1s10:snapshot-1s8:intent-1s14:prepared-inputs7:job.gjfs7:job.gjfs64:ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddi123;y17:61727469666163742d746f6b656e2d7631
 artifact_authority_id:
-d716e8fa-09b3-5afb-920b-42647adaa65c
+5ed7b28e-72ab-55b7-8c66-37f2d5ecab11
 
 job-physical bytes:
-a10:s31:auto-g16-transport/job-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:c3e44fc0-1907-542b-8ff9-2acf63034d60s36:e42ac09e-e7da-50a3-b03f-54a5199d1686s9:attempt-1s10:snapshot-1s8:intent-1s10:123.server
+a10:s31:auto-g16-transport/job-physicali1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:ceff0991-4089-5c97-90b5-199c00467e67s36:55823409-18d5-5ec8-8cd1-95fc2070fcfas9:attempt-1s10:snapshot-1s8:intent-1s10:123.server
 job_authority_id:
-fcea1641-0bd5-5892-a66d-f0984eb6bfba
+51eef369-a569-53e2-8c44-2d22e20057f7
 
 receipt-binding bytes:
-a11:s34:auto-g16-transport/receipt-bindingi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:fcea1641-0bd5-5892-a66d-f0984eb6bfbas36:c3e44fc0-1907-542b-8ff9-2acf63034d60s9:attempt-1s10:snapshot-1s8:intent-1s9:receipt-1s10:123.server
+a11:s34:auto-g16-transport/receipt-bindingi1;s36:108c8d43-2ea9-5658-9607-ade4cbbeac85s36:28c10d1a-9f8f-5ce6-84d1-555175c0fcdes36:51eef369-a569-53e2-8c44-2d22e20057f7s36:ceff0991-4089-5c97-90b5-199c00467e67s9:attempt-1s10:snapshot-1s8:intent-1s9:receipt-1s10:123.server
 receipt_binding_id:
-cb3c8a2a-fa8e-5562-be86-e6b49959ee22
+e824ab64-5fcf-5014-be1a-b53ad70f8cce
 ```
 
 The `payload` column is the exact canonical encoding of the corresponding
