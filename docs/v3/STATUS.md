@@ -9,8 +9,13 @@
   `affected / fail_closed=false`. `V30-RTWIN-REAL-01` and
   `V30-ACQUIRE-FETCH-MIN-01` are `CLOSED / INTEGRATED`; the reviewed
   `TransportStore`, fixed bootstrap trust/source chain, scheduler acquisition,
-  and exact fetch capability are active on authoritative main. Product-level
-  synthetic composition is the next gate and has not started.
+  and exact fetch capability are active on authoritative main.
+  `V30-A-SYNTHETIC-COMPOSITION-01` is `CLOSED / INTEGRATED`; its product-level
+  synthetic composition and adversarial matrix are active on authoritative
+  main. The read-only `V30-A-READINESS-01` audit passes when this exact status
+  content and the integrated composition evidence are present on authoritative
+  main after exact-main validation. V30-A live execution remains `NO-GO`
+  pending a separate Owner Live Gate.
   `V30-MIN-VALIDATE-IMPL-01` is
   `CLOSED / INTEGRATED`, and the ScientificValidation implementation is active
   on authoritative main.
@@ -192,11 +197,14 @@
   enters the first effect boundary.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
-- **Next gate:** `V30-A-SYNTHETIC-COMPOSITION-01`; it is not started. A
-  read-only `V30-A-READINESS-01` audit remains downstream and V30-A live
-  execution remains `NO-GO`. This wording is self-resolving before and after
-  the status-only merge because it describes already-integrated product and
-  authority state rather than a candidate branch.
+- **Readiness:** `V30-A-SYNTHETIC-COMPOSITION-01` is `CLOSED / INTEGRATED`.
+  The exact integrated composition proves the complete offline authority chain,
+  the required negative paths, `WINNER`/`REPLAY` sequencing, explicit
+  `UNKNOWN` with no automatic retry, exact scheduler/fetch/capture bindings,
+  and zero live effects. When this exact status content is present on
+  authoritative main after exact-main validation, the read-only
+  `V30-A-READINESS-01` audit is `PASS` and V30-A is eligible only for a separate
+  Owner Live Gate. OpenSSH and live execution remain deferred.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -205,7 +213,7 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start under this docs task:** product mutation or synthetic
-  composition. The remaining EXEC-02 work and OpenSSH remain deferred;
-  production changes, deployment, live smoke, and real SSH/RTwin/PBS/Gaussian
-  operations remain unauthorized.
+- **Do not start under this docs task:** product mutation, further roadmap
+  work, or V30-A live execution. The remaining EXEC-02 work and OpenSSH remain
+  deferred; production changes, deployment, live smoke, and real
+  SSH/RTwin/PBS/Gaussian operations remain unauthorized.
