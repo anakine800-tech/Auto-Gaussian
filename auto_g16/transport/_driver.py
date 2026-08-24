@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 import os
 from pathlib import PurePosixPath, PureWindowsPath
@@ -32,6 +32,11 @@ _TORQUE_V30_A_QUEUE: Final = "batch"
 _TORQUE_EXECUTABLES: Final = MappingProxyType({
     "server_qsub":("/usr/local/bin/qsub",418920,"f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d"),
     "server_qstat":("/usr/local/bin/qstat",185656,"3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a"),
+})
+_SSH_CONFIG_NAMES: Final = ("mac-ssh-config","mac-known-hosts","rtwin-ssh-config","rtwin-known-hosts")
+_SSH_CONFIG_PATHS: Final = MappingProxyType({
+    "mac-ssh-config":"mac_ssh_config_path","mac-known-hosts":"mac_known_hosts_path",
+    "rtwin-ssh-config":"rtwin_ssh_config_path","rtwin-known-hosts":"rtwin_known_hosts_path",
 })
 _TABLE_NAME: Final = "auto-g16-rtwin-operation-table/2"
 _TABLE_OBJECT: Final = {
@@ -75,8 +80,20 @@ class _ResourceEnactment:
     def payload(self)->dict[str,object]:
         return {"execution_snapshot_id":self.execution_snapshot_id,"resolved_resource_request_id":self.resolved_resource_request_id,"cores":self.cores,"memory_mb":self.memory_mb,"walltime_seconds":self.walltime_seconds,"queue":self.queue,"scheduler_dialect_id":self.scheduler_dialect_id}
 @dataclass(frozen=True,slots=True)
+class _BoundEffectFile:
+    name:str; path:str; platform:str; expected_sha256:str; expected_size_bytes:int
+@dataclass(frozen=True,slots=True)
+class _SSHConfigTarget:
+    alias:str; host:str; port:int; user:str; identity_file:str=field(repr=False)
+@dataclass(frozen=True,slots=True)
+class _SSHConfigHop:
+    config:_BoundEffectFile; known_hosts:_BoundEffectFile; target:_SSHConfigTarget
+@dataclass(frozen=True,slots=True)
+class _SSHEffectAuthority:
+    mac_to_rtwin:_SSHConfigHop; rtwin_to_server:_SSHConfigHop
+@dataclass(frozen=True,slots=True)
 class _DeploymentAuthority:
-    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int
+    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int
 @dataclass(frozen=True,slots=True,kw_only=True)
 class _Invocation:
     operation:_Operation; argv:tuple[str,...]; cwd:str; request:Mapping[str,object]; authority:_DeploymentAuthority
@@ -165,20 +182,95 @@ def _validate_resource_deployment(manifest:_DeploymentManifest,dialect:_Resource
         root=manifest.trust_roots[name]
         if (root.path,root.expected_size_bytes,root.expected_sha256)!=expected: raise TransportBoundaryError(f"Torque {name} identity differs from deployment evidence")
 
+def _freeze_profile(profile:ServerProfile)->ServerProfile:
+    if not isinstance(profile,ServerProfile): raise TransportBoundaryError("current profile is invalid")
+    try:
+        return ServerProfile(
+            server_profile_id=profile.server_profile_id,profile_revision=profile.profile_revision,
+            transport_kind=profile.transport_kind,target_host=profile.target_host,target_port=profile.target_port,
+            remote_user=profile.remote_user,jump_topology=list(profile.jump_topology),
+            host_key_policy=profile.host_key_policy,batch_mode=profile.batch_mode,identities_only=profile.identities_only,
+            remote_root=profile.remote_root,platform_paths=dict(profile.platform_paths),
+            config_files=list(profile.config_files),runtime_contents=dict(profile.runtime_contents),
+        )
+    except (RuntimeError,TypeError,ValueError) as exc: raise TransportBoundaryError("current profile cannot be frozen") from exc
+
+def _closed_effect_path(value:object,platform:str,name:str)->str:
+    path=_text(value,name)
+    if any(character in path for character in "%$~*?[]{}"): raise TransportBoundaryError(f"{name} contains path expansion syntax")
+    parsed=PureWindowsPath(path) if platform=="windows" else PurePosixPath(path)
+    if not parsed.is_absolute() or any(part in {".",".."} for part in parsed.parts): raise TransportBoundaryError(f"{name} is not an absolute closed path")
+    return path
+
+def _parse_ssh_config(raw:bytes,*,platform:str,config_name:str,config_path:str,known_hosts_path:str)->tuple[_BoundEffectFile,_SSHConfigTarget]:
+    if type(raw) is not bytes or not raw or raw.startswith(b"\xef\xbb\xbf") or b"\x00" in raw or b"\r" in raw or b"\t" in raw or not raw.endswith(b"\n") or raw.endswith(b"\n\n"):
+        raise TransportBoundaryError(f"{config_name} byte grammar is invalid")
+    try: text=raw.decode("utf-8",errors="strict")
+    except UnicodeDecodeError as exc: raise TransportBoundaryError(f"{config_name} is not strict UTF-8") from exc
+    directives:dict[str,str]={}
+    semantic_index=0
+    for line in text[:-1].split("\n"):
+        if not line or line.startswith("#"): continue
+        match=re.fullmatch(r" *([A-Za-z][A-Za-z0-9]*) ([^ ]+)",line)
+        if match is None: raise TransportBoundaryError(f"{config_name} line grammar is invalid")
+        key,value=match.groups(); semantic_index+=1
+        if semantic_index==1 and key!="Host": raise TransportBoundaryError(f"{config_name} first semantic line is not Host")
+        if key not in {"Host","HostName","Port","User","IdentityFile","IdentitiesOnly","StrictHostKeyChecking","UserKnownHostsFile"} or key in directives:
+            raise TransportBoundaryError(f"{config_name} directive inventory is invalid")
+        directives[key]=value
+    required={"Host","HostName","User","IdentityFile","IdentitiesOnly","StrictHostKeyChecking","UserKnownHostsFile"}
+    if set(directives) not in (required,required|{"Port"}) or directives["IdentitiesOnly"]!="yes" or directives["StrictHostKeyChecking"]!="yes":
+        raise TransportBoundaryError(f"{config_name} required directives are invalid")
+    alias,host,user=directives["Host"],directives["HostName"],directives["User"]
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",alias) is None or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*",host) is None or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",user) is None:
+        raise TransportBoundaryError(f"{config_name} target grammar is invalid")
+    port_text=directives.get("Port","22")
+    if re.fullmatch(r"[1-9][0-9]{0,4}",port_text) is None or int(port_text)>65535: raise TransportBoundaryError(f"{config_name} port is invalid")
+    identity=_closed_effect_path(directives["IdentityFile"],platform,f"{config_name}.IdentityFile")
+    if _closed_effect_path(directives["UserKnownHostsFile"],platform,f"{config_name}.UserKnownHostsFile")!=known_hosts_path:
+        raise TransportBoundaryError(f"{config_name} known-host path differs from profile")
+    bound=_BoundEffectFile(config_name,config_path,platform,sha256(raw).hexdigest(),len(raw))
+    return bound,_SSHConfigTarget(alias,host,int(port_text),user,identity)
+
+def _resolve_ssh_effect(profile:ServerProfile,current:object)->_SSHEffectAuthority:
+    if set(name for name,_content in profile.config_files)!=set(_SSH_CONFIG_NAMES) or len(profile.config_files)!=len(_SSH_CONFIG_NAMES):
+        raise TransportBoundaryError("SSH effect config inventory is invalid")
+    contents=dict(profile.config_files); paths=getattr(current,"platform_paths")
+    bound:dict[str,_BoundEffectFile]={}
+    for logical_name,path_key in _SSH_CONFIG_PATHS.items():
+        platform="macos" if logical_name.startswith("mac-") else "windows"
+        try: path_value=paths[path_key]
+        except KeyError as exc: raise TransportBoundaryError("SSH effect path inventory is incomplete") from exc
+        path=_closed_effect_path(path_value,platform,path_key)
+        raw=contents[logical_name]
+        if logical_name.endswith("known-hosts"):
+            if type(raw) is not bytes or not raw: raise TransportBoundaryError(f"{logical_name} bytes are invalid")
+            bound[logical_name]=_BoundEffectFile(logical_name,path,platform,sha256(raw).hexdigest(),len(raw))
+    mac_config,mac_target=_parse_ssh_config(contents["mac-ssh-config"],platform="macos",config_name="mac-ssh-config",config_path=_closed_effect_path(paths["mac_ssh_config_path"],"macos","mac_ssh_config_path"),known_hosts_path=bound["mac-known-hosts"].path)
+    rtwin_config,server_target=_parse_ssh_config(contents["rtwin-ssh-config"],platform="windows",config_name="rtwin-ssh-config",config_path=_closed_effect_path(paths["rtwin_ssh_config_path"],"windows","rtwin_ssh_config_path"),known_hosts_path=bound["rtwin-known-hosts"].path)
+    target=getattr(current,"target_identity"); jumps=target["jump_topology"]
+    if len(jumps)!=1: raise TransportBoundaryError("exactly one RTwin hop is required")
+    rtwin=jumps[0]
+    if (mac_target.host,mac_target.port,mac_target.user)!=(rtwin["host"],rtwin["port"],rtwin["user"]): raise TransportBoundaryError("Mac SSH config target differs from RTwin hop")
+    if (server_target.host,server_target.port,server_target.user)!=(target["destination_host"],target["destination_port"],getattr(current,"remote_user")): raise TransportBoundaryError("RTwin SSH config target differs from server target")
+    return _SSHEffectAuthority(_SSHConfigHop(mac_config,bound["mac-known-hosts"],mac_target),_SSHConfigHop(rtwin_config,bound["rtwin-known-hosts"],server_target))
+
 def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:ServerProfile)->_DeploymentAuthority:
-    try: assert_execution_snapshot_identity(snapshot); current=resolve_server_profile(current_profile)
+    try:
+        assert_execution_snapshot_identity(snapshot); frozen_profile=_freeze_profile(current_profile); current=resolve_server_profile(frozen_profile)
     except Exception as exc: raise TransportBoundaryError("current profile cannot be resolved") from exc
+    if _freeze_profile(current_profile)!=frozen_profile: raise TransportBoundaryError("current profile mutated during Transport resolution")
     frozen=snapshot.resolved_server_profile
     if current!=frozen or current.semantic_payload()!=frozen.semantic_payload() or current.resolved_server_profile_id!=frozen.resolved_server_profile_id or current.effective_config_sha256!=frozen.effective_config_sha256: raise TransportBoundaryError("current profile differs from snapshot")
-    try: raw=current_profile.runtime_contents[_MANIFEST_NAME]; descriptor_raw=current_profile.runtime_contents[_RESOURCE_DESCRIPTOR_NAME]; manifest_identity=frozen.runtime_identities[_MANIFEST_NAME]; descriptor_identity=frozen.runtime_identities[_RESOURCE_DESCRIPTOR_NAME]; table_identity=frozen.runtime_identities[_TABLE_NAME]; source_identity=frozen.runtime_identities[_BOOTSTRAP_SOURCE_NAME]
+    try: raw=frozen_profile.runtime_contents[_MANIFEST_NAME]; descriptor_raw=frozen_profile.runtime_contents[_RESOURCE_DESCRIPTOR_NAME]; manifest_identity=frozen.runtime_identities[_MANIFEST_NAME]; descriptor_identity=frozen.runtime_identities[_RESOURCE_DESCRIPTOR_NAME]; table_identity=frozen.runtime_identities[_TABLE_NAME]; source_identity=frozen.runtime_identities[_BOOTSTRAP_SOURCE_NAME]
     except KeyError as exc: raise TransportBoundaryError("required Transport runtime content is missing") from exc
     if manifest_identity!={"sha256":sha256(raw).hexdigest(),"size_bytes":len(raw)}: raise TransportBoundaryError("manifest differs from snapshot")
     if descriptor_identity!={"sha256":sha256(descriptor_raw).hexdigest(),"size_bytes":len(descriptor_raw)}: raise TransportBoundaryError("resource descriptor differs from snapshot")
     if table_identity!={"sha256":_OPERATION_TABLE_SHA256,"size_bytes":1570}: raise TransportBoundaryError("operation table differs from source")
     expected_source={"sha256":sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(),"size_bytes":len(_BOOTSTRAP_SOURCE_BYTES)}
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
-    manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect)
-    return _DeploymentAuthority(manifest,dialect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"])
+    manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect); ssh_effect=_resolve_ssh_effect(frozen_profile,current)
+    return _DeploymentAuthority(manifest,dialect,ssh_effect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"])
 
 def _attest_local(root:_TrustRoot)->tuple[int,int]:
     flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
@@ -193,6 +285,23 @@ def _attest_local(root:_TrustRoot)->tuple[int,int]:
             if not chunk: raise TransportBoundaryError(f"{root.name} read was short")
             digest.update(chunk); remaining-=len(chunk)
         if os.read(fd,1) or digest.hexdigest()!=root.expected_sha256: raise TransportBoundaryError(f"{root.name} bytes drifted")
+        return opened.st_dev,opened.st_ino
+    finally: os.close(fd)
+
+def _attest_local_effect_file(bound:_BoundEffectFile)->tuple[int,int]:
+    if bound.platform!="macos": raise TransportBoundaryError(f"{bound.name} is not controller-local")
+    flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
+    try: fd=os.open(bound.path,flags)
+    except OSError as exc: raise TransportBoundaryError(f"{bound.name} is unavailable") from exc
+    try:
+        opened=os.fstat(fd); named=os.stat(bound.path,follow_symlinks=False)
+        if not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(named.st_mode) or (opened.st_dev,opened.st_ino)!=(named.st_dev,named.st_ino) or opened.st_size!=bound.expected_size_bytes: raise TransportBoundaryError(f"{bound.name} identity drifted")
+        digest=sha256(); remaining=opened.st_size
+        while remaining:
+            chunk=os.read(fd,min(65536,remaining))
+            if not chunk: raise TransportBoundaryError(f"{bound.name} read was short")
+            digest.update(chunk); remaining-=len(chunk)
+        if os.read(fd,1) or digest.hexdigest()!=bound.expected_sha256: raise TransportBoundaryError(f"{bound.name} bytes drifted")
         return opened.st_dev,opened.st_ino
     finally: os.close(fd)
 
@@ -289,19 +398,25 @@ class _SubprocessRTWinDriver:
         if not invocation.authority.resource_dialect.live_capable:
             return b"",b"",None,"transport-error",False,False
         roots=invocation.authority.manifest.trust_roots
+        local_files=(invocation.authority.ssh_effect.mac_to_rtwin.config,invocation.authority.ssh_effect.mac_to_rtwin.known_hosts)
         before={name:_attest_local(roots[name]) for name in ("mac_ssh","mac_scp")}
+        before.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
         request=_encode_request_frame(invocation.request,cap=invocation.operation.stdin_cap)
-        command=_build_rtwin_command(snapshot,invocation.authority.manifest)
+        command=_build_rtwin_command(snapshot,invocation.authority)
         process=None
         try:
             process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(_FIXED_ENV),shell=False,start_new_session=True)
             stdout,stderr,returncode,status,eofout,eoferr=self._communicate_bounded(process,request,invocation.operation)
-            if status!="completed": return stdout,stderr,returncode,status,eofout,eoferr
             after={name:_attest_local(roots[name]) for name in ("mac_ssh","mac_scp")}
+            after.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
             if before!=after: return b"",b"",None,"transport-error",False,False
+            if status!="completed": return stdout,stderr,returncode,status,eofout,eoferr
             return stdout,stderr,returncode,"completed",True,True
         except (OSError,TransportBoundaryError):
-            if process is not None: self._kill(process)
+            if process is not None:
+                try: active=process.poll() is None
+                except (AttributeError,OSError): active=True
+                if active: self._kill(process)
             return b"",b"",None,"transport-error",False,False
     def invoke_text(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->_TextResult:
         stdout,stderr,code,status,eofout,eoferr=self._run(snapshot,invocation)
@@ -340,4 +455,4 @@ def _is_fetch_result_closed(value:object)->bool:
     if value.status!="found": return not value.content and all(item is None for item in values)
     return type(value.before_identity) is str and type(value.after_identity) is str and type(value.before_size) is int and type(value.after_size) is int and type(value.before_sha256) is str and type(value.after_sha256) is str
 
-__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]
+__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_attest_local_effect_file","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]
