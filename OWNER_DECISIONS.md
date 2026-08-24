@@ -756,7 +756,9 @@ port, and user. The parsed RTwin Host alias resolves exactly to the final
 target host, port, and remote user. Commands target those aliases and
 explicitly pass the bound `-F` file, `BatchMode=yes`, `IdentitiesOnly=yes`,
 `StrictHostKeyChecking=yes`, public-key-only authentication, and no identity
-agent. Both `UserKnownHostsFile` and `GlobalKnownHostsFile` are set to the same
+agent. GSSAPI, host-based, password, keyboard-interactive, host-key DNS, and
+host-key update routes are explicitly disabled. Both `UserKnownHostsFile` and
+`GlobalKnownHostsFile` are set to the same
 exact bound known-hosts path, so no ambient user or global file can authorize
 a different key. There is no `~/.ssh/config`, default-known-hosts, agent,
 password, keyboard-interactive, caller-option, caller-config, or caller-target

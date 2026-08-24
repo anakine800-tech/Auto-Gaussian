@@ -1511,7 +1511,8 @@ expansion.
 5. The outer command matches the complete ordered normative argv template and
    synthetic token vector. It uses exact manifest `mac_ssh`, exact bound `-F`, and
    explicit batch, identities-only, strict-host-key, no-agent,
-   public-key-only, password-off, and keyboard-interactive-off options. Both
+   public-key-only, password-off, keyboard-interactive-off, GSSAPI-off,
+   hostbased-off, host-key-DNS-off, and host-key-update-off options. Both
    user and global known-host options equal the same exact bound Mac file.
 6. The PowerShell launcher invokes exact manifest `rtwin_ssh` with the complete
    ordered normative child argv, the same closed option set, exact RTwin `-F`,

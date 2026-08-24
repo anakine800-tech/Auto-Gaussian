@@ -4312,6 +4312,8 @@ explicitly set `BatchMode=yes`, `IdentitiesOnly=yes`,
 `StrictHostKeyChecking=yes`, `IdentityAgent=none`,
 `PreferredAuthentications=publickey`, `PubkeyAuthentication=yes`,
 `PasswordAuthentication=no`, and `KbdInteractiveAuthentication=no`. Both set
+`GSSAPIAuthentication=no`, `HostbasedAuthentication=no`,
+`VerifyHostKeyDNS=no`, and `UpdateHostKeys=no`. Both set
 `UserKnownHostsFile` and `GlobalKnownHostsFile` to the same hop-specific bound
 known-hosts path, closing additional ambient host-key sources. The destination
 token is the exact validated Host alias; explicit port/user values equal the
@@ -4334,6 +4336,10 @@ For exact values `MC`, `MK`, `MA`, `MP`, `MU`, and generated PowerShell script
  "-o", "PubkeyAuthentication=yes",
  "-o", "PasswordAuthentication=no",
  "-o", "KbdInteractiveAuthentication=no",
+ "-o", "GSSAPIAuthentication=no",
+ "-o", "HostbasedAuthentication=no",
+ "-o", "VerifyHostKeyDNS=no",
+ "-o", "UpdateHostKeys=no",
  "-p", canonical_decimal(MP),
  "-l", MU,
  "--", MA, PS)
@@ -4356,6 +4362,10 @@ launcher is:
  "-o", "PubkeyAuthentication=yes",
  "-o", "PasswordAuthentication=no",
  "-o", "KbdInteractiveAuthentication=no",
+ "-o", "GSSAPIAuthentication=no",
+ "-o", "HostbasedAuthentication=no",
+ "-o", "VerifyHostKeyDNS=no",
+ "-o", "UpdateHostKeys=no",
  "-p", canonical_decimal(RP),
  "-l", RU,
  RA, "--", BC)
@@ -4372,6 +4382,8 @@ the destination are exactly:
 "-o","GlobalKnownHostsFile=/cfg/mac-known","-o","IdentityAgent=none",
 "-o","PreferredAuthentications=publickey","-o","PubkeyAuthentication=yes",
 "-o","PasswordAuthentication=no","-o","KbdInteractiveAuthentication=no",
+"-o","GSSAPIAuthentication=no","-o","HostbasedAuthentication=no",
+"-o","VerifyHostKeyDNS=no","-o","UpdateHostKeys=no",
 "-p","22","-l","rtwin-user","--","rtwin-a"
 ```
 
