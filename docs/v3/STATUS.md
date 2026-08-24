@@ -19,8 +19,15 @@
   composition evidence has been rerun on exact integrated main, so V30-A
   OFFLINE readiness remains `PASS`. `V30-PBS-TORQUE-DIALECT-01` is
   `CLOSED / FROZEN / INTEGRATED`; the exact Torque `6.1.0` production renderer
-  is qualified on authoritative main. V30-A LIVE execution remains `NO-GO`
-  pending a separate Live Owner Gate.
+  is qualified on authoritative main. The
+  `V30-TRANSPORT-SSH-CONFIG-EFFECT-SEAM-01` contract freezes exact enactment of
+  the two profile-bound SSH configs and known-host files. When this exact
+  authority content is present on authoritative main, that contract is
+  `CLOSED / FROZEN / INTEGRATED`, its bounded Transport implementation is the
+  next gate, and the pre-repair resolved profile remains unusable failed
+  evidence. No Attempt exists for the first live packet. V30-A LIVE execution
+  remains `NO-GO` pending implementation integration, a new profile revision
+  and resolved identity, and the later exact Live Owner Gate.
   `V30-MIN-VALIDATE-IMPL-01` is
   `CLOSED / INTEGRATED`, and the ScientificValidation implementation is active
   on authoritative main.

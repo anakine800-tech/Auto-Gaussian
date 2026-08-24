@@ -4252,3 +4252,80 @@ implementation objects across a boundary as an implicit contract.
 Use hashes where artifact identity must be recorded. A hash is not the default
 authority mechanism and does not replace semantic review of the current
 `CalculationPlan`.
+
+## V30-TRANSPORT-SSH-CONFIG-EFFECT-SEAM-01
+
+### Exact profile-bound configuration inventory
+
+The RTwin live-capable driver must enact the same SSH configuration bytes that
+the existing public Execution resolver freezes into the snapshot. The private
+Transport convention uses these exact names:
+
+| Hop | `platform_paths` config key | `config_files` config name | `platform_paths` known-hosts key | `config_files` known-hosts name |
+| --- | --- | --- | --- | --- |
+| Mac to RTwin | `mac_ssh_config_path` | `mac-ssh-config` | `mac_known_hosts_path` | `mac-known-hosts` |
+| RTwin to server | `rtwin_ssh_config_path` | `rtwin-ssh-config` | `rtwin_known_hosts_path` | `rtwin-known-hosts` |
+
+All four path keys and all four logical contents are mandatory for a Transport
+operation. The four effect-configuration logical names are exact and
+duplicate-free; no alias, fallback lookup, ambient config, or independently
+supplied byte/path input exists. Mac paths are canonical absolute POSIX paths;
+RTwin paths are canonical absolute Windows paths. Config and known-host bytes
+remain non-secret profile content. Dedicated private-key paths may appear only
+inside the configs; private-key bytes and digests are neither read nor bound.
+
+### Closed SSH config grammar
+
+The source-reviewed grammar is deliberately narrower than OpenSSH. Config
+bytes decode as UTF-8, contain no NUL or CR, use LF only, and end with exactly
+one LF. Blank lines and whole-line comments are non-semantic. Each other line
+is exactly one ASCII-whitespace-separated directive/value pair with no quote,
+escape, or continuation. There is exactly one first semantic `Host` line and
+exactly one concrete alias without wildcard/metacharacters. After it, exactly
+one each of `HostName`, `User`, `IdentityFile`, `IdentitiesOnly`,
+`StrictHostKeyChecking`, and `UserKnownHostsFile` is required; `Port` occurs
+zero or one time. No other directive is legal.
+
+`IdentitiesOnly` and `StrictHostKeyChecking` equal `yes`; `IdentityFile` is one
+dedicated absolute path for that platform; `UserKnownHostsFile` equals the
+corresponding bound path; and an omitted port resolves to 22. The Mac alias
+must reproduce the sole resolved RTwin hop. The RTwin alias must reproduce the
+resolved server destination. This excludes `Include`, `Match`/`exec`,
+`ProxyCommand`, `ProxyJump`, command hooks, every forwarding directive,
+known-host commands, providers, agent overrides, and any config that redirects
+host, user, or port. An additional proxy hop has no first-live authority.
+
+### Exact command and attestation seam
+
+The outer structured argv begins with exact manifest `mac_ssh`, then exact
+`-F mac_ssh_config_path`. The inner manifest-bound PowerShell launch invokes
+exact `rtwin_ssh` with exact `-F rtwin_ssh_config_path`. Both commands
+explicitly set `BatchMode=yes`, `IdentitiesOnly=yes`,
+`StrictHostKeyChecking=yes`, `IdentityAgent=none`,
+`PreferredAuthentications=publickey`, `PubkeyAuthentication=yes`,
+`PasswordAuthentication=no`, and `KbdInteractiveAuthentication=no`. Both set
+`UserKnownHostsFile` and `GlobalKnownHostsFile` to the same hop-specific bound
+known-hosts path, closing additional ambient host-key sources. The destination
+token is the exact validated Host alias; explicit port/user values equal the
+resolved profile. Local argv remains structured with `shell=False`; no caller
+option, config path, target, shell fragment, or credential enters it.
+
+The private deployment authority produced by
+`_resolve_deployment_authority(snapshot, current_profile)` carries only parsed
+mechanical config evidence after public profile/snapshot equality succeeds.
+Before local process creation, controller-file attestation opens the exact Mac
+config and known-host files no-follow, requires regular-file identity, and
+compares exact size and SHA-256 with `config_files`. After process completion
+it reopens and requires the same descriptor/name identity and bytes. The
+PowerShell launcher requires non-directory, non-reparse exact size/SHA-256 for
+RTwin config and known-hosts immediately before nested SSH and after the nested
+process terminates. A mismatch is a Transport boundary failure; it never
+retries or switches files.
+
+These four files do not change the exact nine-root deployment manifest. They
+close effect configuration through the already identity-bound ServerProfile.
+The pre-repair resolved profile is unusable for live authority. Integration
+requires a new profile revision/resolution before Phase 7 of the live packet
+may pass, and no Attempt may be created under the stale identity. This contract
+changes no public Core, Approval, Workflow, Execution, Observe, Result,
+ScientificValidation, or Review API/schema and authorizes no live effect.

@@ -710,3 +710,73 @@ choice, retry, qdel, cleanup, deployment, credential, host-key, OpenSSH, or
 live authority. PBS templates remain free of active `#PBS -l` and `#PBS -q`
 resource directives; `REPLAY` performs zero qsub and `UNKNOWN` never permits a
 second qsub.
+
+## OD-23: Both RTwin SSH hops enact one closed profile-bound configuration
+
+For the first V30-A live path, recording SSH configuration in a resolved
+`ServerProfile` is insufficient unless the exact same configuration is used at
+the process boundary. Transport therefore consumes the existing public
+`ServerProfile.platform_paths`, `config_files`, `host_key_policy`,
+`batch_mode`, and `identities_only` fields; it adds no Execution field, schema,
+credential record, or executable trust root.
+
+The Transport convention is closed. `platform_paths` provides exactly the
+four effect-configuration keys `mac_ssh_config_path`,
+`mac_known_hosts_path`, `rtwin_ssh_config_path`, and
+`rtwin_known_hosts_path` in addition to unrelated existing path authority.
+`config_files` contains exactly one immutable byte value for each logical name
+`mac-ssh-config`, `mac-known-hosts`, `rtwin-ssh-config`, and
+`rtwin-known-hosts`; duplicate, missing, or extra effect-configuration names
+reject. These files are profile-bound effect configuration, not additions to
+the nine-root deployment executable inventory. Private-key bytes, private-key
+digests, agents, tokens, and passwords remain outside profile, manifest,
+runtime content, TransportStore, logs, and review packets.
+
+Each SSH config is UTF-8 with LF line endings, has exactly one concrete
+single-name `Host` stanza, and may contain only `Host`, `HostName`, `User`,
+optional `Port`, `IdentityFile`, `IdentitiesOnly`,
+`StrictHostKeyChecking`, and `UserKnownHostsFile`. The required values include
+one dedicated absolute identity path, `IdentitiesOnly yes`,
+`StrictHostKeyChecking yes`, and the matching bound known-hosts path. An absent
+`Port` means exactly 22 and is legal only when the resolved profile also says
+22. Wildcards, multiple aliases or stanzas, quoting/escaping, continuation,
+unknown directives, and in particular `Include`, `Match`, `exec`,
+`ProxyCommand`, `ProxyJump`, command hooks, every forwarding directive,
+`KnownHostsCommand`, providers, and `IdentityAgent` reject before a process.
+The first-live topology is exactly one Mac-to-RTwin hop and one
+RTwin-to-server hop; an additional proxy hop requires a later separately
+closed profile convention.
+
+The parsed Mac Host alias resolves exactly to the sole `jump_topology` host,
+port, and user. The parsed RTwin Host alias resolves exactly to the final
+target host, port, and remote user. Commands target those aliases and
+explicitly pass the bound `-F` file, `BatchMode=yes`, `IdentitiesOnly=yes`,
+`StrictHostKeyChecking=yes`, public-key-only authentication, and no identity
+agent. Both `UserKnownHostsFile` and `GlobalKnownHostsFile` are set to the same
+exact bound known-hosts path, so no ambient user or global file can authorize
+a different key. There is no `~/.ssh/config`, default-known-hosts, agent,
+password, keyboard-interactive, caller-option, caller-config, or caller-target
+fallback.
+
+Before launch, Transport resolves the current profile through the existing
+public Execution resolver and requires complete equality with the snapshot.
+It then proves exact profile bytes against the four named files. The Mac
+controller opens its two local files no-follow as regular files and compares
+size, SHA-256, and descriptor/name identity before process creation and again
+after process completion. The manifest-bound PowerShell launcher performs the
+same regular/non-reparse size/SHA-256 attestation for the two RTwin files
+before nested SSH and, where the nested process completes, after it. Any
+missing, replaced, malformed, mismatched, or drifted file fails closed with no
+retry. Runtime/review evidence exposes only logical identity, path class,
+size, digest, and PASS/FAIL; machine-specific contents and addresses are not
+committed.
+
+This is an effect-seam repair, not a new transport mechanism or authority.
+The existing dedicated Mac and RTwin configs and strict host-key topology are
+WRAPPED/PORTED as mechanical facts while all legacy owner, receipt,
+capability, hash-currentness, retry, and cleanup governance stays excluded.
+The pre-repair resolved profile identity is failed evidence and cannot be used
+for live authority. After integration, the live packet creates a new
+ServerProfile revision and new resolved identity before any Attempt exists.
+No `execute_once`, Core claim, workspace mutation, qsub, Gaussian, qdel,
+cleanup, automatic retry, deployment, or other live effect is authorized.
