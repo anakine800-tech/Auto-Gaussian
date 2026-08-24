@@ -26,6 +26,13 @@ _MANIFEST_SCHEMA: Final = "auto-g16-v3-transport-deployment-manifest/1"
 _RESOURCE_DESCRIPTOR_NAME: Final = "pbs-resource-enactment-v1.json"
 _RESOURCE_DESCRIPTOR_SCHEMA: Final = "auto-g16-v3-pbs-resource-enactment/1"
 _SYNTHETIC_RESOURCE_DIALECT: Final = "auto-g16-v3-pbs-resource-enactment/synthetic-test/1"
+_TORQUE_RESOURCE_DIALECT: Final = "auto-g16-v3-pbs-resource-enactment/torque-6.1.0-nodes-ppn/1"
+_RESOURCE_DIALECTS: Final = MappingProxyType({_SYNTHETIC_RESOURCE_DIALECT:False,_TORQUE_RESOURCE_DIALECT:True})
+_TORQUE_V30_A_QUEUE: Final = "batch"
+_TORQUE_EXECUTABLES: Final = MappingProxyType({
+    "server_qsub":("/usr/local/bin/qsub",418920,"f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d"),
+    "server_qstat":("/usr/local/bin/qstat",185656,"3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a"),
+})
 _TABLE_NAME: Final = "auto-g16-rtwin-operation-table/2"
 _TABLE_OBJECT: Final = {
     "version":_TABLE_NAME,"cwd_policy":"exact-remote-attempt-workspace","shell":False,"env":_FIXED_ENV,
@@ -64,7 +71,7 @@ class _ResourceEnactment:
         for value,name in ((self.execution_snapshot_id,"execution snapshot"),(self.resolved_resource_request_id,"resource request"),(self.scheduler_dialect_id,"resource dialect")): _text(value,name)
         if any(type(value) is not int or value<1 for value in (self.cores,self.memory_mb,self.walltime_seconds)): raise TransportBoundaryError("resource enactment integer is invalid")
         if self.queue is not None and (not isinstance(self.queue,str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",self.queue) is None): raise TransportBoundaryError("resource enactment queue is invalid")
-        if self.scheduler_dialect_id!=_SYNTHETIC_RESOURCE_DIALECT: raise TransportBoundaryError("resource dialect is not source-controlled")
+        if self.scheduler_dialect_id not in _RESOURCE_DIALECTS: raise TransportBoundaryError("resource dialect is not source-controlled")
     def payload(self)->dict[str,object]:
         return {"execution_snapshot_id":self.execution_snapshot_id,"resolved_resource_request_id":self.resolved_resource_request_id,"cores":self.cores,"memory_mb":self.memory_mb,"walltime_seconds":self.walltime_seconds,"queue":self.queue,"scheduler_dialect_id":self.scheduler_dialect_id}
 @dataclass(frozen=True,slots=True)
@@ -126,9 +133,9 @@ def _parse_resource_descriptor(raw:bytes)->_ResourceDialect:
     if not isinstance(value,dict) or set(value)!={"schema","dialect"} or value.get("schema")!=_RESOURCE_DESCRIPTOR_SCHEMA:
         raise TransportBoundaryError("resource enactment descriptor shape/version is invalid")
     dialect=_text(value.get("dialect"),"resource dialect")
-    if dialect!=_SYNTHETIC_RESOURCE_DIALECT:
+    if dialect not in _RESOURCE_DIALECTS:
         raise TransportBoundaryError("resource dialect is not source-controlled")
-    return _ResourceDialect(dialect,raw,sha256(raw).hexdigest(),len(raw),False)
+    return _ResourceDialect(dialect,raw,sha256(raw).hexdigest(),len(raw),_RESOURCE_DIALECTS[dialect])
 
 def _resource_enactment(snapshot:ExecutionSnapshot,authority:_DeploymentAuthority)->_ResourceEnactment:
     if authority.execution_snapshot_id!=snapshot.execution_snapshot_id: raise TransportBoundaryError("resource authority belongs to another snapshot")
@@ -141,10 +148,22 @@ def _resource_enactment(snapshot:ExecutionSnapshot,authority:_DeploymentAuthorit
 
 def _render_qsub_argv(enactment:_ResourceEnactment,pbs_basename:str)->tuple[str,...]:
     if not isinstance(enactment,_ResourceEnactment) or not isinstance(pbs_basename,str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",pbs_basename) is None: raise TransportBoundaryError("qsub render input is invalid")
-    if enactment.scheduler_dialect_id!=_SYNTHETIC_RESOURCE_DIALECT: raise TransportBoundaryError("resource dialect is not source-controlled")
-    argv=["--auto-g16-synthetic-cores",str(enactment.cores),"--auto-g16-synthetic-memory-mb",str(enactment.memory_mb),"--auto-g16-synthetic-walltime-seconds",str(enactment.walltime_seconds)]
-    if enactment.queue is not None: argv.extend(["--auto-g16-synthetic-queue",enactment.queue])
-    argv.append(pbs_basename); return tuple(argv)
+    if enactment.scheduler_dialect_id==_SYNTHETIC_RESOURCE_DIALECT:
+        argv=["--auto-g16-synthetic-cores",str(enactment.cores),"--auto-g16-synthetic-memory-mb",str(enactment.memory_mb),"--auto-g16-synthetic-walltime-seconds",str(enactment.walltime_seconds)]
+        if enactment.queue is not None: argv.extend(["--auto-g16-synthetic-queue",enactment.queue])
+        argv.append(pbs_basename); return tuple(argv)
+    if enactment.scheduler_dialect_id==_TORQUE_RESOURCE_DIALECT:
+        if enactment.queue!=_TORQUE_V30_A_QUEUE: raise TransportBoundaryError("Torque V30-A queue must be exact")
+        resources=f"nodes=1:ppn={enactment.cores},mem={enactment.memory_mb}mb,walltime={enactment.walltime_seconds}"
+        return ("-l",resources,"-q",_TORQUE_V30_A_QUEUE,pbs_basename)
+    raise TransportBoundaryError("resource dialect is not source-controlled")
+
+def _validate_resource_deployment(manifest:_DeploymentManifest,dialect:_ResourceDialect)->None:
+    if dialect.dialect_id==_SYNTHETIC_RESOURCE_DIALECT: return
+    if dialect.dialect_id!=_TORQUE_RESOURCE_DIALECT: raise TransportBoundaryError("resource dialect is not source-controlled")
+    for name,expected in _TORQUE_EXECUTABLES.items():
+        root=manifest.trust_roots[name]
+        if (root.path,root.expected_size_bytes,root.expected_sha256)!=expected: raise TransportBoundaryError(f"Torque {name} identity differs from deployment evidence")
 
 def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:ServerProfile)->_DeploymentAuthority:
     try: assert_execution_snapshot_identity(snapshot); current=resolve_server_profile(current_profile)
@@ -158,7 +177,7 @@ def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:Ser
     if table_identity!={"sha256":_OPERATION_TABLE_SHA256,"size_bytes":1570}: raise TransportBoundaryError("operation table differs from source")
     expected_source={"sha256":sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(),"size_bytes":len(_BOOTSTRAP_SOURCE_BYTES)}
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
-    manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw)
+    manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect)
     return _DeploymentAuthority(manifest,dialect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"])
 
 def _attest_local(root:_TrustRoot)->tuple[int,int]:
@@ -321,4 +340,4 @@ def _is_fetch_result_closed(value:object)->bool:
     if value.status!="found": return not value.content and all(item is None for item in values)
     return type(value.before_identity) is str and type(value.after_identity) is str and type(value.before_size) is int and type(value.after_size) is int and type(value.before_sha256) is str and type(value.after_sha256) is str
 
-__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_TextResult","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]
+__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]

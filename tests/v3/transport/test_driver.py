@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import base64
 from hashlib import sha256
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -14,7 +15,9 @@ from auto_g16.transport._driver import (
     _MANIFEST_NAME,
     _RESOURCE_DESCRIPTOR_NAME,
     _Invocation,
+    _ResourceEnactment,
     _SubprocessRTWinDriver,
+    _TORQUE_RESOURCE_DIALECT,
     _attest_local,
     _operation,
     _parse_deployment_manifest,
@@ -24,7 +27,7 @@ from auto_g16.transport._driver import (
     _resource_enactment,
 )
 
-from ._fixtures import RESOURCE_DESCRIPTOR_BYTES, TransportFixture
+from ._fixtures import RESOURCE_DESCRIPTOR_BYTES, TORQUE_RESOURCE_DESCRIPTOR_BYTES, TransportFixture
 
 
 class ManifestAndCommandTests(TransportFixture):
@@ -37,6 +40,17 @@ class ManifestAndCommandTests(TransportFixture):
         })
         self.assertEqual(manifest.bootstrap_protocol, "auto-g16-v3-rtwin-bootstrap/2")
         self.assertEqual(manifest.trust_roots["rtwin_remote_shell"].shell_grammar, "powershell-v1")
+
+    def test_production_qsub_qstat_manifest_evidence_is_exact(self) -> None:
+        profile = self.profile()
+        value = json.loads(profile.runtime_contents[_MANIFEST_NAME])
+        qsub = value["trust_roots"]["server_qsub"]
+        qsub.update(path="/usr/local/bin/qsub", expected_size_bytes=418_920, expected_sha256="f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d", deployment_identity="torque-6.1.0-qsub-preflight")
+        qstat = value["trust_roots"]["server_qstat"]
+        qstat.update(path="/usr/local/bin/qstat", expected_size_bytes=185_656, expected_sha256="3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a", deployment_identity="torque-6.1.0-qstat-preflight")
+        manifest = _parse_deployment_manifest(canonical_json_bytes(value))
+        self.assertEqual((manifest.trust_roots["server_qsub"].path, manifest.trust_roots["server_qsub"].expected_size_bytes, manifest.trust_roots["server_qsub"].expected_sha256), ("/usr/local/bin/qsub", 418_920, "f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d"))
+        self.assertEqual((manifest.trust_roots["server_qstat"].path, manifest.trust_roots["server_qstat"].expected_size_bytes, manifest.trust_roots["server_qstat"].expected_sha256), ("/usr/local/bin/qstat", 185_656, "3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a"))
 
     def test_noncanonical_manifest_and_root_inventory_reject(self) -> None:
         profile = self.profile()
@@ -83,6 +97,65 @@ class ManifestAndCommandTests(TransportFixture):
         runtime_contents[_RESOURCE_DESCRIPTOR_NAME] = RESOURCE_DESCRIPTOR_BYTES.replace(b"synthetic-test", b"unknown-dial")
         with self.assertRaises(transport.TransportBoundaryError):
             _resolve_deployment_authority(snapshot, replace(profile, runtime_contents=runtime_contents))
+
+    def test_torque_descriptor_and_exact_production_argv_are_closed(self) -> None:
+        profile = self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES)
+        snapshot, _ = self.transport_snapshot(profile=profile, queue="batch")
+        dialect = _parse_resource_descriptor(TORQUE_RESOURCE_DESCRIPTOR_BYTES)
+        self.assertTrue(dialect.live_capable)
+        enactment = _resource_enactment(snapshot, _resolve_deployment_authority(snapshot, profile))
+        self.assertEqual(_render_qsub_argv(enactment, "job.pbs"), (
+            "-l", "nodes=1:ppn=8,mem=12288mb,walltime=3600",
+            "-q", "batch", "job.pbs",
+        ))
+        self.assertNotIn("/usr/local/bin/qsub", _render_qsub_argv(enactment, "job.pbs"))
+
+    def test_torque_exact_positive_vectors_cover_minimum_typical_and_full_node(self) -> None:
+        for cores, memory_mb, walltime_seconds, expected in (
+            (1, 1, 1, "nodes=1:ppn=1,mem=1mb,walltime=1"),
+            (22, 51_200, 43_200, "nodes=1:ppn=22,mem=51200mb,walltime=43200"),
+            (44, 120_000, 172_800, "nodes=1:ppn=44,mem=120000mb,walltime=172800"),
+        ):
+            with self.subTest(cores=cores):
+                enactment = _ResourceEnactment("snapshot-1", "resources-1", cores, memory_mb, walltime_seconds, "batch", _TORQUE_RESOURCE_DIALECT)
+                self.assertEqual(_render_qsub_argv(enactment, "job.pbs"), ("-l", expected, "-q", "batch", "job.pbs"))
+
+    def test_resource_integers_and_renderer_tokens_are_closed(self) -> None:
+        for field in ("cores", "memory_mb", "walltime_seconds"):
+            for bad in (0, -1, True, 1.0, "1"):
+                with self.subTest(field=field, bad=bad):
+                    values = {"cores": 8, "memory_mb": 12_288, "walltime_seconds": 3_600}
+                    values[field] = bad
+                    with self.assertRaises(transport.TransportBoundaryError):
+                        _ResourceEnactment("snapshot-1", "resources-1", values["cores"], values["memory_mb"], values["walltime_seconds"], "batch", _TORQUE_RESOURCE_DIALECT)
+        for basename in ("../job.pbs", "job pbs", "-job.pbs", "job.pbs;"):
+            with self.subTest(basename=basename):
+                enactment = _ResourceEnactment("snapshot-1", "resources-1", 8, 12_288, 3_600, "batch", _TORQUE_RESOURCE_DIALECT)
+                with self.assertRaises(transport.TransportBoundaryError):
+                    _render_qsub_argv(enactment, basename)
+
+    def test_torque_queue_is_mandatory_and_exact(self) -> None:
+        for queue in (None, "simple", "batch2"):
+            with self.subTest(queue=queue):
+                profile = self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES)
+                snapshot, _ = self.transport_snapshot(profile=profile, queue=queue)
+                enactment = _resource_enactment(snapshot, _resolve_deployment_authority(snapshot, profile))
+                with self.assertRaises(transport.TransportBoundaryError):
+                    _render_qsub_argv(enactment, "job.pbs")
+
+    def test_torque_descriptor_rejects_unproved_qsub_or_qstat_identity(self) -> None:
+        for root_name in ("server_qsub", "server_qstat"):
+            for field, changed in (("path", "/opt/drifted"), ("expected_size_bytes", 1), ("expected_sha256", "0" * 64)):
+                with self.subTest(root_name=root_name, field=field):
+                    profile = self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES)
+                    value = json.loads(profile.runtime_contents[_MANIFEST_NAME])
+                    value["trust_roots"][root_name][field] = changed
+                    runtime_contents = dict(profile.runtime_contents)
+                    runtime_contents[_MANIFEST_NAME] = canonical_json_bytes(value)
+                    drifted = replace(profile, runtime_contents=runtime_contents)
+                    snapshot, _ = self.transport_snapshot(profile=drifted, queue="batch")
+                    with self.assertRaises(transport.TransportBoundaryError):
+                        _resolve_deployment_authority(snapshot, drifted)
         runtime_contents = dict(profile.runtime_contents)
         del runtime_contents[_RESOURCE_DESCRIPTOR_NAME]
         with self.assertRaises(transport.TransportBoundaryError):
