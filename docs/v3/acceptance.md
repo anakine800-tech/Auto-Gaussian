@@ -1503,7 +1503,9 @@ expansion.
 3. Each config's dedicated absolute `IdentityFile` applies to the exact Host
    alias passed to SSH. `IdentitiesOnly yes`, `StrictHostKeyChecking yes`, and
    exact `UserKnownHostsFile` are present. Private-key bytes/digests are never
-   read, logged, persisted, committed, or added to authority.
+   read, logged, persisted, committed, or added to authority. Literal config,
+   known-host, and identity paths reject `%`, `$`, `~`, wildcard/bracket/brace
+   metacharacters, token expansion, and environment expansion.
 4. Parsed Mac HostName/User/Port equals the sole snapshot RTwin hop. Parsed
    RTwin HostName/User/Port equals the snapshot destination. Missing port means
    exactly 22. A redirect, alternate destination, extra proxy hop, or stanza
@@ -1518,7 +1520,9 @@ expansion.
    ordered normative child argv, the same closed option set, exact RTwin `-F`,
    and the same bound RTwin known-host file
    for both user/global sources. Caller options, shell fragments, config paths,
-   targets, and ambient defaults are impossible inputs.
+   targets, and ambient defaults are impossible inputs. Its option terminator
+   precedes the exact destination alias, and the exact child token vector uses
+   the already-frozen CRT quote function plus one-SP joining.
 7. Exact current profile resolution and complete snapshot equality precede
    configuration use. Config-byte, known-host-byte, path-key, resolved-profile,
    or effective-digest drift rejects before the first process.

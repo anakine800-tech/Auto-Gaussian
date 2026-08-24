@@ -4275,6 +4275,11 @@ input exists. Mac paths are canonical absolute POSIX paths;
 RTwin paths are canonical absolute Windows paths. Config and known-host bytes
 remain non-secret profile content. Dedicated private-key paths may appear only
 inside the configs; private-key bytes and digests are neither read nor bound.
+The four effect paths and both config `IdentityFile` values reject `%`, `$`,
+`~`, `*`, `?`, `[`, `]`, `{`, and `}`. Therefore OpenSSH token,
+environment-variable, home, or glob expansion cannot select a different file
+than the exact literal path that Transport attests. A Windows backslash is a
+literal path separator, never escape syntax.
 
 ### Closed SSH config grammar
 
@@ -4368,8 +4373,31 @@ launcher is:
  "-o", "UpdateHostKeys=no",
  "-p", canonical_decimal(RP),
  "-l", RU,
- RA, "--", BC)
+ "--", RA, BC)
 ```
+
+For a synthetic RTwin config path `C:\cfg\server`, known-host path
+`C:\cfg\server-known`, alias `server-a`, port `22`, user `server-user`, and
+bootstrap command `BOOTSTRAP`, the complete child token tuple after the exact
+`rtwin_ssh` executable is:
+
+```text
+"-F","C:\cfg\server","-o","BatchMode=yes","-o","IdentitiesOnly=yes",
+"-o","StrictHostKeyChecking=yes",
+"-o","UserKnownHostsFile=C:\cfg\server-known",
+"-o","GlobalKnownHostsFile=C:\cfg\server-known",
+"-o","IdentityAgent=none","-o","PreferredAuthentications=publickey",
+"-o","PubkeyAuthentication=yes","-o","PasswordAuthentication=no",
+"-o","KbdInteractiveAuthentication=no","-o","GSSAPIAuthentication=no",
+"-o","HostbasedAuthentication=no","-o","VerifyHostKeyDNS=no",
+"-o","UpdateHostKeys=no","-p","22","-l","server-user","--",
+"server-a","BOOTSTRAP"
+```
+
+The exact PowerShell `Arguments` value is the single-SP join of
+`crt_quote_v1(token)` for that ordered tuple. The existing frozen CRT quoting
+grammar is reused; no other joiner, combined option, or destination placement
+is conforming.
 
 `canonical_decimal` is ASCII base-10 with no sign or leading zero. For a
 synthetic Mac config path `/cfg/mac`, known-host path `/cfg/mac-known`, alias
@@ -4386,6 +4414,11 @@ the destination are exactly:
 "-o","VerifyHostKeyDNS=no","-o","UpdateHostKeys=no",
 "-p","22","-l","rtwin-user","--","rtwin-a"
 ```
+
+For every platform path and both config `IdentityFile` values, any `%`, `$`,
+`~`, `*`, `?`, bracket, or brace character rejects before command
+construction. Negative fixtures include `/cfg/%h`, `/cfg/${HOME}`,
+`~/.ssh/id`, `C:\cfg\%h`, and `C:\cfg\${HOME}`.
 
 The private deployment authority produced by
 `_resolve_deployment_authority(snapshot, current_profile)` carries only parsed

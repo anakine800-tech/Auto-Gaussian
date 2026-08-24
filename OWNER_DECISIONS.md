@@ -743,7 +743,10 @@ optional `Port`, `IdentityFile`, `IdentitiesOnly`,
 one dedicated absolute identity path, `IdentitiesOnly yes`,
 `StrictHostKeyChecking yes`, and the matching bound known-hosts path. An absent
 `Port` means exactly 22 and is legal only when the resolved profile also says
-22. Wildcards, multiple aliases or stanzas, quoting/escaping, continuation,
+22. Identity, config, and known-host paths reject `%`, `$`, `~`, token or
+environment expansion, and wildcard/metacharacter substitution; the path
+attested is therefore the path OpenSSH consumes. Wildcards, multiple aliases
+or stanzas, quoting/escaping, continuation,
 unknown directives, and in particular `Include`, `Match`, `exec`,
 `ProxyCommand`, `ProxyJump`, command hooks, every forwarding directive,
 `KnownHostsCommand`, providers, and `IdentityAgent` reject before a process.
