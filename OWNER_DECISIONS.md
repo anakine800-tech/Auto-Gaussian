@@ -648,13 +648,12 @@ silently reinterpreted.
 No production dialect is inferred from generic PBS, Torque, PBS Pro, or
 OpenPBS knowledge. Historical repository/live artifacts prove that the legacy
 deployment accepted PBS-script resources in `nodes=1:ppn`, integer-GB memory,
-and `HH:MM:SS` walltime form, but do not prove a current structured-qsub queue
-or resource-option dialect. They are reuse evidence only. Until exact
-non-secret deployment evidence closes a production dialect, the live path is
-`NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` and no qsub may occur. Offline synthetic
-evidence may use one closed, clearly non-production renderer that is rejected
-by the live subprocess driver; it must not make a production dialect appear
-resolved.
+and `HH:MM:SS` walltime form, but did not by themselves prove a current
+structured-qsub queue or resource-option dialect. They remain reuse evidence.
+OD-22 separately records the exact accepted read-only deployment evidence and
+the one qualified production renderer. Offline synthetic evidence continues to
+use one closed, clearly non-production renderer that is rejected by the live
+subprocess driver; it cannot satisfy or impersonate production qualification.
 
 This decision changes no public Core, Approval, Workflow, Execution, Observe,
 Result, ScientificValidation, or Review API/schema. It creates no resource
@@ -662,3 +661,52 @@ planner, adaptive allocation, automatic queue choice, retry, qdel, cleanup,
 deployment, credential, host-key, OpenSSH, or live authority. `WINNER` remains
 the sole first-effect sequencing gate; `REPLAY` performs zero qsub and
 `UNKNOWN` never authorizes a second qsub.
+
+## OD-22: The first production scheduler dialect is exact Torque 6.1.0 single-node ppn
+
+The accepted read-only deployment preflight closes the previously unresolved
+production dialect for the exact V30-A target. The observed `qsub` and `qstat`
+are `/usr/local/bin/qsub` and `/usr/local/bin/qstat`; they report Torque
+`6.1.0`, `qsub` links `libtorque.so.2`, the server is active, the target is one
+44-processor node, and the qualified queue is exactly `batch`. The exact
+preflight identities are: qsub size `418920`, SHA-256
+`f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d`;
+qstat size `185656`, SHA-256
+`3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a`.
+Neither binary is package-manager-owned, so package identity is not invented.
+The deployment manifest continues to own executable path, size, digest, and
+permission attestation; the renderer never returns an executable.
+
+The one production dialect ID is exactly
+`auto-g16-v3-pbs-resource-enactment/torque-6.1.0-nodes-ppn/1`. It consumes only
+the identity-closed `ResolvedResourceRequest` plus exact portable PBS basename
+and renders exactly `("-l",
+"nodes=1:ppn=C,mem=Mmb,walltime=W", "-q", "Q", "B")`, where `C`, `M`, and
+`W` are unsigned canonical decimal encodings of positive non-boolean integer
+cores, memory MB, and walltime seconds. No GB conversion, time reformatting,
+split resource clauses, option reordering, caller fragment, PBS directive,
+environment, scheduler default, or legacy tier participates.
+
+For the first V30-A deployment the queue is mandatory and must equal exactly
+`batch`. `queue = null` and every other queue fail closed. Although the
+observed scheduler default is `batch`, that default is deployment evidence,
+not resource authority. An explicit queue therefore always renders as the
+exact pair `-q`, `batch`. Supporting another queue or another deployment is a
+separate deployment-qualified gate.
+
+The runtime descriptor remains the two-key canonical
+`pbs-resource-enactment-v1.json`; it admits exactly the unchanged synthetic
+test dialect and this Torque production dialect. The synthetic renderer stays
+non-production and rejects before process creation. The Torque renderer is
+production-qualified and may be marked mechanically `live_capable = true`,
+but that flag grants no live authority: the complete Approval, snapshot,
+Operational Confirmation, Core WINNER, deployment-manifest, and explicit
+V30-A Live Owner Gate remain mandatory.
+
+This decision closes only dialect qualification. It changes no public Core,
+Approval, Workflow, Execution, Observe, Result, ScientificValidation, or
+Review API/schema and creates no planner, multi-node policy, automatic queue
+choice, retry, qdel, cleanup, deployment, credential, host-key, OpenSSH, or
+live authority. PBS templates remain free of active `#PBS -l` and `#PBS -q`
+resource directives; `REPLAY` performs zero qsub and `UNKNOWN` never permits a
+second qsub.

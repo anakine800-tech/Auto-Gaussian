@@ -203,8 +203,17 @@
   snapshot-only scheduler-resource authority, closed dialect descriptor,
   structured qsub rendering, protocol/table v2 successor, and exact
   REPLAY/UNKNOWN behavior. Its reviewed implementation is integrated and the
-  affected exact-main evidence is `PASS`. Production dialect finalization
-  remains `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT`; no dialect is guessed.
+  affected exact-main evidence is `PASS`. The accepted read-only preflight now
+  closes the exact Torque `6.1.0`, single-node `nodes=1:ppn`, integer-MB,
+  integer-seconds, explicit-`batch` production dialect contract. The qualified
+  renderer remains a two-phase contract/implementation task; no live qsub is
+  authorized until both phases integrate and a separate V30-A Live Owner Gate
+  is granted.
+- **Current gate:** `V30-PBS-TORQUE-DIALECT-01` contract content is the active
+  production-renderer freeze lane. Once this exact authority integrates after
+  independent review, its bounded Transport implementation phase is GO. The
+  implementation may qualify the renderer mechanically but may not perform a
+  live submission.
 - **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
   other live-effect authority.
 - **Readiness:** `V30-A-SYNTHETIC-COMPOSITION-01` is `CLOSED / INTEGRATED`.
@@ -214,9 +223,9 @@
   and zero live effects. When this exact status content is present on
   authoritative main after exact-main validation, `V30-A-READINESS-01` is
   `PASS` for the complete OFFLINE chain including scheduler resource
-  enactment. LIVE readiness remains `BLOCKED` until read-only deployment
-  preflight proves the actual scheduler dialect and Owner grants a separate
-  live gate. OpenSSH and live execution remain deferred.
+  enactment. LIVE remains `NO-GO`: production-renderer implementation and
+  exact-main evidence must close before a separate V30-A Live Owner Gate.
+  OpenSSH and live execution remain deferred.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or

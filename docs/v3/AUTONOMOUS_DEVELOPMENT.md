@@ -430,9 +430,10 @@ Controller, open OpenSSH, or perform live work.
   bytes, Gaussian `%mem`/`%nprocshared`, caller argv, environment, profile
   defaults, scheduler defaults, nor legacy governance may replace it.
 - **Dialect:** Fixed runtime content `pbs-resource-enactment-v1.json` selects a
-  closed source renderer. Production dialect evidence remains unresolved until
-  read-only deployment preflight. One explicitly synthetic renderer is allowed
-  offline and must be rejected before any live subprocess starts.
+  closed source renderer. The separate `V30-PBS-TORQUE-DIALECT-01` authority
+  records the accepted read-only deployment evidence and exact production
+  renderer. One explicitly synthetic renderer remains allowed offline and must
+  be rejected before any live subprocess starts.
 - **Protocol:** Successor bootstrap `/2`, table `/2`, and bootstrap-v2 source;
   same seven operations, framing, trust roots, caps, physical bindings,
   WINNER/REPLAY/UNKNOWN, and no-retry rules.
@@ -446,8 +447,48 @@ Controller, open OpenSSH, or perform live work.
   telemetry, adaptive resources, multi-node policy, OpenSSH, qdel, and live.
 - **Stop rules:** Stop for a required upstream public API/schema change, new
   retry/effect authority, production dialect guess, trust-model change, or live
-  evidence required to choose semantics. Dialect finalization alone may stop as
-  `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` while offline implementation proceeds.
+  evidence required to choose semantics. Production qualification must come
+  only from the separately accepted exact preflight evidence.
 - **Non-goals:** No live RTwin/SSH/PBS/Gaussian, qsub/qstat, deployment,
   credentials, host-key acceptance, qdel/delete/cleanup, automatic retry,
   resource planning, or scientific interpretation.
+
+### `V30-PBS-TORQUE-DIALECT-01`
+
+- **Outcome:** Replace the production-dialect preflight blocker with one exact
+  source-controlled Torque `6.1.0` single-node `nodes:ppn` renderer for the
+  first V30-A deployment.
+- **Authority:** Owner-approved two-phase lane: docs-only freeze and independent
+  contract review first; only after normal integration may the bounded
+  Transport implementation, focused/affected validation, independent review,
+  and normal integration proceed autonomously.
+- **Contract scope:** Exact authority files only: `OWNER_DECISIONS.md`,
+  `docs/v3/boundary-spec.md`, `docs/v3/acceptance.md`, this file,
+  `docs/v3/STATUS.md`, and `config/context-map.toml`.
+- **Implementation scope:** Existing Transport-owned dialect/renderer/bootstrap
+  boundary and `tests/v3/transport/**` only. No upstream public API/schema
+  change.
+- **Dialect:** Exact ID
+  `auto-g16-v3-pbs-resource-enactment/torque-6.1.0-nodes-ppn/1`; exact argv is
+  `-l`, one `nodes=1:ppn=C,mem=Mmb,walltime=W` value, `-q`, exact queue, then
+  exact PBS basename. Integer MB and seconds replay without conversion.
+- **Queue:** The first deployment requires exact `batch`; null or any other
+  queue rejects. Observed scheduler defaults never become authority.
+- **Executable evidence:** Manifest-only `server_qsub` is
+  `/usr/local/bin/qsub`, 418920 bytes, SHA-256
+  `f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d`;
+  `server_qstat` is `/usr/local/bin/qstat`, 185656 bytes, SHA-256
+  `3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a`.
+  No package identity is invented.
+- **Safety:** Synthetic remains non-live; production qualification alone grants
+  no live effect. PBS resource directives remain forbidden, WINNER remains the
+  sequencing gate, REPLAY is zero qsub, and UNKNOWN grants no retry.
+- **Validation:** Exact three positive renderer vectors, closed negative matrix,
+  qsub/qstat drift tests, affected synthetic composition delta, static/diff/
+  sensitive checks, and fresh independent reviews at `0/0/0/0`.
+- **Stop rules:** Stop for any upstream API/schema change, incompatible
+  one-node/memory semantics, required extra scheduler resource/authority,
+  changed qsub/qstat identity, or two failed same-class repairs.
+- **Non-goals:** No generic PBS abstraction, multi-node policy, alternate
+  queue, resource planner/telemetry, OpenSSH, deployment, live qsub/Gaussian,
+  retry, qdel, deletion, or cleanup.
