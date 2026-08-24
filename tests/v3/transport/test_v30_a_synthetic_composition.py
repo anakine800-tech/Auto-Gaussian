@@ -20,7 +20,7 @@ import auto_g16.transport as transport
 import auto_g16.workflow as workflow
 from tests.v3.execution.test_execution import INPUT_BYTES, TEMPLATE_BYTES
 
-from ._fixtures import FakeDriver, NOW, TransportFixture, found, qstat, response
+from ._fixtures import FakeDriver, NOW, TORQUE_RESOURCE_DESCRIPTOR_BYTES, TransportFixture, found, qstat, response
 from .test_execution import execution_successes
 
 
@@ -202,7 +202,8 @@ class V30ASyntheticCompositionTests(TransportFixture):
         FakeDriver,
         execution.ExecutionAttemptResult,
     ]:
-        snapshot, profile = self.transport_snapshot()
+        profile = self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES)
+        snapshot, _ = self.transport_snapshot(profile=profile, queue="batch")
         authorities = self._approval_chain(snapshot)
         self._workflow_ready(self.store)
         self._validate_authority(self.store, snapshot, authorities)
@@ -219,6 +220,10 @@ class V30ASyntheticCompositionTests(TransportFixture):
         )
         self.assertIs(outcome.claim, core.SubmissionIntentClaim.WINNER)
         self.assertIs(outcome.attempt_state, core.AttemptState.SUBMITTED)
+        self.assertEqual(driver.text_calls[-1][1].argv, (
+            "-l", "nodes=1:ppn=8,mem=12288mb,walltime=3600",
+            "-q", "batch", "job.pbs",
+        ))
         return self.store, snapshot, profile, driver, outcome
 
     @staticmethod

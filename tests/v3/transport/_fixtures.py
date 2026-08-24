@@ -20,6 +20,7 @@ from auto_g16.transport._driver import (
     _OPERATION_TABLE_BYTES,
     _RESOURCE_DESCRIPTOR_NAME,
     _SYNTHETIC_RESOURCE_DIALECT,
+    _TORQUE_RESOURCE_DIALECT,
     _TABLE_NAME,
     _resolve_deployment_authority,
 )
@@ -32,6 +33,10 @@ RESOURCE_DESCRIPTOR_BYTES = canonical_json_bytes({
     "schema": "auto-g16-v3-pbs-resource-enactment/1",
     "dialect": _SYNTHETIC_RESOURCE_DIALECT,
 })
+TORQUE_RESOURCE_DESCRIPTOR_BYTES = canonical_json_bytes({
+    "schema": "auto-g16-v3-pbs-resource-enactment/1",
+    "dialect": _TORQUE_RESOURCE_DIALECT,
+})
 
 
 def _manifest_bytes(
@@ -42,6 +47,7 @@ def _manifest_bytes(
     mac_scp_bytes: bytes,
     deployment_id: str = "synthetic-rtwin-deployment-v1",
     windows_grammar: str = "powershell-v1",
+    torque_executables: bool = False,
 ) -> bytes:
     def file_root(path: str, platform: str, mode: str, identity: str, content: bytes) -> dict[str, object]:
         return {
@@ -81,6 +87,21 @@ def _manifest_bytes(
         "server_qsub": file_root("/usr/bin/qsub", "posix", "server-python-file-v1", "synthetic-qsub", b"qsub"),
         "server_qstat": file_root("/usr/bin/qstat", "posix", "server-python-file-v1", "synthetic-qstat", b"qstat"),
     }
+    if torque_executables:
+        roots["server_qsub"] = {
+            **roots["server_qsub"],
+            "deployment_identity": "torque-6.1.0-qsub-preflight",
+            "expected_sha256": "f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d",
+            "expected_size_bytes": 418_920,
+            "path": "/usr/local/bin/qsub",
+        }
+        roots["server_qstat"] = {
+            **roots["server_qstat"],
+            "deployment_identity": "torque-6.1.0-qstat-preflight",
+            "expected_sha256": "3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a",
+            "expected_size_bytes": 185_656,
+            "path": "/usr/local/bin/qstat",
+        }
     return canonical_json_bytes({
         "bootstrap_protocol": _BOOTSTRAP_PROTOCOL,
         "deployment_id": deployment_id,
@@ -140,13 +161,13 @@ class TransportFixture(ExecutionFixture):
         self.transport_store = transport.TransportStore.create_new(self.transport_database, approved_root=store_root)
         self.addCleanup(self.transport_store.close)
 
-    def profile(self, *, deployment_id: str = "synthetic-rtwin-deployment-v1", windows_grammar: str = "powershell-v1", jump_topology: list[tuple[str, int, str]] | None = None) -> execution.ServerProfile:
+    def profile(self, *, deployment_id: str = "synthetic-rtwin-deployment-v1", windows_grammar: str = "powershell-v1", jump_topology: list[tuple[str, int, str]] | None = None, resource_descriptor: bytes = RESOURCE_DESCRIPTOR_BYTES) -> execution.ServerProfile:
         executable_bytes = {"mac-ssh": b"mac ssh executable bytes", "mac-scp": b"mac scp executable bytes"}
         executable_paths = {name: self.temporary / name for name in executable_bytes}
         for name, path in executable_paths.items():
             path.write_bytes(executable_bytes[name])
             path.chmod(0o700)
-        manifest = _manifest_bytes(str(executable_paths["mac-ssh"]), str(executable_paths["mac-scp"]), mac_ssh_bytes=executable_bytes["mac-ssh"], mac_scp_bytes=executable_bytes["mac-scp"], deployment_id=deployment_id, windows_grammar=windows_grammar)
+        manifest = _manifest_bytes(str(executable_paths["mac-ssh"]), str(executable_paths["mac-scp"]), mac_ssh_bytes=executable_bytes["mac-ssh"], mac_scp_bytes=executable_bytes["mac-scp"], deployment_id=deployment_id, windows_grammar=windows_grammar, torque_executables=resource_descriptor==TORQUE_RESOURCE_DESCRIPTOR_BYTES)
         return execution.ServerProfile(
             server_profile_id="profile-transport-1", profile_revision=11, transport_kind="legacy_rtwin_pbs",
             target_host="10.0.0.50", target_port=22, remote_user="user100",
@@ -154,7 +175,7 @@ class TransportFixture(ExecutionFixture):
             batch_mode=True, identities_only=True, remote_root=execution.LEGACY_REMOTE_ROOT,
             platform_paths={"rtwin_root": r"C:\RTWIN", "known_hosts": "/etc/ssh/ssh_known_hosts"},
             config_files=[("ssh_config", b"Host RTwin\n  HostName 100.64.0.1\n")],
-            runtime_contents={_MANIFEST_NAME: manifest, _TABLE_NAME: _OPERATION_TABLE_BYTES, _BOOTSTRAP_SOURCE_NAME: _BOOTSTRAP_SOURCE_BYTES, _RESOURCE_DESCRIPTOR_NAME: RESOURCE_DESCRIPTOR_BYTES},
+            runtime_contents={_MANIFEST_NAME: manifest, _TABLE_NAME: _OPERATION_TABLE_BYTES, _BOOTSTRAP_SOURCE_NAME: _BOOTSTRAP_SOURCE_BYTES, _RESOURCE_DESCRIPTOR_NAME: resource_descriptor},
         )
 
     def transport_snapshot(self, *, profile: execution.ServerProfile | None = None, prepared_bytes: bytes = INPUT_BYTES, cores: int = 8, memory_mb: int = 12_288, walltime_seconds: int = 3_600, queue: str | None = "simple") -> tuple[execution.ExecutionSnapshot, execution.ServerProfile]:
@@ -188,4 +209,4 @@ class TransportFixture(ExecutionFixture):
         return RTWinReadAdapter._from_driver(driver, transport_store=self.transport_store, clock=lambda: timestamp)
 
 
-__all__ = ["FakeDriver", "LATER", "NOW", "RESOURCE_DESCRIPTOR_BYTES", "TransportFixture", "found", "qstat", "response"]
+__all__ = ["FakeDriver", "LATER", "NOW", "RESOURCE_DESCRIPTOR_BYTES", "TORQUE_RESOURCE_DESCRIPTOR_BYTES", "TransportFixture", "found", "qstat", "response"]

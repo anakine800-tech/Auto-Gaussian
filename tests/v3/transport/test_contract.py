@@ -69,11 +69,11 @@ class TransportContractTests(unittest.TestCase):
         self.assertEqual(_OPERATION_TABLE_SHA256, "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af")
         self.assertEqual(_BOOTSTRAP_SOURCE_NAME, "auto-g16-v3-rtwin-bootstrap-v2.py")
         self.assertEqual(_BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE.encode("utf-8"))
-        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 15195)
-        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 201)
+        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 15597)
+        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 204)
         self.assertNotIn(b"\r", _BOOTSTRAP_SOURCE_BYTES)
         self.assertNotIn(b"\x00", _BOOTSTRAP_SOURCE_BYTES)
-        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3")
+        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "b0b1bcaf8ab8697a80676ac1015503a2fb64c21949678f20bf05f3bd849fb10e")
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.startswith(b"from __future__ import annotations\n"))
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.endswith(b"main()\n"))
         self.assertNotIn("eval(", _BOOTSTRAP_SOURCE)
@@ -100,7 +100,9 @@ class TransportContractTests(unittest.TestCase):
         self.assertIn('content=decode64_bounded(p["content_base64"],FILE_CAP)', _BOOTSTRAP_SOURCE)
         self.assertIn('set(p)!={"pbs_basename","resource_enactment"}', _BOOTSTRAP_SOURCE)
         self.assertIn('set(r)!={"execution_snapshot_id","resolved_resource_request_id","cores","memory_mb","walltime_seconds","queue","scheduler_dialect_id"}', _BOOTSTRAP_SOURCE)
-        self.assertLess(_BOOTSTRAP_SOURCE.index('die("non-production-resource-dialect")'), _BOOTSTRAP_SOURCE.index('completed=run_exact(roots["server_qsub"],args'))
+        self.assertLess(_BOOTSTRAP_SOURCE.index('args.append(p["pbs_basename"]); die("non-production-resource-dialect")'), _BOOTSTRAP_SOURCE.index('completed=run_exact(roots["server_qsub"],args'))
+        self.assertIn('if r["queue"]!="batch": die("invalid-torque-queue")', _BOOTSTRAP_SOURCE)
+        self.assertIn('args=["-l","nodes=1:ppn="+str(r["cores"])+",mem="+str(r["memory_mb"])+"mb,walltime="+str(r["walltime_seconds"]),"-q","batch",p["pbs_basename"]]', _BOOTSTRAP_SOURCE)
 
     def test_bootstrap_rejects_nonexecutables_and_postlaunch_replacement(self) -> None:
         tree = ast.parse(_BOOTSTRAP_SOURCE)
@@ -135,6 +137,27 @@ class TransportContractTests(unittest.TestCase):
             try:
                 with patch("subprocess.run", side_effect=replace_after_launch), self.assertRaises(SystemExit):
                     run_exact(root, ["job.pbs"], cwd_fd, 65536, 65536)
+            finally:
+                os.close(cwd_fd)
+
+    def test_bootstrap_runs_exact_torque_vector_through_manifest_path_without_shell(self) -> None:
+        tree = ast.parse(_BOOTSTRAP_SOURCE)
+        namespace: dict[str, object] = {}
+        exec(compile(ast.Module(body=tree.body[:-1], type_ignores=[]), "<fixed-bootstrap-test>", "exec"), namespace)
+        run_exact = namespace["run_exact"]
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "qsub"
+            executable.write_bytes(b"fixed-qsub")
+            executable.chmod(0o700)
+            root = {"path":str(executable), "expected_size_bytes":10, "expected_sha256":sha256(b"fixed-qsub").hexdigest()}
+            cwd_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            argv = ["-l", "nodes=1:ppn=8,mem=12288mb,walltime=3600", "-q", "batch", "job.pbs"]
+            try:
+                with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, stdout=b"123.server\n", stderr=b"")) as run:
+                    completed = run_exact(root, argv, cwd_fd, 65536, 65536)
+                self.assertEqual(completed.stdout, b"123.server\n")
+                self.assertEqual(run.call_args.args[0], [str(executable), *argv])
+                self.assertFalse(run.call_args.kwargs["shell"])
             finally:
                 os.close(cwd_fd)
 

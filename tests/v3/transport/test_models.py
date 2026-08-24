@@ -17,19 +17,19 @@ class TransportStoreTests(TransportFixture):
     def test_active_source_dependent_physical_identity_vectors(self) -> None:
         store_id = "108c8d43-2ea9-5658-9607-ade4cbbeac85"
         instance_id = "28c10d1a-9f8f-5ce6-84d1-555175c0fcde"
-        runtime = ["auto-g16-transport/runtime-attestation", 1, store_id, instance_id, "snapshot-1", "profile-1", "a" * 64, "transport-deployment-manifest-v1.json", "359039083c926fa743cceae61c2cd49b9a7b76064ef14c02b664f1284aafaf5a", 2753, "synthetic-rtwin-deployment-v1", "auto-g16-v3-rtwin-bootstrap/2", "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af", 1570, "auto-g16-v3-rtwin-bootstrap-v2.py", "3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3", 15195]
+        runtime = ["auto-g16-transport/runtime-attestation", 1, store_id, instance_id, "snapshot-1", "profile-1", "a" * 64, "transport-deployment-manifest-v1.json", "359039083c926fa743cceae61c2cd49b9a7b76064ef14c02b664f1284aafaf5a", 2753, "synthetic-rtwin-deployment-v1", "auto-g16-v3-rtwin-bootstrap/2", "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af", 1570, "auto-g16-v3-rtwin-bootstrap-v2.py", "b0b1bcaf8ab8697a80676ac1015503a2fb64c21949678f20bf05f3bd849fb10e", 15597]
         runtime_id = physical_id("runtime-attestation", runtime)
-        self.assertEqual(runtime_id, "26153064-bd77-505b-b785-b97f5255f7a8")
+        self.assertEqual(runtime_id, "aab7d1d4-22a6-5cf3-a86a-f3d155d8d4e3")
         workspace = ["auto-g16-transport/workspace-physical", 1, store_id, instance_id, runtime_id, "attempt-1", "snapshot-1", "intent-1", "/srv/p/attempt-1", b"workspace-token-v1"]
         workspace_id = physical_id("workspace-physical", workspace)
-        self.assertEqual(workspace_id, "a91afb55-a950-56f1-83de-31a36954ad25")
+        self.assertEqual(workspace_id, "cce2c82c-f935-5b16-9f32-10d98f6a79ba")
         artifact = ["auto-g16-transport/artifact-physical", 1, store_id, instance_id, workspace_id, runtime_id, "attempt-1", "snapshot-1", "intent-1", "prepared-input", "job.gjf", "job.gjf", "d" * 64, 123, b"artifact-token-v1"]
-        self.assertEqual(physical_id("artifact-physical", artifact), "5be2efe4-777e-5d5e-bf0d-09ececbfcf56")
+        self.assertEqual(physical_id("artifact-physical", artifact), "1f94ca62-3432-50cb-867f-56fc7cc22b56")
         job = ["auto-g16-transport/job-physical", 1, store_id, instance_id, workspace_id, runtime_id, "attempt-1", "snapshot-1", "intent-1", "123.server"]
         job_id = physical_id("job-physical", job)
-        self.assertEqual(job_id, "382c7632-b0f4-5c61-baa9-e35f8cce1527")
+        self.assertEqual(job_id, "dff67c7c-ed8c-5992-8440-3c4988297367")
         receipt = ["auto-g16-transport/receipt-binding", 1, store_id, instance_id, job_id, workspace_id, "attempt-1", "snapshot-1", "intent-1", "receipt-1", "123.server"]
-        self.assertEqual(physical_id("receipt-binding", receipt), "1183cdad-9dc5-53d9-8d35-32a4fc01dd8c")
+        self.assertEqual(physical_id("receipt-binding", receipt), "1bf4e844-8199-57cf-a96b-00ec3639ffc6")
 
     def test_create_reopen_preserves_exact_store_identity(self) -> None:
         store_id = self.transport_store.transport_store_id
