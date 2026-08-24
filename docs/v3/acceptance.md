@@ -1493,8 +1493,10 @@ expansion.
    resolver. The four exact path keys and four exact logical config names in
    `boundary-spec.md` are mandatory; missing, duplicate, aliased, or extra
    effect-configuration input fails before process creation.
-2. Both SSH configs pass the closed UTF-8/LF, one-Host-stanza grammar. The
-   exact allowed directive inventory is enforced. Include, Match/exec,
+2. Both SSH configs pass the closed UTF-8/LF, SP-only, case-sensitive,
+   one-Host-stanza grammar. Exact physical-line, comment, blank, directive,
+   value, and alias lexical rules and the allowed directive inventory are
+   enforced. Include, Match/exec,
    ProxyCommand/ProxyJump, command hooks, forwarding, KnownHostsCommand,
    providers, agent overrides, wildcard/multiple Host values, quotes,
    escapes, and continuation reject.
@@ -1506,23 +1508,28 @@ expansion.
    RTwin HostName/User/Port equals the snapshot destination. Missing port means
    exactly 22. A redirect, alternate destination, extra proxy hop, or stanza
    mismatch rejects before effect.
-5. The outer command uses exact manifest `mac_ssh`, exact bound `-F`, and
+5. The outer command matches the complete ordered normative argv template and
+   synthetic token vector. It uses exact manifest `mac_ssh`, exact bound `-F`, and
    explicit batch, identities-only, strict-host-key, no-agent,
    public-key-only, password-off, and keyboard-interactive-off options. Both
    user and global known-host options equal the same exact bound Mac file.
-6. The PowerShell launcher invokes exact manifest `rtwin_ssh` with the same
-   closed option set, exact RTwin `-F`, and the same bound RTwin known-host file
+6. The PowerShell launcher invokes exact manifest `rtwin_ssh` with the complete
+   ordered normative child argv, the same closed option set, exact RTwin `-F`,
+   and the same bound RTwin known-host file
    for both user/global sources. Caller options, shell fragments, config paths,
    targets, and ambient defaults are impossible inputs.
 7. Exact current profile resolution and complete snapshot equality precede
    configuration use. Config-byte, known-host-byte, path-key, resolved-profile,
    or effective-digest drift rejects before the first process.
-8. Missing, non-regular, symlink/reparse, size-mismatched, digest-mismatched,
-   replaced, or pre/post-drifted Mac config/known-hosts yields zero subprocess.
-   Valid unchanged local files attest before and after process completion.
-9. Missing, non-regular, reparse, size-mismatched, digest-mismatched, or
-   pre/post-drifted RTwin config/known-hosts yields zero nested server SSH or a
-   closed Transport error after the child terminates. It never retries.
+8. A prelaunch missing, non-regular, symlink/reparse, size-mismatched,
+   digest-mismatched, or replaced Mac config/known-hosts yields zero subprocess.
+   Valid unchanged local files attest before and after process completion. A
+   postlaunch drift rejects the result and preserves `UNKNOWN` if an effect may
+   have crossed; it never retries.
+9. A prelaunch missing, non-regular, reparse, size-mismatched, or
+   digest-mismatched RTwin config/known-hosts yields zero nested server SSH. A
+   postlaunch drift yields an unusable result/closed Transport error and
+   preserves `UNKNOWN` where applicable; it never retries.
 10. Existing nine-root executable trust, bootstrap protocol/table/source,
     resource enactment, workspace/artifact physical identity,
     `REPLAY` zero-qsub, and `UNKNOWN` zero-second-qsub tests remain PASS.

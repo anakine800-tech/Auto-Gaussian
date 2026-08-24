@@ -724,16 +724,20 @@ The Transport convention is closed. `platform_paths` provides exactly the
 four effect-configuration keys `mac_ssh_config_path`,
 `mac_known_hosts_path`, `rtwin_ssh_config_path`, and
 `rtwin_known_hosts_path` in addition to unrelated existing path authority.
-`config_files` contains exactly one immutable byte value for each logical name
+For a Transport operation, `config_files` contains exactly one immutable byte
+value for each logical name
 `mac-ssh-config`, `mac-known-hosts`, `rtwin-ssh-config`, and
-`rtwin-known-hosts`; duplicate, missing, or extra effect-configuration names
-reject. These files are profile-bound effect configuration, not additions to
+`rtwin-known-hosts`, and contains no other logical name; duplicate, missing,
+or extra names reject. This exact-set rule is Transport-private and does not
+change what the generic public Execution resolver can resolve. These files are
+profile-bound effect configuration, not additions to
 the nine-root deployment executable inventory. Private-key bytes, private-key
 digests, agents, tokens, and passwords remain outside profile, manifest,
 runtime content, TransportStore, logs, and review packets.
 
-Each SSH config is UTF-8 with LF line endings, has exactly one concrete
-single-name `Host` stanza, and may contain only `Host`, `HostName`, `User`,
+Each SSH config is UTF-8 without BOM, NUL, CR, or HTAB, ends in exactly one LF,
+has exactly one concrete single-name `Host` stanza, and may contain only
+`Host`, `HostName`, `User`,
 optional `Port`, `IdentityFile`, `IdentitiesOnly`,
 `StrictHostKeyChecking`, and `UserKnownHostsFile`. The required values include
 one dedicated absolute identity path, `IdentitiesOnly yes`,
@@ -756,18 +760,22 @@ agent. Both `UserKnownHostsFile` and `GlobalKnownHostsFile` are set to the same
 exact bound known-hosts path, so no ambient user or global file can authorize
 a different key. There is no `~/.ssh/config`, default-known-hosts, agent,
 password, keyboard-interactive, caller-option, caller-config, or caller-target
-fallback.
+fallback. `boundary-spec.md` freezes exact SP-only parsing and the complete
+ordered argv templates; Transport may not reorder or combine those tokens.
 
 Before launch, Transport resolves the current profile through the existing
 public Execution resolver and requires complete equality with the snapshot.
 It then proves exact profile bytes against the four named files. The Mac
 controller opens its two local files no-follow as regular files and compares
 size, SHA-256, and descriptor/name identity before process creation and again
-after process completion. The manifest-bound PowerShell launcher performs the
-same regular/non-reparse size/SHA-256 attestation for the two RTwin files
-before nested SSH and, where the nested process completes, after it. Any
-missing, replaced, malformed, mismatched, or drifted file fails closed with no
-retry. Runtime/review evidence exposes only logical identity, path class,
+after process completion. A prelaunch mismatch causes zero process. A
+postlaunch drift rejects the child result; if an effect may have crossed,
+normal `UNKNOWN`/reconciliation authority applies and never authorizes retry.
+The manifest-bound PowerShell launcher performs the same regular/non-reparse
+size/SHA-256 attestation for the two RTwin files before nested SSH and, where
+the nested process completes, after it. A prelaunch mismatch causes zero
+nested SSH. Postlaunch drift makes the result unusable and preserves `UNKNOWN`
+when applicable. No case retries. Runtime/review evidence exposes only logical identity, path class,
 size, digest, and PASS/FAIL; machine-specific contents and addresses are not
 committed.
 
