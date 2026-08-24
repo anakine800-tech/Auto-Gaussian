@@ -10,7 +10,7 @@ import shlex
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import auto_g16.transport as transport
 import auto_g16.execution as execution
@@ -160,6 +160,41 @@ class TransportContractTests(unittest.TestCase):
                 self.assertFalse(run.call_args.kwargs["shell"])
             finally:
                 os.close(cwd_fd)
+
+    def test_bootstrap_main_derives_torque_vector_from_closed_request(self) -> None:
+        tree = ast.parse(_BOOTSTRAP_SOURCE)
+        namespace: dict[str, object] = {}
+        exec(compile(ast.Module(body=tree.body[:-1], type_ignores=[]), "<fixed-bootstrap-test>", "exec"), namespace)
+        binding = {
+            "transport_store_id":"store-1", "store_instance_id":"instance-1",
+            "runtime_attestation_id":"runtime-1", "attempt_id":"attempt-1",
+            "execution_snapshot_id":"snapshot-1", "submission_intent_id":"intent-1",
+            "remote_workspace":"/srv/p/attempt-1", "workspace_authority_id":"workspace-1",
+            "workspace_physical_token_base64":"d29ya3NwYWNlLTE=",
+            "prepared_input_artifact_authority_id":"input-artifact-1",
+            "prepared_input_artifact_physical_token_base64":"aW5wdXQtdG9rZW4tMQ==",
+            "pbs_template_artifact_authority_id":"pbs-artifact-1",
+            "pbs_template_artifact_physical_token_base64":"cGJzLXRva2VuLTE=",
+        }
+        resource = {
+            "execution_snapshot_id":"snapshot-1", "resolved_resource_request_id":"resources-1",
+            "cores":22, "memory_mb":51_200, "walltime_seconds":43_200,
+            "queue":"batch", "scheduler_dialect_id":"auto-g16-v3-pbs-resource-enactment/torque-6.1.0-nodes-ppn/1",
+        }
+        request = {"binding":binding, "operation":"SUBMIT_QSUB_ONCE", "payload":{"pbs_basename":"job.pbs", "resource_enactment":resource}, "protocol":"auto-g16-v3-rtwin-bootstrap/2"}
+        qsub_root = {"path":"/usr/local/bin/qsub", "expected_size_bytes":418_920, "expected_sha256":"f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d"}
+        namespace["manifest"] = Mock(return_value={"server_qsub":qsub_root})
+        namespace["read_frame"] = Mock(return_value=request)
+        namespace["open_workspace"] = Mock(return_value=(10, 11, 12))
+        namespace["closefds"] = Mock()
+        namespace["attest_artifact"] = Mock(side_effect=lambda _fd, _binding, kind, _identity: "input.gjf" if kind=="prepared-input" else "job.pbs")
+        namespace["run_exact"] = Mock(return_value=subprocess.CompletedProcess([], 0, stdout=b"123.server\n", stderr=b""))
+        namespace["respond"] = Mock()
+        namespace["main"]()
+        expected = ["-l", "nodes=1:ppn=22,mem=51200mb,walltime=43200", "-q", "batch", "job.pbs"]
+        namespace["run_exact"].assert_called_once_with(qsub_root, expected, 12, 65536, 65536)
+        namespace["respond"].assert_called_once_with("SUBMIT_QSUB_ONCE", {"job_id":"123.server"})
+        self.assertNotIn("argv", request["payload"])
 
     def test_posix_variable_and_fixed_source_quoting_are_separate(self) -> None:
         self.assertEqual(shlex.split(_posix_quote_v1("")), [""])

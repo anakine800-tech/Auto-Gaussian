@@ -15,7 +15,9 @@ from auto_g16.transport._driver import (
     _MANIFEST_NAME,
     _RESOURCE_DESCRIPTOR_NAME,
     _Invocation,
+    _ResourceEnactment,
     _SubprocessRTWinDriver,
+    _TORQUE_RESOURCE_DIALECT,
     _attest_local,
     _operation,
     _parse_deployment_manifest,
@@ -108,6 +110,30 @@ class ManifestAndCommandTests(TransportFixture):
         ))
         self.assertNotIn("/usr/local/bin/qsub", _render_qsub_argv(enactment, "job.pbs"))
 
+    def test_torque_exact_positive_vectors_cover_minimum_typical_and_full_node(self) -> None:
+        for cores, memory_mb, walltime_seconds, expected in (
+            (1, 1, 1, "nodes=1:ppn=1,mem=1mb,walltime=1"),
+            (22, 51_200, 43_200, "nodes=1:ppn=22,mem=51200mb,walltime=43200"),
+            (44, 120_000, 172_800, "nodes=1:ppn=44,mem=120000mb,walltime=172800"),
+        ):
+            with self.subTest(cores=cores):
+                enactment = _ResourceEnactment("snapshot-1", "resources-1", cores, memory_mb, walltime_seconds, "batch", _TORQUE_RESOURCE_DIALECT)
+                self.assertEqual(_render_qsub_argv(enactment, "job.pbs"), ("-l", expected, "-q", "batch", "job.pbs"))
+
+    def test_resource_integers_and_renderer_tokens_are_closed(self) -> None:
+        for field in ("cores", "memory_mb", "walltime_seconds"):
+            for bad in (0, -1, True, 1.0, "1"):
+                with self.subTest(field=field, bad=bad):
+                    values = {"cores": 8, "memory_mb": 12_288, "walltime_seconds": 3_600}
+                    values[field] = bad
+                    with self.assertRaises(transport.TransportBoundaryError):
+                        _ResourceEnactment("snapshot-1", "resources-1", values["cores"], values["memory_mb"], values["walltime_seconds"], "batch", _TORQUE_RESOURCE_DIALECT)
+        for basename in ("../job.pbs", "job pbs", "-job.pbs", "job.pbs;"):
+            with self.subTest(basename=basename):
+                enactment = _ResourceEnactment("snapshot-1", "resources-1", 8, 12_288, 3_600, "batch", _TORQUE_RESOURCE_DIALECT)
+                with self.assertRaises(transport.TransportBoundaryError):
+                    _render_qsub_argv(enactment, basename)
+
     def test_torque_queue_is_mandatory_and_exact(self) -> None:
         for queue in (None, "simple", "batch2"):
             with self.subTest(queue=queue):
@@ -119,16 +145,17 @@ class ManifestAndCommandTests(TransportFixture):
 
     def test_torque_descriptor_rejects_unproved_qsub_or_qstat_identity(self) -> None:
         for root_name in ("server_qsub", "server_qstat"):
-            with self.subTest(root_name=root_name):
-                profile = self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES)
-                value = json.loads(profile.runtime_contents[_MANIFEST_NAME])
-                value["trust_roots"][root_name]["expected_size_bytes"] += 1
-                runtime_contents = dict(profile.runtime_contents)
-                runtime_contents[_MANIFEST_NAME] = canonical_json_bytes(value)
-                drifted = replace(profile, runtime_contents=runtime_contents)
-                snapshot, _ = self.transport_snapshot(profile=drifted, queue="batch")
-                with self.assertRaises(transport.TransportBoundaryError):
-                    _resolve_deployment_authority(snapshot, drifted)
+            for field, changed in (("path", "/opt/drifted"), ("expected_size_bytes", 1), ("expected_sha256", "0" * 64)):
+                with self.subTest(root_name=root_name, field=field):
+                    profile = self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES)
+                    value = json.loads(profile.runtime_contents[_MANIFEST_NAME])
+                    value["trust_roots"][root_name][field] = changed
+                    runtime_contents = dict(profile.runtime_contents)
+                    runtime_contents[_MANIFEST_NAME] = canonical_json_bytes(value)
+                    drifted = replace(profile, runtime_contents=runtime_contents)
+                    snapshot, _ = self.transport_snapshot(profile=drifted, queue="batch")
+                    with self.assertRaises(transport.TransportBoundaryError):
+                        _resolve_deployment_authority(snapshot, drifted)
         runtime_contents = dict(profile.runtime_contents)
         del runtime_contents[_RESOURCE_DESCRIPTOR_NAME]
         with self.assertRaises(transport.TransportBoundaryError):
