@@ -294,8 +294,29 @@ def _crt_quote(token: str) -> str:
         result+='\\'*slashes+character; slashes=0
     return result+'\\'*(slashes*2)+'"'
 
-def _build_rtwin_command(snapshot: object, manifest: object) -> tuple[str, ...]:
-    roots=manifest.trust_roots; grammar=roots["rtwin_remote_shell"].shell_grammar
+def _ssh_effect_options(config:object,known_hosts:object)->list[str]:
+    values=["-F",config.path]
+    for option in (
+        "BatchMode=yes","IdentitiesOnly=yes","StrictHostKeyChecking=yes",
+        f"UserKnownHostsFile={known_hosts.path}",f"GlobalKnownHostsFile={known_hosts.path}",
+        "IdentityAgent=none","PreferredAuthentications=publickey","PubkeyAuthentication=yes",
+        "PasswordAuthentication=no","KbdInteractiveAuthentication=no","GSSAPIAuthentication=no",
+        "HostbasedAuthentication=no","VerifyHostKeyDNS=no","UpdateHostKeys=no",
+    ): values.extend(("-o",option))
+    return values
+
+def _build_rtwin_command(snapshot: object, authority: object) -> tuple[str, ...]:
+    manifest=authority.manifest; roots=manifest.trust_roots; grammar=roots["rtwin_remote_shell"].shell_grammar
+    profile=snapshot.resolved_server_profile
+    if (
+        authority.execution_snapshot_id!=snapshot.execution_snapshot_id
+        or authority.resolved_server_profile_id!=profile.resolved_server_profile_id
+        or authority.effective_config_sha256!=profile.effective_config_sha256
+        or authority.bootstrap_source_sha256!=_BOOTSTRAP_SOURCE_SHA256
+        or authority.bootstrap_source_size_bytes!=len(_BOOTSTRAP_SOURCE_BYTES)
+        or manifest.sha256!=sha256(manifest.raw_bytes).hexdigest()
+        or manifest.size_bytes!=len(manifest.raw_bytes)
+    ): raise TransportBoundaryError("deployment authority differs from execution snapshot")
     if grammar=="cmd-v1": _cmd_quote_v1(roots["rtwin_ssh"].path); raise TransportBoundaryError("cmd-v1 cannot attest RTwin executables under nine-root v1")
     if grammar!="powershell-v1": raise TransportBoundaryError("unsupported RTwin shell grammar")
     target=snapshot.resolved_server_profile.target_identity; manifest_arg=base64.b64encode(manifest.raw_bytes).decode("ascii")
@@ -305,16 +326,20 @@ def _build_rtwin_command(snapshot: object, manifest: object) -> tuple[str, ...]:
          _posix_quote_bootstrap_source_v1(_BOOTSTRAP_SOURCE),
          _posix_quote_v1(manifest_arg))
     )
-    inner=["-o","BatchMode=yes","-o","IdentitiesOnly=yes","-p",str(target["destination_port"]),f"{snapshot.resolved_server_profile.remote_user}@{target['destination_host']}","--",server_command]
+    effect=authority.ssh_effect; server=effect.rtwin_to_server.target
+    inner=[*_ssh_effect_options(effect.rtwin_to_server.config,effect.rtwin_to_server.known_hosts),"-p",str(server.port),"-l",server.user,"--",server.alias,server_command]
     arguments=" ".join(_crt_quote(item) for item in inner); ssh=_powershell_quote_v1(roots["rtwin_ssh"].path); scp=_powershell_quote_v1(roots["rtwin_scp"].path)
+    rtwin_config=_powershell_quote_v1(effect.rtwin_to_server.config.path); rtwin_known=_powershell_quote_v1(effect.rtwin_to_server.known_hosts.path)
+    attest=(
+        f"Test-AutoG16 {ssh} {roots['rtwin_ssh'].expected_size_bytes} '{roots['rtwin_ssh'].expected_sha256}';"
+        f"Test-AutoG16 {scp} {roots['rtwin_scp'].expected_size_bytes} '{roots['rtwin_scp'].expected_sha256}';"
+        f"Test-AutoG16 {rtwin_config} {effect.rtwin_to_server.config.expected_size_bytes} '{effect.rtwin_to_server.config.expected_sha256}';"
+        f"Test-AutoG16 {rtwin_known} {effect.rtwin_to_server.known_hosts.expected_size_bytes} '{effect.rtwin_to_server.known_hosts.expected_sha256}';"
+    )
     script=("$ErrorActionPreference='Stop';function Test-AutoG16([string]$p,[long]$s,[string]$h){$f=Get-Item -LiteralPath $p -Force;if($f.PSIsContainer -or (($f.Attributes -band [IO.FileAttributes]::ReparsePoint)-ne 0) -or $f.Length-ne$s){exit 97};$x=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant();if($x-ne$h){exit 97}};"
-            f"Test-AutoG16 {ssh} {roots['rtwin_ssh'].expected_size_bytes} '{roots['rtwin_ssh'].expected_sha256}';Test-AutoG16 {scp} {roots['rtwin_scp'].expected_size_bytes} '{roots['rtwin_scp'].expected_sha256}';"
-            "$p=New-Object System.Diagnostics.Process;$p.StartInfo.UseShellExecute=$false;"+f"$p.StartInfo.FileName={ssh};$p.StartInfo.Arguments={_powershell_quote_fixed_launcher_v1(arguments)};"+"$p.StartInfo.RedirectStandardInput=$true;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true;$p.Start()|Out-Null;$i=[Console]::OpenStandardInput().CopyToAsync($p.StandardInput.BaseStream);$o=$p.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput());$e=$p.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError());$i.GetAwaiter().GetResult();$p.StandardInput.Close();$p.WaitForExit();$o.GetAwaiter().GetResult();$e.GetAwaiter().GetResult();exit $p.ExitCode")
-    jump=target["jump_topology"]
-    if not jump: raise TransportBoundaryError("RTwin hop is required")
-    rtwin=jump[-1]; proxies=jump[:-1]
-    command=[roots["mac_ssh"].path,"-o","BatchMode=yes","-o","IdentitiesOnly=yes","-p",str(rtwin["port"])]
-    if proxies: command.extend(["-J",",".join(f"{x['user']}@{x['host']}:{x['port']}" for x in proxies)])
-    command.extend(["--",f"{rtwin['user']}@{rtwin['host']}",script]); return tuple(command)
+            +attest+"$p=New-Object System.Diagnostics.Process;$p.StartInfo.UseShellExecute=$false;"+f"$p.StartInfo.FileName={ssh};$p.StartInfo.Arguments={_powershell_quote_fixed_launcher_v1(arguments)};"+"$p.StartInfo.RedirectStandardInput=$true;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true;$p.Start()|Out-Null;$i=[Console]::OpenStandardInput().CopyToAsync($p.StandardInput.BaseStream);$o=$p.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput());$e=$p.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError());$i.GetAwaiter().GetResult();$p.StandardInput.Close();$p.WaitForExit();$o.GetAwaiter().GetResult();$e.GetAwaiter().GetResult();$c=$p.ExitCode;"+attest+"exit $c")
+    mac=effect.mac_to_rtwin.target
+    command=[roots["mac_ssh"].path,*_ssh_effect_options(effect.mac_to_rtwin.config,effect.mac_to_rtwin.known_hosts),"-p",str(mac.port),"-l",mac.user,"--",mac.alias,script]
+    return tuple(command)
 
 __all__=["_BOOTSTRAP_PROTOCOL","_BOOTSTRAP_SOURCE","_BOOTSTRAP_SOURCE_BYTES","_BOOTSTRAP_SOURCE_NAME","_BOOTSTRAP_SOURCE_SHA256","_build_rtwin_command","_cmd_quote_v1","_crt_quote","_decode_response_frame","_encode_request_frame","_posix_quote_bootstrap_source_v1","_posix_quote_v1","_powershell_quote_fixed_launcher_v1","_powershell_quote_v1"]

@@ -160,6 +160,8 @@ class TransportFixture(ExecutionFixture):
         self.transport_database = store_root / "transport.sqlite3"
         self.transport_store = transport.TransportStore.create_new(self.transport_database, approved_root=store_root)
         self.addCleanup(self.transport_store.close)
+        self.mac_ssh_config = self.temporary / "mac-ssh-config"
+        self.mac_known_hosts = self.temporary / "mac-known-hosts"
 
     def profile(self, *, deployment_id: str = "synthetic-rtwin-deployment-v1", windows_grammar: str = "powershell-v1", jump_topology: list[tuple[str, int, str]] | None = None, resource_descriptor: bytes = RESOURCE_DESCRIPTOR_BYTES) -> execution.ServerProfile:
         executable_bytes = {"mac-ssh": b"mac ssh executable bytes", "mac-scp": b"mac scp executable bytes"}
@@ -167,14 +169,45 @@ class TransportFixture(ExecutionFixture):
         for name, path in executable_paths.items():
             path.write_bytes(executable_bytes[name])
             path.chmod(0o700)
+        self.mac_known_hosts.write_bytes(b"rtwin-a ssh-ed25519 AAAAC3NzaSyntheticHostKey\n")
+        mac_config=(
+            "Host rtwin-a\n"
+            "  HostName 100.64.0.1\n"
+            "  Port 22\n"
+            "  User rtwin-user\n"
+            "  IdentityFile /keys/mac-rtwin\n"
+            "  IdentitiesOnly yes\n"
+            "  StrictHostKeyChecking yes\n"
+            f"  UserKnownHostsFile {self.mac_known_hosts}\n"
+        ).encode("utf-8")
+        self.mac_ssh_config.write_bytes(mac_config)
+        rtwin_known_path=r"C:\Config\server-known"
+        rtwin_config=(
+            "Host server-a\n"
+            "  HostName 10.0.0.50\n"
+            "  Port 22\n"
+            "  User user100\n"
+            "  IdentityFile C:\\Keys\\server\n"
+            "  IdentitiesOnly yes\n"
+            "  StrictHostKeyChecking yes\n"
+            f"  UserKnownHostsFile {rtwin_known_path}\n"
+        ).encode("utf-8")
+        rtwin_known=b"server-a ssh-ed25519 AAAAC3NzaSyntheticServerKey\n"
         manifest = _manifest_bytes(str(executable_paths["mac-ssh"]), str(executable_paths["mac-scp"]), mac_ssh_bytes=executable_bytes["mac-ssh"], mac_scp_bytes=executable_bytes["mac-scp"], deployment_id=deployment_id, windows_grammar=windows_grammar, torque_executables=resource_descriptor==TORQUE_RESOURCE_DESCRIPTOR_BYTES)
         return execution.ServerProfile(
             server_profile_id="profile-transport-1", profile_revision=11, transport_kind="legacy_rtwin_pbs",
             target_host="10.0.0.50", target_port=22, remote_user="user100",
             jump_topology=[("100.64.0.1", 22, "rtwin-user")] if jump_topology is None else jump_topology, host_key_policy="strict",
             batch_mode=True, identities_only=True, remote_root=execution.LEGACY_REMOTE_ROOT,
-            platform_paths={"rtwin_root": r"C:\RTWIN", "known_hosts": "/etc/ssh/ssh_known_hosts"},
-            config_files=[("ssh_config", b"Host RTwin\n  HostName 100.64.0.1\n")],
+            platform_paths={
+                "rtwin_root": r"C:\RTWIN", "known_hosts": "/etc/ssh/ssh_known_hosts",
+                "mac_ssh_config_path": str(self.mac_ssh_config), "mac_known_hosts_path": str(self.mac_known_hosts),
+                "rtwin_ssh_config_path": r"C:\Config\server-ssh-config", "rtwin_known_hosts_path": rtwin_known_path,
+            },
+            config_files=[
+                ("mac-ssh-config",mac_config),("mac-known-hosts",self.mac_known_hosts.read_bytes()),
+                ("rtwin-ssh-config",rtwin_config),("rtwin-known-hosts",rtwin_known),
+            ],
             runtime_contents={_MANIFEST_NAME: manifest, _TABLE_NAME: _OPERATION_TABLE_BYTES, _BOOTSTRAP_SOURCE_NAME: _BOOTSTRAP_SOURCE_BYTES, _RESOURCE_DESCRIPTOR_NAME: resource_descriptor},
         )
 
