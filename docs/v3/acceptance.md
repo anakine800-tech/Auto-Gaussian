@@ -1344,7 +1344,8 @@ hold:
    `pbs-resource-enactment-v1.json` has only the frozen schema and one closed
    dialect ID, and its bytes close through the resolved profile and snapshot.
 4. Missing, unknown, malformed, aliased, or drifted dialect content rejects.
-   No production dialect is inferred from generic scheduler knowledge.
+   The only production dialect is separately qualified by exact read-only
+   deployment evidence, never inferred from generic scheduler knowledge.
 5. `SUBMIT_QSUB_ONCE` carries the closed nested resource object and PBS
    basename only. Caller argv, argv fragments, shell, eval, format strings,
    executable selection, environment overrides, and fallback defaults are
@@ -1356,8 +1357,9 @@ hold:
    123-byte canonical response vector replay exactly.
 6. The bootstrap selects only a source-controlled renderer and invokes the
    exact manifest-bound qsub executable with `shell=False`.
-7. Null queue emits no selector; an explicit queue renders exactly or rejects.
-   No queue substitution or inference occurs.
+7. For the synthetic test dialect, null queue emits no synthetic selector. For
+   the qualified production dialect, queue is mandatory and exact. No queue
+   substitution, default, or inference occurs.
 8. Walltime uses exact integer arithmetic without rounding; memory comes from
    `memory_mb`; cores come from `cores`. Gaussian `%mem` and `%nprocshared`
    neither authorize nor rewrite scheduler resources.
@@ -1373,14 +1375,16 @@ hold:
     The exact bootstrap-v2 name, 15195 bytes, 201 LF, zero CR/NUL, and SHA-256
     `3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3`
     replay exactly.
-12. The only offline renderer is visibly synthetic, has a closed exact vector,
+12. The offline renderer remains visibly synthetic, has a closed exact vector,
     and both live subprocess driver and bootstrap execution reject it before
     process/qsub creation. Its 114-byte descriptor and digest plus the
     1570-byte table-v2 vector and digest replay exactly. It cannot satisfy
-    production live readiness.
-13. Existing historical PBS artifacts are reuse evidence only. Until exact
-    deployment evidence freezes a production dialect, the live path reports
-    `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` and performs zero qsub.
+    production live readiness; the separately qualified Torque renderer does
+    not reinterpret it.
+13. Historical PBS artifacts remain reuse evidence only. Exact non-secret
+    read-only deployment evidence, recorded by the separate production Torque
+    contract, is required before a production renderer can become live-capable;
+    qualification still performs zero qsub and grants no live authority.
 14. Snapshot/resource/dialect splicing, queue/memory/time/core drift, request ID
     mismatch, and unexpected renderer tokens fail closed. `REPLAY` yields zero
     qsub; `UNKNOWN` never produces a second qsub.
@@ -1395,6 +1399,61 @@ hold:
 17. Focused and affected evidence, exact negative vectors, static/diff/
     sensitive checks, and fresh independent contract and implementation review
     each close at `P0/P1/P2/P3 = 0/0/0/0` before integration.
+
+## `V30-PBS-TORQUE-DIALECT-01`: exact production Torque renderer
+
+The production dialect is accepted only when all of the following hold:
+
+1. Read-only deployment evidence identifies Torque `6.1.0`, one 44-processor
+   node, and exact first-live queue `batch`; no qsub was performed to obtain
+   that evidence.
+2. Manifest `server_qsub` is exactly `/usr/local/bin/qsub`, 418920 bytes,
+   SHA-256 `f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d`;
+   manifest `server_qstat` is exactly `/usr/local/bin/qstat`, 185656 bytes,
+   SHA-256 `3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a`.
+   Their lack of package-manager ownership creates no invented package
+   identity.
+3. The only new dialect ID is exactly
+   `auto-g16-v3-pbs-resource-enactment/torque-6.1.0-nodes-ppn/1`; the existing
+   synthetic ID and vector remain unchanged and non-production.
+4. The renderer consumes only exact snapshot-derived `cores`, `memory_mb`,
+   `walltime_seconds`, and `queue`, plus the exact portable PBS basename. It
+   does not select or return qsub.
+5. For values `C`, `M`, `W`, `Q`, `B`, the exact tuple is `("-l",
+   "nodes=1:ppn=C,mem=Mmb,walltime=W", "-q", "Q", "B")`; no alternate
+   spelling, resource order, split clause, sign, unit conversion, or time
+   formatting is accepted.
+6. `cores`, `memory_mb`, and `walltime_seconds` are positive non-boolean
+   integers. Zero, negative, bool, float, string, or other values reject.
+7. Production queue is mandatory and equals exactly `batch`. Null or another
+   queue rejects; the scheduler default never satisfies snapshot authority.
+8. Queue and basename retain their existing closed portable-token validation;
+   no caller-supplied qsub token or resource-list fragment can enter rendering.
+9. Current profile canonical descriptor admits only the exact synthetic and
+   Torque IDs. Unknown, missing, malformed, aliased, or drifted content rejects
+   before process creation, with no detection or fallback.
+10. Synthetic remains `live_capable = false`; Torque is mechanically
+    `live_capable = true`. Neither flag authorizes a live effect.
+11. Active `#PBS -l` and `#PBS -q` staged-template directives remain rejected;
+    historical legacy templates are not reinterpreted or modified.
+12. Exact positive renderer vectors cover `(1, 1, 1, batch)`,
+    `(22, 51200, 43200, batch)`, and one 44-core representative request.
+13. Unknown dialect, null/wrong queue, invalid integer/token/basename, resource
+    splice, unexpected renderer token, and qsub/qstat path/size/digest drift all
+    fail closed before the relevant process call.
+14. `REPLAY` performs zero qsub; `UNKNOWN` never permits a second qsub. The
+    affected synthetic V30-A composition continues to prove the full authority
+    and downstream Result/validation/review chain without a live server.
+15. Exact deployment path/size/digest authority stays in the manifest;
+    `ResolvedResourceRequest` stays the sole resource authority. No second
+    executable, resource, queue, or current/latest authority is introduced.
+16. No public Core/Approval/Workflow/Execution/Observe/Result/
+    ScientificValidation/Review API/schema changes, live qsub, Gaussian, qdel,
+    remote mutation, deployment, retry, deletion, or cleanup occurs.
+17. Narrow reuse is PORT/EXTRACT of exact Torque deployment mechanics only;
+    v2 governance remains dropped. Focused/affected validation and fresh
+    independent contract and implementation review each close at
+    `P0/P1/P2/P3 = 0/0/0/0` before integration.
 
 ## v3.0: Closed-Shell Minimum
 

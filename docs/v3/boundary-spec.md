@@ -2976,11 +2976,59 @@ a scheduler dialect and renders the exact non-production vector
 [--auto-g16-synthetic-queue, <queue>], <pbs_basename>)`. The live subprocess
 driver and fixed bootstrap reject execution of this dialect before process/qsub
 creation. Its pure renderer is test evidence only. It proves deterministic
-binding without guessing PBS Pro, Torque, OpenPBS, or deployment syntax. A
-production dialect remains `NEEDS READ-ONLY DEPLOYMENT PREFLIGHT` until exact
-non-secret deployment evidence supports a separately reviewed source renderer.
+binding without guessing PBS Pro, Torque, OpenPBS, or deployment syntax.
 
-`queue = null` emits no queue pair; an explicit queue is never replaced.
+### Exact Torque 6.1.0 production dialect
+
+The accepted read-only deployment preflight qualifies exactly one production
+renderer for the first V30-A target:
+`auto-g16-v3-pbs-resource-enactment/torque-6.1.0-nodes-ppn/1`. It is not a
+generic Torque/PBS renderer. Its deployment evidence is the exact active
+single-node Torque `6.1.0` server with `np = 44`, queue `batch`, and these
+manifest-owned executable roots:
+
+| root | exact path | size | SHA-256 |
+| --- | --- | ---: | --- |
+| `server_qsub` | `/usr/local/bin/qsub` | 418920 | `f950e7d15287ca125e76ad81e115019e903227e5816b9a21c19967945e292c6d` |
+| `server_qstat` | `/usr/local/bin/qstat` | 185656 | `3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a` |
+
+The binaries are not package-manager-owned. Their manifest identity therefore
+does not invent a package name or version authority. The production renderer
+returns arguments only; the manifest-bound `server_qsub.path` remains the sole
+executable selection at `run_exact(...)`.
+
+For positive non-boolean integers `C = cores`, `M = memory_mb`, and
+`W = walltime_seconds`, exact queue `Q`, and portable PBS basename `B`, the
+complete production argument tuple is exactly:
+
+```text
+("-l", "nodes=1:ppn=C,mem=Mmb,walltime=W", "-q", "Q", "B")
+```
+
+The integers use canonical decimal digits with no sign. Resources are one
+comma-separated `-l` value in the exact order `nodes`, `mem`, `walltime`.
+Memory stays integer MB and time stays integer seconds. No GB conversion,
+`HH:MM:SS` conversion, split `-l`, alternative spelling, option reordering, or
+caller fragment is valid.
+
+For the first V30-A deployment, queue is mandatory and must equal `batch`.
+`queue = null` and every other token reject before process creation. The
+observed default queue is never used as resource authority. Active PBS
+resource directives, including `#PBS -l` and `#PBS -q`, remain rejected by the
+staged v3 template contract, so qsub arguments are the only scheduler-resource
+enactment.
+
+The descriptor schema remains unchanged and closed. It admits only the exact
+synthetic-test ID and this exact Torque ID. There is no submit-time detection,
+fallback, alias, version range, executable, argv fragment, or scheduler
+default in the descriptor. The Torque dialect is mechanically live-capable;
+the synthetic dialect remains non-live. Neither classification grants an
+effect: the complete live authority chain and a separate V30-A Live Owner Gate
+remain required.
+
+For the synthetic test dialect, `queue = null` emits no synthetic queue pair.
+For the production Torque dialect, queue is required and must equal `batch`;
+there is no default or omission path. An explicit queue is never replaced.
 Walltime uses integer seconds without floating point or rounding. Memory comes
 from exact `memory_mb`, never Gaussian `%mem`; cores come from exact `cores`,
 never `%nprocshared`. PBS template resource directives remain forbidden.
