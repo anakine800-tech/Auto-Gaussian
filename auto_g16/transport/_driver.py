@@ -38,6 +38,8 @@ _SSH_CONFIG_PATHS: Final = MappingProxyType({
     "mac-ssh-config":"mac_ssh_config_path","mac-known-hosts":"mac_known_hosts_path",
     "rtwin-ssh-config":"rtwin_ssh_config_path","rtwin-known-hosts":"rtwin_known_hosts_path",
 })
+_WINDOWS_DRIVE: Final = re.compile(r"^[A-Z]:\\")
+_WINDOWS_RESERVED: Final = {"CON","PRN","AUX","NUL",*(f"COM{index}" for index in range(1,10)),*(f"LPT{index}" for index in range(1,10))}
 _TABLE_NAME: Final = "auto-g16-rtwin-operation-table/2"
 _TABLE_OBJECT: Final = {
     "version":_TABLE_NAME,"cwd_policy":"exact-remote-attempt-workspace","shell":False,"env":_FIXED_ENV,
@@ -198,8 +200,18 @@ def _freeze_profile(profile:ServerProfile)->ServerProfile:
 def _closed_effect_path(value:object,platform:str,name:str)->str:
     path=_text(value,name)
     if any(character in path for character in "%$~*?[]{}"): raise TransportBoundaryError(f"{name} contains path expansion syntax")
-    parsed=PureWindowsPath(path) if platform=="windows" else PurePosixPath(path)
-    if not parsed.is_absolute() or any(part in {".",".."} for part in parsed.parts): raise TransportBoundaryError(f"{name} is not an absolute closed path")
+    if platform=="macos":
+        if not path.startswith("/") or path.startswith("//") or path!="/" and path.endswith("/"): raise TransportBoundaryError(f"{name} is not a canonical POSIX path")
+        parts=path.split("/")[1:]
+        if any(part in {"",".",".."} for part in parts) or str(PurePosixPath(path))!=path: raise TransportBoundaryError(f"{name} contains a noncanonical POSIX component")
+    elif platform=="windows":
+        if _WINDOWS_DRIVE.match(path) is None or path.startswith(("\\\\","\\?\\","\\.\\")) or "/" in path or path.endswith("\\"): raise TransportBoundaryError(f"{name} is not a canonical Windows path")
+        parts=path[3:].split("\\")
+        if not parts or any(part in {"",".",".."} for part in parts): raise TransportBoundaryError(f"{name} contains a noncanonical Windows component")
+        for part in parts:
+            if part.endswith((" ",".")) or ":" in part or part.split(".",1)[0].upper() in _WINDOWS_RESERVED: raise TransportBoundaryError(f"{name} contains a forbidden Windows component")
+    else: raise TransportBoundaryError(f"{name} platform is invalid")
+    if any(ord(character)<32 or ord(character)==127 for character in path): raise TransportBoundaryError(f"{name} contains a control character")
     return path
 
 def _parse_ssh_config(raw:bytes,*,platform:str,config_name:str,config_path:str,known_hosts_path:str)->tuple[_BoundEffectFile,_SSHConfigTarget]:
@@ -271,6 +283,22 @@ def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:Ser
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
     manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect); ssh_effect=_resolve_ssh_effect(frozen_profile,current)
     return _DeploymentAuthority(manifest,dialect,ssh_effect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"])
+
+def _assert_deployment_snapshot(snapshot:ExecutionSnapshot,authority:_DeploymentAuthority)->None:
+    try: assert_execution_snapshot_identity(snapshot)
+    except Exception as exc: raise TransportBoundaryError("execution snapshot identity is stale at Transport seam") from exc
+    profile=snapshot.resolved_server_profile
+    expected_source=(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(),len(_BOOTSTRAP_SOURCE_BYTES))
+    if (
+        authority.execution_snapshot_id!=snapshot.execution_snapshot_id
+        or authority.resolved_server_profile_id!=profile.resolved_server_profile_id
+        or authority.effective_config_sha256!=profile.effective_config_sha256
+        or (authority.bootstrap_source_sha256,authority.bootstrap_source_size_bytes)!=expected_source
+    ): raise TransportBoundaryError("deployment authority differs from execution snapshot")
+    manifest_identity=profile.runtime_identities.get(_MANIFEST_NAME)
+    descriptor_identity=profile.runtime_identities.get(_RESOURCE_DESCRIPTOR_NAME)
+    if manifest_identity!={"sha256":authority.manifest.sha256,"size_bytes":authority.manifest.size_bytes} or descriptor_identity!={"sha256":authority.resource_dialect.sha256,"size_bytes":authority.resource_dialect.size_bytes}:
+        raise TransportBoundaryError("deployment runtime authority differs from execution snapshot")
 
 def _attest_local(root:_TrustRoot)->tuple[int,int]:
     flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
@@ -395,6 +423,7 @@ class _SubprocessRTWinDriver:
                 try: stream.close()
                 except OSError: pass
     def _run(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->tuple[bytes,bytes,int|None,str,bool,bool]:
+        _assert_deployment_snapshot(snapshot,invocation.authority)
         if not invocation.authority.resource_dialect.live_capable:
             return b"",b"",None,"transport-error",False,False
         roots=invocation.authority.manifest.trust_roots
@@ -455,4 +484,4 @@ def _is_fetch_result_closed(value:object)->bool:
     if value.status!="found": return not value.content and all(item is None for item in values)
     return type(value.before_identity) is str and type(value.after_identity) is str and type(value.before_size) is int and type(value.after_size) is int and type(value.before_sha256) is str and type(value.after_sha256) is str
 
-__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_attest_local_effect_file","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]
+__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_assert_deployment_snapshot","_attest_local_effect_file","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]

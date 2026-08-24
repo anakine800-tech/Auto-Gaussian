@@ -9,7 +9,14 @@ import unittest
 from unittest.mock import patch
 
 import auto_g16.transport as transport
-from auto_g16.transport._bridge import _build_rtwin_command
+from auto_g16.transport._bridge import (
+    _BOOTSTRAP_SOURCE,
+    _build_rtwin_command,
+    _crt_quote,
+    _posix_quote_bootstrap_source_v1,
+    _posix_quote_v1,
+    _powershell_quote_fixed_launcher_v1,
+)
 from auto_g16.transport._canonical import canonical_json_bytes
 from auto_g16.transport._driver import (
     _MANIFEST_NAME,
@@ -18,6 +25,7 @@ from auto_g16.transport._driver import (
     _ResourceEnactment,
     _SubprocessRTWinDriver,
     _TORQUE_RESOURCE_DIALECT,
+    _assert_deployment_snapshot,
     _attest_local,
     _attest_local_effect_file,
     _operation,
@@ -206,6 +214,10 @@ class ManifestAndCommandTests(TransportFixture):
             original.replace(b"  User rtwin-user\n",b"  User rtwin-user\n  Include /tmp/extra\n"),
             original.replace(b"  User rtwin-user\n",b"  User rtwin-user\n  ProxyCommand arbitrary\n"),
             original.replace(b"  IdentityFile /keys/mac-rtwin\n",b"  IdentityFile ~/.ssh/id_ed25519\n"),
+            original.replace(b"  IdentityFile /keys/mac-rtwin\n",b"  IdentityFile /keys/%h/id_ed25519\n"),
+            original.replace(b"  IdentityFile /keys/mac-rtwin\n",b"  IdentityFile /keys/${HOME}/id_ed25519\n"),
+            original.replace(b"  IdentityFile /keys/mac-rtwin\n",b"  IdentityFile //server/key\n"),
+            original.replace(b"  IdentityFile /keys/mac-rtwin\n",b"  IdentityFile /keys//id_ed25519\n"),
             original.replace(b"Host rtwin-a\n",b"Host *\n"),
             original.replace(b"  IdentitiesOnly yes\n",b"  IdentitiesOnly YES\n"),
             original.replace(b"  Port 22\n",b"  Port 22\r\n"),
@@ -214,6 +226,13 @@ class ManifestAndCommandTests(TransportFixture):
         for raw in variants:
             with self.subTest(raw=raw):
                 changed=self._replace_config(profile,"mac-ssh-config",raw); snapshot,_=self.transport_snapshot(profile=changed)
+                with self.assertRaises(transport.TransportBoundaryError): _resolve_deployment_authority(snapshot,changed)
+
+        rtwin=dict(profile.config_files)["rtwin-ssh-config"]
+        for path in (r"\\server\share\id",r"C:\Keys\id:ads",r"C:\CON\id",r"C:\Keys\\id",r"%USERPROFILE%\id"):
+            with self.subTest(path=path):
+                raw=rtwin.replace(b"C:\\Keys\\server",path.encode())
+                changed=self._replace_config(profile,"rtwin-ssh-config",raw); snapshot,_=self.transport_snapshot(profile=changed)
                 with self.assertRaises(transport.TransportBoundaryError): _resolve_deployment_authority(snapshot,changed)
 
     def test_ssh_config_target_and_known_hosts_path_must_match_profile(self) -> None:
@@ -268,6 +287,36 @@ class ManifestAndCommandTests(TransportFixture):
         self.assertIn('GlobalKnownHostsFile=C:\\Config\\server-known',script)
         self.assertIn('-l user100 -- server-a',script)
         self.assertNotIn("user100@10.0.0.50",script)
+        roots=authority.manifest.trust_roots; manifest_arg=base64.b64encode(authority.manifest.raw_bytes).decode("ascii")
+        server_command=" ".join((
+            *(_posix_quote_v1(item) for item in (roots["server_python"].path,"-I","-S","-B","-c")),
+            _posix_quote_bootstrap_source_v1(_BOOTSTRAP_SOURCE),_posix_quote_v1(manifest_arg),
+        ))
+        inner=["-F",r"C:\Config\server-ssh-config"]
+        for option in (
+            "BatchMode=yes","IdentitiesOnly=yes","StrictHostKeyChecking=yes",
+            r"UserKnownHostsFile=C:\Config\server-known",r"GlobalKnownHostsFile=C:\Config\server-known",
+            "IdentityAgent=none","PreferredAuthentications=publickey","PubkeyAuthentication=yes",
+            "PasswordAuthentication=no","KbdInteractiveAuthentication=no","GSSAPIAuthentication=no",
+            "HostbasedAuthentication=no","VerifyHostKeyDNS=no","UpdateHostKeys=no",
+        ): inner.extend(("-o",option))
+        inner.extend(("-p","22","-l","user100","--","server-a",server_command))
+        exact_arguments=" ".join(_crt_quote(item) for item in inner)
+        self.assertIn(f"$p.StartInfo.Arguments={_powershell_quote_fixed_launcher_v1(exact_arguments)};",script)
+
+    def test_cross_snapshot_profile_and_source_authority_splices_reject_before_process(self) -> None:
+        profile=self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES); snapshot,_=self.transport_snapshot(profile=profile,queue="batch")
+        authority=_resolve_deployment_authority(snapshot,profile)
+        variants=(
+            replace(authority,execution_snapshot_id="different-snapshot"),
+            replace(authority,resolved_server_profile_id="different-profile"),
+            replace(authority,effective_config_sha256="0"*64),
+            replace(authority,bootstrap_source_sha256="0"*64),
+        )
+        for changed in variants:
+            with self.subTest(changed=changed):
+                with self.assertRaises(transport.TransportBoundaryError): _assert_deployment_snapshot(snapshot,changed)
+                with self.assertRaises(transport.TransportBoundaryError): _build_rtwin_command(snapshot,changed)
 
     def test_extra_rtwin_hop_rejects_before_process(self) -> None:
         profile=self.profile(jump_topology=[("proxy.example",2201,"proxy-user"),("100.64.0.1",22,"rtwin-user")])

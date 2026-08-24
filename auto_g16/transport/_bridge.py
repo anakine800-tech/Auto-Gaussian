@@ -307,6 +307,16 @@ def _ssh_effect_options(config:object,known_hosts:object)->list[str]:
 
 def _build_rtwin_command(snapshot: object, authority: object) -> tuple[str, ...]:
     manifest=authority.manifest; roots=manifest.trust_roots; grammar=roots["rtwin_remote_shell"].shell_grammar
+    profile=snapshot.resolved_server_profile
+    if (
+        authority.execution_snapshot_id!=snapshot.execution_snapshot_id
+        or authority.resolved_server_profile_id!=profile.resolved_server_profile_id
+        or authority.effective_config_sha256!=profile.effective_config_sha256
+        or authority.bootstrap_source_sha256!=_BOOTSTRAP_SOURCE_SHA256
+        or authority.bootstrap_source_size_bytes!=len(_BOOTSTRAP_SOURCE_BYTES)
+        or manifest.sha256!=sha256(manifest.raw_bytes).hexdigest()
+        or manifest.size_bytes!=len(manifest.raw_bytes)
+    ): raise TransportBoundaryError("deployment authority differs from execution snapshot")
     if grammar=="cmd-v1": _cmd_quote_v1(roots["rtwin_ssh"].path); raise TransportBoundaryError("cmd-v1 cannot attest RTwin executables under nine-root v1")
     if grammar!="powershell-v1": raise TransportBoundaryError("unsupported RTwin shell grammar")
     target=snapshot.resolved_server_profile.target_identity; manifest_arg=base64.b64encode(manifest.raw_bytes).decode("ascii")
