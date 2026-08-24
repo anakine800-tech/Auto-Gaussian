@@ -3109,14 +3109,19 @@ SHA-256 `c1a9556d75c9f0fc390ed89100a1241c1fc44abb6d1f2b568a476445672fa2d3`:
 {"operation":"SUBMIT_QSUB_ONCE","protocol":"auto-g16-v3-rtwin-bootstrap/2","result":{"job_id":"123.server"},"status":"ok"}
 ```
 
-The exact fixed successor source is
-`auto-g16-v3-rtwin-bootstrap-v2.py`: 15195 UTF-8/ASCII bytes, exactly 201 LF,
+The exact Torque-capable Phase-B fixed successor source is
+`auto-g16-v3-rtwin-bootstrap-v2.py`: 15597 UTF-8/ASCII bytes, exactly 204 LF,
 zero CR/NUL, and SHA-256
-`3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3`.
+`b0b1bcaf8ab8697a80676ac1015503a2fb64c21949678f20bf05f3bd849fb10e`.
 It starts with `from __future__ import annotations\n`, ends with `main()\n`,
-and contains the closed request validation, synthetic vector construction, and
-pre-qsub non-production rejection above. Any source name, byte, line-ending,
-size, count, or digest drift rejects during profile/snapshot resolution.
+and contains the closed request validation, unchanged synthetic vector with
+pre-qsub non-production rejection, and the exact Torque vector construction
+above. Any source name, byte, line-ending, size, count, or digest drift rejects
+during profile/snapshot resolution. The pre-Phase-B integrated source was
+15195 bytes, 201 LF, with SHA-256
+`3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3`;
+it remains immutable historical evidence and is not an accepted production-
+Torque source.
 
 ### Historical bootstrap /1 source-controlled operation construction
 

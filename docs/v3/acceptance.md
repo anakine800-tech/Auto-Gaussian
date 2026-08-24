@@ -1372,9 +1372,14 @@ hold:
     for this closed request/table change. The seven operations, AGV3 framing,
     trust roots, bounded channels, physical bindings, and no-retry semantics
     remain unchanged.
-    The exact bootstrap-v2 name, 15195 bytes, 201 LF, zero CR/NUL, and SHA-256
+    The Torque-capable Phase-B bootstrap-v2 successor keeps the exact name and
+    is 15597 bytes, 204 LF, zero CR/NUL, with SHA-256
+    `b0b1bcaf8ab8697a80676ac1015503a2fb64c21949678f20bf05f3bd849fb10e`.
+    Those source bytes replay exactly. The pre-Phase-B integrated source was
+    15195 bytes, 201 LF, with SHA-256
     `3f3653a8b13d4cb5a5f5ba6e9caa02c3049caf144af13fd4491674c1fc7eb2f3`
-    replay exactly.
+    and remains immutable historical evidence rather than an accepted
+    production-Torque source.
 12. The offline renderer remains visibly synthetic, has a closed exact vector,
     and both live subprocess driver and bootstrap execution reject it before
     process/qsub creation. Its 114-byte descriptor and digest plus the
