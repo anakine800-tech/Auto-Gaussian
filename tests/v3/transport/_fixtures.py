@@ -66,7 +66,7 @@ def _manifest_bytes(
         "mac_scp": file_root(mac_scp_path, "macos", "controller-file-v1", "synthetic-mac-scp", mac_scp_bytes),
         "rtwin_ssh": file_root(r"C:\Windows\System32\OpenSSH\ssh.exe", "windows", "rtwin-shell-file-v1", "synthetic-rtwin-ssh", b"rtwin ssh executable bytes"),
         "rtwin_scp": file_root(r"C:\Windows\System32\OpenSSH\scp.exe", "windows", "rtwin-shell-file-v1", "synthetic-rtwin-scp", b"rtwin scp executable bytes"),
-        "rtwin_launcher": file_root(r"C:\Users\rtwin-user\auto-g16-v3-rtwin-launcher-v1.ps1", "windows", "rtwin-shell-file-v1", "auto-g16-v3-rtwin-launcher-v1", _RTWIN_LAUNCHER_BYTES),
+        "rtwin_launcher": file_root(r"C:\AutoG16Runtime\auto-g16-v3-rtwin-launcher-v1.ps1", "windows", "rtwin-shell-file-v1", "auto-g16-v3-rtwin-launcher-v1", _RTWIN_LAUNCHER_BYTES),
         "rtwin_remote_shell": {
             "attestation_mode": "deployment-root-v1",
             "deployment_identity": "synthetic-windows-shell",
@@ -205,8 +205,8 @@ class TransportFixture(ExecutionFixture):
                 "rtwin_root": r"C:\RTWIN", "known_hosts": "/etc/ssh/ssh_known_hosts",
                 "mac_ssh_config_path": str(self.mac_ssh_config), "mac_known_hosts_path": str(self.mac_known_hosts),
                 "rtwin_ssh_config_path": r"C:\Config\server-ssh-config", "rtwin_known_hosts_path": rtwin_known_path,
-                "rtwin_bootstrap_source_path": r"C:\Users\rtwin-user\auto-g16-v3-rtwin-bootstrap-v2-py36.py",
-                "rtwin_deployment_manifest_path": r"C:\Users\rtwin-user\transport-deployment-manifest-v2.json",
+                "rtwin_bootstrap_source_path": r"C:\AutoG16Runtime\auto-g16-v3-rtwin-bootstrap-v2-py36.py",
+                "rtwin_deployment_manifest_path": r"C:\AutoG16Runtime\transport-deployment-manifest-v2.json",
             },
             config_files=[
                 ("mac-ssh-config",mac_config),("mac-known-hosts",self.mac_known_hosts.read_bytes()),
