@@ -492,3 +492,29 @@ Controller, open OpenSSH, or perform live work.
 - **Non-goals:** No generic PBS abstraction, multi-node policy, alternate
   queue, resource planner/telemetry, OpenSSH, deployment, live qsub/Gaussian,
   retry, qdel, deletion, or cleanup.
+
+### `V30-TRANSPORT-RTWIN-LAUNCHER-MULTILINE-BOOTSTRAP-QUOTING-REPAIR-01`
+
+- **Outcome:** Preserve the generic LF-rejecting POSIX token contract while
+  giving only the exact attested fixed bootstrap one deterministic multiline
+  single-argv quoting seam.
+- **Authority:** Owner-guided maintenance through contract freeze, narrow
+  implementation, focused/affected/synthetic validation, two independent
+  reviews, normal integration, and exact-main closeout. Deployment is excluded.
+- **Scope:** `auto_g16/transport/_bridge.py`, directly required Transport tests,
+  and the minimum v3 authority/status documents. No upstream public API/schema.
+- **Identity:** Successor launcher logical name is
+  `auto-g16-v3-rtwin-launcher-v2.ps1`, 8576 bytes, 140 LF, SHA-256
+  `1e6a8210...`; manifest schema/protocol v2 and the exact ten-root model
+  remain. Bootstrap bytes remain exact 15562-byte
+  `ad0ba2af...`; revision 4 binds the new launcher/manifest identities.
+- **Validation:** Prove generic LF rejection, exact-bootstrap-only entry,
+  strict UTF-8 byte roundtrip, one-word POSIX reconstruction, special-character
+  literalness, Python 3.6 compile, unchanged inner length bound, focused and
+  affected Transport, and synthetic V30-A composition.
+- **Stop rules:** Stop for generic quoter weakening, bootstrap-byte or protocol
+  change, manifest schema change, inner-bound overflow, upstream API/schema
+  change, or two failed same-class repairs.
+- **Non-goals:** No deployment, RTwin persistent write, workspace/staging,
+  qsub/Gaussian, retry, qdel, cleanup, new Attempt, generic multiline shell, or
+  caller-controlled execution surface.

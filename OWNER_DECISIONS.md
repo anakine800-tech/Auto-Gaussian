@@ -844,3 +844,43 @@ ExecutionSnapshot, and Operational Confirmation remain historical and cannot
 authorize the repair. Successful deployment and read-only qualification require
 a new revision 3 resolution. A later recovery Attempt still requires a separate
 Owner gate and entirely new operational approval chain.
+
+## OD-25: Multiline bootstrap quoting is one fixed attested exception
+
+The revision-3 launcher and manifest remain immutable historical deployment
+evidence. Their deterministic first-live failure occurred before nested server
+SSH because the launcher routed the exact multiline bootstrap through the
+ordinary POSIX token quoter, whose closed contract correctly rejects LF.
+
+The ordinary `Quote-Posix` path remains unchanged and rejects NUL, CR, and LF
+for every dynamic path, option, alias, user, manifest argument, and other
+variable token. The successor launcher adds one dedicated fixed-bootstrap
+quoter. It may consume only the exact bootstrap runtime artifact after literal
+path, regular/non-reparse, 15562-byte, and SHA-256
+`ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae`
+attestation, strict UTF-8 decoding, and byte-identical UTF-8 re-encoding. It
+permits LF, rejects CR/NUL, deterministically escapes embedded single quotes,
+and produces exactly one POSIX shell word for the fixed Python `-c` argument.
+It is not a generic multiline command or caller-controlled shell surface.
+
+The nested command remains exact `server_python`, `-I`, `-S`, `-B`, `-c`, one
+bootstrap argument, and one manifest argument. Protocol/table `/2`, AGV3
+framing, operation semantics, bindings, and bootstrap bytes remain unchanged.
+The repaired inner CRT command retains the existing strict 30000-character
+bound and exact controller/launcher length-and-SHA replay.
+
+The successor launcher is `auto-g16-v3-rtwin-launcher-v2.ps1`, 8576 bytes,
+140 LF, zero CR/NUL, SHA-256
+`1e6a82100cdcdffc258a0c29ab4d76d3d385b72565f5030806b19e3ea22f2d48`.
+Manifest schema v2 and the exact ten-root model remain unchanged, but a new
+canonical manifest content instance binds the successor launcher. A new
+ServerProfile revision 4 binds those two successor paths while reusing the
+exact existing bootstrap, SSH configuration, known-hosts, Python, qsub, qstat,
+and resource-dialect identities. Revision 3 is never rewritten or refreshed.
+
+This decision authorizes source, tests, contract integration, and preparation
+of an exact future two-file no-overwrite deployment packet only. It authorizes
+no RTwin persistent write, workspace operation, staging, qsub, Gaussian,
+cleanup, retry, new Attempt, or other calculation effect. Successor deployment
+and the actual RTwin-to-server shell/Python qualification require a separate
+Owner gate.

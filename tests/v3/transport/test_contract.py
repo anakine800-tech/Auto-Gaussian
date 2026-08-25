@@ -31,7 +31,7 @@ from auto_g16.transport._bridge import (
     _cmd_quote_v1,
     _decode_response_frame,
     _encode_request_frame,
-    _posix_quote_bootstrap_source_v1,
+    _posix_quote_exact_bootstrap_bytes_v2,
     _posix_quote_v1,
     _powershell_quote_fixed_launcher_v1,
     _powershell_quote_v1,
@@ -92,9 +92,9 @@ class TransportContractTests(unittest.TestCase):
         ast.parse(_BOOTSTRAP_SOURCE,feature_version=(3,6))
 
     def test_rtwin_launcher_is_exact_and_narrow(self) -> None:
-        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v1.ps1")
+        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v2.ps1")
         self.assertEqual(_RTWIN_LAUNCHER_BYTES,_RTWIN_LAUNCHER_SOURCE.encode("utf-8"))
-        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(7684,125,"2eb539d4510988f892b52beeb743e088a27853cdfd9dc60ef0890978e0863444"))
+        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(8576,140,"1e6a82100cdcdffc258a0c29ab4d76d3d385b72565f5030806b19e3ea22f2d48"))
         self.assertEqual(sha256(_RTWIN_LAUNCHER_BYTES).hexdigest(),_RTWIN_LAUNCHER_SHA256)
         self.assertNotIn(b"\r",_RTWIN_LAUNCHER_BYTES)
         self.assertNotIn(b"\x00",_RTWIN_LAUNCHER_BYTES)
@@ -238,28 +238,45 @@ class TransportContractTests(unittest.TestCase):
         namespace["respond"].assert_called_once_with("SUBMIT_QSUB_ONCE", {"job_id":"123.server"})
         self.assertNotIn("argv", request["payload"])
 
-    def test_posix_variable_and_fixed_source_quoting_are_separate(self) -> None:
+    def test_posix_variable_and_exact_fixed_source_quoting_are_separate(self) -> None:
         self.assertEqual(shlex.split(_posix_quote_v1("")), [""])
         self.assertEqual(shlex.split(_posix_quote_v1("alpha'beta")), ["alpha'beta"])
         for token in ("alpha\nbeta", "alpha\rbeta", "alpha\x00beta"):
             with self.assertRaises(transport.TransportBoundaryError):
                 _posix_quote_v1(token)
-        source = "alpha'\nbeta\n"
-        quoted = _posix_quote_bootstrap_source_v1(source)
-        self.assertEqual(source.encode("ascii"), b"alpha'\nbeta\n")
-        self.assertEqual(len(source.encode("ascii")), 12)
-        self.assertEqual(sha256(source.encode("ascii")).hexdigest(), "6053f05b9d4ccfee917933fbaf678ce477573102c2c6b62eaaa3d0290d8dcfb7")
-        self.assertEqual(quoted.encode("ascii"), b"'alpha'\"'\"'\nbeta\n'")
-        self.assertEqual(len(quoted.encode("ascii")), 18)
-        self.assertEqual(sha256(quoted.encode("ascii")).hexdigest(), "582f76adb6db7219ffaea960e5b01ee95939b0600c002c92d0601199369e9735")
-        self.assertEqual(shlex.split(quoted), [source])
-        self.assertEqual(shlex.split(_posix_quote_bootstrap_source_v1(_BOOTSTRAP_SOURCE)), [_BOOTSTRAP_SOURCE])
-        for bad in ("alpha\rbeta", "alpha\x00beta", "α"):
+        quoted = _posix_quote_exact_bootstrap_bytes_v2(_BOOTSTRAP_SOURCE_BYTES)
+        self.assertEqual(shlex.split(quoted), [_BOOTSTRAP_SOURCE])
+        for bad in (
+            b"alpha\nbeta\n",
+            _BOOTSTRAP_SOURCE_BYTES[:-1],
+            _BOOTSTRAP_SOURCE_BYTES + b"\n",
+            _BOOTSTRAP_SOURCE_BYTES[:100] + b"X" + _BOOTSTRAP_SOURCE_BYTES[101:],
+            _BOOTSTRAP_SOURCE_BYTES.replace(b"\n", b"\r\n", 1),
+            _BOOTSTRAP_SOURCE_BYTES[:-1] + b"\x00",
+        ):
             with self.assertRaises(transport.TransportBoundaryError):
-                _posix_quote_bootstrap_source_v1(bad)
+                _posix_quote_exact_bootstrap_bytes_v2(bad)
+
+    def test_exact_fixed_bootstrap_is_one_literal_posix_argv_word(self) -> None:
+        manifest = "eyJzY2hlbWEiOiJzeW50aGV0aWMifQo="
+        command = " ".join((
+            _posix_quote_v1("/usr/bin/python3.6"),
+            _posix_quote_v1("-I"),
+            _posix_quote_v1("-S"),
+            _posix_quote_v1("-B"),
+            _posix_quote_v1("-c"),
+            _posix_quote_exact_bootstrap_bytes_v2(_BOOTSTRAP_SOURCE_BYTES),
+            _posix_quote_v1(manifest),
+        ))
+        script = "set -- " + command + "; test \"$#\" -eq 7; printf '%s' \"$6\""
+        completed = subprocess.run(["/bin/sh", "-c", script], check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual((completed.returncode, completed.stderr), (0, b""))
+        self.assertEqual(completed.stdout, _BOOTSTRAP_SOURCE_BYTES)
+        self.assertEqual(shlex.split(command), ["/usr/bin/python3.6", "-I", "-S", "-B", "-c", _BOOTSTRAP_SOURCE, manifest])
+        ast.parse(completed.stdout.decode("utf-8"), feature_version=(3,6))
 
     def test_fixed_nested_launcher_preserves_source_lf_without_widening_variable_tokens(self) -> None:
-        launcher = "ssh -- " + _posix_quote_bootstrap_source_v1("alpha\nbeta\n")
+        launcher = "ssh -- " + _posix_quote_exact_bootstrap_bytes_v2(_BOOTSTRAP_SOURCE_BYTES)
         quoted = _powershell_quote_fixed_launcher_v1(launcher)
         self.assertIn("\n", quoted)
         self.assertTrue(quoted.startswith("'") and quoted.endswith("'"))
@@ -269,6 +286,24 @@ class TransportContractTests(unittest.TestCase):
         for bad in ("alpha\rbeta", "alpha\x00beta", "α"):
             with self.assertRaises(transport.TransportBoundaryError):
                 _powershell_quote_fixed_launcher_v1(bad)
+
+    def test_launcher_fixed_bootstrap_quoter_is_identity_gated_and_generic_quoter_unchanged(self) -> None:
+        generic = (
+            'function Quote-Posix([string]$Value) {\n'
+            ' if($Value.IndexOf([char]0)-ge 0 -or $Value.IndexOf("`r")-ge 0 -or $Value.IndexOf("`n")-ge 0){Fail-AutoG16}\n'
+            ' $Sq=[char]39;$Dq=[char]34\n'
+            ' return [string]$Sq+$Value.Replace([string]$Sq,[string]$Sq+$Dq+$Sq+$Dq+$Sq)+$Sq\n'
+            '}\n'
+        )
+        self.assertIn(generic, _RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("function Quote-PosixFixedBootstrap([byte[]]$Bytes)", _RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($Bytes.Length-ne 15562){Fail-AutoG16}", _RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($Actual-ne'ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae'){Fail-AutoG16}", _RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("$Roundtrip=$Utf8.GetBytes($Value)", _RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($Value.IndexOf([char]0)-ge 0 -or $Value.IndexOf(\"`r\")-ge 0){Fail-AutoG16}", _RTWIN_LAUNCHER_SOURCE)
+        self.assertNotIn("$Value.IndexOf(\"`n\")", _RTWIN_LAUNCHER_SOURCE.split("function Quote-PosixFixedBootstrap", 1)[1].split("function Quote-Crt", 1)[0])
+        self.assertEqual(_RTWIN_LAUNCHER_SOURCE.count("Quote-PosixFixedBootstrap $BootstrapBytes"), 1)
+        self.assertNotIn("Quote-Posix $Bootstrap", _RTWIN_LAUNCHER_SOURCE)
 
     def test_agv3_frame_is_canonical_single_frame(self) -> None:
         request = {"binding": {}, "operation": "ALLOCATE_WORKSPACE", "payload": {}, "protocol": _BOOTSTRAP_PROTOCOL}

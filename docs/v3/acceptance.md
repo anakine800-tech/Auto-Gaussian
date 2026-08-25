@@ -1594,3 +1594,49 @@ expansion.
     unusable. A later live retry requires exact revision 3 resolution and a new
     Batch Submit Approval, ExecutionSnapshot, Operational Confirmation,
     submission-intent identity, and separately authorized recovery Attempt.
+
+## V30-TRANSPORT-RTWIN-LAUNCHER-MULTILINE-BOOTSTRAP-QUOTING-REPAIR-01 acceptance
+
+1. The generic launcher `Quote-Posix` behavior is byte-for-byte unchanged for
+   ordinary values and still rejects NUL, CR, and LF. No caller, path, option,
+   alias, user, manifest value, or arbitrary runtime content can select the
+   fixed multiline route.
+2. The dedicated fixed-bootstrap route accepts only the exact 15562-byte,
+   203-LF, zero-CR/NUL bootstrap with SHA-256
+   `ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae`
+   after literal-path regular/non-reparse attestation and strict UTF-8
+   decode/re-encode equality. Size/hash drift, one-byte mutation, invalid UTF-8,
+   CR, NUL, or another runtime content rejects before quoting or nested SSH.
+3. Literal LF and embedded single quotes round-trip exactly in one Python `-c`
+   argv value. Dollar, backtick, semicolon, pipe, glob, substitution-looking,
+   and newline characters remain literal data. Offline shell reconstruction
+   yields exactly server Python, `-I`, `-S`, `-B`, `-c`, the original bootstrap,
+   and the exact manifest argument; the reconstructed source compiles under
+   the frozen Python 3.6 grammar.
+4. The controller and successor launcher independently render the same inner
+   CRT argument-line length and UTF-8 SHA-256. The existing strict
+   30000-character inner bound is unchanged and PASS; crossing it rejects
+   before a process.
+5. The successor launcher is `auto-g16-v3-rtwin-launcher-v2.ps1`, 8576 bytes,
+   140 LF, zero CR/NUL, SHA-256
+   `1e6a82100cdcdffc258a0c29ab4d76d3d385b72565f5030806b19e3ea22f2d48`.
+   The successor canonical manifest remains schema v2,
+   protocol `/2`, and exactly ten roots, changing only the launcher trust-root
+   identity required for the new bytes/path. The bootstrap source identity is
+   unchanged.
+6. ServerProfile revision 4 binds the successor launcher and manifest while
+   preserving all other deployed/runtime/scientific/resource identities. It
+   resolves a new ID and effective digest; revision 3 remains immutable and
+   cannot authorize the successor.
+7. Existing Transport focused/affected safety evidence and the synthetic V30-A
+   composition remain PASS, including exact trust roots, binary AGV3 forwarding,
+   workspace/artifact identity, qsub-at-most-once, REPLAY zero qsub, and UNKNOWN
+   zero automatic retry.
+8. Independent contract and implementation reviews report
+   `P0/P1/P2/P3 = 0/0/0/0`; exact-main required checks and natural CodeQL
+   attestation pass. No public upstream API/schema or bootstrap protocol
+   semantics change.
+9. Product integration performs zero RTwin persistent write, workspace/staging,
+   qsub, Gaussian, qdel, cleanup, or Attempt creation. The exact successor
+   launcher and manifest are only a proposed two-file deployment packet until
+   a separate Owner deployment gate.
