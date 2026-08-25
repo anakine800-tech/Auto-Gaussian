@@ -11,11 +11,15 @@ from unittest.mock import patch
 import auto_g16.transport as transport
 from auto_g16.transport._bridge import (
     _BOOTSTRAP_SOURCE,
+    _RTWIN_LAUNCHER_SHA256,
+    _RTWIN_LAUNCHER_SIZE,
+    _RTWIN_LAUNCHER_SOURCE,
     _build_rtwin_command,
     _crt_quote,
     _posix_quote_bootstrap_source_v1,
     _posix_quote_v1,
     _powershell_quote_fixed_launcher_v1,
+    _render_inner_rtwin_arguments,
 )
 from auto_g16.transport._canonical import canonical_json_bytes
 from auto_g16.transport._driver import (
@@ -44,15 +48,19 @@ class ManifestAndCommandTests(TransportFixture):
     def _replace_config(profile,logical_name: str,content: bytes):
         return replace(profile,config_files=[(name,content if name==logical_name else raw) for name,raw in profile.config_files])
 
-    def test_manifest_closes_exact_nine_roots(self) -> None:
+    def test_manifest_v2_closes_exact_ten_roots(self) -> None:
         profile = self.profile()
         manifest = _parse_deployment_manifest(profile.runtime_contents[_MANIFEST_NAME])
         self.assertEqual(set(manifest.trust_roots), {
             "mac_ssh", "mac_scp", "rtwin_ssh", "rtwin_scp", "rtwin_remote_shell",
+            "rtwin_launcher",
             "server_remote_shell", "server_python", "server_qsub", "server_qstat",
         })
+        self.assertEqual(manifest.schema, "auto-g16-v3-transport-deployment-manifest/2")
         self.assertEqual(manifest.bootstrap_protocol, "auto-g16-v3-rtwin-bootstrap/2")
-        self.assertEqual(manifest.trust_roots["rtwin_remote_shell"].shell_grammar, "powershell-v1")
+        self.assertEqual(manifest.trust_roots["rtwin_remote_shell"].shell_grammar, "cmd-powershell-launcher-v1")
+        launcher=manifest.trust_roots["rtwin_launcher"]
+        self.assertEqual((launcher.expected_size_bytes,launcher.expected_sha256),(_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_SHA256))
 
     def test_production_qsub_qstat_manifest_evidence_is_exact(self) -> None:
         profile = self.profile()
@@ -245,17 +253,31 @@ class ManifestAndCommandTests(TransportFixture):
                 changed=self._replace_config(profile,"mac-ssh-config",raw); snapshot,_=self.transport_snapshot(profile=changed)
                 with self.assertRaises(transport.TransportBoundaryError): _resolve_deployment_authority(snapshot,changed)
 
-    def test_powershell_command_uses_fixed_paths_and_no_dynamic_operation(self) -> None:
+    def test_cmd_boundary_uses_explicit_powershell_and_attested_launcher(self) -> None:
         profile = self.profile()
         snapshot, _ = self.transport_snapshot(profile=profile)
         authority = _resolve_deployment_authority(snapshot, profile)
         authority = replace(authority, resource_dialect=replace(authority.resource_dialect, live_capable=True))
         command = _build_rtwin_command(snapshot, authority)
         self.assertEqual(command[0], authority.manifest.trust_roots["mac_ssh"].path)
-        self.assertIn("UseShellExecute=$false", command[-1])
-        self.assertIn("Get-FileHash", command[-1])
-        self.assertEqual(command[-1].count(r"C:\Config\server-ssh-config"),3)
-        self.assertEqual(command[-1].count(r"C:\Config\server-known"),4)
+        remote=command[-1]
+        self.assertTrue(remote.startswith('"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -NonInteractive -Command "'))
+        self.assertIn("[ScriptBlock]::Create($s)",remote)
+        self.assertIn(_RTWIN_LAUNCHER_SHA256,remote)
+        self.assertEqual(remote.count(r"C:\Config\server-ssh-config"),1)
+        self.assertEqual(remote.count(r"C:\Config\server-known"),1)
+        self.assertLess(len(remote),4096)
+        self.assertNotIn(_BOOTSTRAP_SOURCE,remote)
+        self.assertNotIn(authority.manifest.raw_bytes.decode(),remote)
+        self.assertNotIn("UseShellExecute=$false",remote)
+        self.assertIn("UseShellExecute=$false",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("System.Diagnostics.Process",_RTWIN_LAUNCHER_SOURCE)
+        inner=_render_inner_rtwin_arguments(authority,authority.ssh_effect.rtwin_to_server.target)
+        self.assertLess(len(inner),30000)
+        self.assertIn(f"-ExpectedInnerLength {len(inner)}",remote)
+        self.assertIn(f"-ExpectedInnerSha256 '{sha256(inner.encode('utf-8')).hexdigest()}'",remote)
+        self.assertIn("$ArgumentLine.Length-ne$ExpectedInnerLength",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("$InnerDigest-ne$ExpectedInnerSha256",_RTWIN_LAUNCHER_SOURCE)
         self.assertNotIn("qsub", command[:-1])
 
     def test_outer_and_inner_ssh_use_exact_bound_aliases_and_closed_options(self) -> None:
@@ -274,35 +296,22 @@ class ManifestAndCommandTests(TransportFixture):
         expected.extend(("-p","22","-l","rtwin-user","--","rtwin-a"))
         self.assertEqual(command[:-1],tuple(expected))
         self.assertNotIn("-J",command)
+        launcher=_RTWIN_LAUNCHER_SOURCE
         for option in (
             "BatchMode=yes","IdentitiesOnly=yes","StrictHostKeyChecking=yes",
-            f"UserKnownHostsFile={self.mac_known_hosts}",f"GlobalKnownHostsFile={self.mac_known_hosts}",
-            "IdentityAgent=none","PreferredAuthentications=publickey","PasswordAuthentication=no",
-            "KbdInteractiveAuthentication=no","VerifyHostKeyDNS=no","UpdateHostKeys=no",
-        ):
-            self.assertIn(option,command)
-        script=command[-1]
-        self.assertIn('-F C:\\Config\\server-ssh-config',script)
-        self.assertIn('UserKnownHostsFile=C:\\Config\\server-known',script)
-        self.assertIn('GlobalKnownHostsFile=C:\\Config\\server-known',script)
-        self.assertIn('-l user100 -- server-a',script)
-        self.assertNotIn("user100@10.0.0.50",script)
-        roots=authority.manifest.trust_roots; manifest_arg=base64.b64encode(authority.manifest.raw_bytes).decode("ascii")
-        server_command=" ".join((
-            *(_posix_quote_v1(item) for item in (roots["server_python"].path,"-I","-S","-B","-c")),
-            _posix_quote_bootstrap_source_v1(_BOOTSTRAP_SOURCE),_posix_quote_v1(manifest_arg),
-        ))
-        inner=["-F",r"C:\Config\server-ssh-config"]
-        for option in (
-            "BatchMode=yes","IdentitiesOnly=yes","StrictHostKeyChecking=yes",
-            r"UserKnownHostsFile=C:\Config\server-known",r"GlobalKnownHostsFile=C:\Config\server-known",
             "IdentityAgent=none","PreferredAuthentications=publickey","PubkeyAuthentication=yes",
             "PasswordAuthentication=no","KbdInteractiveAuthentication=no","GSSAPIAuthentication=no",
             "HostbasedAuthentication=no","VerifyHostKeyDNS=no","UpdateHostKeys=no",
-        ): inner.extend(("-o",option))
-        inner.extend(("-p","22","-l","user100","--","server-a",server_command))
-        exact_arguments=" ".join(_crt_quote(item) for item in inner)
-        self.assertIn(f"$p.StartInfo.Arguments={_powershell_quote_fixed_launcher_v1(exact_arguments)};",script)
+        ):
+            self.assertIn(option,launcher)
+        self.assertIn("UserKnownHostsFile=",launcher)
+        self.assertIn("GlobalKnownHostsFile=",launcher)
+        self.assertIn("$KnownHostsPath",launcher)
+        self.assertIn("$Process.StartInfo.FileName=$RtwinSsh.path",launcher)
+        self.assertIn("$Process.StartInfo.Arguments=$ArgumentLine",launcher)
+        self.assertIn("if($ArgumentLine.Length-ge 30000)",launcher)
+        self.assertIn("$ServerAlias,$ServerCommand",launcher)
+        self.assertNotIn("user100@10.0.0.50",launcher)
 
     def test_cross_snapshot_profile_and_source_authority_splices_reject_before_process(self) -> None:
         profile=self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES); snapshot,_=self.transport_snapshot(profile=profile,queue="batch")
@@ -332,12 +341,31 @@ class ManifestAndCommandTests(TransportFixture):
             _resolve_deployment_authority(snapshot, profile)
         popen.assert_not_called()
 
-    def test_cmd_manifest_fails_before_any_process(self) -> None:
+    def test_legacy_shell_grammar_and_manifest_v1_fail_before_any_process(self) -> None:
         profile = self.profile(windows_grammar="cmd-v1")
         snapshot, _ = self.transport_snapshot(profile=profile)
-        authority = _resolve_deployment_authority(snapshot, profile)
         with patch("subprocess.Popen") as popen, self.assertRaises(transport.TransportBoundaryError):
-            _build_rtwin_command(snapshot, authority)
+            _resolve_deployment_authority(snapshot, profile)
+        popen.assert_not_called()
+        profile=self.profile(); value=json.loads(profile.runtime_contents[_MANIFEST_NAME]); value["schema"]="auto-g16-v3-transport-deployment-manifest/1"; del value["trust_roots"]["rtwin_launcher"]
+        with self.assertRaises(transport.TransportBoundaryError): _parse_deployment_manifest(canonical_json_bytes(value))
+
+    def test_runtime_data_paths_and_launcher_identity_are_closed(self) -> None:
+        profile=self.profile()
+        for path_key in ("rtwin_bootstrap_source_path","rtwin_deployment_manifest_path"):
+            paths=dict(profile.platform_paths); del paths[path_key]
+            changed=replace(profile,platform_paths=paths); changed_snapshot,_=self.transport_snapshot(profile=changed)
+            with self.subTest(path_key=path_key),self.assertRaises(transport.TransportBoundaryError):
+                _resolve_deployment_authority(changed_snapshot,changed)
+        value=json.loads(profile.runtime_contents[_MANIFEST_NAME]); value["trust_roots"]["rtwin_launcher"]["expected_sha256"]="0"*64
+        contents=dict(profile.runtime_contents); contents[_MANIFEST_NAME]=canonical_json_bytes(value); changed=replace(profile,runtime_contents=contents); changed_snapshot,_=self.transport_snapshot(profile=changed)
+        with self.assertRaises(transport.TransportBoundaryError): _resolve_deployment_authority(changed_snapshot,changed)
+
+    def test_outer_command_at_or_above_limit_rejects_before_process(self) -> None:
+        profile=self.profile(); value=json.loads(profile.runtime_contents[_MANIFEST_NAME]); value["trust_roots"]["rtwin_launcher"]["path"]="C:\\"+("a"*3900)+".ps1"
+        contents=dict(profile.runtime_contents); contents[_MANIFEST_NAME]=canonical_json_bytes(value); changed=replace(profile,runtime_contents=contents); snapshot,_=self.transport_snapshot(profile=changed)
+        authority=_resolve_deployment_authority(snapshot,changed)
+        with patch("subprocess.Popen") as popen,self.assertRaises(transport.TransportBoundaryError): _build_rtwin_command(snapshot,authority)
         popen.assert_not_called()
 
 

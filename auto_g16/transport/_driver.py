@@ -17,12 +17,12 @@ from typing import Final, Mapping, Protocol
 
 from auto_g16.execution import ExecutionSnapshot, ServerProfile, assert_execution_snapshot_identity, resolve_server_profile
 
-from ._bridge import _BOOTSTRAP_PROTOCOL, _BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE_NAME, _build_rtwin_command, _decode_response_frame, _encode_request_frame
+from ._bridge import _BOOTSTRAP_PROTOCOL, _BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE_NAME, _RTWIN_LAUNCHER_SHA256, _RTWIN_LAUNCHER_SIZE, _build_rtwin_command, _decode_response_frame, _encode_request_frame
 from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
 
 _FIXED_ENV: Final = {"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
-_MANIFEST_NAME: Final = "transport-deployment-manifest-v1.json"
-_MANIFEST_SCHEMA: Final = "auto-g16-v3-transport-deployment-manifest/1"
+_MANIFEST_NAME: Final = "transport-deployment-manifest-v2.json"
+_MANIFEST_SCHEMA: Final = "auto-g16-v3-transport-deployment-manifest/2"
 _RESOURCE_DESCRIPTOR_NAME: Final = "pbs-resource-enactment-v1.json"
 _RESOURCE_DESCRIPTOR_SCHEMA: Final = "auto-g16-v3-pbs-resource-enactment/1"
 _SYNTHETIC_RESOURCE_DIALECT: Final = "auto-g16-v3-pbs-resource-enactment/synthetic-test/1"
@@ -95,7 +95,7 @@ class _SSHEffectAuthority:
     mac_to_rtwin:_SSHConfigHop; rtwin_to_server:_SSHConfigHop
 @dataclass(frozen=True,slots=True)
 class _DeploymentAuthority:
-    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int
+    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int; bootstrap_source_path:str; manifest_path:str
 @dataclass(frozen=True,slots=True,kw_only=True)
 class _Invocation:
     operation:_Operation; argv:tuple[str,...]; cwd:str; request:Mapping[str,object]; authority:_DeploymentAuthority
@@ -123,7 +123,8 @@ class _RTWinDriver(Protocol):
 _ROOT_RULES: Final = {
     "mac_ssh":("macos","controller-file-v1",True,None),"mac_scp":("macos","controller-file-v1",True,None),
     "rtwin_ssh":("windows","rtwin-shell-file-v1",True,None),"rtwin_scp":("windows","rtwin-shell-file-v1",True,None),
-    "rtwin_remote_shell":("windows","deployment-root-v1",False,{"powershell-v1","cmd-v1"}),"server_remote_shell":("posix","deployment-root-v1",False,{"posix-sh-v1"}),
+    "rtwin_launcher":("windows","rtwin-shell-file-v1",True,None),
+    "rtwin_remote_shell":("windows","deployment-root-v1",False,{"cmd-powershell-launcher-v1"}),"server_remote_shell":("posix","deployment-root-v1",False,{"posix-sh-v1"}),
     "server_python":("posix","server-self-check-v1",True,None),"server_qsub":("posix","server-python-file-v1",True,None),"server_qstat":("posix","server-python-file-v1",True,None)}
 _ROOT_KEYS: Final = {"attestation_mode","deployment_identity","expected_sha256","expected_size_bytes","path","platform","shell_grammar"}
 
@@ -282,7 +283,14 @@ def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:Ser
     expected_source={"sha256":sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(),"size_bytes":len(_BOOTSTRAP_SOURCE_BYTES)}
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
     manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect); ssh_effect=_resolve_ssh_effect(frozen_profile,current)
-    return _DeploymentAuthority(manifest,dialect,ssh_effect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"])
+    launcher=manifest.trust_roots["rtwin_launcher"]
+    if (launcher.expected_size_bytes,launcher.expected_sha256)!=(_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_SHA256): raise TransportBoundaryError("RTwin launcher differs from source-controlled bytes")
+    try:
+        bootstrap_path=_closed_effect_path(frozen.platform_paths["rtwin_bootstrap_source_path"],"windows","rtwin_bootstrap_source_path")
+        manifest_path=_closed_effect_path(frozen.platform_paths["rtwin_deployment_manifest_path"],"windows","rtwin_deployment_manifest_path")
+    except KeyError as exc: raise TransportBoundaryError("RTwin runtime data path inventory is incomplete") from exc
+    if bootstrap_path in {manifest_path,launcher.path} or manifest_path==launcher.path: raise TransportBoundaryError("RTwin runtime data paths are not distinct")
+    return _DeploymentAuthority(manifest,dialect,ssh_effect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"],bootstrap_path,manifest_path)
 
 def _assert_deployment_snapshot(snapshot:ExecutionSnapshot,authority:_DeploymentAuthority)->None:
     try: assert_execution_snapshot_identity(snapshot)

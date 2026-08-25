@@ -11,6 +11,7 @@ from auto_g16.transport._bridge import (
     _BOOTSTRAP_PROTOCOL,
     _BOOTSTRAP_SOURCE_BYTES,
     _BOOTSTRAP_SOURCE_NAME,
+    _RTWIN_LAUNCHER_BYTES,
 )
 from auto_g16.transport._canonical import canonical_json_bytes
 from auto_g16.transport._driver import (
@@ -46,7 +47,7 @@ def _manifest_bytes(
     mac_ssh_bytes: bytes,
     mac_scp_bytes: bytes,
     deployment_id: str = "synthetic-rtwin-deployment-v1",
-    windows_grammar: str = "powershell-v1",
+    windows_grammar: str = "cmd-powershell-launcher-v1",
     torque_executables: bool = False,
 ) -> bytes:
     def file_root(path: str, platform: str, mode: str, identity: str, content: bytes) -> dict[str, object]:
@@ -65,6 +66,7 @@ def _manifest_bytes(
         "mac_scp": file_root(mac_scp_path, "macos", "controller-file-v1", "synthetic-mac-scp", mac_scp_bytes),
         "rtwin_ssh": file_root(r"C:\Windows\System32\OpenSSH\ssh.exe", "windows", "rtwin-shell-file-v1", "synthetic-rtwin-ssh", b"rtwin ssh executable bytes"),
         "rtwin_scp": file_root(r"C:\Windows\System32\OpenSSH\scp.exe", "windows", "rtwin-shell-file-v1", "synthetic-rtwin-scp", b"rtwin scp executable bytes"),
+        "rtwin_launcher": file_root(r"C:\Users\rtwin-user\auto-g16-v3-rtwin-launcher-v1.ps1", "windows", "rtwin-shell-file-v1", "auto-g16-v3-rtwin-launcher-v1", _RTWIN_LAUNCHER_BYTES),
         "rtwin_remote_shell": {
             "attestation_mode": "deployment-root-v1",
             "deployment_identity": "synthetic-windows-shell",
@@ -105,7 +107,7 @@ def _manifest_bytes(
     return canonical_json_bytes({
         "bootstrap_protocol": _BOOTSTRAP_PROTOCOL,
         "deployment_id": deployment_id,
-        "schema": "auto-g16-v3-transport-deployment-manifest/1",
+        "schema": "auto-g16-v3-transport-deployment-manifest/2",
         "trust_roots": roots,
     })
 
@@ -163,7 +165,7 @@ class TransportFixture(ExecutionFixture):
         self.mac_ssh_config = self.temporary / "mac-ssh-config"
         self.mac_known_hosts = self.temporary / "mac-known-hosts"
 
-    def profile(self, *, deployment_id: str = "synthetic-rtwin-deployment-v1", windows_grammar: str = "powershell-v1", jump_topology: list[tuple[str, int, str]] | None = None, resource_descriptor: bytes = RESOURCE_DESCRIPTOR_BYTES) -> execution.ServerProfile:
+    def profile(self, *, deployment_id: str = "synthetic-rtwin-deployment-v2", windows_grammar: str = "cmd-powershell-launcher-v1", jump_topology: list[tuple[str, int, str]] | None = None, resource_descriptor: bytes = RESOURCE_DESCRIPTOR_BYTES) -> execution.ServerProfile:
         executable_bytes = {"mac-ssh": b"mac ssh executable bytes", "mac-scp": b"mac scp executable bytes"}
         executable_paths = {name: self.temporary / name for name in executable_bytes}
         for name, path in executable_paths.items():
@@ -203,6 +205,8 @@ class TransportFixture(ExecutionFixture):
                 "rtwin_root": r"C:\RTWIN", "known_hosts": "/etc/ssh/ssh_known_hosts",
                 "mac_ssh_config_path": str(self.mac_ssh_config), "mac_known_hosts_path": str(self.mac_known_hosts),
                 "rtwin_ssh_config_path": r"C:\Config\server-ssh-config", "rtwin_known_hosts_path": rtwin_known_path,
+                "rtwin_bootstrap_source_path": r"C:\Users\rtwin-user\auto-g16-v3-rtwin-bootstrap-v2-py36.py",
+                "rtwin_deployment_manifest_path": r"C:\Users\rtwin-user\transport-deployment-manifest-v2.json",
             },
             config_files=[
                 ("mac-ssh-config",mac_config),("mac-known-hosts",self.mac_known_hosts.read_bytes()),

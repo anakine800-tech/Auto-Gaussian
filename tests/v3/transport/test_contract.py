@@ -19,6 +19,15 @@ from auto_g16.transport._bridge import (
     _BOOTSTRAP_SOURCE,
     _BOOTSTRAP_SOURCE_BYTES,
     _BOOTSTRAP_SOURCE_NAME,
+    _POWERSHELL_LOADER_TEMPLATE_V1,
+    _POWERSHELL_LOADER_TEMPLATE_V1_SHA256,
+    _POWERSHELL_LOADER_TEMPLATE_V1_SIZE,
+    _RTWIN_LAUNCHER_BYTES,
+    _RTWIN_LAUNCHER_LF_COUNT,
+    _RTWIN_LAUNCHER_NAME,
+    _RTWIN_LAUNCHER_SHA256,
+    _RTWIN_LAUNCHER_SIZE,
+    _RTWIN_LAUNCHER_SOURCE,
     _cmd_quote_v1,
     _decode_response_frame,
     _encode_request_frame,
@@ -67,18 +76,43 @@ class TransportContractTests(unittest.TestCase):
         self.assertEqual(len(_OPERATION_TABLE_BYTES), 1570)
         self.assertEqual(sha256(_OPERATION_TABLE_BYTES).hexdigest(), _OPERATION_TABLE_SHA256)
         self.assertEqual(_OPERATION_TABLE_SHA256, "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af")
-        self.assertEqual(_BOOTSTRAP_SOURCE_NAME, "auto-g16-v3-rtwin-bootstrap-v2.py")
+        self.assertEqual(_BOOTSTRAP_SOURCE_NAME, "auto-g16-v3-rtwin-bootstrap-v2-py36.py")
         self.assertEqual(_BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE.encode("utf-8"))
-        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 15597)
-        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 204)
+        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 15562)
+        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 203)
         self.assertNotIn(b"\r", _BOOTSTRAP_SOURCE_BYTES)
         self.assertNotIn(b"\x00", _BOOTSTRAP_SOURCE_BYTES)
-        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "b0b1bcaf8ab8697a80676ac1015503a2fb64c21949678f20bf05f3bd849fb10e")
-        self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.startswith(b"from __future__ import annotations\n"))
+        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae")
+        self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.startswith(b"import base64,hashlib,json,os,re,stat,struct,subprocess,sys\n"))
+        self.assertNotIn(b"from __future__ import annotations",_BOOTSTRAP_SOURCE_BYTES)
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.endswith(b"main()\n"))
         self.assertNotIn("eval(", _BOOTSTRAP_SOURCE)
         self.assertNotIn("exec(", _BOOTSTRAP_SOURCE)
         self.assertNotIn("qdel", _BOOTSTRAP_SOURCE)
+        ast.parse(_BOOTSTRAP_SOURCE,feature_version=(3,6))
+
+    def test_rtwin_launcher_is_exact_and_narrow(self) -> None:
+        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v1.ps1")
+        self.assertEqual(_RTWIN_LAUNCHER_BYTES,_RTWIN_LAUNCHER_SOURCE.encode("utf-8"))
+        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(6308,97,"47e733316317a9d37eda31a92ddf32407626406ef8a57f8325398532cfe2fb62"))
+        self.assertEqual(sha256(_RTWIN_LAUNCHER_BYTES).hexdigest(),_RTWIN_LAUNCHER_SHA256)
+        self.assertNotIn(b"\r",_RTWIN_LAUNCHER_BYTES)
+        self.assertNotIn(b"\x00",_RTWIN_LAUNCHER_BYTES)
+        self.assertIn("UseShellExecute=$false",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("OpenStandardInput().CopyToAsync($Process.StandardInput.BaseStream)",_RTWIN_LAUNCHER_SOURCE)
+        for forbidden in ("qdel","ALLOCATE_WORKSPACE","STAGE_EXACT_FILE","SUBMIT_QSUB_ONCE"):
+            self.assertNotIn(forbidden,_RTWIN_LAUNCHER_SOURCE)
+
+    def test_short_loader_template_identity_and_inventory_are_exact(self) -> None:
+        self.assertEqual(_POWERSHELL_LOADER_TEMPLATE_V1_SIZE,1021)
+        self.assertEqual(_POWERSHELL_LOADER_TEMPLATE_V1_SHA256,"e9417a66f6597791c519c403dd709a9bd791d516e3c421a1eb79cb6dc9fd0a47")
+        self.assertEqual(sha256(_POWERSHELL_LOADER_TEMPLATE_V1.encode("ascii")).hexdigest(),_POWERSHELL_LOADER_TEMPLATE_V1_SHA256)
+        expected={"@LAUNCHER_PATH@","@LAUNCHER_SIZE@","@LAUNCHER_SHA@","@MANIFEST_PATH@","@MANIFEST_SIZE@","@MANIFEST_SHA@","@BOOTSTRAP_PATH@","@BOOTSTRAP_SIZE@","@BOOTSTRAP_SHA@","@CONFIG_PATH@","@CONFIG_SIZE@","@CONFIG_SHA@","@KNOWN_PATH@","@KNOWN_SIZE@","@KNOWN_SHA@","@SERVER_ALIAS@","@SERVER_PORT@","@SERVER_USER@","@INNER_LENGTH@","@INNER_SHA@"}
+        for placeholder in expected:
+            self.assertEqual(_POWERSHELL_LOADER_TEMPLATE_V1.count(placeholder),1)
+        self.assertEqual(_POWERSHELL_LOADER_TEMPLATE_V1.count("@"),len(expected)*2)
+        self.assertNotIn(_BOOTSTRAP_SOURCE,_POWERSHELL_LOADER_TEMPLATE_V1)
+        self.assertNotIn("transport-deployment-manifest-v2.json",_POWERSHELL_LOADER_TEMPLATE_V1)
 
     def test_bootstrap_caps_reads_and_reattests_executables_after_launch(self) -> None:
         tree = ast.parse(_BOOTSTRAP_SOURCE)

@@ -14,7 +14,7 @@ from ._fixtures import NOW, TransportFixture
 
 
 class TransportStoreTests(TransportFixture):
-    def test_active_source_dependent_physical_identity_vectors(self) -> None:
+    def test_historical_v1_source_dependent_physical_identity_vectors_remain_stable(self) -> None:
         store_id = "108c8d43-2ea9-5658-9607-ade4cbbeac85"
         instance_id = "28c10d1a-9f8f-5ce6-84d1-555175c0fcde"
         runtime = ["auto-g16-transport/runtime-attestation", 1, store_id, instance_id, "snapshot-1", "profile-1", "a" * 64, "transport-deployment-manifest-v1.json", "359039083c926fa743cceae61c2cd49b9a7b76064ef14c02b664f1284aafaf5a", 2753, "synthetic-rtwin-deployment-v1", "auto-g16-v3-rtwin-bootstrap/2", "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af", 1570, "auto-g16-v3-rtwin-bootstrap-v2.py", "b0b1bcaf8ab8697a80676ac1015503a2fb64c21949678f20bf05f3bd849fb10e", 15597]
@@ -30,6 +30,16 @@ class TransportStoreTests(TransportFixture):
         self.assertEqual(job_id, "dff67c7c-ed8c-5992-8440-3c4988297367")
         receipt = ["auto-g16-transport/receipt-binding", 1, store_id, instance_id, job_id, workspace_id, "attempt-1", "snapshot-1", "intent-1", "receipt-1", "123.server"]
         self.assertEqual(physical_id("receipt-binding", receipt), "1bf4e844-8199-57cf-a96b-00ec3639ffc6")
+
+    def test_runtime_attestation_records_v2_successor_identity(self) -> None:
+        snapshot,profile=self.transport_snapshot()
+        authority=__import__("auto_g16.transport._driver",fromlist=["_resolve_deployment_authority"])._resolve_deployment_authority(snapshot,profile)
+        runtime=self.transport_store._runtime(snapshot,authority)
+        row=self.transport_store._connection.execute(
+            "SELECT deployment_manifest_name,bootstrap_protocol,bootstrap_source_name,bootstrap_source_sha256,bootstrap_source_size_bytes FROM transport_runtime_attestation WHERE runtime_attestation_id=?",
+            (runtime["runtime_attestation_id"],),
+        ).fetchone()
+        self.assertEqual(row,("transport-deployment-manifest-v2.json","auto-g16-v3-rtwin-bootstrap/2","auto-g16-v3-rtwin-bootstrap-v2-py36.py","ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae",15562))
 
     def test_create_reopen_preserves_exact_store_identity(self) -> None:
         store_id = self.transport_store.transport_store_id
