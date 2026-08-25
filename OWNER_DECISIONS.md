@@ -907,8 +907,12 @@ FULL_FRAME_ACQUIRED
 < NESTED_SSH_STARTED
 < NESTED_FRAME_WRITE_COMPLETE
 < NESTED_STDIN_CLOSED
-< OUTER_STDIN_EOF (which may never arrive)
 ```
+
+Nested-stdin closure does not read, observe, or wait for outer EOF. In the
+required held-open proof vector it therefore precedes the producer's later
+deliberate EOF; a controller that closes immediately after its one frame is
+also conforming and does not impose a universal ordering on the EOF event.
 
 An incomplete header or payload cannot start nested SSH. If its producer holds
 stdin open before completing the declared frame, bounded controller timeout may

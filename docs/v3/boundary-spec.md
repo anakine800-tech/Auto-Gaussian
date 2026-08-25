@@ -4619,10 +4619,12 @@ or an outer-EOF wait. The required ordering is:
 FULL_FRAME_ACQUIRED < NESTED_SSH_STARTED
 NESTED_SSH_STARTED < NESTED_FRAME_WRITE_COMPLETE
 NESTED_FRAME_WRITE_COMPLETE < NESTED_STDIN_CLOSED
-NESTED_STDIN_CLOSED < OUTER_STDIN_EOF
 ```
 
-The final relation is valid even when outer EOF never occurs. The bootstrap
+Nested-stdin closure does not read, observe, or wait for outer EOF. In the
+required held-open proof vector, closure precedes the producer's later
+deliberate EOF. A conforming controller may instead close immediately after
+its one frame, so no universal event order is imposed on EOF. The bootstrap
 still reads its own 12-byte header and exact payload, then requires one
 additional read to return EOF; that check is not weakened. The Controller
 still serializes exactly one frame with no prefix/suffix. Consequently a
