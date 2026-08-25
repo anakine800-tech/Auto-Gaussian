@@ -1545,3 +1545,52 @@ expansion.
     packet must create a new profile revision, resolved identity,
     ExecutionSnapshot, and Operational Confirmation before one fresh Attempt
     may cross a separately approved Live Owner Gate.
+
+## V30-TRANSPORT-RTWIN-LAUNCHER-CHAIN-02 acceptance
+
+1. The repaired path accepts only manifest logical name/schema v2 and exactly
+   ten roots including exact source-controlled `rtwin_launcher`; manifest v1,
+   nine roots, eleven roots, or launcher path/size/digest drift reject before a
+   process.
+2. The outer remote command records actual CMD boundary semantics, begins with
+   exact explicit system PowerShell, contains one fixed loader, is strictly
+   shorter than 4096 characters, and contains neither complete bootstrap nor
+   manifest bytes. Raw PowerShell as the remote command rejects.
+   The exact 1021-byte loader-template SHA and one-pass placeholder inventory,
+   canonical value renderers, and exact command prefix/order are replayed.
+   Percent and delayed-expansion exclamation forms reject before CMD.
+3. The loader proves regular/non-reparse launcher identity before strict decode
+   and before one ScriptBlock creation/invocation. Missing, replaced, reparse,
+   size-drifted, digest-drifted, or invalid-UTF-8 launcher bytes yield zero
+   nested SSH.
+4. Exact bootstrap and manifest runtime paths come only from current resolved
+   profile platform paths and their bytes only from runtime contents. Missing,
+   aliased, latest/fallback, size/digest-drifted, reparse, or replaced runtime
+   data yields zero nested SSH.
+5. Outer stdin is exactly the AGV3 frame. Tests include binary NUL/high-byte
+   forwarding and prohibit Reader/Writer/text conversion. The launcher uses a
+   direct non-shell Process for `rtwin_ssh`, the frozen options and aliases,
+   and an inner argument line shorter than 30000 characters. Output/error caps
+   are enforced while draining each stream; overflow terminates and rejects
+   rather than buffering through the cap.
+   Controller and launcher independently agree on its exact character length
+   and UTF-8 SHA-256 before Process creation.
+6. The new bootstrap exact 15562-byte/203-LF/SHA identity passes Python 3.6
+   grammar tests. Actual read-only qualification proves exact server Python
+   3.6.8 identity, compile, startup, framing prerequisites, and no workspace
+   operation. Historical `b0b1bcaf...` bytes remain failed-live evidence.
+7. Protocol/table `/2`, exact seven operations, Torque and synthetic resource
+   rendering, resource sole authority, workspace/artifact identities,
+   `REPLAY` zero qsub, `UNKNOWN` zero second qsub, and synthetic V30-A
+   composition all remain PASS.
+8. The change uses no new public Core, Approval, Workflow, Execution, Observe,
+   Result, ScientificValidation, or Review API/schema. TransportStore records
+   successor runtime identities without schema migration.
+9. Post-integration deployment publishes exactly three fresh no-overwrite
+   files and changes no known-host, credential, policy, Attempt workspace, PBS,
+   or calculation state. Qualification is read-only. No qsub, Gaussian, qdel,
+   cleanup, deletion, retry, or replacement Attempt occurs.
+10. ServerProfile revision 2 and all old operational approval objects remain
+    unusable. A later live retry requires exact revision 3 resolution and a new
+    Batch Submit Approval, ExecutionSnapshot, Operational Confirmation,
+    submission-intent identity, and separately authorized recovery Attempt.

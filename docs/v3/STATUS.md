@@ -217,12 +217,20 @@
   `V30-PBS-TORQUE-DIALECT-01` is `CLOSED / FROZEN / INTEGRATED`; its exact
   source-controlled renderer and deployment-evidence checks are qualified on
   authoritative main. This qualification grants no live qsub authority.
-- **Current gate:** `V30-A LIVE OWNER GATE` is the next gate. It must bind one
-  exact reviewed CalculationPlan, fresh Attempt, approvals, resolved profile,
-  ExecutionSnapshot, operational confirmation, and one-qsub maximum before
-  any live effect. No live execution is authorized by this status closeout.
-- **Live:** `NO-GO`; integration grants no SSH, PBS, Gaussian, deployment, or
-  other live-effect authority.
+- **Current gate:** `V30-TRANSPORT-RTWIN-LAUNCHER-CHAIN-02` is active. The
+  first live Attempt is `NOT_SUBMITTED` and permanently non-reexecutable.
+  ServerProfile revision 2, manifest v1, its Batch approval/snapshot/
+  Operational Confirmation, and old Python-incompatible bootstrap are
+  historical failed-live evidence. V30-A offline readiness remains `PASS`;
+  live readiness is `BLOCKED` while manifest v2, the exact tenth-root launcher,
+  RTwin runtime data files, and Python-3.6 bootstrap repair are integrated,
+  deployed no-overwrite, and qualified read-only. After PASS the next gate is
+  `V30-A-FIRST-LIVE-RECOVERY-ATTEMPT-01`, not automatic execution.
+- **Live:** calculation execution remains `NO-GO`. This exact gate narrowly
+  authorizes only post-integration fresh no-overwrite publication of the three
+  frozen RTwin launcher/runtime files and its read-only qualification. It grants
+  no Attempt workspace, staging, qstat/qsub, PBS, Gaussian, cleanup, retry, or
+  other calculation effect.
 - **Readiness:** `V30-A-SYNTHETIC-COMPOSITION-01` is `CLOSED / INTEGRATED`.
   The exact integrated composition proves the complete offline authority chain,
   the required negative paths, `WINNER`/`REPLAY` sequencing, explicit
