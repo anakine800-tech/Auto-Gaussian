@@ -4534,3 +4534,53 @@ nested SSH startup, exact server Python 3.6.8, compile/start prerequisites, and
 binary forwarding without `ALLOCATE_WORKSPACE`, staging, qsub, or Gaussian.
 Only a new ServerProfile revision 3 and new operational authorities may be used
 by a later separately approved recovery Attempt.
+
+## V30-TRANSPORT-RTWIN-LAUNCHER-MULTILINE-BOOTSTRAP-QUOTING-REPAIR-01 boundary
+
+The revision-3 launcher and manifest are immutable deployed history. The
+successor launcher is the version-qualified
+`auto-g16-v3-rtwin-launcher-v2.ps1`, 8576 bytes, 140 LF, zero CR/NUL, SHA-256
+`1e6a82100cdcdffc258a0c29ab4d76d3d385b72565f5030806b19e3ea22f2d48`.
+Its manifest remains
+schema `auto-g16-v3-transport-deployment-manifest/2`, protocol
+`auto-g16-v3-rtwin-bootstrap/2`, and exactly the existing ten trust roots. A
+new canonical manifest content identity changes only the `rtwin_launcher`
+path, deployment identity, size, and digest required by the successor.
+
+The ordinary PowerShell `Quote-Posix` function remains the sole renderer for
+dynamic tokens and rejects NUL, CR, and LF. One separate
+`Quote-PosixFixedBootstrap` function may receive only `$Bootstrap` produced by
+this closed sequence:
+
+1. read the literal current-profile bootstrap path as bytes;
+2. require regular/non-reparse identity, exactly 15562 bytes, and SHA-256
+   `ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae`;
+3. decode those exact bytes with strict UTF-8;
+4. encode the decoded value with the same strict UTF-8 instance and require
+   byte-for-byte equality with the attested input;
+5. reject NUL or CR, permit literal LF, and replace every single quote with the
+   POSIX single-quote boundary sequence;
+6. surround the result with one single-quoted boundary and use it exactly once
+   as the Python `-c` word.
+
+Arbitrary caller text, another runtime content, or a value that has not passed
+that exact identity gate cannot enter the fixed-bootstrap function. Dollar,
+backtick, semicolon, pipe, glob, substitution, and literal LF characters inside
+the attested value remain data inside the one shell word. They never become a
+second command, word, expansion, or quoting policy.
+
+The nested command remains exactly server Python, `-I`, `-S`, `-B`, `-c`, the
+one fixed multiline bootstrap word, and the canonical base64 manifest word.
+The controller's existing Python renderer and the PowerShell launcher must
+produce the same exact CRT argument-line character length and UTF-8 SHA-256;
+the existing strict 30000-character bound is unchanged. AGV3 framing, seven
+operations, response semantics, binary stdin forwarding, caps, and pre/post
+attestation are unchanged, so protocol/table `/2` do not advance.
+
+Revision 4 is a new immutable ServerProfile revision. It binds the successor
+launcher path and successor manifest-v2 path while reusing the exact revision-3
+bootstrap path/bytes, SSH config, known-hosts, server Python, qsub, qstat, and
+resource descriptor. It resolves a new profile ID/effective digest. Revision 3
+and its deployed files remain historical and are not overwritten, deleted, or
+cleaned. The repair integration prepares, but does not authorize, one future
+fresh two-file no-overwrite deployment of launcher plus manifest.

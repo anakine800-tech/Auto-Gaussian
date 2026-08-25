@@ -16,7 +16,6 @@ from auto_g16.transport._bridge import (
     _RTWIN_LAUNCHER_SOURCE,
     _build_rtwin_command,
     _crt_quote,
-    _posix_quote_bootstrap_source_v1,
     _posix_quote_v1,
     _powershell_quote_fixed_launcher_v1,
     _render_inner_rtwin_arguments,
@@ -61,6 +60,7 @@ class ManifestAndCommandTests(TransportFixture):
         self.assertEqual(manifest.trust_roots["rtwin_remote_shell"].shell_grammar, "cmd-powershell-launcher-v1")
         launcher=manifest.trust_roots["rtwin_launcher"]
         self.assertEqual((launcher.expected_size_bytes,launcher.expected_sha256),(_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_SHA256))
+        self.assertEqual((launcher.path,launcher.deployment_identity),(r"C:\AutoG16Runtime\auto-g16-v3-rtwin-launcher-v2.ps1","auto-g16-v3-rtwin-launcher-v2"))
 
     def test_production_qsub_qstat_manifest_evidence_is_exact(self) -> None:
         profile = self.profile()
