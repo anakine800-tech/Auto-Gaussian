@@ -4460,8 +4460,8 @@ The first nine retain their frozen roles. `rtwin_launcher` is a Windows
 absolute-path `rtwin-shell-file-v1` root with exact positive byte size,
 lowercase SHA-256, null shell grammar, regular-file requirement, and
 non-reparse requirement. Its fixed source identity is
-`auto-g16-v3-rtwin-launcher-v1.ps1`, 5845 bytes, 91 LF, zero CR/NUL, SHA-256
-`7e22eebe8d958c5256963f054d8c32cb00c5c783662f2366a59a2408b3b7260f`.
+`auto-g16-v3-rtwin-launcher-v1.ps1`, 6308 bytes, 97 LF, zero CR/NUL, SHA-256
+`47e733316317a9d37eda31a92ddf32407626406ef8a57f8325398532cfe2fb62`.
 
 Windows OpenSSH's actual boundary is CMD. `rtwin_remote_shell` binds the exact
 explicit system PowerShell child and uses the sole closed grammar
