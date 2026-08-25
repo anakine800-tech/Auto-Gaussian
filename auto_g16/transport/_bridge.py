@@ -352,23 +352,24 @@ $Process.StartInfo.RedirectStandardInput=$true
 $Process.StartInfo.RedirectStandardOutput=$true
 $Process.StartInfo.RedirectStandardError=$true
 if(-not $Process.Start()){Fail-AutoG16}
-try{
- $Process.StandardInput.BaseStream.Write($RequestFrame,0,$RequestFrame.Length)
- $Process.StandardInput.BaseStream.Flush()
- $Process.StandardInput.Close()
-}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
 $Output=New-Object IO.MemoryStream
 $ErrorOutput=New-Object IO.MemoryStream
 $OutputBuffer=New-Object byte[] 65536
 $ErrorBuffer=New-Object byte[] 65536
 $OutputTask=$Process.StandardOutput.BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)
 $ErrorTask=$Process.StandardError.BaseStream.ReadAsync($ErrorBuffer,0,$ErrorBuffer.Length)
-$OutputOpen=$true;$ErrorOpen=$true
-while($OutputOpen -or $ErrorOpen){
+$InputTask=$Process.StandardInput.BaseStream.WriteAsync($RequestFrame,0,$RequestFrame.Length)
+$InputOpen=$true;$OutputOpen=$true;$ErrorOpen=$true
+while($InputOpen -or $OutputOpen -or $ErrorOpen){
  $Pending=New-Object 'Collections.Generic.List[Threading.Tasks.Task]'
+ if($InputOpen){$Pending.Add($InputTask)}
  if($OutputOpen){$Pending.Add($OutputTask)}
  if($ErrorOpen){$Pending.Add($ErrorTask)}
  $Completed=$Pending[[Threading.Tasks.Task]::WaitAny($Pending.ToArray())]
+ if($InputOpen -and [Object]::ReferenceEquals($Completed,$InputTask)){
+  try{$InputTask.GetAwaiter().GetResult();$Process.StandardInput.BaseStream.Flush();$Process.StandardInput.Close()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
+  $InputOpen=$false
+ }
  if($OutputOpen -and [Object]::ReferenceEquals($Completed,$OutputTask)){
   try{$Count=$OutputTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
   if($Count-eq 0){$OutputOpen=$false}else{
@@ -398,9 +399,9 @@ $ErrorOutput.Position=0;$ErrorOutput.CopyTo([Console]::OpenStandardError())
 exit $Process.ExitCode
 '''
 _RTWIN_LAUNCHER_BYTES: Final = _RTWIN_LAUNCHER_SOURCE.encode("utf-8")
-_RTWIN_LAUNCHER_SHA256: Final = "2607be170b7dc79689bd02343fbb661685ce9cecee4019f34086527d422c895f"
-_RTWIN_LAUNCHER_SIZE: Final = 9362
-_RTWIN_LAUNCHER_LF_COUNT: Final = 160
+_RTWIN_LAUNCHER_SHA256: Final = "7247beda73482146c26b997702c9f74e6e9fb930e0bc55605fde42caa218658f"
+_RTWIN_LAUNCHER_SIZE: Final = 9579
+_RTWIN_LAUNCHER_LF_COUNT: Final = 161
 if (
     len(_RTWIN_LAUNCHER_BYTES) != _RTWIN_LAUNCHER_SIZE
     or sha256(_RTWIN_LAUNCHER_BYTES).hexdigest() != _RTWIN_LAUNCHER_SHA256

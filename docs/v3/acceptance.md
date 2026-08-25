@@ -1654,9 +1654,12 @@ expansion.
    payload all reach zero nested process. A bounded controller timeout may
    terminate an incomplete open stream; incomplete bytes never cross the seam.
 4. A complete frame reaches the exact attested nested SSH process byte-for-byte.
-   Write completion and nested-stdin close occur without waiting for outer EOF.
-   Tests with outer stdin held open prove the exact required ordering.
-5. The launcher contains no `ReadToEnd`, EOF-dependent `CopyToAsync`, line/text
+   Bounded stdout/stderr drains start before the one finite asynchronous input
+   write, so large bidirectional traffic cannot deadlock on pipe backpressure.
+   Input completion and nested-stdin close do not wait for outer EOF. Tests with
+   outer stdin held open prove the exact required ordering.
+5. The launcher contains no synchronous request write before output drains,
+   `ReadToEnd`, EOF-dependent `CopyToAsync`, line/text
    conversion, post-frame read, or trailing-byte authority. Controller tests
    prove its encoder emits exactly one complete frame with no prefix/suffix.
 6. A one-byte full-length mutation is forwarded unchanged by the launcher and
@@ -1667,8 +1670,8 @@ expansion.
    binary stdout/stderr, Python 3.6 source, and ten-root manifest rules remain
    PASS.
 8. Launcher identity is exactly
-   `auto-g16-v3-rtwin-launcher-v3.ps1`, 9362 bytes, 160 LF, SHA-256
-   `2607be170b7dc79689bd02343fbb661685ce9cecee4019f34086527d422c895f`.
+   `auto-g16-v3-rtwin-launcher-v3.ps1`, 9579 bytes, 161 LF, SHA-256
+   `7247beda73482146c26b997702c9f74e6e9fb930e0bc55605fde42caa218658f`.
    A successor manifest-v2 instance and immutable ServerProfile revision 5
    bind new launcher/profile identities; protocol/table/bootstrap remain `/2`.
 9. Focused Transport, affected selector evidence, and the changed synthetic

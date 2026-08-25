@@ -4610,8 +4610,13 @@ nor closes stdin, the existing controller deadline may terminate the outer
 process; no partial frame may cross into nested SSH.
 
 Only after the complete frame is resident does the launcher create and start
-the one exact attested `rtwin_ssh` process. It writes the exact header and
-payload bytes, flushes, and closes nested stdin immediately. It never uses
+the one exact attested `rtwin_ssh` process. It starts the existing bounded
+stdout/stderr asynchronous drains before one finite asynchronous write of the
+exact header and payload bytes. All three tasks share the bounded completion
+pump; when the finite input task completes, the launcher flushes and closes
+nested stdin immediately while output drains continue. This prevents a child
+that emits output before consuming a large request from deadlocking against a
+synchronous write. It never uses
 `ReadToEnd`, `CopyToAsync` through EOF, line/text conversion, a post-frame read,
 or an outer-EOF wait. The required ordering is:
 
@@ -4632,8 +4637,8 @@ full-length mutation passes the launcher mechanically but fails at the
 bootstrap's existing canonical protocol/binding validation.
 
 The source-controlled successor is
-`auto-g16-v3-rtwin-launcher-v3.ps1`, 9362 bytes, 160 LF, zero CR/NUL,
-SHA-256 `2607be170b7dc79689bd02343fbb661685ce9cecee4019f34086527d422c895f`.
+`auto-g16-v3-rtwin-launcher-v3.ps1`, 9579 bytes, 161 LF, zero CR/NUL,
+SHA-256 `7247beda73482146c26b997702c9f74e6e9fb930e0bc55605fde42caa218658f`.
 Bootstrap protocol/table/source and manifest schema stay `/2`; only a new
 manifest-v2 content instance changes to bind the new launcher identity/path.
 A future live chain must create immutable ServerProfile revision 5 and resolve

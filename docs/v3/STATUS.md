@@ -226,8 +226,8 @@
   before nested start, writes it byte-identically, and closes nested stdin
   without waiting for outer EOF. Protocol/table/bootstrap and every upstream
   API remain unchanged. The successor launcher is
-  `auto-g16-v3-rtwin-launcher-v3.ps1`, 9362 bytes / 160 LF / SHA-256
-  `2607be17...`; a new manifest-v2 content instance and ServerProfile revision
+  `auto-g16-v3-rtwin-launcher-v3.ps1`, 9579 bytes / 161 LF / SHA-256
+  `7247beda...`; a new manifest-v2 content instance and ServerProfile revision
   5 are required. The first live Attempt remains `NOT_SUBMITTED` and
   permanently nonreexecutable.
 - **Live:** calculation execution remains `NO-GO`. This exact gate authorizes

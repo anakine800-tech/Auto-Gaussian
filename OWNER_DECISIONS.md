@@ -899,8 +899,11 @@ unsigned 64-bit big-endian payload length, rejects lengths greater than
 179306484, and reads exactly the declared payload before starting nested SSH.
 It does not parse JSON, select an operation, inspect a binding, read a suffix,
 or wait for outer EOF. After full acquisition it starts the one exact nested
-SSH process, writes the byte-identical complete frame, flushes, and immediately
-closes nested stdin. The ordering is:
+SSH process, begins bounded stdout/stderr drains and one finite asynchronous
+write of the byte-identical complete frame, then flushes and immediately closes
+nested stdin when that finite write completes. Input and output therefore make
+concurrent bounded progress without a duplex pipe backpressure dependency. The
+ordering is:
 
 ```text
 FULL_FRAME_ACQUIRED
@@ -925,9 +928,9 @@ and the bootstrap retains its existing one-byte post-frame EOF check.
 
 Protocol/table `/2`, bootstrap bytes, ten-root manifest schema, operations,
 bindings, response framing, and every public API remain unchanged. The new
-source-controlled launcher is `auto-g16-v3-rtwin-launcher-v3.ps1`, 9362 bytes,
-160 LF, zero CR/NUL, SHA-256
-`2607be170b7dc79689bd02343fbb661685ce9cecee4019f34086527d422c895f`.
+source-controlled launcher is `auto-g16-v3-rtwin-launcher-v3.ps1`, 9579 bytes,
+161 LF, zero CR/NUL, SHA-256
+`7247beda73482146c26b997702c9f74e6e9fb930e0bc55605fde42caa218658f`.
 A new manifest-v2 content instance binds this launcher, and future live
 authority requires ServerProfile revision 5 with a new resolved profile ID and
 effective digest. Revision 4 is never rewritten or refreshed.
