@@ -94,12 +94,20 @@ class TransportContractTests(unittest.TestCase):
     def test_rtwin_launcher_is_exact_and_narrow(self) -> None:
         self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v1.ps1")
         self.assertEqual(_RTWIN_LAUNCHER_BYTES,_RTWIN_LAUNCHER_SOURCE.encode("utf-8"))
-        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(6308,97,"47e733316317a9d37eda31a92ddf32407626406ef8a57f8325398532cfe2fb62"))
+        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(7684,125,"2eb539d4510988f892b52beeb743e088a27853cdfd9dc60ef0890978e0863444"))
         self.assertEqual(sha256(_RTWIN_LAUNCHER_BYTES).hexdigest(),_RTWIN_LAUNCHER_SHA256)
         self.assertNotIn(b"\r",_RTWIN_LAUNCHER_BYTES)
         self.assertNotIn(b"\x00",_RTWIN_LAUNCHER_BYTES)
         self.assertIn("UseShellExecute=$false",_RTWIN_LAUNCHER_SOURCE)
         self.assertIn("OpenStandardInput().CopyToAsync($Process.StandardInput.BaseStream)",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("('\\'*(2*$Slashes+1)-join'')",_RTWIN_LAUNCHER_SOURCE)
+        self.assertNotIn("('\\\\'*(2*$Slashes+1)-join'')",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($Output.Length+$Count-gt 179306496)",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($ErrorOutput.Length+$Count-gt 65536)",_RTWIN_LAUNCHER_SOURCE)
+        self.assertLess(_RTWIN_LAUNCHER_SOURCE.index("if($Output.Length+$Count-gt 179306496)"),_RTWIN_LAUNCHER_SOURCE.index("$Process.WaitForExit()"))
+        self.assertNotIn("StandardOutput.BaseStream.CopyToAsync",_RTWIN_LAUNCHER_SOURCE)
+        self.assertNotIn("StandardError.BaseStream.CopyToAsync",_RTWIN_LAUNCHER_SOURCE)
         for forbidden in ("qdel","ALLOCATE_WORKSPACE","STAGE_EXACT_FILE","SUBMIT_QSUB_ONCE"):
             self.assertNotIn(forbidden,_RTWIN_LAUNCHER_SOURCE)
 

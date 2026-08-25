@@ -279,10 +279,10 @@ function Quote-Crt([string]$Value) {
  $Result='"';$Slashes=0
  foreach($Character in $Value.ToCharArray()){
   if($Character-eq'\'){$Slashes++;continue}
-  if($Character-eq'"'){$Result+=('\\'*(2*$Slashes+1)-join'')+'"';$Slashes=0;continue}
-  $Result+=('\\'*$Slashes-join'')+$Character;$Slashes=0
+  if($Character-eq'"'){$Result+=('\'*(2*$Slashes+1)-join'')+'"';$Slashes=0;continue}
+  $Result+=('\'*$Slashes-join'')+$Character;$Slashes=0
  }
- return $Result+('\\'*(2*$Slashes)-join'')+'"'
+ return $Result+('\'*(2*$Slashes)-join'')+'"'
 }
 $ManifestBytes=Read-AutoG16 $ManifestPath $ManifestSize $ManifestSha256
 $BootstrapBytes=Read-AutoG16 $BootstrapPath $BootstrapSize $BootstrapSha256
@@ -319,11 +319,39 @@ if(-not $Process.Start()){Fail-AutoG16}
 $InputTask=[Console]::OpenStandardInput().CopyToAsync($Process.StandardInput.BaseStream)
 $Output=New-Object IO.MemoryStream
 $ErrorOutput=New-Object IO.MemoryStream
-$OutputTask=$Process.StandardOutput.BaseStream.CopyToAsync($Output)
-$ErrorTask=$Process.StandardError.BaseStream.CopyToAsync($ErrorOutput)
-$InputTask.GetAwaiter().GetResult();$Process.StandardInput.Close();$Process.WaitForExit()
-$OutputTask.GetAwaiter().GetResult();$ErrorTask.GetAwaiter().GetResult()
-if($Output.Length-gt 179306496 -or $ErrorOutput.Length-gt 65536){Fail-AutoG16}
+$OutputBuffer=New-Object byte[] 65536
+$ErrorBuffer=New-Object byte[] 65536
+$OutputTask=$Process.StandardOutput.BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)
+$ErrorTask=$Process.StandardError.BaseStream.ReadAsync($ErrorBuffer,0,$ErrorBuffer.Length)
+$InputOpen=$true;$OutputOpen=$true;$ErrorOpen=$true
+while($InputOpen -or $OutputOpen -or $ErrorOpen){
+ $Pending=New-Object 'Collections.Generic.List[Threading.Tasks.Task]'
+ if($InputOpen){$Pending.Add($InputTask)}
+ if($OutputOpen){$Pending.Add($OutputTask)}
+ if($ErrorOpen){$Pending.Add($ErrorTask)}
+ $Completed=$Pending[[Threading.Tasks.Task]::WaitAny($Pending.ToArray())]
+ if($InputOpen -and [Object]::ReferenceEquals($Completed,$InputTask)){
+  try{$InputTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
+  $Process.StandardInput.Close();$InputOpen=$false
+ }
+ if($OutputOpen -and [Object]::ReferenceEquals($Completed,$OutputTask)){
+  try{$Count=$OutputTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
+  if($Count-eq 0){$OutputOpen=$false}else{
+   if($Output.Length+$Count-gt 179306496){try{$Process.Kill()}catch{};Fail-AutoG16}
+   $Output.Write($OutputBuffer,0,$Count)
+   $OutputTask=$Process.StandardOutput.BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)
+  }
+ }
+ if($ErrorOpen -and [Object]::ReferenceEquals($Completed,$ErrorTask)){
+  try{$Count=$ErrorTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
+  if($Count-eq 0){$ErrorOpen=$false}else{
+   if($ErrorOutput.Length+$Count-gt 65536){try{$Process.Kill()}catch{};Fail-AutoG16}
+   $ErrorOutput.Write($ErrorBuffer,0,$Count)
+   $ErrorTask=$Process.StandardError.BaseStream.ReadAsync($ErrorBuffer,0,$ErrorBuffer.Length)
+  }
+ }
+}
+$Process.WaitForExit()
 $AfterSsh=Read-AutoG16 $RtwinSsh.path $RtwinSsh.expected_size_bytes $RtwinSsh.expected_sha256
 $AfterScp=Read-AutoG16 $RtwinScp.path $RtwinScp.expected_size_bytes $RtwinScp.expected_sha256
 $AfterManifest=Read-AutoG16 $ManifestPath $ManifestSize $ManifestSha256
@@ -335,9 +363,9 @@ $ErrorOutput.Position=0;$ErrorOutput.CopyTo([Console]::OpenStandardError())
 exit $Process.ExitCode
 '''
 _RTWIN_LAUNCHER_BYTES: Final = _RTWIN_LAUNCHER_SOURCE.encode("utf-8")
-_RTWIN_LAUNCHER_SHA256: Final = "47e733316317a9d37eda31a92ddf32407626406ef8a57f8325398532cfe2fb62"
-_RTWIN_LAUNCHER_SIZE: Final = 6308
-_RTWIN_LAUNCHER_LF_COUNT: Final = 97
+_RTWIN_LAUNCHER_SHA256: Final = "2eb539d4510988f892b52beeb743e088a27853cdfd9dc60ef0890978e0863444"
+_RTWIN_LAUNCHER_SIZE: Final = 7684
+_RTWIN_LAUNCHER_LF_COUNT: Final = 125
 if (
     len(_RTWIN_LAUNCHER_BYTES) != _RTWIN_LAUNCHER_SIZE
     or sha256(_RTWIN_LAUNCHER_BYTES).hexdigest() != _RTWIN_LAUNCHER_SHA256
@@ -456,7 +484,7 @@ def _render_powershell_loader_v1(replacements:Mapping[str,str])->str:
         value=replacements[token]
         if type(value) is not str or token in value or rendered.count(token)!=1: raise TransportBoundaryError("PowerShell loader replacement is invalid")
         rendered=rendered.replace(token,value)
-    if "@" in rendered or '"' in rendered or any(character in rendered for character in "%\r\n"):
+    if "@" in rendered or '"' in rendered or any(character in rendered for character in "%!\r\n"):
         raise TransportBoundaryError("PowerShell loader is outside the closed CMD grammar")
     return rendered
 

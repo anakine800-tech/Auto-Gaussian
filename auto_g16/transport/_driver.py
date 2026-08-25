@@ -200,7 +200,7 @@ def _freeze_profile(profile:ServerProfile)->ServerProfile:
 
 def _closed_effect_path(value:object,platform:str,name:str)->str:
     path=_text(value,name)
-    if any(character in path for character in "%$~*?[]{}"): raise TransportBoundaryError(f"{name} contains path expansion syntax")
+    if any(character in path for character in "%!$~*?[]{}"): raise TransportBoundaryError(f"{name} contains path expansion syntax")
     if platform=="macos":
         if not path.startswith("/") or path.startswith("//") or path!="/" and path.endswith("/"): raise TransportBoundaryError(f"{name} is not a canonical POSIX path")
         parts=path.split("/")[1:]

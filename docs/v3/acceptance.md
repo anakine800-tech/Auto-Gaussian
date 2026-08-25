@@ -1558,6 +1558,7 @@ expansion.
    manifest bytes. Raw PowerShell as the remote command rejects.
    The exact 1021-byte loader-template SHA and one-pass placeholder inventory,
    canonical value renderers, and exact command prefix/order are replayed.
+   Percent and delayed-expansion exclamation forms reject before CMD.
 3. The loader proves regular/non-reparse launcher identity before strict decode
    and before one ScriptBlock creation/invocation. Missing, replaced, reparse,
    size-drifted, digest-drifted, or invalid-UTF-8 launcher bytes yield zero
@@ -1569,7 +1570,9 @@ expansion.
 5. Outer stdin is exactly the AGV3 frame. Tests include binary NUL/high-byte
    forwarding and prohibit Reader/Writer/text conversion. The launcher uses a
    direct non-shell Process for `rtwin_ssh`, the frozen options and aliases,
-   and an inner argument line shorter than 30000 characters.
+   and an inner argument line shorter than 30000 characters. Output/error caps
+   are enforced while draining each stream; overflow terminates and rejects
+   rather than buffering through the cap.
    Controller and launcher independently agree on its exact character length
    and UTF-8 SHA-256 before Process creation.
 6. The new bootstrap exact 15562-byte/203-LF/SHA identity passes Python 3.6

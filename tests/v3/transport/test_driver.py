@@ -361,6 +361,14 @@ class ManifestAndCommandTests(TransportFixture):
         contents=dict(profile.runtime_contents); contents[_MANIFEST_NAME]=canonical_json_bytes(value); changed=replace(profile,runtime_contents=contents); changed_snapshot,_=self.transport_snapshot(profile=changed)
         with self.assertRaises(transport.TransportBoundaryError): _resolve_deployment_authority(changed_snapshot,changed)
 
+    def test_cmd_delayed_expansion_marker_rejects_in_bound_windows_paths(self) -> None:
+        profile=self.profile(); paths=dict(profile.platform_paths)
+        paths["rtwin_bootstrap_source_path"]=r"C:\AutoG16Runtime\!AUTO_G16_EXPAND!\bootstrap.py"
+        changed=replace(profile,platform_paths=paths); snapshot,_=self.transport_snapshot(profile=changed)
+        with patch("subprocess.Popen") as popen,self.assertRaises(transport.TransportBoundaryError):
+            _resolve_deployment_authority(snapshot,changed)
+        popen.assert_not_called()
+
     def test_outer_command_at_or_above_limit_rejects_before_process(self) -> None:
         profile=self.profile(); value=json.loads(profile.runtime_contents[_MANIFEST_NAME]); value["trust_roots"]["rtwin_launcher"]["path"]="C:\\"+("a"*3900)+".ps1"
         contents=dict(profile.runtime_contents); contents[_MANIFEST_NAME]=canonical_json_bytes(value); changed=replace(profile,runtime_contents=contents); snapshot,_=self.transport_snapshot(profile=changed)
