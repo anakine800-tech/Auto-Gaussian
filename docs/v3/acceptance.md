@@ -1640,3 +1640,42 @@ expansion.
    qsub, Gaussian, qdel, cleanup, or Attempt creation. The exact successor
    launcher and manifest are only a proposed two-file deployment packet until
    a separate Owner deployment gate.
+
+## V30-TRANSPORT-AGV3-EOF-INDEPENDENT-FORWARDING-01 acceptance
+
+1. Revision-4 deployed bytes remain immutable; deployment stays PASS and the
+   deadlocked read-only qualification stays failed evidence. No product test or
+   integration step writes RTwin, starts nested real SSH, creates a workspace,
+   stages an artifact, submits qsub, runs Gaussian, or creates an Attempt.
+2. The successor launcher reads exactly one 12-byte AGV3 header and the exact
+   declared payload, with maximum payload length 179306484, before nested SSH
+   starts. It performs no JSON, operation, binding, or authority interpretation.
+3. Bad magic, nonzero high length word/oversize, partial header, and partial
+   payload all reach zero nested process. A bounded controller timeout may
+   terminate an incomplete open stream; incomplete bytes never cross the seam.
+4. A complete frame reaches the exact attested nested SSH process byte-for-byte.
+   Write completion and nested-stdin close occur without waiting for outer EOF.
+   Tests with outer stdin held open prove the exact required ordering.
+5. The launcher contains no `ReadToEnd`, EOF-dependent `CopyToAsync`, line/text
+   conversion, post-frame read, or trailing-byte authority. Controller tests
+   prove its encoder emits exactly one complete frame with no prefix/suffix.
+6. A one-byte full-length mutation is forwarded unchanged by the launcher and
+   rejected by the unchanged bootstrap. The bootstrap retains exact frame,
+   canonical JSON/schema/binding, and post-frame EOF checks.
+7. Generic POSIX quoting still rejects LF; the exact fixed-bootstrap exception,
+   inner command length/digest, pre/post trust-root and config attestation,
+   binary stdout/stderr, Python 3.6 source, and ten-root manifest rules remain
+   PASS.
+8. Launcher identity is exactly
+   `auto-g16-v3-rtwin-launcher-v3.ps1`, 9362 bytes, 160 LF, SHA-256
+   `2607be170b7dc79689bd02343fbb661685ce9cecee4019f34086527d422c895f`.
+   A successor manifest-v2 instance and immutable ServerProfile revision 5
+   bind new launcher/profile identities; protocol/table/bootstrap remain `/2`.
+9. Focused Transport, affected selector evidence, and the changed synthetic
+   V30-A composition path pass. REPLAY remains zero qsub, UNKNOWN remains zero
+   second qsub, and all existing no-overwrite/physical-binding/Torque evidence
+   remains intact.
+10. Independent adversarial review reports `P0/P1/P2/P3 = 0/0/0/0`.
+    Before later deployment/qualification, exact read-only reconciliation must
+    prove the six prior residual processes are now count zero; otherwise the
+    next gate is exact-process termination, not deployment.

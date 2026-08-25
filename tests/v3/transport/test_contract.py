@@ -42,6 +42,46 @@ from auto_g16.transport._driver import _OPERATION_TABLE_BYTES, _OPERATION_TABLE_
 from ._fixtures import TransportFixture
 
 
+class _HeldOpenFrameStream:
+    """Fragmented finite bytes whose producer deliberately never returns EOF."""
+
+    def __init__(self, raw: bytes, *, fragment_size: int = 7) -> None:
+        self.raw = raw
+        self.fragment_size = fragment_size
+        self.position = 0
+        self.read_past_available = False
+
+    def read(self, count: int) -> bytes:
+        if self.position == len(self.raw):
+            self.read_past_available = True
+            raise AssertionError("consumer waited for outer EOF")
+        end = min(len(self.raw), self.position + count, self.position + self.fragment_size)
+        chunk = self.raw[self.position:end]
+        self.position = end
+        return chunk
+
+
+def _acquire_launcher_frame_model(stream: _HeldOpenFrameStream) -> bytes:
+    """Test oracle for the launcher's closed mechanical AGV3 acquisition."""
+
+    def read_exact(count: int) -> bytes:
+        result = bytearray()
+        while len(result) < count:
+            chunk = stream.read(count - len(result))
+            if not chunk:
+                raise ValueError("short AGV3 frame")
+            result.extend(chunk)
+        return bytes(result)
+
+    header = read_exact(12)
+    if header[:4] != b"AGV3":
+        raise ValueError("bad AGV3 magic")
+    size = int.from_bytes(header[4:12], "big")
+    if size > 179_306_484:
+        raise ValueError("AGV3 payload too large")
+    return header + read_exact(size)
+
+
 class TransportContractTests(unittest.TestCase):
     def test_public_inventory_is_exact(self) -> None:
         self.assertEqual(tuple(transport.__all__), (
@@ -92,14 +132,26 @@ class TransportContractTests(unittest.TestCase):
         ast.parse(_BOOTSTRAP_SOURCE,feature_version=(3,6))
 
     def test_rtwin_launcher_is_exact_and_narrow(self) -> None:
-        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v2.ps1")
+        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v3.ps1")
         self.assertEqual(_RTWIN_LAUNCHER_BYTES,_RTWIN_LAUNCHER_SOURCE.encode("utf-8"))
-        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(8576,140,"1e6a82100cdcdffc258a0c29ab4d76d3d385b72565f5030806b19e3ea22f2d48"))
+        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(9362,160,"2607be170b7dc79689bd02343fbb661685ce9cecee4019f34086527d422c895f"))
         self.assertEqual(sha256(_RTWIN_LAUNCHER_BYTES).hexdigest(),_RTWIN_LAUNCHER_SHA256)
         self.assertNotIn(b"\r",_RTWIN_LAUNCHER_BYTES)
         self.assertNotIn(b"\x00",_RTWIN_LAUNCHER_BYTES)
         self.assertIn("UseShellExecute=$false",_RTWIN_LAUNCHER_SOURCE)
-        self.assertIn("OpenStandardInput().CopyToAsync($Process.StandardInput.BaseStream)",_RTWIN_LAUNCHER_SOURCE)
+        self.assertNotIn("CopyToAsync",_RTWIN_LAUNCHER_SOURCE)
+        self.assertNotIn("ReadToEnd",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("Read-ExactAutoG16 $OuterInput $FrameHeader 0 12",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("for($FrameIndex=4;$FrameIndex-lt 12;$FrameIndex++)",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($PayloadLength-gt 700416){Fail-AutoG16}",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("$PayloadLength=($PayloadLength*256)+[long]$FrameHeader[$FrameIndex]",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($PayloadLength-gt 179306484){Fail-AutoG16}",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("Read-ExactAutoG16 $OuterInput $RequestFrame 12 ([int]$PayloadLength)",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("$Process.StandardInput.BaseStream.Write($RequestFrame,0,$RequestFrame.Length)",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("$Process.StandardInput.Close()",_RTWIN_LAUNCHER_SOURCE)
+        self.assertLess(_RTWIN_LAUNCHER_SOURCE.index("Read-ExactAutoG16 $OuterInput $FrameHeader 0 12"),_RTWIN_LAUNCHER_SOURCE.index("if(-not $Process.Start())"))
+        self.assertLess(_RTWIN_LAUNCHER_SOURCE.index("Read-ExactAutoG16 $OuterInput $RequestFrame 12 ([int]$PayloadLength)"),_RTWIN_LAUNCHER_SOURCE.index("if(-not $Process.Start())"))
+        self.assertLess(_RTWIN_LAUNCHER_SOURCE.index("$Process.StandardInput.BaseStream.Write($RequestFrame,0,$RequestFrame.Length)"),_RTWIN_LAUNCHER_SOURCE.index("$Process.StandardInput.Close()"))
         self.assertIn("('\\'*(2*$Slashes+1)-join'')",_RTWIN_LAUNCHER_SOURCE)
         self.assertNotIn("('\\\\'*(2*$Slashes+1)-join'')",_RTWIN_LAUNCHER_SOURCE)
         self.assertIn("BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)",_RTWIN_LAUNCHER_SOURCE)
@@ -110,6 +162,51 @@ class TransportContractTests(unittest.TestCase):
         self.assertNotIn("StandardError.BaseStream.CopyToAsync",_RTWIN_LAUNCHER_SOURCE)
         for forbidden in ("qdel","ALLOCATE_WORKSPACE","STAGE_EXACT_FILE","SUBMIT_QSUB_ONCE"):
             self.assertNotIn(forbidden,_RTWIN_LAUNCHER_SOURCE)
+
+    def test_rtwin_launcher_acquires_one_frame_without_waiting_for_outer_eof(self) -> None:
+        request = {
+            "binding":{"attempt_id":"attempt-1"},
+            "operation":"ALLOCATE_WORKSPACE",
+            "payload":{},
+            "protocol":"auto-g16-v3-rtwin-bootstrap/2",
+        }
+        frame = _encode_request_frame(request, cap=65536)
+        stream = _HeldOpenFrameStream(frame, fragment_size=3)
+        acquired = _acquire_launcher_frame_model(stream)
+        self.assertEqual(acquired, frame)
+        self.assertEqual(stream.position, len(frame))
+        self.assertFalse(stream.read_past_available)
+
+    def test_rtwin_launcher_frame_gate_rejects_before_nested_start(self) -> None:
+        valid = b"AGV3" + (5).to_bytes(8, "big") + b"abcde"
+        cases = {
+            "bad-magic":b"BAD!" + valid[4:],
+            "oversize":b"AGV3" + (179_306_485).to_bytes(8, "big"),
+            "partial-header":valid[:9],
+            "partial-payload":valid[:-1],
+        }
+        for name, raw in cases.items():
+            nested_started = False
+            with self.subTest(name=name), self.assertRaises((AssertionError, ValueError)):
+                _acquire_launcher_frame_model(_HeldOpenFrameStream(raw))
+                nested_started = True
+            self.assertFalse(nested_started)
+
+    def test_full_length_mutation_is_forwarded_for_bootstrap_rejection(self) -> None:
+        original = b"AGV3" + (4).to_bytes(8, "big") + b"data"
+        mutated = original[:-1] + b"b"
+        stream = _HeldOpenFrameStream(mutated)
+        self.assertEqual(_acquire_launcher_frame_model(stream), mutated)
+        self.assertNotEqual(mutated, original)
+        self.assertFalse(stream.read_past_available)
+
+    def test_controller_encoder_produces_exactly_one_frame(self) -> None:
+        request = {"binding":{},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":_BOOTSTRAP_PROTOCOL}
+        frame = _encode_request_frame(request, cap=65536)
+        declared = int.from_bytes(frame[4:12], "big")
+        self.assertEqual(frame[:4], b"AGV3")
+        self.assertEqual(len(frame), 12 + declared)
+        self.assertEqual(_acquire_launcher_frame_model(_HeldOpenFrameStream(frame)), frame)
 
     def test_short_loader_template_identity_and_inventory_are_exact(self) -> None:
         self.assertEqual(_POWERSHELL_LOADER_TEMPLATE_V1_SIZE,1021)

@@ -4584,3 +4584,63 @@ resource descriptor. It resolves a new profile ID/effective digest. Revision 3
 and its deployed files remain historical and are not overwritten, deleted, or
 cleaned. The repair integration prepares, but does not authorize, one future
 fresh two-file no-overwrite deployment of launcher plus manifest.
+
+## V30-TRANSPORT-AGV3-EOF-INDEPENDENT-FORWARDING-01 boundary
+
+The revision-4 launcher, manifest, bootstrap, and profile identities are
+immutable historical evidence. Deployment passed; the subsequent read-only
+qualification failed because the launcher made nested-stdin closure depend on
+outer EOF while the unchanged bootstrap required EOF after its one exact AGV3
+frame. This section supersedes only that forwarding sequence.
+
+The successor launcher performs one closed mechanical acquisition before any
+nested process exists:
+
+1. read exactly 12 bytes from outer stdin;
+2. require bytes 0..3 to equal ASCII `AGV3`;
+3. decode bytes 4..11 as one unsigned 64-bit big-endian length;
+4. require the declared payload length to be at most 179306484;
+5. read exactly that many payload bytes and nothing afterward.
+
+It does not decode canonical JSON, inspect `protocol`, `operation`, `binding`,
+or `payload`, select an executable, or create authority. A high 32-bit length
+word is necessarily above the frozen cap and rejects. A short header or short
+payload reaches no nested process. If a producer neither completes the frame
+nor closes stdin, the existing controller deadline may terminate the outer
+process; no partial frame may cross into nested SSH.
+
+Only after the complete frame is resident does the launcher create and start
+the one exact attested `rtwin_ssh` process. It writes the exact header and
+payload bytes, flushes, and closes nested stdin immediately. It never uses
+`ReadToEnd`, `CopyToAsync` through EOF, line/text conversion, a post-frame read,
+or an outer-EOF wait. The required ordering is:
+
+```text
+FULL_FRAME_ACQUIRED < NESTED_SSH_STARTED
+NESTED_SSH_STARTED < NESTED_FRAME_WRITE_COMPLETE
+NESTED_FRAME_WRITE_COMPLETE < NESTED_STDIN_CLOSED
+NESTED_STDIN_CLOSED < OUTER_STDIN_EOF
+```
+
+The final relation is valid even when outer EOF never occurs. The bootstrap
+still reads its own 12-byte header and exact payload, then requires one
+additional read to return EOF; that check is not weakened. The Controller
+still serializes exactly one frame with no prefix/suffix. Consequently a
+full-length mutation passes the launcher mechanically but fails at the
+bootstrap's existing canonical protocol/binding validation.
+
+The source-controlled successor is
+`auto-g16-v3-rtwin-launcher-v3.ps1`, 9362 bytes, 160 LF, zero CR/NUL,
+SHA-256 `2607be170b7dc79689bd02343fbb661685ce9cecee4019f34086527d422c895f`.
+Bootstrap protocol/table/source and manifest schema stay `/2`; only a new
+manifest-v2 content instance changes to bind the new launcher identity/path.
+A future live chain must create immutable ServerProfile revision 5 and resolve
+new `resolved_server_profile_id` and `effective_config_sha256` values. No
+revision-4 object may be refreshed in place.
+
+Before future deployment or read-only qualification, the six residual
+launcher/nested processes reported by the failed qualification must be
+reconciled by exact identity and count. Count zero is mandatory. A nonzero
+count requires a separate exact-process termination gate; this contract grants
+no broad kill, cleanup, deletion, or deployment authority. It also grants no
+workspace/staging, qsub, Gaussian, retry, recovery Attempt, or live effect.
