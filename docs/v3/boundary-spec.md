@@ -4463,8 +4463,8 @@ PowerShell child below CMD. `rtwin_launcher` is a Windows absolute-path
 `rtwin-shell-file-v1` root with exact positive byte size,
 lowercase SHA-256, null shell grammar, regular-file requirement, and
 non-reparse requirement. Its fixed source identity is
-`auto-g16-v3-rtwin-launcher-v1.ps1`, 6308 bytes, 97 LF, zero CR/NUL, SHA-256
-`47e733316317a9d37eda31a92ddf32407626406ef8a57f8325398532cfe2fb62`.
+`auto-g16-v3-rtwin-launcher-v1.ps1`, 7684 bytes, 125 LF, zero CR/NUL, SHA-256
+`2eb539d4510988f892b52beeb743e088a27853cdfd9dc60ef0890978e0863444`.
 
 Windows OpenSSH's actual boundary is CMD. `rtwin_remote_shell` binds the exact
 explicit system PowerShell child and uses the sole closed grammar
@@ -4509,7 +4509,8 @@ The launcher has no generic operation surface. It may only attest the exact
 RTwin SSH/SCP roots and bound RTwin config/known-hosts/runtime files, construct
 the frozen nested SSH tokens, start manifest `rtwin_ssh` with
 `System.Diagnostics.Process` and `UseShellExecute = false`, forward binary
-stdin and bounded output streams, reattest, and return the nested result. The
+stdin and output streams whose caps are enforced during each read, terminate
+the child on overflow, reattest, and return the nested result. The
 complete CRT-rendered inner argument line is strictly shorter than 30000
 characters and is never routed through `cmd.exe`. Its exact character length
 and UTF-8 SHA-256 are independently rendered by the controller and verified by
