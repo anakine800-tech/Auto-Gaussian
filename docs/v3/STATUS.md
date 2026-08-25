@@ -227,6 +227,10 @@
   quoter and successor launcher `auto-g16-v3-rtwin-launcher-v2.ps1` at
   8576 bytes / 140 LF / SHA-256 `1e6a8210...`, plus its successor manifest and
   revision-4 bindings.
+  When this exact authority and successor launcher identity are present on
+  authoritative main after natural exact-main validation, this task is
+  `CLOSED / FROZEN / INTEGRATED`; the current gate becomes the separately
+  authorized successor two-file deployment decision below.
   It authorizes no deployment or calculation effect. The first live Attempt is
   `NOT_SUBMITTED` and permanently nonreexecutable.
 - **Live:** calculation execution remains `NO-GO`. This exact gate authorizes
