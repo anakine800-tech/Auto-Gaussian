@@ -217,28 +217,29 @@
   `V30-PBS-TORQUE-DIALECT-01` is `CLOSED / FROZEN / INTEGRATED`; its exact
   source-controlled renderer and deployment-evidence checks are qualified on
   authoritative main. This qualification grants no live qsub authority.
-- **Current gate:** `V30-TRANSPORT-RTWIN-LAUNCHER-MULTILINE-BOOTSTRAP-QUOTING-REPAIR-01`
-  is active on `main@8571da0196bd3cd829802a712032b15c8a14841f`. The original
-  three-file deployment is `3/3 PRESENT-VALID`; revision 3 and its launcher,
-  bootstrap, and manifest remain immutable. Read-only qualification proved a
-  deterministic pre-nested-SSH failure: generic `Quote-Posix` correctly rejects
-  LF, but the launcher incorrectly sent the exact multiline bootstrap through
-  that generic path. This task freezes one exact-bootstrap-only multiline
-  quoter and successor launcher `auto-g16-v3-rtwin-launcher-v2.ps1` at
-  8576 bytes / 140 LF / SHA-256 `1e6a8210...`, plus its successor manifest and
-  revision-4 bindings.
-  When this exact authority and successor launcher identity are present on
-  authoritative main after natural exact-main validation, this task is
-  `CLOSED / FROZEN / INTEGRATED`; the current gate becomes the separately
-  authorized successor two-file deployment decision below.
-  It authorizes no deployment or calculation effect. The first live Attempt is
-  `NOT_SUBMITTED` and permanently nonreexecutable.
+- **Current gate:** `V30-TRANSPORT-AGV3-EOF-INDEPENDENT-FORWARDING-01` is
+  active on `main@2b60bc8a6fcc35a1dba1a55b060f09b24ad9d3d1`. Revision-4
+  two-file deployment is `2/2 PRESENT-VALID`, but its read-only qualification
+  is failed evidence: the launcher copied outer stdin through EOF before
+  closing nested stdin, while the unchanged bootstrap required post-frame EOF.
+  The product successor mechanically acquires the exact capped AGV3 frame
+  before nested start, writes it byte-identically, and closes nested stdin
+  without waiting for outer EOF. Protocol/table/bootstrap and every upstream
+  API remain unchanged. The successor launcher is
+  `auto-g16-v3-rtwin-launcher-v3.ps1`, 9579 bytes / 161 LF / SHA-256
+  `7247beda...`; a new manifest-v2 content instance and ServerProfile revision
+  5 are required. The first live Attempt remains `NOT_SUBMITTED` and
+  permanently nonreexecutable.
 - **Live:** calculation execution remains `NO-GO`. This exact gate authorizes
-  product integration and preparation of a future two-file successor launcher
-  plus manifest deployment packet only. It grants no RTwin persistent write,
+  product integration and preparation of a revision-5 two-file successor
+  launcher plus manifest deployment packet only. Six residual processes from
+  the failed qualification must read-only reconcile to zero before that future
+  deployment; otherwise an exact-process termination Gate is required. This
+  gate grants no RTwin persistent write,
   Attempt workspace, staging, qstat/qsub, PBS, Gaussian, cleanup, retry, or
   other calculation effect. After exact-main closeout the next Owner decision
-  is `AUTHORIZE SUCCESSOR TWO-FILE DEPLOYMENT / HOLD`.
+  is `AUTHORIZE REVISION-5 TWO-FILE DEPLOYMENT / HOLD`, subject to the residual
+  process gate.
 - **Readiness:** `V30-A-SYNTHETIC-COMPOSITION-01` is `CLOSED / INTEGRATED`.
   The exact integrated composition proves the complete offline authority chain,
   the required negative paths, `WINNER`/`REPLAY` sequencing, explicit

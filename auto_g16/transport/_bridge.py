@@ -235,7 +235,7 @@ if (
 ):
     raise RuntimeError("source-controlled bootstrap source identity drifted")
 
-_RTWIN_LAUNCHER_NAME: Final = "auto-g16-v3-rtwin-launcher-v2.ps1"
+_RTWIN_LAUNCHER_NAME: Final = "auto-g16-v3-rtwin-launcher-v3.ps1"
 _RTWIN_LAUNCHER_SOURCE: Final = r'''param(
  [Parameter(Mandatory=$true)][string]$ManifestPath,
  [Parameter(Mandatory=$true)][long]$ManifestSize,
@@ -267,6 +267,14 @@ function Read-AutoG16([string]$Path,[long]$Size,[string]$Digest) {
  try{$Actual=([BitConverter]::ToString($Hasher.ComputeHash($Bytes))).Replace('-','').ToLowerInvariant()}finally{$Hasher.Dispose()}
  if($Actual-ne$Digest){Fail-AutoG16}
  return ,$Bytes
+}
+function Read-ExactAutoG16([IO.Stream]$Stream,[byte[]]$Buffer,[int]$Offset,[int]$Count) {
+ $Position=0
+ while($Position-lt$Count){
+  try{$Read=$Stream.Read($Buffer,$Offset+$Position,$Count-$Position)}catch{Fail-AutoG16}
+  if($Read-le 0){Fail-AutoG16}
+  $Position+=$Read
+ }
 }
 function Quote-Posix([string]$Value) {
  if($Value.IndexOf([char]0)-ge 0 -or $Value.IndexOf("`r")-ge 0 -or $Value.IndexOf("`n")-ge 0){Fail-AutoG16}
@@ -323,6 +331,19 @@ $InnerBytes=$Utf8.GetBytes($ArgumentLine)
 $InnerHasher=[Security.Cryptography.SHA256]::Create()
 try{$InnerDigest=([BitConverter]::ToString($InnerHasher.ComputeHash($InnerBytes))).Replace('-','').ToLowerInvariant()}finally{$InnerHasher.Dispose()}
 if($ArgumentLine.Length-ne$ExpectedInnerLength -or $InnerDigest-ne$ExpectedInnerSha256){Fail-AutoG16}
+$OuterInput=[Console]::OpenStandardInput()
+$FrameHeader=New-Object byte[] 12
+Read-ExactAutoG16 $OuterInput $FrameHeader 0 12
+if($FrameHeader[0]-ne 65 -or $FrameHeader[1]-ne 71 -or $FrameHeader[2]-ne 86 -or $FrameHeader[3]-ne 51){Fail-AutoG16}
+[long]$PayloadLength=0
+for($FrameIndex=4;$FrameIndex-lt 12;$FrameIndex++){
+ if($PayloadLength-gt 700416){Fail-AutoG16}
+ $PayloadLength=($PayloadLength*256)+[long]$FrameHeader[$FrameIndex]
+}
+if($PayloadLength-gt 179306484){Fail-AutoG16}
+$RequestFrame=New-Object byte[] ([int](12+$PayloadLength))
+[Array]::Copy($FrameHeader,0,$RequestFrame,0,12)
+if($PayloadLength-gt 0){Read-ExactAutoG16 $OuterInput $RequestFrame 12 ([int]$PayloadLength)}
 $Process=New-Object System.Diagnostics.Process
 $Process.StartInfo.UseShellExecute=$false
 $Process.StartInfo.FileName=$RtwinSsh.path
@@ -331,13 +352,13 @@ $Process.StartInfo.RedirectStandardInput=$true
 $Process.StartInfo.RedirectStandardOutput=$true
 $Process.StartInfo.RedirectStandardError=$true
 if(-not $Process.Start()){Fail-AutoG16}
-$InputTask=[Console]::OpenStandardInput().CopyToAsync($Process.StandardInput.BaseStream)
 $Output=New-Object IO.MemoryStream
 $ErrorOutput=New-Object IO.MemoryStream
 $OutputBuffer=New-Object byte[] 65536
 $ErrorBuffer=New-Object byte[] 65536
 $OutputTask=$Process.StandardOutput.BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)
 $ErrorTask=$Process.StandardError.BaseStream.ReadAsync($ErrorBuffer,0,$ErrorBuffer.Length)
+$InputTask=$Process.StandardInput.BaseStream.WriteAsync($RequestFrame,0,$RequestFrame.Length)
 $InputOpen=$true;$OutputOpen=$true;$ErrorOpen=$true
 while($InputOpen -or $OutputOpen -or $ErrorOpen){
  $Pending=New-Object 'Collections.Generic.List[Threading.Tasks.Task]'
@@ -346,8 +367,8 @@ while($InputOpen -or $OutputOpen -or $ErrorOpen){
  if($ErrorOpen){$Pending.Add($ErrorTask)}
  $Completed=$Pending[[Threading.Tasks.Task]::WaitAny($Pending.ToArray())]
  if($InputOpen -and [Object]::ReferenceEquals($Completed,$InputTask)){
-  try{$InputTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
-  $Process.StandardInput.Close();$InputOpen=$false
+  try{$InputTask.GetAwaiter().GetResult();$Process.StandardInput.BaseStream.Flush();$Process.StandardInput.Close()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
+  $InputOpen=$false
  }
  if($OutputOpen -and [Object]::ReferenceEquals($Completed,$OutputTask)){
   try{$Count=$OutputTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
@@ -378,9 +399,9 @@ $ErrorOutput.Position=0;$ErrorOutput.CopyTo([Console]::OpenStandardError())
 exit $Process.ExitCode
 '''
 _RTWIN_LAUNCHER_BYTES: Final = _RTWIN_LAUNCHER_SOURCE.encode("utf-8")
-_RTWIN_LAUNCHER_SHA256: Final = "1e6a82100cdcdffc258a0c29ab4d76d3d385b72565f5030806b19e3ea22f2d48"
-_RTWIN_LAUNCHER_SIZE: Final = 8576
-_RTWIN_LAUNCHER_LF_COUNT: Final = 140
+_RTWIN_LAUNCHER_SHA256: Final = "7247beda73482146c26b997702c9f74e6e9fb930e0bc55605fde42caa218658f"
+_RTWIN_LAUNCHER_SIZE: Final = 9579
+_RTWIN_LAUNCHER_LF_COUNT: Final = 161
 if (
     len(_RTWIN_LAUNCHER_BYTES) != _RTWIN_LAUNCHER_SIZE
     or sha256(_RTWIN_LAUNCHER_BYTES).hexdigest() != _RTWIN_LAUNCHER_SHA256

@@ -884,3 +884,62 @@ no RTwin persistent write, workspace operation, staging, qsub, Gaussian,
 cleanup, retry, new Attempt, or other calculation effect. Successor deployment
 and the actual RTwin-to-server shell/Python qualification require a separate
 Owner gate.
+
+## OD-26: The RTwin launcher acquires one complete AGV3 frame before nested SSH
+
+The revision-4 launcher/manifest deployment remains immutable successful
+deployment evidence, but its read-only qualification is failed evidence. The
+launcher started nested SSH, copied outer stdin until EOF, and only then closed
+nested stdin, while the bootstrap required EOF after its one exact frame. With
+the controller's outer stdin still open, neither side could make progress.
+
+The successor launcher is a mechanical frame forwarder, not an AGV3 authority.
+It reads exactly the 12-byte header, requires ASCII magic `AGV3`, decodes the
+unsigned 64-bit big-endian payload length, rejects lengths greater than
+179306484, and reads exactly the declared payload before starting nested SSH.
+It does not parse JSON, select an operation, inspect a binding, read a suffix,
+or wait for outer EOF. After full acquisition it starts the one exact nested
+SSH process, begins bounded stdout/stderr drains and one finite asynchronous
+write of the byte-identical complete frame, then flushes and immediately closes
+nested stdin when that finite write completes. Input and output therefore make
+concurrent bounded progress without a duplex pipe backpressure dependency. The
+ordering is:
+
+```text
+FULL_FRAME_ACQUIRED
+< NESTED_SSH_STARTED
+< NESTED_FRAME_WRITE_COMPLETE
+< NESTED_STDIN_CLOSED
+```
+
+Nested-stdin closure does not read, observe, or wait for outer EOF. In the
+required held-open proof vector it therefore precedes the producer's later
+deliberate EOF; a controller that closes immediately after its one frame is
+also conforming and does not impose a universal ordering on the EOF event.
+
+An incomplete header or payload cannot start nested SSH. If its producer holds
+stdin open before completing the declared frame, bounded controller timeout may
+terminate the outer process; this is a liveness boundary, never effect or retry
+authority. Wrong magic or an oversized length also rejects with zero nested
+connection. A full-length payload mutation is forwarded unchanged and remains
+the bootstrap's responsibility to reject under the existing closed protocol.
+The controller continues to emit exactly one frame with no prefix or suffix,
+and the bootstrap retains its existing one-byte post-frame EOF check.
+
+Protocol/table `/2`, bootstrap bytes, ten-root manifest schema, operations,
+bindings, response framing, and every public API remain unchanged. The new
+source-controlled launcher is `auto-g16-v3-rtwin-launcher-v3.ps1`, 9579 bytes,
+161 LF, zero CR/NUL, SHA-256
+`7247beda73482146c26b997702c9f74e6e9fb930e0bc55605fde42caa218658f`.
+A new manifest-v2 content instance binds this launcher, and future live
+authority requires ServerProfile revision 5 with a new resolved profile ID and
+effective digest. Revision 4 is never rewritten or refreshed.
+
+Six residual processes observed after the failed qualification are diagnostic
+evidence, not cleanup authority. Before any successor deployment or
+qualification, a read-only exact-process reconciliation must prove count zero.
+Any nonzero count stops for a separate exact-process termination gate; broad
+kill is forbidden. This repair authorizes product/docs/tests integration and
+revision-5 two-file deployment packet preparation only. It authorizes no
+deployment, nested real qualification, workspace/staging, qsub, Gaussian,
+cleanup, retry, or recovery Attempt.

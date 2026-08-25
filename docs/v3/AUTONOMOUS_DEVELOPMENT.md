@@ -518,3 +518,42 @@ Controller, open OpenSSH, or perform live work.
 - **Non-goals:** No deployment, RTwin persistent write, workspace/staging,
   qsub/Gaussian, retry, qdel, cleanup, new Attempt, generic multiline shell, or
   caller-controlled execution surface.
+
+### `V30-TRANSPORT-AGV3-EOF-INDEPENDENT-FORWARDING-01`
+
+- **Outcome:** Replace the revision-4 launcher's EOF-dependent stdin copy with
+  exact AGV3 header/length/payload acquisition before nested SSH, then exact
+  write/flush/immediate nested-stdin close independent of outer EOF.
+- **Authority:** Owner-guided maintenance through contract freeze, narrow
+  product repair, focused/affected/composition validation, fresh independent
+  adversarial review, normal integration, exact-main attestation, and revision-5
+  deployment-packet preparation. Deployment and live qualification are excluded.
+- **Scope:** `auto_g16/transport/_bridge.py`, directly required
+  `tests/v3/transport/**`, and the minimum five v3 authority/status documents.
+  No upstream public API/schema or selector change.
+- **Identity:** Successor launcher is
+  `auto-g16-v3-rtwin-launcher-v3.ps1`, 9579 bytes, 161 LF, SHA-256
+  `7247beda...`; one successor manifest-v2 content instance and ServerProfile
+  revision 5 bind the new launcher. Bootstrap/table/protocol `/2` and the exact
+  ten-root inventory remain unchanged.
+- **Safety:** No nested process exists until the complete capped frame is
+  acquired. Bad magic, oversized length, or partial header/payload is zero
+  nested connection. Bounded stdout/stderr drains and the one finite input
+  write run concurrently after nested start; input completion closes nested
+  stdin without duplex backpressure or outer-EOF dependence. The launcher never
+  interprets AGV3 authority or reads beyond the declared frame. The bootstrap
+  retains final EOF enforcement; Controller output remains exactly one frame.
+- **Validation:** Prove open-outer-stdin completion and ordering; closed header
+  negatives; full-length mutation forwarding/bootstrap rejection; unchanged
+  quoting, attestation, Python 3.6, binary channel, REPLAY/UNKNOWN, qsub-once,
+  Torque, and synthetic composition evidence; independent `0/0/0/0` review.
+- **Residual process gate:** Before a future deployment/qualification, exact
+  read-only reconciliation must prove prior residual count zero. Nonzero count
+  requires a separate exact-process termination gate. No broad kill or cleanup.
+- **Stop rules:** Stop for protocol/bootstrap semantics change, inability to
+  acquire under the frozen cap, upstream public API/schema change, nested start
+  before full frame, deployment/live requirement, or two failed same-class
+  repairs.
+- **Non-goals:** No deployment, nested real qualification, workspace/staging,
+  qsub/Gaussian, retry, qdel, deletion/cleanup, recovery Attempt, OpenSSH, or
+  generic transport redesign.
