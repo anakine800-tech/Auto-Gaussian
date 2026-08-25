@@ -815,6 +815,10 @@ rejects a directory or reparse point, reads and verifies its exact bytes,
 strictly decodes those same bytes, creates exactly one ScriptBlock from them,
 and invokes that in-memory ScriptBlock. It never uses `-File`, a temporary
 copy, stdin source, or a caller RUN/EXEC/SHELL/COMMAND surface.
+The loader is one source-controlled ASCII placeholder template with a frozen
+size/digest and exact one-pass replacement inventory; paths use the frozen
+PowerShell single-quote renderer, integers use unsigned canonical decimal, and
+digests use lowercase hexadecimal. No alternative serialization is conforming.
 
 The exact bootstrap and manifest v2 bytes are current-profile runtime data,
 not deployment roots. Existing `ServerProfile.runtime_contents` owns their

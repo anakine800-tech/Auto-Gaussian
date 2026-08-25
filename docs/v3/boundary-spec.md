@@ -4456,8 +4456,11 @@ mac_ssh mac_scp rtwin_ssh rtwin_scp rtwin_remote_shell rtwin_launcher
 server_remote_shell server_python server_qsub server_qstat
 ```
 
-The first nine retain their frozen roles. `rtwin_launcher` is a Windows
-absolute-path `rtwin-shell-file-v1` root with exact positive byte size,
+The other eight historical roots retain their frozen roles. Manifest v2
+intentionally reclassifies `rtwin_remote_shell`: it no longer claims to be the
+Windows OpenSSH command boundary and instead binds the exact explicit
+PowerShell child below CMD. `rtwin_launcher` is a Windows absolute-path
+`rtwin-shell-file-v1` root with exact positive byte size,
 lowercase SHA-256, null shell grammar, regular-file requirement, and
 non-reparse requirement. Its fixed source identity is
 `auto-g16-v3-rtwin-launcher-v1.ps1`, 6308 bytes, 97 LF, zero CR/NUL, SHA-256
@@ -4472,6 +4475,21 @@ root. The complete remote command is exact PowerShell path, `-NoProfile`,
 bytes. Injected values are exact current-authority paths, decimal sizes,
 lowercase digests, and closed alias/port/user values only; CMD expansion and
 metacharacter forms reject.
+
+Manifest v2 is canonical JSON with exactly the four top-level keys
+`bootstrap_protocol`, `deployment_id`, `schema`, and `trust_roots`. Every root
+has exactly `attestation_mode`, `deployment_identity`, `expected_sha256`,
+`expected_size_bytes`, `path`, `platform`, and `shell_grammar`; the existing
+required/null rules apply, and no extension key is legal. The short loader is
+the exact 1021-byte ASCII placeholder template with SHA-256
+`e9417a66f6597791c519c403dd709a9bd791d516e3c421a1eb79cb6dc9fd0a47`.
+Every named placeholder occurs once and is replaced once in sorted placeholder
+name order. Paths/aliases/users use the frozen PowerShell single-quote grammar,
+positive sizes/ports/lengths use unsigned canonical decimal, and digests use
+lowercase 64-hex. The exact prefix/order is PowerShell path, `-NoProfile`,
+`-NonInteractive`, `-Command`, then one double-quoted rendered template. No
+alternate quoting, field order, omitted field, extra field, or caller fragment
+is conforming.
 
 The loader reads the literal launcher path, rejects container/reparse or
 size/digest drift, strict-decodes the verified bytes as UTF-8, creates one
@@ -4493,7 +4511,9 @@ the frozen nested SSH tokens, start manifest `rtwin_ssh` with
 `System.Diagnostics.Process` and `UseShellExecute = false`, forward binary
 stdin and bounded output streams, reattest, and return the nested result. The
 complete CRT-rendered inner argument line is strictly shorter than 30000
-characters and is never routed through `cmd.exe`.
+characters and is never routed through `cmd.exe`. Its exact character length
+and UTF-8 SHA-256 are independently rendered by the controller and verified by
+the launcher before Process creation.
 
 The successor fixed bootstrap is logical name
 `auto-g16-v3-rtwin-bootstrap-v2-py36.py`, 15562 bytes, 203 LF, zero CR/NUL,

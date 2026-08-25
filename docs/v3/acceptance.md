@@ -1556,6 +1556,8 @@ expansion.
    exact explicit system PowerShell, contains one fixed loader, is strictly
    shorter than 4096 characters, and contains neither complete bootstrap nor
    manifest bytes. Raw PowerShell as the remote command rejects.
+   The exact 1021-byte loader-template SHA and one-pass placeholder inventory,
+   canonical value renderers, and exact command prefix/order are replayed.
 3. The loader proves regular/non-reparse launcher identity before strict decode
    and before one ScriptBlock creation/invocation. Missing, replaced, reparse,
    size-drifted, digest-drifted, or invalid-UTF-8 launcher bytes yield zero
@@ -1568,6 +1570,8 @@ expansion.
    forwarding and prohibit Reader/Writer/text conversion. The launcher uses a
    direct non-shell Process for `rtwin_ssh`, the frozen options and aliases,
    and an inner argument line shorter than 30000 characters.
+   Controller and launcher independently agree on its exact character length
+   and UTF-8 SHA-256 before Process creation.
 6. The new bootstrap exact 15562-byte/203-LF/SHA identity passes Python 3.6
    grammar tests. Actual read-only qualification proves exact server Python
    3.6.8 identity, compile, startup, framing prerequisites, and no workspace
